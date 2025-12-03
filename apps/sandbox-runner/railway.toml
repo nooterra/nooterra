@@ -1,9 +1,9 @@
 [build]
-builder = "NIXPACKS"
-buildCommand = "pnpm install --frozen-lockfile && pnpm build --filter=@nooterra/registry"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "node apps/registry/dist/server.js"
+startCommand = "node dist/server.js"
 healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "ON_FAILURE"

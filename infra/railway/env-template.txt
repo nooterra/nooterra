@@ -1,0 +1,85 @@
+# ============================================================================
+# Nooterra Railway Environment Variables Template
+# ============================================================================
+#
+# Copy this file and fill in values for your Railway services.
+# Set these in Railway Dashboard > Service > Variables, or use:
+#   railway variables set KEY=value --service <service-name>
+#
+# ============================================================================
+
+# ============================================================================
+# SHARED (All Services)
+# ============================================================================
+NODE_ENV=production
+
+# ============================================================================
+# COORDINATOR SERVICE
+# ============================================================================
+# Required
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+JWT_SECRET=<generate with: openssl rand -base64 32>
+CORS_WHITELIST=https://console.nooterra.io,https://nooterra.vercel.app
+
+# Optional - Redis (for dispatcher queue)
+REDIS_URL=redis://default:AFwwxZHKMAAQAsvOizvViogMosEGGUHE@shinkansen.proxy.rlwy.net:44191
+
+# Optional - Defaults shown
+PORT=3000
+DB_POOL_SIZE=20
+RATE_LIMIT_PER_MINUTE=100
+
+# ============================================================================
+# DISPATCHER SERVICE (Worker)
+# ============================================================================
+# Same as coordinator, plus:
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=redis://default:AFwwxZHKMAAQAsvOizvViogMosEGGUHE@shinkansen.proxy.rlwy.net:44191
+
+# Dispatcher-specific
+DISPATCH_INTERVAL_MS=1000
+MAX_CONCURRENT_DISPATCHES=10
+AGENT_TIMEOUT_MS=30000
+MAX_DISPATCH_RETRIES=3
+WORKER_ID=dispatcher-1
+
+# ============================================================================
+# REGISTRY SERVICE
+# ============================================================================
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+QDRANT_URL=${{qdrant.QDRANT_URL}}
+
+# Optional
+PORT=3000
+COORDINATOR_URL=https://coord.nooterra.ai
+
+# ============================================================================
+# SANDBOX RUNNER SERVICE
+# ============================================================================
+# Minimal config - runs in isolated Docker containers
+PORT=3000
+MAX_EXECUTION_TIME_MS=30000
+MAX_MEMORY_MB=512
+
+# ============================================================================
+# AGENT SERVICES (Example for agent-echo)
+# ============================================================================
+REGISTRY_URL=https://api.nooterra.ai
+COORDINATOR_URL=https://coord.nooterra.ai
+AGENT_DID=did:noo:agent-echo
+AGENT_SECRET=<generate unique secret>
+
+# ============================================================================
+# DATABASE CONNECTIONS (Railway auto-sets these)
+# ============================================================================
+# Postgres: ${{Postgres.DATABASE_URL}}
+# Qdrant:   ${{qdrant.QDRANT_URL}}
+# Redis:    ${{Redis.REDIS_URL}} (or use external URL above)
+
+# ============================================================================
+# NOTES
+# ============================================================================
+# 1. Use ${{ServiceName.VARIABLE}} syntax to reference other Railway services
+# 2. Railway auto-injects PORT for web services
+# 3. Secrets should be set via Railway Dashboard, not committed to git
+# 4. The REDIS_URL above is the actual Railway Redis - keep it secret!

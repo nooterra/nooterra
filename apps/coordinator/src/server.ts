@@ -3401,13 +3401,58 @@ app.post("/v1/admin/register-agent", { preHandler: [rateLimitGuard] }, async (re
   }
 });
 
+// Health check endpoint for Railway/k8s probes
 app.get("/health", async (_req, reply) => {
+  const health: Record<string, any> = {
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    service: "coordinator",
+    version: process.env.npm_package_version || "0.1.0",
+  };
+
+  // Check database
   try {
-    await pool.query("select 1");
-    return reply.send({ ok: true });
+    const dbStart = Date.now();
+    await pool.query("SELECT 1");
+    health.database = {
+      status: "connected",
+      latencyMs: Date.now() - dbStart,
+    };
   } catch (err: any) {
-    return reply.status(503).send({ ok: false, error: err.message || "Unhealthy" });
+    health.status = "unhealthy";
+    health.database = { status: "disconnected", error: err.message };
   }
+
+  // Check Redis (optional)
+  const redis = getRedisClient();
+  if (redis) {
+    try {
+      const redisStart = Date.now();
+      await redis.ping();
+      health.redis = {
+        status: "connected",
+        latencyMs: Date.now() - redisStart,
+      };
+    } catch (err: any) {
+      health.redis = { status: "disconnected", error: err.message };
+      // Redis is optional, don't mark as unhealthy
+    }
+  } else {
+    health.redis = { status: "not_configured" };
+  }
+
+  // Memory usage
+  const mem = process.memoryUsage();
+  health.memory = {
+    heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+    heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
+    rssMB: Math.round(mem.rss / 1024 / 1024),
+  };
+
+  health.uptime = Math.round(process.uptime());
+
+  const statusCode = health.status === "healthy" ? 200 : 503;
+  return reply.status(statusCode).send(health);
 });
 
 app.setErrorHandler((err, _req, reply) => {

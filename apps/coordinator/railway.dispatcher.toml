@@ -1,0 +1,11 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "pnpm install --frozen-lockfile && pnpm build --filter=@nooterra/coordinator"
+
+[deploy]
+startCommand = "node apps/coordinator/dist/dispatcher.js"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+[deploy.runtime]
+numReplicas = 1

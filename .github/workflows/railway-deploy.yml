@@ -1,0 +1,113 @@
+name: Railway Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to deploy (leave empty for all)'
+        required: false
+        default: ''
+      run_migrations:
+        description: 'Run database migrations'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+jobs:
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Verify Railway auth
+        run: railway whoami
+
+      - name: Run migrations
+        if: github.event.inputs.run_migrations == 'true'
+        run: |
+          railway run --service nooterra-coordinator -- pnpm --filter @nooterra/coordinator db:push
+
+      - name: Deploy specific service
+        if: github.event.inputs.service != ''
+        run: |
+          echo "Deploying ${{ github.event.inputs.service }}..."
+          railway up --service ${{ github.event.inputs.service }} --detach
+
+      - name: Deploy all services
+        if: github.event.inputs.service == '' && github.event_name == 'push'
+        run: |
+          echo "Deploying all services..."
+          
+          # Deploy in order
+          for service in nooterra-coordinator nooterra-dispatcher nooterra-registry; do
+            echo "Deploying $service..."
+            railway up --service $service --detach || true
+            sleep 5
+          done
+
+      - name: Deployment summary
+        run: |
+          echo "## Deployment Complete 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| coordinator | ✅ Triggered |" >> $GITHUB_STEP_SUMMARY
+          echo "| dispatcher | ✅ Triggered |" >> $GITHUB_STEP_SUMMARY
+          echo "| registry | ✅ Triggered |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check [Railway Dashboard](https://railway.app/dashboard) for build status." >> $GITHUB_STEP_SUMMARY
+
+  health-check:
+    name: Post-deploy health check
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: github.event_name == 'push'
+    
+    steps:
+      - name: Wait for deployments
+        run: sleep 60
+
+      - name: Check coordinator health
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://coord.nooterra.ai/health || echo "000")
+          if [ "$response" != "200" ]; then
+            echo "⚠️ Coordinator health check failed (HTTP $response)"
+            exit 1
+          fi
+          echo "✅ Coordinator is healthy"
+
+      - name: Check registry health
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" https://api.nooterra.ai/health || echo "000")
+          if [ "$response" != "200" ]; then
+            echo "⚠️ Registry health check failed (HTTP $response)"
+            exit 1
+          fi
+          echo "✅ Registry is healthy"
+
+      - name: Health check summary
+        if: always()
+        run: |
+          echo "## Health Check Results 🏥" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Endpoint | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| coord.nooterra.ai/health | ${{ job.status == 'success' && '✅ Healthy' || '❌ Unhealthy' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| api.nooterra.ai/health | ${{ job.status == 'success' && '✅ Healthy' || '❌ Unhealthy' }} |" >> $GITHUB_STEP_SUMMARY

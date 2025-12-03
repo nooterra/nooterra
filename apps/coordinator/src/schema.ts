@@ -367,6 +367,29 @@ export const agentCalls = pgTable("agent_calls", {
 }));
 
 // ============================================================================
+// Dispatch Queue (Postgres fallback when Redis unavailable)
+// ============================================================================
+
+export const dispatchQueue = pgTable("dispatch_queue", {
+  id: serial("id").primaryKey(),
+  workflowId: text("workflow_id").notNull(),
+  nodeName: text("node_name").notNull(),
+  agentDid: text("agent_did").notNull(),
+  payload: text("payload").notNull(),
+  attempt: integer("attempt").default(0).notNull(),
+  status: varchar("status", { length: 20 }).default("pending").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  claimedBy: text("claimed_by"),
+}, (table) => ({
+  statusIdx: index("dispatch_queue_status_idx").on(table.status),
+  createdAtIdx: index("dispatch_queue_created_at_idx").on(table.createdAt),
+}));
+
+export type DispatchQueueItem = typeof dispatchQueue.$inferSelect;
+export type NewDispatchQueueItem = typeof dispatchQueue.$inferInsert;
+
+// ============================================================================
 // Type Exports
 // ============================================================================
 

@@ -478,14 +478,53 @@ app.post("/admin/reindex", { preHandler: apiGuard }, async (_req, reply) => {
   }
 });
 
+// Health check endpoint for Railway/k8s probes
 app.get("/health", async (_req, reply) => {
+  const health: Record<string, any> = {
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    service: "registry",
+    version: process.env.npm_package_version || "0.1.0",
+  };
+
+  // Check database
   try {
-    await pool.query("select 1");
-    await qdrant.getCollections();
-    return reply.send({ ok: true });
+    const dbStart = Date.now();
+    await pool.query("SELECT 1");
+    health.database = {
+      status: "connected",
+      latencyMs: Date.now() - dbStart,
+    };
   } catch (err: any) {
-    return reply.status(503).send({ ok: false, error: err.message || "Unhealthy" });
+    health.status = "unhealthy";
+    health.database = { status: "disconnected", error: err.message };
   }
+
+  // Check Qdrant
+  try {
+    const qdrantStart = Date.now();
+    await qdrant.getCollections();
+    health.qdrant = {
+      status: "connected",
+      latencyMs: Date.now() - qdrantStart,
+    };
+  } catch (err: any) {
+    health.status = "unhealthy";
+    health.qdrant = { status: "disconnected", error: err.message };
+  }
+
+  // Memory usage
+  const mem = process.memoryUsage();
+  health.memory = {
+    heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024),
+    heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
+    rssMB: Math.round(mem.rss / 1024 / 1024),
+  };
+
+  health.uptime = Math.round(process.uptime());
+
+  const statusCode = health.status === "healthy" ? 200 : 503;
+  return reply.status(statusCode).send(health);
 });
 
 const port = Number(process.env.PORT || 3001);
