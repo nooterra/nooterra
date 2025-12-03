@@ -62,6 +62,11 @@ export function getRedisClient(): Redis | null {
 }
 
 /**
+ * Export the redis client for direct access (use with caution)
+ */
+export { client as redis };
+
+/**
  * Check if Redis is available
  */
 export function isRedisAvailable(): boolean {

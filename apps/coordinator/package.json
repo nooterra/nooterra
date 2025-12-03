@@ -5,9 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/server.ts",
+    "dev:dispatcher": "tsx src/dispatcher.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "type-check": "tsc --noEmit"
+    "start:dispatcher": "node dist/dispatcher.js",
+    "type-check": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
@@ -15,6 +21,7 @@
     "ajv": "^8.17.1",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.44.7",
     "ethers": "^6.13.4",
     "fastify": "^4.28.1",
     "ioredis": "^5.8.2",
@@ -30,6 +37,7 @@
   "devDependencies": {
     "@types/node": "^20.11.19",
     "@types/pg": "^8.11.7",
+    "drizzle-kit": "^0.31.7",
     "tsx": "^4.19.2",
     "typescript": "^5.4.0"
   }
