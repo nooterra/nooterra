@@ -15,6 +15,13 @@
       "when": 1764796141198,
       "tag": "0001_parched_selene",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1764798984082,
+      "tag": "0002_chief_mad_thinker",
+      "breakpoints": true
     }
   ]
 }

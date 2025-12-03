@@ -390,6 +390,153 @@ export type DispatchQueueItem = typeof dispatchQueue.$inferSelect;
 export type NewDispatchQueueItem = typeof dispatchQueue.$inferInsert;
 
 // ============================================================================
+// Node Bids (Auction System)
+// ============================================================================
+
+export const nodeBids = pgTable("node_bids", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workflowRunId: uuid("workflow_run_id").references(() => workflowRuns.id, { onDelete: "cascade" }).notNull(),
+  nodeName: text("node_name").notNull(),
+  agentDid: text("agent_did").notNull(),
+  bidAmount: numeric("bid_amount", { precision: 18, scale: 8 }).notNull(),
+  etaMs: integer("eta_ms"),                                    // Estimated time to complete
+  stakeOffered: numeric("stake_offered", { precision: 18, scale: 8 }).default("0").notNull(),
+  capabilities: text("capabilities").array().default([]).notNull(),
+  status: varchar("status", { length: 20 }).default("pending").notNull(), // pending, accepted, rejected, expired, withdrawn
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  workflowNodeIdx: index("node_bids_workflow_node_idx").on(table.workflowRunId, table.nodeName),
+  agentIdx: index("node_bids_agent_idx").on(table.agentDid),
+  statusIdx: index("node_bids_status_idx").on(table.status),
+}));
+
+// ============================================================================
+// Ledger Escrow (Staking & Locked Funds)
+// ============================================================================
+
+export const ledgerEscrow = pgTable("ledger_escrow", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  accountDid: text("account_did").notNull(),
+  workflowRunId: uuid("workflow_run_id").references(() => workflowRuns.id, { onDelete: "set null" }),
+  nodeName: text("node_name"),
+  amount: numeric("amount", { precision: 18, scale: 8 }).notNull(),
+  escrowType: varchar("escrow_type", { length: 20 }).notNull(), // stake, payment, bid_deposit
+  status: varchar("status", { length: 20 }).default("held").notNull(), // held, released, slashed, refunded
+  reason: text("reason"),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  accountIdx: index("ledger_escrow_account_idx").on(table.accountDid),
+  workflowIdx: index("ledger_escrow_workflow_idx").on(table.workflowRunId),
+  statusIdx: index("ledger_escrow_status_idx").on(table.status),
+}));
+
+// ============================================================================
+// Workflow Memory (Shared Context)
+// ============================================================================
+
+export const workflowMemory = pgTable("workflow_memory", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workflowRunId: uuid("workflow_run_id").references(() => workflowRuns.id, { onDelete: "cascade" }).notNull(),
+  key: text("key").notNull(),
+  value: jsonb("value"),
+  createdBy: text("created_by"),                               // Agent DID that wrote this
+  namespace: varchar("namespace", { length: 50 }).default("shared").notNull(), // shared, agent:<did>, system
+  ttlSeconds: integer("ttl_seconds"),                          // Optional TTL
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  workflowKeyIdx: uniqueIndex("workflow_memory_workflow_key_idx").on(table.workflowRunId, table.namespace, table.key),
+  workflowIdx: index("workflow_memory_workflow_idx").on(table.workflowRunId),
+}));
+
+// ============================================================================
+// Workflow Templates (Pre-built DAGs)
+// ============================================================================
+
+export const workflowTemplates = pgTable("workflow_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: varchar("slug", { length: 100 }).notNull().unique(),
+  description: text("description"),
+  category: varchar("category", { length: 50 }),               // research, code-review, content, data, etc.
+  dag: jsonb("dag").notNull(),
+  inputSchema: jsonb("input_schema"),
+  outputSchema: jsonb("output_schema"),
+  defaultSettings: jsonb("default_settings").default({}).notNull(),
+  isPublic: boolean("is_public").default(true).notNull(),
+  isFeatured: boolean("is_featured").default(false).notNull(),
+  usageCount: integer("usage_count").default(0).notNull(),
+  createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  slugIdx: uniqueIndex("workflow_templates_slug_idx").on(table.slug),
+  categoryIdx: index("workflow_templates_category_idx").on(table.category),
+  featuredIdx: index("workflow_templates_featured_idx").on(table.isFeatured, table.isPublic),
+}));
+
+// ============================================================================
+// Agent Stakes (Persistent Agent Staking)
+// ============================================================================
+
+export const agentStakes = pgTable("agent_stakes", {
+  agentDid: text("agent_did").primaryKey(),
+  stakedAmount: numeric("staked_amount", { precision: 18, scale: 8 }).default("0").notNull(),
+  lockedAmount: numeric("locked_amount", { precision: 18, scale: 8 }).default("0").notNull(), // Currently in use
+  totalSlashed: numeric("total_slashed", { precision: 18, scale: 8 }).default("0").notNull(),
+  lastStakeAt: timestamp("last_stake_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// ============================================================================
+// Agent Reputation v2 (Multi-dimensional)
+// ============================================================================
+
+export const agentReputation = pgTable("agent_reputation", {
+  agentDid: text("agent_did").primaryKey(),
+  overallScore: numeric("overall_score", { precision: 5, scale: 4 }).default("0.5").notNull(), // 0-1
+  successRate: numeric("success_rate", { precision: 5, scale: 4 }).default("0").notNull(),
+  avgLatencyMs: integer("avg_latency_ms"),
+  verificationScore: numeric("verification_score", { precision: 5, scale: 4 }).default("0.5").notNull(),
+  pageRank: numeric("page_rank", { precision: 10, scale: 8 }).default("0.001").notNull(),
+  coalitionScore: numeric("coalition_score", { precision: 5, scale: 4 }).default("0.5").notNull(),
+  totalTasks: integer("total_tasks").default(0).notNull(),
+  successfulTasks: integer("successful_tasks").default(0).notNull(),
+  failedTasks: integer("failed_tasks").default(0).notNull(),
+  timedOutTasks: integer("timed_out_tasks").default(0).notNull(),
+  capabilityScores: jsonb("capability_scores").default({}).notNull(), // { "text-gen": { attempts: 10, successes: 9, avgQuality: 0.85 } }
+  endorsements: text("endorsements").array().default([]).notNull(),   // DIDs of endorsers
+  lastUpdated: timestamp("last_updated", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  overallScoreIdx: index("agent_reputation_score_idx").on(table.overallScore),
+}));
+
+// ============================================================================
+// Endorsements (Agent-to-Agent Trust)
+// ============================================================================
+
+export const endorsements = pgTable("endorsements", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  endorserDid: text("endorser_did").notNull(),
+  endorseeDid: text("endorsee_did").notNull(),
+  weight: numeric("weight", { precision: 5, scale: 4 }).default("1").notNull(), // 0-1 endorsement strength
+  capabilities: text("capabilities").array().default([]).notNull(), // Specific capabilities endorsed
+  reason: text("reason"),
+  isActive: boolean("is_active").default(true).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  endorserIdx: index("endorsements_endorser_idx").on(table.endorserDid),
+  endorseeIdx: index("endorsements_endorsee_idx").on(table.endorseeDid),
+  pairIdx: uniqueIndex("endorsements_pair_idx").on(table.endorserDid, table.endorseeDid),
+}));
+
+// ============================================================================
 // Type Exports
 // ============================================================================
 
@@ -419,3 +566,19 @@ export type LedgerEvent = typeof ledgerEvents.$inferSelect;
 
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type NewAuditLog = typeof auditLogs.$inferInsert;
+
+export type NodeBid = typeof nodeBids.$inferSelect;
+export type NewNodeBid = typeof nodeBids.$inferInsert;
+
+export type LedgerEscrowRecord = typeof ledgerEscrow.$inferSelect;
+export type NewLedgerEscrow = typeof ledgerEscrow.$inferInsert;
+
+export type WorkflowMemoryRecord = typeof workflowMemory.$inferSelect;
+export type NewWorkflowMemory = typeof workflowMemory.$inferInsert;
+
+export type WorkflowTemplate = typeof workflowTemplates.$inferSelect;
+export type NewWorkflowTemplate = typeof workflowTemplates.$inferInsert;
+
+export type AgentStake = typeof agentStakes.$inferSelect;
+export type AgentReputationRecord = typeof agentReputation.$inferSelect;
+export type Endorsement = typeof endorsements.$inferSelect;

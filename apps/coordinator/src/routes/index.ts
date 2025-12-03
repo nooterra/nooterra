@@ -17,6 +17,10 @@ import { registerAdminRoutes } from "./admin.js";
 import { registerTaskRoutes } from "./tasks.js";
 import { registerProjectRoutes } from "./projects.js";
 import { registerApiKeyRoutes } from "./api-keys.js";
+import { registerStakingRoutes } from "./staking.js";
+import { registerAuctionRoutes } from "./auctions.js";
+import { registerReputationRoutes } from "./reputation.js";
+import { registerTemplateRoutes } from "./templates.js";
 
 // Re-export individual route registrations for selective use
 export {
@@ -28,6 +32,10 @@ export {
   registerTaskRoutes,
   registerProjectRoutes,
   registerApiKeyRoutes,
+  registerStakingRoutes,
+  registerAuctionRoutes,
+  registerReputationRoutes,
+  registerTemplateRoutes,
 };
 
 /**
@@ -108,6 +116,44 @@ export interface RouteGuards {
  *    - DELETE /v1/admin/features/:name
  *    - GET /v1/admin/audit
  *    - POST /v1/admin/maintenance/cleanup
+ * 
+ * ✅ Staking routes (staking.ts) - COMPLETE
+ *    - GET /v1/stakes/:agentDid
+ *    - POST /v1/stakes
+ *    - POST /v1/stakes/unstake
+ *    - GET /v1/stakes/leaderboard
+ *    - GET /v1/escrow
+ *    - GET /v1/escrow/:escrowId
+ *    - POST /v1/escrow
+ *    - POST /v1/escrow/:escrowId/release
+ *    - POST /v1/escrow/:escrowId/slash
+ * 
+ * ✅ Auction routes (auctions.ts) - COMPLETE
+ *    - GET /v1/auctions/:workflowRunId/:nodeName/bids
+ *    - POST /v1/auctions/:workflowRunId/:nodeName/bids
+ *    - DELETE /v1/auctions/bids/:bidId
+ *    - POST /v1/auctions/:workflowRunId/:nodeName/close
+ *    - GET /v1/auctions/agent/:agentDid/bids
+ *    - GET /v1/auctions/open
+ * 
+ * ✅ Reputation routes (reputation.ts) - COMPLETE
+ *    - GET /v1/reputation/:agentDid
+ *    - GET /v1/reputation/leaderboard
+ *    - POST /v1/reputation/record
+ *    - GET /v1/endorsements/:agentDid
+ *    - POST /v1/endorsements
+ *    - DELETE /v1/endorsements/:endorsementId
+ *    - POST /v1/reputation/recalculate-pagerank
+ *    - GET /v1/reputation/graph
+ * 
+ * ✅ Template routes (templates.ts) - COMPLETE
+ *    - GET /v1/templates
+ *    - GET /v1/templates/categories
+ *    - GET /v1/templates/:slugOrId
+ *    - POST /v1/templates
+ *    - PATCH /v1/templates/:templateId
+ *    - DELETE /v1/templates/:templateId
+ *    - POST /v1/templates/:templateId/instantiate
  */
 
 /**
@@ -129,9 +175,13 @@ export async function registerAllRoutes(
   await registerLedgerRoutes(app, guards);
   await registerAdminRoutes(app, guards);
   
-  app.log.info("All route modules registered successfully");
+  // Sprint 3A: Agent Economics routes
+  await registerStakingRoutes(app, guards);
+  await registerAuctionRoutes(app, guards);
+  await registerReputationRoutes(app, guards);
+  await registerTemplateRoutes(app, guards);
   
-  app.log.info("Route modules registered");
+  app.log.info("All route modules registered successfully");
 }
 
 // Re-export for use in guards/middleware
