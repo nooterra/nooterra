@@ -1,0 +1,9 @@
+packages:
+  # Core packages
+  - "packages/*"
+  
+  # Services
+  - "services/*"
+  
+  # Apps
+  - "apps/*"
