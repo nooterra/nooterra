@@ -1,0 +1,11 @@
+# Nixpacks configuration for Nooterra monorepo
+# Ensures pnpm is used instead of npm
+
+[phases.setup]
+nixPkgs = ["nodejs_20", "pnpm"]
+
+[phases.install]
+cmds = ["corepack enable", "pnpm install --frozen-lockfile"]
+
+[phases.build]
+cmds = ["pnpm build"]
