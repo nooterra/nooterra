@@ -6,7 +6,6 @@
 # Prerequisites:
 #   - Railway CLI installed: npm install -g @railway/cli
 #   - Logged in: railway login
-#   - Project linked: railway link (run once per project)
 #
 # Usage:
 #   ./deploy-all.sh              # Deploy all services
@@ -28,11 +27,14 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Services to deploy (in order)
-SERVICES=(
-  "nooterra-coordinator"
-  "nooterra-dispatcher"
-  "nooterra-registry"
+# Load Railway configuration (service IDs, project ID, etc.)
+source "$SCRIPT_DIR/config.sh"
+
+# Services to deploy (in order) - keys from SERVICE_IDS
+DEPLOY_ORDER=(
+  "coordinator"
+  "dispatcher"
+  "registry"
 )
 
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -64,41 +66,73 @@ run_migrations() {
   cd "$PROJECT_ROOT"
   
   # Use Railway's environment to get DATABASE_URL
-  railway run --service nooterra-coordinator -- pnpm --filter @nooterra/coordinator db:push
+  railway run \
+    --project="$RAILWAY_PROJECT_ID" \
+    --environment="$RAILWAY_ENVIRONMENT_ID" \
+    --service="${SERVICE_IDS[coordinator]}" \
+    -- pnpm --filter @nooterra/coordinator db:push
   
   log_success "Migrations completed"
 }
 
-# Deploy a single service
+# Deploy a single service by key (coordinator, dispatcher, registry)
 deploy_service() {
-  local service=$1
-  log_info "Deploying $service..."
+  local service_key=$1
+  local service_id="${SERVICE_IDS[$service_key]}"
+  local service_name="${SERVICE_NAMES[$service_key]:-$service_key}"
+  
+  if [ -z "$service_id" ]; then
+    log_error "Unknown service: $service_key"
+    log_info "Available services: ${!SERVICE_IDS[*]}"
+    exit 1
+  fi
+  
+  log_info "Deploying $service_name (ID: $service_id)..."
   
   cd "$PROJECT_ROOT"
   
-  # Railway will auto-detect the service from the linked project
-  railway up --service "$service" --detach
+  # Deploy using service ID for reliability
+  railway up \
+    --project="$RAILWAY_PROJECT_ID" \
+    --environment="$RAILWAY_ENVIRONMENT_ID" \
+    --service="$service_id" \
+    --detach
   
-  log_success "$service deployment triggered"
+  log_success "$service_name deployment triggered"
 }
 
 # Deploy all services
 deploy_all() {
   log_info "Deploying all Nooterra services..."
   
-  for service in "${SERVICES[@]}"; do
-    deploy_service "$service"
+  for service_key in "${DEPLOY_ORDER[@]}"; do
+    deploy_service "$service_key"
     sleep 2  # Small delay between deploys
   done
   
   log_success "All deployments triggered!"
-  log_info "Check status at: https://railway.app/dashboard"
+  log_info "Check status at: https://railway.app/project/$RAILWAY_PROJECT_ID"
 }
 
 # Show service status
 show_status() {
   log_info "Checking service status..."
-  railway status
+  railway status \
+    --project="$RAILWAY_PROJECT_ID" \
+    --environment="$RAILWAY_ENVIRONMENT_ID"
+}
+
+# Health check
+health_check() {
+  log_info "Running health checks..."
+  
+  echo ""
+  log_info "Coordinator (https://coord.nooterra.ai/health):"
+  curl -s https://coord.nooterra.ai/health | jq . || log_warn "Coordinator not responding"
+  
+  echo ""
+  log_info "Registry (https://api.nooterra.ai/health):"
+  curl -s https://api.nooterra.ai/health | jq . || log_warn "Registry not responding"
 }
 
 # Main
@@ -115,6 +149,7 @@ main() {
   # Parse arguments
   MIGRATE=false
   SERVICE=""
+  HEALTH=false
   
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -124,6 +159,22 @@ main() {
         ;;
       --status|-s)
         show_status
+        exit 0
+        ;;
+      --health|-h)
+        health_check
+        exit 0
+        ;;
+      --help)
+        echo "Usage: ./deploy-all.sh [options] [service]"
+        echo ""
+        echo "Services: coordinator, dispatcher, registry"
+        echo ""
+        echo "Options:"
+        echo "  --migrate, -m    Run migrations before deploy"
+        echo "  --status, -s     Show Railway status"
+        echo "  --health, -h     Run health checks"
+        echo "  --help           Show this help"
         exit 0
         ;;
       *)
@@ -147,6 +198,7 @@ main() {
   
   echo ""
   log_success "Deployment complete!"
+  log_info "Project: https://railway.app/project/$RAILWAY_PROJECT_ID"
   echo ""
 }
 

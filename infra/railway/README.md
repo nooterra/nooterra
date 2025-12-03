@@ -2,6 +2,20 @@
 
 This directory contains Infrastructure-as-Code (IaC) for deploying Nooterra to Railway.
 
+## Quick Reference
+
+| Service | ID | Domain |
+|---------|-----|--------|
+| Coordinator | `fd80cb66-9426-446c-be47-ab701ee55774` | coord.nooterra.ai |
+| Dispatcher | `6bb2cae7-690e-47e9-bbe4-a51469181dfd` | (worker) |
+| Registry | `39321649-d731-4899-acaa-357a6363e7df` | api.nooterra.ai |
+| Postgres | `aac4558c-b0e6-454e-b002-ced596e29839` | - |
+| Redis | `f5003310-3dc4-4ceb-8da0-51eb45aa2fcd` | - |
+| Qdrant | `d84fb78c-c4a2-4155-9cdb-c7e125510f77` | - |
+
+**Project ID:** `702535a1-2f78-458b-8a4f-18bbeb8459b5`  
+**Environment ID:** `6198ea01-2f84-4cfd-a976-9ee4121fa1b9`
+
 ## Quick Start
 
 ```bash
@@ -11,13 +25,19 @@ npm install -g @railway/cli
 # 2. Login to Railway
 railway login
 
-# 3. Link to your project (one-time)
-railway link
+# 3. Set environment variables (first time only)
+./set-vars.sh all
 
-# 4. Deploy everything
+# 4. Set JWT_SECRET manually (sensitive)
+railway variables set JWT_SECRET=$(openssl rand -base64 32) \
+  --project=702535a1-2f78-458b-8a4f-18bbeb8459b5 \
+  --environment=6198ea01-2f84-4cfd-a976-9ee4121fa1b9 \
+  --service=fd80cb66-9426-446c-be47-ab701ee55774
+
+# 5. Deploy everything
 ./deploy-all.sh
 
-# 5. Run migrations
+# 6. Run migrations
 ./migrate.sh
 ```
 
@@ -28,6 +48,11 @@ railway link
 | `deploy-all.sh` | Deploy all services to Railway |
 | `deploy-all.sh coordinator` | Deploy single service |
 | `deploy-all.sh --migrate` | Run migrations before deploy |
+| `deploy-all.sh --health` | Check service health endpoints |
+| `set-vars.sh all` | Set all environment variables |
+| `set-vars.sh coordinator` | Set coordinator variables only |
+| `ssh.sh coordinator` | SSH into coordinator service |
+| `ssh.sh postgres` | SSH into postgres service |
 | `migrate.sh` | Push Drizzle schema to database |
 | `migrate.sh generate` | Generate new migration file |
 | `migrate.sh studio` | Open Drizzle Studio |
