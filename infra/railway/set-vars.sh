@@ -33,10 +33,11 @@ set_var() {
   local service=$1
   local key=$2
   local value=$3
-  railway variables set "$key=$value" \
-    --project="$RAILWAY_PROJECT_ID" \
+  railway variables \
     --environment="$RAILWAY_ENVIRONMENT_ID" \
-    --service="${SERVICE_IDS[$service]}"
+    --service="${SERVICE_IDS[$service]}" \
+    --set "$key=$value" \
+    --skip-deploys
 }
 
 # Coordinator variables
