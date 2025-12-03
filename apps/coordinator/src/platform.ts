@@ -1514,41 +1514,6 @@ export function registerPlatformRoutes(app: FastifyInstance<any, any, any, any, 
   });
 
   // ==================
-  // NETWORK STATUS
-  // ==================
-
-  app.get("/v1/status", async (request, reply) => {
-    const start = Date.now();
-    
-    // Check database
-    let dbOk = false;
-    try {
-      await pool.query("SELECT 1");
-      dbOk = true;
-    } catch {}
-
-    // Get network stats
-    const stats = await pool.query(`
-      SELECT 
-        (SELECT COUNT(*) FROM workflows WHERE created_at > NOW() - INTERVAL '24 hours') as workflows_24h,
-        (SELECT COUNT(*) FROM workflows WHERE status = 'running') as active_workflows,
-        (SELECT COUNT(DISTINCT owner_did) FROM ledger_accounts) as active_users,
-        (SELECT COUNT(DISTINCT did) FROM capabilities WHERE last_seen > NOW() - INTERVAL '1 hour') as active_agents
-    `);
-
-    return reply.send({
-      status: dbOk ? "healthy" : "degraded",
-      timestamp: new Date().toISOString(),
-      latency_ms: Date.now() - start,
-      services: {
-        database: dbOk ? "healthy" : "unhealthy",
-        coordinator: "healthy",
-      },
-      stats: stats.rows[0] || {},
-    });
-  });
-
-  // ==================
   // TREASURY INFO
   // ==================
   
