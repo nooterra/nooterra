@@ -1,0 +1,43 @@
+{
+  "name": "@nooterra/cli",
+  "version": "0.1.0",
+  "description": "CLI for building and deploying AI agents on Nooterra",
+  "type": "module",
+  "bin": {
+    "nooterra": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.0.0",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.4",
+    "inquirer": "^9.2.15",
+    "node-fetch": "^3.3.2",
+    "ora": "^8.0.1",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "keywords": [
+    "nooterra",
+    "ai",
+    "agents",
+    "web3",
+    "cli"
+  ],
+  "license": "MIT"
+}
+

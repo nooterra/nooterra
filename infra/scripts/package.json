@@ -1,0 +1,19 @@
+{
+  "name": "nooterra-scripts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@nooterra/agent-sdk": "workspace:*",
+    "dotenv": "^16.4.7",
+    "node-fetch": "^3.3.2"
+  },
+  "scripts": {
+    "e2e": "node e2e-live.mjs",
+    "slack-workflow": "node test-slack-workflow.mjs",
+    "logistics-hermes-tts": "node logistics-hermes-tts-workflow.mjs"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}

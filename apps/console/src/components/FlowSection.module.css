@@ -1,0 +1,73 @@
+.section {
+  padding: 5rem 1.5rem;
+  background: linear-gradient(180deg, #0b1124 0%, #0f172a 100%);
+  color: #e5e7eb;
+}
+.header {
+  max-width: 800px;
+  margin: 0 auto 2rem auto;
+  text-align: center;
+}
+.eyebrow {
+  display: inline-block;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: #38bdf8;
+  margin-bottom: 0.85rem;
+}
+.grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  max-width: 1180px;
+  margin: 0 auto;
+}
+.card {
+  background: rgba(10,16,32,0.7);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 16px;
+  padding: 1.2rem;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+}
+.meta h3 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+.link {
+  color: #7dd3fc;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.link:hover {
+  color: #e5e7eb;
+}
+.meta p {
+  margin: 0.35rem 0 0 0;
+  color: #a5b4fc;
+  line-height: 1.5;
+  font-size: 0.95rem;
+}
+.svg {
+  width: 100%;
+  margin-top: 0.75rem;
+  background: radial-gradient(circle at 20% 20%, rgba(88,28,135,0.08), transparent 40%),
+              radial-gradient(circle at 80% 50%, rgba(56,189,248,0.08), transparent 35%),
+              #0b1021;
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 12px;
+}
+.pulse {
+  stroke-dasharray: 6 10;
+  animation: dash 4s linear infinite;
+}
+.node:hover text {
+  fill: #7dd3fc;
+}
+@keyframes dash {
+  to {
+    stroke-dashoffset: -200;
+  }
+}

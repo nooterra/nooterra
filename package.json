@@ -5,12 +5,16 @@
   "description": "Nooterra - The coordination protocol for AI agents",
   "packageManager": "pnpm@9.14.2",
   "scripts": {
-    "build": "turbo build",
-    "dev": "turbo dev",
-    "lint": "turbo lint",
-    "type-check": "turbo type-check",
-    "test": "turbo test",
-    "clean": "turbo clean && rm -rf node_modules",
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "dev:coordinator": "pnpm --filter @nooterra/coordinator dev",
+    "dev:registry": "pnpm --filter @nooterra/registry dev",
+    "dev:console": "pnpm --filter @nooterra/console dev",
+    "dev:sandbox": "pnpm --filter @nooterra/sandbox-runner dev",
+    "lint": "turbo run lint",
+    "type-check": "turbo run type-check",
+    "test": "turbo run test",
+    "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "prepare": "husky"
   },
@@ -24,8 +28,7 @@
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
-      "prettier --write",
-      "eslint --fix"
+      "prettier --write"
     ],
     "*.{json,md}": "prettier --write"
   },

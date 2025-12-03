@@ -1,0 +1,14 @@
+{
+  "name": "agent-http",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs"
+  },
+  "dependencies": {
+    "@nooterra/agent-sdk": "workspace:*",
+    "dotenv": "^16.4.7",
+    "node-fetch": "^3.3.2"
+  }
+}
+

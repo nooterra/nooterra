@@ -1,0 +1,12 @@
+{
+  "name": "nooterra-agent-starter",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@nooterra/agent-sdk": "workspace:*"
+  }
+}

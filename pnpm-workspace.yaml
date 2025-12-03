@@ -1,9 +1,12 @@
 packages:
-  # Core packages
+  # Apps (deployable services)
+  - "apps/*"
+  
+  # Packages (shared libraries)
   - "packages/*"
   
-  # Services
-  - "services/*"
+  # Examples (for development/testing)
+  - "examples/*"
   
-  # Apps
-  - "apps/*"
+  # Infra scripts
+  - "infra/scripts"
