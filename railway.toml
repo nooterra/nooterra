@@ -1,8 +1,7 @@
 # Nooterra Monorepo - Railway Configuration
-# This file configures the build for all services from monorepo root
+# Uses Railpack (Railway's default builder)
 
 [build]
-builder = "NIXPACKS"
 buildCommand = "corepack enable && pnpm install --frozen-lockfile && pnpm build"
 
 [deploy]
