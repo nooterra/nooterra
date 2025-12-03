@@ -17,6 +17,7 @@
     "dotenv": "^16.4.7",
     "ethers": "^6.13.4",
     "fastify": "^4.28.1",
+    "ioredis": "^5.8.2",
     "jsonwebtoken": "^9.0.2",
     "node-fetch": "^3.3.2",
     "pg": "^8.13.1",

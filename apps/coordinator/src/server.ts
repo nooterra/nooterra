@@ -14,6 +14,7 @@ import { validateOutputSchema } from "./validation.js";
 import { listWorkflows } from "./list-workflows.js";
 import { startDispatcherLoop } from "./workers/dispatcher.js";
 import { registerPlatformRoutes } from "./platform.js";
+import { getRedisClient, closeRedis, isRedisAvailable } from "./redis.js";
 
 dotenv.config();
 
@@ -3421,6 +3422,33 @@ app.setErrorHandler((err, _req, reply) => {
 });
 
 const port = Number(process.env.PORT || 3002);
+
+// Initialize Redis if available
+const redis = getRedisClient();
+if (redis) {
+  app.log.info("Redis client initialized");
+} else {
+  app.log.warn("Redis not configured - using Postgres-based queue (set REDIS_URL to enable)");
+}
+
+// Graceful shutdown handler
+const shutdown = async (signal: string) => {
+  app.log.info({ signal }, "Received shutdown signal, closing connections...");
+  try {
+    await app.close();
+    await closeRedis();
+    await pool.end();
+    app.log.info("Graceful shutdown complete");
+    process.exit(0);
+  } catch (err) {
+    app.log.error({ err }, "Error during shutdown");
+    process.exit(1);
+  }
+};
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
 app.listen({ port, host: "0.0.0.0" }).then(() => {
   app.log.info(`Coordinator running on ${port}`);
   if (process.env.RUN_DISPATCHER === "true") {
