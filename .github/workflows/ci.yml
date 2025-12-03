@@ -109,9 +109,15 @@ jobs:
     strategy:
       matrix:
         service:
-          - name: code-verifier
-            context: services/code-verifier
-            dockerfile: services/code-verifier/Dockerfile
+          - name: coordinator
+            context: .
+            dockerfile: apps/coordinator/Dockerfile
+          - name: registry
+            context: .
+            dockerfile: apps/registry/Dockerfile
+          - name: sandbox-runner
+            context: .
+            dockerfile: apps/sandbox-runner/Dockerfile
     steps:
       - name: Checkout
         uses: actions/checkout@v4

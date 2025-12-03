@@ -32,8 +32,10 @@ const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
 // Access-Control-Allow-Origin header itself must contain exactly one value
 // per response. We normalize any comma-separated env into an array so the
 // plugin can handle it correctly instead of emitting a raw CSV string.
-// Simple CORS - allow all origins for now
-const CORS_ORIGIN = true;
+const CORS_ALLOWED_ORIGINS = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(",").map((o) => o.trim())
+  : ["http://localhost:3000", "http://localhost:5173"]; // Dev defaults only
+const CORS_ORIGIN = process.env.NODE_ENV === "production" ? CORS_ALLOWED_ORIGINS : true;
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || "";
 const HERMES_BASE_URL = process.env.HERMES_BASE_URL || "";
 const HERMES_API_KEY = process.env.HERMES_API_KEY || "";
@@ -42,7 +44,14 @@ const HERMES_MODEL =
   "adamo1139/Hermes-3-Llama-3.1-8B-FP8-Dynamic";
 const ENABLE_LLM_PLANNER =
   (process.env.ENABLE_LLM_PLANNER || "").toLowerCase() === "true";
-const JWT_SECRET = process.env.JWT_SECRET || "nooterra-dev-secret";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("JWT_SECRET environment variable is required in production");
+  }
+  console.warn("⚠️  JWT_SECRET not set - using insecure default for development only");
+}
+const JWT_SECRET_VALUE = JWT_SECRET || "nooterra-dev-secret-DO-NOT-USE-IN-PROD";
 const HEARTBEAT_TTL_MS = Number(process.env.HEARTBEAT_TTL_MS || 60_000);
 const DISPATCH_BATCH_MS = Number(process.env.DISPATCH_BATCH_MS || 1000);
 const RETRY_BACKOFFS_MS = [0, 1000, 5000, 30000];
@@ -242,7 +251,7 @@ async function getUserFromRequest(request: Req, reply: Rep): Promise<Authenticat
     return null;
   }
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: number; email: string };
+    const decoded = jwt.verify(token, JWT_SECRET_VALUE) as { userId: number; email: string };
     if (!decoded?.userId) {
       await reply.status(401).send({ error: "Unauthorized" });
       return null;
@@ -397,7 +406,7 @@ app.post("/auth/login", async (request, reply) => {
     if (!ok) {
       return reply.status(401).send({ error: "Invalid credentials" });
     }
-    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET_VALUE, { expiresIn: "7d" });
     return reply.send({ token });
   } catch (err: any) {
     app.log.error({ err }, "login failed");
