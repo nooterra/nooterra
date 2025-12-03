@@ -21,6 +21,9 @@ import { registerStakingRoutes } from "./staking.js";
 import { registerAuctionRoutes } from "./auctions.js";
 import { registerReputationRoutes } from "./reputation.js";
 import { registerTemplateRoutes } from "./templates.js";
+import { registerMemoryRoutes } from "./memory.js";
+import { registerStreamingRoutes } from "./streaming.js";
+import { registerHealthRoutes } from "./health.js";
 
 // Re-export individual route registrations for selective use
 export {
@@ -36,6 +39,10 @@ export {
   registerAuctionRoutes,
   registerReputationRoutes,
   registerTemplateRoutes,
+  // Sprint 3B exports
+  registerMemoryRoutes,
+  registerStreamingRoutes,
+  registerHealthRoutes,
 };
 
 /**
@@ -154,6 +161,25 @@ export interface RouteGuards {
  *    - PATCH /v1/templates/:templateId
  *    - DELETE /v1/templates/:templateId
  *    - POST /v1/templates/:templateId/instantiate
+ * 
+ * ✅ Memory routes (memory.ts) - COMPLETE (Sprint 3B)
+ *    - GET /v1/workflows/:workflowRunId/memory
+ *    - GET /v1/workflows/:workflowRunId/memory/:key
+ *    - POST /v1/workflows/:workflowRunId/memory
+ *    - PUT /v1/workflows/:workflowRunId/memory/:key
+ *    - DELETE /v1/workflows/:workflowRunId/memory/:key
+ *    - POST /v1/workflows/:workflowRunId/memory/bulk
+ * 
+ * ✅ Streaming routes (streaming.ts) - COMPLETE (Sprint 3B)
+ *    - GET /v1/workflows/:workflowRunId/stream (SSE)
+ *    - GET /v1/events/global (SSE global events)
+ *    - POST /v1/events/emit (publish events)
+ * 
+ * ✅ Health routes (health.ts) - COMPLETE (Sprint 3B)
+ *    - GET /v1/health/agents
+ *    - GET /v1/health/agents/:did
+ *    - POST /v1/health/agents/:did/check
+ *    - POST /v1/health/agents/:did/reset-circuit
  */
 
 /**
@@ -180,6 +206,11 @@ export async function registerAllRoutes(
   await registerAuctionRoutes(app, guards);
   await registerReputationRoutes(app, guards);
   await registerTemplateRoutes(app, guards);
+  
+  // Sprint 3B: Agent Connectivity routes
+  await registerMemoryRoutes(app, guards);
+  await registerStreamingRoutes(app, guards);
+  await registerHealthRoutes(app, guards);
   
   app.log.info("All route modules registered successfully");
 }

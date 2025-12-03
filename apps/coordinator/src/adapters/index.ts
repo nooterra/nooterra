@@ -8,10 +8,13 @@
  * - HuggingFace Inference API
  * - OpenAI-compatible APIs (uncloseai, Together, local)
  * - Replicate
+ * - Bittensor subnets (SN1, SN19, SN24, etc.)
+ * - Ollama (local LLMs)
  * - Custom webhooks
  */
 
 import fetch from "node-fetch";
+import { callBittensor, isBittensorEndpoint, extractSubnet } from "./bittensor.js";
 
 export interface AdapterRequest {
   endpoint: string;
@@ -32,13 +35,22 @@ export interface AdapterResponse {
  * Detect which adapter to use based on endpoint URL
  */
 export function detectAdapter(endpoint: string): string {
+  // Bittensor subnets
+  if (isBittensorEndpoint(endpoint)) {
+    return "bittensor";
+  }
+  // Ollama local
+  if (endpoint.includes("localhost:11434") || endpoint.includes("ollama")) {
+    return "ollama";
+  }
   if (endpoint.includes("huggingface.co") || endpoint.includes("hf.space")) {
     return "huggingface";
   }
   if (endpoint.includes("api.openai.com") || 
       endpoint.includes("unturf.com") ||
       endpoint.includes("together.xyz") ||
-      endpoint.includes("localhost:11434") ||
+      endpoint.includes("groq.com") ||
+      endpoint.includes("anyscale.com") ||
       endpoint.endsWith("/v1") ||
       endpoint.endsWith("/v1/")) {
     return "openai";
@@ -323,6 +335,84 @@ async function callWebhook(req: AdapterRequest): Promise<AdapterResponse> {
 }
 
 /**
+ * Call Ollama local LLM
+ */
+async function callOllama(req: AdapterRequest): Promise<AdapterResponse> {
+  const startTime = Date.now();
+  
+  try {
+    let baseUrl = req.endpoint.replace(/\/+$/, "");
+    if (!baseUrl.includes("/api")) {
+      baseUrl = `${baseUrl}/api`;
+    }
+    
+    // Determine if chat or generate
+    const messages = req.inputs.messages;
+    const isChat = Array.isArray(messages);
+    const apiUrl = isChat ? `${baseUrl}/chat` : `${baseUrl}/generate`;
+    
+    const model = req.inputs.model || req.config?.model || "llama3.2";
+    
+    const requestBody = isChat
+      ? {
+          model,
+          messages,
+          stream: false,
+          options: {
+            temperature: req.inputs.temperature || 0.7,
+            num_predict: req.inputs.max_tokens || 1000,
+          },
+        }
+      : {
+          model,
+          prompt: req.inputs.prompt || req.inputs.query || req.inputs.text || "",
+          stream: false,
+          options: {
+            temperature: req.inputs.temperature || 0.7,
+            num_predict: req.inputs.max_tokens || 1000,
+          },
+        };
+
+    const response = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      return {
+        success: false,
+        error: `Ollama error: ${response.status} - ${error}`,
+        latency_ms: Date.now() - startTime,
+      };
+    }
+
+    const data = await response.json() as any;
+    const content = isChat 
+      ? data.message?.content 
+      : data.response;
+    
+    return {
+      success: true,
+      result: {
+        response: content,
+        raw: data,
+        model: data.model,
+      },
+      latency_ms: Date.now() - startTime,
+      tokens_used: data.eval_count,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message,
+      latency_ms: Date.now() - startTime,
+    };
+  }
+}
+
+/**
  * Main adapter dispatcher - routes to the appropriate adapter
  */
 export async function callExternalAgent(req: AdapterRequest): Promise<AdapterResponse> {
@@ -333,6 +423,16 @@ export async function callExternalAgent(req: AdapterRequest): Promise<AdapterRes
       return callHuggingFace(req);
     case "openai":
       return callOpenAI(req);
+    case "ollama":
+      return callOllama(req);
+    case "bittensor":
+      const subnet = extractSubnet(req.endpoint) || 1;
+      return callBittensor({
+        endpoint: req.endpoint,
+        subnet,
+        inputs: req.inputs,
+        config: req.config,
+      });
     case "replicate":
       return callReplicate(req);
     case "gradio":
@@ -364,5 +464,12 @@ export async function testEndpoint(endpoint: string): Promise<{ ok: boolean; ada
       latency_ms: Date.now() - startTime,
     };
   }
+}
+
+/**
+ * List all supported adapter types
+ */
+export function listAdapters(): string[] {
+  return ["huggingface", "openai", "ollama", "bittensor", "replicate", "gradio", "webhook"];
 }
 
