@@ -56,5 +56,14 @@ __all__ = [
     "Capability",
     "TaskContext",
     "create_agent",
+    # Integrations (lazy-loaded via nooterra.integrations)
+    "integrations",
 ]
+
+# Lazy import for integrations submodule
+def __getattr__(name: str):
+    if name == "integrations":
+        from . import integrations
+        return integrations
+    raise AttributeError(f"module 'nooterra' has no attribute '{name}'")
 

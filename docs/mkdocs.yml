@@ -155,6 +155,7 @@ nav:
     - sdk/index.md
     - TypeScript SDK: sdk/typescript.md
     - Python SDK: sdk/python.md
+    - Framework Integrations: sdk/integrations.md
     - REST API: sdk/api.md
   
   - Vision:
