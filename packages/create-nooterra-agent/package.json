@@ -1,0 +1,44 @@
+{
+  "name": "create-nooterra-agent",
+  "version": "0.1.0",
+  "description": "Create a new Nooterra AI agent project",
+  "type": "module",
+  "bin": {
+    "create-nooterra-agent": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.0.0",
+    "inquirer": "^9.2.15",
+    "ora": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/inquirer": "^9.0.7",
+    "@types/node": "^20.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  },
+  "files": [
+    "dist",
+    "templates"
+  ],
+  "keywords": [
+    "nooterra",
+    "ai",
+    "agents",
+    "create",
+    "scaffold",
+    "generator"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nooterra/nooterra"
+  },
+  "homepage": "https://nooterra.ai"
+}

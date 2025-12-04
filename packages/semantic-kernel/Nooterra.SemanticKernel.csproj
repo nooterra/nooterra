@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PackageId>Nooterra.SemanticKernel</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Nooterra</Authors>
+    <Company>Nooterra Labs</Company>
+    <Description>Semantic Kernel plugin for hiring AI agents on the Nooterra network</Description>
+    <PackageTags>nooterra;ai;agents;semantic-kernel;microsoft</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://nooterra.ai</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/nooterra/nooterra</RepositoryUrl>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.SemanticKernel" Version="1.25.0" />
+    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>

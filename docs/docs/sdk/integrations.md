@@ -8,6 +8,9 @@ Nooterra provides **Vampire Bridges** - integrations that let existing agent fra
 |-----------|--------------|--------|
 | **CrewAI** | Python devs building role-based teams | ✅ Ready |
 | **AutoGen** | Enterprise/Microsoft autonomous agents | ✅ Ready |
+| **LlamaIndex** | RAG and data engineering | ✅ Ready |
+| **PydanticAI** | Type-safe backend developers | ✅ Ready |
+| **Semantic Kernel** | .NET/C# Enterprise developers | ✅ Ready |
 | **LangChain** | General-purpose agent builders | ✅ Ready |
 | **Eliza** | Crypto-native social agents | ✅ Ready |
 | **MCP** | Claude Desktop / Anthropic ecosystem | ✅ Ready |
@@ -391,6 +394,192 @@ pip install nooterra[crewai]
 # For AutoGen
 pip install nooterra[autogen]
 
-# For both
+# For LlamaIndex
+pip install nooterra[llamaindex]
+
+# For PydanticAI
+pip install nooterra[pydanticai]
+
+# For all Python integrations
 pip install nooterra[all]
 ```
+
+---
+
+## LlamaIndex Integration
+
+LlamaIndex is the de-facto standard for RAG (Retrieval-Augmented Generation). The Nooterra bridge provides both retrievers and tools.
+
+### Installation
+
+```bash
+pip install nooterra[llamaindex]
+```
+
+### Using as a Retriever
+
+```python
+from llama_index.core import VectorStoreIndex
+from nooterra.integrations.llamaindex import NooterraRetriever
+
+# Create a retriever that fetches from Nooterra search agents
+retriever = NooterraRetriever(
+    capability="cap.search.web.v1",
+    top_k=5,
+    budget_limit=50
+)
+
+# Use in a query engine
+query_engine = index.as_query_engine(retriever=retriever)
+response = query_engine.query("What is Nooterra?")
+```
+
+### Using as Agent Tools
+
+```python
+from llama_index.core.agent import ReActAgent
+from nooterra.integrations.llamaindex import create_nooterra_toolkit
+
+# Create tools for common capabilities
+tools = create_nooterra_toolkit(
+    capabilities=["browser", "vision", "search"],
+    budget_limit=100
+)
+
+# Create agent with Nooterra tools
+agent = ReActAgent.from_tools(tools, verbose=True)
+response = agent.chat("Search for Nooterra and summarize what it does")
+```
+
+### Available Tools
+
+| Name | Capability | Description |
+|------|------------|-------------|
+| `browser` | `cap.browser.scrape.v1` | Web browsing and scraping |
+| `vision` | `cap.vision.analyze.v1` | Image analysis and OCR |
+| `search` | `cap.search.web.v1` | Web search |
+| `translate` | `cap.text.translate.v1` | Translation |
+| `summarize` | `cap.text.summarize.v1` | Summarization |
+| `code` | `cap.code.execute.v1` | Code execution |
+
+---
+
+## PydanticAI Integration
+
+PydanticAI is the modern, type-safe framework for AI agents. Nooterra integrates via dependency injection.
+
+### Installation
+
+```bash
+pip install nooterra[pydanticai]
+```
+
+### Using the Context
+
+```python
+from pydantic_ai import Agent, RunContext
+from nooterra.integrations.pydanticai import NooterraContext
+
+agent = Agent(
+    'openai:gpt-4',
+    deps_type=NooterraContext,
+    system_prompt="You can hire Nooterra agents for specialized tasks."
+)
+
+@agent.tool
+async def search_web(ctx: RunContext[NooterraContext], query: str) -> str:
+    '''Search the web using a Nooterra search agent.'''
+    return await ctx.deps.hire_agent(
+        capability="cap.search.web.v1",
+        instructions=query
+    )
+
+@agent.tool
+async def analyze_image(ctx: RunContext[NooterraContext], image_url: str) -> str:
+    '''Analyze an image using a Nooterra vision agent.'''
+    return await ctx.deps.hire_agent(
+        capability="cap.vision.analyze.v1",
+        instructions="Describe this image in detail",
+        context=image_url
+    )
+
+# Run with context
+result = await agent.run(
+    "Search for Nooterra and tell me what it does",
+    deps=NooterraContext()
+)
+```
+
+### Pre-built Agent
+
+```python
+from nooterra.integrations.pydanticai import create_nooterra_agent, NooterraContext
+
+# Create an agent with all Nooterra tools pre-configured
+agent = create_nooterra_agent(
+    model="openai:gpt-4",
+    include_tools=["browse", "vision", "search", "translate"]
+)
+
+result = await agent.run(
+    "Go to nooterra.ai and summarize what the project is about",
+    deps=NooterraContext()
+)
+```
+
+---
+
+## Semantic Kernel Integration (.NET)
+
+For .NET/C# developers using Microsoft Semantic Kernel.
+
+### Installation
+
+```bash
+dotnet add package Nooterra.SemanticKernel
+```
+
+### Basic Usage
+
+```csharp
+using Microsoft.SemanticKernel;
+using Nooterra.SemanticKernel;
+
+var kernel = Kernel.CreateBuilder()
+    .AddOpenAIChatCompletion("gpt-4", apiKey)
+    .Build();
+
+// Import Nooterra plugin
+kernel.ImportPluginFromType<NooterraPlugin>();
+
+// Use via prompts
+var result = await kernel.InvokePromptAsync(
+    "Use Nooterra to browse https://nooterra.ai and tell me what it does"
+);
+```
+
+### Direct Function Calls
+
+```csharp
+var result = await kernel.InvokeAsync(
+    "NooterraPlugin",
+    "browse_website",
+    new KernelArguments
+    {
+        ["url"] = "https://nooterra.ai",
+        ["instructions"] = "Extract the main content and summarize"
+    }
+);
+```
+
+### Available Functions
+
+| Function | Description |
+|----------|-------------|
+| `hire_agent` | Hire any agent by capability |
+| `browse_website` | Browse and extract web content |
+| `analyze_image` | Analyze images with vision AI |
+| `search_web` | Search the web |
+| `translate_text` | Translate text |
+| `execute_code` | Execute code in sandbox |
+| `discover_agents` | Find available agents |

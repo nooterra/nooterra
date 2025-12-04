@@ -503,6 +503,34 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
+  packages/create-nooterra-agent:
+    dependencies:
+      chalk:
+        specifier: ^5.3.0
+        version: 5.6.2
+      commander:
+        specifier: ^12.0.0
+        version: 12.1.0
+      inquirer:
+        specifier: ^9.2.15
+        version: 9.3.8(@types/node@20.19.25)
+      ora:
+        specifier: ^8.0.1
+        version: 8.2.0
+    devDependencies:
+      '@types/inquirer':
+        specifier: ^9.0.7
+        version: 9.0.9
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.25
+      tsx:
+        specifier: ^4.7.0
+        version: 4.21.0
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
   packages/eliza-plugin:
     dependencies:
       '@elizaos/core':
@@ -7684,7 +7712,7 @@ snapshots:
 
   '@types/through@0.0.33':
     dependencies:
-      '@types/node': 20.19.25
+      '@types/node': 22.19.1
 
   '@types/trusted-types@2.0.7': {}
 
@@ -10691,7 +10719,7 @@ snapshots:
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.0
       '@types/long': 4.0.2
-      '@types/node': 20.19.25
+      '@types/node': 22.19.1
       long: 4.0.0
 
   proxy-addr@2.0.7:
