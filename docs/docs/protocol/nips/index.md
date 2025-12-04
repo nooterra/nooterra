@@ -40,17 +40,18 @@ NIPs follow the convention established by [BIPs](https://github.com/bitcoin/bips
 
 | NIP | Title | Status | Description |
 |-----|-------|--------|-------------|
-| NIP-0010 | Negotiation Protocol | Draft | Bid/Ask/Accept standard |
+| [NIP-0010](NIP-0010.md) | Negotiation Protocol | Final | Vickrey auction bidding system |
 | NIP-0011 | Scheduling Protocol | Draft | Resource reservation |
 | NIP-0012 | Liability Logging | Draft | Signed audit trails |
+| [NIP-0030](NIP-0030.md) | Economics & Settlement | Final | NCR ledger, escrow, and fees |
 
 ### Trust & Identity
 
 | NIP | Title | Status | Description |
 |-----|-------|--------|-------------|
-| NIP-0020 | Revocation Registry | Draft | Emergency agent deactivation |
+| [NIP-0020](NIP-0020.md) | Agent Identity (ACARD) | Final | DID format and capability declaration |
 | NIP-0021 | Private Subnets | Draft | ZK-membership for enterprises |
-| NIP-0022 | Agent Inheritance | Draft | Recovery addresses |
+| NIP-0022 | Agent Inheritance | Draft | Recovery addresses
 
 ---
 

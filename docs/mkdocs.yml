@@ -140,6 +140,9 @@ nav:
     - NIPs:
       - protocol/nips/index.md
       - NIP-0001 Packet Structure: protocol/nips/NIP-0001.md
+      - NIP-0010 Negotiation: protocol/nips/NIP-0010.md
+      - NIP-0020 Identity (ACARD): protocol/nips/NIP-0020.md
+      - NIP-0030 Economics: protocol/nips/NIP-0030.md
   
   - Guides:
     - guides/index.md
