@@ -24,6 +24,7 @@ import { registerTemplateRoutes } from "./templates.js";
 import { registerMemoryRoutes } from "./memory.js";
 import { registerStreamingRoutes } from "./streaming.js";
 import { registerHealthRoutes } from "./health.js";
+import { typesRoutes } from "./types.js";
 
 // Re-export individual route registrations for selective use
 export {
@@ -43,6 +44,8 @@ export {
   registerMemoryRoutes,
   registerStreamingRoutes,
   registerHealthRoutes,
+  // Sprint 4: Type System exports
+  typesRoutes,
 };
 
 /**
@@ -180,6 +183,18 @@ export interface RouteGuards {
  *    - GET /v1/health/agents/:did
  *    - POST /v1/health/agents/:did/check
  *    - POST /v1/health/agents/:did/reset-circuit
+ * 
+ * ✅ Types routes (types.ts) - COMPLETE (Sprint 4)
+ *    - GET /v1/types
+ *    - GET /v1/types/:typeId
+ *    - POST /v1/types/:typeId/validate
+ *    - GET /v1/capabilities
+ *    - GET /v1/capabilities/:capabilityId
+ *    - POST /v1/capabilities/:capabilityId/validate-input
+ *    - POST /v1/capabilities/:capabilityId/validate-output
+ *    - POST /v1/compatibility/check
+ *    - POST /v1/compatibility/validate-dag
+ *    - GET /v1/agents/:agentId/violations
  */
 
 /**
@@ -211,6 +226,9 @@ export async function registerAllRoutes(
   await registerMemoryRoutes(app, guards);
   await registerStreamingRoutes(app, guards);
   await registerHealthRoutes(app, guards);
+  
+  // Sprint 4: Type System routes (public, no auth needed for reading schemas)
+  await app.register(typesRoutes, { prefix: "/v1" });
   
   app.log.info("All route modules registered successfully");
 }
