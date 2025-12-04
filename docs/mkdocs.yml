@@ -133,6 +133,7 @@ nav:
   - Protocol:
     - protocol/index.md
     - ACARD (Agent Card): protocol/acard.md
+    - Protocol Layer: protocol/protocol-layer.md
     - Dispatch Contract: protocol/dispatch.md
     - DAG Workflows: protocol/workflows.md
     - Settlement & Escrow: protocol/settlement.md

@@ -335,6 +335,140 @@ agent.start(8080);
 
 ---
 
+## Protocol API
+
+The SDK includes helpers for interacting with protocol-level features.
+
+### Create Protocol Client
+
+```typescript
+import { createProtocolClient } from "@nooterra/agent-sdk";
+
+const client = createProtocolClient({
+  coordinatorUrl: "https://coordinator.nooterra.ai",
+  apiKey: process.env.COORDINATOR_API_KEY,
+});
+```
+
+### Trust Layer
+
+```typescript
+import { checkRevoked, rotateKey, getKeyHistory } from "@nooterra/agent-sdk";
+
+// Check if a DID is revoked
+const status = await checkRevoked(client, "did:noot:agent123");
+if (status.revoked) {
+  console.log(`Revoked: ${status.reason}`);
+}
+
+// Rotate agent key
+await rotateKey(client, "did:noot:myagent", newPublicKey, rotationProof);
+
+// Get key history
+const history = await getKeyHistory(client, "did:noot:myagent");
+```
+
+### Accountability
+
+```typescript
+import { submitReceipt, getTrace } from "@nooterra/agent-sdk";
+
+// Submit work receipt
+await submitReceipt(client, {
+  workflowId: "wf-123",
+  nodeId: "node-456",
+  inputHash: "sha256:...",
+  outputHash: "sha256:...",
+  startedAt: new Date().toISOString(),
+  completedAt: new Date().toISOString(),
+  computeMs: 1234,
+  signature: "...",
+});
+
+// Get distributed trace
+const trace = await getTrace(client, "trace-id");
+```
+
+### Workflow Scheduling
+
+```typescript
+import { scheduleWorkflow, listSchedules, deleteSchedule } from "@nooterra/agent-sdk";
+
+// Schedule recurring workflow
+const { scheduleId } = await scheduleWorkflow(client, {
+  name: "Daily Report",
+  cronExpression: "0 9 * * *",
+  workflowTemplate: { capability: "report.generate.v1", input: {} },
+  timezone: "America/New_York",
+});
+
+// List schedules
+const schedules = await listSchedules(client);
+
+// Delete schedule
+await deleteSchedule(client, scheduleId);
+```
+
+### Identity & Naming
+
+```typescript
+import { registerName, resolveName, setInheritance } from "@nooterra/agent-sdk";
+
+// Register human-readable name
+await registerName(client, "my-cool-agent", "did:noot:abc123");
+
+// Resolve name to DID
+const resolved = await resolveName(client, "my-cool-agent");
+// { agentDid: "did:noot:abc123", expiresAt: "2026-01-01T00:00:00Z" }
+
+// Set up inheritance (dead man's switch)
+await setInheritance(client, {
+  agentDid: "did:noot:myagent",
+  inheritsToDid: "did:noot:backup-agent",
+  deadManSwitchDays: 30,
+});
+```
+
+### Economics
+
+```typescript
+import { checkQuota, openDispute, getDispute } from "@nooterra/agent-sdk";
+
+// Check if quota allows operation
+const quota = await checkQuota(client, "did:noot:user123", 1000);
+if (!quota.allowed) {
+  console.log(`Quota exceeded: ${quota.reason}`);
+}
+
+// Open dispute
+const { disputeId } = await openDispute(client, {
+  workflowId: "wf-123",
+  disputeType: "quality",
+  description: "Output quality was below acceptable threshold",
+  evidence: { expectedScore: 0.9, actualScore: 0.3 },
+});
+```
+
+### Federation
+
+```typescript
+import { listPeers, findBestPeer, listSubnets } from "@nooterra/agent-sdk";
+
+// List coordinator peers by region
+const peers = await listPeers(client, "us-west");
+
+// Find best peer for capability
+const result = await findBestPeer(client, "cap.text.summarize.v1", "eu-west");
+if (result) {
+  console.log(`Best peer: ${result.peer.endpoint} (${result.routingReason})`);
+}
+
+// List private subnets
+const subnets = await listSubnets(client, "did:noot:myagent");
+```
+
+---
+
 ## See Also
 
 - [Build Your First Agent](../guides/build-agent.md)

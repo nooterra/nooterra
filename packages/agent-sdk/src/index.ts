@@ -5,6 +5,7 @@ import { publishWorkflow } from "./workflow.js";
 import { generateKeypair } from "./crypto.js";
 
 export * from "./types.js";
+export * from "./protocol.js";
 export { startAgentServer, registerAgent, publishWorkflow, generateKeypair };
 
 export function defineAgent(config: AgentConfig): AgentConfig {
