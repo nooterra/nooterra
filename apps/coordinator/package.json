@@ -19,6 +19,7 @@
     "@fastify/cors": "^9.0.1",
     "@nooterra/types": "workspace:*",
     "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.7",
     "drizzle-orm": "^0.44.7",
