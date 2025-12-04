@@ -17,6 +17,13 @@ import { registerPlatformRoutes } from "./platform.js";
 import { getRedisClient, closeRedis, isRedisAvailable } from "./redis.js";
 import { startHealthChecks } from "./services/health.js";
 import { startPercentileRecalcJob } from "./services/reputation-percentile.js";
+// Protocol infrastructure routes
+import { registerTrustRoutes } from "./routes/trust.js";
+import { registerAccountabilityRoutes } from "./routes/accountability.js";
+import { registerProtocolRoutes } from "./routes/protocol.js";
+import { registerIdentityRoutes } from "./routes/identity.js";
+import { registerEconomicsRoutes } from "./routes/economics.js";
+import { registerFederationRoutes } from "./routes/federation.js";
 
 dotenv.config();
 
@@ -219,6 +226,14 @@ await migrate();
 
 // Register platform routes for frontend features
 registerPlatformRoutes(app);
+
+// Register protocol infrastructure routes
+registerTrustRoutes(app);
+registerAccountabilityRoutes(app);
+registerProtocolRoutes(app);
+registerIdentityRoutes(app);
+registerEconomicsRoutes(app);
+registerFederationRoutes(app);
 
 // request/trace id propagation
 app.addHook("onRequest", async (request, reply) => {

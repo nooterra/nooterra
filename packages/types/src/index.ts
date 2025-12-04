@@ -105,3 +105,75 @@ export {
   findCompatibleCapabilities,
   autoInsertAdapters,
 } from "./compatibility.js";
+
+// Trust layer types
+export {
+  type RevokedDid,
+  type KeyRotation,
+  type SignedResult,
+  type RevocationRequest,
+  type KeyRotationRequest,
+  type SignResultPayload,
+} from "./trust.js";
+
+// Accountability types
+export {
+  type AuditEntry,
+  type AuditEventType,
+  type TaskReceipt,
+  type TraceSpan,
+  type TraceEvent,
+  type AuditQuery,
+  type TraceQuery,
+} from "./accountability.js";
+
+// Protocol types
+export {
+  type CancelWorkflowRequest,
+  type CancelWorkflowResult,
+  type CapabilityVersion,
+  type VersionNegotiationRequest,
+  type VersionNegotiationResult,
+  type ScheduledWorkflow,
+  type CreateScheduleRequest,
+  type ScheduleInfo,
+} from "./protocol.js";
+
+// Identity types
+export {
+  type AgentInheritance,
+  type SetInheritanceRequest,
+  type AgentName,
+  type RegisterNameRequest,
+  type RecoveryRequest,
+  type DeadManSwitchResult,
+} from "./identity.js";
+
+// Economics types
+export {
+  type Invoice,
+  type InvoiceStatus,
+  type GenerateInvoiceRequest,
+  type Dispute,
+  type DisputeType,
+  type DisputeStatus,
+  type OpenDisputeRequest,
+  type ResolveDisputeRequest,
+  type UsageQuota,
+  type QuotaCheckResult,
+  type SettlementRequest,
+  type SettlementResult,
+} from "./economics.js";
+
+// Federation types
+export {
+  type CoordinatorPeer,
+  type PrivateSubnet,
+  type SubnetRoutingRequest,
+  type GeoRegion,
+  type GeoRoutingPreference,
+  type GossipMessage,
+  type GossipMessageType,
+  type WorkflowHandoff,
+  type FederationStatus,
+} from "./federation.js";

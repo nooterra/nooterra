@@ -500,4 +500,258 @@ export async function migrate() {
   `);
   await pool.query(`create index if not exists alerts_type_idx on alerts(type)`);
   await pool.query(`create index if not exists alerts_unresolved_idx on alerts(resolved_at)`);
+
+  // ============================================================
+  // PHASE 1: TRUST LAYER
+  // ============================================================
+
+  // Revocation Registry - Block/ban agents protocol-wide
+  await pool.query(`
+    create table if not exists revoked_dids (
+      id serial primary key,
+      did text not null unique,
+      reason text not null,
+      revoked_by text,
+      evidence jsonb,
+      created_at timestamptz default now(),
+      expires_at timestamptz
+    );
+  `);
+  await pool.query(`create index if not exists revoked_dids_did_idx on revoked_dids(did);`);
+
+  // Agent key rotation history
+  await pool.query(`
+    create table if not exists key_rotations (
+      id serial primary key,
+      agent_did text not null,
+      old_public_key text not null,
+      new_public_key text not null,
+      rotation_proof text,
+      created_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists key_rotations_did_idx on key_rotations(agent_did);`);
+
+  // Signed results for cryptographic verification
+  await pool.query(`
+    create table if not exists signed_results (
+      id uuid primary key default gen_random_uuid(),
+      node_id uuid not null,
+      workflow_id uuid references workflows(id) on delete cascade,
+      agent_did text not null,
+      result_hash text not null,
+      signature text not null,
+      public_key text not null,
+      created_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists signed_results_node_idx on signed_results(node_id);`);
+  await pool.query(`create index if not exists signed_results_workflow_idx on signed_results(workflow_id);`);
+
+  // ============================================================
+  // PHASE 2: ACCOUNTABILITY LAYER  
+  // ============================================================
+
+  // Immutable audit log with chain linking
+  await pool.query(`
+    create table if not exists audit_chain (
+      id serial primary key,
+      prev_hash text,
+      event_type text not null,
+      actor_did text,
+      target_type text,
+      target_id text,
+      action text not null,
+      payload jsonb,
+      metadata jsonb,
+      hash text not null,
+      created_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists audit_chain_actor_idx on audit_chain(actor_did);`);
+  await pool.query(`create index if not exists audit_chain_target_idx on audit_chain(target_type, target_id);`);
+  await pool.query(`create index if not exists audit_chain_type_idx on audit_chain(event_type);`);
+
+  // Agent receipts - proof of task completion
+  await pool.query(`
+    create table if not exists task_receipts (
+      id uuid primary key default gen_random_uuid(),
+      task_id uuid not null,
+      node_id uuid not null,
+      workflow_id uuid references workflows(id) on delete cascade,
+      agent_did text not null,
+      capability_id text not null,
+      input_hash text not null,
+      output_hash text not null,
+      started_at timestamptz not null,
+      completed_at timestamptz not null,
+      latency_ms int,
+      credits_earned int,
+      coordinator_signature text not null,
+      agent_signature text,
+      created_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists task_receipts_agent_idx on task_receipts(agent_did);`);
+  await pool.query(`create index if not exists task_receipts_workflow_idx on task_receipts(workflow_id);`);
+
+  // OpenTelemetry trace storage
+  await pool.query(`
+    create table if not exists traces (
+      id uuid primary key default gen_random_uuid(),
+      trace_id text not null,
+      span_id text not null,
+      parent_span_id text,
+      operation_name text not null,
+      service_name text not null,
+      start_time timestamptz not null,
+      end_time timestamptz,
+      duration_ms int,
+      status text,
+      attributes jsonb,
+      events jsonb,
+      created_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists traces_trace_id_idx on traces(trace_id);`);
+  await pool.query(`create index if not exists traces_span_id_idx on traces(span_id);`);
+
+  // ============================================================
+  // PHASE 3: PROTOCOL COMPLETENESS
+  // ============================================================
+
+  // Workflow cancellation tracking
+  await pool.query(`alter table workflows add column if not exists cancelled_at timestamptz;`);
+  await pool.query(`alter table workflows add column if not exists cancel_reason text;`);
+  await pool.query(`alter table workflows add column if not exists cancelled_by text;`);
+
+  // Capability versions and negotiation
+  await pool.query(`
+    create table if not exists capability_versions (
+      id serial primary key,
+      capability_id text not null,
+      version text not null,
+      schema_hash text,
+      input_schema jsonb,
+      output_schema jsonb,
+      deprecated_at timestamptz,
+      successor_version text,
+      created_at timestamptz default now(),
+      unique(capability_id, version)
+    );
+  `);
+
+  // Scheduled workflow triggers
+  await pool.query(`
+    create table if not exists scheduled_workflows (
+      id uuid primary key default gen_random_uuid(),
+      template_id uuid,
+      manifest jsonb not null,
+      cron_expression text,
+      next_run_at timestamptz,
+      last_run_at timestamptz,
+      last_run_workflow_id uuid,
+      enabled boolean default true,
+      timezone text default 'UTC',
+      payer_did text,
+      max_cents bigint,
+      created_at timestamptz default now(),
+      updated_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists scheduled_workflows_next_run_idx on scheduled_workflows(next_run_at) where enabled = true;`);
+
+  // ============================================================
+  // PHASE 4: IDENTITY & INHERITANCE
+  // ============================================================
+
+  // ACARD extensions for inheritance
+  await pool.query(`
+    create table if not exists agent_inheritance (
+      id serial primary key,
+      agent_did text not null unique,
+      recovery_address text,
+      heir_did text,
+      expires_at timestamptz,
+      dead_man_switch_hours int,
+      last_activity_at timestamptz,
+      created_at timestamptz default now(),
+      updated_at timestamptz default now()
+    );
+  `);
+
+  // Human-readable agent names (ENS-style)
+  await pool.query(`
+    create table if not exists agent_names (
+      id serial primary key,
+      name text not null unique,
+      agent_did text not null,
+      owner_did text,
+      expires_at timestamptz,
+      created_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists agent_names_did_idx on agent_names(agent_did);`);
+
+  // ============================================================
+  // PHASE 5: ECONOMICS
+  // ============================================================
+
+  // Invoices for billing
+  await pool.query(`
+    create table if not exists invoices (
+      id uuid primary key default gen_random_uuid(),
+      payer_did text not null,
+      payee_did text,
+      workflow_id uuid,
+      period_start timestamptz,
+      period_end timestamptz,
+      subtotal_cents int not null,
+      protocol_fee_cents int default 0,
+      total_cents int not null,
+      currency text default 'USD',
+      status text default 'pending',
+      pdf_url text,
+      stripe_invoice_id text,
+      created_at timestamptz default now(),
+      paid_at timestamptz
+    );
+  `);
+  await pool.query(`create index if not exists invoices_payer_idx on invoices(payer_did);`);
+
+  // Dispute resolution
+  await pool.query(`
+    create table if not exists disputes (
+      id uuid primary key default gen_random_uuid(),
+      workflow_id uuid references workflows(id) on delete set null,
+      node_id uuid,
+      complainant_did text not null,
+      respondent_did text,
+      dispute_type text not null,
+      description text not null,
+      evidence jsonb,
+      status text default 'open',
+      resolution text,
+      resolved_by text,
+      credits_refunded int,
+      created_at timestamptz default now(),
+      resolved_at timestamptz
+    );
+  `);
+  await pool.query(`create index if not exists disputes_status_idx on disputes(status);`);
+
+  // Usage quotas
+  await pool.query(`
+    create table if not exists usage_quotas (
+      id serial primary key,
+      owner_did text not null unique,
+      max_workflows_per_day int,
+      max_concurrent_workflows int,
+      max_spend_per_day_cents int,
+      current_daily_workflows int default 0,
+      current_daily_spend_cents int default 0,
+      quota_reset_at timestamptz default now() + interval '1 day',
+      created_at timestamptz default now()
+    );
+  `);
 }
