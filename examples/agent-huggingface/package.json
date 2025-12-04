@@ -1,0 +1,17 @@
+{
+  "name": "@nooterra/agent-huggingface",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Multi-model Hugging Face agent for Nooterra",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@huggingface/inference": "^2.8.0",
+    "fastify": "^4.28.1",
+    "@fastify/cors": "^9.0.1",
+    "dotenv": "^16.4.5"
+  }
+}
