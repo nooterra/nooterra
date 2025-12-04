@@ -1100,6 +1100,10 @@ type WorkflowNode = {
   capabilityId: string;
   dependsOn: string[];
   payload?: Record<string, any>;
+  /** Target specific agent DID for direct routing (bypasses auction/discovery) */
+  targetAgentId?: string;
+  /** If targetAgentId is unavailable, fallback to broadcast discovery (default: false) */
+  allowBroadcastFallback?: boolean;
 };
 
 /**
@@ -1881,8 +1885,8 @@ async function createWorkflow(
   );
   for (const [name, node] of Object.entries(nodes)) {
     await pool.query(
-      `insert into task_nodes (id, workflow_id, name, capability_id, status, depends_on, payload, max_attempts, requires_verification, deadline_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      `insert into task_nodes (id, workflow_id, name, capability_id, status, depends_on, payload, max_attempts, requires_verification, deadline_at, target_agent_id, allow_broadcast_fallback)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         uuidv4(),
         workflowId,
@@ -1894,6 +1898,8 @@ async function createWorkflow(
         DAG_MAX_ATTEMPTS,
         isCriticalCapability(node.capabilityId),
         new Date(Date.now() + NODE_TIMEOUT_MS),
+        node.targetAgentId || null,
+        node.allowBroadcastFallback ?? false,
       ]
     );
   }
@@ -1904,7 +1910,7 @@ async function createWorkflow(
 
 async function getReadyNodes(workflowId: string) {
   const res = await pool.query(
-    `select n.id, n.name, n.capability_id, n.depends_on, n.payload, n.status, n.attempts
+    `select n.id, n.name, n.capability_id, n.depends_on, n.payload, n.status, n.attempts, n.target_agent_id, n.allow_broadcast_fallback
      from task_nodes n
      where n.workflow_id = $1
        and (n.status = 'pending' or n.status = 'ready')`,
@@ -1962,6 +1968,77 @@ async function enqueueNode(node: any, workflowId: string) {
       return;
     }
   }
+
+  // ========== TARGETED ROUTING (NIP-001) ==========
+  // If targetAgentId is set, attempt direct point-to-point routing (bypass auction/discovery)
+  const targetAgentId = node.target_agent_id;
+  const allowBroadcastFallback = node.allow_broadcast_fallback ?? false;
+
+  if (targetAgentId) {
+    app.log.info({ targetAgentId, node: node.name, workflowId }, "Attempting targeted routing");
+    
+    // Look up the specific agent
+    const targetRes = await pool.query(
+      `SELECT a.did, a.endpoint, a.is_active, a.health_status,
+              COALESCE(hb.last_seen, a.last_heartbeat) as last_seen
+       FROM agents a
+       LEFT JOIN heartbeats hb ON hb.agent_did = a.did
+       WHERE a.did = $1`,
+      [targetAgentId]
+    );
+
+    const targetAgent = targetRes.rows[0];
+    const isAvailable = targetAgent && 
+      targetAgent.is_active && 
+      targetAgent.health_status !== 'unhealthy' &&
+      targetAgent.endpoint &&
+      (targetAgent.last_seen === null || 
+       new Date(targetAgent.last_seen).getTime() > Date.now() - HEARTBEAT_TTL_MS);
+
+    if (isAvailable) {
+      // Direct dispatch to targeted agent (skip auction/discovery)
+      app.log.info({ targetAgentId, endpoint: targetAgent.endpoint }, "Targeted agent available, dispatching directly");
+      
+      const dispatchKey = `${workflowId}:${node.name}:${node.attempts || 0}`;
+      await pool.query(
+        `insert into dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, attempts, next_attempt, status, dispatch_key)
+         values ($1, $2, $3, $4, $5, $6, 0, now(), 'pending', $7)
+         on conflict (dispatch_key) do nothing`,
+        [taskId, workflowId, node.name, "node.dispatch", targetAgent.endpoint, basePayload, dispatchKey]
+      );
+
+      await pool.query(
+        `update task_nodes set status = 'dispatched', updated_at = now(), started_at = now(), agent_did = $2 where id = $1`,
+        [node.id, targetAgentId]
+      );
+      emitEvent("NODE_DISPATCHED", { workflowId, nodeId: node.name, capabilityId: node.capability_id, targetedRouting: true });
+      return;
+    }
+
+    // Target agent unavailable
+    if (!allowBroadcastFallback) {
+      // Fail fast with AGENT_UNAVAILABLE - do not fall back to broadcast
+      const reason = !targetAgent ? "agent_not_found" : 
+                    !targetAgent.is_active ? "agent_inactive" :
+                    targetAgent.health_status === 'unhealthy' ? "agent_unhealthy" :
+                    "agent_offline";
+      app.log.warn({ targetAgentId, reason, node: node.name }, "Targeted agent unavailable, no fallback allowed");
+      
+      await pool.query(`update task_nodes set status = 'failed', updated_at = now() where id = $1`, [node.id]);
+      emitEvent("NODE_FAILED", { 
+        workflowId, 
+        nodeId: node.name, 
+        reason: "AGENT_UNAVAILABLE",
+        targetAgentId,
+        details: reason
+      });
+      return;
+    }
+
+    // allowBroadcastFallback=true, continue to normal discovery
+    app.log.info({ targetAgentId, node: node.name }, "Targeted agent unavailable, falling back to broadcast discovery");
+  }
+  // ========== END TARGETED ROUTING ==========
 
   const policy = await loadPolicyForWorkflow(workflowId);
 

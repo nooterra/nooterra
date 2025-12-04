@@ -50,6 +50,10 @@ export interface WorkflowNodeDef {
   timeoutMs?: number;
   /** Maximum retry attempts for this node */
   maxRetries?: number;
+  /** Target a specific agent DID for direct point-to-point routing (bypasses auction/discovery) */
+  targetAgentId?: string;
+  /** If targetAgentId is set and agent is unavailable, allow fallback to broadcast discovery (default: false) */
+  allowBroadcastFallback?: boolean;
 }
 
 /**

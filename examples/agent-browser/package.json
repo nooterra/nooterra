@@ -1,0 +1,15 @@
+{
+  "name": "nooterra-agent-browser",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Genesis Browser Agent - Playwright-based web automation for the Nooterra network",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs"
+  },
+  "dependencies": {
+    "@nooterra/agent-sdk": "workspace:*",
+    "playwright": "^1.40.0"
+  }
+}

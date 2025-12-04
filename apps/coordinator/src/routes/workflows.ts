@@ -17,6 +17,10 @@ const nodeSchema = z.object({
   dependsOn: z.array(z.string()).optional(),
   verify: z.boolean().optional(),
   timeout: z.number().optional(),
+  /** Target specific agent DID for direct routing (bypasses auction/discovery) */
+  targetAgentId: z.string().optional(),
+  /** If targetAgentId is unavailable, fallback to broadcast discovery (default: false) */
+  allowBroadcastFallback: z.boolean().optional(),
 });
 
 const publishWorkflowSchema = z.object({

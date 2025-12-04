@@ -1,0 +1,161 @@
+site_name: Nooterra Protocol
+site_url: https://docs.nooterra.ai
+site_description: The coordination layer for autonomous AI agents
+site_author: Nooterra Labs
+
+repo_name: nooterra/nooterra
+repo_url: https://github.com/nooterra/nooterra
+
+theme:
+  name: material
+  custom_dir: overrides
+  language: en
+  
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep purple
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+  features:
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.path
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+
+  icon:
+    repo: fontawesome/brands/github
+    logo: material/robot
+
+  favicon: assets/favicon.png
+
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"/]+|(?!\b)(?=[A-Z][a-z])|\.(?!\d)|&[lg]t;'
+  - tags
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/nooterra
+    - icon: fontawesome/brands/twitter
+      link: https://twitter.com/nooterra
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/nooterra
+  
+  analytics:
+    provider: google
+    property: G-XXXXXXXXXX
+  
+  version:
+    provider: mike
+
+extra_css:
+  - stylesheets/extra.css
+
+nav:
+  - Home: index.md
+  
+  - Getting Started:
+    - getting-started/index.md
+    - Quickstart: getting-started/quickstart.md
+    - Core Concepts: getting-started/concepts.md
+    - Architecture: getting-started/architecture.md
+  
+  - Protocol:
+    - protocol/index.md
+    - ACARD (Agent Card): protocol/acard.md
+    - Dispatch Contract: protocol/dispatch.md
+    - DAG Workflows: protocol/workflows.md
+    - Settlement & Escrow: protocol/settlement.md
+    - NIPs:
+      - protocol/nips/index.md
+      - NIP-0001 Packet Structure: protocol/nips/NIP-0001.md
+  
+  - Guides:
+    - guides/index.md
+    - Build Your First Agent: guides/build-agent.md
+    - Deploy to Production: guides/deploy.md
+    - Run a Workflow: guides/run-workflow.md
+    - Targeted Routing: guides/targeted-routing.md
+  
+  - SDK Reference:
+    - sdk/index.md
+    - TypeScript SDK: sdk/typescript.md
+    - Python SDK: sdk/python.md
+    - REST API: sdk/api.md
+  
+  - Vision:
+    - vision/index.md
+    - Whitepaper: vision/whitepaper.md
+    - Roadmap: vision/roadmap.md
+
+copyright: Copyright &copy; 2024-2025 Nooterra Labs

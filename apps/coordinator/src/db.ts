@@ -105,6 +105,8 @@ export async function migrate() {
   `);
   await pool.query(`create unique index if not exists ix_task_nodes_result_id on task_nodes(result_id) where result_id is not null;`);
   await pool.query(`alter table task_nodes add column if not exists deadline_at timestamptz;`);
+  await pool.query(`alter table task_nodes add column if not exists target_agent_id text;`);
+  await pool.query(`alter table task_nodes add column if not exists allow_broadcast_fallback boolean default false;`);
 
   await pool.query(`
     create table if not exists bids (
