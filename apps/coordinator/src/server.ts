@@ -1317,13 +1317,20 @@ async function planWithHermes(
       return null;
     }
     const data: any = await resp.json().catch(() => null);
-    const content =
+    let content =
       data?.choices?.[0]?.message?.content ??
       data?.choices?.[0]?.message ??
       null;
     if (!content || typeof content !== "string") {
       app.log.error({ content }, "Hermes planner returned no content");
       return null;
+    }
+
+    // Strip markdown code blocks if present (LLMs often wrap JSON in ```json ... ```)
+    content = content.trim();
+    if (content.startsWith("```")) {
+      // Remove opening ```json or ``` and closing ```
+      content = content.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
     }
 
     let parsed: any;
