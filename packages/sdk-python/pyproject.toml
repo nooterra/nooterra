@@ -4,12 +4,63 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nooterra"
-version = "0.1.0"
-description = "Python SDK stub for Nooterra registry + coordinator APIs"
+version = "0.2.0"
+description = "Python SDK for building AI agents on Nooterra"
 authors = [{ name = "Nooterra", email = "hi@nooterra.ai" }]
+readme = "README.md"
+license = { text = "MIT" }
+keywords = ["nooterra", "ai", "agents", "workflow", "coordination"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = ["requests>=2.31.0"]
 requires-python = ">=3.9"
 
+[project.optional-dependencies]
+async = ["aiohttp>=3.9.0"]
+flask = ["flask>=3.0.0"]
+fastapi = ["fastapi>=0.109.0", "uvicorn>=0.27.0"]
+all = [
+    "aiohttp>=3.9.0",
+    "fastapi>=0.109.0",
+    "uvicorn>=0.27.0",
+    "flask>=3.0.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+    "black>=24.0.0",
+    "mypy>=1.8.0",
+    "ruff>=0.1.0",
+]
+
 [project.urls]
 Homepage = "https://nooterra.ai"
-Repository = "https://github.com/nooterra/nooterra-protocol"
+Documentation = "https://docs.nooterra.ai"
+Repository = "https://github.com/nooterra/nooterra"
+Changelog = "https://github.com/nooterra/nooterra/releases"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
