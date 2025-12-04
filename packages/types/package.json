@@ -51,5 +51,8 @@
   "license": "MIT",
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "zod": "^4.1.13"
   }
 }

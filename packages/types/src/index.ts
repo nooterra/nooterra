@@ -70,3 +70,38 @@ export {
   type VerificationResult,
   CAPABILITY_PATTERNS,
 } from "./capability.js";
+
+// Semantic type system
+export {
+  type SemanticType,
+  type TypeConverter,
+  type TypeRegistryEntry,
+  getSemanticType,
+  getTypesByDomain,
+  getAllDomains,
+  validateAgainstType,
+  ALL_SEMANTIC_TYPES,
+} from "./semantic-types.js";
+
+// Capability schemas
+export {
+  type CapabilitySchema,
+  type SchemaField,
+  getCapabilitySchema,
+  getCapabilitySchemasByDomain,
+  getAllCapabilityDomains,
+  BUILTIN_CAPABILITY_SCHEMAS,
+} from "./capability-schemas.js";
+
+// Compatibility checking
+export {
+  type DAGNode,
+  type WorkflowDAG,
+  type ConnectionCompatibility,
+  type DAGValidationResult,
+  type SuggestedAdapter,
+  checkCapabilityCompatibility,
+  validateDAG,
+  findCompatibleCapabilities,
+  autoInsertAdapters,
+} from "./compatibility.js";
