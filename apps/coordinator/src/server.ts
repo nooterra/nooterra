@@ -15,6 +15,8 @@ import { listWorkflows } from "./list-workflows.js";
 import { startDispatcherLoop } from "./workers/dispatcher.js";
 import { registerPlatformRoutes } from "./platform.js";
 import { getRedisClient, closeRedis, isRedisAvailable } from "./redis.js";
+import { startHealthChecks } from "./services/health.js";
+import { startPercentileRecalcJob } from "./services/reputation-percentile.js";
 
 dotenv.config();
 
@@ -3516,6 +3518,13 @@ app.listen({ port, host: "0.0.0.0" }).then(() => {
       `Alert monitor enabled: interval=${ALERT_EVAL_INTERVAL_MS}ms stuck=${STUCK_WORKFLOW_THRESHOLD_MS}ms failureWindow=${FAILURE_WINDOW_MINUTES}m`
     );
   }
+  // Start agent health monitoring (NOOT-008)
+  startHealthChecks();
+  app.log.info("Agent health checks enabled");
+  
+  // Start percentile recalculation job (NOOT-007)
+  startPercentileRecalcJob();
+  app.log.info("Reputation percentile recalc job started");
 });
 async function recordHeartbeat(agentDid: string, load: number, latencyMs: number, queueDepth: number) {
   const score = computeAvailability(load, queueDepth, latencyMs);

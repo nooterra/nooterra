@@ -3,6 +3,12 @@ import fetch from "node-fetch";
 import crypto from "crypto";
 import { pool, migrate } from "../db.js";
 import { callExternalAgent, detectAdapter } from "../adapters/index.js";
+import { handleNodeSuccess, handleNodeFailure } from "../services/auction.js";
+import { checkBudget, reserveBudget, releaseBudget, confirmBudget } from "../services/budget-guard.js";
+import { attemptRecovery } from "../services/recovery-engine.js";
+import { detectFault, recordFaultTrace } from "../services/fault-detector.js";
+import { isCircuitOpen, recordSuccess, recordFailure } from "../services/health.js";
+import { getCapabilitySchema } from "@nooterra/types";
 
 dotenv.config();
 
@@ -20,6 +26,15 @@ function signPayload(body: string) {
 const PROTOCOL_FEE_BPS = Number(process.env.PROTOCOL_FEE_BPS || 30);
 const SYSTEM_PAYER = process.env.SYSTEM_PAYER || "did:noot:system";
 const COORD_RESULT_URL = process.env.COORD_URL || "http://localhost:3002";
+
+/**
+ * Get JSON schema for a capability's output
+ */
+function getCapabilityOutputSchema(capabilityId: string): Record<string, unknown> | null {
+  const schema = getCapabilitySchema(capabilityId);
+  if (!schema) return null;
+  return schema.output.jsonSchema as Record<string, unknown>;
+}
 
 /**
  * After an adapted call succeeds, check if dependent nodes are now ready
@@ -115,15 +130,42 @@ async function processOnce() {
     }
   }
 
-  // Timeout stale dispatched nodes
-  await pool.query(
-    `update task_nodes
-        set status = 'failed_timeout', updated_at = now()
-      where status = 'dispatched'
-        and deadline_at is not null
-        and deadline_at < now()
-        and finished_at is null`
+  // Timeout stale dispatched nodes and trigger payment failure
+  const timedOutNodes = await pool.query(
+    `SELECT tn.workflow_id, tn.name, tn.agent_did, w.payer_did
+     FROM task_nodes tn
+     JOIN workflows w ON w.id = tn.workflow_id
+     WHERE tn.status = 'dispatched'
+       AND tn.deadline_at IS NOT NULL
+       AND tn.deadline_at < NOW()
+       AND tn.finished_at IS NULL`
   );
+
+  for (const node of timedOutNodes.rows) {
+    try {
+      // Mark node as timed out
+      await pool.query(
+        `UPDATE task_nodes SET status = 'failed_timeout', updated_at = NOW()
+         WHERE workflow_id = $1 AND name = $2`,
+        [node.workflow_id, node.name]
+      );
+      
+      // Trigger payment failure handling (refund payer, update reputation)
+      if (node.agent_did) {
+        await handleNodeFailure(
+          node.workflow_id,
+          node.name,
+          node.agent_did,
+          node.payer_did,
+          "Timeout: node exceeded deadline"
+        );
+        console.log(`[dispatcher] timeout payment failure handled for node=${node.name} agent=${node.agent_did}`);
+      }
+    } catch (err: any) {
+      console.error(`[dispatcher] timeout handling error for node=${node.name}: ${err.message}`);
+    }
+  }
+
   // Remove any pending dispatches for timed-out nodes
   await pool.query(
     `delete from dispatch_queue dq
@@ -151,6 +193,81 @@ async function processOnce() {
 
   for (const job of rows) {
     const attempt = job.attempts ?? 0;
+    const capabilityId = job.payload?.capabilityId || "";
+    const bidAmount = job.payload?.bidAmount;
+    const agentDid = job.payload?.agentDid;
+
+    // Circuit breaker check: skip agents with open circuits (NOOT-008)
+    if (agentDid && isCircuitOpen(agentDid)) {
+      console.log(`[dispatcher] circuit open for agent=${agentDid}, skipping job=${job.id}`);
+      
+      // Attempt recovery with alternative agent
+      if (capabilityId) {
+        const recovery = await attemptRecovery(
+          job.workflow_id,
+          job.node_id,
+          agentDid,
+          "timeout", // Circuit breaker is essentially a pre-emptive timeout
+          capabilityId,
+          [agentDid]
+        );
+        
+        if (recovery.recovered) {
+          console.log(`[dispatcher] circuit breaker recovery succeeded for job=${job.id} with agent=${recovery.finalAgentDid}`);
+          await pool.query(`DELETE FROM dispatch_queue WHERE id = $1`, [job.id]);
+          continue;
+        }
+      }
+      
+      // No recovery possible, retry later after circuit reset
+      await pool.query(
+        `UPDATE dispatch_queue SET next_attempt = NOW() + INTERVAL '60 seconds' WHERE id = $1`,
+        [job.id]
+      );
+      continue;
+    }
+
+    // Budget pre-check: verify we can afford this node
+    const budgetCheck = await checkBudget(
+      job.workflow_id,
+      job.node_id,
+      capabilityId,
+      bidAmount
+    );
+
+    if (!budgetCheck.allowed) {
+      console.warn(`[dispatcher] budget check failed for job=${job.id}: ${budgetCheck.reason}`);
+      
+      // Mark node as failed due to budget
+      await pool.query(
+        `UPDATE task_nodes SET status = 'failed', updated_at = NOW(), finished_at = NOW()
+         WHERE workflow_id = $1 AND name = $2`,
+        [job.workflow_id, job.node_id]
+      );
+
+      // Update workflow status
+      await updateWorkflowStatus(job.workflow_id);
+      
+      // Remove from queue
+      await pool.query(`DELETE FROM dispatch_queue WHERE id = $1`, [job.id]);
+      continue;
+    }
+
+    // Reserve budget atomically
+    const priceCents = budgetCheck.requiredBudget || 0;
+    if (priceCents > 0) {
+      const reserved = await reserveBudget(job.workflow_id, job.node_id, priceCents);
+      if (!reserved) {
+        console.warn(`[dispatcher] budget reservation failed for job=${job.id}`);
+        // Retry next cycle
+        await pool.query(
+          `UPDATE dispatch_queue SET status = 'pending', next_attempt = NOW() + INTERVAL '5 seconds' WHERE id = $1`,
+          [job.id]
+        );
+        continue;
+      }
+    }
+
     const bodyString = JSON.stringify(job.payload);
     const signature = signPayload(bodyString);
     const headers: Record<string, string> = {
@@ -183,6 +300,39 @@ async function processOnce() {
         
         if (adapterResult.success) {
           console.log(`[dispatcher] adapter success job=${job.id} latency=${adapterResult.latency_ms}ms`);
+
+          // Validate output against capability schema using fault detector
+          const capSchema = getCapabilityOutputSchema(capabilityId);
+          if (capSchema) {
+            const faultResult = detectFault({
+              workflowId: job.workflow_id,
+              nodeName: job.node_id,
+              agentDid: job.payload?.agentDid || "",
+              capabilityId,
+              startedAt: new Date(Date.now() - (adapterResult.latency_ms || 0)),
+              finishedAt: new Date(),
+              deadlineAt: new Date(Date.now() + 60000), // Within deadline
+              output: adapterResult.result,
+              outputSchema: capSchema,
+            });
+
+            if (faultResult.hasFault && faultResult.faultType === "schema_violation") {
+              console.warn(`[dispatcher] output schema violation for job=${job.id}`);
+              await recordFaultTrace(
+                job.workflow_id,
+                job.node_id,
+                "schema_violation",
+                job.payload?.agentDid,
+                faultResult.evidence
+              );
+              // Release budget and treat as failure
+              await releaseBudget(job.workflow_id, job.node_id);
+              throw new Error(`Output schema violation: ${JSON.stringify(faultResult.evidence)}`);
+            }
+          }
+
+          // Confirm budget consumption
+          await confirmBudget(job.workflow_id, job.node_id, capabilityId);
           
           // Post result back to coordinator as if the agent responded
           const resultPayload = {
@@ -201,6 +351,21 @@ async function processOnce() {
              where workflow_id=$2 and name=$3`,
             [adapterResult.result, job.workflow_id, job.node_id]
           );
+
+          // Handle payment: release escrow, pay agent, update reputation
+          const agentDid = job.payload?.agentDid;
+          if (agentDid) {
+            // Record circuit breaker success
+            recordSuccess(agentDid);
+            
+            await handleNodeSuccess(
+              job.workflow_id,
+              job.node_id,
+              agentDid,
+              adapterResult.latency_ms
+            );
+            console.log(`[dispatcher] payment success handled for node=${job.node_id} agent=${agentDid}`);
+          }
           
           // Check if any dependent nodes can now be enqueued
           await triggerDependentNodes(job.workflow_id, job.node_id);
@@ -242,12 +407,86 @@ async function processOnce() {
       console.error(`[dispatcher] error job=${job.id} attempt=${attempt} err=${err?.message || err}`);
       const nextAttempt = attempt + 1;
       if (nextAttempt >= RETRY_BACKOFFS_MS.length) {
+        // Max retries exhausted - attempt recovery with alternative agent
+        const agentDid = job.payload?.agentDid;
+        const capabilityId = job.payload?.capabilityId || "";
+
+        // Record fault trace
+        await recordFaultTrace(
+          job.workflow_id,
+          job.node_id,
+          "error",
+          agentDid || null,
+          { error: String(err?.message || err), attempts: nextAttempt }
+        );
+
+        // Release reserved budget (refund to workflow)
+        await releaseBudget(job.workflow_id, job.node_id);
+
+        // Handle payment failure: refund payer, slash agent stake, update reputation
+        if (agentDid) {
+          // Record circuit breaker failure
+          recordFailure(agentDid);
+          
+          const wfRes = await pool.query(
+            `SELECT payer_did FROM workflows WHERE id = $1`,
+            [job.workflow_id]
+          );
+          const payerDid = wfRes.rows[0]?.payer_did;
+
+          await handleNodeFailure(
+            job.workflow_id,
+            job.node_id,
+            agentDid,
+            payerDid,
+            `Error after ${nextAttempt} attempts: ${err?.message || err}`
+          );
+          console.log(`[dispatcher] payment failure handled for node=${job.node_id} agent=${agentDid}`);
+        }
+
+        // Attempt recovery with alternative agent
+        if (agentDid && capabilityId) {
+          console.log(`[dispatcher] attempting recovery for node=${job.node_id}`);
+          const recovery = await attemptRecovery(
+            job.workflow_id,
+            job.node_id,
+            agentDid,
+            "error",
+            capabilityId,
+            [agentDid] // Exclude failed agent
+          );
+
+          if (recovery.recovered) {
+            console.log(`[dispatcher] recovery initiated for node=${job.node_id} with agent=${recovery.finalAgentDid}`);
+            // Don't update workflow status yet - recovery is in progress
+          } else {
+            console.log(`[dispatcher] recovery failed for node=${job.node_id}: ${recovery.finalStatus}`);
+            // Mark node as failed
+            await pool.query(
+              `UPDATE task_nodes SET status = 'failed', updated_at = NOW(), finished_at = NOW()
+               WHERE workflow_id = $1 AND name = $2`,
+              [job.workflow_id, job.node_id]
+            );
+            // Update workflow status
+            await updateWorkflowStatus(job.workflow_id);
+          }
+        } else {
+          // No agent or capability info - just mark as failed
+          await pool.query(
+            `UPDATE task_nodes SET status = 'failed', updated_at = NOW(), finished_at = NOW()
+             WHERE workflow_id = $1 AND name = $2`,
+            [job.workflow_id, job.node_id]
+          );
+          await updateWorkflowStatus(job.workflow_id);
+        }
+
+        // Move to DLQ for audit trail
         await pool.query(
-          `insert into dlq (task_id, target_url, event, payload, attempts, last_error)
-           values ($1, $2, $3, $4, $5, $6)`,
+          `INSERT INTO dlq (task_id, target_url, event, payload, attempts, last_error)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
           [job.task_id, job.target_url, job.event, job.payload, nextAttempt, String(err?.message || err)]
         );
-        await pool.query(`delete from dispatch_queue where id = $1`, [job.id]);
+        await pool.query(`DELETE FROM dispatch_queue WHERE id = $1`, [job.id]);
       } else {
         const delay = RETRY_BACKOFFS_MS[nextAttempt];
         await pool.query(

@@ -437,6 +437,375 @@ program
     console.log(chalk.gray('\nCheck your agent\'s hosting platform for logs.'));
   });
 
+// ============ WORKFLOW COMMANDS ============
+const workflow = program.command('workflow').description('Manage workflows');
+
+workflow
+  .command('create')
+  .description('Create a new workflow')
+  .option('-n, --name <name>', 'Workflow name')
+  .option('-b, --budget <cents>', 'Max budget in cents', '1000')
+  .option('-f, --file <path>', 'Workflow definition file (JSON)')
+  .action(async (options) => {
+    const config = await loadConfig();
+    if (!config.apiKey) {
+      console.log(chalk.red('Not authenticated. Run: nooterra wallet connect'));
+      return;
+    }
+
+    let workflowDef;
+    if (options.file) {
+      try {
+        const content = await fs.readFile(options.file, 'utf-8');
+        workflowDef = JSON.parse(content);
+      } catch (err: any) {
+        console.log(chalk.red(`Failed to read workflow file: ${err.message}`));
+        return;
+      }
+    } else {
+      const answers = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'name',
+          message: 'Workflow name:',
+          default: options.name || 'My Workflow',
+        },
+        {
+          type: 'input',
+          name: 'capability',
+          message: 'Capability to call:',
+          default: 'cap.llm.summarize.v1',
+        },
+      ]);
+      
+      workflowDef = {
+        name: answers.name,
+        max_cents: parseInt(options.budget),
+        graph: {
+          nodes: [
+            {
+              name: 'main',
+              capability: answers.capability,
+              inputs: { text: '{{trigger.text}}' }
+            }
+          ],
+          edges: []
+        }
+      };
+    }
+
+    const spinner = ora('Creating workflow...').start();
+    
+    try {
+      const res = await fetch(`${COORDINATOR_URL}/v1/workflows`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': config.apiKey,
+        },
+        body: JSON.stringify(workflowDef),
+      });
+
+      if (!res.ok) {
+        const err = await res.json() as any;
+        throw new Error(err.error || 'Failed to create workflow');
+      }
+
+      const result = await res.json() as any;
+      spinner.succeed(chalk.green('Workflow created!'));
+      
+      console.log(chalk.cyan('\n📋 Workflow Details:\n'));
+      console.log(chalk.white(`ID:     ${result.id}`));
+      console.log(chalk.white(`Name:   ${result.name}`));
+      console.log(chalk.white(`Budget: ${result.max_cents} cents`));
+      console.log(chalk.white(`Status: ${result.status}`));
+      
+    } catch (err: any) {
+      spinner.fail(chalk.red('Failed to create workflow'));
+      console.error(err.message);
+    }
+  });
+
+workflow
+  .command('list')
+  .description('List your workflows')
+  .option('-l, --limit <n>', 'Number of workflows', '10')
+  .action(async (options) => {
+    const config = await loadConfig();
+    if (!config.apiKey) {
+      console.log(chalk.red('Not authenticated. Run: nooterra wallet connect'));
+      return;
+    }
+
+    const spinner = ora('Fetching workflows...').start();
+    
+    try {
+      const res = await fetch(`${COORDINATOR_URL}/v1/workflows?limit=${options.limit}`, {
+        headers: { 'x-api-key': config.apiKey },
+      });
+
+      if (!res.ok) throw new Error('Failed to fetch workflows');
+
+      const workflows = await res.json() as any[];
+      spinner.stop();
+      
+      console.log(chalk.cyan('\n📋 Your Workflows\n'));
+      
+      if (workflows.length === 0) {
+        console.log(chalk.gray('  No workflows yet. Create one with: nooterra workflow create'));
+        return;
+      }
+
+      for (const wf of workflows) {
+        const statusIcon = wf.status === 'completed' ? '✅' : 
+                          wf.status === 'failed' ? '❌' : 
+                          wf.status === 'running' ? '🔄' : '⏸️';
+        console.log(chalk.white(`  ${statusIcon} ${wf.id.slice(0, 8)} - ${wf.name}`));
+        console.log(chalk.gray(`     Budget: ${wf.spent_cents || 0}/${wf.max_cents} cents | Status: ${wf.status}`));
+      }
+      
+    } catch (err: any) {
+      spinner.fail(chalk.red('Failed to list workflows'));
+      console.error(err.message);
+    }
+  });
+
+workflow
+  .command('status <id>')
+  .description('Get workflow status and budget')
+  .action(async (id) => {
+    const config = await loadConfig();
+    if (!config.apiKey) {
+      console.log(chalk.red('Not authenticated. Run: nooterra wallet connect'));
+      return;
+    }
+
+    const spinner = ora('Fetching workflow...').start();
+    
+    try {
+      const res = await fetch(`${COORDINATOR_URL}/v1/workflows/${id}`, {
+        headers: { 'x-api-key': config.apiKey },
+      });
+
+      if (!res.ok) throw new Error('Workflow not found');
+
+      const wf = await res.json() as any;
+      spinner.stop();
+      
+      console.log(chalk.cyan('\n📊 Workflow Status\n'));
+      console.log(chalk.white(`ID:       ${wf.id}`));
+      console.log(chalk.white(`Name:     ${wf.name}`));
+      console.log(chalk.white(`Status:   ${wf.status}`));
+      console.log(chalk.white(`Created:  ${new Date(wf.created_at).toLocaleString()}`));
+      
+      console.log(chalk.cyan('\n💰 Budget\n'));
+      const spent = wf.spent_cents || 0;
+      const max = wf.max_cents || 'Unlimited';
+      const available = typeof max === 'number' ? max - spent : 'Unlimited';
+      console.log(chalk.white(`Spent:     ${spent} cents`));
+      console.log(chalk.white(`Max:       ${max}${typeof max === 'number' ? ' cents' : ''}`));
+      console.log(chalk.white(`Available: ${available}${typeof available === 'number' ? ' cents' : ''}`));
+      
+      if (wf.nodes && wf.nodes.length > 0) {
+        console.log(chalk.cyan('\n🔗 Nodes\n'));
+        for (const node of wf.nodes) {
+          const icon = node.status === 'completed' ? '✅' : 
+                      node.status === 'failed' ? '❌' : '⏳';
+          console.log(chalk.white(`  ${icon} ${node.name} (${node.capability})`));
+        }
+      }
+      
+    } catch (err: any) {
+      spinner.fail(chalk.red('Failed to get workflow'));
+      console.error(err.message);
+    }
+  });
+
+workflow
+  .command('trigger <id>')
+  .description('Trigger a workflow')
+  .option('-d, --data <json>', 'Input data as JSON')
+  .action(async (id, options) => {
+    const config = await loadConfig();
+    if (!config.apiKey) {
+      console.log(chalk.red('Not authenticated. Run: nooterra wallet connect'));
+      return;
+    }
+
+    let inputData = {};
+    if (options.data) {
+      try {
+        inputData = JSON.parse(options.data);
+      } catch {
+        console.log(chalk.red('Invalid JSON data'));
+        return;
+      }
+    }
+
+    const spinner = ora('Triggering workflow...').start();
+    
+    try {
+      const res = await fetch(`${COORDINATOR_URL}/v1/workflows/${id}/trigger`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': config.apiKey,
+        },
+        body: JSON.stringify({ inputs: inputData }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json() as any;
+        throw new Error(err.error || 'Failed to trigger');
+      }
+
+      const result = await res.json() as any;
+      spinner.succeed(chalk.green('Workflow triggered!'));
+      console.log(chalk.gray(`Execution ID: ${result.executionId || result.id}`));
+      
+    } catch (err: any) {
+      spinner.fail(chalk.red('Failed to trigger workflow'));
+      console.error(err.message);
+    }
+  });
+
+// ============ METRICS COMMAND ============
+program
+  .command('metrics')
+  .description('View network metrics')
+  .option('-f, --format <format>', 'Output format: table, json, prometheus', 'table')
+  .action(async (options) => {
+    const spinner = ora('Fetching metrics...').start();
+    
+    try {
+      const endpoint = options.format === 'prometheus' 
+        ? `${COORDINATOR_URL}/v1/metrics/prometheus`
+        : `${COORDINATOR_URL}/v1/metrics`;
+      
+      const res = await fetch(endpoint);
+      if (!res.ok) throw new Error('Failed to fetch metrics');
+
+      spinner.stop();
+
+      if (options.format === 'prometheus') {
+        const text = await res.text();
+        console.log(text);
+        return;
+      }
+
+      if (options.format === 'json') {
+        const data = await res.json();
+        console.log(JSON.stringify(data, null, 2));
+        return;
+      }
+
+      // Table format
+      const data = await res.json() as any;
+      
+      console.log(chalk.cyan('\n📊 Nooterra Metrics\n'));
+      
+      if (data.counters) {
+        console.log(chalk.yellow('Counters:'));
+        for (const [name, counter] of Object.entries(data.counters) as any) {
+          console.log(chalk.white(`  ${counter.name}:`));
+          for (const [labels, value] of Object.entries(counter.values || {})) {
+            console.log(chalk.gray(`    {${labels}} = ${value}`));
+          }
+        }
+      }
+      
+      if (data.histograms) {
+        console.log(chalk.yellow('\nHistograms:'));
+        for (const [name, hist] of Object.entries(data.histograms) as any) {
+          console.log(chalk.white(`  ${hist.name}:`));
+          for (const [labels, summary] of Object.entries(hist.summaries || {}) as any) {
+            console.log(chalk.gray(`    {${labels}} count=${summary.count} avg=${summary.avg?.toFixed(3)}`));
+          }
+        }
+      }
+      
+    } catch (err: any) {
+      spinner.fail(chalk.red('Failed to fetch metrics'));
+      console.error(err.message);
+    }
+  });
+
+// ============ AGENTS COMMAND ============
+const agents = program.command('agents').description('Discover agents on the network');
+
+agents
+  .command('list')
+  .description('List available agents')
+  .option('-c, --capability <id>', 'Filter by capability')
+  .option('-l, --limit <n>', 'Number of agents', '20')
+  .action(async (options) => {
+    const spinner = ora('Fetching agents...').start();
+    
+    try {
+      let url = `${REGISTRY_URL}/v1/agents?limit=${options.limit}`;
+      if (options.capability) {
+        url += `&capability=${encodeURIComponent(options.capability)}`;
+      }
+      
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Failed to fetch agents');
+
+      const agents = await res.json() as any[];
+      spinner.stop();
+      
+      console.log(chalk.cyan('\n🤖 Available Agents\n'));
+      
+      if (agents.length === 0) {
+        console.log(chalk.gray('  No agents found.'));
+        return;
+      }
+
+      for (const agent of agents) {
+        const healthIcon = agent.health_status === 'healthy' ? '🟢' : 
+                          agent.health_status === 'degraded' ? '🟡' : '🔴';
+        console.log(chalk.white(`  ${healthIcon} ${agent.did.slice(0, 24)}...`));
+        if (agent.capabilities) {
+          for (const cap of agent.capabilities.slice(0, 3)) {
+            console.log(chalk.gray(`      ${cap.capability_id} - ${cap.price_cents} cents`));
+          }
+          if (agent.capabilities.length > 3) {
+            console.log(chalk.gray(`      ... and ${agent.capabilities.length - 3} more`));
+          }
+        }
+      }
+      
+    } catch (err: any) {
+      spinner.fail(chalk.red('Failed to list agents'));
+      console.error(err.message);
+    }
+  });
+
+agents
+  .command('health <did>')
+  .description('Check agent health status')
+  .action(async (did) => {
+    const spinner = ora('Checking health...').start();
+    
+    try {
+      const res = await fetch(`${COORDINATOR_URL}/v1/agents/${encodeURIComponent(did)}/health`);
+      if (!res.ok) throw new Error('Agent not found');
+
+      const health = await res.json() as any;
+      spinner.stop();
+      
+      console.log(chalk.cyan('\n🏥 Agent Health\n'));
+      console.log(chalk.white(`DID:            ${did}`));
+      console.log(chalk.white(`Status:         ${health.status}`));
+      console.log(chalk.white(`Circuit Open:   ${health.circuitOpen ? 'Yes ⚠️' : 'No ✅'}`));
+      console.log(chalk.white(`Success Rate:   ${((health.successRate || 0) * 100).toFixed(1)}%`));
+      console.log(chalk.white(`Avg Latency:    ${health.avgLatencyMs || 0}ms`));
+      
+    } catch (err: any) {
+      spinner.fail(chalk.red('Failed to check health'));
+      console.error(err.message);
+    }
+  });
+
 // ============ TEMPLATE GENERATORS ============
 
 async function generatePythonTemplate(dir: string, config: any) {

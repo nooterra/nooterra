@@ -493,6 +493,43 @@ export const agentStakes = pgTable("agent_stakes", {
 });
 
 // ============================================================================
+// Budget Reservations (Pre-dispatch budget locking)
+// ============================================================================
+
+export const budgetReservations = pgTable("budget_reservations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workflowId: uuid("workflow_id").references(() => workflows.id, { onDelete: "cascade" }).notNull(),
+  nodeName: text("node_name").notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  status: text("status").notNull().default("reserved"), // 'reserved' | 'consumed' | 'released'
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  workflowNodeIdx: uniqueIndex("budget_reservations_workflow_node_idx").on(table.workflowId, table.nodeName),
+  statusIdx: index("budget_reservations_status_idx").on(table.status),
+}));
+
+// ============================================================================
+// Fault Traces (Blame attribution for failed nodes)
+// ============================================================================
+
+export const faultTraces = pgTable("fault_traces", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workflowId: uuid("workflow_id").references(() => workflows.id, { onDelete: "cascade" }).notNull(),
+  nodeName: text("node_name").notNull(),
+  faultType: text("fault_type").notNull(), // 'timeout' | 'error' | 'schema_violation' | 'upstream_fault'
+  blamedDid: text("blamed_did"), // The agent DID at fault (null if requester fault)
+  evidence: jsonb("evidence").default({}).notNull(), // Schema errors, timing data, etc.
+  refundAmount: numeric("refund_amount", { precision: 18, scale: 8 }),
+  refundedTo: text("refunded_to"), // DID that received the refund
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  workflowIdx: index("fault_traces_workflow_idx").on(table.workflowId),
+  blamedIdx: index("fault_traces_blamed_idx").on(table.blamedDid),
+  faultTypeIdx: index("fault_traces_type_idx").on(table.faultType),
+}));
+
+// ============================================================================
 // Agent Reputation v2 (Multi-dimensional)
 // ============================================================================
 
@@ -509,6 +546,8 @@ export const agentReputation = pgTable("agent_reputation", {
   failedTasks: integer("failed_tasks").default(0).notNull(),
   timedOutTasks: integer("timed_out_tasks").default(0).notNull(),
   capabilityScores: jsonb("capability_scores").default({}).notNull(), // { "text-gen": { attempts: 10, successes: 9, avgQuality: 0.85 } }
+  capabilityPercentiles: jsonb("capability_percentiles").default({}).notNull(), // { "text-gen": 0.85 } - percentile rank per capability
+  overallPercentile: numeric("overall_percentile", { precision: 5, scale: 4 }).default("0.5").notNull(), // Global percentile rank
   endorsements: text("endorsements").array().default([]).notNull(),   // DIDs of endorsers
   lastUpdated: timestamp("last_updated", { withTimezone: true }).defaultNow().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -582,3 +621,9 @@ export type NewWorkflowTemplate = typeof workflowTemplates.$inferInsert;
 export type AgentStake = typeof agentStakes.$inferSelect;
 export type AgentReputationRecord = typeof agentReputation.$inferSelect;
 export type Endorsement = typeof endorsements.$inferSelect;
+
+export type BudgetReservation = typeof budgetReservations.$inferSelect;
+export type NewBudgetReservation = typeof budgetReservations.$inferInsert;
+
+export type FaultTrace = typeof faultTraces.$inferSelect;
+export type NewFaultTrace = typeof faultTraces.$inferInsert;

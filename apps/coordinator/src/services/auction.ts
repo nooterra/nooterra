@@ -10,15 +10,19 @@
  * 5. Dispatches to winner
  * 6. On completion: release escrow, update reputation
  * 7. On failure: slash stake, update reputation
+ * 
+ * NOOT-003: Auctions enabled by default as of Sprint 5
+ * NOOT-011: Policy enforcement integrated for agent eligibility
  */
 
 import { pool } from "../db.js";
+import { getPolicyForWorkflow, checkAgentEligibility, PolicyRules } from "./policy.js";
 
 // Configuration
-const AUCTION_TIMEOUT_MS = parseInt(process.env.AUCTION_TIMEOUT_MS || "30000"); // 30 seconds
+const AUCTION_TIMEOUT_MS = parseInt(process.env.AUCTION_TIMEOUT_MS || "10000"); // 10 seconds (reduced for responsiveness)
 const MIN_BIDS_FOR_CLOSE = parseInt(process.env.MIN_BIDS_FOR_CLOSE || "1");
 const AUTO_SELECT_IF_SINGLE_BID = process.env.AUTO_SELECT_IF_SINGLE_BID !== "false";
-const ENABLE_AUCTIONS = process.env.ENABLE_AUCTIONS === "true";
+const ENABLE_AUCTIONS = process.env.ENABLE_AUCTIONS !== "false"; // Now enabled by default!
 const PROTOCOL_FEE_PERCENT = parseInt(process.env.PROTOCOL_SLASH_FEE_PERCENT || "10");
 
 /**
@@ -530,12 +534,20 @@ async function updateReputation(
 
 /**
  * Fall back to simple agent selection when auctions are disabled
- * or no bids received
+ * or no bids received. Applies policy filtering if workflowId provided.
  */
 export async function selectAgentByCapability(
-  capability: string
+  capability: string,
+  workflowId?: string,
+  excludeAgents: string[] = []
 ): Promise<{ agentDid: string; endpoint: string } | null> {
-  // Select best available agent by reputation
+  // Get policy rules if workflow specified
+  let policyRules: PolicyRules | null = null;
+  if (workflowId) {
+    policyRules = await getPolicyForWorkflow(workflowId);
+  }
+
+  // Select available agents by reputation
   const res = await pool.query(
     `SELECT a.did, a.endpoint, COALESCE(r.overall_score, 0.5) as score
      FROM agents a
@@ -543,17 +555,29 @@ export async function selectAgentByCapability(
      WHERE $1 = ANY(a.capabilities) 
        AND a.is_active = true 
        AND a.health_status != 'unhealthy'
+       AND NOT (a.did = ANY($2))
      ORDER BY score DESC, a.last_heartbeat DESC
-     LIMIT 1`,
-    [capability]
+     LIMIT 10`,
+    [capability, excludeAgents]
   );
 
   if (!res.rowCount) {
     return null;
   }
 
-  return {
-    agentDid: res.rows[0].did,
-    endpoint: res.rows[0].endpoint,
-  };
+  // Apply policy filtering to candidates
+  for (const row of res.rows) {
+    const eligibility = await checkAgentEligibility(row.did, capability, policyRules);
+    if (eligibility.eligible) {
+      return {
+        agentDid: row.did,
+        endpoint: row.endpoint,
+      };
+    }
+    // Log why agent was skipped
+    console.log(`[auction] Agent ${row.did} skipped: ${eligibility.reasons.join(", ")}`);
+  }
+
+  // No eligible agents found
+  return null;
 }

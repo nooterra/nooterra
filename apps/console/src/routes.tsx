@@ -6,6 +6,7 @@ import Home from "./views/Home";
 import Explore from "./views/Explore";
 import Marketplace from "./views/Marketplace";
 import NetworkDashboard from "./views/NetworkDashboard";
+import MetricsDashboard from "./views/MetricsDashboard";
 
 // Auth pages
 import Login from "./views/auth/Login";
@@ -58,6 +59,7 @@ export const AppRoutes = () => (
     <Route path="/playground" element={<Playground />} />
     <Route path="/try" element={<Playground />} />
     <Route path="/network" element={<NetworkDashboard />} />
+    <Route path="/metrics" element={<MetricsDashboard />} />
     
     {/* Auth routes */}
     <Route path="/login" element={<Login />} />

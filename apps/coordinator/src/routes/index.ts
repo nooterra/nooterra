@@ -25,7 +25,9 @@ import { registerMemoryRoutes } from "./memory.js";
 import { registerStreamingRoutes } from "./streaming.js";
 import { registerHealthRoutes } from "./health.js";
 import { typesRoutes } from "./types.js";
-
+// DEPRECATED: Dispute system removed - replaced by objective fault detection (Sprint 5)
+// import { registerDisputeRoutes } from "./disputes.js";
+import { registerMetricsRoutes } from "./metrics.js";
 // Re-export individual route registrations for selective use
 export {
   registerAuthRoutes,
@@ -46,6 +48,8 @@ export {
   registerHealthRoutes,
   // Sprint 4: Type System exports
   typesRoutes,
+  // DEPRECATED: Dispute system removed
+  // registerDisputeRoutes,
 };
 
 /**
@@ -195,6 +199,16 @@ export interface RouteGuards {
  *    - POST /v1/compatibility/check
  *    - POST /v1/compatibility/validate-dag
  *    - GET /v1/agents/:agentId/violations
+ * 
+ * ✅ Dispute routes (disputes.ts) - COMPLETE (Sprint 4)
+ *    - POST /v1/disputes
+ *    - GET /v1/disputes/:disputeId
+ *    - POST /v1/disputes/:disputeId/evidence
+ *    - GET /v1/disputes
+ *    - POST /v1/disputes/:disputeId/appeal
+ *    - POST /v1/admin/disputes/:disputeId/resolve
+ *    - GET /v1/admin/disputes/open
+ *    - POST /v1/admin/disputes/process-expired
  */
 
 /**
@@ -229,6 +243,13 @@ export async function registerAllRoutes(
   
   // Sprint 4: Type System routes (public, no auth needed for reading schemas)
   await app.register(typesRoutes, { prefix: "/v1" });
+  
+  // DEPRECATED: Dispute system removed - replaced by objective fault detection
+  // Sprint 4: Dispute Resolution routes were here
+  // await registerDisputeRoutes(app, guards);
+  
+  // Sprint 5: Observability metrics (public, no auth)
+  await registerMetricsRoutes(app);
   
   app.log.info("All route modules registered successfully");
 }
