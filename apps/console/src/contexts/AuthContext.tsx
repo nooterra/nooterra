@@ -21,6 +21,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   signIn: () => Promise<void>;
   signOut: () => void;
+  logout: () => void; // Alias for signOut
   updateRole: (role: User['role']) => Promise<void>;
 }
 
@@ -101,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       
       // 2. Create and sign SIWE message
       const message = createSiweMessage(address, chainId, nonce);
-      const signature = await signMessageAsync({ message });
+      const signature = await signMessageAsync({ account: address, message });
       
       // 3. Verify signature with server
       const verifyRes = await fetch(`${COORD_URL}/v1/auth/verify`, {
@@ -171,6 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isAuthenticated: !!user,
         signIn,
         signOut,
+        logout: signOut, // Alias for signOut
         updateRole,
       }}
     >

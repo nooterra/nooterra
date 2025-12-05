@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { ArrowRight } from "lucide-react";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -39,8 +39,19 @@ export const Button = ({
       "glass-panel text-secondary hover:text-primary hover:border-primary/30 bg-white/5 backdrop-blur border border-white/10 hover:scale-[1.01]",
   };
 
+  const isExternal = href.startsWith('http');
+  
+  if (isExternal) {
+    return (
+      <a href={href} className={cn(base, styles[variant])} target="_blank" rel="noopener noreferrer">
+        {children}
+        <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+      </a>
+    );
+  }
+  
   return (
-    <Link href={href} className={cn(base, styles[variant])}>
+    <Link to={href} className={cn(base, styles[variant])}>
       {children}
       <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
     </Link>

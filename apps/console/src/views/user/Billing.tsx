@@ -182,6 +182,8 @@ export default function Billing() {
 
     try {
       writeContract({
+        account: address,
+        chain: polygon,
         address: usdcAddress,
         abi: ERC20_ABI,
         functionName: "transfer",

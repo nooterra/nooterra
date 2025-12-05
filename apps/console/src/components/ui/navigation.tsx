@@ -1,8 +1,5 @@
-"use client";
-
-import Link from "next/link";
+import { Link, useLocation } from "react-router-dom";
 import { cn } from "./atoms";
-import { usePathname } from "next/navigation";
 
 const navItems = [
   { href: "/", label: "Home" },
@@ -14,7 +11,7 @@ const navItems = [
 ];
 
 export function GlassNav() {
-  const pathname = usePathname();
+  const { pathname } = useLocation();
   return (
     <nav className="fixed top-4 inset-x-0 z-50 flex justify-center">
       <div className="glass-panel border border-white/10 backdrop-blur-xl bg-white/5 rounded-full px-4 py-2 shadow-[0_20px_60px_rgba(0,0,0,0.35)] flex items-center gap-2">
@@ -35,7 +32,7 @@ export function GlassNav() {
               {content}
             </a>
           ) : (
-            <Link key={item.href} href={item.href} className="no-underline">
+            <Link key={item.href} to={item.href} className="no-underline">
               {content}
             </Link>
           );

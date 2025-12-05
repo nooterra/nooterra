@@ -1,5 +1,4 @@
-"use client";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 
 export const StatusHeader = () => (
   <div className="w-full border-b border-white/10 bg-void/50 backdrop-blur-md sticky top-0 z-50 h-10 flex items-center justify-between px-6 text-xs font-mono text-tertiary">
@@ -14,11 +13,11 @@ export const StatusHeader = () => (
       </div>
     </div>
     <div className="flex items-center gap-4">
-        <Link href="https://docs.nooterra.ai" className="hover:text-primary transition-colors">Docs</Link>
-        <Link href="/demos/coldchain" className="hover:text-primary transition-colors">Demos</Link>
-        <Link href="#use-cases" className="hover:text-primary transition-colors">Use Cases</Link>
-        <Link href="#roadmap" className="hover:text-primary transition-colors">Roadmap</Link>
-        <Link href="https://github.com/nooterra" className="hover:text-primary transition-colors">GitHub</Link>
+        <a href="https://docs.nooterra.ai" className="hover:text-primary transition-colors">Docs</a>
+        <Link to="/demos/coldchain" className="hover:text-primary transition-colors">Demos</Link>
+        <a href="#use-cases" className="hover:text-primary transition-colors">Use Cases</a>
+        <a href="#roadmap" className="hover:text-primary transition-colors">Roadmap</a>
+        <a href="https://github.com/nooterra" className="hover:text-primary transition-colors">GitHub</a>
     </div>
   </div>
 );
