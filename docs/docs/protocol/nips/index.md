@@ -30,22 +30,40 @@ NIPs follow the convention established by [BIPs](https://github.com/bitcoin/bips
 
 ## NIP Index
 
-### Core Protocol
+### Core Specifications (v0.4)
 
 | NIP | Title | Status | Description |
 |-----|-------|--------|-------------|
-| [NIP-0001](NIP-0001.md) | Packet Structure | Final | The `/nooterra/node` dispatch contract |
+| [NIP-0001](NIP-0001-core-spec.md) | **Core Specification** | Draft | A2A-compatible superset with Identity Trinity, Profiles 0-6, and full protocol layers |
+| [NIP-0002](NIP-0002-receipt-envelope.md) | **Receipt Envelope** | Draft | COSE/JOSE portable trust primitives for task verification and settlement |
 
-### Negotiation & Economics
+### Legacy Specifications (being consolidated)
 
 | NIP | Title | Status | Description |
 |-----|-------|--------|-------------|
-| [NIP-0010](NIP-0010.md) | Negotiation Protocol | Final | Vickrey auction bidding system |
+| NIP-0010 | Negotiation Protocol | Final | Vickrey auction bidding system (→ NIP-0001 §6.2) |
 | NIP-0011 | Scheduling Protocol | Draft | Resource reservation |
-| NIP-0012 | Liability Logging | Draft | Signed audit trails |
-| [NIP-0030](NIP-0030.md) | Economics & Settlement | Final | NCR ledger, escrow, and fees |
+| NIP-0012 | Liability Logging | Draft | Signed audit trails (→ NIP-0002) |
+| NIP-0020 | Identity (ACARD) | Final | Agent Card specification (→ NIP-0001 §3) |
+| NIP-0030 | Economics & Settlement | Final | NCR ledger, escrow, and fees (→ NIP-0001 §6) |
 
-### Trust & Identity
+### Profiles
+
+The Core Specification (NIP-0001) defines seven compliance profiles:
+
+| Profile | Name | A2A Equivalent | Description |
+|---------|------|----------------|-------------|
+| 0 | A2A Core | ✅ Baseline | Full A2A v0.3.0 compatibility |
+| 1 | Rich Content | + Artifacts | MIME-typed parts, streaming |
+| 2 | Economic | - | Escrow, settlements, basic receipts |
+| 3 | Verified | - | Signed results, replay protection |
+| 4 | Federated | - | Cross-coordinator, policy sync |
+| 5 | Planetary/P2P | - | DID auth, decentralized discovery |
+| 6 | High-Value/Attested | - | Hardware attestation, TEE support |
+
+---
+
+## Trust & Identity
 
 | NIP | Title | Status | Description |
 |-----|-------|--------|-------------|

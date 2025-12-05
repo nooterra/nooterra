@@ -7,6 +7,28 @@ export interface ACARDCapability {
   inputSchema?: any;
   outputSchema?: any;
   embeddingDim?: number | null;
+  pricingCents?: number;
+}
+
+/**
+ * Profile declaration indicating compliance level (NIP-0001)
+ */
+export interface ProfileDeclaration {
+  profile: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  version: string;
+  certified?: boolean;
+  certificationUrl?: string;
+}
+
+/**
+ * Economic configuration for the agent
+ */
+export interface EconomicsConfig {
+  acceptsEscrow: boolean;
+  minBidCents?: number;
+  maxBidCents?: number;
+  supportedCurrencies?: string[];
+  settlementMethods?: ("instant" | "batched" | "l2")[];
 }
 
 export interface ACARD {
@@ -17,6 +39,15 @@ export interface ACARD {
   lineage?: string | null;
   capabilities: ACARDCapability[];
   metadata?: Record<string, any> | null;
+  
+  // v0.4 extensions
+  profiles?: ProfileDeclaration[];
+  economics?: EconomicsConfig;
+  a2aVersion?: string;
+  name?: string;
+  description?: string;
+  supportsStreaming?: boolean;
+  supportsPushNotifications?: boolean;
 }
 
 function canonicalize(card: ACARD): string {
@@ -33,8 +64,17 @@ function canonicalize(card: ACARD): string {
       inputSchema: c.inputSchema ?? null,
       outputSchema: c.outputSchema ?? null,
       embeddingDim: c.embeddingDim ?? null,
+      pricingCents: c.pricingCents ?? null,
     })),
     metadata: card.metadata ?? null,
+    // v0.4 extensions (sorted alphabetically)
+    a2aVersion: card.a2aVersion ?? null,
+    description: card.description ?? null,
+    economics: card.economics ?? null,
+    name: card.name ?? null,
+    profiles: card.profiles ?? null,
+    supportsPushNotifications: card.supportsPushNotifications ?? null,
+    supportsStreaming: card.supportsStreaming ?? null,
   };
   return JSON.stringify(ordered);
 }
@@ -54,3 +94,4 @@ export function normalizeEndpoint(url: string | null | undefined): string | null
   if (!url) return null;
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
+

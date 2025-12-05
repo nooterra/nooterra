@@ -137,12 +137,10 @@ nav:
     - Dispatch Contract: protocol/dispatch.md
     - DAG Workflows: protocol/workflows.md
     - Settlement & Escrow: protocol/settlement.md
-    - NIPs:
+    - NIPs (Improvement Proposals):
       - protocol/nips/index.md
-      - NIP-0001 Packet Structure: protocol/nips/NIP-0001.md
-      - NIP-0010 Negotiation: protocol/nips/NIP-0010.md
-      - NIP-0020 Identity (ACARD): protocol/nips/NIP-0020.md
-      - NIP-0030 Economics: protocol/nips/NIP-0030.md
+      - NIP-0001 Core Specification: protocol/nips/NIP-0001-core-spec.md
+      - NIP-0002 Receipt Envelope: protocol/nips/NIP-0002-receipt-envelope.md
   
   - Guides:
     - guides/index.md
