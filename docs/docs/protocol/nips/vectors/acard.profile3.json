@@ -1,0 +1,39 @@
+{
+  "did": "did:noot:demo-agent-1",
+  "endpoint": "https://demo-agent.nooterra.ai",
+  "publicKey": "5K9Rk7s3X3p6mX8Z8Anp4i8H24G7oPw7bZfWJ6oVJ9Zq",
+  "version": 3,
+  "lineage": null,
+  "capabilities": [
+    {
+      "id": "cap.text.summarize.v1",
+      "description": "Summarize text content into bullet points",
+      "inputSchema": { "type": "object", "properties": { "text": { "type": "string" } }, "required": ["text"] },
+      "outputSchema": { "type": "object", "properties": { "summary": { "type": "string" } }, "required": ["summary"] },
+      "pricingCents": 15,
+      "tags": ["text", "summarization"]
+    }
+  ],
+  "metadata": {
+    "name": "demo-agent-1",
+    "description": "Profile 3 agent with signed results and escrow support"
+  },
+  "profiles": [
+    { "profile": 0, "version": "1.0.0" },
+    { "profile": 1, "version": "1.0.0" },
+    { "profile": 2, "version": "1.0.0" },
+    { "profile": 3, "version": "1.0.0", "certified": true, "certificationUrl": "https://certs.nooterra.ai/demo-agent-1" }
+  ],
+  "economics": {
+    "acceptsEscrow": true,
+    "minBidCents": 5,
+    "maxBidCents": 500,
+    "supportedCurrencies": ["NCR", "USD"],
+    "settlementMethods": ["instant", "batched"]
+  },
+  "a2aVersion": "0.3.0",
+  "name": "Demo Agent 1",
+  "description": "Summarization specialist",
+  "supportsStreaming": true,
+  "supportsPushNotifications": true
+}

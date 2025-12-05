@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { pool, migrate } from "../db.js";
 import { callExternalAgent, detectAdapter } from "../adapters/index.js";
 import { handleNodeSuccess, handleNodeFailure } from "../services/auction.js";
+import { storeReceipt } from "../services/receipt.js";
 import { checkBudget, reserveBudget, releaseBudget, confirmBudget } from "../services/budget-guard.js";
 import { attemptRecovery } from "../services/recovery-engine.js";
 import { detectFault, recordFaultTrace } from "../services/fault-detector.js";
@@ -352,8 +353,21 @@ async function processOnce() {
             [adapterResult.result, job.workflow_id, job.node_id]
           );
 
-          // Handle payment: release escrow, pay agent, update reputation
           const agentDid = job.payload?.agentDid;
+
+          // Generate receipt (best-effort)
+          await storeReceipt({
+            workflowId: job.workflow_id,
+            nodeName: job.node_id,
+            agentDid,
+            capabilityId,
+            output: adapterResult.result,
+            input: job.payload?.inputs || job.payload?.payload || {},
+            creditsEarned: budgetCheck.requiredBudget || 0,
+            profile: 3,
+          });
+
+          // Handle payment: release escrow, pay agent, update reputation
           if (agentDid) {
             // Record circuit breaker success
             recordSuccess(agentDid);
@@ -396,6 +410,16 @@ async function processOnce() {
              where workflow_id=$2 and name=$3`,
             [{ verified: true, payload: job.payload || null }, job.workflow_id, job.node_id]
           );
+          await storeReceipt({
+            workflowId: job.workflow_id,
+            nodeName: job.node_id,
+            agentDid,
+            capabilityId,
+            output: { verified: true, payload: job.payload || null },
+            input: job.payload?.inputs || job.payload?.payload || {},
+            creditsEarned: budgetCheck.requiredBudget || 0,
+            profile: 3,
+          });
           await pool.query(`delete from dispatch_queue where id = $1`, [job.id]);
           continue;
         }
@@ -403,6 +427,18 @@ async function processOnce() {
       }
       console.log(`[dispatcher] success job=${job.id} status=${res.status}`);
       await pool.query(`delete from dispatch_queue where id = $1`, [job.id]);
+
+      // Receipt generation for native agent success
+      await storeReceipt({
+        workflowId: job.workflow_id,
+        nodeName: job.node_id,
+        agentDid,
+        capabilityId,
+        output: await res.json().catch(() => null),
+        input: job.payload?.inputs || job.payload?.payload || {},
+        creditsEarned: budgetCheck.requiredBudget || 0,
+        profile: 3,
+      });
     } catch (err: any) {
       console.error(`[dispatcher] error job=${job.id} attempt=${attempt} err=${err?.message || err}`);
       const nextAttempt = attempt + 1;

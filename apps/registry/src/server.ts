@@ -19,6 +19,23 @@ const REP_WEIGHT = Number(process.env.SEARCH_WEIGHT_REP || 0.25);
 const AVAIL_WEIGHT = Number(process.env.SEARCH_WEIGHT_AVAIL || 0.2);
 const HEARTBEAT_TTL_MS = Number(process.env.HEARTBEAT_TTL_MS || 60_000);
 const MIN_REP_DISCOVER = Number(process.env.MIN_REP_DISCOVER || 0);
+const REGION_ENUM = ["us-west", "us-east", "eu-west", "eu-central", "ap-south", "ap-northeast"] as const;
+
+function stableStringify(obj: any): string {
+  if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
+  if (Array.isArray(obj)) return `[${obj.map((v) => stableStringify(v)).join(",")}]`;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+}
+
+async function bumpRegistryState() {
+  await pool.query(`update registry_state set state_version = state_version + 1, updated_at = now() where id = 1`);
+}
+
+async function getRegistryStateVersion(): Promise<number> {
+  const res = await pool.query(`select state_version from registry_state where id = 1`);
+  return res.rows?.[0]?.state_version ?? 0;
+}
 
 function capabilityText(capabilityId: string, description?: string | null, outputSchema?: any, tags?: string[]) {
   const schemaStr =
@@ -71,6 +88,9 @@ const capabilitySchema = z.object({
   tags: z.array(z.string().max(64)).max(10).optional(),
   input_schema: z.any().optional(),
   output_schema: z.any().optional(),
+  price_cents: z.number().int().positive().max(1_000_000).optional(),
+  pricingCents: z.number().int().positive().max(1_000_000).optional(),
+  priceCredits: z.number().min(0).max(1_000_000).optional(),
 });
 
 const acardCapabilitySchema = z.object({
@@ -79,6 +99,33 @@ const acardCapabilitySchema = z.object({
   inputSchema: z.any().optional(),
   outputSchema: z.any().optional(),
   embeddingDim: z.number().optional().nullable(),
+  pricingCents: z.number().int().positive().max(1_000_000).optional().nullable(),
+  tags: z.array(z.string().max(64)).max(10).optional(),
+});
+
+const profileSchema = z.object({
+  profile: z.union([
+    z.literal(0),
+    z.literal(1),
+    z.literal(2),
+    z.literal(3),
+    z.literal(4),
+    z.literal(5),
+    z.literal(6),
+  ]),
+  version: z.string().min(1),
+  certified: z.boolean().optional(),
+  certificationUrl: z.string().url().optional(),
+});
+
+const economicsSchema = z.object({
+  acceptsEscrow: z.boolean(),
+  minBidCents: z.number().int().nonnegative().optional(),
+  maxBidCents: z.number().int().positive().optional(),
+  supportedCurrencies: z.array(z.string()).optional(),
+  settlementMethods: z
+    .array(z.enum(["instant", "batched", "l2"]))
+    .optional(),
 });
 
 const acardSchema = z.object({
@@ -89,6 +136,25 @@ const acardSchema = z.object({
   lineage: z.string().nullable().optional(),
   capabilities: z.array(acardCapabilitySchema).min(1),
   metadata: z.record(z.any()).nullable().optional(),
+  profiles: z.array(profileSchema).max(10).optional(),
+  economics: economicsSchema.optional(),
+  a2aVersion: z.string().optional(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  supportsStreaming: z.boolean().optional(),
+  supportsPushNotifications: z.boolean().optional(),
+});
+
+const federationPeerSchema = z.object({
+  peerId: z.string().uuid(),
+  endpoint: z.string().url(),
+  region: z.enum(REGION_ENUM),
+  publicKey: z.string().min(1),
+  capabilities: z.array(z.string()).optional(),
+});
+
+const federationSyncSchema = z.object({
+  peerId: z.string().uuid().optional(),
 });
 
 const registerSchema = z.object({
@@ -155,13 +221,26 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
   const { did, name, endpoint, walletAddress, capabilities, acard, acard_signature } = parse.data;
 
   // Normalize capability ids and schemas
-  const normalizedCaps = capabilities.map((cap) => ({
-    capabilityId: cap.capabilityId || (cap as any).capability_id || randomUUID(),
-    description: cap.description,
-    tags: cap.tags || [],
-    input_schema: cap.input_schema,
-    output_schema: cap.output_schema,
-  }));
+  const normalizedCaps = capabilities.map((cap) => {
+    const priceCredits = (cap as any).priceCredits;
+    let priceCents =
+      (cap as any).price_cents ??
+      (cap as any).pricingCents ??
+      null;
+    if (priceCents == null && priceCredits != null) {
+      // 1 credit = $0.001 = 0.1 cents
+      priceCents = Math.round(Number(priceCredits) * 0.1);
+    }
+
+    return {
+      capabilityId: cap.capabilityId || (cap as any).capability_id || randomUUID(),
+      description: cap.description,
+      tags: cap.tags || [],
+      input_schema: cap.input_schema,
+      output_schema: cap.output_schema,
+      price_cents: priceCents ?? undefined,
+    };
+  });
 
   // ACARD validation (optional but must verify if provided)
   let endpointToPersist = normalizeEndpoint(endpoint);
@@ -175,6 +254,17 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
     if (!acard || !acard_signature) {
       return reply.status(400).send({ error: "acard and acard_signature must both be provided" });
     }
+    const acardCleaned: ACARD = {
+      ...acard,
+      capabilities: acard.capabilities.map((c) => ({
+        ...c,
+        pricingCents: typeof c.pricingCents === "number" ? c.pricingCents : undefined,
+        inputSchema: c.inputSchema ?? undefined,
+        outputSchema: c.outputSchema ?? undefined,
+        embeddingDim: typeof c.embeddingDim === "number" ? c.embeddingDim : undefined,
+        tags: Array.isArray((c as any).tags) ? (c as any).tags : undefined,
+      })),
+    };
     const acardEndpoint = normalizeEndpoint(acard.endpoint);
     endpointToPersist = endpointToPersist || acardEndpoint;
     if (!endpointToPersist) {
@@ -186,24 +276,30 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
     if (acardEndpoint !== endpointToPersist) {
       return reply.status(400).send({ error: "ACARD endpoint mismatch" });
     }
-    const ok = verifyACARD(acard, acard_signature);
+    const ok = verifyACARD(acardCleaned, acard_signature);
     if (!ok) {
       return reply.status(401).send({ error: "Invalid ACARD signature" });
     }
     // ensure capabilities match the signed card
-    const acardCapIds = new Set(acard.capabilities.map((c) => c.id));
+    const acardCapIds = new Set(acardCleaned.capabilities.map((c) => c.id));
+    const acardPrices = new Map(acardCleaned.capabilities.map((c) => [c.id, c.pricingCents]));
     for (const cap of normalizedCaps) {
       if (!acardCapIds.has(cap.capabilityId)) {
         return reply.status(400).send({
           error: `Capability ${cap.capabilityId} not present in ACARD`,
         });
       }
+      // If ACARD declares pricing, prefer it
+      const p = acardPrices.get(cap.capabilityId);
+      if (p != null) {
+        cap.price_cents = p;
+      }
     }
-    publicKey = acard.publicKey;
-    acardVersion = acard.version;
-    acardLineage = acard.lineage ?? null;
+    publicKey = acardCleaned.publicKey;
+    acardVersion = acardCleaned.version;
+    acardLineage = acardCleaned.lineage ?? null;
     acardSignature = acard_signature;
-    acardRaw = acard;
+    acardRaw = acardCleaned;
   } else {
     if (!endpointToPersist) {
       return reply.status(400).send({ error: "endpoint is required" });
@@ -212,8 +308,8 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
 
   try {
     await pool.query(
-      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw, updated_at, is_conflicted, source_peer)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), false, null)
      on conflict (did) do update set
        name = excluded.name,
        endpoint = excluded.endpoint,
@@ -222,7 +318,9 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
        acard_version = excluded.acard_version,
        acard_lineage = excluded.acard_lineage,
        acard_signature = excluded.acard_signature,
-       acard_raw = excluded.acard_raw`,
+       acard_raw = excluded.acard_raw,
+       is_conflicted = false,
+       updated_at = now()`,
       [did, name || null, endpointToPersist, publicKey, walletAddress?.toLowerCase() || null, acardVersion, acardLineage, acardSignature, acardRaw]
     );
 
@@ -243,11 +341,19 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
         vector,
       });
       await pool.query(
-        `insert into capabilities (agent_did, capability_id, description, tags, output_schema)
-       values ($1, $2, $3, $4, $5)`,
-        [did, cap.capabilityId, cap.description, cap.tags || [], cap.output_schema || null]
+        `insert into capabilities (agent_did, capability_id, description, tags, output_schema, price_cents)
+       values ($1, $2, $3, $4, $5, $6)`,
+        [
+          did,
+          cap.capabilityId,
+          cap.description,
+          cap.tags || [],
+          cap.output_schema || null,
+          cap.price_cents ?? null,
+        ]
       );
     }
+    await bumpRegistryState();
     return reply.send({ ok: true, registered: normalizedCaps.length });
   } catch (err: any) {
     app.log.error({ err }, "register error");
@@ -356,14 +462,33 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
   }));
   hits = [...hits, ...keywordHits];
 
-  const agents: Record<string, { did: string; name: string | null; endpoint: string | null; reputation: number | null; availability_score: number | null; last_seen: Date | null }> = {};
+  const agents: Record<
+    string,
+    {
+      did: string;
+      name: string | null;
+      endpoint: string | null;
+      reputation: number | null;
+      availability_score: number | null;
+      last_seen: Date | null;
+      profiles?: any[] | null;
+    }
+  > = {};
   if (hits.length) {
     const dids = hits
       .map((h: any) => h.payload?.agentDid)
       .filter((v: unknown): v is string => typeof v === "string");
     if (dids.length) {
-      const rows = await pool.query<{ did: string; name: string | null; endpoint: string | null; reputation: number | null; availability_score: number | null; last_seen: Date | null }>(
-        `select did, name, endpoint, reputation, availability_score, last_seen from agents where did = any($1::text[])`,
+      const rows = await pool.query<{
+        did: string;
+        name: string | null;
+        endpoint: string | null;
+        reputation: number | null;
+        availability_score: number | null;
+        last_seen: Date | null;
+        acard_raw: any | null;
+      }>(
+        `select did, name, endpoint, reputation, availability_score, last_seen, acard_raw, is_conflicted from agents where did = any($1::text[])`,
         [dids]
       );
       rows.rows.forEach((row) => {
@@ -374,6 +499,10 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
           reputation: row.reputation ?? null,
           availability_score: row.availability_score ?? null,
           last_seen: row.last_seen ?? null,
+          is_conflicted: !!row.is_conflicted,
+          profiles: Array.isArray((row.acard_raw as any)?.profiles)
+            ? (row.acard_raw as any).profiles
+            : null,
         };
       });
     }
@@ -417,6 +546,10 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
     if (seenKey.has(key)) return null;
     seenKey.add(key);
 
+    if (agentDid && agents[agentDid]?.is_conflicted) {
+      return null;
+    }
+
     return {
       score: combinedScore,
       vectorScore,
@@ -428,12 +561,249 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
       tags,
       reputation: reputation ?? null,
       agent: agentDid ? agents[agentDid] || null : null,
+      profiles: agentDid ? agents[agentDid]?.profiles || null : null,
     };
   })
     .filter((r: any) => r && (r.availabilityScore ?? 0) > 0 && (r.reputationScore ?? 0) >= minReputation)
     .sort((a: any, b: any) => (b.score ?? 0) - (a.score ?? 0));
 
   return reply.send({ results });
+});
+
+// ============================================================
+// FEDERATION (REGISTRY SYNC)
+// ============================================================
+
+app.post("/v1/federation/peers", { preHandler: apiGuard }, async (request, reply) => {
+  const parse = federationPeerSchema.safeParse(request.body);
+  if (!parse.success) {
+    return reply.status(400).send({ error: parse.error.flatten(), message: "Invalid peer payload" });
+  }
+  const body = parse.data;
+  const res = await pool.query(
+    `insert into federation_peers (id, endpoint, region, public_key, status, capabilities, last_seen_at, updated_at)
+     values ($1, $2, $3, $4, 'active', $5, now(), now())
+     on conflict (id) do update set
+       endpoint = excluded.endpoint,
+       region = excluded.region,
+       public_key = excluded.public_key,
+       capabilities = excluded.capabilities,
+       status = 'active',
+       last_seen_at = now(),
+       updated_at = now()
+     returning *`,
+    [body.peerId, body.endpoint, body.region, body.publicKey, JSON.stringify(body.capabilities || [])]
+  );
+  return reply.send(res.rows[0]);
+});
+
+app.get("/v1/federation/peers", async (_req, reply) => {
+  const res = await pool.query(`select * from federation_peers order by region, last_seen_at desc nulls last`);
+  return reply.send({ peers: res.rows });
+});
+
+app.get("/v1/federation/conflicts", async (_req, reply) => {
+  const res = await pool.query(
+    `select * from federation_conflicts where resolved = false order by created_at desc limit 200`
+  );
+  return reply.send({ conflicts: res.rows });
+});
+
+app.get("/v1/federation/export", async (request, reply) => {
+  const since = Number((request.query as any)?.since ?? 0);
+  const stateVersion = await getRegistryStateVersion();
+  // For MVP we return full set; future: filter by updated_at > since marker.
+  const agentRows = await pool.query(
+    `select did, name, endpoint, public_key, acard_version, acard_lineage, acard_signature, acard_raw, wallet_address, updated_at
+     from agents
+     where is_conflicted = false`
+  );
+  const capsRows = await pool.query(
+    `select agent_did, capability_id, description, tags, output_schema, price_cents from capabilities`
+  );
+  const capsByAgent: Record<string, any[]> = {};
+  for (const row of capsRows.rows) {
+    capsByAgent[row.agent_did] = capsByAgent[row.agent_did] || [];
+    capsByAgent[row.agent_did].push({
+      capability_id: row.capability_id,
+      description: row.description,
+      tags: row.tags,
+      output_schema: row.output_schema,
+      price_cents: row.price_cents,
+    });
+  }
+  const agents = agentRows.rows.map((row) => ({
+    did: row.did,
+    name: row.name,
+    endpoint: row.endpoint,
+    public_key: row.public_key,
+    acard_version: row.acard_version,
+    acard_lineage: row.acard_lineage,
+    acard_signature: row.acard_signature,
+    acard_raw: row.acard_raw,
+    wallet_address: row.wallet_address,
+    updated_at: row.updated_at,
+    capabilities: capsByAgent[row.did] || [],
+  }));
+  return reply.send({ stateVersion, since, agents });
+});
+
+async function upsertPeerAgent(agent: any, peerId: string, log: any) {
+  const did = agent.did;
+  if (!did) return { action: "skip" };
+  const incomingVersion = agent.acard_version ?? 0;
+  const endpoint = normalizeEndpoint(agent.endpoint);
+  const local = await pool.query(
+    `select did, acard_version, acard_raw from agents where did = $1 limit 1`,
+    [did]
+  );
+  const hasLocal = local.rowCount > 0;
+  const localVersion = hasLocal ? Number(local.rows[0].acard_version || 0) : -1;
+  const localHash = hasLocal ? stableStringify(local.rows[0].acard_raw || {}) : null;
+  const incomingHash = stableStringify(agent.acard_raw || {});
+
+  if (!hasLocal || incomingVersion > localVersion) {
+    // Replace or insert
+    await pool.query(
+      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw, source_peer, is_conflicted, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false, now())
+       on conflict (did) do update set
+         name = excluded.name,
+         endpoint = excluded.endpoint,
+         public_key = excluded.public_key,
+         wallet_address = coalesce(excluded.wallet_address, agents.wallet_address),
+         acard_version = excluded.acard_version,
+         acard_lineage = excluded.acard_lineage,
+         acard_signature = excluded.acard_signature,
+         acard_raw = excluded.acard_raw,
+         source_peer = excluded.source_peer,
+         is_conflicted = false,
+         updated_at = now()`,
+      [
+        did,
+        agent.name || null,
+        endpoint,
+        agent.public_key || agent.publicKey || null,
+        agent.wallet_address || null,
+        incomingVersion,
+        agent.acard_lineage || null,
+        agent.acard_signature || null,
+        agent.acard_raw || null,
+        peerId,
+      ]
+    );
+    await pool.query(`delete from capabilities where agent_did = $1`, [did]);
+    await deleteByAgent(did);
+    const caps: any[] = Array.isArray(agent.capabilities) ? agent.capabilities : [];
+    for (const cap of caps) {
+      const capId = cap.capability_id || cap.capabilityId;
+      if (!capId) continue;
+      await pool.query(
+        `insert into capabilities (agent_did, capability_id, description, tags, output_schema, price_cents)
+         values ($1, $2, $3, $4, $5, $6)`,
+        [
+          did,
+          capId,
+          cap.description || "",
+          cap.tags || [],
+          cap.output_schema || null,
+          typeof cap.price_cents === "number" ? cap.price_cents : null,
+        ]
+      );
+      try {
+        const vector = await embed(
+          capabilityText(capId, cap.description, cap.output_schema, cap.tags)
+        );
+        await upsertCapability({
+          id: randomUUID(),
+          agentDid: did,
+          capabilityId: capId,
+          description: cap.description || "",
+          tags: cap.tags || [],
+          vector,
+        });
+      } catch (err) {
+        log?.warn?.({ err }, "failed to embed capability from peer");
+      }
+    }
+    await bumpRegistryState();
+    return { action: hasLocal ? "updated" : "inserted", did };
+  }
+
+  if (incomingVersion === localVersion && localHash !== incomingHash) {
+    await pool.query(
+      `update agents set is_conflicted = true, updated_at = now() where did = $1`,
+      [did]
+    );
+    await pool.query(
+      `insert into federation_conflicts (did, peer_id, local_version, peer_version, reason, diff)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [
+        did,
+        peerId,
+        localVersion,
+        incomingVersion,
+        "version_equal_payload_mismatch",
+        { localHash, incomingHash },
+      ]
+    );
+    return { action: "conflict", did };
+  }
+
+  return { action: "skipped", did };
+}
+
+app.post("/v1/federation/sync", { preHandler: apiGuard }, async (request, reply) => {
+  const parse = federationSyncSchema.safeParse(request.body || {});
+  if (!parse.success) {
+    return reply.status(400).send({ error: parse.error.flatten(), message: "Invalid sync payload" });
+  }
+  const { peerId } = parse.data;
+  const peers = await pool.query(
+    `select * from federation_peers where status = 'active' ${peerId ? "and id = $1" : ""}`,
+    peerId ? [peerId] : []
+  );
+  if (!peers.rowCount) {
+    return reply.status(404).send({ error: "No active peers found" });
+  }
+
+  const summary: any[] = [];
+  for (const peer of peers.rows) {
+    const since = Number(peer.state_version || 0);
+    const url = `${peer.endpoint.replace(/\\/+$/, "")}/v1/federation/export?since=${since}`;
+    try {
+      const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
+      if (!res.ok) throw new Error(`peer responded ${res.status}`);
+      const payload = await res.json();
+      const agents = Array.isArray(payload.agents) ? payload.agents : [];
+      let inserted = 0;
+      let updated = 0;
+      let conflicted = 0;
+      let skipped = 0;
+      for (const agent of agents) {
+        const result = await upsertPeerAgent(agent, peer.id, app.log);
+        if (result.action === "inserted") inserted++;
+        else if (result.action === "updated") updated++;
+        else if (result.action === "conflict") conflicted++;
+        else skipped++;
+      }
+      const newVersion = typeof payload.stateVersion === "number" ? payload.stateVersion : since;
+      await pool.query(
+        `update federation_peers set state_version = $1, last_sync_at = now(), updated_at = now(), status = 'active' where id = $2`,
+        [newVersion, peer.id]
+      );
+      summary.push({ peer: peer.id, inserted, updated, conflicted, skipped, stateVersion: newVersion });
+    } catch (err: any) {
+      app.log.warn({ err: err?.message || err, peer: peer.id }, "peer sync failed");
+      await pool.query(
+        `update federation_peers set status = 'degraded', last_sync_at = now(), updated_at = now() where id = $1`,
+        [peer.id]
+      );
+      summary.push({ peer: peer.id, error: err?.message || "sync failed" });
+    }
+  }
+
+  return reply.send({ summary });
 });
 
 app.setErrorHandler((err, _req, reply) => {

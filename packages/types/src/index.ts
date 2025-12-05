@@ -29,6 +29,9 @@ export {
   type HandlerResult,
   type AgentHooks,
   type AgentConfig,
+  type ProfileDeclaration,
+  type EconomicsConfig,
+  type ReceiptClaims,
 } from "./agent.js";
 
 // Ledger types

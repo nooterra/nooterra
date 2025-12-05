@@ -6,6 +6,10 @@ import { z } from "zod";
 import { pool } from "../db.js";
 import crypto from "crypto";
 import { v4 as uuidv4 } from "uuid";
+import { verifyReceipt } from "../services/receipt.js";
+import { randomUUID } from "crypto";
+import { storeReceipt } from "../services/receipt.js";
+import { ReceiptClaims } from "@nooterra/types";
 
 const AuditQuerySchema = z.object({
   eventType: z.string().optional(),
@@ -257,6 +261,44 @@ export async function registerAccountabilityRoutes(app: FastifyInstance<any, any
     );
     
     return { receipts: result.rows };
+  });
+
+  // Verify a receipt envelope
+  app.post("/v1/receipts/verify", async (req, reply) => {
+    const body = req.body as { envelope: any; publicKey: string };
+    if (!body?.envelope || !body?.publicKey) {
+      return reply.status(400).send({ error: "envelope and publicKey are required" });
+    }
+    const result = verifyReceipt(body.envelope, body.publicKey);
+    return { valid: result.valid, claims: result.claims || null };
+  });
+
+  // Manual receipt creation (admin)
+  app.post("/v1/receipts", async (req, reply) => {
+    const body = req.body as {
+      workflowId?: string;
+      nodeName?: string;
+      agentDid?: string;
+      capabilityId?: string;
+      output?: unknown;
+      input?: unknown;
+      creditsEarned?: number;
+      profile?: number;
+    };
+    if (!body.workflowId || !body.nodeName || !body.capabilityId || !body.agentDid) {
+      return reply.status(400).send({ error: "workflowId, nodeName, agentDid, capabilityId required" });
+    }
+    await storeReceipt({
+      workflowId: body.workflowId,
+      nodeName: body.nodeName,
+      agentDid: body.agentDid,
+      capabilityId: body.capabilityId,
+      output: body.output || {},
+      input: body.input || {},
+      creditsEarned: body.creditsEarned ?? 0,
+      profile: body.profile,
+    });
+    return { ok: true };
   });
 
   // ============================================================

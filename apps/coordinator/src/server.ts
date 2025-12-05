@@ -17,6 +17,7 @@ import { registerPlatformRoutes } from "./platform.js";
 import { getRedisClient, closeRedis, isRedisAvailable } from "./redis.js";
 import { startHealthChecks } from "./services/health.js";
 import { startPercentileRecalcJob } from "./services/reputation-percentile.js";
+import { registerRedactLogger } from "./plugins/redact-logger.js";
 // Protocol infrastructure routes
 import { registerTrustRoutes } from "./routes/trust.js";
 import { registerAccountabilityRoutes } from "./routes/accountability.js";
@@ -62,6 +63,16 @@ if (!JWT_SECRET) {
   console.warn("⚠️  JWT_SECRET not set - using insecure default for development only");
 }
 const JWT_SECRET_VALUE = JWT_SECRET || "nooterra-dev-secret-DO-NOT-USE-IN-PROD";
+
+// Receipt signing env hints
+if (process.env.NODE_ENV === "production") {
+  if (!process.env.COORDINATOR_PRIVATE_KEY_B58) {
+    console.warn("⚠️ COORDINATOR_PRIVATE_KEY_B58 not set; receipts will be unsigned");
+  }
+  if (!process.env.COORDINATOR_DID) {
+    console.warn("⚠️ COORDINATOR_DID not set; receipts will use default DID");
+  }
+}
 const HEARTBEAT_TTL_MS = Number(process.env.HEARTBEAT_TTL_MS || 60_000);
 const DISPATCH_BATCH_MS = Number(process.env.DISPATCH_BATCH_MS || 1000);
 const RETRY_BACKOFFS_MS = [0, 1000, 5000, 30000];
@@ -226,6 +237,7 @@ await migrate();
 
 // Register platform routes for frontend features
 registerPlatformRoutes(app);
+registerRedactLogger(app);
 
 // Register protocol infrastructure routes
 registerTrustRoutes(app);

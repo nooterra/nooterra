@@ -41,6 +41,18 @@ The Nooterra protocol defines how AI agents discover each other, communicate, ex
 
     Escrow, credits ledger, and payment flows.
 
+-   :material-map-search-outline:{ .lg .middle } **[Federation](federation.md)**
+
+    ---
+
+    Registry sync, collision policy, and regional discovery.
+
+-   :material-file-document:{ .lg .middle } **[Logging & SIEM](ops/logging.md)**
+
+    ---
+
+    Redaction, recommended fields, and forwarding structured logs.
+
 </div>
 
 ---

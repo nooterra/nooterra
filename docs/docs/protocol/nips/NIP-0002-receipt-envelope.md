@@ -21,6 +21,12 @@ This document defines the **Receipt Envelope** format for Nooterra - a portable,
 
 Receipts use COSE (CBOR Object Signing and Encryption) as the primary format with JOSE (JSON Object Signing and Encryption) as an alternative for JSON-centric systems.
 
+### Artifacts
+- Canonical ACARD schema: [`schemas/acard.schema.json`](./schemas/acard.schema.json)
+- Profile 3 ACARD vector: [`vectors/acard.profile3.json`](./vectors/acard.profile3.json)
+- Receipt sample vector: [`vectors/receipt.sample.json`](./vectors/receipt.sample.json)
+- Sample generator/validator: `pnpm run generate:receipt`
+
 ---
 
 ## 1. Motivation
@@ -752,6 +758,38 @@ nooterra receipt verify receipt.nrcpt \
 
 # Inspect receipt
 nooterra receipt inspect receipt.nrcpt --format json
+```
+
+---
+
+## 13. Endpoints
+
+- `GET /v1/receipts/:taskId` — fetch receipt(s) for a task
+- `GET /v1/receipts/workflow/:workflowId` — list receipts for a workflow
+- `GET /v1/receipts/agent/:agentDid` — list receipts for an agent
+- `POST /v1/receipts/verify` — verify a receipt envelope
+
+Verify request:
+
+```json
+POST /v1/receipts/verify
+{
+  "envelope": {
+    "protected": "...",
+    "payload": "...",
+    "signature": "..."
+  },
+  "publicKey": "base58-ed25519"
+}
+```
+
+Verify response:
+
+```json
+{
+  "valid": true,
+  "claims": { "...": "..." }
+}
 ```
 
 ---

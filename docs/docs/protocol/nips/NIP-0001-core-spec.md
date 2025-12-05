@@ -283,6 +283,12 @@ interface PolicyConfig {
 }
 ```
 
+#### JSON Schema & Test Vectors
+- Canonical ACARD schema: [`schemas/acard.schema.json`](./schemas/acard.schema.json)
+- Profile 3 ACARD example: [`vectors/acard.profile3.json`](./vectors/acard.profile3.json)
+
+Implementers **SHOULD** validate ACARDs against the schema and host `/.well-known/agent.json` with a signed ACARD.
+
 ### 3.3. Key Rotation
 
 Keys can be rotated without changing the DID:

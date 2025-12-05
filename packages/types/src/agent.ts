@@ -28,6 +28,25 @@ export interface AgentCard {
     homepage?: string;
     [key: string]: unknown;
   };
+  /**
+   * Supported profiles (NIP-0001 Section 7)
+   * Advertises compliance levels and optional certification
+   */
+  profiles?: ProfileDeclaration[];
+  /**
+   * Economic configuration (required for Profile 2+)
+   */
+  economics?: EconomicsConfig;
+  /** Supported A2A protocol version */
+  a2aVersion?: string;
+  /** Optional human-friendly name */
+  name?: string;
+  /** Optional description */
+  description?: string;
+  /** Streaming support flag */
+  supportsStreaming?: boolean;
+  /** Push/Webhook support flag */
+  supportsPushNotifications?: boolean;
   /** Signature over the ACARD (base64 encoded) */
   signature?: string;
 }
@@ -44,12 +63,59 @@ export interface AgentCapability {
   inputSchema?: Record<string, unknown>;
   /** JSON Schema for outputs */
   outputSchema?: Record<string, unknown>;
+  /** Price in NCR cents (1 cent = $0.01) */
+  pricingCents?: number;
   /** Price in credits (1 credit = 0.001 USD) */
   priceCredits?: number;
   /** Optional tags for discovery */
   tags?: string[];
   /** Embedding dimension (auto-filled by registry) */
   embeddingDim?: number;
+}
+
+/**
+ * Profile declaration indicating compliance level (NIP-0001)
+ */
+export interface ProfileDeclaration {
+  profile: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  version: string;
+  certified?: boolean;
+  certificationUrl?: string;
+}
+
+/**
+ * Economic configuration for the agent
+ */
+export interface EconomicsConfig {
+  acceptsEscrow: boolean;
+  minBidCents?: number;
+  maxBidCents?: number;
+  supportedCurrencies?: string[];
+  settlementMethods?: ("instant" | "batched" | "l2")[];
+}
+
+// Receipt claims (NIP-0002)
+export interface ReceiptClaims {
+  rid: string;
+  rtype: "task" | "workflow" | "settlement" | "attestation";
+  iat: number;
+  iss: string; // agent DID
+  sub: string; // task/workflow ID
+  rh: string; // result hash (base64url)
+  prid?: string;
+  wid?: string;
+  node?: string;
+  cap?: string;
+  credits?: number;
+  escrow?: string;
+  stx?: string;
+  ih?: string;
+  dur?: number;
+  coord?: string;
+  ciat?: number;
+  profile?: number;
+  qscore?: number;
+  ext?: Record<string, unknown>;
 }
 
 /**

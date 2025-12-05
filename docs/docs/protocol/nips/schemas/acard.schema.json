@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Nooterra ACARD",
+  "type": "object",
+  "required": ["did", "endpoint", "publicKey", "version", "capabilities"],
+  "properties": {
+    "did": { "type": "string", "pattern": "^did:[a-z0-9:+.-]+$" },
+    "endpoint": { "type": "string", "format": "uri" },
+    "publicKey": { "type": "string" },
+    "version": { "type": "integer", "minimum": 1 },
+    "lineage": { "type": ["string", "null"] },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "description"],
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "inputSchema": { "type": ["object", "null"] },
+          "outputSchema": { "type": ["object", "null"] },
+          "embeddingDim": { "type": ["integer", "null"] },
+          "pricingCents": { "type": ["integer", "null"], "minimum": 0 },
+          "tags": {
+            "type": "array",
+            "items": { "type": "string" },
+            "maxItems": 10
+          }
+        }
+      }
+    },
+    "metadata": { "type": ["object", "null"], "additionalProperties": true },
+    "profiles": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/profileDeclaration" },
+      "maxItems": 10
+    },
+    "economics": { "$ref": "#/definitions/economicsConfig" },
+    "a2aVersion": { "type": "string" },
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "supportsStreaming": { "type": "boolean" },
+    "supportsPushNotifications": { "type": "boolean" }
+  },
+  "definitions": {
+    "profileDeclaration": {
+      "type": "object",
+      "required": ["profile", "version"],
+      "properties": {
+        "profile": {
+          "type": "integer",
+          "enum": [0, 1, 2, 3, 4, 5, 6]
+        },
+        "version": { "type": "string" },
+        "certified": { "type": "boolean" },
+        "certificationUrl": { "type": "string", "format": "uri" }
+      }
+    },
+    "economicsConfig": {
+      "type": "object",
+      "required": ["acceptsEscrow"],
+      "properties": {
+        "acceptsEscrow": { "type": "boolean" },
+        "minBidCents": { "type": "integer", "minimum": 0 },
+        "maxBidCents": { "type": "integer", "minimum": 1 },
+        "supportedCurrencies": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "settlementMethods": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["instant", "batched", "l2"] }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -16,14 +16,22 @@
     "test": "turbo run test",
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "prepare": "husky || true"
+    "prepare": "husky || true",
+    "validate:acard": "node scripts/validate-acard.js",
+    "generate:receipt": "node scripts/generate-receipt.js",
+    "conformance:harness": "node scripts/conformance-harness.js"
   },
   "devDependencies": {
+    "ajv": "^8.17.1",
+    "base64url": "^3.0.1",
+    "bs58": "^5.0.0",
+    "cbor": "^9.0.2",
     "@types/node": "^20.11.0",
     "husky": "^9.0.0",
     "lint-staged": "^15.0.0",
     "prettier": "^3.2.0",
     "turbo": "^2.3.0",
+    "tweetnacl": "^1.0.3",
     "typescript": "^5.4.0"
   },
   "lint-staged": {

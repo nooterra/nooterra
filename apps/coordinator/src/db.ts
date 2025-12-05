@@ -587,13 +587,17 @@ export async function migrate() {
       completed_at timestamptz not null,
       latency_ms int,
       credits_earned int,
-      coordinator_signature text not null,
+      coordinator_signature text,
       agent_signature text,
+      receipt_cose text,
+      receipt_kid text,
+      receipt_profile int,
       created_at timestamptz default now()
     );
   `);
   await pool.query(`create index if not exists task_receipts_agent_idx on task_receipts(agent_did);`);
   await pool.query(`create index if not exists task_receipts_workflow_idx on task_receipts(workflow_id);`);
+  await pool.query(`create unique index if not exists task_receipts_workflow_node_idx on task_receipts(workflow_id, node_id);`);
 
   // OpenTelemetry trace storage
   await pool.query(`

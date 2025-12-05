@@ -1,0 +1,24 @@
+{
+  "publicKey": "3vNhXM58yHw1GcxF5f3iKcch6e6hFkiNrv2zgzyZUd2Y",
+  "kid": "Xy3k9bZcK5U2dQp2",
+  "claims": {
+    "rid": "00000000-0000-4000-8000-000000000001",
+    "rtype": "task",
+    "iat": 1733440000,
+    "iss": "did:noot:demo-agent-1",
+    "sub": "task-123",
+    "rh": "bXoH5atVzGm15pv07YkVQVd6sj2Kz05ZJqFyQ45wqsk",
+    "wid": "workflow-abc",
+    "node": "main",
+    "cap": "cap.text.summarize.v1",
+    "credits": 15,
+    "dur": 1200,
+    "profile": 3
+  },
+  "envelope": {
+    "protected": "oQGgYgECgQKKYXBwbGljYXRpb24vb29vdGVycmEtcmVjZWlwdCtjYm9y",
+    "payload": "pGJyaWQYAAAAAABAAIAAAABEc2F0aW5ndnlpc3NoB2RpZDpub290OmRlbW8tYWdlbnQtMWhzdWIIdGFzay0xMjNjaXdpZAtkZXRhLXRleHQuc3VtbWFyaXplLnYxY2Fwd2lkZGt3b3JrZmxvdy1hYmNjbm9kZGRtYWluY2NyZWRpdHMORYJkdXIJsMdpb3JlZmlsZQM",
+    "signature": "xJXh7owh9eU2f1XfSCU6zV8_RFMkLiZB-WlZZXxxPfKASqR0Dt4y8Yc7j4m8pLz7AMjB85XrGf5CgvJ9SFwMBQ"
+  },
+  "verified": true
+}

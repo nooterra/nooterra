@@ -1,0 +1,361 @@
+# ============================================================================
+# NOOTERRA CODEX CONFIGURATION
+# Full internet access + comprehensive MCP server ecosystem
+# ============================================================================
+
+# Default model - use latest GPT
+model = "gpt-5.1"
+
+# DANGER MODE: Full access - no sandbox restrictions
+sandbox_mode = "danger-full-access"
+
+# Approval policy - never pause for approval (full autonomy)
+approval_policy = "never"
+
+# ============================================================================
+# FEATURE FLAGS - Enable ALL capabilities
+# ============================================================================
+[features]
+# Web search - CRITICAL for internet access
+web_search_request = true
+
+# Streamable shell for better terminal interaction
+streamable_shell = true
+
+# Unified PTY-backed exec tool
+unified_exec = true
+
+# Image viewing
+view_image_tool = true
+
+# Freeform patch tool for flexible code edits
+apply_patch_freeform = true
+
+# Rust MCP client for OAuth support
+rmcp_client = true
+
+# Ghost commits for version tracking
+ghost_commit = true
+
+# ============================================================================
+# SHELL ENVIRONMENT - Pass through all dev tools
+# ============================================================================
+[shell_environment_policy]
+inherit = "all"
+ignore_default_excludes = false
+
+# Exclude only truly sensitive credentials
+exclude = [
+  "AWS_SECRET_ACCESS_KEY",
+  "AZURE_CLIENT_SECRET", 
+  "GCP_SERVICE_ACCOUNT_KEY",
+  "PRIVATE_KEY",
+  "*_PASSWORD"
+]
+
+# ============================================================================
+# MCP SERVERS - Comprehensive startup ecosystem
+# ============================================================================
+
+# --- INFRASTRUCTURE & DEPLOYMENT ---
+
+[mcp_servers.railway]
+command = "npx"
+args = ["-y", "@railway/mcp-server"]
+enabled = true
+startup_timeout_sec = 30
+tool_timeout_sec = 180
+
+[mcp_servers.github]
+command = "gh"
+args = ["mcp"]
+enabled = true
+startup_timeout_sec = 15
+tool_timeout_sec = 120
+
+[mcp_servers.vercel]
+command = "npx"
+args = ["-y", "@vercel/mcp"]
+enabled = true
+startup_timeout_sec = 30
+
+# --- DATABASE & STORAGE ---
+
+[mcp_servers.supabase]
+command = "npx"
+args = ["-y", "@supabase/mcp-server"]
+enabled = true
+startup_timeout_sec = 30
+
+[mcp_servers.postgres]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-postgres"]
+enabled = true
+startup_timeout_sec = 20
+
+[mcp_servers.redis]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-redis"]
+enabled = true
+startup_timeout_sec = 15
+
+[mcp_servers.sqlite]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-sqlite"]
+enabled = true
+
+# --- WEB & BROWSER ---
+
+[mcp_servers.puppeteer]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-puppeteer"]
+enabled = true
+startup_timeout_sec = 45
+tool_timeout_sec = 300
+
+[mcp_servers.playwright]
+command = "npx"
+args = ["-y", "@playwright/mcp-server"]
+enabled = true
+startup_timeout_sec = 45
+
+[mcp_servers.browserbase]
+command = "npx"
+args = ["-y", "@browserbasehq/mcp-server"]
+enabled = true
+
+[mcp_servers.fetch]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-fetch"]
+enabled = true
+startup_timeout_sec = 15
+tool_timeout_sec = 60
+
+[mcp_servers.brave-search]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-brave-search"]
+enabled = true
+
+# --- AI & LLM TOOLS ---
+
+[mcp_servers.openai]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-openai"]
+enabled = true
+
+[mcp_servers.anthropic]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-claude"]
+enabled = true
+
+[mcp_servers.huggingface]
+command = "npx"
+args = ["-y", "@huggingface/mcp-server"]
+enabled = true
+
+# --- DOCUMENTATION & KNOWLEDGE ---
+
+[mcp_servers.context7]
+command = "npx"
+args = ["-y", "@upstash/context7-mcp"]
+enabled = true
+startup_timeout_sec = 30
+
+[mcp_servers.memory]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-memory"]
+enabled = true
+
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/home/rocz/nooterra"]
+enabled = true
+
+[mcp_servers.everything]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-everything"]
+enabled = true
+
+# --- COMMUNICATION & PRODUCTIVITY ---
+
+[mcp_servers.slack]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-slack"]
+enabled = true
+
+[mcp_servers.discord]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-discord"]
+enabled = true
+
+[mcp_servers.linear]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-linear"]
+enabled = true
+
+[mcp_servers.notion]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-notion"]
+enabled = true
+
+# --- CLOUD PROVIDERS ---
+
+[mcp_servers.aws]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-aws"]
+enabled = true
+startup_timeout_sec = 30
+
+[mcp_servers.cloudflare]
+command = "npx"
+args = ["-y", "@cloudflare/mcp-server-cloudflare"]
+enabled = true
+
+# --- MONITORING & OBSERVABILITY ---
+
+[mcp_servers.sentry]
+command = "npx"
+args = ["-y", "@sentry/mcp-server"]
+enabled = true
+
+[mcp_servers.datadog]
+command = "npx"
+args = ["-y", "@datadog/mcp-server"]
+enabled = true
+
+# --- DEV TOOLS ---
+
+[mcp_servers.git]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-git"]
+enabled = true
+
+[mcp_servers.docker]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-docker"]
+enabled = true
+
+[mcp_servers.npm]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-npm"]
+enabled = true
+
+[mcp_servers.exa]
+command = "npx"
+args = ["-y", "@anthropic/mcp-server-exa"]
+enabled = true
+
+[mcp_servers.sequential-thinking]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+enabled = true
+
+# --- FINANCE & PAYMENTS ---
+
+[mcp_servers.stripe]
+command = "npx"
+args = ["-y", "@stripe/mcp-server"]
+enabled = true
+
+# --- TIME & SCHEDULING ---
+
+[mcp_servers.time]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-time"]
+enabled = true
+
+# ============================================================================
+# PROFILES - Quick mode switching
+# ============================================================================
+
+[profiles.safe]
+sandbox_mode = "workspace-write"
+approval_policy = "untrusted"
+
+[profiles.review]
+model = "gpt-5-pro"
+model_reasoning_effort = "high"
+approval_policy = "on-failure"
+
+[profiles.lightweight]
+model = "gpt-4.1-mini"
+approval_policy = "never"
+
+[profiles.claude]
+model = "claude-sonnet-4-20250514"
+model_provider = "anthropic"
+
+# ============================================================================
+# MODEL PROVIDERS - Multi-provider support
+# ============================================================================
+
+[model_providers.anthropic]
+name = "Anthropic Claude"
+base_url = "https://api.anthropic.com/v1"
+env_key = "ANTHROPIC_API_KEY"
+wire_api = "chat"
+
+[model_providers.openai]
+name = "OpenAI"
+base_url = "https://api.openai.com/v1"
+env_key = "OPENAI_API_KEY"
+wire_api = "responses"
+request_max_retries = 5
+stream_max_retries = 10
+stream_idle_timeout_ms = 600000
+
+[model_providers.ollama]
+name = "Ollama Local"
+base_url = "http://localhost:11434/v1"
+wire_api = "chat"
+
+[model_providers.together]
+name = "Together AI"
+base_url = "https://api.together.xyz/v1"
+env_key = "TOGETHER_API_KEY"
+wire_api = "chat"
+
+[model_providers.groq]
+name = "Groq"
+base_url = "https://api.groq.com/openai/v1"
+env_key = "GROQ_API_KEY"
+wire_api = "chat"
+
+# ============================================================================
+# REASONING & VERBOSITY
+# ============================================================================
+model_reasoning_effort = "medium"
+model_reasoning_summary = "concise"
+model_verbosity = "medium"
+model_context_window = 128000
+model_max_output_tokens = 16384
+
+# ============================================================================
+# OBSERVABILITY - Enable for debugging
+# ============================================================================
+[otel]
+environment = "dev"
+exporter = "none"
+log_user_prompt = false
+
+# ============================================================================
+# TUI & NOTIFICATIONS
+# ============================================================================
+[tui]
+notifications = true
+
+file_opener = "vscode"
+hide_agent_reasoning = false
+show_raw_agent_reasoning = false
+
+# ============================================================================
+# HISTORY
+# ============================================================================
+[history]
+persistence = "save-all"
+
+# ============================================================================
+# PROJECT DOCS
+# ============================================================================
+project_doc_max_bytes = 100000
+project_doc_fallback_filenames = ["AGENTS.md", "CONTRIBUTING.md", "README.md"]
