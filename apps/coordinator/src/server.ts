@@ -4,6 +4,11 @@ import dotenv from "dotenv";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import pino from "pino";
+import * as Sentry from "@sentry/node";
+import { NodeSDK } from "@opentelemetry/sdk-node";
+import { Resource } from "@opentelemetry/resources";
+import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { pool, migrate } from "./db.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -18,6 +23,7 @@ import { getRedisClient, closeRedis, isRedisAvailable } from "./redis.js";
 import { startHealthChecks } from "./services/health.js";
 import { startPercentileRecalcJob } from "./services/reputation-percentile.js";
 import { registerRedactLogger } from "./plugins/redact-logger.js";
+import { getRedundancyConfig, hashResultDeterministic, recordResultShare } from "./services/redundancy.js";
 // Protocol infrastructure routes
 import { registerTrustRoutes } from "./routes/trust.js";
 import { registerAccountabilityRoutes } from "./routes/accountability.js";
@@ -25,6 +31,7 @@ import { registerProtocolRoutes } from "./routes/protocol.js";
 import { registerIdentityRoutes } from "./routes/identity.js";
 import { registerEconomicsRoutes } from "./routes/economics.js";
 import { registerFederationRoutes } from "./routes/federation.js";
+import { storeReceipt } from "./services/receipt.js";
 
 dotenv.config();
 
@@ -78,12 +85,16 @@ const DISPATCH_BATCH_MS = Number(process.env.DISPATCH_BATCH_MS || 1000);
 const RETRY_BACKOFFS_MS = [0, 1000, 5000, 30000];
 const DAG_MAX_ATTEMPTS = Number(process.env.DAG_MAX_ATTEMPTS || 3);
 const NODE_TIMEOUT_MS = Number(process.env.NODE_TIMEOUT_MS || 60000);
+const REQUIRES_HUMAN_FLAG = "requires_human";
 // Quotas and abuse controls (0 = unlimited)
 const MAX_WORKFLOWS_PER_DAY = Number(process.env.MAX_WORKFLOWS_PER_DAY || 0);
 const MAX_CONCURRENT_WORKFLOWS = Number(process.env.MAX_CONCURRENT_WORKFLOWS || 0);
 const MAX_SPEND_PER_WORKFLOW_CENTS = Number(
-  process.env.MAX_SPEND_PER_WORKFLOW_CENTS || 0
+  process.env.MAX_SPEND_PER_WORKFLOW_CENTS || 1000
 );
+const ALLOW_UNLIMITED_SPEND =
+  (process.env.ALLOW_UNLIMITED_SPEND || "").toLowerCase() === "true";
+const DISPUTE_WINDOW_SECONDS = Number(process.env.DISPUTE_WINDOW_SECONDS || 86_400); // 24h
 // Health / anomaly monitoring
 const ENABLE_ALERT_MONITOR = (process.env.ENABLE_ALERT_MONITOR || "true").toLowerCase() !== "false";
 const ALERT_EVAL_INTERVAL_MS = Number(process.env.ALERT_EVAL_INTERVAL_MS || 60_000);
@@ -102,6 +113,20 @@ const CRITICAL_PREFIXES = [
   "cap.code.generate.",
   "cap.code.review.",
   "cap.code.explain.",
+   "cap.payment.",
+   "cap.crypto.",
+   "cap.fs.write",
+   "cap.file.write",
+   "cap.shell.exec",
+   "cap.os.exec",
+   "cap.admin.",
+  "payment.",
+  "crypto.",
+  "fs.write",
+  "file.write",
+  "shell.exec",
+  "os.exec",
+  "admin.",
 ];
 const MIN_REP_CRITICAL = Number(process.env.MIN_REP_CRITICAL || 0.0);
 const FEEDBACK_WEIGHT = 0.2;
@@ -112,6 +137,10 @@ const PAGERANK_TOL = Number(process.env.REP_TOL || 1e-4);
 const REP_INTERVAL_MS = Number(process.env.REP_INTERVAL_MS || 0);
 const PROTOCOL_FEE_BPS = Number(process.env.PROTOCOL_FEE_BPS || 30); // 0.3% default
 const SYSTEM_PAYER = process.env.SYSTEM_PAYER || "did:noot:system";
+const NEG_WEIGHT_PRICE = Number(process.env.NEG_WEIGHT_PRICE || 0.35);
+const NEG_WEIGHT_LATENCY = Number(process.env.NEG_WEIGHT_LATENCY || 0.2);
+const NEG_WEIGHT_RELIABILITY = Number(process.env.NEG_WEIGHT_RELIABILITY || 0.25);
+const NEG_WEIGHT_SAFETY = Number(process.env.NEG_WEIGHT_SAFETY || 0.2);
 const VERIFY_MAP: Record<string, string> = {
   "cap.customs.classify.v1": "cap.verify.generic.v1",
   "cap.weather.noaa.v1": "cap.verify.generic.v1",
@@ -120,6 +149,17 @@ const VERIFY_MAP: Record<string, string> = {
   "cap.translate.v1": "cap.verify.translate.nli.v1",
 };
 
+async function ensureAccount(ownerDid: string): Promise<number> {
+  const res = await pool.query(
+    `insert into ledger_accounts (owner_did, balance)
+       values ($1, 0)
+       on conflict (owner_did) do update set owner_did = excluded.owner_did
+     returning id`,
+    [ownerDid]
+  );
+  return res.rows[0].id as number;
+}
+
 function isCriticalCapability(capabilityId: string): boolean {
   if (CRITICAL_CAPS.has(capabilityId)) return true;
   for (const prefix of CRITICAL_PREFIXES) {
@@ -127,6 +167,84 @@ function isCriticalCapability(capabilityId: string): boolean {
   }
   return false;
 }
+
+// =========================
+// Sentry (env-gated)
+// =========================
+const SENTRY_DSN = process.env.SENTRY_DSN;
+const SENTRY_ENV = process.env.SENTRY_ENV || process.env.NODE_ENV || "development";
+const SENTRY_TRACES_SAMPLE_RATE = Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0);
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    environment: SENTRY_ENV,
+    tracesSampleRate: SENTRY_TRACES_SAMPLE_RATE,
+    integrations: [],
+  });
+}
+function captureError(err: unknown, context: Record<string, any> = {}) {
+  if (!SENTRY_DSN) return;
+  Sentry.captureException(err, {
+    tags: { service: "coordinator" },
+    extra: context,
+  });
+}
+
+// =========================
+// OpenTelemetry (env-gated)
+// =========================
+const OTEL_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+const OTEL_HEADERS_RAW = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+const OTEL_ENV = process.env.NODE_ENV || "development";
+const OTEL_SERVICE_VERSION = process.env.npm_package_version || "0.1.0";
+let telemetrySdk: NodeSDK | null = null;
+
+function parseOtelHeaders(raw?: string): Record<string, string> | undefined {
+  if (!raw) return undefined;
+  return raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .reduce<Record<string, string>>((acc, pair) => {
+      const [k, v] = pair.split("=").map((s) => s.trim());
+      if (k && v) acc[k] = v;
+      return acc;
+    }, {});
+}
+
+async function initOtel() {
+  if (!OTEL_ENDPOINT) return;
+  const traceExporter = new OTLPTraceExporter({
+    url: OTEL_ENDPOINT,
+    headers: parseOtelHeaders(OTEL_HEADERS_RAW),
+  });
+  telemetrySdk = new NodeSDK({
+    resource: new Resource({
+      [SemanticResourceAttributes.SERVICE_NAME]: "coordinator",
+      [SemanticResourceAttributes.SERVICE_VERSION]: OTEL_SERVICE_VERSION,
+      [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: OTEL_ENV,
+    }),
+    traceExporter,
+  });
+  try {
+    await telemetrySdk.start();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("OTel start failed", err);
+  }
+}
+
+async function shutdownOtel() {
+  if (!telemetrySdk) return;
+  try {
+    await telemetrySdk.shutdown();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("OTel shutdown failed", err);
+  }
+}
+
+void initOtel();
 
 function verifySignature(pubKeyBase64: string | null, payload: any, signatureB64: string) {
   if (!pubKeyBase64) return false;
@@ -268,6 +386,15 @@ app.addHook("onResponse", async (request, reply) => {
     statusCode: reply.statusCode,
     duration_ms: duration,
   });
+  if (SENTRY_DSN) {
+    Sentry.setContext("request", {
+      request_id: rid,
+      method: request.method,
+      url: request.url,
+      statusCode: reply.statusCode,
+      duration_ms: duration,
+    });
+  }
 });
 
 // Helper: extract authenticated user via JWT for Console / management APIs
@@ -774,6 +901,15 @@ const bidSchema = z.object({
   agentDid: z.string(),
   amount: z.number().nonnegative().optional(),
   etaMs: z.number().int().positive().optional(),
+  slaHints: z
+    .object({
+      p99LatencyMs: z.number().int().positive().optional(),
+      minUptimePct: z.number().min(0).max(1).optional(),
+    })
+    .partial()
+    .optional(),
+  safetyClass: z.string().max(64).optional(),
+  proposal: z.record(z.any()).optional(),
 });
 
 const settleSchema = z.object({
@@ -904,6 +1040,8 @@ const workflowPublishSchema = z.object({
   intent: z.string().optional(),
   payerDid: z.string().optional(),
   maxCents: z.number().int().nonnegative().optional(),
+  parentWorkflowId: z.string().uuid().optional(),
+  spawnedFromNode: z.string().optional(),
   nodes: z.record(
     z.object({
       capabilityId: z.string(),
@@ -935,6 +1073,7 @@ const nodeResultSchema = z.object({
   workflowId: z.string(),
   nodeId: z.string(),
   resultId: z.string().uuid().optional(),
+  agentDid: z.string().optional(),
   publicKey: z.string().optional(),
   signature: z.string().optional(),
   result: z.any().optional(),
@@ -1896,7 +2035,9 @@ async function createWorkflow(
   intent: string | undefined,
   nodes: Record<string, WorkflowNode>,
   payerDid?: string,
-  maxCents?: number
+  maxCents?: number,
+  parentWorkflowId?: string,
+  spawnedFromNode?: string
 ) {
   const workflowId = uuidv4();
   const taskId = uuidv4();
@@ -1906,24 +2047,30 @@ async function createWorkflow(
     [taskId, intent || "workflow"]
   );
   await pool.query(
-    `insert into workflows (id, task_id, intent, status, payer_did, max_cents, spent_cents)
-     values ($1, $2, $3, 'pending', $4, $5, 0)`,
-    [workflowId, taskId, intent || null, payerDid || SYSTEM_PAYER, maxCents ?? null]
+    `insert into workflows (id, task_id, intent, status, payer_did, max_cents, spent_cents, parent_workflow_id, spawned_from_node)
+     values ($1, $2, $3, 'pending', $4, $5, 0, $6, $7)`,
+    [workflowId, taskId, intent || null, payerDid || SYSTEM_PAYER, maxCents ?? null, parentWorkflowId || null, spawnedFromNode || null]
   );
   for (const [name, node] of Object.entries(nodes)) {
+    const requiresHuman = Boolean((node as any).requires_human);
     await pool.query(
-      `insert into task_nodes (id, workflow_id, name, capability_id, status, depends_on, payload, max_attempts, requires_verification, deadline_at, target_agent_id, allow_broadcast_fallback)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      `insert into task_nodes (id, workflow_id, name, capability_id, status, depends_on, payload, max_attempts, requires_verification, requires_human, deadline_at, target_agent_id, allow_broadcast_fallback)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         uuidv4(),
         workflowId,
         name,
         node.capabilityId,
-        node.dependsOn.length === 0 ? "ready" : "pending",
+        requiresHuman
+          ? "waiting_human"
+          : node.dependsOn.length === 0
+            ? "ready"
+            : "pending",
         node.dependsOn,
         node.payload || {},
         DAG_MAX_ATTEMPTS,
         isCriticalCapability(node.capabilityId),
+        (node as any).requires_human || false,
         new Date(Date.now() + NODE_TIMEOUT_MS),
         node.targetAgentId || null,
         node.allowBroadcastFallback ?? false,
@@ -1979,10 +2126,11 @@ async function enqueueNode(node: any, workflowId: string) {
 
   // Budget pre-check: if adding this node's price would exceed max_cents, fail it immediately
   const wfBudget = await pool.query(
-    `select max_cents, spent_cents from workflows where id = $1`,
+    `select max_cents, spent_cents, payer_did from workflows where id = $1`,
     [workflowId]
   );
   const wfRow = wfBudget.rowCount ? wfBudget.rows[0] : null;
+  const payerDid = wfRow?.payer_did || SYSTEM_PAYER;
   if (wfRow && wfRow.max_cents != null) {
     const priceRes = await pool.query(
       `select price_cents from capabilities where capability_id = $1 limit 1`,
@@ -1993,6 +2141,34 @@ async function enqueueNode(node: any, workflowId: string) {
       await pool.query(`update task_nodes set status = 'failed', updated_at = now() where id = $1`, [node.id]);
       emitEvent("NODE_FAILED", { workflowId, nodeId: node.name, reason: "budget_exceeded" });
       return;
+    }
+  }
+
+  // Escrow: hold funds upfront if priced
+  const priceLookup = await pool.query(
+    `select price_cents from capabilities where capability_id = $1 limit 1`,
+    [node.capability_id]
+  );
+  const priceCents = priceLookup.rowCount ? Number(priceLookup.rows[0].price_cents || 0) : 0;
+  if (priceCents > 0) {
+    const existingEscrow = await pool.query(
+      `select id from ledger_escrow where workflow_id = $1 and node_name = $2 and status = 'held' limit 1`,
+      [workflowId, node.name]
+    );
+    if (!existingEscrow.rowCount) {
+      const payerAcc = await ensureAccount(payerDid);
+      const balRes = await pool.query(`select balance from ledger_accounts where id = $1`, [payerAcc]);
+      const balance = balRes.rowCount ? Number(balRes.rows[0].balance || 0) : 0;
+      if (!ALLOW_UNLIMITED_SPEND && balance < priceCents) {
+        await pool.query(`update task_nodes set status = 'failed', updated_at = now() where id = $1`, [node.id]);
+        emitEvent("NODE_FAILED", { workflowId, nodeId: node.name, reason: "insufficient_funds" });
+        return;
+      }
+      await pool.query(`update ledger_accounts set balance = balance - $1 where id = $2`, [priceCents, payerAcc]);
+      await pool.query(
+        `insert into ledger_escrow (account_did, workflow_id, node_name, amount, status) values ($1, $2, $3, $4, 'held')`,
+        [payerDid, workflowId, node.name, priceCents]
+      );
     }
   }
 
@@ -2151,7 +2327,10 @@ async function enqueueNode(node: any, workflowId: string) {
     };
   });
 
-  const chosen = filtered[0];
+  // Redundancy config (critical + requires_verification => N-of-M)
+  const redundancy = getRedundancyConfig(node.capability_id, !!node.requires_verification);
+  const replicas = redundancy.enabled ? Math.min(redundancy.total, filtered.length) : 1;
+  const chosenAgents = filtered.slice(0, replicas);
 
   // Persist selection log for introspection ("Why this agent?")
   try {
@@ -2164,7 +2343,7 @@ async function enqueueNode(node: any, workflowId: string) {
         node.id,
         node.attempts || 0,
         node.capability_id,
-        chosen ? chosen.did : null,
+        chosenAgents.length ? chosenAgents.map((c) => c.did).join(",") : null,
         JSON.stringify(scoredCandidates),
         JSON.stringify(scoredFiltered),
         policy ? JSON.stringify(policy) : null,
@@ -2177,7 +2356,7 @@ async function enqueueNode(node: any, workflowId: string) {
     );
   }
 
-  if (!chosen) {
+  if (!chosenAgents.length) {
     app.log.error({ capability: node.capability_id, workflowId, node: node.name }, "no agent available for cap");
     // if this is a verify node and no verifier registered, fall back to automatic success
     if (node.capability_id === "cap.verify.generic.v1") {
@@ -2202,21 +2381,45 @@ async function enqueueNode(node: any, workflowId: string) {
     emitEvent("NODE_FAILED", { workflowId, nodeId: node.name, reason: "no agent" });
     return;
   }
-  const target = chosen.endpoint;
-  const agentDid = chosen.did;
-  const dispatchKey = `${workflowId}:${node.name}:${node.attempts || 0}`;
+  // Update node metadata with redundancy config + allowed agents
+  const allowedAgents = chosenAgents.map((c) => c.did);
   await pool.query(
-    `insert into dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, attempts, next_attempt, status, dispatch_key)
-     values ($1, $2, $3, $4, $5, $6, 0, now(), 'pending', $7)
-     on conflict (dispatch_key) do nothing`,
-    [taskId, workflowId, node.name, "node.dispatch", target, basePayload, dispatchKey]
+    `update task_nodes
+        set status = 'dispatched',
+            updated_at = now(),
+            started_at = now(),
+            agent_did = $2,
+            allowed_agents = $3,
+            consensus_total = $4,
+            consensus_quorum = $5
+      where id = $1`,
+    [
+      node.id,
+      chosenAgents[0]?.did || null,
+      allowedAgents,
+      redundancy.enabled ? redundancy.total : null,
+      redundancy.enabled ? redundancy.quorum : null,
+    ]
   );
 
-  await pool.query(
-    `update task_nodes set status = 'dispatched', updated_at = now(), started_at = now(), agent_did = $2 where id = $1`,
-    [node.id, agentDid]
-  );
-  emitEvent("NODE_DISPATCHED", { workflowId, nodeId: node.name, capabilityId: node.capability_id });
+  for (let idx = 0; idx < chosenAgents.length; idx++) {
+    const agent = chosenAgents[idx];
+    const dispatchKey = `${workflowId}:${node.name}:${node.attempts || 0}:r${idx}`;
+    await pool.query(
+      `insert into dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, attempts, next_attempt, status, dispatch_key)
+       values ($1, $2, $3, $4, $5, $6, 0, now(), 'pending', $7)
+       on conflict (dispatch_key) do nothing`,
+      [taskId, workflowId, node.name, "node.dispatch", agent.endpoint, basePayload, dispatchKey]
+    );
+    emitEvent("NODE_DISPATCHED", {
+      workflowId,
+      nodeId: node.name,
+      capabilityId: node.capability_id,
+      agentDid: agent.did,
+      replica: idx + 1,
+      replicas,
+    });
+  }
 }
 
 async function orchestrateWorkflow(workflowId: string) {
@@ -2260,36 +2463,75 @@ app.post("/v1/tasks/:id/bid", { preHandler: [rateLimitGuard, apiGuard] }, async 
     return reply.status(400).send({ error: parsed.error.flatten(), message: "Invalid payload" });
   }
   const taskId = (request.params as any).id;
-  const { agentDid, amount, etaMs } = parsed.data;
+  const { agentDid, amount, etaMs, slaHints, safetyClass, proposal } = parsed.data;
 
   void recordHeartbeat(agentDid, 0, etaMs ?? 0, 0);
 
-  const task = await pool.query(`select status from tasks where id = $1`, [taskId]);
+  const task = await pool.query(`select status, budget from tasks where id = $1`, [taskId]);
   if (!task.rowCount) return reply.status(404).send({ error: "Task not found" });
   if (task.rows[0].status !== "open") return reply.status(400).send({ error: "Task closed" });
 
   await pool.query(
-    `insert into bids (task_id, agent_did, amount, eta_ms) values ($1, $2, $3, $4)`,
-    [taskId, agentDid, amount ?? null, etaMs ?? null]
+    `insert into bids (task_id, agent_did, amount, eta_ms, sla_hints, safety_class, proposal, status) values ($1, $2, $3, $4, $5, $6, $7, 'pending')`,
+    [taskId, agentDid, amount ?? null, etaMs ?? null, slaHints ?? null, safetyClass ?? null, proposal ?? null]
   );
 
-  // Update winner to lowest amount (tie-break: earliest)
-  const ttlMs = HEARTBEAT_TTL_MS * 2;
-  await pool.query(
-    `update tasks t set winner_did = sub.agent_did
-     from (
-       select b.agent_did
+  // Extended negotiation scoring (price + latency + reliability + safety)
+  const bidsRes = await pool.query(
+    `select b.agent_did, b.amount, b.eta_ms, b.sla_hints, b.safety_class, b.created_at,
+            coalesce(ar.reputation, a.reputation, 0) as rep,
+            coalesce(hb.availability_score, 0) as avail,
+            coalesce(hb.latency_ms, 999999) as latency_ms
        from bids b
-       left join heartbeats h on h.agent_did = b.agent_did
-       where b.task_id = $1
-         and coalesce(h.availability_score,0) >= 0.3
-         and (h.last_seen is null or now() - h.last_seen < ($2::int || ' milliseconds')::interval)
-       order by b.amount nulls last, coalesce(h.latency_ms, 999999) asc, b.created_at asc
-       limit 1
-     ) sub
-     where t.id = $1`,
-    [taskId, ttlMs]
+       left join agents a on a.did = b.agent_did
+       left join agent_reputation ar on ar.agent_did = b.agent_did
+       left join heartbeats hb on hb.agent_did = b.agent_did
+      where b.task_id = $1`,
+    [taskId]
   );
+  const rows = bidsRes.rows;
+  const maxAmount = Math.max(...rows.map((r: any) => Number(r.amount || 0)), 1);
+  const budgetLimit = task.rows[0].budget != null ? Number(task.rows[0].budget) : null;
+  const scored = rows
+    .filter((r: any) => {
+      if (budgetLimit != null && r.amount != null && Number(r.amount) > budgetLimit) return false;
+      return true;
+    })
+    .map((r: any) => {
+      const amountVal = r.amount != null ? Number(r.amount) : null;
+      const priceScore =
+        amountVal != null && maxAmount > 0 ? Math.max(0, Math.min(1, (maxAmount - amountVal) / maxAmount)) : 0.5;
+      const sla = r.sla_hints || {};
+      const targetLatency = sla.p99LatencyMs || r.eta_ms || r.latency_ms || 999999;
+      const latencyScore = targetLatency ? Math.max(0, Math.min(1, 1_000 / (targetLatency + 1))) : 0.5;
+      const reliabilityScore = Math.max(0, Math.min(1, Number(r.avail || 0)));
+      const safetyScore =
+        typeof r.safety_class === "string" && r.safety_class.toLowerCase().includes("high")
+          ? 1
+          : typeof r.safety_class === "string"
+          ? 0.7
+          : 0.5;
+      const totalScore =
+        NEG_WEIGHT_PRICE * priceScore +
+        NEG_WEIGHT_LATENCY * latencyScore +
+        NEG_WEIGHT_RELIABILITY * reliabilityScore +
+        NEG_WEIGHT_SAFETY * safetyScore;
+      return { ...r, score: totalScore };
+    })
+    .sort((a: any, b: any) => b.score - a.score);
+
+  const winner = scored[0];
+  if (winner) {
+    await pool.query(`update tasks set winner_did = $2 where id = $1`, [taskId, winner.agent_did]);
+    await pool.query(`update bids set status = 'accepted' where task_id = $1 and agent_did = $2`, [
+      taskId,
+      winner.agent_did,
+    ]);
+    await pool.query(`update bids set status = 'rejected' where task_id = $1 and agent_did <> $2`, [
+      taskId,
+      winner.agent_did,
+    ]);
+  }
 
   void dispatchWebhooks(taskId, "bid.received", { taskId, agentDid, amount, etaMs });
   emitEvent("AGENT_BID", { taskId, agentDid, amount });
@@ -2323,6 +2565,31 @@ app.get("/v1/tasks", { preHandler: [rateLimitGuard, apiGuard] }, async (request,
     [limit]
   );
   return reply.send({ tasks: rows.rows });
+});
+
+// Negotiation: accept/reject proposals (bids)
+app.post("/v1/tasks/:id/proposals/:agentDid/accept", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
+  const taskId = (request.params as any).id;
+  const agentDid = (request.params as any).agentDid;
+  const task = await pool.query(`select status from tasks where id = $1`, [taskId]);
+  if (!task.rowCount) return reply.status(404).send({ error: "Task not found" });
+  if (task.rows[0].status !== "open") return reply.status(400).send({ error: "Task closed" });
+  await pool.query(`update bids set status = 'accepted' where task_id = $1 and agent_did = $2`, [taskId, agentDid]);
+  await pool.query(`update bids set status = 'rejected' where task_id = $1 and agent_did <> $2`, [taskId, agentDid]);
+  await pool.query(`update tasks set winner_did = $2 where id = $1`, [taskId, agentDid]);
+  return reply.send({ ok: true, taskId, agentDid, status: "accepted" });
+});
+
+app.post("/v1/tasks/:id/proposals/:agentDid/reject", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
+  const taskId = (request.params as any).id;
+  const agentDid = (request.params as any).agentDid;
+  const task = await pool.query(`select status, winner_did from tasks where id = $1`, [taskId]);
+  if (!task.rowCount) return reply.status(404).send({ error: "Task not found" });
+  await pool.query(`update bids set status = 'rejected' where task_id = $1 and agent_did = $2`, [taskId, agentDid]);
+  if (task.rows[0].winner_did === agentDid) {
+    await pool.query(`update tasks set winner_did = null where id = $1`, [taskId]);
+  }
+  return reply.send({ ok: true, taskId, agentDid, status: "rejected" });
 });
 
 // Agent discovery (SDN v1 lightweight)
@@ -2493,7 +2760,7 @@ app.post("/v1/workflows/publish", { preHandler: [rateLimitGuard, apiGuard] }, as
   if (!parsed.success) {
     return reply.status(400).send({ error: parsed.error.flatten(), message: "Invalid workflow payload" });
   }
-  const { intent, nodes, payerDid, maxCents } = parsed.data;
+  const { intent, nodes, payerDid, maxCents, parentWorkflowId, spawnedFromNode } = parsed.data;
   // validate DAG
   const names = Object.keys(nodes);
   for (const [name, node] of Object.entries(nodes)) {
@@ -2604,10 +2871,30 @@ app.post("/v1/workflows/publish", { preHandler: [rateLimitGuard, apiGuard] }, as
     }
   }
 
-  // Enforce max spend per workflow (environment-level). If a limit is set,
-  // cap maxCents and reject requests that try to exceed it explicitly.
+  // Enforce max spend per workflow (environment-level). Defaults to a modest cap, can be raised.
+  // Interpretation:
+  //   0   => spending forbidden
+  //   >0  => cap at that value
+  //   -1  => unlimited only if ALLOW_UNLIMITED_SPEND=true
   let effectiveMaxCents = maxCents ?? null;
-  if (MAX_SPEND_PER_WORKFLOW_CENTS > 0) {
+  if (MAX_SPEND_PER_WORKFLOW_CENTS === 0) {
+    return reply.status(403).send({
+      error: "quota_exceeded",
+      kind: "max_spend_per_workflow",
+      limit: 0,
+      requested: effectiveMaxCents ?? 0,
+    });
+  }
+  if (MAX_SPEND_PER_WORKFLOW_CENTS === -1) {
+    if (!ALLOW_UNLIMITED_SPEND) {
+      return reply.status(403).send({
+        error: "quota_exceeded",
+        kind: "max_spend_per_workflow",
+        limit: "unlimited_not_allowed",
+      });
+    }
+    // unlimited allowed; leave effectiveMaxCents as provided
+  } else if (MAX_SPEND_PER_WORKFLOW_CENTS > 0) {
     if (effectiveMaxCents != null && effectiveMaxCents > MAX_SPEND_PER_WORKFLOW_CENTS) {
       return reply.status(403).send({
         error: "quota_exceeded",
@@ -2621,11 +2908,44 @@ app.post("/v1/workflows/publish", { preHandler: [rateLimitGuard, apiGuard] }, as
     }
   }
 
+  // Optional parent workflow inheritance
+  if (parentWorkflowId) {
+    const parentRes = await pool.query(
+      `select max_cents, spent_cents, payer_did from workflows where id = $1`,
+      [parentWorkflowId]
+    );
+    if (!parentRes.rowCount) {
+      return reply.status(404).send({ error: "parent_workflow_not_found" });
+    }
+    const parent = parentRes.rows[0];
+    const parentRemaining =
+      parent.max_cents == null
+        ? null
+        : Math.max(0, Number(parent.max_cents || 0) - Number(parent.spent_cents || 0));
+
+    if (effectiveMaxCents == null && parentRemaining != null) {
+      effectiveMaxCents = parentRemaining;
+    }
+    if (parentRemaining != null && effectiveMaxCents != null && effectiveMaxCents > parentRemaining) {
+      return reply.status(403).send({
+        error: "child_budget_exceeds_parent",
+        parentRemaining,
+        requested: effectiveMaxCents,
+      });
+    }
+    // Inherit payer unless explicitly overridden
+    if (parent.payer_did) {
+      effectivePayerDid = parent.payer_did;
+    }
+  }
+
   const { workflowId, taskId } = await createWorkflow(
     intent,
     wfNodes,
     effectivePayerDid,
-    effectiveMaxCents == null ? undefined : effectiveMaxCents
+    effectiveMaxCents == null ? undefined : effectiveMaxCents,
+    parentWorkflowId,
+    spawnedFromNode
   );
   return reply.send({ workflowId, taskId, nodes: Object.keys(nodes) });
 });
@@ -2634,7 +2954,7 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
   const parsed = nodeResultSchema.safeParse(request.body);
   if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten(), message: "Invalid node result" });
 
-  const { workflowId, nodeId, result, error, metrics, resultId, signature } = parsed.data;
+  const { workflowId, nodeId, result, error, metrics, resultId, signature, agentDid: submittedAgentDid } = parsed.data;
   const client = await pool.connect();
   let newStatus: "success" | "failed" = "failed";
   let schemaErrors: any = null;
@@ -2644,14 +2964,23 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
   try {
     await client.query("begin");
     const nodeRes = await client.query(
-      `select id, capability_id, max_attempts, attempts, agent_did, started_at, requires_verification, result_id
+      `select id, capability_id, max_attempts, attempts, agent_did, allowed_agents, consensus_total, consensus_quorum,
+              started_at, requires_verification, requires_human, result_id
        from task_nodes where workflow_id = $1 and name = $2 for update`,
       [workflowId, nodeId]
     );
     if (!nodeRes.rowCount) throw new Error("node_not_found");
     node = nodeRes.rows[0];
+    if (node.requires_human) {
+      throw new Error("human_approval_required");
+    }
 
     const incomingResultId = resultId || uuidv4();
+    const declaredAgentDid = submittedAgentDid || node.agent_did || null;
+    const allowedAgents: string[] = Array.isArray(node.allowed_agents) ? node.allowed_agents : [];
+    if (allowedAgents.length && declaredAgentDid && !allowedAgents.includes(declaredAgentDid)) {
+      app.log.warn({ workflowId, nodeId, declaredAgentDid, allowedAgents }, "agent not in allowed set for redundancy");
+    }
     if (node.result_id) {
       if (node.result_id === incomingResultId) {
         await client.query("commit");
@@ -2662,8 +2991,10 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
 
     // Signature verification (required when agent has public_key; optional otherwise)
     const payloadToSign = { workflowId, nodeId, result, error, metrics, resultId: incomingResultId };
-    const keyRes = await client.query(`select public_key from agents where did = $1`, [node.agent_did]);
-    const expectedPub = keyRes.rowCount ? keyRes.rows[0].public_key : null;
+    const keyRes = declaredAgentDid
+      ? await client.query(`select public_key from agents where did = $1`, [declaredAgentDid])
+      : null;
+    const expectedPub = keyRes && keyRes.rowCount ? keyRes.rows[0].public_key : null;
     const pubToUse = expectedPub || parsed.data.publicKey || null;
     if (pubToUse) {
       if (!signature) {
@@ -2677,6 +3008,9 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
 
     let schemaValid = true;
     let hash = "";
+    let resultPayloadFinal: any = null;
+    let resultHashFinal: string | null = null;
+    let winnerAgentDid: string | null = declaredAgentDid;
     try {
       const payloadToHash = result ?? error ?? {};
       hash = crypto.createHash("sha256").update(JSON.stringify(payloadToHash)).digest("hex");
@@ -2689,7 +3023,74 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
       // ignore
     }
 
-    newStatus = !schemaValid || error ? "failed" : "success";
+    // Redundancy / consensus handling
+    const redundancyCfg = getRedundancyConfig(node.capability_id, !!node.requires_verification);
+    const consensusTotal = node.consensus_total || (redundancyCfg.enabled ? redundancyCfg.total : 1);
+    const consensusQuorum = node.consensus_quorum || (redundancyCfg.enabled ? redundancyCfg.quorum : 1);
+    const redundancyEnabled = !error && schemaValid && (consensusTotal || 1) > 1;
+
+    if (redundancyEnabled) {
+      const share = await recordResultShare({
+        workflowId,
+        nodeId,
+        agentDid: declaredAgentDid,
+        hash: hash || hashResultDeterministic(result ?? error ?? {}),
+        payload: result ?? error ?? {},
+        total: consensusTotal || 1,
+        quorum: consensusQuorum || 1,
+      });
+
+      if (share.status === "pending") {
+        await client.query(
+          `update task_nodes set consensus_status = 'pending', updated_at = now() where id = $1`,
+          [node.id]
+        );
+        await client.query("commit");
+        return reply.send({
+          ok: true,
+          status: "pending",
+          submitted: share.submittedCount,
+          quorum: consensusQuorum || 1,
+        });
+      }
+
+      if (share.status === "failure") {
+        await client.query(
+          `update task_nodes
+              set status = 'failed',
+                  result_hash = $2,
+                  result_payload = $3,
+                  result_id = $4,
+                  consensus_status = 'failed',
+                  finished_at = now(),
+                  updated_at = now()
+            where id = $1`,
+          [
+            node.id,
+            hash || null,
+            { consensus_failure: true, submitted: share.submittedCount, majority: share.majorityCount },
+            incomingResultId,
+          ]
+        );
+        await client.query("commit");
+        emitEvent("NODE_FAILED", { workflowId, nodeId, reason: "consensus_failed" });
+        return reply.status(409).send({ error: "consensus_failed", submitted: share.submittedCount });
+      }
+
+      // success
+      resultPayloadFinal = share.payload ?? (result ?? error ?? null);
+      resultHashFinal = share.consensusHash || hash || null;
+      winnerAgentDid = share.winnerAgentDid || declaredAgentDid;
+      newStatus = "success";
+      await client.query(
+        `update task_nodes set consensus_status = 'success', consensus_total = $2, consensus_quorum = $3 where id = $1`,
+        [node.id, consensusTotal, consensusQuorum]
+      );
+    } else {
+      resultPayloadFinal = result ?? error ?? null;
+      resultHashFinal = hash || null;
+      newStatus = !schemaValid || error ? "failed" : "success";
+    }
     await client.query(
       `update task_nodes
          set status = $1,
@@ -2700,51 +3101,57 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
              finished_at = now(),
              updated_at = now()
        where id = $5`,
-      [newStatus, hash || null, result ?? error ?? null, incomingResultId, node.id]
+      [newStatus, resultHashFinal, resultPayloadFinal, incomingResultId, node.id]
     );
 
-    if (newStatus === "success") {
-      const wfRes = await client.query(
-        `select payer_did, max_cents, spent_cents, task_id from workflows where id = $1 for update`,
-        [workflowId]
-      );
-      if (!wfRes.rowCount) throw new Error("workflow_missing");
-      const wf = wfRes.rows[0];
+    const wfRes = await client.query(
+      `select payer_did, max_cents, spent_cents, task_id from workflows where id = $1 for update`,
+      [workflowId]
+    );
+    if (!wfRes.rowCount) throw new Error("workflow_missing");
+    const wf = wfRes.rows[0];
 
-      const priceRes = await client.query(
-        `select price_cents from capabilities where capability_id = $1 limit 1`,
-        [node.capability_id]
-      );
-      const priceCents = priceRes.rowCount ? Number(priceRes.rows[0].price_cents || 0) : 0;
+    const priceRes = await client.query(
+      `select price_cents from capabilities where capability_id = $1 limit 1`,
+      [node.capability_id]
+    );
+    const priceCents = priceRes.rowCount ? Number(priceRes.rows[0].price_cents || 0) : 0;
+
+    // Check for held escrow (payer already debited in enqueue)
+    const escrowHeld = await client.query(
+      `select id, account_did, amount from ledger_escrow where workflow_id = $1 and node_name = $2 and status = 'held' limit 1`,
+      [workflowId, nodeId]
+    );
+    const escrow = escrowHeld.rowCount ? escrowHeld.rows[0] : null;
+
+    if (newStatus === "success") {
       if (priceCents > 0) {
         if (wf.max_cents != null && Number(wf.spent_cents || 0) + priceCents > Number(wf.max_cents)) {
           throw new Error("budget_exceeded");
         }
-        const fee = Math.floor((priceCents * PROTOCOL_FEE_BPS) / 10000);
-        const payout = priceCents - fee;
+        const effectiveAmount = escrow ? Number(escrow.amount || priceCents) : priceCents;
+        const fee = Math.floor((effectiveAmount * PROTOCOL_FEE_BPS) / 10000);
+        const payout = effectiveAmount - fee;
 
-        const ensureAccount = async (ownerDid: string) => {
-          const res = await client.query(
-            `insert into ledger_accounts (owner_did, balance)
-               values ($1, 0)
-               on conflict (owner_did) do update set owner_did = excluded.owner_did
-             returning id`,
-            [ownerDid]
-          );
-          return res.rows[0].id as number;
-        };
-
-        const payerAcc = await ensureAccount(wf.payer_did || SYSTEM_PAYER);
-        const agentAcc = await ensureAccount(node.agent_did || "unknown");
+        const payerDidForLedger = wf.payer_did || SYSTEM_PAYER;
+        const agentAcc = await ensureAccount(winnerAgentDid || node.agent_did || "unknown");
         const protocolAcc = await ensureAccount("did:noot:protocol");
         const meta = { workflowId, nodeId, capabilityId: node.capability_id };
 
-        await client.query(`update ledger_accounts set balance = balance - $1 where id = $2`, [priceCents, payerAcc]);
-        await client.query(
-          `insert into ledger_events (account_id, workflow_id, node_name, delta, reason, meta)
-           values ($1,$2,$3,$4,$5,$6)`,
-          [payerAcc, workflowId, nodeId, -priceCents, "node_charge", meta]
-        );
+        if (!escrow) {
+          const payerAcc = await ensureAccount(payerDidForLedger);
+          await client.query(`update ledger_accounts set balance = balance - $1 where id = $2`, [effectiveAmount, payerAcc]);
+          await client.query(
+            `insert into ledger_events (account_id, workflow_id, node_name, delta, reason, meta)
+             values ($1,$2,$3,$4,$5,$6)`,
+            [payerAcc, workflowId, nodeId, -effectiveAmount, "node_charge", meta]
+          );
+        } else {
+          await client.query(
+            `update ledger_escrow set status = 'released', resolved_at = now(), reason = 'node_success' where id = $1`,
+            [escrow.id]
+          );
+        }
 
         await client.query(`update ledger_accounts set balance = balance + $1 where id = $2`, [payout, agentAcc]);
         await client.query(
@@ -2762,8 +3169,40 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
           );
         }
 
-        await client.query(`update workflows set spent_cents = spent_cents + $1 where id = $2`, [priceCents, workflowId]);
+        await client.query(`update workflows set spent_cents = spent_cents + $1 where id = $2`, [effectiveAmount, workflowId]);
       }
+      if (winnerAgentDid) {
+        await client.query(`update task_nodes set agent_did = $2 where id = $1`, [node.id, winnerAgentDid]);
+      }
+
+      // Signed receipt (best-effort)
+      try {
+        await storeReceipt({
+          workflowId,
+          nodeName: node.name,
+          agentDid: winnerAgentDid || node.agent_did || "unknown",
+          capabilityId: node.capability_id,
+          output: resultPayloadFinal,
+          input: null,
+          creditsEarned: priceCents,
+        });
+      } catch (e) {
+        app.log.warn({ e, workflowId, nodeId }, "storeReceipt failed (non-blocking)");
+      }
+    } else if (newStatus === "failed" && escrow) {
+      // Refund held escrow on failure
+      const payerAcc = await ensureAccount(wf.payer_did || SYSTEM_PAYER);
+      const amount = Number(escrow.amount || 0);
+      await client.query(`update ledger_accounts set balance = balance + $1 where id = $2`, [amount, payerAcc]);
+      await client.query(
+        `insert into ledger_events (account_id, workflow_id, node_name, delta, reason, meta)
+         values ($1,$2,$3,$4,$5,$6)`,
+        [payerAcc, workflowId, nodeId, amount, "node_refund", { workflowId, nodeId }]
+      );
+      await client.query(
+        `update ledger_escrow set status = 'released', resolved_at = now(), reason = 'node_failed' where id = $1`,
+        [escrow.id]
+      );
     }
 
     await client.query("commit");
@@ -2774,6 +3213,7 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
     if (err?.message === "duplicate_result") return reply.status(409).send({ error: "duplicate_result" });
     if (err?.message === "missing_signature") return reply.status(400).send({ error: "missing_signature" });
     if (err?.message === "invalid_signature") return reply.status(400).send({ error: "invalid_signature" });
+    if (err?.message === "human_approval_required") return reply.status(403).send({ error: "human_approval_required" });
     if (err?.message === "budget_exceeded") {
       await pool.query(`update workflows set status='failed', updated_at=now() where id = $1`, [workflowId]);
       await pool.query(`update task_nodes set status='failed' where workflow_id=$1 and name=$2`, [workflowId, nodeId]);
@@ -3127,7 +3567,8 @@ app.get("/v1/agents/:did/stats", { preHandler: [rateLimitGuard, apiGuard] }, asy
 app.get("/v1/workflows/:id", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
   const workflowId = (request.params as any).id;
   const wf = await pool.query(
-    `select id, task_id, intent, status, payer_did, max_cents, spent_cents, created_at, updated_at from workflows where id = $1`,
+    `select id, task_id, intent, status, payer_did, max_cents, spent_cents, parent_workflow_id, spawned_from_node, created_at, updated_at
+       from workflows where id = $1`,
     [workflowId]
   );
   if (!wf.rowCount) return reply.status(404).send({ error: "Not found" });
@@ -3571,6 +4012,7 @@ app.get("/health", async (_req, reply) => {
 app.setErrorHandler((err, _req, reply) => {
   const rid = (_req as any)?.headers?.["x-request-id"];
   app.log.error({ err, request_id: rid });
+  captureError(err, { request_id: rid });
   const status = (err as any).statusCode || 500;
   return reply.status(status).send({
     error: err.message,
@@ -3596,6 +4038,7 @@ const shutdown = async (signal: string) => {
     await app.close();
     await closeRedis();
     await pool.end();
+    await shutdownOtel();
     app.log.info("Graceful shutdown complete");
     process.exit(0);
   } catch (err) {

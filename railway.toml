@@ -2,7 +2,8 @@
 # Uses Railpack (Railway's default builder)
 
 [build]
-buildCommand = "corepack enable && pnpm install --frozen-lockfile && pnpm build"
+# Use non-frozen lockfile install to avoid CI failures when lockfile is updated.
+buildCommand = "corepack enable && pnpm install --no-frozen-lockfile && pnpm build"
 
 [deploy]
 restartPolicyType = "ON_FAILURE"

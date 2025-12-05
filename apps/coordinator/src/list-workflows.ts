@@ -8,7 +8,10 @@ const pool = new Pool({
 
 export async function listWorkflows(limit = 100) {
   const res = await pool.query(
-    `select id, task_id, intent, status, created_at, updated_at from workflows order by created_at desc limit $1`,
+    `select id, task_id, intent, status, payer_did, max_cents, spent_cents, parent_workflow_id, spawned_from_node, created_at, updated_at
+       from workflows
+       order by created_at desc
+       limit $1`,
     [limit]
   );
   return res.rows;

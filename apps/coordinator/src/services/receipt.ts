@@ -1,10 +1,17 @@
 import { createHash, randomUUID } from "crypto";
-import { encode as cborEncode, decode as cborDecode } from "cbor";
+import pkg from "cbor";
 import base64url from "base64url";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { pool } from "../db.js";
 import { ReceiptClaims } from "@nooterra/types";
+
+const { encode: cborEncode, decode: cborDecode } = pkg as {
+  encode: (value: unknown) => Uint8Array;
+  decode: (input: Uint8Array | Buffer) => unknown;
+};
+
+const DISPUTE_WINDOW_SECONDS = Number(process.env.DISPUTE_WINDOW_SECONDS || 86_400); // 24h default
 
 export interface ReceiptEnvelope {
   protected: string; // base64url(cbor headers)
@@ -103,13 +110,14 @@ export async function storeReceipt(params: {
   // Insert base receipt row (without COSE)
   await pool.query(
     `INSERT INTO task_receipts 
-     (task_id, node_id, workflow_id, agent_did, capability_id, input_hash, output_hash, started_at, completed_at, latency_ms, credits_earned, coordinator_signature)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, null)
+     (task_id, node_id, workflow_id, agent_did, capability_id, input_hash, output_hash, started_at, completed_at, latency_ms, credits_earned, coordinator_signature, dispute_window_seconds)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, null, $12)
      ON CONFLICT (workflow_id, node_id) DO UPDATE SET
        input_hash = EXCLUDED.input_hash,
        output_hash = EXCLUDED.output_hash,
        latency_ms = EXCLUDED.latency_ms,
-       credits_earned = EXCLUDED.credits_earned`,
+       credits_earned = EXCLUDED.credits_earned,
+       dispute_window_seconds = EXCLUDED.dispute_window_seconds`,
     [
       nodeId,
       nodeId,
@@ -122,6 +130,7 @@ export async function storeReceipt(params: {
       completedAt,
       completedAt.getTime() - startedAt.getTime(),
       creditsEarned,
+      DISPUTE_WINDOW_SECONDS,
     ]
   );
 

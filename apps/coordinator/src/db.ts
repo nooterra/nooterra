@@ -70,6 +70,8 @@ export async function migrate() {
       payer_did text default 'did:noot:system',
       max_cents bigint,
       spent_cents bigint default 0,
+      parent_workflow_id uuid references workflows(id),
+      spawned_from_node text,
       created_at timestamptz default now(),
       updated_at timestamptz default now()
     );
@@ -77,6 +79,8 @@ export async function migrate() {
   await pool.query(`alter table workflows add column if not exists payer_did text default 'did:noot:system';`);
   await pool.query(`alter table workflows add column if not exists max_cents bigint;`);
   await pool.query(`alter table workflows add column if not exists spent_cents bigint default 0;`);
+  await pool.query(`alter table workflows add column if not exists parent_workflow_id uuid references workflows(id);`);
+  await pool.query(`alter table workflows add column if not exists spawned_from_node text;`);
 
   await pool.query(`
     create table if not exists task_nodes (
@@ -85,6 +89,7 @@ export async function migrate() {
       name text not null,
       capability_id text not null,
       agent_did text,
+      allowed_agents text[],
       status text default 'pending',
       depends_on text[] default '{}',
       payload jsonb,
@@ -97,6 +102,10 @@ export async function migrate() {
       started_at timestamptz,
       finished_at timestamptz,
       requires_verification boolean default false,
+      requires_human boolean default false,
+      consensus_total int,
+      consensus_quorum int,
+      consensus_status text,
       verification_status text,
       verified_by text,
       created_at timestamptz default now(),
@@ -107,6 +116,11 @@ export async function migrate() {
   await pool.query(`alter table task_nodes add column if not exists deadline_at timestamptz;`);
   await pool.query(`alter table task_nodes add column if not exists target_agent_id text;`);
   await pool.query(`alter table task_nodes add column if not exists allow_broadcast_fallback boolean default false;`);
+  await pool.query(`alter table task_nodes add column if not exists requires_human boolean default false;`);
+  await pool.query(`alter table task_nodes add column if not exists allowed_agents text[];`);
+  await pool.query(`alter table task_nodes add column if not exists consensus_total int;`);
+  await pool.query(`alter table task_nodes add column if not exists consensus_quorum int;`);
+  await pool.query(`alter table task_nodes add column if not exists consensus_status text;`);
 
   await pool.query(`
     create table if not exists bids (
@@ -118,6 +132,10 @@ export async function migrate() {
       created_at timestamptz default now()
     );
   `);
+  await pool.query(`alter table bids add column if not exists sla_hints jsonb;`);
+  await pool.query(`alter table bids add column if not exists safety_class text;`);
+  await pool.query(`alter table bids add column if not exists status text default 'pending';`);
+  await pool.query(`alter table bids add column if not exists proposal jsonb;`);
 
   // Simple ledger: accounts + events
   await pool.query(`
@@ -142,6 +160,21 @@ export async function migrate() {
       created_at timestamptz default now()
     );
   `);
+
+  await pool.query(`
+    create table if not exists ledger_escrow (
+      id serial primary key,
+      account_did text not null,
+      workflow_id uuid,
+      node_name text,
+      amount numeric not null,
+      status text default 'held',
+      reason text,
+      created_at timestamptz default now(),
+      resolved_at timestamptz
+    );
+  `);
+  await pool.query(`create index if not exists ledger_escrow_workflow_idx on ledger_escrow(workflow_id, node_name);`);
 
   await pool.query(`
     create table if not exists feedback (
@@ -183,6 +216,19 @@ export async function migrate() {
   await pool.query(`
     create index if not exists bids_task_idx on bids(task_id);
   `);
+
+  await pool.query(`
+    create table if not exists node_result_shares (
+      id serial primary key,
+      workflow_id uuid not null,
+      node_name text not null,
+      agent_did text,
+      result_hash text,
+      result_payload jsonb,
+      created_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists node_result_shares_idx on node_result_shares(workflow_id, node_name);`);
 
   await pool.query(`
     create table if not exists heartbeats (
@@ -592,9 +638,13 @@ export async function migrate() {
       receipt_cose text,
       receipt_kid text,
       receipt_profile int,
+      dispute_window_seconds int,
       created_at timestamptz default now()
     );
   `);
+  await pool.query(
+    `alter table task_receipts add column if not exists dispute_window_seconds int`
+  );
   await pool.query(`create index if not exists task_receipts_agent_idx on task_receipts(agent_did);`);
   await pool.query(`create index if not exists task_receipts_workflow_idx on task_receipts(workflow_id);`);
   await pool.query(`create unique index if not exists task_receipts_workflow_node_idx on task_receipts(workflow_id, node_id);`);

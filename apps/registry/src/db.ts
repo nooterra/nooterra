@@ -20,6 +20,8 @@ export async function migrate() {
       acard_lineage text,
       acard_signature text,
       acard_raw jsonb,
+      did_method text,
+      pqc_public_key text,
       source_peer text,
       is_conflicted boolean default false,
       created_at timestamptz default now(),
@@ -35,6 +37,11 @@ export async function migrate() {
       description text,
       tags text[],
       output_schema jsonb,
+      price_model text,
+      safety_class text,
+      region text,
+      sla_hints jsonb,
+      certs jsonb,
       created_at timestamptz default now()
     );
   `);
@@ -47,9 +54,12 @@ export async function migrate() {
   await pool.query(`alter table agents add column if not exists acard_lineage text;`);
   await pool.query(`alter table agents add column if not exists acard_signature text;`);
   await pool.query(`alter table agents add column if not exists acard_raw jsonb;`);
+  await pool.query(`alter table agents add column if not exists did_method text;`);
+  await pool.query(`alter table agents add column if not exists pqc_public_key text;`);
   await pool.query(`alter table agents add column if not exists source_peer text;`);
   await pool.query(`alter table agents add column if not exists is_conflicted boolean default false;`);
   await pool.query(`alter table agents add column if not exists updated_at timestamptz default now();`);
+  await pool.query(`alter table agents add column if not exists reputation_stats jsonb;`);
   
   // Wallet address for agent developer payments
   await pool.query(`alter table agents add column if not exists wallet_address text;`);
@@ -57,6 +67,28 @@ export async function migrate() {
   
   // Price per capability call (in NCR cents)
   await pool.query(`alter table capabilities add column if not exists price_cents int default 10;`);
+  await pool.query(`alter table capabilities add column if not exists price_model text;`);
+  await pool.query(`alter table capabilities add column if not exists safety_class text;`);
+  await pool.query(`alter table capabilities add column if not exists region text;`);
+  await pool.query(`alter table capabilities add column if not exists sla_hints jsonb;`);
+  await pool.query(`alter table capabilities add column if not exists certs jsonb;`);
+  await pool.query(`alter table capabilities add column if not exists price_model text;`);
+
+  // MCP / tool schemas
+  await pool.query(`
+    create table if not exists tool_schemas (
+      id serial primary key,
+      capability_id text not null,
+      agent_did text references agents(did) on delete cascade,
+      schema jsonb not null,
+      version int default 1,
+      created_at timestamptz default now(),
+      updated_at timestamptz default now()
+    );
+  `);
+  await pool.query(
+    `create unique index if not exists tool_schemas_cap_agent_idx on tool_schemas(capability_id, agent_did)`
+  );
 
   // Federation peer tracking (binary trust)
   await pool.query(`
@@ -100,4 +132,19 @@ export async function migrate() {
     );
   `);
   await pool.query(`insert into registry_state (id, state_version) values (1, 0) on conflict (id) do nothing;`);
+
+  // Agent reputation stats with decay-friendly fields
+  await pool.query(`
+    create table if not exists agent_reputation_stats (
+      agent_did text primary key references agents(did) on delete cascade,
+      total_tasks numeric default 0,
+      successes numeric default 0,
+      failures numeric default 0,
+      disputes numeric default 0,
+      p90_latency_ms numeric,
+      last_event_at timestamptz,
+      updated_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists agent_reputation_stats_updated_idx on agent_reputation_stats(updated_at);`);
 }

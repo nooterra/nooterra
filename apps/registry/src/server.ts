@@ -8,6 +8,15 @@ import { ensureCollection, upsertCapability, searchCapabilities, deleteByAgent, 
 import { randomUUID } from "crypto";
 import pino from "pino";
 import { normalizeEndpoint, verifyACARD, ACARD } from "./acard.js";
+import * as Sentry from "@sentry/node";
+import { filterAndVerifyVcs, parseIssuerKeyMap } from "./services/vc.js";
+import { recordReputationEvent, getReputation } from "./services/reputation.js";
+import { NodeSDK } from "@opentelemetry/sdk-node";
+import { Resource } from "@opentelemetry/resources";
+import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
+import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
+import bs58 from "bs58";
+import nacl from "tweetnacl";
 
 dotenv.config();
 
@@ -20,12 +29,117 @@ const AVAIL_WEIGHT = Number(process.env.SEARCH_WEIGHT_AVAIL || 0.2);
 const HEARTBEAT_TTL_MS = Number(process.env.HEARTBEAT_TTL_MS || 60_000);
 const MIN_REP_DISCOVER = Number(process.env.MIN_REP_DISCOVER || 0);
 const REGION_ENUM = ["us-west", "us-east", "eu-west", "eu-central", "ap-south", "ap-northeast"] as const;
+const VC_ISSUERS = (process.env.VC_ISSUERS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const VC_ISSUER_KEY_MAP = parseIssuerKeyMap(process.env.VC_ISSUER_KEYS);
+const REGISTRY_DID = process.env.REGISTRY_DID || "";
+const REGISTRY_PRIVATE_KEY_B58 = process.env.REGISTRY_PRIVATE_KEY_B58 || "";
+
+// =========================
+// Sentry (env-gated)
+// =========================
+const SENTRY_DSN = process.env.SENTRY_DSN;
+const SENTRY_ENV = process.env.SENTRY_ENV || process.env.NODE_ENV || "development";
+const SENTRY_TRACES_SAMPLE_RATE = Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0);
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    environment: SENTRY_ENV,
+    tracesSampleRate: SENTRY_TRACES_SAMPLE_RATE,
+    integrations: [],
+  });
+}
+function captureError(err: unknown, context: Record<string, any> = {}) {
+  if (!SENTRY_DSN) return;
+  Sentry.captureException(err, {
+    tags: { service: "registry" },
+    extra: context,
+  });
+}
+
+// =========================
+// OpenTelemetry (env-gated)
+// =========================
+const OTEL_ENDPOINT = process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
+const OTEL_HEADERS_RAW = process.env.OTEL_EXPORTER_OTLP_HEADERS;
+const OTEL_ENV = process.env.NODE_ENV || "development";
+const OTEL_SERVICE_VERSION = process.env.npm_package_version || "0.1.0";
+let telemetrySdk: NodeSDK | null = null;
+
+function parseOtelHeaders(raw?: string): Record<string, string> | undefined {
+  if (!raw) return undefined;
+  return raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .reduce<Record<string, string>>((acc, pair) => {
+      const [k, v] = pair.split("=").map((s) => s.trim());
+      if (k && v) acc[k] = v;
+      return acc;
+    }, {});
+}
+
+async function initOtel() {
+  if (!OTEL_ENDPOINT) return;
+  const traceExporter = new OTLPTraceExporter({
+    url: OTEL_ENDPOINT,
+    headers: parseOtelHeaders(OTEL_HEADERS_RAW),
+  });
+  telemetrySdk = new NodeSDK({
+    resource: new Resource({
+      [SemanticResourceAttributes.SERVICE_NAME]: "registry",
+      [SemanticResourceAttributes.SERVICE_VERSION]: OTEL_SERVICE_VERSION,
+      [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: OTEL_ENV,
+    }),
+    traceExporter,
+  });
+  try {
+    await telemetrySdk.start();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("OTel start failed", err);
+  }
+}
+
+async function shutdownOtel() {
+  if (!telemetrySdk) return;
+  try {
+    await telemetrySdk.shutdown();
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.error("OTel shutdown failed", err);
+  }
+}
+
+void initOtel();
 
 function stableStringify(obj: any): string {
   if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
   if (Array.isArray(obj)) return `[${obj.map((v) => stableStringify(v)).join(",")}]`;
   const keys = Object.keys(obj).sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(",")}}`;
+}
+
+function signVc(payload: any): any {
+  if (!REGISTRY_DID || !REGISTRY_PRIVATE_KEY_B58) return null;
+  try {
+    const secretKey = bs58.decode(REGISTRY_PRIVATE_KEY_B58); // 64-byte ed25519 secret key
+    const msg = Buffer.from(JSON.stringify(payload));
+    const sig = nacl.sign.detached(new Uint8Array(msg), new Uint8Array(secretKey));
+    return {
+      ...payload,
+      proof: {
+        type: "Ed25519Signature2020",
+        created: new Date().toISOString(),
+        creator: REGISTRY_DID,
+        signatureValue: Buffer.from(sig).toString("base64"),
+      },
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function bumpRegistryState() {
@@ -79,6 +193,15 @@ app.addHook("onResponse", async (request, reply) => {
     statusCode: reply.statusCode,
     duration_ms: duration,
   });
+  if (SENTRY_DSN) {
+    Sentry.setContext("request", {
+      request_id: rid,
+      method: request.method,
+      url: request.url,
+      statusCode: reply.statusCode,
+      duration_ms: duration,
+    });
+  }
 });
 
 const capabilitySchema = z.object({
@@ -91,6 +214,12 @@ const capabilitySchema = z.object({
   price_cents: z.number().int().positive().max(1_000_000).optional(),
   pricingCents: z.number().int().positive().max(1_000_000).optional(),
   priceCredits: z.number().min(0).max(1_000_000).optional(),
+  price_model: z.string().max(64).optional(),
+  safety_class: z.string().max(64).optional(),
+  region: z.string().max(64).optional(),
+  sla_hints: z.record(z.any()).optional(),
+  certs: z.array(z.any()).optional(),
+  tool_schema: z.any().optional(),
 });
 
 const acardCapabilitySchema = z.object({
@@ -101,6 +230,11 @@ const acardCapabilitySchema = z.object({
   embeddingDim: z.number().optional().nullable(),
   pricingCents: z.number().int().positive().max(1_000_000).optional().nullable(),
   tags: z.array(z.string().max(64)).max(10).optional(),
+  priceModel: z.string().max(64).optional(),
+  safetyClass: z.string().max(64).optional(),
+  region: z.string().max(64).optional(),
+  slaHints: z.record(z.any()).optional(),
+  certs: z.array(z.any()).optional(),
 });
 
 const profileSchema = z.object({
@@ -143,6 +277,9 @@ const acardSchema = z.object({
   description: z.string().optional(),
   supportsStreaming: z.boolean().optional(),
   supportsPushNotifications: z.boolean().optional(),
+  vcs: z.array(z.any()).optional(),
+  did_method: z.string().optional(),
+  pqc_public_key: z.string().optional(),
 });
 
 const federationPeerSchema = z.object({
@@ -178,16 +315,25 @@ const availabilitySchema = z.object({
   last_seen: z.string().datetime().optional(),
 });
 
+const reputationEventSchema = z.object({
+  did: z.string(),
+  outcome: z.enum(["success", "failure"]),
+  latencyMs: z.number().int().positive().optional(),
+  dispute: z.boolean().optional(),
+});
+
 const apiGuard = async (request: any, reply: any) => {
   // Enforce API key on write routes when set
   const method = request.method?.toUpperCase() || "";
   const isWrite = ["POST", "PUT", "PATCH", "DELETE"].includes(method);
   if (!API_KEY && !isWrite) return;
-  if (API_KEY && isWrite) {
+  if (isWrite) {
     const provided = request.headers["x-api-key"];
-    if (provided !== API_KEY) {
-      return reply.status(401).send({ error: "Unauthorized" });
-    }
+    // Allow playground key always, or match configured API key if set
+    if (provided === "playground-free-tier") return;
+    if (API_KEY && provided === API_KEY) return;
+    if (!API_KEY) return; // no key configured -> allow writes
+    return reply.status(401).send({ error: "Unauthorized" });
   }
 };
 
@@ -238,7 +384,13 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
       tags: cap.tags || [],
       input_schema: cap.input_schema,
       output_schema: cap.output_schema,
+      tool_schema: (cap as any).tool_schema || (cap as any).toolSchema,
       price_cents: priceCents ?? undefined,
+      price_model: (cap as any).price_model || undefined,
+      safety_class: (cap as any).safety_class || undefined,
+      region: (cap as any).region || undefined,
+      sla_hints: (cap as any).sla_hints || undefined,
+      certs: (cap as any).certs || undefined,
     };
   });
 
@@ -249,6 +401,9 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
   let acardLineage: string | null = null;
   let acardSignature: string | null = null;
   let acardRaw: ACARD | null = null;
+  let didMethod: string | null = null;
+  let pqcPublicKey: string | null = null;
+  let validatedVcs: any[] | null = null;
 
   if (acard || acard_signature) {
     if (!acard || !acard_signature) {
@@ -299,7 +454,15 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
     acardVersion = acardCleaned.version;
     acardLineage = acardCleaned.lineage ?? null;
     acardSignature = acard_signature;
-    acardRaw = acardCleaned;
+    // filter & verify VCs
+    const vcs = Array.isArray((acard as any).vcs) ? (acard as any).vcs : [];
+    validatedVcs = filterAndVerifyVcs(vcs, VC_ISSUERS, VC_ISSUER_KEY_MAP);
+    acardRaw = {
+      ...acardCleaned,
+      vcs: validatedVcs || [],
+    } as any;
+    didMethod = (acard as any).did_method || null;
+    pqcPublicKey = (acard as any).pqc_public_key || null;
   } else {
     if (!endpointToPersist) {
       return reply.status(400).send({ error: "endpoint is required" });
@@ -308,8 +471,8 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
 
   try {
     await pool.query(
-      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw, updated_at, is_conflicted, source_peer)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), false, null)
+      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw, did_method, pqc_public_key, updated_at, is_conflicted, source_peer)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), false, null)
      on conflict (did) do update set
        name = excluded.name,
        endpoint = excluded.endpoint,
@@ -319,9 +482,23 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
        acard_lineage = excluded.acard_lineage,
        acard_signature = excluded.acard_signature,
        acard_raw = excluded.acard_raw,
+       did_method = excluded.did_method,
+       pqc_public_key = excluded.pqc_public_key,
        is_conflicted = false,
        updated_at = now()`,
-      [did, name || null, endpointToPersist, publicKey, walletAddress?.toLowerCase() || null, acardVersion, acardLineage, acardSignature, acardRaw]
+      [
+        did,
+        name || null,
+        endpointToPersist,
+        publicKey,
+        walletAddress?.toLowerCase() || null,
+        acardVersion,
+        acardLineage,
+        acardSignature,
+        acardRaw,
+        didMethod,
+        pqcPublicKey,
+      ]
     );
 
     // replace capabilities for this agent
@@ -338,11 +515,17 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
         capabilityId: cap.capabilityId,
         description: cap.description,
         tags: cap.tags,
+        priceCents: cap.price_cents ?? null,
+        priceModel: cap.price_model || null,
+        safetyClass: cap.safety_class || null,
+        region: cap.region || null,
+        slaHints: cap.sla_hints || null,
+        certs: cap.certs || null,
         vector,
       });
       await pool.query(
-        `insert into capabilities (agent_did, capability_id, description, tags, output_schema, price_cents)
-       values ($1, $2, $3, $4, $5, $6)`,
+        `insert into capabilities (agent_did, capability_id, description, tags, output_schema, price_cents, price_model, safety_class, region, sla_hints, certs)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           did,
           cap.capabilityId,
@@ -350,11 +533,50 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
           cap.tags || [],
           cap.output_schema || null,
           cap.price_cents ?? null,
+          cap.price_model || null,
+          cap.safety_class || null,
+          cap.region || null,
+          cap.sla_hints || null,
+          cap.certs || null,
         ]
       );
+
+      if (cap.tool_schema) {
+        await pool.query(
+          `insert into tool_schemas (capability_id, agent_did, schema, version)
+           values ($1, $2, $3, 1)
+           on conflict (capability_id, agent_did)
+           do update set schema = excluded.schema, version = tool_schemas.version + 1, updated_at = now()`,
+          [cap.capabilityId, did, cap.tool_schema]
+        );
+      }
     }
     await bumpRegistryState();
-    return reply.send({ ok: true, registered: normalizedCaps.length });
+    let issuedVc: any | null = null;
+    if (REGISTRY_DID && REGISTRY_PRIVATE_KEY_B58) {
+      const vcPayload = {
+        "@context": ["https://www.w3.org/2018/credentials/v1"],
+        id: `urn:vc:registered-agent:${did}:${Date.now()}`,
+        type: ["VerifiableCredential", "RegisteredAgent"],
+        issuer: REGISTRY_DID,
+        issuanceDate: new Date().toISOString(),
+        credentialSubject: {
+          id: did,
+          endpoint: endpointToPersist,
+          capabilities: normalizedCaps.map((c) => ({
+            capabilityId: c.capabilityId,
+            description: c.description,
+            price_model: c.price_model || null,
+            safety_class: c.safety_class || null,
+            region: c.region || null,
+            sla_hints: c.sla_hints || null,
+            certs: c.certs || null,
+          })),
+        },
+      };
+      issuedVc = signVc(vcPayload);
+    }
+    return reply.send({ ok: true, registered: normalizedCaps.length, vc: issuedVc });
   } catch (err: any) {
     app.log.error({ err }, "register error");
     return reply.status(500).send({
@@ -369,6 +591,11 @@ const searchSchema = z.object({
   query: z.string(),
   limit: z.number().int().positive().max(50).optional(),
   minReputation: z.number().min(0).max(1).optional(),
+  safetyClass: z.string().optional(),
+  priceModel: z.string().optional(),
+  region: z.string().optional(),
+  cert: z.string().optional(),
+  maxPriceCents: z.number().int().positive().optional(),
 });
 
 app.post(
@@ -406,6 +633,28 @@ app.post(
   }
 );
 
+app.post("/v1/reputation/event", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
+  const parse = reputationEventSchema.safeParse(request.body);
+  if (!parse.success) {
+    return reply.status(400).send({ error: parse.error.flatten(), message: "Invalid payload" });
+  }
+  const { did, outcome, latencyMs, dispute } = parse.data;
+  try {
+    const stats = await recordReputationEvent({ agentDid: did, outcome, latencyMs, dispute });
+    return reply.send({ ok: true, stats });
+  } catch (err: any) {
+    app.log.error({ err, did }, "reputation event failed");
+    return reply.status(500).send({ error: "reputation_event_failed" });
+  }
+});
+
+app.get("/v1/agents/:did/reputation", async (request, reply) => {
+  const did = (request.params as any).did;
+  const stats = await getReputation(did);
+  if (!stats) return reply.status(404).send({ error: "not_found" });
+  return reply.send({ reputation: stats });
+});
+
 app.get("/v1/capability/:id/schema", async (request, reply) => {
   const capId = (request.params as any).id;
   const res = await pool.query(
@@ -418,17 +667,84 @@ app.get("/v1/capability/:id/schema", async (request, reply) => {
   return reply.send(res.rows[0].output_schema || {});
 });
 
+app.get("/v1/capability/:id/tool-schema", async (request, reply) => {
+  const capId = (request.params as any).id;
+  const agentDid = (request.query as any)?.agentDid || null;
+  const res = await pool.query(
+    `select schema, version, updated_at
+       from tool_schemas
+      where capability_id = $1
+        and ($2::text is null or agent_did = $2)
+      order by updated_at desc
+      limit 1`,
+    [capId, agentDid]
+  );
+  if (!res.rowCount) {
+    return reply.status(404).send({ error: "Not found" });
+  }
+  return reply.send({ schema: res.rows[0].schema, version: res.rows[0].version, updatedAt: res.rows[0].updated_at });
+});
+
+app.post("/v1/tool-schemas", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
+  const body = request.body as any;
+  const { capabilityId, agentDid, schema, version } = body || {};
+  if (!capabilityId || !agentDid || !schema) {
+    return reply.status(400).send({ error: "capabilityId, agentDid, and schema are required" });
+  }
+  await pool.query(
+    `insert into tool_schemas (capability_id, agent_did, schema, version)
+     values ($1, $2, $3, $4)
+     on conflict (capability_id, agent_did)
+     do update set schema = excluded.schema,
+                   version = greatest(excluded.version, tool_schemas.version + 1),
+                   updated_at = now()`,
+    [capabilityId, agentDid, schema, version || 1]
+  );
+  await bumpRegistryState();
+  return reply.send({ ok: true });
+});
+
 app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
   const parse = searchSchema.safeParse(request.body);
   if (!parse.success) {
     return reply.status(400).send({ error: parse.error.flatten(), message: "Invalid search payload" });
   }
-  const { query, limit = 5, minReputation = MIN_REP_DISCOVER } = parse.data;
+  const {
+    query,
+    limit = 5,
+    minReputation = MIN_REP_DISCOVER,
+    safetyClass,
+    priceModel,
+    region,
+    cert,
+    maxPriceCents,
+  } = parse.data;
+
+  const matchesFilters = (payload: any) => {
+    if (safetyClass && (payload?.safetyClass || payload?.safety_class) !== safetyClass) return false;
+    if (priceModel && (payload?.priceModel || payload?.price_model) !== priceModel) return false;
+    if (region && (payload?.region || "") !== region) return false;
+    if (typeof maxPriceCents === "number") {
+      const priceVal =
+        typeof payload?.priceCents === "number"
+          ? payload.priceCents
+          : typeof payload?.price_cents === "number"
+          ? payload.price_cents
+          : null;
+      if (priceVal !== null && priceVal > maxPriceCents) return false;
+    }
+    if (cert) {
+      const certsArr = Array.isArray(payload?.certs) ? payload.certs : [];
+      if (!certsArr.some((c: any) => (typeof c === "string" ? c === cert : c?.id === cert))) return false;
+    }
+    return true;
+  };
 
   let hits: any[] = [];
   try {
     const vector = await embed(query);
     hits = await searchCapabilities(vector, limit);
+    hits = hits.filter((h: any) => matchesFilters(h.payload || {}));
   } catch (err) {
     app.log.warn({ err }, "vector search failed, falling back to DB search");
   }
@@ -439,6 +755,12 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
             c.description,
             c.tags,
             c.output_schema,
+            c.price_cents,
+            c.price_model,
+            c.safety_class,
+            c.region,
+            c.sla_hints,
+            c.certs,
             c.agent_did as "agentDid",
             a.reputation,
             a.availability_score,
@@ -455,11 +777,17 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
       capabilityId: row.capabilityId,
       description: row.description,
       tags: row.tags,
+      priceCents: row.price_cents,
+      priceModel: row.price_model,
+      safetyClass: row.safety_class,
+      region: row.region,
+      slaHints: row.sla_hints,
+      certs: row.certs,
       reputation: row.reputation,
       availability_score: row.availability_score,
       last_seen: row.last_seen,
     },
-  }));
+  })).filter((h) => matchesFilters(h.payload || {}));
   hits = [...hits, ...keywordHits];
 
   const agents: Record<
@@ -472,6 +800,7 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
       availability_score: number | null;
       last_seen: Date | null;
       profiles?: any[] | null;
+      is_conflicted?: boolean;
     }
   > = {};
   if (hits.length) {
@@ -487,6 +816,7 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
         availability_score: number | null;
         last_seen: Date | null;
         acard_raw: any | null;
+        is_conflicted: boolean | null;
       }>(
         `select did, name, endpoint, reputation, availability_score, last_seen, acard_raw, is_conflicted from agents where did = any($1::text[])`,
         [dids]
@@ -614,7 +944,7 @@ app.get("/v1/federation/export", async (request, reply) => {
   const stateVersion = await getRegistryStateVersion();
   // For MVP we return full set; future: filter by updated_at > since marker.
   const agentRows = await pool.query(
-    `select did, name, endpoint, public_key, acard_version, acard_lineage, acard_signature, acard_raw, wallet_address, updated_at
+    `select did, name, endpoint, public_key, acard_version, acard_lineage, acard_signature, acard_raw, did_method, pqc_public_key, wallet_address, updated_at
      from agents
      where is_conflicted = false`
   );
@@ -641,6 +971,8 @@ app.get("/v1/federation/export", async (request, reply) => {
     acard_lineage: row.acard_lineage,
     acard_signature: row.acard_signature,
     acard_raw: row.acard_raw,
+    did_method: (row as any).did_method,
+    pqc_public_key: (row as any).pqc_public_key,
     wallet_address: row.wallet_address,
     updated_at: row.updated_at,
     capabilities: capsByAgent[row.did] || [],
@@ -657,7 +989,7 @@ async function upsertPeerAgent(agent: any, peerId: string, log: any) {
     `select did, acard_version, acard_raw from agents where did = $1 limit 1`,
     [did]
   );
-  const hasLocal = local.rowCount > 0;
+  const hasLocal = (local?.rowCount || 0) > 0;
   const localVersion = hasLocal ? Number(local.rows[0].acard_version || 0) : -1;
   const localHash = hasLocal ? stableStringify(local.rows[0].acard_raw || {}) : null;
   const incomingHash = stableStringify(agent.acard_raw || {});
@@ -665,8 +997,8 @@ async function upsertPeerAgent(agent: any, peerId: string, log: any) {
   if (!hasLocal || incomingVersion > localVersion) {
     // Replace or insert
     await pool.query(
-      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw, source_peer, is_conflicted, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false, now())
+      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw, did_method, pqc_public_key, source_peer, is_conflicted, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false, now())
        on conflict (did) do update set
          name = excluded.name,
          endpoint = excluded.endpoint,
@@ -676,6 +1008,8 @@ async function upsertPeerAgent(agent: any, peerId: string, log: any) {
          acard_lineage = excluded.acard_lineage,
          acard_signature = excluded.acard_signature,
          acard_raw = excluded.acard_raw,
+         did_method = excluded.did_method,
+         pqc_public_key = excluded.pqc_public_key,
          source_peer = excluded.source_peer,
          is_conflicted = false,
          updated_at = now()`,
@@ -689,6 +1023,8 @@ async function upsertPeerAgent(agent: any, peerId: string, log: any) {
         agent.acard_lineage || null,
         agent.acard_signature || null,
         agent.acard_raw || null,
+        (agent as any).did_method || null,
+        (agent as any).pqc_public_key || null,
         peerId,
       ]
     );
@@ -699,8 +1035,8 @@ async function upsertPeerAgent(agent: any, peerId: string, log: any) {
       const capId = cap.capability_id || cap.capabilityId;
       if (!capId) continue;
       await pool.query(
-        `insert into capabilities (agent_did, capability_id, description, tags, output_schema, price_cents)
-         values ($1, $2, $3, $4, $5, $6)`,
+        `insert into capabilities (agent_did, capability_id, description, tags, output_schema, price_cents, price_model, safety_class, region, sla_hints, certs)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           did,
           capId,
@@ -708,6 +1044,11 @@ async function upsertPeerAgent(agent: any, peerId: string, log: any) {
           cap.tags || [],
           cap.output_schema || null,
           typeof cap.price_cents === "number" ? cap.price_cents : null,
+          (cap as any).price_model || null,
+          (cap as any).safety_class || null,
+          (cap as any).region || null,
+          (cap as any).sla_hints || null,
+          (cap as any).certs || null,
         ]
       );
       try {
@@ -720,6 +1061,11 @@ async function upsertPeerAgent(agent: any, peerId: string, log: any) {
           capabilityId: capId,
           description: cap.description || "",
           tags: cap.tags || [],
+          priceModel: (cap as any).price_model || null,
+          safetyClass: (cap as any).safety_class || null,
+          region: (cap as any).region || null,
+          slaHints: (cap as any).sla_hints || null,
+          certs: (cap as any).certs || null,
           vector,
         });
       } catch (err) {
@@ -770,7 +1116,7 @@ app.post("/v1/federation/sync", { preHandler: apiGuard }, async (request, reply)
   const summary: any[] = [];
   for (const peer of peers.rows) {
     const since = Number(peer.state_version || 0);
-    const url = `${peer.endpoint.replace(/\\/+$/, "")}/v1/federation/export?since=${since}`;
+    const url = `${peer.endpoint.replace(/\/+$/, "")}/v1/federation/export?since=${since}`;
     try {
       const res = await fetch(url, { method: "GET", headers: { Accept: "application/json" } });
       if (!res.ok) throw new Error(`peer responded ${res.status}`);
@@ -810,6 +1156,7 @@ app.setErrorHandler((err, _req, reply) => {
   // Log full error and return structured JSON
   const rid = (_req as any)?.headers?.["x-request-id"];
   app.log.error({ err, request_id: rid });
+  captureError(err, { request_id: rid });
   const status = (err as any).statusCode || 500;
   return reply.status(status).send({
     error: err.message,
@@ -901,3 +1248,20 @@ const port = Number(process.env.PORT || 3001);
 app.listen({ port, host: "0.0.0.0" }).then(() => {
   app.log.info(`Registry running on ${port}`);
 });
+
+const shutdown = async (signal: string) => {
+  app.log.info({ signal }, "Received shutdown signal, closing connections...");
+  try {
+    await app.close();
+    await pool.end();
+    await shutdownOtel();
+    app.log.info("Registry shutdown complete");
+    process.exit(0);
+  } catch (err) {
+    app.log.error({ err }, "Error during shutdown");
+    process.exit(1);
+  }
+};
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

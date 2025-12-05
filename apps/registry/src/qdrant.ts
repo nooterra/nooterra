@@ -44,6 +44,12 @@ export async function upsertCapability(payload: {
   capabilityId: string;
   description: string;
   tags?: string[];
+  priceCents?: number | null;
+  priceModel?: string | null;
+  safetyClass?: string | null;
+  region?: string | null;
+  slaHints?: Record<string, unknown> | null;
+  certs?: unknown;
   vector: number[];
 }) {
   try {
@@ -57,6 +63,12 @@ export async function upsertCapability(payload: {
             capabilityId: payload.capabilityId,
             description: payload.description,
             tags: payload.tags || [],
+            priceCents: payload.priceCents ?? null,
+            priceModel: payload.priceModel || null,
+            safetyClass: payload.safetyClass || null,
+            region: payload.region || null,
+            slaHints: payload.slaHints || null,
+            certs: payload.certs || null,
           },
         },
       ],
