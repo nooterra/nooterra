@@ -3132,6 +3132,13 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
       throw new Error("human_approval_required");
     }
 
+    const incomingResultId = resultId || uuidv4();
+    const declaredAgentDid = submittedAgentDid || node.agent_did || null;
+    const allowedAgents: string[] = Array.isArray(node.allowed_agents) ? node.allowed_agents : [];
+    if (allowedAgents.length && declaredAgentDid && !allowedAgents.includes(declaredAgentDid)) {
+      app.log.warn({ workflowId, nodeId, declaredAgentDid, allowedAgents }, "agent not in allowed set for redundancy");
+    }
+
     // Signature verification (required when agent has public_key; optional otherwise)
     const payloadToSign = { workflowId, nodeId, result, error, metrics, resultId: incomingResultId };
     const keyRes = declaredAgentDid
