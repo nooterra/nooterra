@@ -5,14 +5,20 @@
  * Each HF model becomes a callable Nooterra agent.
  * 
  * Supported:
- * - Inference API (hosted models)
+ * - Inference Providers (router.huggingface.co) - NEW API
  * - Inference Endpoints (dedicated)
  * - Spaces (Gradio apps)
+ * 
+ * Note: api-inference.huggingface.co was deprecated Dec 2025.
+ * Now using router.huggingface.co with OpenAI-compatible API.
  */
 
 import fetch from "node-fetch";
 
-const HF_API_BASE = "https://api-inference.huggingface.co";
+// New HuggingFace Router API (OpenAI-compatible)
+const HF_ROUTER_API = "https://router.huggingface.co/v1";
+// Legacy API (deprecated, kept for reference)
+const HF_API_BASE_LEGACY = "https://api-inference.huggingface.co";
 const HF_HUB_API = "https://huggingface.co/api";
 
 export interface HFModel {
@@ -34,7 +40,7 @@ export interface HFInferenceResult {
 }
 
 /**
- * Call a HuggingFace model via Inference API
+ * Call a HuggingFace model via the new Router API (OpenAI-compatible)
  */
 export async function callHFModel(
   modelId: string,
@@ -42,13 +48,68 @@ export async function callHFModel(
   hfToken?: string
 ): Promise<HFInferenceResult> {
   const startTime = Date.now();
+  const token = hfToken || process.env.HF_TOKEN;
+  
+  if (!token) {
+    return {
+      success: false,
+      error: "HuggingFace token required (HF_TOKEN env or hfToken param)",
+      latency_ms: Date.now() - startTime,
+    };
+  }
   
   try {
-    const response = await fetch(`${HF_API_BASE}/models/${modelId}`, {
+    // For chat/text-generation models, use OpenAI-compatible endpoint
+    const isTextGen = typeof inputs === "string" || inputs.prompt || inputs.messages;
+    
+    if (isTextGen) {
+      // Convert to chat completions format
+      const messages = inputs.messages || [
+        { role: "user", content: typeof inputs === "string" ? inputs : inputs.prompt || JSON.stringify(inputs) }
+      ];
+      
+      const response = await fetch(`${HF_ROUTER_API}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          model: modelId,
+          messages,
+          max_tokens: inputs.max_tokens || 512,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        return {
+          success: false,
+          error: `HF Router API error: ${response.status} - ${error}`,
+          latency_ms: Date.now() - startTime,
+        };
+      }
+
+      const result = await response.json() as any;
+      
+      return {
+        success: true,
+        result: {
+          generated_text: result.choices?.[0]?.message?.content || "",
+          usage: result.usage,
+          raw: result,
+        },
+        latency_ms: Date.now() - startTime,
+      };
+    }
+    
+    // For other tasks, fall back to legacy API (may not work)
+    console.warn(`[HF Adapter] Non-chat task for ${modelId}, using legacy API (may fail)`);
+    const response = await fetch(`${HF_API_BASE_LEGACY}/models/${modelId}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(hfToken ? { Authorization: `Bearer ${hfToken}` } : {}),
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ inputs }),
     });
@@ -57,7 +118,7 @@ export async function callHFModel(
       const error = await response.text();
       return {
         success: false,
-        error: `HF API error: ${response.status} - ${error}`,
+        error: `HF Legacy API error: ${response.status} - ${error}`,
         latency_ms: Date.now() - startTime,
       };
     }
@@ -142,6 +203,7 @@ export function hfTaskToCapability(task: string, modelId: string): string {
 
 /**
  * Register HF models as Nooterra agents
+ * Uses the new router.huggingface.co endpoint format
  */
 export async function registerHFModelsAsAgents(
   models: HFModel[],
@@ -156,14 +218,22 @@ export async function registerHFModelsAsAgents(
       const did = `did:noot:hf:${model.id.replace(/[^a-zA-Z0-9]/g, "_")}`;
       const capabilityId = hfTaskToCapability(model.pipeline_tag || "text-generation", model.id);
       
+      // Use the new router API format
+      const endpoint = `${HF_ROUTER_API}/chat/completions`;
+      
       const response = await fetch(`${registryUrl}/v1/agent/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           did,
           name: model.id.split("/").pop() || model.id,
-          endpoint: `${HF_API_BASE}/models/${model.id}`,
+          endpoint,
           walletAddress: walletAddress || null,
+          metadata: {
+            modelId: model.id,
+            provider: "huggingface-router",
+            pipelineTag: model.pipeline_tag,
+          },
           capabilities: [{
             capabilityId,
             description: `HuggingFace model: ${model.id} (${model.pipeline_tag || "unknown"})`,

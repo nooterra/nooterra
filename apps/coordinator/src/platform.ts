@@ -1618,10 +1618,10 @@ export function registerPlatformRoutes(app: FastifyInstance<any, any, any, any, 
             agentsImported = 1;
             const REGISTRY_URL = process.env.REGISTRY_URL || "https://registry.nooterra.ai";
             
-            // Determine endpoint
+            // Use new HuggingFace Router API (OpenAI-compatible)
             const endpoint = config.modelId.startsWith("http") 
               ? config.modelId 
-              : `https://api-inference.huggingface.co/models/${config.modelId}`;
+              : "https://router.huggingface.co/v1/chat/completions";
             
             await fetch(`${REGISTRY_URL}/v1/agent/register`, {
               method: "POST",
@@ -1631,6 +1631,10 @@ export function registerPlatformRoutes(app: FastifyInstance<any, any, any, any, 
                 name: `HF: ${config.modelId.split('/').pop()}`,
                 endpoint,
                 walletAddress: user.address,
+                metadata: {
+                  modelId: config.modelId,
+                  provider: "huggingface-router",
+                },
                 capabilities: [{
                   capabilityId: `cap.hf.model.${config.modelId.replace(/[^a-z0-9]/gi, '_').toLowerCase()}`,
                   description: `Hugging Face model: ${config.modelId}`,
@@ -1909,8 +1913,13 @@ export function registerPlatformRoutes(app: FastifyInstance<any, any, any, any, 
             body: JSON.stringify({
               did,
               name: model.id.split("/").pop() || model.id,
-              endpoint: `https://api-inference.huggingface.co/models/${model.id}`,
+              endpoint: "https://router.huggingface.co/v1/chat/completions",
               walletAddress: user.address,
+              metadata: {
+                modelId: model.id,
+                provider: "huggingface-router",
+                pipelineTag: pipelineTask,
+              },
               capabilities: [{
                 capabilityId,
                 description: `HuggingFace: ${model.id} (${pipelineTask})`,
@@ -1973,8 +1982,13 @@ export function registerPlatformRoutes(app: FastifyInstance<any, any, any, any, 
           body: JSON.stringify({
             did,
             name: model.name,
-            endpoint: `https://api-inference.huggingface.co/models/${model.modelId}`,
+            endpoint: "https://router.huggingface.co/v1/chat/completions",
             walletAddress: user.address,
+            metadata: {
+              modelId: model.modelId,
+              provider: "huggingface-router",
+              category: model.category,
+            },
             capabilities: [{
               capabilityId: model.capability,
               description: model.description,

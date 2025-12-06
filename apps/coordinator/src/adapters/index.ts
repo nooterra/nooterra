@@ -43,7 +43,12 @@ export function detectAdapter(endpoint: string): string {
   if (endpoint.includes("localhost:11434") || endpoint.includes("ollama")) {
     return "ollama";
   }
-  if (endpoint.includes("huggingface.co") || endpoint.includes("hf.space")) {
+  // HuggingFace Router API is OpenAI-compatible
+  if (endpoint.includes("router.huggingface.co")) {
+    return "openai";
+  }
+  // Legacy HuggingFace (deprecated but may still exist)
+  if (endpoint.includes("api-inference.huggingface.co") || endpoint.includes("hf.space")) {
     return "huggingface";
   }
   if (endpoint.includes("api.openai.com") || 
