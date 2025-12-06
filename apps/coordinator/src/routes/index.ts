@@ -31,6 +31,7 @@ import { registerSafetyRoutes } from "./safety.js";
 // Sprint 5: Planner and Bounty (12-Layer Architecture)
 import { registerPlannerRoutes } from "./planner.js";
 import { registerBountyRoutes } from "./bounty.js";
+import { registerReplanningRoutes } from "./replanning.js";
 // DEPRECATED: Dispute system removed - replaced by objective fault detection (Sprint 5)
 // import { registerDisputeRoutes } from "./disputes.js";
 import { registerMetricsRoutes } from "./metrics.js";
@@ -264,6 +265,7 @@ export async function registerAllRoutes(
   // Sprint 5: 12-Layer Architecture - Planner & Bounty
   await registerPlannerRoutes(app, guards);
   await registerBountyRoutes(app, guards);
+  await registerReplanningRoutes(app, guards);
 
   app.log.info("All route modules registered successfully");
 }
