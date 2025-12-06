@@ -18,48 +18,38 @@ const config: Config = {
       },
     },
     extend: {
+      borderRadius: {
+        lg: '0px',
+        md: '0px',
+        sm: '0px',
+        DEFAULT: '0px',
+      },
       colors: {
-        background: '#000000', // Pure Black
-        foreground: '#EDEDED', // Soft White
-        muted: '#333333',
-        border: '#111111',
+        background: '#000000', // Absolute Void
+        foreground: '#FFFFFF', // Absolute Light
+        muted: '#1A1A1A',
+        border: '#333333',
         accent: {
-          DEFAULT: '#3291FF', // Reactor Blue
-          glow: 'rgba(50, 145, 255, 0.4)',
+          DEFAULT: '#FFFFFF', // In brutalism, accent is often just high contrast white
+          inverse: '#000000',
         },
-        error: '#FF453A',
         surface: {
-          50: '#f9fafb',
-          100: '#f3f4f6',
-          200: '#e5e7eb',
-          300: '#d1d5db',
-          400: '#9ca3af',
-          500: '#6b7280',
-          600: '#4b5563',
-          700: '#374151',
-          800: '#1f2937',
-          900: '#111827',
-          950: '#030712',
+          50: '#111',
+          100: '#222',
+          900: '#000',
         }
       },
       fontFamily: {
-        // Fallback stack if Geist is not loaded yet
-        sans: ['Geist Sans', 'Inter', 'system-ui', 'sans-serif'],
-        mono: ['Geist Mono', 'JetBrains Mono', 'monospace'],
+        sans: ['Geist Sans', 'Helvetica Neue', 'Arial', 'sans-serif'], // Standard, hard
+        mono: ['Geist Mono', 'Menlo', 'Monaco', 'Courier New', 'monospace'],
       },
       animation: {
-        'fade-in': 'fade-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-        'fade-up': 'fade-up 1s cubic-bezier(0.16, 1, 0.3, 1) forwards',
-        'spin-slow': 'spin 12s linear infinite',
+        'blink': 'blink 1s step-end infinite',
       },
       keyframes: {
-        'fade-in': {
-          '0%': { opacity: '0' },
-          '100%': { opacity: '1' },
-        },
-        'fade-up': {
-          '0%': { opacity: '0', transform: 'translateY(20px)' },
-          '100%': { opacity: '1', transform: 'translateY(0)' },
+        'blink': {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0' },
         },
       },
     },

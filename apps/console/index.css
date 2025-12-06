@@ -5,38 +5,34 @@
 @layer base {
   :root {
     --background: #000000;
-    --foreground: #EDEDED;
-    --muted: #333333;
-    --accent: #3291FF;
+    --foreground: #FFFFFF;
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply bg-background text-foreground font-sans antialiased selection:bg-white selection:text-black;
     background-color: #000000;
+  }
+
+  /* Reset all rounded corners just in case */
+  * {
+    border-radius: 0px !important;
   }
 }
 
-/* Custom Utilities for Stealth Mode */
 @layer components {
 
-  /* Cinematic Noise Overlay */
-  .noise-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    pointer-events: none;
-    z-index: 50;
-    opacity: 0.05;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  /* Raw Input Style */
+  .raw-input {
+    @apply bg-transparent border-b-2 border-white/20 text-xl font-mono py-2 w-full focus:outline-none focus:border-white transition-none placeholder:text-white/20;
   }
 
-  .glow-text {
-    text-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+  /* The "Monolith" Text Effect */
+  .monolith-text {
+    @apply font-bold tracking-tighter leading-[0.8];
   }
 
-  .hero-input {
-    @apply bg-transparent border-b border-white/20 text-center text-xl font-mono py-2 w-full max-w-md focus:outline-none focus:border-accent transition-colors placeholder:text-white/20;
+  /* Utility to invert colors on hover */
+  .hover-invert {
+    @apply hover:bg-white hover:text-black transition-colors duration-75;
   }
 }
