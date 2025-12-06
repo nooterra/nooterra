@@ -3030,7 +3030,7 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
   const spawnPayload: any = result && typeof result === "object" && (result as any).spawnWorkflow ? (result as any).spawnWorkflow : null;
   app.log.info({ workflowId, nodeId, spawn: !!spawnPayload }, "[nodeResult] entry");
 
-  // Fast-path spawn to avoid long transactions
+  // Fast-path spawn to avoid long transactions and client leaks
   if (spawnPayload) {
     try {
       app.log.info({ workflowId, nodeId }, "[spawn] fast-path begin");
