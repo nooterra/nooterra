@@ -106,6 +106,7 @@ export async function migrate() {
       consensus_total int,
       consensus_quorum int,
       consensus_status text,
+      child_workflow_id uuid,
       verification_status text,
       verified_by text,
       created_at timestamptz default now(),
@@ -121,6 +122,7 @@ export async function migrate() {
   await pool.query(`alter table task_nodes add column if not exists consensus_total int;`);
   await pool.query(`alter table task_nodes add column if not exists consensus_quorum int;`);
   await pool.query(`alter table task_nodes add column if not exists consensus_status text;`);
+  await pool.query(`alter table task_nodes add column if not exists child_workflow_id uuid;`);
 
   await pool.query(`
     create table if not exists bids (
@@ -242,6 +244,7 @@ export async function migrate() {
     );
   `);
   await pool.query(`create index if not exists heartbeats_agent_idx on heartbeats(agent_did);`);
+  await pool.query(`alter table agents add column if not exists health_status text;`);
 
   await pool.query(`
     create table if not exists dlq (
@@ -255,6 +258,24 @@ export async function migrate() {
       created_at timestamptz default now()
     );
   `);
+
+  // Budget reservation tracking (dispatch queue safety)
+  await pool.query(`
+    create table if not exists budget_reservations (
+      id serial primary key,
+      workflow_id uuid not null,
+      node_name text not null,
+      capability_id text not null,
+      amount_cents bigint not null,
+      payer_did text not null,
+      status text default 'reserved',
+      created_at timestamptz default now(),
+      updated_at timestamptz default now()
+    );
+  `);
+  await pool.query(
+    `create unique index if not exists budget_reservations_wf_node_idx on budget_reservations(workflow_id, node_name)`
+  );
 
   await pool.query(`
     create table if not exists dispatch_queue (
