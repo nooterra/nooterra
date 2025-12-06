@@ -2472,11 +2472,11 @@ async function propagateChildCompletion(workflowId: string) {
     `update task_nodes
        set status = $1,
            child_workflow_id = $2,
-           result_payload = jsonb_build_object('childWorkflowId', $2::text, 'status', $3),
+           result_payload = jsonb_build_object('childWorkflowId', $2::text, 'status', $1::text),
            finished_at = now(),
            updated_at = now()
-     where workflow_id = $4 and name = $5`,
-    [wf.status, wf.id, wf.status, wf.parent_workflow_id, wf.spawned_from_node]
+     where workflow_id = $3 and name = $4`,
+    [wf.status, wf.id, wf.parent_workflow_id, wf.spawned_from_node]
   );
 
   // Recompute parent workflow status and resume orchestration
