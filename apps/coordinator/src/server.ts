@@ -33,6 +33,8 @@ import { registerEconomicsRoutes } from "./routes/economics.js";
 import { registerFederationRoutes } from "./routes/federation.js";
 import { storeReceipt } from "./services/receipt.js";
 import { createRouter, loadRouterConfig } from "./services/router/index.js";
+import { recordRouterComparison, getRouterMetrics, getRecentComparisons } from "./services/router-metrics.js";
+import { emitState as emitBlackboardState } from "./services/blackboard.js";
 import { MessageType } from "@nooterra/types";
 import type { NootMessage, TaskPayload, CandidateTarget } from "@nooterra/types";
 import Ajv from "ajv";
@@ -2493,6 +2495,16 @@ async function enqueueNode(node: any, workflowId: string) {
         
         if (routerConfig.shadowCoordinationGraph) {
           // Shadow mode: log comparison, use legacy result
+          recordRouterComparison(
+            workflowId,
+            node.name,
+            node.capability_id,
+            legacyTop || null,
+            cgTop || null,
+            chosenAgents.length,
+            cgTargets.length
+          );
+          
           app.log.info({
             shadowMode: true,
             workflowId,
@@ -3714,6 +3726,36 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
   const latencyMs = await computeLatencyMs(node?.started_at, metrics);
   await updateAgentStatsAndRep(agentDid, newStatus === "success", latencyMs);
 
+  // ========== BLACKBOARD UPDATE (NIP-0012) ==========
+  // Update stigmergic memory based on task outcome
+  if (node?.capability_id && agentDid) {
+    try {
+      const contextHash = workflowId; // Use workflow as context for now
+      if (newStatus === "success") {
+        await emitBlackboardState(
+          "routing",
+          node.capability_id,
+          contextHash,
+          { successWeight: 1.0, addPreferredAgent: agentDid },
+          workflowId,
+          agentDid
+        );
+      } else {
+        await emitBlackboardState(
+          "routing",
+          node.capability_id,
+          contextHash,
+          { failureWeight: 1.0, removePreferredAgent: agentDid },
+          workflowId,
+          agentDid
+        );
+      }
+    } catch (bbErr: any) {
+      app.log.warn({ err: bbErr.message, workflowId, nodeId }, "Blackboard update failed (non-fatal)");
+    }
+  }
+  // ========== END BLACKBOARD UPDATE ==========
+
   if (newStatus === "success" && node?.requires_verification) {
     const policy = await loadPolicyForWorkflow(workflowId);
     let shouldVerify = true;
@@ -4460,6 +4502,38 @@ app.get("/health", async (_req, reply) => {
 
   const statusCode = health.status === "healthy" ? 200 : 503;
   return reply.status(statusCode).send(health);
+});
+
+// ============================================================================
+// Internal Router Metrics (NIP-0012 Shadow Mode)
+// ============================================================================
+
+/**
+ * GET /internal/router-metrics
+ * Returns router agreement rate and divergence analysis.
+ * Used during shadow mode to validate CG router before production rollout.
+ */
+app.get("/internal/router-metrics", async (_req, reply) => {
+  const metrics = getRouterMetrics();
+  return reply.send({
+    ...metrics,
+    agreementRatePercent: (metrics.agreementRate * 100).toFixed(2) + "%",
+    recentAgreementRatePercent: (metrics.recentAgreementRate * 100).toFixed(2) + "%",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * GET /internal/router-comparisons
+ * Returns recent router comparison history for debugging.
+ */
+app.get("/internal/router-comparisons", async (request, reply) => {
+  const limit = Number((request.query as any)?.limit || 50);
+  const comparisons = getRecentComparisons(Math.min(limit, 200));
+  return reply.send({
+    count: comparisons.length,
+    comparisons,
+  });
 });
 
 app.setErrorHandler((err, _req, reply) => {
