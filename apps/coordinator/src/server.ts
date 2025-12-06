@@ -65,16 +65,25 @@ async function fetchCapabilitySchema(capabilityId: string): Promise<any | null> 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT_MS);
   try {
-    const res = await fetch(`${REGISTRY_URL}/v1/capability/${encodeURIComponent(capabilityId)}/schema`, {
+    const res = await fetch(
+      `${REGISTRY_URL}/v1/capability/${encodeURIComponent(capabilityId)}/tool-schema`,
+      {
       method: "GET",
       headers: {
         ...(REGISTRY_API_KEY ? { "x-api-key": REGISTRY_API_KEY } : {}),
         "Content-Type": "application/json",
       },
       signal: controller.signal,
-    });
+      }
+    );
     if (!res.ok) return null;
-    return await res.json();
+    const body = await res.json();
+    // Normalise to just the JSON schema object, regardless of wrapper shape.
+    if (body && typeof body === "object") {
+      if (body.schema) return body.schema;
+      if (body.input) return body.input;
+    }
+    return body;
   } catch {
     return null;
   } finally {
