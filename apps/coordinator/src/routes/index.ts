@@ -32,6 +32,7 @@ import { registerSafetyRoutes } from "./safety.js";
 import { registerPlannerRoutes } from "./planner.js";
 import { registerBountyRoutes } from "./bounty.js";
 import { registerReplanningRoutes } from "./replanning.js";
+import { registerA2ARoutes } from "./a2a.js";
 // DEPRECATED: Dispute system removed - replaced by objective fault detection (Sprint 5)
 // import { registerDisputeRoutes } from "./disputes.js";
 import { registerMetricsRoutes } from "./metrics.js";
@@ -266,6 +267,9 @@ export async function registerAllRoutes(
   await registerPlannerRoutes(app, guards);
   await registerBountyRoutes(app, guards);
   await registerReplanningRoutes(app, guards);
+
+  // Sprint 5: 12-Layer Architecture - A2A Protocol
+  await registerA2ARoutes(app, guards);
 
   app.log.info("All route modules registered successfully");
 }
