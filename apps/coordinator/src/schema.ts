@@ -578,6 +578,97 @@ export const endorsements = pgTable("endorsements", {
 }));
 
 // ============================================================================
+// Coordination Graph - Edges (NIP-0012)
+// ============================================================================
+
+export const coordinationEdges = pgTable("coordination_edges", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fromCapability: text("from_capability").notNull(),
+  toCapability: text("to_capability").notNull(),
+  profileLevel: integer("profile_level").notNull().default(0),
+  region: text("region"),
+  tenantId: uuid("tenant_id"),
+
+  // Aggregated statistics
+  callCount: integer("call_count").notNull().default(0),
+  successCount: integer("success_count").notNull().default(0),
+  failureCount: integer("failure_count").notNull().default(0),
+  avgLatencyMs: numeric("avg_latency_ms", { precision: 10, scale: 2 }),
+  p95LatencyMs: numeric("p95_latency_ms", { precision: 10, scale: 2 }),
+  avgPriceNcr: numeric("avg_price_ncr", { precision: 18, scale: 8 }),
+
+  // Derived scores
+  reputationScore: numeric("reputation_score", { precision: 5, scale: 4 }).default("0.0"),
+  congestionScore: numeric("congestion_score", { precision: 5, scale: 4 }).default("0.0"),
+
+  // Manual overrides
+  weightOverride: numeric("weight_override", { precision: 5, scale: 4 }),
+
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  metadata: jsonb("metadata").default({}).notNull(),
+}, (table) => ({
+  capabilityPairIdx: uniqueIndex("coordination_edges_pair_idx").on(
+    table.fromCapability,
+    table.toCapability,
+    table.profileLevel,
+    table.region,
+    table.tenantId
+  ),
+  fromCapIdx: index("coordination_edges_from_idx").on(table.fromCapability),
+  toCapIdx: index("coordination_edges_to_idx").on(table.toCapability),
+}));
+
+// ============================================================================
+// Stigmergic Blackboards (NIP-0012)
+// ============================================================================
+
+export const blackboards = pgTable("blackboards", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  namespace: text("namespace").notNull(),
+  capability: text("capability").notNull(),
+  contextHash: text("context_hash").notNull(),
+
+  // Pheromone values (decayed on read)
+  successWeight: numeric("success_weight", { precision: 10, scale: 4 }).default("0.0").notNull(),
+  failureWeight: numeric("failure_weight", { precision: 10, scale: 4 }).default("0.0").notNull(),
+  congestionScore: numeric("congestion_score", { precision: 5, scale: 4 }).default("0.0").notNull(),
+
+  // Routing hints
+  preferredAgents: text("preferred_agents").array().default([]),
+  tags: text("tags").array().default([]),
+  metadata: jsonb("metadata").default({}).notNull(),
+
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  blackboardKeyIdx: uniqueIndex("blackboards_key_idx").on(
+    table.namespace,
+    table.capability,
+    table.contextHash
+  ),
+  capabilityIdx: index("blackboards_capability_idx").on(table.capability),
+  namespaceIdx: index("blackboards_namespace_idx").on(table.namespace),
+}));
+
+export const blackboardEvents = pgTable("blackboard_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  blackboardId: uuid("blackboard_id").references(() => blackboards.id, { onDelete: "cascade" }).notNull(),
+  eventType: text("event_type").notNull(), // "success", "failure", "congestion"
+
+  deltaSuccess: numeric("delta_success", { precision: 10, scale: 4 }),
+  deltaFailure: numeric("delta_failure", { precision: 10, scale: 4 }),
+  deltaCongestion: numeric("delta_congestion", { precision: 5, scale: 4 }),
+
+  sourceWorkflowId: uuid("source_workflow_id"),
+  sourceAgentId: text("source_agent_id"),
+  metadata: jsonb("metadata").default({}).notNull(),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  blackboardIdIdx: index("blackboard_events_bb_idx").on(table.blackboardId),
+  createdAtIdx: index("blackboard_events_created_idx").on(table.createdAt),
+}));
+
+// ============================================================================
 // Type Exports
 // ============================================================================
 
@@ -629,3 +720,13 @@ export type NewBudgetReservation = typeof budgetReservations.$inferInsert;
 
 export type FaultTrace = typeof faultTraces.$inferSelect;
 export type NewFaultTrace = typeof faultTraces.$inferInsert;
+
+export type CoordinationEdge = typeof coordinationEdges.$inferSelect;
+export type NewCoordinationEdge = typeof coordinationEdges.$inferInsert;
+
+export type Blackboard = typeof blackboards.$inferSelect;
+export type NewBlackboard = typeof blackboards.$inferInsert;
+
+export type BlackboardEvent = typeof blackboardEvents.$inferSelect;
+export type NewBlackboardEvent = typeof blackboardEvents.$inferInsert;
+

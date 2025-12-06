@@ -32,6 +32,9 @@ import { registerIdentityRoutes } from "./routes/identity.js";
 import { registerEconomicsRoutes } from "./routes/economics.js";
 import { registerFederationRoutes } from "./routes/federation.js";
 import { storeReceipt } from "./services/receipt.js";
+import { createRouter, loadRouterConfig } from "./services/router/index.js";
+import { MessageType } from "@nooterra/types";
+import type { NootMessage, TaskPayload, CandidateTarget } from "@nooterra/types";
 import Ajv from "ajv";
 
 dotenv.config();
@@ -77,11 +80,11 @@ async function fetchCapabilitySchema(capabilityId: string): Promise<any | null> 
       }
     );
     if (!res.ok) return null;
-    const body = await res.json();
+    const body: any = await res.json();
     // Normalise to just the JSON schema object, regardless of wrapper shape.
     if (body && typeof body === "object") {
-      if (body.schema) return body.schema;
-      if (body.input) return body.input;
+      if ((body as any).schema) return (body as any).schema;
+      if ((body as any).input) return (body as any).input;
     }
     return body;
   } catch {
@@ -2445,6 +2448,86 @@ async function enqueueNode(node: any, workflowId: string) {
         policy ? JSON.stringify(policy) : null,
       ]
     );
+    
+    // ========== COORDINATION GRAPH SHADOW MODE (NIP-0012) ==========
+    // Run the CG router in shadow mode if enabled to compare selections
+    const routerConfig = loadRouterConfig();
+    if (routerConfig.shadowCoordinationGraph || routerConfig.useCoordinationGraph) {
+      try {
+        const router = createRouter();
+        const taskMessage: NootMessage = {
+          type: MessageType.TASK,
+          id: `dispatch-${workflowId}-${node.name}`,
+          timestamp: new Date().toISOString(),
+          sender: "coordinator",
+          profileLevel: 0,
+          economic: { currency: "NCR" },
+          crypto: { signatureType: "none", signer: "coordinator", signature: "" },
+          payload: {
+            capability: node.capability_id,
+            input: basePayload.inputs || {},
+          } as TaskPayload,
+        };
+        
+        // Build candidates from filtered agents
+        const cgCandidates: CandidateTarget[] = filtered.map(a => ({
+          agentId: a.did,
+          capability: node.capability_id,
+          endpoint: a.endpoint,
+          profileLevel: 0,
+          region: undefined,
+          historicalStats: {
+            reputationScore: Number(a.rep || 0),
+            successRate: Number(a.rep || 0),
+          },
+        }));
+        
+        const cgTargets = await router.selectTargets(taskMessage, cgCandidates, {
+          profileLevel: 0,
+          workflowId,
+        });
+        
+        const legacyTop = chosenAgents[0]?.did;
+        const cgTop = cgTargets[0]?.agentId;
+        const agrees = legacyTop === cgTop;
+        
+        if (routerConfig.shadowCoordinationGraph) {
+          // Shadow mode: log comparison, use legacy result
+          app.log.info({
+            shadowMode: true,
+            workflowId,
+            nodeId: node.name,
+            capability: node.capability_id,
+            legacyChoice: legacyTop,
+            cgChoice: cgTop,
+            agrees,
+            cgTargetCount: cgTargets.length,
+            legacyTargetCount: chosenAgents.length,
+          }, "Coordination Graph shadow comparison");
+        } else if (routerConfig.useCoordinationGraph && cgTargets.length > 0) {
+          // CG mode enabled: use CG router results instead
+          const cgChosenAgents = cgTargets.slice(0, replicas).map(t => ({
+            did: t.agentId,
+            endpoint: t.endpoint,
+            public_key: null,
+            rep: t.weight,
+            avail: 0,
+            score: t.weight,
+          }));
+          // Note: We don't override chosenAgents here to keep the change minimal.
+          // Full replacement would require refactoring the dispatch loop below.
+          app.log.info({
+            cgEnabled: true,
+            workflowId,
+            nodeId: node.name,
+            cgSelected: cgChosenAgents.map(a => a.did),
+          }, "Coordination Graph router active");
+        }
+      } catch (routerErr: any) {
+        app.log.warn({ err: routerErr.message, workflowId, nodeId: node.name }, "CG router error (falling back to legacy)");
+      }
+    }
+    // ========== END COORDINATION GRAPH SHADOW MODE ==========
   } catch (err) {
     app.log.error(
       { err, workflowId, node: node.name },

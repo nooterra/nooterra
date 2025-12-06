@@ -4,11 +4,14 @@
  * Usage:
  *   pnpm run generate:receipt
  */
-import { randomBytes, createHash } from "crypto";
-import { encode as cborEncode } from "cbor";
-import { encode as base64url } from "base64url";
+import { createHash } from "crypto";
+import cbor from "cbor";
+import base64urlPkg from "base64url";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
+
+const { encode: base64url } = base64urlPkg;
+const { encode: cborEncode } = cbor;
 
 function sha256Base64url(buf) {
   return createHash("sha256").update(buf).digest("base64url");
@@ -49,13 +52,15 @@ function verifyReceipt(envelope, publicKey) {
 }
 
 async function main() {
-  const keypair = nacl.sign.keyPair();
+  // Deterministic key/claims so the vector is reproducible
+  const seed = Buffer.alloc(32, 7);
+  const keypair = nacl.sign.keyPair.fromSeed(new Uint8Array(seed));
   const publicKeyB58 = bs58.encode(Buffer.from(keypair.publicKey));
 
   const claims = {
-    rid: crypto.randomUUID ? crypto.randomUUID() : `rid-${Date.now()}`,
+    rid: "00000000-0000-4000-8000-000000000001",
     rtype: "task",
-    iat: Math.floor(Date.now() / 1000),
+    iat: 1733440000,
     iss: "did:noot:demo-agent-1",
     sub: "task-123",
     rh: sha256Base64url(Buffer.from("result-payload")),

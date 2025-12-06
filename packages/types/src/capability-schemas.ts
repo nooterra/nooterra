@@ -112,6 +112,204 @@ export const CapabilitySchemaValidator = z.object({
 
 export const BUILTIN_CAPABILITY_SCHEMAS: CapabilitySchema[] = [
   // -------------------------------------------------------------------------
+  // CORE V1 CAPABILITIES (Golden Path)
+  // -------------------------------------------------------------------------
+  {
+    capabilityId: "cap.http.fetch.v1",
+    version: "1.0.0",
+    description: "Fetch an HTTP resource and return status, headers, and body",
+    input: {
+      fields: [
+        {
+          name: "url",
+          description: "Fully qualified URL to fetch",
+          semanticType: "@noot/web:Url",
+          jsonSchema: { type: "string", format: "uri" },
+          required: true,
+        },
+        {
+          name: "method",
+          description: "HTTP method",
+          jsonSchema: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+          required: false,
+          defaultValue: "GET",
+        },
+        {
+          name: "headers",
+          description: "Optional HTTP headers",
+          jsonSchema: {
+            type: "object",
+            additionalProperties: { type: "string" },
+          },
+          required: false,
+        },
+        {
+          name: "body",
+          description: "Optional request body (string payload)",
+          jsonSchema: { type: "string" },
+          required: false,
+        },
+        {
+          name: "timeoutMs",
+          description: "Request timeout in milliseconds",
+          jsonSchema: { type: "integer", minimum: 1 },
+          required: false,
+          defaultValue: 10000,
+        },
+      ],
+      jsonSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", format: "uri" },
+          method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"] },
+          headers: { type: "object", additionalProperties: { type: "string" } },
+          body: { type: "string" },
+          timeoutMs: { type: "integer", minimum: 1 },
+        },
+        required: ["url"],
+      },
+    },
+    output: {
+      fields: [
+        {
+          name: "status",
+          description: "HTTP status code",
+          jsonSchema: { type: "integer" },
+          required: true,
+        },
+        {
+          name: "headers",
+          description: "Response headers",
+          jsonSchema: { type: "object", additionalProperties: { type: "string" } },
+          required: true,
+        },
+        {
+          name: "body",
+          description: "Response body as text",
+          jsonSchema: { type: "string" },
+          required: true,
+        },
+        {
+          name: "latencyMs",
+          description: "Total request latency in milliseconds",
+          jsonSchema: { type: "integer", minimum: 0 },
+          required: false,
+        },
+      ],
+      jsonSchema: {
+        type: "object",
+        properties: {
+          status: { type: "integer" },
+          headers: { type: "object", additionalProperties: { type: "string" } },
+          body: { type: "string" },
+          latencyMs: { type: "integer", minimum: 0 },
+        },
+        required: ["status", "headers", "body"],
+      },
+    },
+    examples: [
+      {
+        input: {
+          url: "https://example.com/article",
+          method: "GET",
+          headers: { Accept: "text/html" },
+        },
+        output: {
+          status: 200,
+          headers: { "content-type": "text/html" },
+          body: "<html>...</html>",
+          latencyMs: 123,
+        },
+      },
+    ],
+    tags: ["http", "fetch", "io", "v1-core"],
+  },
+  {
+    capabilityId: "cap.text.summarize.v1",
+    version: "1.0.0",
+    description: "Summarize input text into a shorter form",
+    input: {
+      fields: [
+        {
+          name: "text",
+          description: "Raw text to summarize",
+          semanticType: "@noot/text:Plain",
+          jsonSchema: { type: "string" },
+          required: true,
+        },
+        {
+          name: "targetLength",
+          description: "Desired summary length (words)",
+          jsonSchema: { type: "integer", minimum: 1 },
+          required: false,
+          defaultValue: 150,
+        },
+        {
+          name: "style",
+          description: "Optional style hint (e.g., bullet, concise)",
+          jsonSchema: { type: "string", enum: ["concise", "bullet", "detailed"] },
+          required: false,
+        },
+      ],
+      jsonSchema: {
+        type: "object",
+        properties: {
+          text: { type: "string" },
+          targetLength: { type: "integer", minimum: 1 },
+          style: { type: "string", enum: ["concise", "bullet", "detailed"] },
+        },
+        required: ["text"],
+      },
+    },
+    output: {
+      fields: [
+        {
+          name: "summary",
+          description: "The generated summary text",
+          semanticType: "@noot/text:Plain",
+          jsonSchema: { type: "string" },
+          required: true,
+        },
+        {
+          name: "tokensUsed",
+          description: "Token usage for billing/analytics",
+          jsonSchema: { type: "integer", minimum: 0 },
+          required: false,
+        },
+        {
+          name: "model",
+          description: "Model or provider identifier",
+          jsonSchema: { type: "string" },
+          required: false,
+        },
+      ],
+      jsonSchema: {
+        type: "object",
+        properties: {
+          summary: { type: "string" },
+          tokensUsed: { type: "integer", minimum: 0 },
+          model: { type: "string" },
+        },
+        required: ["summary"],
+      },
+    },
+    examples: [
+      {
+        input: {
+          text: "Nooterra is a coordination protocol for AI agents. It provides identity, discovery, orchestration, and economics.",
+          targetLength: 40,
+          style: "concise",
+        },
+        output: {
+          summary: "Nooterra is a protocol for AI agents that covers identity, discovery, orchestration, and payments.",
+          tokensUsed: 120,
+          model: "gpt-4o-mini",
+        },
+      },
+    ],
+    tags: ["text", "summarization", "llm", "v1-core"],
+  },
+  // -------------------------------------------------------------------------
   // PLANNING CAPABILITIES
   // -------------------------------------------------------------------------
   {

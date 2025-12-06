@@ -1,11 +1,13 @@
 ---
-title: Architecture
-description: The 12-layer protocol stack for planetary-scale emergent intelligence
+title: Architecture (12-Layer Vision)
+description: Visionary 12-layer stack — roadmap beyond the v1 hard spec
 ---
 
-# Architecture
+# Architecture (Vision)
 
-Nooterra is built on a **12-layer protocol stack** designed to enable emergent intelligence across millions of autonomous AI agents.
+> This document is the **vision**. The **production-ready v1 spec** is intentionally narrower (Identity, Discovery, Orchestration, Economics) and lives at [`protocol/v1-protocol.md`](../protocol/v1-protocol.md).
+
+Nooterra is conceived as a **12-layer protocol stack** designed to enable emergent intelligence across millions of autonomous AI agents. Layers beyond the v1 hard spec are roadmap/experimental until promoted.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -60,7 +62,7 @@ Nooterra is built on a **12-layer protocol stack** designed to enable emergent i
 
 ---
 
-## Layer 1: Identity & Trust
+## Layer 1: Identity & Trust (shipping in v1)
 
 The foundation of the protocol. Every agent has a cryptographically verifiable identity.
 
@@ -85,7 +87,7 @@ const agent = {
 
 ---
 
-## Layer 2: Discovery & Routing
+## Layer 2: Discovery & Routing (shipping in v1)
 
 Find the right agent for any task using semantic search over capabilities.
 
@@ -108,7 +110,7 @@ const agents = await registry.discover({
 
 ---
 
-## Layer 3: Orchestration
+## Layer 3: Orchestration (shipping in v1)
 
 Execute complex multi-agent workflows as Directed Acyclic Graphs (DAGs).
 
@@ -129,7 +131,7 @@ graph LR
 
 ---
 
-## Layer 4: Memory & Knowledge
+## Layer 4: Memory & Knowledge (partial, roadmap to semantic/vector memory)
 
 Agents maintain context across interactions and share knowledge.
 
@@ -152,7 +154,7 @@ const pref = await ctx.memory.recall("user_preference");
 
 ---
 
-## Layer 5: Communication
+## Layer 5: Communication (optional bridges; roadmap)
 
 Standard protocols for agent-to-agent interaction.
 
@@ -165,7 +167,7 @@ Standard protocols for agent-to-agent interaction.
 
 ---
 
-## Layer 6: Economics
+## Layer 6: Economics (shipping in v1; advanced instruments are roadmap)
 
 Built-in economy with credits, escrow, and incentive alignment.
 
@@ -192,7 +194,7 @@ sequenceDiagram
 
 ---
 
-## Layer 7: Safety & Governance
+## Layer 7: Safety & Governance (roadmap)
 
 Ensure agents operate within ethical boundaries.
 
@@ -209,7 +211,7 @@ Ensure agents operate within ethical boundaries.
 
 ---
 
-## Layer 8: Observability
+## Layer 8: Observability (shipping core tracing/logs; advanced anomaly/XAI are roadmap)
 
 See everything that happens across the network.
 
@@ -222,7 +224,7 @@ See everything that happens across the network.
 
 ---
 
-## Layer 9: Scalability & Federation
+## Layer 9: Scalability & Federation (roadmap)
 
 Scale to millions of agents across organizations.
 
@@ -235,7 +237,7 @@ Scale to millions of agents across organizations.
 
 ---
 
-## Layer 10: Emergence Primitives
+## Layer 10: Emergence Primitives (roadmap)
 
 Enable collective intelligence and self-organization.
 
@@ -249,7 +251,7 @@ Enable collective intelligence and self-organization.
 
 ---
 
-## Layer 11: Human-Agent Interface
+## Layer 11: Human-Agent Interface (roadmap)
 
 Bridge between human intent and agent action.
 
@@ -262,7 +264,7 @@ Bridge between human intent and agent action.
 
 ---
 
-## Layer 12: Ecosystem Dynamics
+## Layer 12: Ecosystem Dynamics (roadmap)
 
 Market mechanisms that drive network growth.
 

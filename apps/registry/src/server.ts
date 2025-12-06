@@ -17,6 +17,7 @@ import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
+import { getCapabilitySchema, CapabilitySchemaValidator } from "@nooterra/types";
 
 dotenv.config();
 
@@ -378,13 +379,39 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
       priceCents = Math.round(Number(priceCredits) * 0.1);
     }
 
+    const capabilityId = cap.capabilityId || (cap as any).capability_id || randomUUID();
+    const incomingToolSchema = (cap as any).tool_schema || (cap as any).toolSchema;
+    const canonical = getCapabilitySchema(capabilityId);
+    let toolSchemaToUse: any = incomingToolSchema || null;
+    if (canonical) {
+      toolSchemaToUse = toolSchemaToUse ?? canonical;
+      const parsed = CapabilitySchemaValidator.safeParse(toolSchemaToUse);
+      if (!parsed.success) {
+        const err = new Error(`Invalid tool_schema for ${capabilityId}: ${parsed.error.message}`);
+        (err as any).statusCode = 400;
+        throw err;
+      }
+      if (parsed.data.capabilityId !== capabilityId) {
+        const err = new Error(`tool_schema capabilityId mismatch for ${capabilityId}`);
+        (err as any).statusCode = 400;
+        throw err;
+      }
+    } else if (toolSchemaToUse) {
+      const parsed = CapabilitySchemaValidator.safeParse(toolSchemaToUse);
+      if (!parsed.success) {
+        const err = new Error(`Invalid tool_schema provided: ${parsed.error.message}`);
+        (err as any).statusCode = 400;
+        throw err;
+      }
+    }
+
     return {
-      capabilityId: cap.capabilityId || (cap as any).capability_id || randomUUID(),
+      capabilityId,
       description: cap.description,
       tags: cap.tags || [],
       input_schema: cap.input_schema,
       output_schema: cap.output_schema,
-      tool_schema: (cap as any).tool_schema || (cap as any).toolSchema,
+      tool_schema: toolSchemaToUse,
       price_cents: priceCents ?? undefined,
       price_model: (cap as any).price_model || undefined,
       safety_class: (cap as any).safety_class || undefined,
@@ -578,10 +605,11 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
     }
     return reply.send({ ok: true, registered: normalizedCaps.length, vc: issuedVc });
   } catch (err: any) {
+    const statusCode = err?.statusCode || 500;
     app.log.error({ err }, "register error");
-    return reply.status(500).send({
+    return reply.status(statusCode).send({
       error: err.message || "Internal error",
-      statusCode: 500,
+      statusCode,
       details: err?.response?.data ?? err?.stack ?? err,
     });
   }
@@ -679,10 +707,15 @@ app.get("/v1/capability/:id/tool-schema", async (request, reply) => {
       limit 1`,
     [capId, agentDid]
   );
-  if (!res.rowCount) {
-    return reply.status(404).send({ error: "Not found" });
+  if (res.rowCount) {
+    return reply.send({ schema: res.rows[0].schema, version: res.rows[0].version, updatedAt: res.rows[0].updated_at });
   }
-  return reply.send({ schema: res.rows[0].schema, version: res.rows[0].version, updatedAt: res.rows[0].updated_at });
+  // Fallback to canonical schema if defined in @nooterra/types
+  const canonical = getCapabilitySchema(capId);
+  if (canonical) {
+    return reply.send({ schema: canonical, version: "canonical", updatedAt: null });
+  }
+  return reply.status(404).send({ error: "Not found" });
 });
 
 app.post("/v1/tool-schemas", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
@@ -690,6 +723,13 @@ app.post("/v1/tool-schemas", { preHandler: [rateLimitGuard, apiGuard] }, async (
   const { capabilityId, agentDid, schema, version } = body || {};
   if (!capabilityId || !agentDid || !schema) {
     return reply.status(400).send({ error: "capabilityId, agentDid, and schema are required" });
+  }
+  const parsed = CapabilitySchemaValidator.safeParse(schema);
+  if (!parsed.success) {
+    return reply.status(400).send({ error: parsed.error.flatten() });
+  }
+  if (parsed.data.capabilityId !== capabilityId) {
+    return reply.status(400).send({ error: "tool_schema capabilityId mismatch" });
   }
   await pool.query(
     `insert into tool_schemas (capability_id, agent_did, schema, version)

@@ -30,11 +30,11 @@ export default function NetworkDashboard() {
         <div className="mb-12 border-b border-border pb-8">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-sm font-medium text-green-500 font-mono">MAINNET OPERATIONAL</span>
+            <span className="text-sm font-medium text-green-500 font-mono">BETA SNAPSHOT</span>
           </div>
           <h1 className="text-3xl font-bold tracking-tight mb-2">Network State</h1>
           <p className="text-muted-foreground">
-            Live telemetry from the Nooterra Coordination Protocol.
+            Snapshot metrics for the Nooterra Coordination Protocol (v1: Identity, Discovery, Orchestration, Economics).
           </p>
         </div>
 

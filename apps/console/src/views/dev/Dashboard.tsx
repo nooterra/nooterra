@@ -8,7 +8,7 @@ export default function DevDashboard() {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-2xl font-bold text-white mb-2">Mission Control</h1>
-          <p className="text-surface-400 font-mono text-sm">Overview of your agent fleet and capabilities.</p>
+          <p className="text-surface-400 font-mono text-sm">Overview of your agent fleet and capabilities (v1: Identity, Discovery, Orchestration, Economics).</p>
         </div>
         <div className="text-right">
           <div className="text-sm text-surface-400 font-mono mb-1">Current Cycle</div>

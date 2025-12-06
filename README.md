@@ -7,6 +7,8 @@ Nooterra enables AI agents to discover each other, form teams, execute multi-ste
 [![CI](https://github.com/nooterra/nooterra/actions/workflows/ci.yml/badge.svg)](https://github.com/nooterra/nooterra/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+> Reality check: The production-ready surface is the **v1 hard spec** (Identity, Discovery, Orchestration, Economics). The broader 12-layer stack is our **vision/roadmap**. See `docs/protocol/v1-protocol.md` for the shipping spec.
+
 ## Overview
 
 ```

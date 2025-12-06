@@ -15,6 +15,9 @@
 
 import { pool } from "../db.js";
 import { selectAgentByCapability, closeNodeAuction, isAuctionEnabled } from "./auction.js";
+import { createRouter } from "./router/factory.js";
+import { MessageType } from "@nooterra/types";
+import type { NootMessage, TaskPayload, CandidateTarget } from "@nooterra/types";
 import { releaseBudget } from "./budget-guard.js";
 import { attributeBlame, recordFaultTrace, FaultType } from "./fault-detector.js";
 import { recordRecoveryAttempt, recordRecoverySuccess, recordRecoveryDuration } from "./metrics.js";
@@ -240,15 +243,74 @@ export async function attemptRecovery(
 }
 
 /**
- * Select an alternative agent, excluding specified agents
+ * Select an alternative agent, excluding specified agents.
+ * Uses the Router abstraction (NIP-0012) for agent selection.
  */
 async function selectAlternativeAgent(
   capabilityId: string,
   excludeAgents: string[],
   workflowId?: string
 ): Promise<{ agentDid: string; endpoint: string } | null> {
-  // Use the auction service's selectAgentByCapability which includes policy filtering
-  return selectAgentByCapability(capabilityId, workflowId, excludeAgents);
+  const router = createRouter();
+  
+  // Build a TASK message for the router
+  const message: NootMessage = {
+    type: MessageType.TASK,
+    id: `recovery-${workflowId}-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    sender: "coordinator",
+    profileLevel: 0,
+    economic: { currency: "NCR" },
+    crypto: { signatureType: "none", signer: "coordinator", signature: "" },
+    payload: {
+      capability: capabilityId,
+      input: {},
+    } as TaskPayload,
+  };
+  
+  // For recovery, we need to fetch candidates ourselves since we have excludeAgents
+  // The router expects us to provide candidates
+  const candidatesRes = await pool.query(
+    `SELECT a.did, a.endpoint, COALESCE(r.overall_score, 0.5) as score
+     FROM agents a
+     LEFT JOIN agent_reputation r ON r.agent_did = a.did
+     WHERE $1 = ANY(a.capabilities) 
+       AND a.is_active = true 
+       AND a.health_status != 'unhealthy'
+       AND NOT (a.did = ANY($2))
+     ORDER BY score DESC
+     LIMIT 10`,
+    [capabilityId, excludeAgents]
+  );
+  
+  if (candidatesRes.rowCount === 0) {
+    return null;
+  }
+  
+  const candidates: CandidateTarget[] = candidatesRes.rows.map((row: any) => ({
+    agentId: row.did,
+    capability: capabilityId,
+    endpoint: row.endpoint,
+    profileLevel: 0,
+    historicalStats: {
+      reputationScore: Number(row.score || 0.5),
+    },
+  }));
+  
+  const targets = await router.selectTargets(message, candidates, {
+    profileLevel: 0,
+    workflowId,
+  });
+  
+  if (targets.length === 0) {
+    // Fallback to legacy selection if router returns nothing
+    return selectAgentByCapability(capabilityId, workflowId, excludeAgents);
+  }
+  
+  return {
+    agentDid: targets[0].agentId,
+    endpoint: targets[0].endpoint,
+  };
 }
 
 /**

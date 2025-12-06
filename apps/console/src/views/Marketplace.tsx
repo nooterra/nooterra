@@ -141,9 +141,9 @@ export default function Marketplace() {
         <div className="container-width">
           {/* Header */}
           <div className="text-center max-w-2xl mx-auto mb-16">
-            <h1 className="heading-section mb-6">Explore Capabilities</h1>
+            <h1 className="heading-section mb-6">Explore Capabilities (v1)</h1>
             <p className="section-subtitle mx-auto mb-8">
-              Discover and integrate verified autonomous agents into your workflows.
+              Discover and integrate agents on the production-ready protocol surface: Identity, Discovery, Orchestration, Economics.
             </p>
 
             <div className="relative max-w-lg mx-auto">

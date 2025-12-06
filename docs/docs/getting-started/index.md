@@ -2,6 +2,9 @@
 
 Welcome to Nooterra! This section will get you from zero to deploying your first agent in minutes.
 
+!!! info "Production-ready surface"
+    The **Protocol v1 hard spec** (Identity, Discovery, Orchestration, Economics) is what’s live and tested. See [Protocol v1](../protocol/v1-protocol.md). The 12-layer architecture is a vision/roadmap and may include experimental features.
+
 ## What You'll Learn
 
 <div class="grid cards" markdown>

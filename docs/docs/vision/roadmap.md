@@ -1,17 +1,19 @@
 ---
 title: Roadmap
-description: Building the substrate for planetary intelligence
+description: Building the Economic Nervous System for machine civilization
 ---
 
 # Roadmap
 
-Building the coordination layer for emergent AI intelligence across 4 phases.
+Building the coordination infrastructure for emergent machine intelligence across 4 phases.
 
 ---
 
 ## Vision
 
-> **Nooterra is the substrate for planetary intelligence** — a protocol where millions of AI agents discover, negotiate, execute, verify, learn, and self-organize at global scale.
+> **Nooterra is the Economic Nervous System for machine civilization** — a protocol where every sensor, robot, LLM, database, vehicle, factory, and satellite becomes an economic actor. Agents as neurons, messages as synapses, stigmergic memory as neuromodulation, collective intelligence as emergent behavior.
+
+Machines will **discover**, **negotiate**, **execute**, **verify**, **pay**, **teach**, **learn**, **delegate**, **debate**, **arbitrate**, **stake**, **evolve**, **federate**, and **self-organize** — running the world more efficiently over this substrate.
 
 ```
 2024 ──────────────► 2025 ──────────────► 2026 ──────────────► 2027+
@@ -49,22 +51,26 @@ The core infrastructure for agent coordination.
 ## Phase 2: Intelligence
 *Status: 🔄 In Progress*
 
-Making the protocol intelligent and safe.
+Making the protocol intelligent, adaptive, and safe.
 
 ### In Development
 
+- [ ] **Coordination Graph** — Dynamic routing based on capability edges, reputation, and stigmergic hints ([NIP-0012](../protocol/nips/NIP-0012-coordination-graph.md))
+- [ ] **Stigmergic Blackboards** — Pheromone-like memory for indirect coordination with exponential decay
+- [ ] **Six Message Types** — TASK, QUERY, PROPOSAL, ATTESTATION, GRADIENT, STATE for rich agent communication
 - [ ] **Structured Output Planner** — NL → validated DAG
-- [ ] **Persistent Agent Memory** — Cross-workflow context
-- [ ] **Constitutional AI** — Embedded ethical principles
-- [ ] **Kill Switch** — Emergency agent shutdown
+- [ ] **Persistent Agent Memory** — Cross-workflow episodic/semantic context
+- [ ] **Constitutional AI** — Embedded ethical principles with 8 default principles
+- [ ] **Kill Switch** — Emergency agent shutdown (soft/hard/revoke)
 - [ ] **Human Approval Gates** — Sign-off before high-risk actions
 
 ### Planned
 
-- [ ] **A2A Protocol Native** — Full Google A2A support
-- [ ] **Dynamic Replanning** — Workflows adapt on failure
-- [ ] **Bounty Protocol** — Rewards for missing capabilities
-- [ ] **Distributed Tracing** — OpenTelemetry integration
+- [ ] **A2A Protocol Native** — Full Google A2A support (JSON-RPC 2.0, Agent Cards)
+- [ ] **Dynamic Replanning** — Workflows adapt on failure (retry/fallback/skip/abort)
+- [ ] **Bounty Protocol** — Capability pressure signals for missing capabilities
+- [ ] **Distributed Tracing** — OpenTelemetry integration with router metrics
+- [ ] **Payment Adapters** — Integration hooks for AP2/x402/ACP external settlement
 
 ### Target: Q2 2025
 
@@ -73,16 +79,19 @@ Making the protocol intelligent and safe.
 ## Phase 3: Scale
 *Status: 📋 Planned*
 
-Scaling to millions of agents across organizations.
+Scaling to millions of agents across organizations with learned coordination.
 
 ### Planned
 
-- [ ] **Coordinator Sharding** — Horizontal scaling
-- [ ] **Multi-Region Deployment** — Global low-latency
-- [ ] **Federated Coordinators** — Cross-org workflows
-- [ ] **Private Registries** — Enterprise agent pools
-- [ ] **Swarm Patterns** — Agent self-organization
-- [ ] **Ensemble/Debate** — Multi-agent reasoning
+- [ ] **Learned Router** — GNN/attention-based routing replacing deterministic v1 formula (DICG/MAGIC-inspired)
+- [ ] **Federated Attention** — Coordinators as agents with meta-routing across regions
+- [ ] **Coordinator Sharding** — Horizontal scaling by workflow ID
+- [ ] **Multi-Region Deployment** — Global low-latency with geo-aware routing
+- [ ] **Federated Coordinators** — Cross-org workflows with policy sync
+- [ ] **Private Registries** — Enterprise agent pools with ZK membership proofs
+- [ ] **Swarm Patterns** — Agent self-organization via blackboard coordination
+- [ ] **Ensemble/Debate** — Multi-agent reasoning with arbiter patterns
+- [ ] **Collective Objectives** — Protocol-level metrics (throughput, diversity, fault tolerance)
 
 ### Target: Q4 2025
 
@@ -91,16 +100,18 @@ Scaling to millions of agents across organizations.
 ## Phase 4: Planetary
 *Status: 🔮 Research*
 
-Towards emergent planetary intelligence.
+Towards emergent planetary intelligence — the Cambrian explosion of machine coordination.
 
 ### Vision
 
-- [ ] **Cross-Chain Settlement** — Multi-currency payments
-- [ ] **Prediction Markets** — Bet on workflow outcomes
-- [ ] **Meta-Learning** — Agents learn from each other
-- [ ] **Self-Improvement** — Agents propose upgrades
-- [ ] **Emergent Governance** — Stakeholder voting
-- [ ] **Full Decentralization** — Permissionless operation
+- [ ] **Cross-Chain Settlement** — Multi-currency payments (ETH, stablecoins, fiat bridges)
+- [ ] **Meta-Learning over Coordination Graphs** — Agents learn "who to talk to" from historical patterns
+- [ ] **Capability Evolution** — Successful agents thrive, gaps attract new entrants via bounties
+- [ ] **Self-Improvement** — Agents propose protocol upgrades via NIPs
+- [ ] **Emergent Governance** — Stake-weighted voting on collective objectives
+- [ ] **Full Decentralization** — Permissionless coordinator operation
+- [ ] **Hardware Attestation** — TEE support for Profile 6 (High-Value/Attested)
+- [ ] **ZK Private Subnets** — Zero-knowledge membership proofs for enterprise isolation
 
 ### Target: 2026+
 

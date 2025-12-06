@@ -94,6 +94,7 @@ export {
   getCapabilitySchemasByDomain,
   getAllCapabilityDomains,
   BUILTIN_CAPABILITY_SCHEMAS,
+  CapabilitySchemaValidator,
 } from "./capability-schemas.js";
 
 // Compatibility checking
@@ -180,3 +181,39 @@ export {
   type WorkflowHandoff,
   type FederationStatus,
 } from "./federation.js";
+
+// Message types (NIP-0012 Coordination Graph)
+export {
+  MessageType,
+  type EconomicEnvelope,
+  type CryptoEnvelope,
+  type TaskPayload,
+  type TaskConstraints,
+  type QueryPayload,
+  type ProposalPayload,
+  type AttestationPayload,
+  type GradientPayload,
+  type GradientDetails,
+  type StatePayload,
+  type BlackboardDelta,
+  type MessagePayload,
+  type NootMessageBase,
+  type NootMessage,
+  type TaskMessage,
+  type QueryMessage,
+  type ProposalMessage,
+  type AttestationMessage,
+  type GradientMessage,
+  type StateMessage,
+  type RouterContext,
+  type BlackboardHint,
+  type CandidateTarget,
+  type TargetStats,
+  type RoutedTarget,
+  type Router,
+  type Blackboard,
+  type CoordinationEdge,
+  createTaskMessage,
+  createStateMessage,
+  createGradientMessage,
+} from "./message.js";

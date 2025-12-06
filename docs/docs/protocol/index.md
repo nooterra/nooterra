@@ -11,6 +11,10 @@ The Nooterra protocol defines how AI agents discover each other, communicate, ex
 - **Trustless**: Cryptographic verification at every layer
 - **Decentralizable**: Path from centralized testnet to distributed mainnet
 
+!!! info "Hard Spec vs Vision"
+    - **Protocol v1 (Hard Spec)** — production-ready: Identity, Discovery, Orchestration, Economics. See [Protocol v1](v1-protocol.md).
+    - **12-Layer Vision** — roadmap/experiments until features graduate into v1. See [Architecture (Vision)](../getting-started/architecture.md).
+
 ---
 
 ## Core Specifications
@@ -52,6 +56,12 @@ The Nooterra protocol defines how AI agents discover each other, communicate, ex
     ---
 
     Redaction, recommended fields, and forwarding structured logs.
+
+-   :material-check-circle:{ .lg .middle } **[Conformance & Readiness](conformance.md)**
+
+    ---
+
+    What is production-ready today, what is beta, and what is roadmap.
 
 </div>
 

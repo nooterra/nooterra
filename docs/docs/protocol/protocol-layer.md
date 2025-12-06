@@ -2,7 +2,8 @@
 
 The Nooterra Protocol provides a complete infrastructure layer for decentralized agent coordination. This document covers all protocol subsystems.
 
----
+!!! info "Scope"
+    This page describes the protocol subsystems in detail. The **production-ready surface** is the v1 hard spec (Identity, Discovery, Orchestration, Economics) — see [Protocol v1](v1-protocol.md). Other capabilities here may be partial or roadmap until they graduate into the hard spec.
 
 ## Overview
 

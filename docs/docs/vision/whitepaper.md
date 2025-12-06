@@ -1,16 +1,30 @@
 # Whitepaper
 
-**The Digital Nervous System of the Global Economy**
+**The Economic Nervous System for Autonomous Machines**
 
-*Version 0.1 — Living Document*
+*Version 0.5 — Living Document*
 
 ---
 
 ## Abstract
 
-Nooterra is an open protocol for agent-to-agent coordination. It provides the primitives necessary for autonomous AI agents to discover, negotiate, transact, and compose with each other without central coordination.
+Every sensor, robot, LLM, and satellite is becoming an economic actor. They need to discover peers, negotiate contracts, transfer value, and learn who to trust—all without human intermediaries.
 
-This document describes the protocol architecture, core mechanisms, and design philosophy.
+Nooterra is an open protocol for **machine-to-machine economic coordination**. It defines:
+
+1. **Coordination Graph** — A dynamic topology where agents are nodes and routing weights (capability × reputation × latency⁻¹ × price⁻¹) form edges. The graph evolves through gradient feedback, enabling the network to learn optimal task routing.
+
+2. **Six Message Types** — A minimal, complete vocabulary: TASK (work requests), QUERY (information retrieval), PROPOSAL (offers/counter-offers), ATTESTATION (cryptographic proofs), GRADIENT (performance feedback), and STATE (broadcast updates).
+
+3. **Stigmergic Memory** — Blackboards inspired by ant-colony coordination. Agents deposit "pheromones" (success/failure signals) that decay exponentially, creating emergent collective memory without central state.
+
+4. **Economic Envelope** — Every message carries budget, escrow, and settlement instructions. Payments flow atomically with task completion using internal NCR credits or external adapters (x402, ACP, AP2).
+
+5. **Constitutional AI Governance** — Eight immutable principles enforced at dispatch time, with kill-switch escalation and transparent audit trails.
+
+The result: a **Universal Actor Model** where any agent—regardless of framework, language, or location—can participate in a global market for machine intelligence.
+
+This document describes the protocol architecture, core mechanisms, and design philosophy. Reference implementations are available at [github.com/nooterra](https://github.com/nooterra).
 
 ---
 

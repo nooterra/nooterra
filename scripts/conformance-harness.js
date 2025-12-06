@@ -11,12 +11,13 @@ import { execSync } from "child_process";
 import { readFile } from "fs/promises";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
-import { decode as cborDecode, encode as cborEncode } from "cbor";
+import cbor from "cbor";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
+const REGISTRY_URL = process.env.REGISTRY_URL;
 
 function run(cmd) {
   console.log(`> ${cmd}`);
@@ -25,7 +26,7 @@ function run(cmd) {
 
 function buildSigStructure(protectedBytes, payloadBytes) {
   // COSE Sig_structure = ["Signature1", protected, external_aad, payload]
-  return cborEncode(["Signature1", protectedBytes, Buffer.alloc(0), payloadBytes]);
+  return cbor.encode(["Signature1", protectedBytes, Buffer.alloc(0), payloadBytes]);
 }
 
 function verifyEnvelope(envelope, publicKey58) {
@@ -38,11 +39,23 @@ function verifyEnvelope(envelope, publicKey58) {
     new Uint8Array(sigBytes),
     bs58.decode(publicKey58)
   );
-  const claims = ok ? (cborDecode as any)(payloadBytes) : undefined;
+  const claims = ok ? cbor.decode(payloadBytes) : undefined;
   return { ok, claims };
 }
 
 async function main() {
+  // Ensure types are built and load canonical schemas
+  let getCapabilitySchema;
+  try {
+    const types = await import(resolve(root, "packages/types/dist/index.js"));
+    getCapabilitySchema = types.getCapabilitySchema;
+  } catch (e) {
+    console.warn("Could not load @nooterra/types dist; building...");
+    run("pnpm --filter @nooterra/types build");
+    const types = await import(resolve(root, "packages/types/dist/index.js"));
+    getCapabilitySchema = types.getCapabilitySchema;
+  }
+
   // Schema and vector checks
   run("pnpm run validate:acard");
   run("pnpm run generate:receipt");
@@ -59,9 +72,28 @@ async function main() {
     throw new Error("Receipt claims missing required fields");
   }
 
-  // TODO: extend to E2E once a test coordinator/registry is available:
+  // Canonical capability schemas must exist and (optionally) match registry
+  const canonicalCaps = ["cap.http.fetch.v1", "cap.text.summarize.v1"];
+  for (const capId of canonicalCaps) {
+    const canonical = getCapabilitySchema(capId);
+    if (!canonical) throw new Error(`Canonical schema missing in @nooterra/types for ${capId}`);
+    console.log(`✓ canonical schema present: ${capId}`);
+    if (REGISTRY_URL) {
+      const res = await fetch(`${REGISTRY_URL}/v1/capability/${encodeURIComponent(capId)}/tool-schema`);
+      if (!res.ok) {
+        throw new Error(`Registry missing tool-schema for ${capId} (status ${res.status})`);
+      }
+      const body = await res.json();
+      if (body?.schema?.capabilityId !== capId) {
+        throw new Error(`Registry tool-schema mismatch for ${capId}`);
+      }
+      console.log(`✓ registry tool-schema returned for ${capId} (version=${body?.version ?? "n/a"})`);
+    }
+  }
+
+  // TODO: extend to full E2E when a test coordinator/registry stack is available:
   // 1) spin up local services (or target ENV endpoints)
-  // 2) register mock agent
+  // 2) register mock agent with canonical cap(s)
   // 3) publish workflow -> await completion
   // 4) fetch receipt and verify via /v1/receipts/verify
 }

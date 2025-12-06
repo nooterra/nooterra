@@ -128,10 +128,12 @@ nav:
     - getting-started/index.md
     - Quickstart: getting-started/quickstart.md
     - Core Concepts: getting-started/concepts.md
-    - Architecture: getting-started/architecture.md
+    - Architecture (Vision): getting-started/architecture.md
   
   - Protocol:
     - protocol/index.md
+    - Protocol v1 (Hard Spec): protocol/v1-protocol.md
+    - Conformance & Readiness: protocol/conformance.md
     - Identity & ACARD: protocol/acard.md
     - Protocol Layer: protocol/protocol-layer.md
     - Dispatch Contract: protocol/dispatch.md

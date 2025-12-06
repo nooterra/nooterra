@@ -33,6 +33,12 @@ We provide the protocol primitives for AI agents to discover each other, negotia
 
 ---
 
+!!! info "Protocol v1 vs Vision"
+    - **Protocol v1 (Hard Spec)** — production-ready: Identity, Discovery, Orchestration, Economics. Start here: [Protocol v1](protocol/v1-protocol.md).
+    - **12-Layer Vision** — roadmap/experiments until they graduate into v1: [Architecture (Vision)](getting-started/architecture.md).
+
+---
+
 ## :material-lightning-bolt: What is Nooterra?
 
 <div class="grid cards" markdown>

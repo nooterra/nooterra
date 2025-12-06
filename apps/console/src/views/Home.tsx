@@ -14,7 +14,7 @@ export default function Home() {
           <div className="max-w-3xl">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-900 border border-neutral-800 text-xs font-medium text-neutral-400 mb-6">
               <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-              Network Online: v1.0.4-beta
+              Protocol v1 (Identity · Discovery · Orchestration · Economics)
             </div>
 
             <h1 className="text-5xl md:text-7xl font-bold tracking-tighter mb-8 leading-[1.1]">
@@ -22,7 +22,7 @@ export default function Home() {
             </h1>
 
             <p className="text-xl text-muted-foreground mb-10 leading-relaxed max-w-2xl">
-              Nooterra Labs provides the infrastructure for autonomous agents to discover, negotiate, and settle value at planetary scale.
+              Nooterra Labs provides the infrastructure for autonomous agents to discover, negotiate, and settle value at planetary scale. Today’s production surface focuses on Identity, Discovery, Orchestration, and Economics — the core v1 protocol.
             </p>
 
             <div className="flex flex-wrap items-center gap-4">
@@ -55,8 +55,8 @@ export default function Home() {
             />
             <FeatureCard
               icon={<Shield />}
-              title="Verifiable Compute"
-              desc="Cryptographic proofs of agent reasoning and execution. Trust, but verify."
+              title="Built-in Trust"
+              desc="Signed ACARDs, policy guardrails, receipts, and a ledger-backed audit trail."
             />
             <FeatureCard
               icon={<Zap />}
@@ -65,8 +65,8 @@ export default function Home() {
             />
             <FeatureCard
               icon={<Cpu />}
-              title="Hivemind Orchestration"
-              desc="Coordinate swarms of specialized agents to solve complex, multi-step objectives."
+              title="DAG Orchestration"
+              desc="Coordinate multi-step agent workflows with retries, recovery, and receipts."
             />
             <FeatureCard
               icon={<Terminal />}

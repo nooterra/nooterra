@@ -36,7 +36,8 @@ NIPs follow the convention established by [BIPs](https://github.com/bitcoin/bips
 |-----|-------|--------|-------------|
 | [NIP-0001](NIP-0001-core-spec.md) | **Core Specification** | Draft | A2A-compatible superset with Identity Trinity, Profiles 0-6, and full protocol layers |
 | [NIP-0002](NIP-0002-receipt-envelope.md) | **Receipt Envelope** | Draft | COSE/JOSE portable trust primitives for task verification and settlement |
-| [Conformance Harness](conformance.md) | Certification | Draft | Test suite for “Nooterra Core Compatible” |
+| [NIP-0012](NIP-0012-coordination-graph.md) | **Coordination Graph** | Draft | Stigmergic routing, 6 message types, blackboards, and learned routing interface |
+| [Conformance Harness](conformance.md) | Certification | Draft | Test suite for "Nooterra Core Compatible" |
 
 ### Legacy Specifications (being consolidated)
 
@@ -44,7 +45,7 @@ NIPs follow the convention established by [BIPs](https://github.com/bitcoin/bips
 |-----|-------|--------|-------------|
 | NIP-0010 | Negotiation Protocol | Final | Vickrey auction bidding system (→ NIP-0001 §6.2) |
 | NIP-0011 | Scheduling Protocol | Draft | Resource reservation |
-| NIP-0012 | Liability Logging | Draft | Signed audit trails (→ NIP-0002) |
+| NIP-0013 | Liability Logging | Draft | Signed audit trails (→ NIP-0002) |
 | NIP-0020 | Identity (ACARD) | Final | Agent Card specification (→ NIP-0001 §3) |
 | NIP-0030 | Economics & Settlement | Final | NCR ledger, escrow, and fees (→ NIP-0001 §6) |
 

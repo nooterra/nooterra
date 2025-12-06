@@ -15,13 +15,16 @@ export const Navbar: React.FC = () => {
                             Network
                         </Link>
                         <Link to="/manifesto" className="hover:text-foreground transition-colors">
-                            Research
+                            Vision
                         </Link>
                         <Link to="/careers" className="hover:text-foreground transition-colors">
                             Careers
                         </Link>
                         <a href="https://docs.nooterra.ai" target="_blank" rel="noreferrer" className="hover:text-foreground transition-colors">
                             Documentation
+                        </a>
+                        <a href="https://docs.nooterra.ai/protocol/v1-protocol/" target="_blank" rel="noreferrer" className="hover:text-foreground transition-colors">
+                            Protocol v1
                         </a>
                     </div>
                 </div>
