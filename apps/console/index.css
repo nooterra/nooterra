@@ -4,35 +4,30 @@
 
 @layer base {
   :root {
-    --background: #000000;
-    --foreground: #FFFFFF;
+    --background: #050505;
+    --foreground: #FAFAFA;
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased selection:bg-white selection:text-black;
-    background-color: #000000;
-  }
-
-  /* Reset all rounded corners just in case */
-  * {
-    border-radius: 0px !important;
+    @apply bg-background text-foreground font-sans antialiased;
+    background-color: #050505;
   }
 }
 
 @layer components {
-
-  /* Raw Input Style */
-  .raw-input {
-    @apply bg-transparent border-b-2 border-white/20 text-xl font-mono py-2 w-full focus:outline-none focus:border-white transition-none placeholder:text-white/20;
+  .container-width {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
   }
 
-  /* The "Monolith" Text Effect */
-  .monolith-text {
-    @apply font-bold tracking-tighter leading-[0.8];
+  .btn-primary {
+    @apply bg-white text-black font-medium py-2 px-4 rounded-md hover:bg-neutral-200 transition-colors;
   }
 
-  /* Utility to invert colors on hover */
-  .hover-invert {
-    @apply hover:bg-white hover:text-black transition-colors duration-75;
+  .btn-secondary {
+    @apply bg-neutral-900 text-white border border-neutral-800 font-medium py-2 px-4 rounded-md hover:bg-neutral-800 transition-colors;
+  }
+
+  .tech-card {
+    @apply bg-muted/50 border border-border rounded-lg p-6 hover:border-neutral-700 transition-colors;
   }
 }

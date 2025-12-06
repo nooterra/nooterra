@@ -19,37 +19,39 @@ const config: Config = {
     },
     extend: {
       borderRadius: {
-        lg: '0px',
-        md: '0px',
-        sm: '0px',
-        DEFAULT: '0px',
+        lg: '0.5rem',
+        md: '0.375rem',
+        sm: '0.25rem',
       },
       colors: {
-        background: '#000000', // Absolute Void
-        foreground: '#FFFFFF', // Absolute Light
-        muted: '#1A1A1A',
-        border: '#333333',
-        accent: {
-          DEFAULT: '#FFFFFF', // In brutalism, accent is often just high contrast white
-          inverse: '#000000',
+        // Deep Tech Palette
+        background: '#050505', // Nearly black
+        foreground: '#FAFAFA',
+        muted: {
+          DEFAULT: '#171717',
+          foreground: '#A3A3A3',
         },
-        surface: {
-          50: '#111',
-          100: '#222',
-          900: '#000',
+        border: '#262626',
+        primary: {
+          DEFAULT: '#FFFFFF',
+          foreground: '#000000',
+        },
+        accent: {
+          DEFAULT: '#3B82F6', // Standard Tech Blue
+          foreground: '#FFFFFF',
         }
       },
       fontFamily: {
-        sans: ['Geist Sans', 'Helvetica Neue', 'Arial', 'sans-serif'], // Standard, hard
-        mono: ['Geist Mono', 'Menlo', 'Monaco', 'Courier New', 'monospace'],
+        sans: ['Geist Sans', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['Geist Mono', 'JetBrains Mono', 'monospace'],
       },
       animation: {
-        'blink': 'blink 1s step-end infinite',
+        'fade-in': 'fade-in 0.5s ease-out forwards',
       },
       keyframes: {
-        'blink': {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0' },
+        'fade-in': {
+          '0%': { opacity: '0', transform: 'translateY(10px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
         },
       },
     },

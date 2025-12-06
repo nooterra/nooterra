@@ -1,55 +1,37 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { Navbar } from '../components/layout/Navbar';
+import { ArrowRight } from 'lucide-react';
 
 export default function Careers() {
     return (
-        <div className="min-h-screen bg-black text-white p-6 md:p-12 font-mono selection:bg-white selection:text-black">
-            <nav className="fixed top-6 left-6 z-50 mix-blend-difference">
-                <Link to="/" className="text-sm font-bold uppercase tracking-widest hover:underline decoration-2 underline-offset-4">
-                    {'<'} RETURN_ROOT
-                </Link>
-            </nav>
+        <div className="min-h-screen bg-background text-foreground">
+            <Navbar />
 
-            <div className="max-w-7xl mx-auto mt-24 md:mt-40">
-                <header className="mb-24">
-                    <h1 className="text-[10vw] font-black uppercase tracking-tighter leading-[0.8] mb-4">
-                        Join The<br />Machine
-                    </h1>
-                    <p className="text-xl md:text-2xl max-w-2xl mt-8 text-white/60">
-                        We are looking for the top 0.01% of systems engineers.
-                        <br />
-                        <span className="text-white">If you have to ask, you are not ready.</span>
-                    </p>
-                </header>
+            <div className="container-width py-24">
+                <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-6">Join Nooterra Labs.</h1>
+                <p className="text-xl text-muted-foreground max-w-2xl mb-16">
+                    We are a distributed research and engineering team building the primitives for the agent economy.
+                    We value intellectual honesty, high agency, and shipping velocity.
+                </p>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-0 border-t border-white/20">
-                    <Job
-                        title="Founding Engineer (Systems)"
-                        id="FE_SYS_01"
-                        desc="Rust / Low-Level / P2P"
-                    />
-                    <Job
-                        title="Founding Engineer (AI)"
-                        id="FE_AI_01"
-                        desc="Reasoning / Eval / PyTorch"
-                    />
-                    <Job
-                        title="Visual Architect"
-                        id="DS_VIS_01"
-                        desc="WebGL / Brutalism / UI"
-                    />
+                <div className="space-y-4">
+                    <SectionHeader>Engineering</SectionHeader>
+                    <JobRow title="Senior Systems Engineer" location="San Francisco / Remote" type="Full-time" />
+                    <JobRow title="Protocol Engineer (Rust)" location="Remote" type="Full-time" />
+                    <JobRow title="AI Research Scientist" location="London / Remote" type="Full-time" />
+
+                    <SectionHeader className="mt-12">Product & Design</SectionHeader>
+                    <JobRow title="Founding Product Designer" location="San Francisco" type="Full-time" />
+                    <JobRow title="Developer Relations Lead" location="Remote" type="Full-time" />
                 </div>
 
-                <div className="mt-32 p-12 bg-white text-black text-center">
-                    <div className="text-sm font-bold uppercase tracking-widest mb-4">
-               // HOW_TO_APPLY
-                    </div>
-                    <div className="text-2xl md:text-4xl font-black uppercase mb-8">
-                        Send your GitHub. Nothing else.
-                    </div>
-                    <a href="mailto:deploy@nooterra.ai" className="inline-block border-2 border-black px-8 py-3 text-sm font-bold uppercase hover:bg-black hover:text-white transition-colors duration-0">
-                        deploy@nooterra.ai
+                <div className="mt-24 p-8 rounded-lg bg-neutral-900 border border-border text-center">
+                    <h3 className="text-lg font-bold mb-2">Don't see your role?</h3>
+                    <p className="text-muted-foreground mb-6">
+                        We are always looking for exceptional talent. If you think you can help us build the future, get in touch.
+                    </p>
+                    <a href="mailto:careers@nooterra.ai" className="btn-primary inline-flex items-center gap-2">
+                        Email us <ArrowRight className="w-4 h-4" />
                     </a>
                 </div>
             </div>
@@ -57,14 +39,18 @@ export default function Careers() {
     );
 }
 
-const Job = ({ title, id, desc }: { title: string, id: string, desc: string }) => (
-    <div className="border-b border-white/20 md:border-b-0 md:border-r border-white/20 last:border-r-0 p-8 md:p-12 hover:bg-white hover:text-black transition-colors duration-0 cursor-crosshair group">
-        <div className="text-[10px] uppercase tracking-widest opacity-50 mb-4 group-hover:opacity-100">
-            Job_ID: {id}
+const SectionHeader = ({ children, className }: { children: React.ReactNode, className?: string }) => (
+    <h2 className={`text-sm font-semibold text-neutral-500 uppercase tracking-wider mb-4 ${className}`}>{children}</h2>
+);
+
+const JobRow = ({ title, location, type }: { title: string, location: string, type: string }) => (
+    <div className="flex items-center justify-between p-6 rounded-lg border border-border bg-muted/20 hover:border-neutral-700 hover:bg-muted/40 transition-colors cursor-pointer group">
+        <div>
+            <h3 className="font-bold text-lg group-hover:text-blue-400 transition-colors">{title}</h3>
+            <div className="text-sm text-muted-foreground mt-1">{location}</div>
         </div>
-        <h3 className="text-2xl font-bold uppercase mb-4 leading-tight">{title}</h3>
-        <div className="text-sm font-mono opacity-60 group-hover:opacity-100">
-            {desc}
+        <div className="text-sm font-medium px-3 py-1 rounded-full bg-neutral-800 text-neutral-300">
+            {type}
         </div>
     </div>
 );

@@ -1,117 +1,159 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowRight, Box, Cpu, Globe, Shield, Zap, Terminal } from 'lucide-react';
+import { Navbar } from '../components/layout/Navbar';
 
 export default function Home() {
-  const [email, setEmail] = useState('');
-
   return (
-    <div className="min-h-screen bg-black text-white p-6 md:p-12 flex flex-col justify-between font-mono relative">
+    <div className="min-h-screen bg-background">
+      <Navbar />
 
-      {/* Top Left: Identity */}
-      <header className="z-10">
-        <h1 className="text-xl md:text-2xl font-bold tracking-tight">
-          NOOTERRA_INC
-        </h1>
-        <div className="text-[10px] text-white/40 mt-1 uppercase tracking-widest">
-          Est. 2025 // San Francisco
-        </div>
-      </header>
-
-      {/* Top Right: Functional Links */}
-      <nav className="absolute top-6 right-6 md:top-12 md:right-12 flex flex-col items-end gap-1 text-sm z-10">
-        <a href="https://docs.nooterra.ai" className="hover:bg-white hover:text-black px-1 transition-colors duration-0 flex items-center gap-2">
-           // DOCUMENTS <ArrowUpRight className="w-3 h-3" />
-        </a>
-        <a href="mailto:aiden@nooterra.ai" className="hover:bg-white hover:text-black px-1 transition-colors duration-0">
-           // CONTACT_US
-        </a>
-        <Link to="/login" className="hover:bg-white hover:text-black px-1 transition-colors duration-0 mt-4">
-          [ SYSTEM_LOGIN ]
-        </Link>
-      </nav>
-
-      {/* Center: The Monolith Statement */}
-      <main className="flex-grow flex flex-col justify-center items-start max-w-7xl mx-auto w-full py-20 z-10">
-        <div className="space-y-0 select-none">
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ duration: 0.4 }}
-            className="monolith-text text-6xl md:text-[10vw] uppercase"
-          >
-            The Protocol
-          </motion.div>
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ duration: 0.4, delay: 0.1 }}
-            className="monolith-text text-6xl md:text-[10vw] uppercase text-white/20"
-          >
-            For the Post
-          </motion.div>
-          <motion.div
-            initial={{ y: 20, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ duration: 0.4, delay: 0.2 }}
-            className="monolith-text text-6xl md:text-[10vw] uppercase"
-          >
-            Labor Economy.
-          </motion.div>
-        </div>
-
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="mt-16 w-full max-w-lg border-l-2 border-white pl-6"
-        >
-          <p className="text-lg text-white/60 mb-8 leading-relaxed">
-            We are building the coordination layer for autonomous intelligence.
-            <br />
-            <span className="text-white">Beyond compute. Beyond currency.</span>
-          </p>
-
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-4">
-              <span className="text-white/40">{'>'}</span>
-              <input
-                type="text"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="ENTER_ACCESS_KEY"
-                className="raw-input"
-              />
+      {/* Hero Section */}
+      <section className="pt-24 pb-20 border-b border-border">
+        <div className="container-width">
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-neutral-900 border border-neutral-800 text-xs font-medium text-neutral-400 mb-6">
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+              Network Online: v1.0.4-beta
             </div>
-            <button className="bg-white text-black text-sm font-bold uppercase py-4 px-8 self-start hover:invert transition-all duration-0">
-              INITIALIZE SEQUENCE
-            </button>
+
+            <h1 className="text-5xl md:text-7xl font-bold tracking-tighter mb-8 leading-[1.1]">
+              The coordination layer for the machine economy.
+            </h1>
+
+            <p className="text-xl text-muted-foreground mb-10 leading-relaxed max-w-2xl">
+              Nooterra Labs provides the infrastructure for autonomous agents to discover, negotiate, and settle value at planetary scale.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-4">
+              <Link to="/signup" className="btn-primary text-base px-6 py-3">
+                Start Building
+              </Link>
+              <Link to="/network" className="btn-secondary text-base px-6 py-3 flex items-center gap-2">
+                <Globe className="w-4 h-4" /> Explore Network
+              </Link>
+            </div>
           </div>
-        </motion.div>
-      </main>
-
-      {/* Bottom: Navigation / Footer */}
-      <footer className="grid grid-cols-2 md:grid-cols-4 gap-8 text-xs border-t-2 border-white/20 pt-6 z-10">
-        <div className="flex flex-col gap-2">
-          <div className="text-white/40 mb-2">// DIRECTORY</div>
-          <Link to="/manifesto" className="hover:text-white/50 transition-colors">// MANIFESTO</Link>
-          <Link to="/careers" className="hover:text-white/50 transition-colors">// OPEN_ROLES</Link>
-          <Link to="/network" className="hover:text-white/50 transition-colors">// NETWORK_STATE</Link>
         </div>
+      </section>
 
-        <div className="flex flex-col gap-2">
-          <div className="text-white/40 mb-2">// LOCATIONS</div>
-          <div>SF_HQ01</div>
-          <div>LDN_HQ02</div>
-          <div>TKY_HQ03</div>
+      {/* Features Grid */}
+      <section className="py-24">
+        <div className="container-width">
+          <div className="flex items-end justify-between mb-12">
+            <h2 className="text-2xl font-bold tracking-tight">Core Infrastructure</h2>
+            <a href="https://docs.nooterra.ai" className="text-sm text-neutral-500 hover:text-white flex items-center gap-1">
+              Read the docs <ArrowRight className="w-4 h-4" />
+            </a>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <FeatureCard
+              icon={<Box />}
+              title="Agent Protocol"
+              desc="A universal standard for agent identity, capability discovery, and inter-agent communication."
+            />
+            <FeatureCard
+              icon={<Shield />}
+              title="Verifiable Compute"
+              desc="Cryptographic proofs of agent reasoning and execution. Trust, but verify."
+            />
+            <FeatureCard
+              icon={<Zap />}
+              title="Instant Settlement"
+              desc="Micro-payment rails optimized for high-frequency machine-to-machine transactions."
+            />
+            <FeatureCard
+              icon={<Cpu />}
+              title="Hivemind Orchestration"
+              desc="Coordinate swarms of specialized agents to solve complex, multi-step objectives."
+            />
+            <FeatureCard
+              icon={<Terminal />}
+              title="Developer Console"
+              desc="Full observability, log management, and deployment controls for your agent fleet."
+            />
+            <div className="tech-card bg-neutral-900 border-dashed flex flex-col items-center justify-center text-center p-8">
+              <div className="text-neutral-500 font-medium mb-2">Ready to deploy?</div>
+              <Link to="/signup" className="text-white underline decoration-neutral-700 hover:decoration-white underline-offset-4">
+                Initialize Agent &rarr;
+              </Link>
+            </div>
+          </div>
         </div>
+      </section>
 
-        <div className="col-span-2 md:text-right text-white/30 flex flex-col justify-end">
-          <div>NOOTERRA_SYSTEMS © 2025</div>
-          <div>ALL RIGHTS RESERVED.</div>
+      {/* Code Snippet Section (Tech Credibility) */}
+      <section className="py-24 border-t border-border bg-neutral-950">
+        <div className="container-width grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight mb-4">Native to your stack.</h2>
+            <p className="text-muted-foreground mb-8 text-lg">
+              The Nooterra SDK integrates seamlessly with LangChain, AutoGen, and custom Python agents.
+              Define capabilities in code, deploy to the network in seconds.
+            </p>
+
+            <ul className="space-y-4 text-sm font-medium text-neutral-400">
+              <li className="flex items-center gap-3">
+                <div className="w-6 h-6 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center text-white text-xs">1</div>
+                Install the SDK
+              </li>
+              <li className="flex items-center gap-3">
+                <div className="w-6 h-6 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center text-white text-xs">2</div>
+                Define your agent's manifest
+              </li>
+              <li className="flex items-center gap-3">
+                <div className="w-6 h-6 rounded-full bg-neutral-900 border border-neutral-800 flex items-center justify-center text-white text-xs">3</div>
+                `nooterra deploy`
+              </li>
+            </ul>
+          </div>
+
+          <div className="bg-neutral-900 rounded-lg border border-neutral-800 p-6 font-mono text-sm overflow-hidden shadow-2xl">
+            <div className="flex gap-2 mb-4">
+              <div className="w-3 h-3 rounded-full bg-red-500/20"></div>
+              <div className="w-3 h-3 rounded-full bg-yellow-500/20"></div>
+              <div className="w-3 h-3 rounded-full bg-green-500/20"></div>
+            </div>
+            <pre className="text-neutral-300 overflow-x-auto">
+              {`from nooterra import Agent, Capability
+
+agent = Agent(name="research-bot-v1")
+
+@agent.capability(description="Web Search")
+async def search(query: str):
+    return await tools.web_search(query)
+
+# Deploy to the swarm
+agent.deploy(network="mainnet")`}
+            </pre>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="py-12 border-t border-border mt-auto">
+        <div className="container-width flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="text-sm text-neutral-500">
+            &copy; 2025 Nooterra Labs. All rights reserved.
+          </div>
+          <div className="flex gap-8 text-sm font-medium text-neutral-400">
+            <Link to="/privacy" className="hover:text-white">Privacy</Link>
+            <Link to="/terms" className="hover:text-white">Terms</Link>
+            <a href="mailto:aiden@nooterra.ai" className="hover:text-white">Contact</a>
+          </div>
         </div>
       </footer>
     </div>
   );
 }
+
+const FeatureCard = ({ icon, title, desc }: { icon: any, title: string, desc: string }) => (
+  <div className="tech-card">
+    <div className="w-10 h-10 rounded bg-neutral-900 border border-neutral-800 flex items-center justify-center text-white mb-4">
+      {icon}
+    </div>
+    <h3 className="text-lg font-bold mb-2">{title}</h3>
+    <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
+  </div>
+);
