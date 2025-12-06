@@ -3111,7 +3111,7 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
     }
   }
 
-  const client = await pool.connect();
+  let client: any = await pool.connect();
   let newStatus: "success" | "failed" = "failed";
   let schemaErrors: any = null;
   let schemaValid = true;
@@ -3440,7 +3440,10 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
     await client.query("commit");
   } catch (err: any) {
     try { await client.query("rollback"); } catch {}
-    client.release();
+    if (client) {
+      try { client.release(); } catch {}
+      client = null;
+    }
     if (err?.message === "node_not_found") return reply.status(404).send({ error: "Node not found" });
     if (err?.message === "duplicate_result") return reply.status(409).send({ error: "duplicate_result" });
     if (err?.message === "missing_signature") return reply.status(400).send({ error: "missing_signature" });
@@ -3455,7 +3458,10 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
     app.log.error({ err, workflowId, nodeId }, "nodeResult failed");
     return reply.status(500).send({ error: "node_result_failed" });
   } finally {
-    client.release();
+    if (client) {
+      try { client.release(); } catch {}
+      client = null;
+    }
   }
 
   emitEvent(newStatus === "success" ? "NODE_SUCCESS" : "NODE_FAILED", { workflowId, nodeId, status: newStatus, errors: schemaErrors });
