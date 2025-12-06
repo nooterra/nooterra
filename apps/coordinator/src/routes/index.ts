@@ -25,6 +25,9 @@ import { registerMemoryRoutes } from "./memory.js";
 import { registerStreamingRoutes } from "./streaming.js";
 import { registerHealthRoutes } from "./health.js";
 import { typesRoutes } from "./types.js";
+// Sprint 5: Agent Memory and Safety (12-Layer Architecture)
+import { registerAgentMemoryRoutes } from "./agent-memory.js";
+import { registerSafetyRoutes } from "./safety.js";
 // DEPRECATED: Dispute system removed - replaced by objective fault detection (Sprint 5)
 // import { registerDisputeRoutes } from "./disputes.js";
 import { registerMetricsRoutes } from "./metrics.js";
@@ -220,7 +223,7 @@ export async function registerAllRoutes(
 ): Promise<void> {
   // Register auth routes first (no guards needed - has its own auth)
   await registerAuthRoutes(app);
-  
+
   // Register protected routes with guards
   await registerProjectRoutes(app, guards);
   await registerApiKeyRoutes(app, guards);
@@ -229,28 +232,32 @@ export async function registerAllRoutes(
   await registerAgentRoutes(app, guards);
   await registerLedgerRoutes(app, guards);
   await registerAdminRoutes(app, guards);
-  
+
   // Sprint 3A: Agent Economics routes
   await registerStakingRoutes(app, guards);
   await registerAuctionRoutes(app, guards);
   await registerReputationRoutes(app, guards);
   await registerTemplateRoutes(app, guards);
-  
+
   // Sprint 3B: Agent Connectivity routes
   await registerMemoryRoutes(app, guards);
   await registerStreamingRoutes(app, guards);
   await registerHealthRoutes(app, guards);
-  
+
   // Sprint 4: Type System routes (public, no auth needed for reading schemas)
   await app.register(typesRoutes, { prefix: "/v1" });
-  
+
   // DEPRECATED: Dispute system removed - replaced by objective fault detection
   // Sprint 4: Dispute Resolution routes were here
   // await registerDisputeRoutes(app, guards);
-  
+
   // Sprint 5: Observability metrics (public, no auth)
   await registerMetricsRoutes(app);
-  
+
+  // Sprint 5: 12-Layer Architecture - Memory & Safety
+  await registerAgentMemoryRoutes(app, guards);
+  await registerSafetyRoutes(app, guards);
+
   app.log.info("All route modules registered successfully");
 }
 

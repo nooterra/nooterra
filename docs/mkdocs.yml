@@ -132,10 +132,13 @@ nav:
   
   - Protocol:
     - protocol/index.md
-    - ACARD (Agent Card): protocol/acard.md
+    - Identity & ACARD: protocol/acard.md
     - Protocol Layer: protocol/protocol-layer.md
     - Dispatch Contract: protocol/dispatch.md
     - DAG Workflows: protocol/workflows.md
+    - Memory & Knowledge: protocol/memory.md
+    - Safety & Governance: protocol/safety.md
+    - Emergence Patterns: protocol/emergence.md
     - Settlement & Escrow: protocol/settlement.md
     - NIPs (Improvement Proposals):
       - protocol/nips/index.md

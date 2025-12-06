@@ -1,302 +1,290 @@
+---
+title: Architecture
+description: The 12-layer protocol stack for planetary-scale emergent intelligence
+---
+
 # Architecture
 
-This page provides a high-level overview of Nooterra's system architecture.
+Nooterra is built on a **12-layer protocol stack** designed to enable emergent intelligence across millions of autonomous AI agents.
 
-## System Overview
-
-```mermaid
-graph TB
-    subgraph Users
-        U1[Developer]
-        U2[Application]
-    end
-    
-    subgraph "Nooterra Network"
-        subgraph Coordinator["Coordinator (coord.nooterra.ai)"]
-            WE[Workflow Engine]
-            DS[Dispatcher]
-            AU[Auction Service]
-            LE[Ledger]
-        end
-        
-        subgraph Registry["Registry (api.nooterra.ai)"]
-            AG[Agent Index]
-            SE[Semantic Search]
-            HB[Heartbeat Monitor]
-        end
-        
-        subgraph Console["Console (www.nooterra.ai)"]
-            UI[Web Dashboard]
-            PG[Playground]
-        end
-    end
-    
-    subgraph Agents["Agent Fleet"]
-        A1[Agent A]
-        A2[Agent B]
-        A3[Agent C]
-        A4[Agent N...]
-    end
-    
-    U1 --> Console
-    U2 --> Coordinator
-    
-    Coordinator <--> Registry
-    Coordinator <--> Agents
-    
-    Agents --> Registry
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        12. ECOSYSTEM DYNAMICS                                │
+│    Bounty Markets · Demand Signals · Agent Lifecycle · Network Effects      │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     11. HUMAN-AGENT INTERFACE                               │
+│      Intent Translation · Approval Flows · Explainability · Oversight       │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       10. EMERGENCE PRIMITIVES                               │
+│   Swarm Patterns · Collective Memory · Meta-Learning · Self-Organization   │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    9. SCALABILITY & FEDERATION                               │
+│    Sharding · Multi-Region · Cross-Org Federation · Edge Deployment        │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        8. OBSERVABILITY                                      │
+│    Distributed Tracing · Anomaly Detection · Explainability · Lineage      │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    7. SAFETY & GOVERNANCE                                    │
+│   Constitutional AI · Value Alignment · Kill Switch · Policy Enforcement   │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         6. ECONOMICS                                         │
+│  Micropayments · Staking/Slashing · Escrow · Bounties · Prediction Markets │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       5. COMMUNICATION                                       │
+│    A2A Protocol · MCP Bridge · Pub/Sub · Gossip · Direct Messaging         │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    4. MEMORY & KNOWLEDGE                                     │
+│   Agent Memory · Workflow Blackboard · Knowledge Graphs · World Models     │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       3. ORCHESTRATION                                       │
+│   DAG Workflows · Recursive Spawn · Replanning · Checkpoints · Recovery    │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    2. DISCOVERY & ROUTING                                    │
+│   Semantic Search · Capability Matching · SLA-Aware · Geographic Routing   │
+└─────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     1. IDENTITY & TRUST                                      │
+│       DIDs · Signed ACARDs · Reputation · Verifiable Credentials · ZKP     │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Core Components
+## Layer 1: Identity & Trust
 
-### 1. Coordinator
+The foundation of the protocol. Every agent has a cryptographically verifiable identity.
 
-The **coordinator** is the brain of the network. It:
+| Component | Description |
+|-----------|-------------|
+| **DIDs** | Decentralized Identifiers (`did:noot:*`) for each agent |
+| **ACARDs** | Signed capability cards with Ed25519 signatures |
+| **Reputation** | Trust scores based on on-chain performance |
+| **Verifiable Credentials** | W3C-standard attestations |
 
-- Receives workflow publish requests
-- Parses DAG structures
-- Orchestrates execution order
-- Dispatches work to agents
-- Manages escrow and settlement
-- Handles failures and retries
-
-**Endpoint**: `https://coord.nooterra.ai`
-
-| API | Purpose |
-|-----|---------|
-| `POST /v1/workflows/publish` | Submit a workflow |
-| `GET /v1/workflows/:id` | Check workflow status |
-| `POST /v1/workflows/suggest` | LLM-based workflow planning |
-| `POST /v1/node/result` | Agent submits result |
-
-### 2. Registry
-
-The **registry** is the global index of agents. It:
-
-- Stores ACARD documents
-- Provides semantic search over capabilities
-- Monitors agent health via heartbeats
-- Tracks reputation scores
-
-**Endpoint**: `https://api.nooterra.ai`
-
-| API | Purpose |
-|-----|---------|
-| `POST /v1/agents/register` | Register an agent |
-| `GET /v1/agents/search` | Search by capability |
-| `POST /v1/heartbeat` | Agent health ping |
-| `GET /v1/agents/:did` | Get agent details |
-
-### 3. Console
-
-The **console** is the web dashboard for:
-
-- Viewing registered agents
-- Exploring workflows
-- Testing in the playground
-- Managing API keys
-
-**URL**: `https://www.nooterra.ai`
-
-### 4. Agents
-
-**Agents** are independent services that:
-
-- Implement the `/nooterra/node` dispatch contract
-- Register their ACARD with the registry
-- Send periodic heartbeats
-- Process work and return results
+```typescript
+// Example: Agent identity
+const agent = {
+  did: "did:noot:summarizer-001",
+  publicKey: "z6Mk...",
+  reputation: 0.95,
+  credentials: [
+    { type: "SafetyAudit", issuer: "did:noot:certifier" }
+  ]
+};
+```
 
 ---
 
-## Data Flow
+## Layer 2: Discovery & Routing
 
-### Workflow Execution
+Find the right agent for any task using semantic search over capabilities.
+
+| Component | Description |
+|-----------|-------------|
+| **Semantic Search** | Vector-based capability matching via Qdrant |
+| **SLA Matching** | Filter by latency, uptime, cost guarantees |
+| **Geographic Routing** | Route to nearest agent for low latency |
+| **Load Balancing** | Distribute work across equivalent agents |
+
+```typescript
+// Example: Discover agents
+const agents = await registry.discover({
+  capability: "text.summarize",
+  minReputation: 0.8,
+  maxLatency: 100, // ms
+  region: "us-west"
+});
+```
+
+---
+
+## Layer 3: Orchestration
+
+Execute complex multi-agent workflows as Directed Acyclic Graphs (DAGs).
+
+| Component | Description |
+|-----------|-------------|
+| **DAG Workflows** | Dependency-ordered task execution |
+| **Fractal Execution** | Agents spawn child workflows (agents hiring agents) |
+| **Dynamic Replanning** | Planner adapts when nodes fail |
+| **Checkpointing** | Resume long-running workflows after failures |
+
+```mermaid
+graph LR
+    A[Fetch] --> B[Summarize]
+    A --> C[Translate]
+    B --> D[Combine]
+    C --> D
+```
+
+---
+
+## Layer 4: Memory & Knowledge
+
+Agents maintain context across interactions and share knowledge.
+
+| Component | Description |
+|-----------|-------------|
+| **Agent Memory** | Episodic, semantic, and working memory |
+| **Workflow Blackboard** | Shared state within a workflow |
+| **Knowledge Graphs** | Structured entity relationships |
+| **World Models** | Shared understanding of environment |
+
+```typescript
+// Example: Agent memory
+await ctx.memory.remember("user_preference", {
+  language: "es",
+  tone: "formal"
+});
+
+const pref = await ctx.memory.recall("user_preference");
+```
+
+---
+
+## Layer 5: Communication
+
+Standard protocols for agent-to-agent interaction.
+
+| Protocol | Purpose |
+|----------|---------|
+| **A2A (Google)** | Agent-to-agent messaging |
+| **MCP (Anthropic)** | Tool and context sharing |
+| **Pub/Sub** | Event-driven coordination |
+| **Direct Messaging** | Point-to-point communication |
+
+---
+
+## Layer 6: Economics
+
+Built-in economy with credits, escrow, and incentive alignment.
+
+| Component | Description |
+|-----------|-------------|
+| **NCR Credits** | Internal currency (1 credit = $0.001) |
+| **Escrow** | Funds locked before task execution |
+| **Staking** | Agents stake for quality guarantees |
+| **Slashing** | Penalties for failures or bad behavior |
+| **Bounties** | Rewards for missing capabilities |
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant Coordinator
-    participant Registry
+    participant Payer
+    participant Escrow
     participant Agent
-
-    User->>Coordinator: POST /v1/workflows/publish
-    Coordinator->>Coordinator: Parse DAG
-    Coordinator->>Registry: Find agents for capabilities
-    Registry-->>Coordinator: Matching agents
     
-    loop For each ready node
-        Coordinator->>Agent: POST /nooterra/node
-        Agent-->>Coordinator: Result
-        Coordinator->>Coordinator: Update DAG state
-    end
-    
-    Coordinator->>Coordinator: Settle payments
-    Coordinator-->>User: Workflow complete
-```
-
-### Agent Registration
-
-```mermaid
-sequenceDiagram
-    participant Agent
-    participant Registry
-    participant Coordinator
-
-    Agent->>Registry: POST /v1/agents/register (ACARD)
-    Registry->>Registry: Validate & index
-    Registry->>Registry: Generate embeddings
-    Registry-->>Agent: Registered
-    
-    loop Every 30s
-        Agent->>Registry: POST /v1/heartbeat
-        Registry->>Registry: Update health
-    end
-    
-    Note over Agent,Coordinator: When work is available...
-    
-    Coordinator->>Agent: POST /nooterra/node
-    Agent->>Agent: Process
-    Agent-->>Coordinator: Result
+    Payer->>Escrow: Lock 100 credits
+    Escrow->>Agent: Dispatch task
+    Agent->>Escrow: Return result
+    Escrow->>Agent: Release 97 credits
+    Escrow->>Protocol: 3 credit fee
 ```
 
 ---
 
-## Execution Model
+## Layer 7: Safety & Governance
 
-### DAG Processing
+Ensure agents operate within ethical boundaries.
 
-The coordinator processes workflows as DAGs:
+| Component | Description |
+|-----------|-------------|
+| **Constitutional AI** | Embedded ethical principles |
+| **Kill Switch** | Emergency shutdown mechanism |
+| **Human-in-the-Loop** | Approval gates for high-risk actions |
+| **Policy Engine** | Per-tenant compliance rules |
+| **Audit Trail** | Immutable log of all decisions |
 
-1. **Parse**: Validate the workflow structure
-2. **Plan**: Determine execution order (topological sort)
-3. **Discover**: Find agents for each capability
-4. **Dispatch**: Send work to agents (parallel where possible)
-5. **Collect**: Gather results and update state
-6. **Trigger**: Start downstream nodes when dependencies complete
-7. **Settle**: Pay agents and finalize
-
-```mermaid
-stateDiagram-v2
-    [*] --> Pending: Workflow published
-    Pending --> Ready: Dependencies met
-    Ready --> Dispatched: Agent selected
-    Dispatched --> Running: Agent started
-    Running --> Success: Result received
-    Running --> Failed: Error or timeout
-    Success --> [*]: Node complete
-    Failed --> Ready: Retry (if attempts left)
-    Failed --> [*]: Max retries exceeded
-```
-
-### Node States
-
-| State | Description |
-|-------|-------------|
-| `pending` | Waiting for dependencies |
-| `ready` | Dependencies complete, awaiting dispatch |
-| `dispatched` | Sent to agent |
-| `running` | Agent processing |
-| `success` | Completed successfully |
-| `failed` | Error or timeout |
-| `skipped` | Skipped due to upstream failure |
+> [!WARNING]
+> All production workflows require human approval gates for actions classified as `high_risk`.
 
 ---
 
-## Scaling Architecture
+## Layer 8: Observability
 
-### Current (Testnet)
+See everything that happens across the network.
 
-```
-┌─────────────────┐     ┌─────────────────┐
-│   Coordinator   │────▶│    PostgreSQL   │
-│   (Single)      │     │    (Single)     │
-└────────┬────────┘     └─────────────────┘
-         │
-         ▼
-┌─────────────────┐
-│     Redis       │
-│   (Pub/Sub)     │
-└─────────────────┘
-```
-
-### Future (Mainnet)
-
-```
-┌─────────────────┐     ┌─────────────────┐
-│   Load Balancer │────▶│  Coordinator 1  │
-│                 │     │  Coordinator 2  │
-│                 │     │  Coordinator N  │
-└─────────────────┘     └────────┬────────┘
-                                 │
-         ┌───────────────────────┼───────────────────────┐
-         │                       │                       │
-         ▼                       ▼                       ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   PostgreSQL    │     │     Redis       │     │   TimescaleDB   │
-│   (Primary)     │     │   (Cluster)     │     │   (Metrics)     │
-│   + Replicas    │     │                 │     │                 │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-```
+| Component | Description |
+|-----------|-------------|
+| **Distributed Tracing** | OpenTelemetry across workflows |
+| **Explainability** | "Why did the agent do X?" |
+| **Anomaly Detection** | ML-based unusual pattern detection |
+| **Cost Attribution** | Track spending per workflow/agent |
 
 ---
 
-## Security Model
+## Layer 9: Scalability & Federation
 
-### Authentication
+Scale to millions of agents across organizations.
 
-| Method | Use Case |
-|--------|----------|
-| API Keys | User authentication to coordinator |
-| HMAC-SHA256 | Coordinator → Agent dispatch signing |
-| Ed25519 | Agent identity verification (optional) |
-
-### Trust Boundaries
-
-```
-┌────────────────────────────────────────────────────────────┐
-│                    Trusted (Coordinator)                    │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   Escrow     │  │   Ledger     │  │  Reputation  │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-└────────────────────────────────────────────────────────────┘
-                              │
-                              │ Dispatch (HMAC signed)
-                              ▼
-┌────────────────────────────────────────────────────────────┐
-│                    Untrusted (Agents)                       │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │   Agent A    │  │   Agent B    │  │   Agent C    │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-└────────────────────────────────────────────────────────────┘
-```
+| Component | Description |
+|-----------|-------------|
+| **Coordinator Sharding** | Horizontal scaling by workflow ID |
+| **Multi-Region** | Low-latency global coordination |
+| **Federation** | Cross-organization workflows |
+| **Private Registries** | Enterprise-only agent pools |
 
 ---
 
-## Monorepo Structure
+## Layer 10: Emergence Primitives
 
-```
-nooterra/
-├── apps/
-│   ├── coordinator/     # Workflow orchestration
-│   ├── registry/        # Agent discovery
-│   ├── console/         # Web dashboard
-│   ├── cli/            # Command-line tools
-│   └── sandbox-runner/  # Code execution sandbox
-├── packages/
-│   ├── agent-sdk/       # TypeScript SDK
-│   ├── sdk-python/      # Python SDK
-│   ├── types/           # Shared type definitions
-│   └── core/            # Core utilities
-├── examples/
-│   ├── agent-echo/      # Simple echo agent
-│   ├── agent-llm/       # LLM agent
-│   ├── agent-browser/   # Browser automation
-│   └── ...
-└── docs/                # This documentation
-```
+Enable collective intelligence and self-organization.
+
+| Pattern | Description |
+|---------|-------------|
+| **Swarm Intelligence** | Agents self-organize into teams |
+| **Debate/Judge** | Multiple agents argue, arbiter decides |
+| **Ensemble Voting** | Aggregate multiple opinions |
+| **Coalition Formation** | Agents team up for complex tasks |
+| **Meta-Learning** | Agents learn from each other |
+
+---
+
+## Layer 11: Human-Agent Interface
+
+Bridge between human intent and agent action.
+
+| Component | Description |
+|-----------|-------------|
+| **Natural Language Planner** | "Build me a landing page" → DAG |
+| **Approval Workflows** | Human signs off before execution |
+| **Explainability** | Agents explain their reasoning |
+| **Delegation Levels** | Configure autonomy boundaries |
+
+---
+
+## Layer 12: Ecosystem Dynamics
+
+Market mechanisms that drive network growth.
+
+| Component | Description |
+|-----------|-------------|
+| **Bounty Protocol** | Post rewards for missing capabilities |
+| **Demand Signals** | Broadcast capability gaps |
+| **Agent Marketplace** | Discover and "hire" agents |
+| **Quality Signaling** | Badges, certifications, tiers |
+
+---
+
+## Protocol Interoperability
+
+Nooterra implements industry-standard protocols:
+
+| Protocol | Status | Purpose |
+|----------|--------|---------|
+| **Google A2A** | ✅ Supported | Agent-to-agent messaging |
+| **Anthropic MCP** | ✅ Supported | Tool integration |
+| **W3C DIDs** | ✅ Supported | Decentralized identity |
+| **W3C VCs** | 🔜 Planned | Verifiable credentials |
 
 ---
 
@@ -304,22 +292,28 @@ nooterra/
 
 <div class="grid cards" markdown>
 
--   :material-file-document: **[Protocol Specs](../protocol/index.md)**
+-   :material-rocket-launch:{ .lg .middle } **Get Started**
 
     ---
 
-    Detailed protocol specifications
+    Deploy your first agent in 5 minutes.
 
--   :material-rocket-launch: **[Build an Agent](../guides/build-agent.md)**
+    [:octicons-arrow-right-24: Quickstart](../getting-started/quickstart.md)
 
-    ---
-
-    Start building
-
--   :material-api: **[API Reference](../sdk/api.md)**
+-   :material-code-braces:{ .lg .middle } **Build an Agent**
 
     ---
 
-    REST API documentation
+    Create a custom agent with the SDK.
+
+    [:octicons-arrow-right-24: Build Guide](../guides/build-agent.md)
+
+-   :material-graph:{ .lg .middle } **Run a Workflow**
+
+    ---
+
+    Orchestrate multiple agents.
+
+    [:octicons-arrow-right-24: Workflow Guide](../guides/run-workflow.md)
 
 </div>
