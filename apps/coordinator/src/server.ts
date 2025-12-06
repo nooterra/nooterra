@@ -32,6 +32,7 @@ import { registerIdentityRoutes } from "./routes/identity.js";
 import { registerEconomicsRoutes } from "./routes/economics.js";
 import { registerFederationRoutes } from "./routes/federation.js";
 import { storeReceipt } from "./services/receipt.js";
+import Ajv from "ajv";
 
 dotenv.config();
 
@@ -39,6 +40,7 @@ const API_KEY = process.env.COORDINATOR_API_KEY;
 const REGISTRY_URL = process.env.REGISTRY_URL || "";
 const REGISTRY_API_KEY = process.env.REGISTRY_API_KEY || "";
 const VALIDATION_TIMEOUT_MS = 2000;
+const ajvInput = new Ajv({ allErrors: true, strict: false });
 
 async function validateOutputSchemaWithTimeout(
   registryUrl: string,
@@ -56,6 +58,58 @@ async function validateOutputSchemaWithTimeout(
     app.log.warn({ err, ...logCtx }, "validateOutputSchema failed (fail-open)");
     return { valid: true, errors: [{ error: err?.message || "validation_failed" }] };
   }
+}
+
+async function fetchCapabilitySchema(capabilityId: string): Promise<any | null> {
+  if (!REGISTRY_URL || !capabilityId) return null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), VALIDATION_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${REGISTRY_URL}/v1/capability/${encodeURIComponent(capabilityId)}/schema`, {
+      method: "GET",
+      headers: {
+        ...(REGISTRY_API_KEY ? { "x-api-key": REGISTRY_API_KEY } : {}),
+        "Content-Type": "application/json",
+      },
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function hasCycle(nodes: Record<string, any>): { cycle: boolean; path?: string[] } {
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const pathStack: string[] = [];
+
+  const dfs = (n: string): boolean => {
+    if (visited.has(n)) return false;
+    if (visiting.has(n)) {
+      pathStack.push(n);
+      return true;
+    }
+    visiting.add(n);
+    const deps: string[] = Array.isArray(nodes[n]?.dependsOn) ? nodes[n].dependsOn : [];
+    for (const d of deps) {
+      if (!nodes[d]) continue;
+      pathStack.push(`${n} -> ${d}`);
+      if (dfs(d)) return true;
+      pathStack.pop();
+    }
+    visiting.delete(n);
+    visited.add(n);
+    return false;
+  };
+
+  for (const name of Object.keys(nodes)) {
+    if (dfs(name)) return { cycle: true, path: [...pathStack] };
+  }
+  return { cycle: false };
 }
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 60);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
@@ -1103,6 +1157,16 @@ const nodeResultSchema = z.object({
       tokens_used: z.number().int().nonnegative().optional(),
     })
     .optional(),
+});
+
+const workflowValidateSchema = z.object({
+  nodes: z.record(
+    z.object({
+      capabilityId: z.string(),
+      payload: z.any().optional(),
+      dependsOn: z.array(z.string()).optional(),
+    })
+  ),
 });
 
 type WebhookPayload = Record<string, any>;
@@ -3019,6 +3083,60 @@ app.post("/v1/workflows/publish", { preHandler: [rateLimitGuard, apiGuard] }, as
     spawnedFromNode
   );
   return reply.send({ workflowId, taskId, nodes: Object.keys(nodes) });
+});
+
+// Validate a workflow DAG and inputs against registry schemas
+app.post("/v1/workflows/validate", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
+  const parsed = workflowValidateSchema.safeParse(request.body);
+  if (!parsed.success) {
+    return reply.status(400).send({ error: parsed.error.flatten(), message: "Invalid workflow payload" });
+  }
+
+  const nodes = parsed.data.nodes;
+  const errors: any[] = [];
+
+  // Basic existence checks
+  for (const [name, node] of Object.entries(nodes)) {
+    if (!node.capabilityId) {
+      errors.push({ node: name, error: "missing_capabilityId" });
+    }
+    const deps = Array.isArray(node.dependsOn) ? node.dependsOn : [];
+    for (const d of deps) {
+      if (!nodes[d]) {
+        errors.push({ node: name, error: "missing_dependency", dependency: d });
+      }
+    }
+  }
+
+  // Cycle detection
+  const cycleCheck = hasCycle(nodes);
+  if (cycleCheck.cycle) {
+    errors.push({ error: "cycle_detected", path: cycleCheck.path });
+  }
+
+  // Capability & schema validation (fail-closed)
+  for (const [name, node] of Object.entries(nodes)) {
+    const capId = node.capabilityId;
+    if (!capId) continue;
+    const schema = await fetchCapabilitySchema(capId);
+    if (!schema) {
+      errors.push({ node: name, capabilityId: capId, error: "capability_not_found_or_schema_missing" });
+      continue;
+    }
+    const inputSchema = schema.input || schema; // prefer explicit input key
+    if (inputSchema && typeof inputSchema === "object") {
+      const validate = ajvInput.compile(inputSchema);
+      const ok = validate(node.payload || {});
+      if (!ok) {
+        errors.push({ node: name, capabilityId: capId, error: "invalid_payload", details: validate.errors });
+      }
+    }
+  }
+
+  if (errors.length) {
+    return reply.status(400).send({ valid: false, errors });
+  }
+  return reply.send({ valid: true });
 });
 
 app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
