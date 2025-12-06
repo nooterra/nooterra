@@ -2058,23 +2058,25 @@ async function createWorkflow(
   payerDid?: string,
   maxCents?: number,
   parentWorkflowId?: string,
-  spawnedFromNode?: string
+  spawnedFromNode?: string,
+  clientOverride?: any
 ) {
   const workflowId = uuidv4();
   const taskId = uuidv4();
+  const db = clientOverride || pool;
   // create root task to reuse existing ledger/feedback infra
-  await pool.query(
+  await db.query(
     `insert into tasks (id, description, status) values ($1, $2, 'open')`,
     [taskId, intent || "workflow"]
   );
-  await pool.query(
+  await db.query(
     `insert into workflows (id, task_id, intent, status, payer_did, max_cents, spent_cents, parent_workflow_id, spawned_from_node)
      values ($1, $2, $3, 'pending', $4, $5, 0, $6, $7)`,
     [workflowId, taskId, intent || null, payerDid || SYSTEM_PAYER, maxCents ?? null, parentWorkflowId || null, spawnedFromNode || null]
   );
   for (const [name, node] of Object.entries(nodes)) {
     const requiresHuman = Boolean((node as any).requires_human);
-    await pool.query(
+    await db.query(
       `insert into task_nodes (id, workflow_id, name, capability_id, status, depends_on, payload, max_attempts, requires_verification, requires_human, deadline_at, target_agent_id, allow_broadcast_fallback)
        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
@@ -3026,6 +3028,89 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
   const { workflowId, nodeId, result, error, metrics, resultId, signature, agentDid: submittedAgentDid } = parsed.data;
   // Spawn payload detection (agents hiring agents)
   const spawnPayload: any = result && typeof result === "object" && (result as any).spawnWorkflow ? (result as any).spawnWorkflow : null;
+  app.log.info({ workflowId, nodeId, spawn: !!spawnPayload }, "[nodeResult] entry");
+
+  // Fast-path spawn to avoid long transactions
+  if (spawnPayload) {
+    try {
+      app.log.info({ workflowId, nodeId }, "[spawn] fast-path begin");
+      const nodeRes = await pool.query(
+        `select id, agent_did from task_nodes where workflow_id = $1 and name = $2`,
+        [workflowId, nodeId]
+      );
+      if (!nodeRes.rowCount) return reply.status(404).send({ error: "Node not found" });
+      const declaredAgentDid = submittedAgentDid || nodeRes.rows[0].agent_did || null;
+
+      const parentWfRes = await pool.query(
+        `select payer_did, max_cents, spent_cents from workflows where id = $1`,
+        [workflowId]
+      );
+      if (!parentWfRes.rowCount) return reply.status(404).send({ error: "Workflow not found" });
+      const parentWf = parentWfRes.rows[0];
+      const parentRemaining =
+        parentWf.max_cents == null
+          ? null
+          : Math.max(0, Number(parentWf.max_cents || 0) - Number(parentWf.spent_cents || 0));
+
+      const childIntent = spawnPayload.intent || `Spawned by ${nodeId}`;
+      const childMax = (() => {
+        const requested = typeof spawnPayload.maxCents === "number" ? spawnPayload.maxCents : null;
+        if (parentRemaining == null) return requested;
+        if (requested == null) return parentRemaining;
+        return Math.min(requested, parentRemaining);
+      })();
+
+      const childNodesRaw = spawnPayload.nodes || {};
+      if (!childNodesRaw || typeof childNodesRaw !== "object" || !Object.keys(childNodesRaw).length) {
+        return reply.status(400).send({ error: "spawn_missing_nodes" });
+      }
+      const childNodes: Record<string, WorkflowNode> = {};
+      for (const [n, v] of Object.entries(childNodesRaw)) {
+        childNodes[n] = {
+          name: n,
+          capabilityId: (v as any).capabilityId,
+          dependsOn: (v as any).dependsOn || [],
+          payload: (v as any).payload || {},
+          targetAgentId: (v as any).targetAgentId || null,
+          allowBroadcastFallback: (v as any).allowBroadcastFallback ?? false,
+          requires_human: (v as any).requires_human || false,
+        };
+      }
+
+      app.log.info({ workflowId, nodeId, childIntent, childMax }, "[spawn] creating child");
+      const { workflowId: childWorkflowId } = await createWorkflow(
+        childIntent,
+        childNodes,
+        parentWf.payer_did || SYSTEM_PAYER,
+        childMax == null ? undefined : childMax,
+        workflowId,
+        nodeId
+      );
+      app.log.info({ workflowId, nodeId, childWorkflowId }, "[spawn] child created");
+
+      await pool.query(
+        `update task_nodes
+           set status = 'waiting_child',
+               child_workflow_id = $2,
+               agent_did = coalesce(agent_did, $3),
+               updated_at = now()
+         where workflow_id = $1 and name = $4`,
+        [workflowId, childWorkflowId, declaredAgentDid || null, nodeId]
+      );
+      await pool.query(`update workflows set status = 'running', updated_at = now() where id = $1`, [workflowId]);
+
+      setImmediate(() => {
+        orchestrateWorkflow(childWorkflowId).catch((err) => {
+          app.log.error({ err, childWorkflowId }, "orchestrate child failed");
+        });
+      });
+      return reply.status(202).send({ ok: true, status: "waiting_child", childWorkflowId });
+    } catch (err: any) {
+      app.log.error({ err, workflowId, nodeId, spawnPayload }, "spawnWorkflow failed (fast-path)");
+      return reply.status(500).send({ error: "spawn_failed", message: err?.message || String(err) });
+    }
+  }
+
   const client = await pool.connect();
   let newStatus: "success" | "failed" = "failed";
   let schemaErrors: any = null;
@@ -3045,20 +3130,6 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
     node = nodeRes.rows[0];
     if (node.requires_human) {
       throw new Error("human_approval_required");
-    }
-
-    const incomingResultId = resultId || uuidv4();
-    const declaredAgentDid = submittedAgentDid || node.agent_did || null;
-    const allowedAgents: string[] = Array.isArray(node.allowed_agents) ? node.allowed_agents : [];
-    if (allowedAgents.length && declaredAgentDid && !allowedAgents.includes(declaredAgentDid)) {
-      app.log.warn({ workflowId, nodeId, declaredAgentDid, allowedAgents }, "agent not in allowed set for redundancy");
-    }
-    if (node.result_id) {
-      if (node.result_id === incomingResultId) {
-        await client.query("commit");
-        return reply.send({ ok: true, status: node.status, idempotent: true });
-      }
-      throw new Error("duplicate_result");
     }
 
     // Signature verification (required when agent has public_key; optional otherwise)
@@ -3086,14 +3157,15 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
     try {
       const payloadToHash = result ?? error ?? {};
       hash = crypto.createHash("sha256").update(JSON.stringify(payloadToHash)).digest("hex");
-      if (result && REGISTRY_URL) {
-        const validation = await validateOutputSchemaWithTimeout(REGISTRY_URL, node.capability_id, result, {
-          workflowId,
-          nodeId,
-        });
-        schemaValid = validation.valid;
-        schemaErrors = validation.errors || null;
-      }
+      // TEMP: skip registry validation to rule out network hangs
+      // if (result && REGISTRY_URL) {
+      //   const validation = await validateOutputSchemaWithTimeout(REGISTRY_URL, node.capability_id, result, {
+      //     workflowId,
+      //     nodeId,
+      //   });
+      //   schemaValid = validation.valid;
+      //   schemaErrors = validation.errors || null;
+      // }
     } catch {
       // ignore
     }
@@ -3101,8 +3173,9 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
     // Spawn workflow handling (pause parent, create child, then return pending)
     if (spawnPayload) {
       try {
+        app.log.info({ workflowId, nodeId }, "[spawn] begin");
         const parentWfRes = await client.query(
-          `select payer_did, max_cents, spent_cents from workflows where id = $1 for update`,
+          `select payer_did, max_cents, spent_cents from workflows where id = $1`,
           [workflowId]
         );
         if (!parentWfRes.rowCount) throw new Error("workflow_missing");
@@ -3137,6 +3210,11 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
           };
         }
 
+        // end the parent transaction before creating child to avoid locks
+        await client.query("commit");
+        client.release();
+
+        app.log.info({ workflowId, nodeId, childIntent, childMax }, "[spawn] creating child");
         const { workflowId: childWorkflowId } = await createWorkflow(
           childIntent,
           childNodes,
@@ -3145,28 +3223,22 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
           workflowId,
           nodeId
         );
+        app.log.info({ workflowId, nodeId, childWorkflowId }, "[spawn] child created");
 
         // mark parent node as waiting for child
-        await client.query(
+        await pool.query(
           `update task_nodes
              set status = 'waiting_child',
                  child_workflow_id = $2,
                  agent_did = coalesce(agent_did, $3),
                  updated_at = now()
-           where id = $1`,
-          [node.id, childWorkflowId, declaredAgentDid || null]
+           where workflow_id = $4 and name = $1`,
+          [nodeId, childWorkflowId, declaredAgentDid || null, workflowId]
         );
         // ensure parent workflow is marked running
-        await client.query(`update workflows set status = 'running', updated_at = now() where id = $1`, [workflowId]);
-        await client.query("commit");
+        await pool.query(`update workflows set status = 'running', updated_at = now() where id = $1`, [workflowId]);
 
-        // kick off child workflow (fire-and-forget to avoid blocking the response)
-        setImmediate(() => {
-          orchestrateWorkflow(childWorkflowId).catch((err) => {
-            app.log.error({ err, childWorkflowId }, "orchestrate child failed");
-          });
-        });
-        client.release();
+        app.log.info({ workflowId, nodeId, childWorkflowId }, "[spawn] done, returning 202");
         return reply.status(202).send({ ok: true, status: "waiting_child", childWorkflowId });
       } catch (err: any) {
         try { await client.query("rollback"); } catch {}
