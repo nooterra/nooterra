@@ -3072,73 +3072,80 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
 
     // Spawn workflow handling (pause parent, create child, then return pending)
     if (spawnPayload) {
-      const parentWfRes = await client.query(
-        `select payer_did, max_cents, spent_cents from workflows where id = $1 for update`,
-        [workflowId]
-      );
-      if (!parentWfRes.rowCount) throw new Error("workflow_missing");
-      const parentWf = parentWfRes.rows[0];
-      const parentRemaining =
-        parentWf.max_cents == null
-          ? null
-          : Math.max(0, Number(parentWf.max_cents || 0) - Number(parentWf.spent_cents || 0));
+      try {
+        const parentWfRes = await client.query(
+          `select payer_did, max_cents, spent_cents from workflows where id = $1 for update`,
+          [workflowId]
+        );
+        if (!parentWfRes.rowCount) throw new Error("workflow_missing");
+        const parentWf = parentWfRes.rows[0];
+        const parentRemaining =
+          parentWf.max_cents == null
+            ? null
+            : Math.max(0, Number(parentWf.max_cents || 0) - Number(parentWf.spent_cents || 0));
 
-      const childIntent = spawnPayload.intent || `Spawned by ${nodeId}`;
-      const childMax = (() => {
-        const requested = typeof spawnPayload.maxCents === "number" ? spawnPayload.maxCents : null;
-        if (parentRemaining == null) return requested;
-        if (requested == null) return parentRemaining;
-        return Math.min(requested, parentRemaining);
-      })();
+        const childIntent = spawnPayload.intent || `Spawned by ${nodeId}`;
+        const childMax = (() => {
+          const requested = typeof spawnPayload.maxCents === "number" ? spawnPayload.maxCents : null;
+          if (parentRemaining == null) return requested;
+          if (requested == null) return parentRemaining;
+          return Math.min(requested, parentRemaining);
+        })();
 
-      const childNodesRaw = spawnPayload.nodes || {};
-      if (!childNodesRaw || typeof childNodesRaw !== "object" || !Object.keys(childNodesRaw).length) {
-        throw new Error("spawn_missing_nodes");
-      }
-      const childNodes: Record<string, WorkflowNode> = {};
-      for (const [n, v] of Object.entries(childNodesRaw)) {
-        childNodes[n] = {
-          name: n,
-          capabilityId: (v as any).capabilityId,
-          dependsOn: (v as any).dependsOn || [],
-          payload: (v as any).payload || {},
-          targetAgentId: (v as any).targetAgentId || null,
-          allowBroadcastFallback: (v as any).allowBroadcastFallback ?? false,
-          requires_human: (v as any).requires_human || false,
-        };
-      }
+        const childNodesRaw = spawnPayload.nodes || {};
+        if (!childNodesRaw || typeof childNodesRaw !== "object" || !Object.keys(childNodesRaw).length) {
+          throw new Error("spawn_missing_nodes");
+        }
+        const childNodes: Record<string, WorkflowNode> = {};
+        for (const [n, v] of Object.entries(childNodesRaw)) {
+          childNodes[n] = {
+            name: n,
+            capabilityId: (v as any).capabilityId,
+            dependsOn: (v as any).dependsOn || [],
+            payload: (v as any).payload || {},
+            targetAgentId: (v as any).targetAgentId || null,
+            allowBroadcastFallback: (v as any).allowBroadcastFallback ?? false,
+            requires_human: (v as any).requires_human || false,
+          };
+        }
 
-      const { workflowId: childWorkflowId } = await createWorkflow(
-        childIntent,
-        childNodes,
-        parentWf.payer_did || SYSTEM_PAYER,
-        childMax == null ? undefined : childMax,
-        workflowId,
-        nodeId
-      );
+        const { workflowId: childWorkflowId } = await createWorkflow(
+          childIntent,
+          childNodes,
+          parentWf.payer_did || SYSTEM_PAYER,
+          childMax == null ? undefined : childMax,
+          workflowId,
+          nodeId
+        );
 
-      // mark parent node as waiting for child
-      await client.query(
-        `update task_nodes
-           set status = 'waiting_child',
-               child_workflow_id = $2,
-               agent_did = coalesce(agent_did, $3),
-               updated_at = now()
-         where id = $1`,
-        [node.id, childWorkflowId, declaredAgentDid || null]
-      );
-      // ensure parent workflow is marked running
-      await client.query(`update workflows set status = 'running', updated_at = now() where id = $1`, [workflowId]);
-      await client.query("commit");
+        // mark parent node as waiting for child
+        await client.query(
+          `update task_nodes
+             set status = 'waiting_child',
+                 child_workflow_id = $2,
+                 agent_did = coalesce(agent_did, $3),
+                 updated_at = now()
+           where id = $1`,
+          [node.id, childWorkflowId, declaredAgentDid || null]
+        );
+        // ensure parent workflow is marked running
+        await client.query(`update workflows set status = 'running', updated_at = now() where id = $1`, [workflowId]);
+        await client.query("commit");
 
-      // kick off child workflow (fire-and-forget to avoid blocking the response)
-      setImmediate(() => {
-        orchestrateWorkflow(childWorkflowId).catch((err) => {
-          app.log.error({ err, childWorkflowId }, "orchestrate child failed");
+        // kick off child workflow (fire-and-forget to avoid blocking the response)
+        setImmediate(() => {
+          orchestrateWorkflow(childWorkflowId).catch((err) => {
+            app.log.error({ err, childWorkflowId }, "orchestrate child failed");
+          });
         });
-      });
-      client.release();
-      return reply.status(202).send({ ok: true, status: "waiting_child", childWorkflowId });
+        client.release();
+        return reply.status(202).send({ ok: true, status: "waiting_child", childWorkflowId });
+      } catch (err: any) {
+        try { await client.query("rollback"); } catch {}
+        client.release();
+        app.log.error({ err, workflowId, nodeId, spawnPayload }, "spawnWorkflow failed");
+        return reply.status(500).send({ error: "spawn_failed", message: err?.message || String(err) });
+      }
     }
 
     // Redundancy / consensus handling
