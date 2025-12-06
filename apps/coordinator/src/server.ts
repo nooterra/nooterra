@@ -2472,7 +2472,7 @@ async function propagateChildCompletion(workflowId: string) {
     `update task_nodes
        set status = $1,
            child_workflow_id = $2,
-           result_payload = jsonb_build_object('childWorkflowId', $2, 'status', $3),
+           result_payload = jsonb_build_object('childWorkflowId', $2::uuid, 'status', $3),
            finished_at = now(),
            updated_at = now()
      where workflow_id = $4 and name = $5`,
