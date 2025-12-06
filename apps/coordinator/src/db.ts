@@ -240,12 +240,14 @@ export async function migrate() {
       latency_ms int default 0,
       queue_depth int default 0,
       availability_score numeric default 1,
-      updated_at timestamptz default now()
+      updated_at timestamptz default now(),
+      last_heartbeat timestamptz default now()
     );
   `);
   await pool.query(`create index if not exists heartbeats_agent_idx on heartbeats(agent_did);`);
   await pool.query(`alter table agents add column if not exists health_status text;`);
   await pool.query(`alter table agents add column if not exists is_active boolean default true;`);
+  await pool.query(`alter table agents add column if not exists last_heartbeat timestamptz default now();`);
 
   await pool.query(`
     create table if not exists dlq (
@@ -277,6 +279,19 @@ export async function migrate() {
   await pool.query(
     `create unique index if not exists budget_reservations_wf_node_idx on budget_reservations(workflow_id, node_name)`
   );
+
+  // Fault traces (best-effort logging of failed nodes)
+  await pool.query(`
+    create table if not exists fault_traces (
+      id serial primary key,
+      workflow_id uuid not null,
+      node_name text not null,
+      fault_type text not null,
+      fault_detail jsonb,
+      created_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists fault_traces_wf_idx on fault_traces(workflow_id);`);
 
   await pool.query(`
     create table if not exists dispatch_queue (
