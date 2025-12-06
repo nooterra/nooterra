@@ -1077,7 +1077,7 @@ const nodeResultSchema = z.object({
   publicKey: z.string().optional(),
   signature: z.string().optional(),
   result: z.any().optional(),
-  error: z.string().optional(),
+  error: z.any().optional(),
   metrics: z
     .object({
       latency_ms: z.number().int().nonnegative().optional(),
@@ -1270,6 +1270,8 @@ type WorkflowNode = {
   targetAgentId?: string;
   /** If targetAgentId is unavailable, fallback to broadcast discovery (default: false) */
   allowBroadcastFallback?: boolean;
+  /** Mark that human input is required before dispatch */
+  requires_human?: boolean;
 };
 
 /**
@@ -2433,6 +2435,49 @@ async function orchestrateWorkflow(workflowId: string) {
   }
 }
 
+// When a child workflow finishes, update the parent node and resume the parent workflow.
+async function propagateChildCompletion(workflowId: string) {
+  const wfRes = await pool.query(
+    `select id, status, parent_workflow_id, spawned_from_node from workflows where id = $1`,
+    [workflowId]
+  );
+  if (!wfRes.rowCount) return;
+  const wf = wfRes.rows[0];
+  if (!wf.parent_workflow_id || !wf.spawned_from_node) return;
+  if (wf.status !== "success" && wf.status !== "failed") return;
+
+  // Update parent node with child info
+  await pool.query(
+    `update task_nodes
+       set status = $1,
+           child_workflow_id = $2,
+           result_payload = jsonb_build_object('childWorkflowId', $2, 'status', $3),
+           finished_at = now(),
+           updated_at = now()
+     where workflow_id = $4 and name = $5`,
+    [wf.status, wf.id, wf.status, wf.parent_workflow_id, wf.spawned_from_node]
+  );
+
+  // Recompute parent workflow status and resume orchestration
+  const statusRes = await pool.query(
+    `select
+        sum(case when status = 'failed' then 1 else 0 end) as failed,
+        sum(case when status = 'success' then 1 else 0 end) as success,
+        count(*) as total
+       from task_nodes where workflow_id = $1`,
+    [wf.parent_workflow_id]
+  );
+  const { failed, success, total } = statusRes.rows[0];
+  if (Number(failed) > 0) {
+    await pool.query(`update workflows set status = 'failed', updated_at = now() where id = $1`, [wf.parent_workflow_id]);
+  } else if (Number(success) === Number(total)) {
+    await pool.query(`update workflows set status = 'success', updated_at = now() where id = $1`, [wf.parent_workflow_id]);
+  } else {
+    await pool.query(`update workflows set status = 'running', updated_at = now() where id = $1`, [wf.parent_workflow_id]);
+  }
+  await orchestrateWorkflow(wf.parent_workflow_id);
+}
+
 app.post("/v1/tasks/publish", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
   const parsed = publishSchema.safeParse(request.body);
   if (!parsed.success) {
@@ -2955,6 +3000,8 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
   if (!parsed.success) return reply.status(400).send({ error: parsed.error.flatten(), message: "Invalid node result" });
 
   const { workflowId, nodeId, result, error, metrics, resultId, signature, agentDid: submittedAgentDid } = parsed.data;
+  // Spawn payload detection (agents hiring agents)
+  const spawnPayload: any = result && typeof result === "object" && (result as any).spawnWorkflow ? (result as any).spawnWorkflow : null;
   const client = await pool.connect();
   let newStatus: "success" | "failed" = "failed";
   let schemaErrors: any = null;
@@ -3021,6 +3068,77 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
       }
     } catch {
       // ignore
+    }
+
+    // Spawn workflow handling (pause parent, create child, then return pending)
+    if (spawnPayload) {
+      const parentWfRes = await client.query(
+        `select payer_did, max_cents, spent_cents from workflows where id = $1 for update`,
+        [workflowId]
+      );
+      if (!parentWfRes.rowCount) throw new Error("workflow_missing");
+      const parentWf = parentWfRes.rows[0];
+      const parentRemaining =
+        parentWf.max_cents == null
+          ? null
+          : Math.max(0, Number(parentWf.max_cents || 0) - Number(parentWf.spent_cents || 0));
+
+      const childIntent = spawnPayload.intent || `Spawned by ${nodeId}`;
+      const childMax = (() => {
+        const requested = typeof spawnPayload.maxCents === "number" ? spawnPayload.maxCents : null;
+        if (parentRemaining == null) return requested;
+        if (requested == null) return parentRemaining;
+        return Math.min(requested, parentRemaining);
+      })();
+
+      const childNodesRaw = spawnPayload.nodes || {};
+      if (!childNodesRaw || typeof childNodesRaw !== "object" || !Object.keys(childNodesRaw).length) {
+        throw new Error("spawn_missing_nodes");
+      }
+      const childNodes: Record<string, WorkflowNode> = {};
+      for (const [n, v] of Object.entries(childNodesRaw)) {
+        childNodes[n] = {
+          name: n,
+          capabilityId: (v as any).capabilityId,
+          dependsOn: (v as any).dependsOn || [],
+          payload: (v as any).payload || {},
+          targetAgentId: (v as any).targetAgentId || null,
+          allowBroadcastFallback: (v as any).allowBroadcastFallback ?? false,
+          requires_human: (v as any).requires_human || false,
+        };
+      }
+
+      const { workflowId: childWorkflowId } = await createWorkflow(
+        childIntent,
+        childNodes,
+        parentWf.payer_did || SYSTEM_PAYER,
+        childMax == null ? undefined : childMax,
+        workflowId,
+        nodeId
+      );
+
+      // mark parent node as waiting for child
+      await client.query(
+        `update task_nodes
+           set status = 'waiting_child',
+               child_workflow_id = $2,
+               agent_did = coalesce(agent_did, $3),
+               updated_at = now()
+         where id = $1`,
+        [node.id, childWorkflowId, declaredAgentDid || null]
+      );
+      // ensure parent workflow is marked running
+      await client.query(`update workflows set status = 'running', updated_at = now() where id = $1`, [workflowId]);
+      await client.query("commit");
+
+      // kick off child workflow (fire-and-forget to avoid blocking the response)
+      setImmediate(() => {
+        orchestrateWorkflow(childWorkflowId).catch((err) => {
+          app.log.error({ err, childWorkflowId }, "orchestrate child failed");
+        });
+      });
+      client.release();
+      return reply.status(202).send({ ok: true, status: "waiting_child", childWorkflowId });
     }
 
     // Redundancy / consensus handling
@@ -3337,6 +3455,11 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
   }
 
   if (newStatus === "success") await orchestrateWorkflow(workflowId);
+
+  // If this workflow is a child, propagate completion to its parent
+  if (newStatus === "success" || newStatus === "failed") {
+    await propagateChildCompletion(workflowId);
+  }
 
   return reply.send({ ok: true, status: newStatus, schemaValid, errors: schemaErrors });
 });
