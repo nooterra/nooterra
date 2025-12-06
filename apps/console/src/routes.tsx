@@ -6,8 +6,7 @@ import Home from "./views/Home";
 import Explore from "./views/Explore";
 import Marketplace from "./views/Marketplace";
 import NetworkDashboard from "./views/NetworkDashboard";
-import MetricsDashboard from "./views/MetricsDashboard";
-import ProtocolDashboard from "./views/ProtocolDashboard";
+import { Privacy, Terms, About, Careers, Contact, NotFound } from "./views/StaticPages";
 
 // Auth pages
 import Login from "./views/auth/Login";
@@ -57,16 +56,19 @@ export const AppRoutes = () => (
     <Route path="/" element={<Home />} />
     <Route path="/explore" element={<Explore />} />
     <Route path="/marketplace" element={<Marketplace />} />
-    <Route path="/playground" element={<Playground />} />
-    <Route path="/try" element={<Playground />} />
     <Route path="/network" element={<NetworkDashboard />} />
-    <Route path="/metrics" element={<MetricsDashboard />} />
-    <Route path="/protocol" element={<ProtocolDashboard />} />
-    
+
+    {/* Company & Legal */}
+    <Route path="/privacy" element={<Privacy />} />
+    <Route path="/terms" element={<Terms />} />
+    <Route path="/about" element={<About />} />
+    <Route path="/careers" element={<Careers />} />
+    <Route path="/contact" element={<Contact />} />
+
     {/* Auth routes */}
     <Route path="/login" element={<Login />} />
     <Route path="/signup" element={<Signup />} />
-    
+
     {/* User (consumer) routes */}
     <Route path="/app" element={<UserLayout />}>
       <Route index element={<Chat />} />
@@ -76,7 +78,7 @@ export const AppRoutes = () => (
       <Route path="billing" element={<Billing />} />
       <Route path="settings" element={<Settings />} />
     </Route>
-    
+
     {/* Developer routes */}
     <Route path="/dev" element={<DevLayout />}>
       <Route index element={<DevDashboard />} />
@@ -85,39 +87,23 @@ export const AppRoutes = () => (
       <Route path="agents/:id" element={<NewAgent />} />
       <Route path="deploy" element={<DeployAgent />} />
       <Route path="integrations" element={<Integrations />} />
-      <Route path="import-github" element={<ImportFromGitHub />} />
-      <Route path="import-huggingface" element={<ImportHuggingFace />} />
-      <Route path="specialized-agents" element={<SpecializedAgents />} />
       <Route path="analytics" element={<DevAnalytics />} />
       <Route path="keys" element={<Settings />} />
-      <Route path="earnings" element={<Usage />} />
       <Route path="docs" element={<Navigate to="https://docs.nooterra.ai" />} />
       <Route path="settings" element={<Settings />} />
     </Route>
-    
+
     {/* Organization routes */}
     <Route path="/org" element={<OrgLayout />}>
       <Route index element={<OrgDashboard />} />
       <Route path="workflows" element={<Workflows />} />
       <Route path="workflows/new" element={<WorkflowBuilder />} />
-      <Route path="workflows/:id" element={<WorkflowBuilder />} />
       <Route path="team" element={<Team />} />
-      <Route path="fleet" element={<MyAgents />} />
-      <Route path="analytics" element={<Usage />} />
       <Route path="billing" element={<Billing />} />
       <Route path="settings" element={<Settings />} />
     </Route>
-    
-    {/* Legacy console routes (for backwards compatibility) */}
-    <Route path="/console" element={<ConsoleLayout />}>
-      <Route index element={<Navigate to="/console/agents" replace />} />
-      <Route path="agents" element={<Agents />} />
-      <Route path="agents/:did" element={<AgentDetail />} />
-      <Route path="tasks" element={<Tasks />} />
-      <Route path="workflows" element={<LegacyWorkflows />} />
-      <Route path="workflows/:id" element={<WorkflowDetail />} />
-      <Route path="credits" element={<Credits />} />
-      <Route path="account" element={<Account />} />
-    </Route>
+
+    {/* Fallback */}
+    <Route path="*" element={<NotFound />} />
   </Routes>
 );

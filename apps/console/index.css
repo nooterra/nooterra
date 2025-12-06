@@ -1,194 +1,95 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  * {
-    @apply border-neutral-800;
+  :root {
+    --background: #000000;
+    --foreground: #ffffff;
+    --primary: #0071e3;
   }
   
   html {
     @apply scroll-smooth;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
   
   body {
-    @apply bg-black text-white font-sans;
-    text-rendering: optimizeLegibility;
-  }
-
-  ::selection {
-    @apply bg-cyan-500/30 text-white;
+    @apply bg-background text-foreground font-sans;
   }
 }
 
 @layer components {
-  /* Premium Button Styles */
+  /* Premium Buttons */
   .btn-primary {
-    @apply relative inline-flex items-center justify-center gap-2 px-6 py-3 
-           font-medium text-white rounded-full
-           bg-gradient-to-r from-cyan-500 to-violet-500
-           hover:from-cyan-400 hover:to-violet-400
-           transition-all duration-300 ease-out
-           shadow-lg shadow-cyan-500/25 hover:shadow-cyan-500/40;
+    @apply inline-flex items-center justify-center px-6 py-2.5 
+           rounded-full text-sm font-medium transition-all duration-300
+           bg-white text-black hover:bg-neutral-200 
+           transform hover:-translate-y-0.5 hover:shadow-lg hover:shadow-white/10;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-6 py-3 
-           font-medium text-white rounded-full
-           border border-white/20 hover:border-white/40
-           bg-white/5 hover:bg-white/10
-           transition-all duration-300;
+    @apply inline-flex items-center justify-center px-6 py-2.5 
+           rounded-full text-sm font-medium transition-all duration-300
+           bg-surface-800 text-white hover:bg-surface-700 border border-surface-700
+           transform hover:-translate-y-0.5;
   }
 
-  /* Glass Morphism */
+  .btn-outline {
+    @apply inline-flex items-center justify-center px-6 py-2.5 
+           rounded-full text-sm font-medium transition-all duration-300
+           border border-white/20 text-white hover:bg-white/10 hover:border-white/40;
+  }
+
+  /* Glass Components */
   .glass {
-    @apply bg-white/5 backdrop-blur-2xl border border-white/10;
-  }
-
-  .glass-card {
-    @apply bg-neutral-900/50 backdrop-blur-xl border border-white/10 rounded-2xl;
-  }
-
-  /* Glow Effects */
-  .glow-cyan {
-    box-shadow: 0 0 40px rgba(6, 182, 212, 0.3),
-                0 0 80px rgba(6, 182, 212, 0.1);
-  }
-
-  .glow-violet {
-    box-shadow: 0 0 40px rgba(139, 92, 246, 0.3),
-                0 0 80px rgba(139, 92, 246, 0.1);
-  }
-
-  /* Text Gradient */
-  .text-gradient {
-    @apply bg-gradient-to-r from-cyan-400 via-violet-400 to-fuchsia-400 bg-clip-text text-transparent;
-  }
-
-  /* Animated Border */
-  .border-gradient {
-    position: relative;
-    background: linear-gradient(black, black) padding-box,
-                linear-gradient(135deg, #06b6d4, #8b5cf6, #d946ef) border-box;
-    border: 1px solid transparent;
-  }
-
-  /* Hover Card Effect */
-  .hover-lift {
-    @apply transition-all duration-300;
+    @apply bg-surface-900/60 backdrop-blur-xl border border-white/10;
   }
   
-  .hover-lift:hover {
-    @apply -translate-y-1;
-    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  .glass-card {
+    @apply bg-surface-900/40 backdrop-blur-md border border-white/[0.08] rounded-2xl;
   }
 
-  /* Section Styling */
-  .section {
-    @apply relative py-24 px-6 lg:px-8;
+  /* Container */
+  .container-width {
+    @apply max-w-7xl mx-auto px-6 lg:px-8;
   }
 
-  .section-title {
-    @apply text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white;
+  /* Typography */
+  .heading-hero {
+    @apply text-5xl md:text-7xl font-semibold tracking-tight text-white leading-tight;
   }
 
-  .section-subtitle {
-    @apply text-lg text-neutral-400 max-w-2xl;
+  .heading-section {
+    @apply text-3xl md:text-4xl font-semibold tracking-tight text-white mb-4;
+  }
+  
+  .text-subtle {
+    @apply text-surface-400;
   }
 }
 
 @layer utilities {
-  /* Custom scrollbar */
-  .scrollbar-thin {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+  .text-balance {
+    text-wrap: balance;
   }
   
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-  
-  .scrollbar-thin::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  
-  .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply bg-white/10 rounded-full;
-  }
-  
-  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    @apply bg-white/20;
+  /* Subtle gradients */
+  .bg-gradient-tech {
+    background: radial-gradient(circle at top center, rgba(0, 113, 227, 0.15), transparent 60%);
   }
 
-  /* Hide scrollbar */
-  .scrollbar-hide {
+  /* Hide scrollbar but keep functionality */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
-  
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-
-  /* Animated gradient text */
-  .animate-text-gradient {
-    background-size: 200% auto;
-    animation: text-gradient 4s linear infinite;
-  }
-
-  @keyframes text-gradient {
-    to {
-      background-position: 200% center;
-    }
-  }
-
-  /* Noise texture overlay */
-  .noise {
-    position: relative;
-  }
-  
-  .noise::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-    opacity: 0.03;
-    pointer-events: none;
-    mix-blend-mode: overlay;
-  }
-
-  /* Shimmer effect */
-  .shimmer {
-    background: linear-gradient(
-      90deg,
-      transparent,
-      rgba(255, 255, 255, 0.1),
-      transparent
-    );
-    background-size: 200% 100%;
-    animation: shimmer 2s infinite;
-  }
-
-  @keyframes shimmer {
-    0% {
-      background-position: -200% 0;
-    }
-    100% {
-      background-position: 200% 0;
-    }
-  }
-}
-
-/* Custom styles for framer-motion components */
-.spotlight-gradient {
-  background: radial-gradient(
-    ellipse at center,
-    rgba(6, 182, 212, 0.15) 0%,
-    transparent 70%
-  );
 }
