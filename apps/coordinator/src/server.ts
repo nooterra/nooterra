@@ -2470,12 +2470,12 @@ async function propagateChildCompletion(workflowId: string) {
   // Update parent node with child info
   await pool.query(
     `update task_nodes
-       set status = $1,
-           child_workflow_id = $2,
+       set status = $1::text,
+           child_workflow_id = $2::uuid,
            result_payload = jsonb_build_object('childWorkflowId', $2::text, 'status', $1::text),
            finished_at = now(),
            updated_at = now()
-     where workflow_id = $3 and name = $4`,
+     where workflow_id = $3::uuid and name = $4::text`,
     [wf.status, wf.id, wf.parent_workflow_id, wf.spawned_from_node]
   );
 
