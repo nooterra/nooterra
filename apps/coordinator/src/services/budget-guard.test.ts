@@ -96,7 +96,7 @@ describe("Budget Guard", () => {
       const mockClient = {
         query: vi.fn()
           .mockResolvedValueOnce({}) // BEGIN
-          .mockResolvedValueOnce({ rows: [{ max_cents: 1000, spent_cents: 100 }], rowCount: 1 }) // SELECT FOR UPDATE
+          .mockResolvedValueOnce({ rows: [{ max_cents: 1000, spent_cents: 100, payer_did: "payer-1" }], rowCount: 1 }) // SELECT FOR UPDATE
           .mockResolvedValueOnce({}) // UPDATE workflows
           .mockResolvedValueOnce({}), // INSERT budget_reservations (will COMMIT after this)
         release: vi.fn(),
@@ -107,7 +107,7 @@ describe("Budget Guard", () => {
       
       mockConnect.mockResolvedValue(mockClient as any);
 
-      const result = await reserveBudget("wf-1", "node-1", 100);
+      const result = await reserveBudget("wf-1", "node-1", "cap-1", 100);
 
       expect(result).toBe(true);
       expect(mockClient.query).toHaveBeenCalledWith("BEGIN");
@@ -124,7 +124,7 @@ describe("Budget Guard", () => {
       };
       mockConnect.mockResolvedValue(mockClient as any);
 
-      const result = await reserveBudget("wf-1", "node-1", 100);
+      const result = await reserveBudget("wf-1", "node-1", "cap-1", 100);
 
       expect(result).toBe(false);
       expect(mockClient.query).toHaveBeenCalledWith("ROLLBACK");

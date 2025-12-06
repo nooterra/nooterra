@@ -122,6 +122,7 @@ export async function checkBudget(
       nodeName,
       priceCents,
       availableBudget,
+      capabilityId,
     });
 
     return {
@@ -145,12 +146,14 @@ export async function checkBudget(
  * 
  * @param workflowId - The workflow ID
  * @param nodeName - The node being dispatched
+ * @param capabilityId - Capability being executed (for auditability)
  * @param amountCents - Amount to reserve
  * @returns true if reservation successful, false otherwise
  */
 export async function reserveBudget(
   workflowId: string,
   nodeName: string,
+  capabilityId: string,
   amountCents: number
 ): Promise<boolean> {
   const client = await pool.connect();
@@ -160,7 +163,7 @@ export async function reserveBudget(
 
     // Lock the workflow row
     const wfRes = await client.query(
-      `SELECT max_cents, spent_cents FROM workflows WHERE id = $1 FOR UPDATE`,
+      `SELECT max_cents, spent_cents, payer_did FROM workflows WHERE id = $1 FOR UPDATE`,
       [workflowId]
     );
 
@@ -172,6 +175,13 @@ export async function reserveBudget(
     const workflow = wfRes.rows[0];
     const maxCents = workflow.max_cents !== null ? Number(workflow.max_cents) : null;
     const spentCents = Number(workflow.spent_cents || 0);
+    const payerDid = (workflow.payer_did as string) || null;
+
+    if (!payerDid) {
+      await client.query("ROLLBACK");
+      log("error", "Budget reservation error - missing payer", { workflowId, nodeName, capabilityId });
+      return false;
+    }
 
     // Check if reservation is possible
     if (maxCents !== null && spentCents + amountCents > maxCents) {
@@ -195,11 +205,11 @@ export async function reserveBudget(
 
     // Record the reservation in a tracking table (for potential rollback)
     await client.query(
-      `INSERT INTO budget_reservations (workflow_id, node_name, amount_cents, status)
-       VALUES ($1, $2, $3, 'reserved')
+      `INSERT INTO budget_reservations (workflow_id, node_name, capability_id, amount_cents, payer_did, status)
+       VALUES ($1, $2, $3, $4, $5, 'reserved')
        ON CONFLICT (workflow_id, node_name) 
-       DO UPDATE SET amount_cents = $3, status = 'reserved', updated_at = NOW()`,
-      [workflowId, nodeName, amountCents]
+       DO UPDATE SET amount_cents = $4, capability_id = $3, payer_did = $5, status = 'reserved', updated_at = NOW()`,
+      [workflowId, nodeName, capabilityId, amountCents, payerDid]
     );
 
     await client.query("COMMIT");
@@ -209,7 +219,7 @@ export async function reserveBudget(
     return true;
   } catch (err: any) {
     await client.query("ROLLBACK");
-    log("error", "Budget reservation error", { workflowId, nodeName, error: err.message });
+    log("error", "Budget reservation error", { workflowId, nodeName, capabilityId, error: err.message });
     return false;
   } finally {
     client.release();

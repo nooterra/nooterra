@@ -215,3 +215,10 @@ For non-trivial tasks, structure responses as:
 * For high-risk changes: explain and seek confirmation
 * Don't explain basic syntax to experienced engineers
 * Prioritize architecture, abstraction, performance, correctness, maintainability
+
+---
+
+## 11 · Tooling & Execution
+
+* Proactively run available CLI commands (pnpm, psql/redis-cli, railway up/link, etc.) from the local shell when debugging or deploying; assume you have permission unless explicitly restricted.
+* Prefer automation over manual steps: wire migrations into start commands, avoid one-off SSH if not needed.

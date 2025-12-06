@@ -500,7 +500,9 @@ export const budgetReservations = pgTable("budget_reservations", {
   id: uuid("id").primaryKey().defaultRandom(),
   workflowId: uuid("workflow_id").references(() => workflows.id, { onDelete: "cascade" }).notNull(),
   nodeName: text("node_name").notNull(),
+  capabilityId: text("capability_id").notNull(),
   amountCents: integer("amount_cents").notNull(),
+  payerDid: text("payer_did").notNull(),
   status: text("status").notNull().default("reserved"), // 'reserved' | 'consumed' | 'released'
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

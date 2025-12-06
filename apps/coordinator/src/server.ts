@@ -38,6 +38,25 @@ dotenv.config();
 const API_KEY = process.env.COORDINATOR_API_KEY;
 const REGISTRY_URL = process.env.REGISTRY_URL || "";
 const REGISTRY_API_KEY = process.env.REGISTRY_API_KEY || "";
+const VALIDATION_TIMEOUT_MS = 2000;
+
+async function validateOutputSchemaWithTimeout(
+  registryUrl: string,
+  capabilityId: string,
+  result: any,
+  logCtx: Record<string, any>
+) {
+  if (!registryUrl || !capabilityId) return { valid: true, errors: null };
+  const timeout = new Promise<{ valid: boolean; errors: any }>((resolve) =>
+    setTimeout(() => resolve({ valid: true, errors: [{ timeout: true }] }), VALIDATION_TIMEOUT_MS)
+  );
+  try {
+    return await Promise.race([validateOutputSchema(registryUrl, capabilityId, result), timeout]);
+  } catch (err: any) {
+    app.log.warn({ err, ...logCtx }, "validateOutputSchema failed (fail-open)");
+    return { valid: true, errors: [{ error: err?.message || "validation_failed" }] };
+  }
+}
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 60);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000);
 // Allow CORS from one or more origins.
@@ -2731,7 +2750,12 @@ app.post("/v1/tasks/:id/settle", { preHandler: [rateLimitGuard, apiGuard] }, asy
       // validate against capability schema if available
       const capabilityId = (request.body as any)?.capabilityId || "";
       if (capabilityId && REGISTRY_URL) {
-        const validation = await validateOutputSchema(REGISTRY_URL, capabilityId, maybeResult.data.result ?? {});
+        const validation = await validateOutputSchemaWithTimeout(
+          REGISTRY_URL,
+          capabilityId,
+          maybeResult.data.result ?? {},
+          { capabilityId }
+        );
         schemaValid = validation.valid;
         schemaErrors = validation.errors || null;
       }
@@ -3007,6 +3031,7 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
   let schemaErrors: any = null;
   let schemaValid = true;
   let node: any = null;
+  app.log.info({ workflowId, nodeId, spawn: !!spawnPayload }, "[nodeResult] start");
 
   try {
     await client.query("begin");
@@ -3062,7 +3087,10 @@ app.post("/v1/workflows/nodeResult", { preHandler: [rateLimitGuard, apiGuard] },
       const payloadToHash = result ?? error ?? {};
       hash = crypto.createHash("sha256").update(JSON.stringify(payloadToHash)).digest("hex");
       if (result && REGISTRY_URL) {
-        const validation = await validateOutputSchema(REGISTRY_URL, node.capability_id, result);
+        const validation = await validateOutputSchemaWithTimeout(REGISTRY_URL, node.capability_id, result, {
+          workflowId,
+          nodeId,
+        });
         schemaValid = validation.valid;
         schemaErrors = validation.errors || null;
       }

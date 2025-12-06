@@ -245,6 +245,7 @@ export async function migrate() {
   `);
   await pool.query(`create index if not exists heartbeats_agent_idx on heartbeats(agent_did);`);
   await pool.query(`alter table agents add column if not exists health_status text;`);
+  await pool.query(`alter table agents add column if not exists is_active boolean default true;`);
 
   await pool.query(`
     create table if not exists dlq (

@@ -257,7 +257,8 @@ async function processOnce() {
     // Reserve budget atomically
     const priceCents = budgetCheck.requiredBudget || 0;
     if (priceCents > 0) {
-      const reserved = await reserveBudget(job.workflow_id, job.node_id, priceCents);
+      const capabilityId = job.payload?.capabilityId || job.node_id || "unknown";
+      const reserved = await reserveBudget(job.workflow_id, job.node_id, capabilityId, priceCents);
       if (!reserved) {
         console.warn(`[dispatcher] budget reservation failed for job=${job.id}`);
         // Retry next cycle
