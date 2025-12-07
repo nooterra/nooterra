@@ -115,6 +115,37 @@ async function probeAgent(agent: { did: string; endpoint: string; name: string }
   const timeout = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
   
   try {
+    // Special handling for HuggingFace Router - check /v1/models endpoint instead
+    if (agent.endpoint.includes("router.huggingface.co")) {
+      const hfToken = process.env.HF_TOKEN;
+      if (!hfToken) {
+        // No token = can't verify, assume healthy (will fail on actual use)
+        clearTimeout(timeout);
+        return { healthy: true, latency_ms: Date.now() - startTime };
+      }
+      
+      const response = await fetch("https://router.huggingface.co/v1/models", {
+        method: "GET",
+        signal: controller.signal,
+        headers: { 
+          "Authorization": `Bearer ${hfToken}`,
+          "User-Agent": "Nooterra-Health-Check/1.0",
+        },
+      });
+      
+      clearTimeout(timeout);
+      
+      if (response.ok) {
+        return { healthy: true, latency_ms: Date.now() - startTime };
+      }
+      
+      return {
+        healthy: false,
+        latency_ms: Date.now() - startTime,
+        error: `HF Router HTTP ${response.status}`,
+      };
+    }
+    
     // Try /health endpoint first, fall back to HEAD request
     let healthUrl = agent.endpoint.replace(/\/+$/, "");
     if (!healthUrl.includes("/health")) {
