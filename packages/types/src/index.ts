@@ -203,6 +203,8 @@ export {
   type GossipMessageType,
   type WorkflowHandoff,
   type FederationStatus,
+  type CoordinatorInvokeEnvelope,
+  type CoordinatorResultEnvelope,
 } from "./federation.js";
 
 // Message types (NIP-0012 Coordination Graph)
@@ -240,3 +242,21 @@ export {
   createStateMessage,
   createGradientMessage,
 } from "./message.js";
+
+// Invocation types
+export {
+  type Invocation,
+  type InvocationConstraints,
+  type InvocationContext,
+} from "./invocation.js";
+
+// Agent execution envelopes
+export {
+  type AgentInvokeEnvelope,
+  type AgentResultEnvelope,
+} from "./agent-envelope.js";
+
+// Mandates
+export {
+  type Mandate,
+} from "./mandate.js";

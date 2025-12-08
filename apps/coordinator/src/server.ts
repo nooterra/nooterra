@@ -34,10 +34,14 @@ import { registerIdentityRoutes } from "./routes/identity.js";
 import { registerEconomicsRoutes } from "./routes/economics.js";
 import { registerFederationRoutes } from "./routes/federation.js";
 import { storeReceipt } from "./services/receipt.js";
+import { buildInvocation } from "./services/invocation.js";
 import { createRouter, loadRouterConfig } from "./services/router/index.js";
 import { recordRouterComparison, getRouterMetrics, getRecentComparisons } from "./services/router-metrics.js";
 import { emitState as emitBlackboardState } from "./services/blackboard.js";
 import { MessageType } from "@nooterra/types";
+import type { CoordinatorInvokeEnvelope } from "@nooterra/types";
+import { COORDINATOR_DID } from "./core/config.js";
+import { getAgentRoutingProfile } from "./services/agent-card.js";
 import type { NootMessage, TaskPayload, CandidateTarget } from "@nooterra/types";
 import Ajv from "ajv";
 
@@ -196,6 +200,7 @@ const FAILURE_RATE_THRESHOLD = Number(process.env.FAILURE_RATE_THRESHOLD || 0.5)
 const FAILURE_MIN_CALLS = Number(process.env.FAILURE_MIN_CALLS || 5);
 const DLQ_ALERT_THRESHOLD = Number(process.env.DLQ_ALERT_THRESHOLD || 10);
 const DLQ_BACKPRESSURE_THRESHOLD = Number(process.env.DLQ_BACKPRESSURE_THRESHOLD || 0);
+const COORDINATOR_DID_ENV = process.env.COORDINATOR_DID || "did:noot:coordinator";
 const CRITICAL_CAPS = new Set<string>([
   "cap.customs.classify.v1",
   "cap.text.summarize.v1",
@@ -1408,7 +1413,7 @@ async function planWithPlannerAgent(
       avail: number;
     }>(
       `select a.did, a.endpoint, a.public_key,
-              coalesce(ar.reputation, a.reputation, 0) as rep,
+              coalesce(ar.overall_score, a.reputation, 0) as rep,
               coalesce(hb.availability_score, 0) as avail
          from agents a
          join capabilities c on c.agent_did = a.did
@@ -1416,7 +1421,7 @@ async function planWithPlannerAgent(
          left join heartbeats hb on hb.agent_did = a.did
         where c.capability_id = $1
           and (hb.last_seen is null or hb.last_seen > now() - interval '${HEARTBEAT_TTL_MS} milliseconds')
-        order by coalesce(ar.reputation, a.reputation, 0) desc nulls last,
+        order by coalesce(ar.overall_score, a.reputation, 0) desc nulls last,
                  coalesce(hb.availability_score, 0) desc nulls last
         limit 5`,
       ["cap.plan.workflow.v1"]
@@ -2113,6 +2118,12 @@ type Policy = {
   autoVerifyCode?: boolean;
 };
 
+type MandateConstraints = {
+  policyIds?: string[];
+  regionsAllow?: string[];
+  regionsDeny?: string[];
+};
+
 async function loadPolicyForWorkflow(workflowId: string): Promise<Policy | null> {
   const wfRes = await pool.query<{ payer_did: string | null }>(
     `select payer_did from workflows where id = $1`,
@@ -2140,6 +2151,26 @@ async function loadPolicyForWorkflow(workflowId: string): Promise<Policy | null>
   return parsed.data;
 }
 
+async function loadMandateForWorkflow(workflowId: string): Promise<MandateConstraints | null> {
+  const res = await pool.query<{
+    mandate_policy_ids: string[] | null;
+    mandate_regions_allow: string[] | null;
+    mandate_regions_deny: string[] | null;
+  }>(
+    `select mandate_policy_ids, mandate_regions_allow, mandate_regions_deny
+       from workflows
+      where id = $1`,
+    [workflowId]
+  );
+  if (!res.rowCount) return null;
+  const row = res.rows[0];
+  return {
+    policyIds: row.mandate_policy_ids || undefined,
+    regionsAllow: row.mandate_regions_allow || undefined,
+    regionsDeny: row.mandate_regions_deny || undefined,
+  };
+}
+
 async function createWorkflow(
   intent: string | undefined,
   nodes: Record<string, WorkflowNode>,
@@ -2160,8 +2191,8 @@ async function createWorkflow(
     [taskId, intent || "workflow"]
   );
   await db.query(
-    `insert into workflows (id, task_id, intent, status, payer_did, max_cents, spent_cents, parent_workflow_id, spawned_from_node, trace_id)
-     values ($1, $2, $3, 'pending', $4, $5, 0, $6, $7, $8)`,
+    `insert into workflows (id, task_id, intent, status, payer_did, max_cents, spent_cents, parent_workflow_id, spawned_from_node, trace_id, mandate_id)
+     values ($1, $2, $3, 'pending', $4, $5, 0, $6, $7, $8, $9)`,
     [
       workflowId,
       taskId,
@@ -2171,6 +2202,7 @@ async function createWorkflow(
       parentWorkflowId || null,
       spawnedFromNode || null,
       tid,
+      null,
     ]
   );
   for (const [name, node] of Object.entries(nodes)) {
@@ -2207,7 +2239,7 @@ async function createWorkflow(
 
 async function getReadyNodes(workflowId: string) {
   const res = await pool.query(
-    `select n.id, n.name, n.capability_id, n.depends_on, n.payload, n.status, n.attempts, n.target_agent_id, n.allow_broadcast_fallback
+    `select n.id, n.name, n.capability_id, n.depends_on, n.payload, n.status, n.attempts, n.target_agent_id, n.allow_broadcast_fallback, n.trace_id
      from task_nodes n
      where n.workflow_id = $1
        and (n.status = 'pending' or n.status = 'ready')`,
@@ -2236,24 +2268,15 @@ async function enqueueNode(node: any, workflowId: string) {
     parentOutputs = Object.fromEntries(res.rows.map((r: any) => [r.name, r.result_payload || {}]));
   }
   const inputs = { ...(node.payload || {}), parents: parentOutputs };
-
-  const basePayload = {
-    workflowId,
-    nodeId: node.name,
-    capabilityId: node.capability_id,
-    inputs,
-    eventId: uuidv4(),
-    timestamp: new Date().toISOString(),
-    traceId: node.trace_id || undefined,
-  };
-  const taskId = (await pool.query(`select task_id from workflows where id = $1`, [workflowId])).rows[0].task_id;
-
-  // Budget pre-check: if adding this node's price would exceed max_cents, fail it immediately
-  const wfBudget = await pool.query(
-    `select max_cents, spent_cents, payer_did from workflows where id = $1`,
+  const taskRow = await pool.query(
+    `select task_id, payer_did, max_cents, mandate_id, mandate_policy_ids, mandate_regions_allow, mandate_regions_deny 
+       from workflows where id = $1`,
     [workflowId]
   );
-  const wfRow = wfBudget.rowCount ? wfBudget.rows[0] : null;
+  const taskId = taskRow.rows[0]?.task_id;
+
+  // Budget pre-check: if adding this node's price would exceed max_cents, fail it immediately
+  const wfRow = taskRow.rowCount ? taskRow.rows[0] : null;
   const payerDid = wfRow?.payer_did || SYSTEM_PAYER;
   if (wfRow && wfRow.max_cents != null) {
     const priceRes = await pool.query(
@@ -2294,6 +2317,59 @@ async function enqueueNode(node: any, workflowId: string) {
         [payerDid, workflowId, node.name, priceCents]
       );
     }
+  }
+
+  // Build canonical Invocation for this node dispatch
+  const invocation = buildInvocation({
+    workflowId,
+    nodeName: node.name,
+    capabilityId: node.capability_id,
+    input: inputs,
+    traceId: node.trace_id || undefined,
+    payerDid,
+    projectId: null,
+    maxPriceCents: priceCents || null,
+    budgetCapCents: wfRow?.max_cents != null ? Number(wfRow.max_cents) : null,
+    timeoutMs: NODE_TIMEOUT_MS,
+    targetAgentId: node.target_agent_id || null,
+    deadlineAt: null,
+    policyIds: wfRow?.mandate_policy_ids || null,
+    regionsAllow: wfRow?.mandate_regions_allow || null,
+    regionsDeny: wfRow?.mandate_regions_deny || null,
+  });
+
+  const basePayload = {
+    workflowId,
+    nodeId: node.name,
+    capabilityId: node.capability_id,
+    inputs,
+    eventId: uuidv4(),
+    timestamp: new Date().toISOString(),
+    traceId: invocation.traceId,
+    invocation,
+  };
+
+  // Persist invocation row for audit/lookup
+  try {
+    await pool.query(
+      `insert into invocations (invocation_id, trace_id, workflow_id, node_name, capability_id, agent_did, payer_did, constraints, input, mandate_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       on conflict (invocation_id) do nothing`,
+      [
+        invocation.invocationId,
+        invocation.traceId,
+        workflowId,
+        node.name,
+        node.capability_id,
+        invocation.agentDid || null,
+        payerDid || null,
+        invocation.constraints || null,
+        invocation.input as any,
+        invocation.mandateId || null,
+      ]
+    );
+  } catch (err) {
+    app.log.warn({ err, workflowId, node: node.name }, "failed to persist invocation row (non-fatal)");
   }
 
   // ========== TARGETED ROUTING (NIP-001) ==========
@@ -2381,7 +2457,7 @@ async function enqueueNode(node: any, workflowId: string) {
   // select candidate agents for the capability
   const agentRes = await pool.query(
     `select a.did, a.endpoint, a.public_key,
-            coalesce(ar.reputation, a.reputation, 0) as rep,
+            coalesce(ar.overall_score, a.reputation, 0) as rep,
             coalesce(hb.availability_score, 0) as avail
      from agents a
      join capabilities c on c.agent_did = a.did
@@ -2389,8 +2465,8 @@ async function enqueueNode(node: any, workflowId: string) {
      left join heartbeats hb on hb.agent_did = a.did
      where c.capability_id = $1
        and (hb.last_seen is null or hb.last_seen > now() - interval '${HEARTBEAT_TTL_MS} milliseconds')
-       and (coalesce(ar.reputation, a.reputation, 0) >= $2)
-     order by coalesce(ar.reputation, a.reputation, 0) desc nulls last,
+       and (coalesce(ar.overall_score, a.reputation, 0) >= $2)
+     order by coalesce(ar.overall_score, a.reputation, 0) desc nulls last,
               coalesce(hb.availability_score, 0) desc nulls last
      limit 20`,
     [node.capability_id, CRITICAL_CAPS.has(node.capability_id) ? MIN_REP_CRITICAL : 0]
@@ -2449,6 +2525,7 @@ async function enqueueNode(node: any, workflowId: string) {
   const scoredFiltered = filtered.map((row) => {
     const rep = Number(row.rep || 0);
     const avail = Number(row.avail || 0);
+    // Legacy score (kept for logging)
     const score = 0.7 * rep + 0.3 * avail;
     return {
       did: row.did,
@@ -2471,15 +2548,94 @@ async function enqueueNode(node: any, workflowId: string) {
         };
       })
     );
+    // Apply capability + mandate filters to AgentCard profiles
+    const mandate = await loadMandateForWorkflow(workflowId);
     const cardFiltered = cardProfiles
-      .filter(({ profile }) => profile && profile.capabilityIds.includes(node.capability_id))
+      .filter(({ profile }) => {
+        if (!profile) return false;
+        if (!profile.capabilityIds.includes(node.capability_id)) return false;
+
+        // Mandate policy filter: require intersection if mandate specifies policies
+        if (mandate?.policyIds && mandate.policyIds.length) {
+          const accepted = profile.acceptedPolicyIds || [];
+          const intersects = accepted.some((p) => mandate.policyIds!.includes(p));
+          if (!intersects) {
+            app.log.info(
+              {
+                routing: "mandate_filter",
+                workflowId,
+                nodeId: node.name,
+                agentDid: profile.did,
+                reason: "policy_mismatch",
+              },
+              "Agent dropped by mandate policy filter"
+            );
+            return false;
+          }
+        }
+
+        // Mandate region filter (coarse): require overlap with agent's allowed regions
+        if (mandate?.regionsAllow && mandate.regionsAllow.length) {
+          const agentRegions = profile.regionsAllow || [];
+          const overlaps = agentRegions.some((r) => mandate.regionsAllow!.includes(r));
+          if (!overlaps) {
+            app.log.info(
+              {
+                routing: "mandate_filter",
+                workflowId,
+                nodeId: node.name,
+                agentDid: profile.did,
+                reason: "region_allow_mismatch",
+              },
+              "Agent dropped by mandate regionsAllow filter"
+            );
+            return false;
+          }
+        }
+
+        if (mandate?.regionsDeny && mandate.regionsDeny.length) {
+          const agentRegions = profile.regionsAllow || [];
+          const conflicts = agentRegions.some((r) => mandate.regionsDeny!.includes(r));
+          if (conflicts) {
+            app.log.info(
+              {
+                routing: "mandate_filter",
+                workflowId,
+                nodeId: node.name,
+                agentDid: profile.did,
+                reason: "region_deny_conflict",
+              },
+              "Agent dropped by mandate regionsDeny filter"
+            );
+            return false;
+          }
+        }
+
+        return true;
+      })
       .map(({ did }) => filtered.find((r) => r.did === did)!)
       .filter(Boolean);
 
+    // Reputation-weighted scoring that incorporates locality (federation) hints.
     const cardScored = cardFiltered.map((row) => {
       const rep = Number((row as any).rep || 0);
       const avail = Number((row as any).avail || 0);
-      const score = 0.7 * rep + 0.3 * avail;
+      const profile = cardProfiles.find((p) => p.did === row.did)?.profile || null;
+
+      // Treat rep as overall score from agent_reputation (0–1).
+      const baseReputation = rep;
+      const availabilityScore = avail;
+
+      // Locality multiplier: small bonus for local execution, small penalty for remote.
+      const isRemote =
+        !!profile?.executionCoordinatorDid &&
+        profile.executionCoordinatorDid !== COORDINATOR_DID_ENV;
+      const localityMultiplier = isRemote ? 0.95 : 1.05;
+
+      // Final score: reputation dominates, availability refines, locality nudges.
+      const combined = 0.8 * baseReputation + 0.2 * availabilityScore;
+      const score = combined * localityMultiplier;
+
       return {
         did: row.did,
         endpoint: row.endpoint,
@@ -2489,6 +2645,9 @@ async function enqueueNode(node: any, workflowId: string) {
         score,
       };
     });
+
+    // Sort by new score so AgentCard routing is truly reputation-weighted.
+    cardScored.sort((a, b) => b.score - a.score);
 
     const cardChosen = cardScored.slice(0, Math.max(1, cardScored.length));
     const legacyTop = filtered[0]?.did || null;
@@ -2510,8 +2669,8 @@ async function enqueueNode(node: any, workflowId: string) {
       "AgentCard routing shadow comparison"
     );
 
-    if (USE_AGENT_CARD_ROUTING && cardFiltered.length > 0) {
-      finalChosenAgents = cardFiltered;
+    if (USE_AGENT_CARD_ROUTING && cardScored.length > 0) {
+      finalChosenAgents = cardScored;
     }
   } catch (err: any) {
     app.log.warn(
@@ -2694,21 +2853,102 @@ async function enqueueNode(node: any, workflowId: string) {
   for (let idx = 0; idx < chosenAgents.length; idx++) {
     const agent = chosenAgents[idx];
     const dispatchKey = `${workflowId}:${node.name}:${node.attempts || 0}:r${idx}`;
-    await pool.query(
-      `insert into dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, attempts, next_attempt, status, dispatch_key, trace_id)
-       values ($1, $2, $3, $4, $5, $6, 0, now(), 'pending', $7, $8)
-       on conflict (dispatch_key) do nothing`,
-      [
-        taskId,
-        workflowId,
-        node.name,
-        "node.dispatch",
-        agent.endpoint,
-        { ...basePayload, agentDid: agent.did },
-        dispatchKey,
-        node.trace_id || null,
-      ]
-    );
+    // Decide dispatch channel: local vs federated based on AgentCard executionCoordinatorDid
+    let routedViaFederation = false;
+    try {
+      const profile = await getAgentRoutingProfile(agent.did);
+      const execDid = profile?.executionCoordinatorDid || null;
+
+      if (execDid && execDid !== COORDINATOR_DID_ENV) {
+        // Federated dispatch: send CoordinatorInvokeEnvelope to remote coordinator
+        const peerRes = await pool.query(
+          `select endpoint from coordinator_peers where id = $1 and status = 'active' limit 1`,
+          [execDid]
+        );
+        const peer = peerRes.rowCount ? peerRes.rows[0] : null;
+        if (peer && peer.endpoint) {
+          const coordEndpoint = String(peer.endpoint).replace(/\/$/, "");
+          const env: CoordinatorInvokeEnvelope = {
+            version: "1.0",
+            type: "coordinatorInvoke",
+            originDid: COORDINATOR_DID_ENV,
+            targetDid: execDid,
+            traceId: invocation.traceId,
+            invocation,
+          };
+          const res = await fetch(`${coordEndpoint}/v1/federation/invoke`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(env),
+          });
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            app.log.warn(
+              {
+                routing: "federation_dispatch_failed",
+                originDid: COORDINATOR_DID_ENV,
+                targetDid: execDid,
+                agentDid: agent.did,
+                status: res.status,
+                body: text,
+              },
+              "Federation invoke failed; node may need retry"
+            );
+          } else {
+            routedViaFederation = true;
+            app.log.info(
+              {
+                routing: "federation_dispatch",
+                originDid: COORDINATOR_DID_ENV,
+                targetDid: execDid,
+                agentDid: agent.did,
+                capabilityId: node.capability_id,
+                workflowId,
+                nodeId: node.name,
+                invocationId: invocation.invocationId,
+              },
+              "Federation invoke sent"
+            );
+          }
+        } else {
+          app.log.warn(
+            {
+              routing: "federation_peer_missing",
+              executionCoordinatorDid: execDid,
+              agentDid: agent.did,
+              workflowId,
+              node: node.name,
+            },
+            "Federation peer not found; falling back to local dispatch"
+          );
+        }
+      }
+    } catch (err: any) {
+      app.log.warn(
+        { err, workflowId, node: node.name, agentDid: agent.did },
+        "Federation dispatch decision failed; falling back to local dispatch"
+      );
+    }
+
+    if (!routedViaFederation) {
+      // Local HTTP dispatch via adapter/agent endpoint
+      await pool.query(
+        `insert into dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, attempts, next_attempt, status, dispatch_key, trace_id)
+         values ($1, $2, $3, $4, $5, $6, 0, now(), 'pending', $7, $8)
+         on conflict (dispatch_key) do nothing`,
+        [
+          taskId,
+          workflowId,
+          node.name,
+          "node.dispatch",
+          agent.endpoint,
+          { ...basePayload, agentDid: agent.did },
+          dispatchKey,
+          node.trace_id || null,
+        ]
+      );
+    }
+
     emitEvent("NODE_DISPATCHED", {
       workflowId,
       nodeId: node.name,
@@ -2716,6 +2956,7 @@ async function enqueueNode(node: any, workflowId: string) {
       agentDid: agent.did,
       replica: idx + 1,
       replicas,
+      routingChannel: routedViaFederation ? "federation" : "local",
     });
   }
 }
@@ -2820,7 +3061,7 @@ app.post("/v1/tasks/:id/bid", { preHandler: [rateLimitGuard, apiGuard] }, async 
   // Extended negotiation scoring (price + latency + reliability + safety)
   const bidsRes = await pool.query(
     `select b.agent_did, b.amount, b.eta_ms, b.sla_hints, b.safety_class, b.created_at,
-            coalesce(ar.reputation, a.reputation, 0) as rep,
+            coalesce(ar.overall_score, a.reputation, 0) as rep,
             coalesce(hb.availability_score, 0) as avail,
             coalesce(hb.latency_ms, 999999) as latency_ms
        from bids b
@@ -2955,7 +3196,7 @@ app.get("/v1/discover", { preHandler: [rateLimitGuard] }, async (request, reply)
     params.push(`%${q}%`);
     idx++;
   }
-  where.push(`coalesce(ar.reputation, a.reputation, 0) >= $${idx++}`);
+  where.push(`coalesce(ar.overall_score, a.reputation, 0) >= $${idx++}`);
   params.push(minRep);
   const whereSql = where.length ? `where ${where.join(" and ")}` : "";
 
@@ -2965,7 +3206,7 @@ app.get("/v1/discover", { preHandler: [rateLimitGuard] }, async (request, reply)
       a.endpoint,
       c.capability_id,
       c.description,
-      coalesce(ar.reputation, a.reputation, 0) as reputation,
+      coalesce(ar.overall_score, a.reputation, 0) as reputation,
       coalesce(hb.availability_score, 0) as availability,
       hb.last_seen,
       hb.latency_ms,
@@ -2976,7 +3217,7 @@ app.get("/v1/discover", { preHandler: [rateLimitGuard] }, async (request, reply)
     left join heartbeats hb on hb.agent_did = a.did
     ${whereSql}
     order by
-      coalesce(ar.reputation, a.reputation, 0) desc nulls last,
+      coalesce(ar.overall_score, a.reputation, 0) desc nulls last,
       coalesce(hb.availability_score, 0) desc nulls last,
       hb.latency_ms asc nulls last
     limit $${idx}
@@ -3106,10 +3347,6 @@ app.post("/v1/workflows/publish", { preHandler: [rateLimitGuard, apiGuard] }, as
   if (!parsed.success) {
     return reply.status(400).send({ error: parsed.error.flatten(), message: "Invalid workflow payload" });
   }
-  const traceId =
-    (request.headers["x-request-id"] as string | undefined) ||
-    (request.headers["x-correlation-id"] as string | undefined) ||
-    `trace-${uuidv4()}`;
   const { intent, nodes, payerDid, maxCents, parentWorkflowId, spawnedFromNode } = parsed.data;
   const traceId =
     (request.headers["x-request-id"] as string | undefined) ||
@@ -4019,7 +4256,7 @@ app.post("/v1/reputation/recompute", { preHandler: [rateLimitGuard, apiGuard] },
 app.get("/v1/agents/overview", { preHandler: [rateLimitGuard, apiGuard] }, async (_req, reply) => {
   const res = await pool.query(
     `select a.did, a.endpoint,
-            coalesce(ar.reputation, a.reputation, 0) as reputation,
+            coalesce(ar.overall_score, a.reputation, 0) as reputation,
             coalesce(s.tasks_success,0) as tasks_success,
             coalesce(s.tasks_failed,0) as tasks_failed,
             coalesce(s.avg_latency_ms,0) as avg_latency_ms,
@@ -4140,7 +4377,7 @@ app.get("/v1/agents/:did", { preHandler: [rateLimitGuard, apiGuard] }, async (re
   const did = (request.params as any).did;
   const meta = await pool.query(
     `select a.did, a.endpoint,
-            coalesce(ar.reputation, a.reputation, 0) as reputation,
+            coalesce(ar.overall_score, a.reputation, 0) as reputation,
             s.tasks_success, s.tasks_failed, s.avg_latency_ms,
             hb.last_seen, hb.availability_score,
             (a.public_key is not null) as signed
@@ -4164,7 +4401,7 @@ app.get("/v1/agents/:did", { preHandler: [rateLimitGuard, apiGuard] }, async (re
 app.get("/v1/agents/:did/stats", { preHandler: [rateLimitGuard, apiGuard] }, async (request, reply) => {
   const did = (request.params as any).did;
   const stats = await pool.query(
-    `select a.did, coalesce(ar.reputation,a.reputation,0) as reputation,
+    `select a.did, coalesce(ar.overall_score,a.reputation,0) as reputation,
             s.tasks_success, s.tasks_failed, s.avg_latency_ms
      from agents a
      left join agent_stats s on s.agent_did = a.did
@@ -4696,6 +4933,7 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 
 app.listen({ port, host: "0.0.0.0" }).then(() => {
   app.log.info(`Coordinator running on ${port}`);
+  app.log.info({ coordinatorDid: COORDINATOR_DID }, "Coordinator identity");
   app.log.info(
     {
       useCoordinationGraph: routerConfigSnapshot.useCoordinationGraph,

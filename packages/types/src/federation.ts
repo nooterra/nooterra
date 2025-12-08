@@ -126,3 +126,45 @@ export interface FederationStatus {
   lastGossipAt: Date;
   healthy: boolean;
 }
+
+/**
+ * Coordinator-level invocation envelope for cross-coordinator execution.
+ *
+ * This is a thin wrapper around an Invocation plus mandate metadata,
+ * signed by the origin coordinator when used in production.
+ */
+export interface CoordinatorInvokeEnvelope {
+  version: "1.0";
+  type: "coordinatorInvoke";
+  /** Originating coordinator DID */
+  originDid: string;
+  /** Target coordinator DID */
+  targetDid: string;
+  /** Trace ID for correlation across nodes */
+  traceId: string;
+  /** Invocation to execute on the target coordinator */
+  invocation: import("./invocation.js").Invocation;
+  /** Optional mandate associated with this invocation */
+  mandateId?: string | null;
+  /** Optional signature over the envelope for authenticity */
+  signature?: string;
+  signatureAlgorithm?: string;
+}
+
+/**
+ * Coordinator-level result envelope for returning execution results
+ * back to the origin coordinator.
+ */
+export interface CoordinatorResultEnvelope {
+  version: "1.0";
+  type: "coordinatorResult";
+  originDid: string;
+  targetDid: string;
+  traceId: string;
+  /** Invocation ID this result corresponds to */
+  invocationId: string;
+  /** Agent-level result envelope produced by the target coordinator */
+  resultEnvelope: import("./agent-envelope.js").AgentResultEnvelope;
+  signature?: string;
+  signatureAlgorithm?: string;
+}

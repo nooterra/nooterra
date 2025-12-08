@@ -1,0 +1,33 @@
+{
+  "name": "reference-demo",
+  "description": "Fetch → Summarize → Verify (Mandate + Envelope)",
+  "nodes": {
+    "fetch_data": {
+      "capability": "cap.fetch.http.v1",
+      "inputMapping": {
+        "url": "$.inputs.url",
+        "method": "$.inputs.method"
+      }
+    },
+    "summarize": {
+      "capability": "cap.text.summarize.v1",
+      "dependsOn": ["fetch_data"],
+      "inputMapping": {
+        "text": "$.fetch_data.result.body",
+        "style": "short"
+      }
+    },
+    "verify": {
+      "capability": "cap.verify.mandate.envelope.v1",
+      "dependsOn": ["summarize"],
+      "inputMapping": {
+        "invocationId": "$.summarize.invocationId"
+      }
+    }
+  },
+  "inputs": {
+    "url": "https://example.com",
+    "method": "GET"
+  }
+}
+

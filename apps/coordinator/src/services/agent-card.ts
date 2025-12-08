@@ -1,5 +1,7 @@
 import { pool } from "../db.js";
-import type { NooterraAgentCard, PolicyId, CapabilityId } from "@nooterra/types";
+import type { NooterraAgentCard, PolicyId } from "@nooterra/types";
+import nacl from "tweetnacl";
+import bs58 from "bs58";
 
 /**
  * Fetch the canonical NooterraAgentCard for an agent, if present.
@@ -49,6 +51,9 @@ export interface AgentRoutingProfile {
   regionsDeny: string[];
 
   modelHint: string | null;
+
+  /** Coordinator DID responsible for executing this agent, if remote */
+  executionCoordinatorDid?: string | null;
 
   defaultPriceCents: number | null;
   defaultCurrency: string | null;
@@ -121,5 +126,43 @@ export async function getAgentRoutingProfile(agentDid: string): Promise<AgentRou
     reputationScore,
     stakedAmount,
     supportsVerification,
+    executionCoordinatorDid:
+      (card as any).executionCoordinatorDid ||
+      (card.metadata && typeof (card.metadata as any).executionCoordinatorDid === "string"
+        ? (card.metadata as any).executionCoordinatorDid
+        : null),
   };
+}
+
+/**
+ * Soft-verify a result envelope signature against the agent's signing key.
+ * This is best-effort and ONLY used for logging / observability right now.
+ */
+export async function verifyResultEnvelopeSignature(
+  agentDid: string,
+  envelope: { signature?: string; signatureAlgorithm?: string; [k: string]: any } | null
+): Promise<boolean | null> {
+  if (!envelope || !envelope.signature || !envelope.signatureAlgorithm) return null;
+  if (envelope.signatureAlgorithm !== "ed25519") return null;
+
+  const card = await getAgentCard(agentDid);
+  if (!card || !card.keys?.signingPublicKey) return null;
+
+  try {
+    const pubKey58 = card.keys.signingPublicKey;
+    const pubKey = bs58.decode(pubKey58);
+
+    // Build a canonical payload to verify: envelope minus signature fields
+    const { signature, signatureAlgorithm, ...unsigned } = envelope;
+    const payload = JSON.stringify(unsigned);
+    const msg = new TextEncoder().encode(payload);
+
+    // Assume signature is base64url-encoded
+    const sigBuf = Buffer.from(signature, "base64url");
+
+    const ok = nacl.sign.detached.verify(new Uint8Array(msg), new Uint8Array(sigBuf), pubKey);
+    return ok;
+  } catch {
+    return false;
+  }
 }

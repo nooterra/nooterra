@@ -81,6 +81,10 @@ export async function storeReceipt(params: {
   creditsEarned?: number;
   profile?: number;
   traceId?: string;
+  invocationId?: string | null;
+  resultEnvelope?: unknown;
+  mandateId?: string | null;
+  envelopeSignatureValid?: boolean | null;
 }): Promise<void> {
   // Fetch node info
   let nodeId: string | null = null;
@@ -112,15 +116,19 @@ export async function storeReceipt(params: {
   const unsignedSignature = "unsigned";
   await pool.query(
     `INSERT INTO task_receipts 
-     (task_id, node_id, workflow_id, agent_did, capability_id, input_hash, output_hash, started_at, completed_at, latency_ms, credits_earned, coordinator_signature, dispute_window_seconds, trace_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     (task_id, node_id, workflow_id, agent_did, capability_id, input_hash, output_hash, started_at, completed_at, latency_ms, credits_earned, coordinator_signature, dispute_window_seconds, invocation_id, trace_id, result_envelope, mandate_id, envelope_signature_valid)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
      ON CONFLICT (workflow_id, node_id) DO UPDATE SET
        input_hash = EXCLUDED.input_hash,
        output_hash = EXCLUDED.output_hash,
        latency_ms = EXCLUDED.latency_ms,
        credits_earned = EXCLUDED.credits_earned,
        dispute_window_seconds = EXCLUDED.dispute_window_seconds,
-       trace_id = coalesce(EXCLUDED.trace_id, task_receipts.trace_id)`,
+       invocation_id = coalesce(EXCLUDED.invocation_id, task_receipts.invocation_id),
+       trace_id = coalesce(EXCLUDED.trace_id, task_receipts.trace_id),
+       result_envelope = coalesce(EXCLUDED.result_envelope, task_receipts.result_envelope),
+       mandate_id = coalesce(EXCLUDED.mandate_id, task_receipts.mandate_id),
+       envelope_signature_valid = coalesce(EXCLUDED.envelope_signature_valid, task_receipts.envelope_signature_valid)`,
     [
       nodeId,
       nodeId,
@@ -135,7 +143,13 @@ export async function storeReceipt(params: {
       creditsEarned,
       unsignedSignature,
       DISPUTE_WINDOW_SECONDS,
-      params.traceId || null
+      params.invocationId || null,
+      params.traceId || null,
+      params.resultEnvelope ?? null,
+      params.mandateId || null,
+      typeof params.envelopeSignatureValid === "boolean"
+        ? params.envelopeSignatureValid
+        : null
     ]
   );
 

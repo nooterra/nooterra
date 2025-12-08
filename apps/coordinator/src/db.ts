@@ -345,6 +345,25 @@ export async function migrate() {
     `create unique index if not exists ix_dispatch_queue_dispatch_key on dispatch_queue(dispatch_key);`
   );
 
+  // Canonical invocation storage
+  await pool.query(`
+    create table if not exists invocations (
+      invocation_id uuid primary key,
+      trace_id text not null,
+      workflow_id uuid references workflows(id) on delete cascade,
+      node_name text not null,
+      capability_id text not null,
+      agent_did text,
+      payer_did text,
+      constraints jsonb,
+      input jsonb,
+      created_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists invocations_trace_idx on invocations(trace_id);`);
+  await pool.query(`create index if not exists invocations_workflow_idx on invocations(workflow_id);`);
+  await pool.query(`create index if not exists invocations_agent_idx on invocations(agent_did);`);
+
   await pool.query(`
     create table if not exists task_results (
       id serial primary key,
@@ -708,6 +727,18 @@ export async function migrate() {
   await pool.query(
     `alter table task_receipts add column if not exists dispute_window_seconds int`
   );
+  await pool.query(
+    `alter table task_receipts add column if not exists invocation_id uuid`
+  );
+  await pool.query(
+    `alter table task_receipts add column if not exists result_envelope jsonb`
+  );
+  await pool.query(
+    `alter table task_receipts add column if not exists mandate_id uuid`
+  );
+  await pool.query(
+    `alter table task_receipts add column if not exists envelope_signature_valid boolean`
+  );
   await pool.query(`create index if not exists task_receipts_agent_idx on task_receipts(agent_did);`);
   await pool.query(`create index if not exists task_receipts_workflow_idx on task_receipts(workflow_id);`);
   await pool.query(`create unique index if not exists task_receipts_workflow_node_idx on task_receipts(workflow_id, node_id);`);
@@ -737,6 +768,14 @@ export async function migrate() {
   await pool.query(`alter table task_nodes add column if not exists trace_id text;`);
   await pool.query(`alter table task_receipts add column if not exists trace_id text;`);
   await pool.query(`alter table ledger_events add column if not exists trace_id text;`);
+
+  await pool.query(`alter table workflows add column if not exists mandate_id uuid;`);
+  await pool.query(
+    `alter table workflows
+       add column if not exists mandate_policy_ids text[],
+       add column if not exists mandate_regions_allow text[],
+       add column if not exists mandate_regions_deny text[]`
+  );
 
   // ============================================================
   // PHASE 3: PROTOCOL COMPLETENESS

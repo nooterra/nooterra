@@ -10,6 +10,8 @@ import { verifyReceipt } from "../services/receipt.js";
 import { randomUUID } from "crypto";
 import { storeReceipt } from "../services/receipt.js";
 import { ReceiptClaims } from "@nooterra/types";
+import { verifyInvocationCompliance } from "../services/verifier.js";
+import { updateVerificationScoreFromCompliance } from "../services/reputation-verification.js";
 
 const AuditQuerySchema = z.object({
   eventType: z.string().optional(),
@@ -412,11 +414,12 @@ export async function registerAccountabilityRoutes(app: FastifyInstance<any, any
   // Internal trace context aggregation (non-OTel)
   app.get("/internal/trace/:traceId", async (req, reply) => {
     const { traceId } = req.params as { traceId: string };
-    const [wf, nodes, receipts, ledger] = await Promise.all([
+    const [wf, nodes, receipts, ledger, invs] = await Promise.all([
       pool.query(`select * from workflows where trace_id = $1`, [traceId]),
       pool.query(`select * from task_nodes where trace_id = $1`, [traceId]),
       pool.query(`select * from task_receipts where trace_id = $1`, [traceId]),
       pool.query(`select * from ledger_events where trace_id = $1`, [traceId]),
+      pool.query(`select * from invocations where trace_id = $1`, [traceId]),
     ]);
     return reply.send({
       traceId,
@@ -424,6 +427,80 @@ export async function registerAccountabilityRoutes(app: FastifyInstance<any, any
       taskNodes: nodes.rows,
       receipts: receipts.rows,
       ledgerEvents: ledger.rows,
+      invocations: invs.rows,
+    });
+  });
+
+  // Internal invocation lookup by id
+  app.get("/internal/invocation/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const invRes = await pool.query(`select * from invocations where invocation_id = $1`, [id]);
+    if (!invRes.rowCount) {
+      return reply.status(404).send({ error: "Invocation not found" });
+    }
+    const rcptRes = await pool.query(`select * from task_receipts where invocation_id = $1`, [id]);
+    return reply.send({
+      invocation: invRes.rows[0],
+      receipts: rcptRes.rows,
+    });
+  });
+
+  // Aggregate envelope signature validity per agent (observability only)
+  app.get("/internal/envelope-signatures", async (_req, reply) => {
+    const res = await pool.query(
+      `select agent_did,
+              count(*) as total,
+              count(*) filter (where envelope_signature_valid = true) as valid,
+              count(*) filter (where envelope_signature_valid = false) as invalid
+         from task_receipts
+        where envelope_signature_valid is not null
+        group by agent_did
+        order by agent_did asc`
+    );
+    return reply.send({
+      stats: res.rows.map((r: any) => ({
+        agentDid: r.agent_did,
+        total: Number(r.total || 0),
+        valid: Number(r.valid || 0),
+        invalid: Number(r.invalid || 0),
+        invalidRatio:
+          Number(r.total || 0) > 0 ? Number(r.invalid || 0) / Number(r.total || 0) : 0,
+      })),
+    });
+  });
+
+  // Internal verifier hook: run compliance checks for a single invocation
+  // and softly update verification-based reputation for participating agents.
+  app.get("/internal/verify/invocation/:id", async (req, reply) => {
+    const { id } = req.params as { id: string };
+
+    const result = await verifyInvocationCompliance(id);
+    if (!result) {
+      return reply.status(404).send({ error: "Invocation not found" });
+    }
+
+    // Find distinct agents that participated in this invocation
+    const agentsRes = await pool.query<{ agent_did: string }>(
+      `select distinct agent_did
+         from task_receipts
+        where invocation_id = $1
+          and agent_did is not null`,
+      [id]
+    );
+
+    const compliant = result.compliant;
+    const updatedAgents: string[] = [];
+
+    for (const row of agentsRes.rows) {
+      const agentDid = row.agent_did;
+      if (!agentDid) continue;
+      await updateVerificationScoreFromCompliance(agentDid, compliant);
+      updatedAgents.push(agentDid);
+    }
+
+    return reply.send({
+      ...result,
+      updatedAgents,
     });
   });
 }

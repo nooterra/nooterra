@@ -6,6 +6,13 @@ import { z } from "zod";
 import { pool } from "../db.js";
 import { v4 as uuidv4 } from "uuid";
 import { appendAuditLog } from "./trust.js";
+import { COORDINATOR_DID } from "../core/config.js";
+import type { CoordinatorInvokeEnvelope, CoordinatorResultEnvelope } from "@nooterra/types";
+import { storeReceipt } from "../services/receipt.js";
+import { verifyResultEnvelopeSignature } from "../services/agent-card.js";
+
+const FEDERATION_TRUST_ALL =
+  (process.env.FEDERATION_TRUST_ALL || "").toLowerCase() === "true";
 
 const RegisterPeerSchema = z.object({
   peerId: z.string().uuid(),
@@ -48,6 +55,27 @@ const CreateSubnetPolicySchema = z.object({
   capability: z.string().optional(),
   config: z.record(z.unknown()).optional(),
 });
+
+async function isTrustedCoordinator(originId: string): Promise<boolean> {
+  if (!originId) return false;
+  if (FEDERATION_TRUST_ALL) return true;
+  const res = await pool.query(
+    `select 1 from coordinator_peers where id = $1 and status = 'active'`,
+    [originId]
+  );
+  return !!res.rowCount && res.rowCount > 0;
+}
+
+async function recordFederationEvent(
+  type: "invoke_received" | "result_received" | "signature_invalid",
+  payload: Record<string, any>
+) {
+  // Thin wrapper so we can centralize federation log shape if needed
+  // NOTE: app instance not available here; logs happen in route handlers via app.log.
+  // This helper exists for possible future DB metrics; currently unused.
+  void type;
+  void payload;
+}
 
 export async function registerFederationRoutes(app: FastifyInstance<any, any, any, any, any>) {
   // ============================================================
@@ -472,6 +500,232 @@ export async function registerFederationRoutes(app: FastifyInstance<any, any, an
   // CROSS-COORDINATOR ROUTING
   // ============================================================
 
+  // Accept cross-coordinator invocation envelopes and enqueue them locally.
+  app.post("/v1/federation/invoke", async (req, reply) => {
+    const envelope = req.body as CoordinatorInvokeEnvelope;
+
+    if (envelope.version !== "1.0" || envelope.type !== "coordinatorInvoke") {
+      return reply.status(400).send({ error: "invalid_envelope_type" });
+    }
+    if (!envelope.targetDid || envelope.targetDid !== COORDINATOR_DID) {
+      return reply
+        .status(400)
+        .send({ error: "invalid_target", expected: COORDINATOR_DID, got: envelope.targetDid });
+    }
+
+    const originDid = envelope.originDid;
+    const trusted = await isTrustedCoordinator(originDid);
+    if (!trusted) {
+      app.log.warn(
+        {
+          routing: "federation",
+          originDid,
+          targetDid: COORDINATOR_DID,
+        },
+        "Rejecting federation invoke from untrusted origin"
+      );
+      return reply.status(403).send({ error: "untrusted_origin" });
+    }
+
+    // Optional signature verification placeholder (coordinator-level)
+    if (envelope.signature && envelope.signatureAlgorithm) {
+      // TODO: look up origin public key and verify signature once keys are wired.
+      // For now, we log presence and continue.
+      app.log.debug(
+        {
+          routing: "federation",
+          originDid,
+          hasSignature: true,
+          algorithm: envelope.signatureAlgorithm,
+        },
+        "Federation invoke envelope carries signature (not yet enforced)"
+      );
+    }
+
+    const inv = envelope.invocation;
+    const ctx = inv.context || {};
+    const traceId = envelope.traceId || inv.traceId || ctx.workflowId || inv.invocationId;
+
+    // Insert invocation if not present (idempotent on invocation_id).
+    await pool.query(
+      `insert into invocations (invocation_id, trace_id, workflow_id, node_name, capability_id, agent_did, payer_did, constraints, input)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       on conflict (invocation_id) do nothing`,
+      [
+        inv.invocationId,
+        traceId,
+        ctx.workflowId || null,
+        ctx.nodeName || "remote_node",
+        inv.capabilityId,
+        inv.agentDid || null,
+        ctx.payerDid || null,
+        inv.constraints ? JSON.stringify(inv.constraints) : null,
+        inv.input != null ? JSON.stringify(inv.input) : null,
+      ]
+    );
+
+    const dispatchKey = `${ctx.workflowId || "federation"}:${ctx.nodeName || "remote_node"}:${
+      inv.invocationId
+    }`;
+
+    await pool.query(
+      `insert into dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, attempts, next_attempt, status, dispatch_key, trace_id)
+       values ($1, $2, $3, $4, $5, $6, 0, now(), 'pending', $7, $8)
+       on conflict (dispatch_key) do nothing`,
+      [
+        null,
+        ctx.workflowId || null,
+        ctx.nodeName || "remote_node",
+        "node.dispatch",
+        // The dispatcher will use agentDid + registry for actual target URL selection.
+        // For now we set a placeholder; router/adapters can override.
+        "", // target_url placeholder; dispatcher will derive from payload.agentDid
+        {
+          invocation: inv,
+          traceId,
+          agentDid: inv.agentDid || null,
+          capabilityId: inv.capabilityId,
+          viaFederation: true,
+          originCoordinatorDid: originDid,
+        },
+        dispatchKey,
+        traceId,
+      ]
+    );
+
+    app.log.info(
+      {
+        routing: "federation_invoke_received",
+        originDid,
+        targetDid: COORDINATOR_DID,
+        capabilityId: inv.capabilityId,
+        invocationId: inv.invocationId,
+        traceId,
+      },
+      "Federation invoke enqueued"
+    );
+
+    return reply.status(202).send({
+      status: "queued",
+      invocationId: inv.invocationId,
+      traceId,
+    });
+  });
+
+  // Accept cross-coordinator result envelopes and persist them as receipts.
+  app.post("/v1/federation/result", async (req, reply) => {
+    const envelope = req.body as CoordinatorResultEnvelope;
+
+    if (envelope.version !== "1.0" || envelope.type !== "coordinatorResult") {
+      return reply.status(400).send({ error: "invalid_envelope_type" });
+    }
+    if (!envelope.targetDid || envelope.targetDid !== COORDINATOR_DID) {
+      return reply
+        .status(400)
+        .send({ error: "invalid_target", expected: COORDINATOR_DID, got: envelope.targetDid });
+    }
+
+    const originDid = envelope.originDid;
+    const trusted = await isTrustedCoordinator(originDid);
+    if (!trusted) {
+      app.log.warn(
+        {
+          routing: "federation",
+          originDid,
+          targetDid: COORDINATOR_DID,
+        },
+        "Rejecting federation result from untrusted origin"
+      );
+      return reply.status(403).send({ error: "untrusted_origin" });
+    }
+
+    const invRes = await pool.query(
+      `select invocation_id, trace_id, workflow_id, node_name, capability_id, agent_did, input
+         from invocations
+        where invocation_id = $1
+        limit 1`,
+      [envelope.invocationId]
+    );
+    if (!invRes.rowCount) {
+      app.log.warn(
+        {
+          routing: "federation_result_received",
+          originDid,
+          targetDid: COORDINATOR_DID,
+          invocationId: envelope.invocationId,
+        },
+        "Federation result for unknown invocation"
+      );
+      return reply.status(404).send({ error: "invocation_not_found" });
+    }
+
+    const invRow = invRes.rows[0] as any;
+    const workflowId: string = invRow.workflow_id;
+    const nodeName: string = invRow.node_name;
+    const agentDid: string | null = invRow.agent_did || null;
+    const capabilityId: string = invRow.capability_id;
+    const traceId: string = envelope.traceId || invRow.trace_id;
+    const input = invRow.input || {};
+
+    const resultEnvelope: any = envelope.resultEnvelope;
+
+    let envelopeSignatureValid: boolean | null = null;
+    if (agentDid && resultEnvelope) {
+      try {
+        envelopeSignatureValid = await verifyResultEnvelopeSignature(agentDid, resultEnvelope);
+      } catch {
+        envelopeSignatureValid = null;
+      }
+    }
+
+    const outputFromEnvelope =
+      resultEnvelope && (resultEnvelope as any).result !== undefined
+        ? (resultEnvelope as any).result
+        : resultEnvelope;
+
+    try {
+      await storeReceipt({
+        workflowId,
+        nodeName,
+        agentDid: agentDid || "did:noot:unknown",
+        capabilityId,
+        output: outputFromEnvelope,
+        input,
+        traceId,
+        invocationId: envelope.invocationId,
+        resultEnvelope,
+        envelopeSignatureValid,
+        // mandateId is already wired into invocations/receipts separately; omit here for now.
+      });
+    } catch (err: any) {
+      app.log.error(
+        {
+          err,
+          routing: "federation_result_store_failed",
+          workflowId,
+          nodeName,
+          invocationId: envelope.invocationId,
+        },
+        "Failed to store federated result receipt"
+      );
+      return reply.status(500).send({ error: "result_persist_failed" });
+    }
+
+    app.log.info(
+      {
+        routing: "federation_result_received",
+        originDid,
+        targetDid: COORDINATOR_DID,
+        capabilityId,
+        invocationId: envelope.invocationId,
+        traceId,
+      },
+      "Federation result stored"
+    );
+
+    return reply.send({ status: "ok" });
+  });
+
   // Find best peer for capability
   app.get("/v1/federation/route/:capability", async (req, reply) => {
     const { capability } = req.params as { capability: string };
@@ -569,5 +823,44 @@ export async function registerFederationRoutes(app: FastifyInstance<any, any, an
       status: "forwarded",
       message: "Workflow forwarded to federated coordinator (placeholder)",
     };
+  });
+
+  // ============================================================
+  // FEDERATION STATS (INTERNAL)
+  // ============================================================
+
+  // Lightweight stats endpoint for operators. This intentionally avoids
+  // new tables and derives counts from existing coordinator_peers state.
+  app.get("/internal/federation/stats", async (_req, reply) => {
+    const peersRes = await pool.query(
+      `select status, count(*)::int as count
+         from coordinator_peers
+        group by status`
+    );
+
+    const peersByStatus: Record<string, number> = {};
+    let totalPeers = 0;
+    for (const row of peersRes.rows as any[]) {
+      const status = row.status || "unknown";
+      const count = Number(row.count || 0);
+      peersByStatus[status] = count;
+      totalPeers += count;
+    }
+
+    // Basic peer health summary: peers seen in the last 5 minutes.
+    const activeRes = await pool.query(
+      `select count(*)::int as count
+         from coordinator_peers
+        where status = 'active'
+          and last_seen_at > now() - interval '5 minutes'`
+    );
+    const activePeers = activeRes.rowCount ? Number(activeRes.rows[0].count || 0) : 0;
+
+    return reply.send({
+      coordinatorDid: COORDINATOR_DID,
+      totalPeers,
+      peersByStatus,
+      activePeersLast5m: activePeers,
+    });
   });
 }

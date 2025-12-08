@@ -392,6 +392,32 @@ export type DispatchQueueItem = typeof dispatchQueue.$inferSelect;
 export type NewDispatchQueueItem = typeof dispatchQueue.$inferInsert;
 
 // ============================================================================
+// Invocations (Canonical Unit of Work)
+// ============================================================================
+
+export const invocations = pgTable("invocations", {
+  invocationId: uuid("invocation_id").primaryKey(),
+  traceId: text("trace_id").notNull(),
+  workflowId: uuid("workflow_id")
+    .references(() => workflows.id, { onDelete: "cascade" })
+    .notNull(),
+  nodeName: text("node_name").notNull(),
+  capabilityId: text("capability_id").notNull(),
+  agentDid: text("agent_did"),
+  payerDid: text("payer_did"),
+  constraints: jsonb("constraints"),
+  input: jsonb("input"),
+   mandateId: uuid("mandate_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  traceIdx: index("invocations_trace_idx").on(table.traceId),
+  workflowIdx: index("invocations_workflow_idx").on(table.workflowId),
+  agentIdx: index("invocations_agent_idx").on(table.agentDid),
+}));
+
+export type InvocationRow = typeof invocations.$inferSelect;
+
+// ============================================================================
 // Node Bids (Auction System)
 // ============================================================================
 

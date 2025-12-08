@@ -10,7 +10,7 @@ import { attemptRecovery } from "../services/recovery-engine.js";
 import { detectFault, recordFaultTrace } from "../services/fault-detector.js";
 import { isCircuitOpen, recordSuccess, recordFailure } from "../services/health.js";
 import { getCapabilitySchema } from "@nooterra/types";
-import { getAgentModelHint } from "../services/agent-card.js";
+import { getAgentModelHint, verifyResultEnvelopeSignature } from "../services/agent-card.js";
 
 dotenv.config();
 
@@ -194,7 +194,10 @@ async function processOnce() {
   console.log(`[dispatcher] found ${rows.length} jobs at ${now.toISOString()}`);
 
   for (const job of rows) {
-    const traceId = (job as any).trace_id || job.payload?.traceId;
+    const traceId =
+      (job as any).trace_id ||
+      job.payload?.invocation?.traceId ||
+      job.payload?.traceId;
     const attempt = job.attempts ?? 0;
     const capabilityId = job.payload?.capabilityId || "";
     const bidAmount = job.payload?.bidAmount;
@@ -272,7 +275,23 @@ async function processOnce() {
       }
     }
 
-    const bodyString = JSON.stringify(job.payload);
+    const invocationFromPayload = (job.payload as any)?.invocation;
+    const envelope = invocationFromPayload
+      ? {
+          version: "1.0" as const,
+          type: "invoke" as const,
+          traceId: traceId || "",
+          invocation: invocationFromPayload,
+          senderDid: COORD_RESULT_URL || "coordinator",
+          sentAt: new Date().toISOString(),
+        }
+      : undefined;
+
+    const payloadWithEnvelope = envelope
+      ? { ...job.payload, envelope }
+      : job.payload;
+
+    const bodyString = JSON.stringify(payloadWithEnvelope);
     const signature = signPayload(bodyString);
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
@@ -280,6 +299,10 @@ async function processOnce() {
       "x-nooterra-event-id": job.payload?.eventId || "",
       ...(job.workflow_id ? { "x-nooterra-workflow-id": job.workflow_id } : {}),
       ...(job.node_id ? { "x-nooterra-node-id": job.node_id } : {}),
+      ...(traceId ? { "x-nooterra-trace-id": traceId } : {}),
+      ...(invocationFromPayload?.invocationId
+        ? { "x-nooterra-invocation-id": invocationFromPayload.invocationId }
+        : {}),
     };
     if (signature) headers["x-nooterra-signature"] = signature;
 
@@ -323,7 +346,6 @@ async function processOnce() {
           capability: job.payload?.capabilityId || "",
           inputs: adapterInputs,
           config: adapterConfig, // Could be loaded from agent/capability metadata
-          traceId,
         });
         
         if (adapterResult.success) {
@@ -393,6 +415,7 @@ async function processOnce() {
             creditsEarned: budgetCheck.requiredBudget || 0,
             profile: 3,
             traceId,
+            invocationId: (job.payload as any)?.invocation?.invocationId || null,
           });
 
           // Handle payment: release escrow, pay agent, update reputation
@@ -447,6 +470,8 @@ async function processOnce() {
             input: job.payload?.inputs || job.payload?.payload || {},
             creditsEarned: budgetCheck.requiredBudget || 0,
             profile: 3,
+            traceId,
+            invocationId: (job.payload as any)?.invocation?.invocationId || null,
           });
           await pool.query(`delete from dispatch_queue where id = $1`, [job.id]);
           continue;
@@ -456,17 +481,67 @@ async function processOnce() {
       console.log(`[dispatcher] success job=${job.id} status=${res.status}`);
       await pool.query(`delete from dispatch_queue where id = $1`, [job.id]);
 
+      const rawBody = await res.json().catch(() => null);
+      let resultEnvelope: any | null = null;
+      if (rawBody && typeof rawBody === "object") {
+        if (
+          (rawBody as any).version === "1.0" &&
+          ((rawBody as any).type === "result" || (rawBody as any).type === "error")
+        ) {
+          resultEnvelope = rawBody;
+        } else if (
+          (rawBody as any).envelope &&
+          typeof (rawBody as any).envelope === "object" &&
+          (rawBody as any).envelope.version === "1.0" &&
+          ((rawBody as any).envelope.type === "result" || (rawBody as any).envelope.type === "error")
+        ) {
+          resultEnvelope = (rawBody as any).envelope;
+        }
+      }
+
+      let envelopeSignatureValid: boolean | null = null;
+      if (resultEnvelope) {
+        const envTrace = (resultEnvelope as any).traceId;
+        const envInv = (resultEnvelope as any).invocationId;
+        const invFromPayload = (job.payload as any)?.invocation?.invocationId;
+        if (envTrace && traceId && envTrace !== traceId) {
+          console.warn(
+            `[dispatcher] result envelope traceId mismatch job=${job.id} envTrace=${envTrace} traceId=${traceId}`
+          );
+        }
+        if (envInv && invFromPayload && envInv !== invFromPayload) {
+          console.warn(
+            `[dispatcher] result envelope invocationId mismatch job=${job.id} env=${envInv} payload=${invFromPayload}`
+          );
+        }
+        if (agentDid) {
+          try {
+            envelopeSignatureValid = await verifyResultEnvelopeSignature(agentDid, resultEnvelope);
+          } catch {
+            envelopeSignatureValid = null;
+          }
+        }
+      }
+
+      const outputFromEnvelope =
+        resultEnvelope && (resultEnvelope as any).result !== undefined
+          ? (resultEnvelope as any).result
+          : rawBody;
+
       // Receipt generation for native agent success
       await storeReceipt({
         workflowId: job.workflow_id,
         nodeName: job.node_id,
         agentDid,
         capabilityId,
-        output: await res.json().catch(() => null),
+        output: outputFromEnvelope,
         input: job.payload?.inputs || job.payload?.payload || {},
         creditsEarned: budgetCheck.requiredBudget || 0,
         profile: 3,
         traceId,
+        invocationId: (job.payload as any)?.invocation?.invocationId || null,
+        resultEnvelope,
+        envelopeSignatureValid,
       });
     } catch (err: any) {
       console.error(`[dispatcher] error job=${job.id} attempt=${attempt} err=${err?.message || err}`);

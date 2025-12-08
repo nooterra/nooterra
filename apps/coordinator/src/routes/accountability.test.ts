@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import Fastify from "fastify";
 import { registerAccountabilityRoutes } from "./accountability.js";
 import { pool } from "../db.js";
@@ -17,6 +17,7 @@ describe("receipts integration", () => {
     await migrate();
     await registerAccountabilityRoutes(app as any);
     await app.ready();
+    (pool.query as any) = vi.fn(pool.query.bind(pool));
     // Minimal fixture: workflow + node + receipt
     await pool.query(`insert into workflows (id, task_id, status) values ('wf-test', gen_random_uuid(), 'success') on conflict do nothing`);
     await pool.query(
@@ -67,5 +68,29 @@ describe("receipts integration", () => {
       expect(body.valid).toBe(true);
       expect(body.claims?.cap).toBe("cap.test.v1");
     }
+  });
+
+  it("aggregates trace context including invocations", async () => {
+    const traceId = "trace-test";
+    (pool.query as any).mockReset();
+    (pool.query as any)
+      .mockResolvedValueOnce({ rows: [{ id: "wf1", trace_id: traceId }] }) // workflows
+      .mockResolvedValueOnce({ rows: [{ id: "node1", trace_id: traceId }] }) // task_nodes
+      .mockResolvedValueOnce({ rows: [{ id: "rcpt1", trace_id: traceId }] }) // receipts
+      .mockResolvedValueOnce({ rows: [{ id: "ledger1", trace_id: traceId }] }) // ledger
+      .mockResolvedValueOnce({ rows: [{ invocation_id: "inv1", trace_id: traceId }] }); // invocations
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/internal/trace/${traceId}`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as any;
+    expect(body.traceId).toBe(traceId);
+    expect(body.workflows[0].id).toBe("wf1");
+    expect(body.taskNodes[0].id).toBe("node1");
+    expect(body.receipts[0].id).toBe("rcpt1");
+    expect(body.ledgerEvents[0].id).toBe("ledger1");
+    expect(body.invocations[0].invocation_id).toBe("inv1");
   });
 });

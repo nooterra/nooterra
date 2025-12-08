@@ -18,7 +18,8 @@ describe("trace context aggregation (internal)", () => {
       .mockResolvedValueOnce({ rows: [{ id: "wf1", trace_id: traceId }] }) // workflows
       .mockResolvedValueOnce({ rows: [{ id: "node1", trace_id: traceId }] }) // task_nodes
       .mockResolvedValueOnce({ rows: [{ id: "rcpt1", trace_id: traceId }] }) // receipts
-      .mockResolvedValueOnce({ rows: [{ id: "ledger1", trace_id: traceId }] }); // ledger
+      .mockResolvedValueOnce({ rows: [{ id: "ledger1", trace_id: traceId }] }) // ledger
+      .mockResolvedValueOnce({ rows: [{ invocation_id: "inv1", trace_id: traceId }] }); // invocations
 
     const res = await app.inject({
       method: "GET",

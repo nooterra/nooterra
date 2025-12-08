@@ -1,0 +1,108 @@
+name: Demo Reference Workflow
+
+on:
+  # Manual trigger only for now to avoid coupling main CI to demo agents.
+  workflow_dispatch:
+
+concurrency:
+  group: demo-reference-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  demo-reference:
+    name: Reference agents & workflow
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: nooterra
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd "curl -f http://localhost:6333/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      POSTGRES_URL: postgres://postgres:postgres@localhost:5432/nooterra
+      COORD_URL: http://localhost:3002
+      REGISTRY_URL: http://localhost:3001
+      QDRANT_URL: http://localhost:6333
+      NODE_ENV: test
+      # Super API key for coordinator demo calls
+      COORDINATOR_API_KEY: playground-free-tier
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build coordinator & registry
+        run: |
+          pnpm --filter @nooterra/coordinator build
+          pnpm --filter @nooterra/registry build
+
+      - name: Run coordinator migrations
+        env:
+          POSTGRES_URL: ${{ env.POSTGRES_URL }}
+        run: pnpm --filter @nooterra/coordinator migrate
+
+      - name: Start registry
+        env:
+          POSTGRES_URL: ${{ env.POSTGRES_URL }}
+          QDRANT_URL: ${{ env.QDRANT_URL }}
+        run: |
+          pnpm --filter @nooterra/registry start &> registry.log &
+          sleep 20
+
+      - name: Start coordinator
+        env:
+          POSTGRES_URL: ${{ env.POSTGRES_URL }}
+          REGISTRY_URL: ${{ env.REGISTRY_URL }}
+          COORDINATOR_API_KEY: ${{ env.COORDINATOR_API_KEY }}
+          RUN_DISPATCHER: "true"
+        run: |
+          pnpm --filter @nooterra/coordinator start &> coordinator.log &
+          sleep 25
+
+      - name: Register reference agents
+        env:
+          REGISTRY_URL: ${{ env.REGISTRY_URL }}
+          REF_FETCH_ENDPOINT: http://localhost:4201/nooterra/node
+          REF_SUMMARIZE_ENDPOINT: http://localhost:4202/nooterra/node
+          REF_VERIFY_ENDPOINT: http://localhost:4200/nooterra/node
+        run: pnpm register:reference-agents
+
+      - name: Run reference workflow
+        env:
+          COORD_URL: ${{ env.COORD_URL }}
+          COORDINATOR_API_KEY: ${{ env.COORDINATOR_API_KEY }}
+        run: pnpm demo:reference-workflow

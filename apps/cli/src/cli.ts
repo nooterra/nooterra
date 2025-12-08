@@ -138,13 +138,8 @@ program
   .version('0.1.0');
 
 // ============ INIT COMMAND ============
-program
-  .command('init')
-  .description('Create a new agent project')
-  .option('-n, --name <name>', 'Agent name')
-  .option('-t, --template <template>', 'Template: python, node, docker, rust')
-  .action(async (options) => {
-    console.log(chalk.cyan('\n🚀 Nooterra Agent Generator\n'));
+async function handleInit(options: { name?: string; template?: string }) {
+  console.log(chalk.cyan('\n🚀 Nooterra Agent Generator\n'));
 
     const answers = await inquirer.prompt([
       {
@@ -220,6 +215,15 @@ program
       spinner.fail(chalk.red('Failed to generate project'));
       console.error(err.message);
     }
+  }
+
+program
+  .command('init')
+  .description('Create a new agent project')
+  .option('-n, --name <name>', 'Agent name')
+  .option('-t, --template <template>', 'Template: python, node, docker, rust')
+  .action(async (options) => {
+    await handleInit(options);
   });
 
 // ============ WALLET COMMANDS ============
@@ -519,6 +523,94 @@ program
     console.log(chalk.cyan(`\n📜 Logs for ${config.did}\n`));
     console.log(chalk.yellow('Real-time logs coming soon!'));
     console.log(chalk.gray('\nCheck your agent\'s hosting platform for logs.'));
+  });
+
+// ============ AGENT COMMANDS ============
+const agent = program.command('agent').description('Agent development commands');
+
+agent
+  .command('init')
+  .description('Scaffold a new agent project (alias for "nooterra init")')
+  .option('-n, --name <name>', 'Agent name')
+  .option('-t, --template <template>', 'Template: python, node, docker, rust')
+  .action(async (options) => {
+    await handleInit(options);
+  });
+
+agent
+  .command('register')
+  .description('Register an existing agent (using nooterra.json) with the registry')
+  .option('-d, --dir <directory>', 'Project directory', '.')
+  .action(async (options) => {
+    const config = await loadConfig();
+
+    const configPath = path.join(options.dir, 'nooterra.json');
+    let agentConfig: any;
+
+    try {
+      const data = await fs.readFile(configPath, 'utf-8');
+      agentConfig = JSON.parse(data);
+    } catch {
+      console.log(chalk.red('No nooterra.json found. Run: nooterra agent:init'));
+      return;
+    }
+
+    console.log(chalk.cyan('\n🔐 Register Agent with Nooterra\n'));
+
+    const { endpoint } = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'endpoint',
+        message: 'Agent endpoint URL:',
+        default: agentConfig.endpoint || 'https://your-agent.railway.app',
+        validate: (input: string) => input.startsWith('http') || 'Must be a valid URL',
+      },
+    ]);
+
+    const spinner = ora('Registering agent...').start();
+
+    try {
+      const did = config.did || `did:noot:agent:${Date.now().toString(36)}`;
+
+      const res = await fetch(`${REGISTRY_URL}/v1/agent/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(config.apiKey ? { 'x-api-key': config.apiKey } : {}),
+        },
+        body: JSON.stringify({
+          did,
+          name: agentConfig.name,
+          endpoint,
+          walletAddress: config.walletAddress,
+          capabilities: (agentConfig.capabilities || []).map((cap: any) => ({
+            capabilityId: cap.id,
+            description: cap.description,
+            tags: cap.tags || [],
+            price_cents: cap.price || 10,
+          })),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json() as any;
+        throw new Error(err.error || 'Registration failed');
+      }
+
+      config.did = did;
+      await saveConfig(config);
+
+      spinner.succeed(chalk.green('Agent registered successfully!'));
+
+      console.log(chalk.cyan('\n📋 Agent Details:\n'));
+      console.log(chalk.white(`DID:      ${did}`));
+      console.log(chalk.white(`Endpoint: ${endpoint}`));
+      console.log(chalk.white(`Wallet:   ${config.walletAddress || 'Not connected'}`));
+
+    } catch (err: any) {
+      spinner.fail(chalk.red('Agent registration failed'));
+      console.error(err.message);
+    }
   });
 
 // ============ WORKFLOW COMMANDS ============
@@ -1805,4 +1897,3 @@ Built with ❤️ on [Nooterra](https://nooterra.ai)
 }
 
 program.parse();
-

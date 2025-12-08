@@ -37,6 +37,7 @@ import { registerConstitutionalRoutes } from "./constitutional.js";
 // DEPRECATED: Dispute system removed - replaced by objective fault detection (Sprint 5)
 // import { registerDisputeRoutes } from "./disputes.js";
 import { registerMetricsRoutes } from "./metrics.js";
+import { registerOpsRoutes } from "./ops.js";
 // Re-export individual route registrations for selective use
 export {
   registerAuthRoutes,
@@ -259,6 +260,9 @@ export async function registerAllRoutes(
 
   // Sprint 5: Observability metrics (public, no auth)
   await registerMetricsRoutes(app);
+
+  // Sprint 5: Operator console (v0)
+  await registerOpsRoutes(app);
 
   // Sprint 5: 12-Layer Architecture - Memory & Safety
   await registerAgentMemoryRoutes(app, guards);

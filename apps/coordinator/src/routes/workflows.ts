@@ -52,6 +52,21 @@ interface RouteGuards {
   apiGuard: (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 }
 
+const mandateSchema = z.object({
+  mandateId: z.string().uuid().optional(),
+  payerDid: z.string().optional(),
+  projectId: z.string().nullable().optional(),
+  budgetCapCents: z.number().nullable().optional(),
+  maxPriceCents: z.number().nullable().optional(),
+  policyIds: z.array(z.string()).optional(),
+  regionsAllow: z.array(z.string()).optional(),
+  regionsDeny: z.array(z.string()).optional(),
+  notBefore: z.string().nullable().optional(),
+  notAfter: z.string().nullable().optional(),
+  signature: z.string().optional(),
+  signatureAlgorithm: z.string().optional(),
+});
+
 /**
  * Register workflow routes
  */
@@ -331,6 +346,118 @@ export async function registerWorkflowRoutes(
       } catch (err: any) {
         app.log.error({ err }, "get workflow budget failed");
         return reply.status(500).send({ error: "workflow_budget_failed" });
+      }
+    }
+  );
+
+  // Attach or update a Mandate for a workflow
+  app.post(
+    "/v1/workflows/:id/mandate",
+    { preHandler: [rateLimitGuard, apiGuard] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const parsed = mandateSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: parsed.error.flatten(),
+          message: "Invalid mandate payload",
+        });
+      }
+      const body = parsed.data;
+
+      try {
+        const wfRes = await pool.query(
+          `select id, payer_did, max_cents from workflows where id = $1`,
+          [id]
+        );
+        if (!wfRes.rowCount) {
+          return reply.status(404).send({ error: "Workflow not found" });
+        }
+        const wf = wfRes.rows[0];
+
+        if (body.payerDid && body.payerDid !== wf.payer_did) {
+          return reply
+            .status(400)
+            .send({ error: "payerDid mismatch with workflow payer_did" });
+        }
+
+        const mandateId = body.mandateId || uuidv4();
+        const policyIds = body.policyIds && body.policyIds.length ? body.policyIds : null;
+        const regionsAllow =
+          body.regionsAllow && body.regionsAllow.length ? body.regionsAllow : null;
+        const regionsDeny =
+          body.regionsDeny && body.regionsDeny.length ? body.regionsDeny : null;
+
+        const budgetCap =
+          body.budgetCapCents != null ? body.budgetCapCents : wf.max_cents;
+
+        await pool.query(
+          `update workflows
+              set mandate_id = $2,
+                  mandate_policy_ids = $3,
+                  mandate_regions_allow = $4,
+                  mandate_regions_deny = $5,
+                  max_cents = $6
+            where id = $1`,
+          [id, mandateId, policyIds, regionsAllow, regionsDeny, budgetCap]
+        );
+
+        return reply.send({
+          mandateId,
+          payerDid: wf.payer_did,
+          budgetCapCents: budgetCap,
+          maxPriceCents: body.maxPriceCents ?? null,
+          policyIds: policyIds || [],
+          regionsAllow: regionsAllow || [],
+          regionsDeny: regionsDeny || [],
+          notBefore: body.notBefore ?? null,
+          notAfter: body.notAfter ?? null,
+          signature: body.signature ?? null,
+          signatureAlgorithm: body.signatureAlgorithm ?? null,
+        });
+      } catch (err: any) {
+        app.log.error({ err }, "set mandate failed");
+        return reply.status(500).send({ error: "mandate_set_failed" });
+      }
+    }
+  );
+
+  // Get Mandate for a workflow
+  app.get(
+    "/v1/workflows/:id/mandate",
+    { preHandler: [rateLimitGuard, apiGuard] },
+    async (request, reply) => {
+      const { id } = request.params as { id: string };
+      try {
+        const wfRes = await pool.query(
+          `select mandate_id, payer_did, max_cents, mandate_policy_ids, mandate_regions_allow, mandate_regions_deny
+             from workflows
+            where id = $1`,
+          [id]
+        );
+        if (!wfRes.rowCount) {
+          return reply.status(404).send({ error: "Workflow not found" });
+        }
+        const wf = wfRes.rows[0];
+        if (
+          !wf.mandate_id &&
+          !wf.mandate_policy_ids &&
+          !wf.mandate_regions_allow &&
+          !wf.mandate_regions_deny
+        ) {
+          return reply.status(404).send({ error: "Mandate not set" });
+        }
+        return reply.send({
+          mandateId: wf.mandate_id,
+          payerDid: wf.payer_did,
+          budgetCapCents: wf.max_cents ?? null,
+          policyIds: wf.mandate_policy_ids || [],
+          regionsAllow: wf.mandate_regions_allow || [],
+          regionsDeny: wf.mandate_regions_deny || [],
+        });
+      } catch (err: any) {
+        app.log.error({ err }, "get mandate failed");
+        return reply.status(500).send({ error: "mandate_get_failed" });
       }
     }
   );

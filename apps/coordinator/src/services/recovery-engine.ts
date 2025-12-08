@@ -16,6 +16,7 @@
 import { pool } from "../db.js";
 import { selectAgentByCapability, closeNodeAuction, isAuctionEnabled } from "./auction.js";
 import { createRouter } from "./router/factory.js";
+import { buildInvocation } from "./invocation.js";
 import { MessageType } from "@nooterra/types";
 import type { NootMessage, TaskPayload, CandidateTarget } from "@nooterra/types";
 import { releaseBudget } from "./budget-guard.js";
@@ -333,21 +334,76 @@ async function enqueueRecoveryDispatch(
     );
     const taskId = wfRes.rows[0]?.task_id;
 
+    const baseOriginal =
+      typeof originalPayload === "object" && originalPayload !== null
+        ? (originalPayload as any)
+        : {};
+
+    const inputs = baseOriginal.inputs || baseOriginal.payload || {};
+
+    const traceRes = await pool.query(
+      `select trace_id from task_nodes where workflow_id = $1 and name = $2 limit 1`,
+      [workflowId, nodeName]
+    );
+    const traceId = traceRes.rows[0]?.trace_id || null;
+
+    const invocation = buildInvocation({
+      workflowId,
+      nodeName,
+      capabilityId,
+      input: inputs,
+      traceId,
+      payerDid: null,
+      projectId: null,
+      maxPriceCents: null,
+      budgetCapCents: null,
+      timeoutMs: null,
+      targetAgentId: agentDid,
+      deadlineAt: null,
+      policyIds: null,
+      regionsAllow: null,
+      regionsDeny: null,
+    });
+
     const payload = {
-      ...(typeof originalPayload === "object" && originalPayload !== null ? originalPayload : {}),
+      ...baseOriginal,
       agentDid,
       capabilityId,
       isRecovery: true,
+      invocation,
     };
-
-    const traceRes = await pool.query(`select trace_id from task_nodes where workflow_id = $1 and name = $2 limit 1`, [workflowId, nodeName]);
-    const traceId = traceRes.rows[0]?.trace_id || null;
 
     await pool.query(
       `INSERT INTO dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, status, next_attempt, trace_id)
        VALUES ($1, $2, $3, 'node.execute', $4, $5, 'pending', NOW(), $6)`,
       [taskId, workflowId, nodeName, endpoint, JSON.stringify(payload), traceId]
     );
+    // Persist invocation row for audit/lookup
+    try {
+      await pool.query(
+        `insert into invocations (invocation_id, trace_id, workflow_id, node_name, capability_id, agent_did, payer_did, constraints, input, mandate_id)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         on conflict (invocation_id) do nothing`,
+        [
+          invocation.invocationId,
+          invocation.traceId,
+          workflowId,
+          nodeName,
+          capabilityId,
+          agentDid,
+          null,
+          invocation.constraints || null,
+          invocation.input as any,
+          invocation.mandateId || null,
+        ]
+      );
+    } catch (err: any) {
+      log("warn", "Failed to persist recovery invocation (non-fatal)", {
+        workflowId,
+        nodeName,
+        error: err.message,
+      });
+    }
 
     log("info", "Recovery dispatch enqueued", { workflowId, nodeName, agentDid });
   } catch (err: any) {

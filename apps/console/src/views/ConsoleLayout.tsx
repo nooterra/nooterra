@@ -10,6 +10,7 @@ export default function ConsoleLayout() {
     { label: "Agents", to: "/console/agents" },
     { label: "Tasks", to: "/console/tasks" },
     { label: "Workflows", to: "/console/workflows" },
+    { label: "Ops", to: "/console/ops/traces" },
     { label: "Network", to: "/console/network" },
     { label: "Health", to: "/console/health" },
     { label: "Credits", to: "/console/credits" },
