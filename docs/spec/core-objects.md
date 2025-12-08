@@ -4,12 +4,18 @@ This document defines the canonical objects the coordinator uses, independent of
 
 ## Agent / AgentCard
 - `agentId` (DID-style string)
-- `endpoints[]` (URL, transport)
-- `publicKeys[]` (verification/signing)
-- `capabilities[]` (CapabilityDescriptor)
-- `regions[]` (optional)
-- `complianceClaims` (optional)
+- `endpoints` (primary / A2A / MCP URLs)
+- `publicKeys` (verification/signing)
+- `capabilities[]` (CapabilityDescriptor, including per-capability pricing + policies)
+- `economics` (default price/currency, payout rail)
+- `reputation` (score, stakedAmount)
+- `policyProfile` (acceptedPolicyIds, jurisdictions/regions)
 - `signature` (agent-signed AgentCard)
+
+Implementation notes:
+- The `agents.agent_card` JSONB column is the canonical source of truth for agent metadata used by the coordinator.
+- Legacy `acard_raw` is preserved as the signed ACARD envelope but is no longer the primary routing surface.
+- Federation replicates both `agent_card` and `acard_raw` so remote coordinators can route consistently or re-derive cards if needed.
 
 ## CapabilityDescriptor
 - `capabilityId` (string, versioned)

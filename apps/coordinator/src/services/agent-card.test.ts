@@ -34,10 +34,19 @@ const mockQuery = pool.query as unknown as ReturnType<typeof vi.fn>;
             keys: { signingPublicKey: "pk", didUri: "did:noot:test-agent" },
             capabilities: [
               { id: "cap.text.generate.v1", name: "Text Gen" },
-              { id: "cap.code.generate.v1", name: "Code Gen" },
+              { id: "cap.verify.generic.v1", name: "Verifier" },
             ],
             policyProfile: {
               acceptedPolicyIds: ["policy.safe.text"],
+              jurisdictions: ["us-west", "eu-central"],
+            },
+            economics: {
+              defaultPriceCents: 10,
+              defaultCurrency: "usd",
+            },
+            reputation: {
+              score: 0.9,
+              stakedAmount: 1000,
             },
           },
         },
@@ -59,6 +68,13 @@ const mockQuery = pool.query as unknown as ReturnType<typeof vi.fn>;
     expect(profile?.did).toBe("did:noot:test-agent");
     expect(profile?.endpoint).toBe("https://agent.example.com");
     expect(profile?.capabilityIds).toContain("cap.text.generate.v1");
+    expect(profile?.capabilityIds).toContain("cap.verify.generic.v1");
     expect(profile?.acceptedPolicyIds).toContain("policy.safe.text");
+    expect(profile?.regionsAllow).toContain("us-west");
+    expect(profile?.defaultPriceCents).toBe(10);
+    expect(profile?.defaultCurrency).toBe("usd");
+    expect(profile?.reputationScore).toBe(0.9);
+    expect(profile?.stakedAmount).toBe(1000);
+    expect(profile?.supportsVerification).toBe(true);
   });
 });

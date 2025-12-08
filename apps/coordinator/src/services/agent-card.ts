@@ -41,9 +41,22 @@ export async function getAgentModelHint(agentDid: string): Promise<string | null
 export interface AgentRoutingProfile {
   did: string;
   endpoint: string | null;
+
   capabilityIds: string[];
   acceptedPolicyIds: string[];
+
+  regionsAllow: string[];
+  regionsDeny: string[];
+
   modelHint: string | null;
+
+  defaultPriceCents: number | null;
+  defaultCurrency: string | null;
+
+  reputationScore: number | null;
+  stakedAmount: number | null;
+
+  supportsVerification: boolean;
 }
 
 /**
@@ -71,12 +84,42 @@ export async function getAgentRoutingProfile(agentDid: string): Promise<AgentRou
 
   const modelHint = await getAgentModelHint(agentDid);
 
+  const regionsAllow: string[] =
+    card.policyProfile && Array.isArray(card.policyProfile.jurisdictions)
+      ? (card.policyProfile.jurisdictions as string[])
+      : [];
+  const regionsDeny: string[] = []; // reserved for future explicit deny lists
+
+  const defaultPriceCents =
+    typeof card.economics?.defaultPriceCents === "number"
+      ? card.economics.defaultPriceCents
+      : null;
+  const defaultCurrency = card.economics?.defaultCurrency ?? null;
+
+  const reputationScore =
+    typeof card.reputation?.score === "number" ? card.reputation.score : null;
+  const stakedAmount =
+    typeof card.reputation?.stakedAmount === "number" ? card.reputation.stakedAmount : null;
+
+  const supportsVerification = Array.isArray(card.capabilities)
+    ? card.capabilities.some((c) => {
+        const id = String(c.id as unknown as string);
+        return id === "cap.verify.generic.v1" || id.startsWith("cap.verify.");
+      })
+    : false;
+
   return {
     did: agentDid,
     endpoint,
     capabilityIds,
     acceptedPolicyIds,
+    regionsAllow,
+    regionsDeny,
     modelHint,
+    defaultPriceCents,
+    defaultCurrency,
+    reputationScore,
+    stakedAmount,
+    supportsVerification,
   };
 }
-
