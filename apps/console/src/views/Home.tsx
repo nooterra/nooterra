@@ -1,7 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 import Logo from '../../../../ChatGPT Image Dec 7, 2025, 08_19_14 PM.png';
 
 export default function Home() {
+  const [isWaitlistOpen, setWaitlistOpen] = useState(false);
+  const [waitlistEmail, setWaitlistEmail] = useState("");
+  const [waitlistSubmitted, setWaitlistSubmitted] = useState(false);
+
+  const handleWaitlistSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!waitlistEmail.trim()) return;
+    const subject = encodeURIComponent("Nooterra Waitlist");
+    const body = encodeURIComponent(`Please add me to the Nooterra waitlist.\n\nEmail: ${waitlistEmail.trim()}`);
+    window.location.href = `mailto:aiden@nooterra.ai?subject=${subject}&body=${body}`;
+    setWaitlistSubmitted(true);
+  };
+
   return (
     <div className="min-h-screen bg-black text-white font-mono antialiased">
       <div className="flex flex-col min-h-screen p-8 md:p-12 lg:p-16">
@@ -20,10 +33,41 @@ export default function Home() {
             <a
               href="#"
               className="text-sm tracking-widest hover:opacity-75 transition-opacity"
+              onClick={(e) => {
+                e.preventDefault();
+                setWaitlistOpen(true);
+                setWaitlistSubmitted(false);
+              }}
             >
               JOIN THE WAITLIST
             </a>
             <div className="w-20 h-px bg-white" />
+            <div className="flex items-center gap-4 text-xs tracking-widest mt-2">
+              <a
+                href="https://discord.gg/nooterra"
+                target="_blank"
+                rel="noreferrer"
+                className="hover:opacity-75 transition-opacity"
+              >
+                DISCORD
+              </a>
+              <span className="opacity-40">/</span>
+              <a
+                href="https://twitter.com/nooterra"
+                target="_blank"
+                rel="noreferrer"
+                className="hover:opacity-75 transition-opacity"
+              >
+                X
+              </a>
+              <span className="opacity-40">/</span>
+              <a
+                href="mailto:aiden@nooterra.ai"
+                className="hover:opacity-75 transition-opacity"
+              >
+                CONTACT
+              </a>
+            </div>
           </div>
         </header>
 
@@ -101,6 +145,47 @@ export default function Home() {
             </div>
           </div>
         </main>
+
+        {isWaitlistOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+            <div className="w-full max-w-md bg-black border border-white/20 p-8 relative">
+              <button
+                className="absolute top-3 right-3 text-xs tracking-widest hover:opacity-75"
+                onClick={() => setWaitlistOpen(false)}
+              >
+                CLOSE
+              </button>
+              <h3 className="text-sm tracking-widest mb-2">WAITLIST</h3>
+              <div className="w-12 h-px bg-white mb-6" />
+              <p className="text-xs md:text-sm text-white/80 mb-4">
+                Enter your email to join the Nooterra waitlist. We&apos;ll reach out as we open
+                access to more teams.
+              </p>
+              <form onSubmit={handleWaitlistSubmit} className="space-y-4">
+                <input
+                  type="email"
+                  required
+                  value={waitlistEmail}
+                  onChange={(e) => setWaitlistEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full bg-black border border-white/40 px-3 py-2 text-sm outline-none focus:border-white"
+                />
+                <button
+                  type="submit"
+                  className="w-full border border-white px-4 py-2 text-xs tracking-widest hover:bg-white hover:text-black transition-colors"
+                >
+                  JOIN WAITLIST
+                </button>
+              </form>
+              {waitlistSubmitted && (
+                <p className="mt-4 text-xs text-white/60">
+                  We opened an email draft to <span className="underline">aiden@nooterra.ai</span>.
+                  Send it to confirm your spot.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
