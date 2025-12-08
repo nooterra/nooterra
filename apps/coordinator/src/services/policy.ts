@@ -111,6 +111,11 @@ export async function getPolicyForWorkflow(workflowId: string): Promise<PolicyRu
     
     return result.rows[0].rules as PolicyRules;
   } catch (err: any) {
+    if (err?.code === "42703") {
+      // Column missing in older schema; treat as no policy.
+      log("warn", "Policy lookup skipped (schema mismatch)", { workflowId, error: err.message });
+      return null;
+    }
     log("error", "Failed to get policy for workflow", { workflowId, error: err.message });
     return null;
   }

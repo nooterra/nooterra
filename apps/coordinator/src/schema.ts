@@ -290,6 +290,7 @@ export const ledgerEvents = pgTable("ledger_events", {
   workflowId: uuid("workflow_id"),
   nodeName: text("node_name"),
   description: text("description"),
+  traceId: text("trace_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   ownerDidIdx: index("ledger_events_owner_did_idx").on(table.ownerDid),
@@ -378,6 +379,7 @@ export const dispatchQueue = pgTable("dispatch_queue", {
   payload: text("payload").notNull(),
   attempt: integer("attempt").default(0).notNull(),
   status: varchar("status", { length: 20 }).default("pending").notNull(),
+  traceId: text("trace_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   claimedAt: timestamp("claimed_at", { withTimezone: true }),
   claimedBy: text("claimed_by"),
@@ -729,4 +731,3 @@ export type NewBlackboard = typeof blackboards.$inferInsert;
 
 export type BlackboardEvent = typeof blackboardEvents.$inferSelect;
 export type NewBlackboardEvent = typeof blackboardEvents.$inferInsert;
-

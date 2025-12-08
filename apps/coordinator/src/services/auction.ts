@@ -551,8 +551,9 @@ export async function selectAgentByCapability(
   const res = await pool.query(
     `SELECT a.did, a.endpoint, COALESCE(r.overall_score, 0.5) as score
      FROM agents a
+     JOIN capabilities c ON c.agent_did = a.did
      LEFT JOIN agent_reputation r ON r.agent_did = a.did
-     WHERE $1 = ANY(a.capabilities) 
+     WHERE c.capability_id = $1
        AND a.is_active = true 
        AND a.health_status != 'unhealthy'
        AND NOT (a.did = ANY($2))

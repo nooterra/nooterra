@@ -54,6 +54,7 @@ export async function migrate() {
   await pool.query(`alter table agents add column if not exists acard_lineage text;`);
   await pool.query(`alter table agents add column if not exists acard_signature text;`);
   await pool.query(`alter table agents add column if not exists acard_raw jsonb;`);
+  await pool.query(`alter table agents add column if not exists agent_card jsonb;`);
   await pool.query(`alter table agents add column if not exists did_method text;`);
   await pool.query(`alter table agents add column if not exists pqc_public_key text;`);
   await pool.query(`alter table agents add column if not exists source_peer text;`);

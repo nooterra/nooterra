@@ -16,6 +16,13 @@ export async function migrate() {
     );
   `);
 
+  // OAuth columns
+  await pool.query(`alter table users add column if not exists google_id text unique;`);
+  await pool.query(`alter table users add column if not exists name text;`);
+  await pool.query(`alter table users add column if not exists avatar_url text;`);
+  await pool.query(`alter table users add column if not exists role text default 'user';`);
+  await pool.query(`create index if not exists ix_users_google_id on users(google_id) where google_id is not null;`);
+
   await pool.query(`
     create table if not exists projects (
       id serial primary key,
@@ -37,6 +44,20 @@ export async function migrate() {
       revoked_at timestamptz
     );
   `);
+
+  // Refresh tokens for secure session management
+  await pool.query(`
+    create table if not exists refresh_tokens (
+      id serial primary key,
+      user_id int references users(id) on delete cascade,
+      token_hash text not null unique,
+      expires_at timestamptz not null,
+      revoked_at timestamptz,
+      created_at timestamptz default now()
+    );
+  `);
+  await pool.query(`create index if not exists ix_refresh_tokens_user on refresh_tokens(user_id);`);
+  await pool.query(`create index if not exists ix_refresh_tokens_hash on refresh_tokens(token_hash);`);
 
   await pool.query(`
     create table if not exists policies (
@@ -306,11 +327,13 @@ export async function migrate() {
       attempts int default 0,
       next_attempt timestamptz default now(),
       status text default 'pending',
+      trace_id text,
       created_at timestamptz default now()
     );
   `);
 
   await pool.query(`alter table dispatch_queue add column if not exists last_error text;`);
+  await pool.query(`alter table dispatch_queue add column if not exists trace_id text;`);
   // ensure unique constraint for ON CONFLICT (dispatch_key)
   await pool.query(`do $$
   begin
@@ -354,7 +377,7 @@ export async function migrate() {
 
   // optional price for capabilities (populated by registry; safe to add here)
   await pool.query(`alter table if exists capabilities add column if not exists price_cents int default 0;`);
-  
+
   // Add unique constraint for capabilities upsert
   await pool.query(`
     do $$ begin
@@ -387,15 +410,15 @@ export async function migrate() {
   await pool.query(`alter table users add column if not exists avatar_url text;`);
   await pool.query(`alter table users add column if not exists hf_token text;`);
   await pool.query(`alter table users add column if not exists stripe_customer_id text;`);
-  
+
   // Web3 wallet support
   await pool.query(`alter table users add column if not exists wallet_address text;`);
   await pool.query(`alter table users add column if not exists preferred_chain_id int default 137;`); // Polygon by default
   await pool.query(`create unique index if not exists users_wallet_address_idx on users(wallet_address) where wallet_address is not null;`);
-  
+
   // Make email optional for wallet users
-  await pool.query(`alter table users alter column email drop not null;`).catch(() => {});
-  await pool.query(`alter table users alter column password_hash drop not null;`).catch(() => {});
+  await pool.query(`alter table users alter column email drop not null;`).catch(() => { });
+  await pool.query(`alter table users alter column password_hash drop not null;`).catch(() => { });
 
   // Conversations
   await pool.query(`
@@ -493,13 +516,16 @@ export async function migrate() {
       completed_at timestamptz
     );
   `);
-  
+
   // Add crypto payment columns
   await pool.query(`alter table payment_transactions add column if not exists tx_hash text;`);
   await pool.query(`alter table payment_transactions add column if not exists chain_id int;`);
   await pool.query(`alter table payment_transactions add column if not exists from_address text;`);
   await pool.query(`alter table payment_transactions add column if not exists payment_method text default 'stripe';`);
+  await pool.query(`alter table payment_transactions add column if not exists provider_event_id text;`);
+  await pool.query(`alter table payment_transactions add column if not exists provider_ref text;`);
   await pool.query(`create unique index if not exists payment_tx_hash_idx on payment_transactions(tx_hash) where tx_hash is not null;`);
+  await pool.query(`create unique index if not exists payment_provider_event_idx on payment_transactions(provider_event_id) where provider_event_id is not null;`);
 
   await pool.query(`
     create table if not exists subscriptions (
@@ -706,6 +732,11 @@ export async function migrate() {
   `);
   await pool.query(`create index if not exists traces_trace_id_idx on traces(trace_id);`);
   await pool.query(`create index if not exists traces_span_id_idx on traces(span_id);`);
+  // Propagate trace_ids to core tables for audit correlation
+  await pool.query(`alter table workflows add column if not exists trace_id text;`);
+  await pool.query(`alter table task_nodes add column if not exists trace_id text;`);
+  await pool.query(`alter table task_receipts add column if not exists trace_id text;`);
+  await pool.query(`alter table ledger_events add column if not exists trace_id text;`);
 
   // ============================================================
   // PHASE 3: PROTOCOL COMPLETENESS

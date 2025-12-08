@@ -10,6 +10,7 @@ import { attemptRecovery } from "../services/recovery-engine.js";
 import { detectFault, recordFaultTrace } from "../services/fault-detector.js";
 import { isCircuitOpen, recordSuccess, recordFailure } from "../services/health.js";
 import { getCapabilitySchema } from "@nooterra/types";
+import { getAgentModelHint } from "../services/agent-card.js";
 
 dotenv.config();
 
@@ -178,11 +179,11 @@ async function processOnce() {
 
   const now = new Date();
   const { rows } = await pool.query(
-    `select id, task_id, workflow_id, node_id, event, target_url, payload, attempts
-     from dispatch_queue
-     where status = 'pending' and next_attempt <= $1
-     order by id asc
-     limit 10`,
+    `select id, task_id, workflow_id, node_id, event, target_url, payload, attempts, trace_id
+       from dispatch_queue
+      where status = 'pending' and next_attempt <= $1
+   order by id asc
+      limit 10`,
     [now]
   );
 
@@ -193,6 +194,7 @@ async function processOnce() {
   console.log(`[dispatcher] found ${rows.length} jobs at ${now.toISOString()}`);
 
   for (const job of rows) {
+    const traceId = (job as any).trace_id || job.payload?.traceId;
     const attempt = job.attempts ?? 0;
     const capabilityId = job.payload?.capabilityId || "";
     const bidAmount = job.payload?.bidAmount;
@@ -292,12 +294,36 @@ async function processOnce() {
       if (!isNativeAgent) {
         // Use adapter for external APIs (HuggingFace, OpenAI-compatible, Replicate, etc.)
         console.log(`[dispatcher] using adapter=${adapterType} for job=${job.id}`);
-        
+
+        // Build adapter inputs from queued payload (support both legacy and recovery shapes)
+        const adapterInputs: any = {
+          ...(job.payload?.inputs || job.payload?.payload || {}),
+        };
+        if (!adapterInputs.prompt && typeof (job.payload as any)?.prompt === "string") {
+          adapterInputs.prompt = (job.payload as any).prompt;
+        }
+        if (!adapterInputs.messages && Array.isArray((job.payload as any)?.messages)) {
+          adapterInputs.messages = (job.payload as any).messages;
+        }
+
+        // Pull model hint from canonical AgentCard metadata (or legacy acard_raw) if not already present.
+        const adapterConfig: Record<string, any> = {};
+        if (job.payload?.agentDid) {
+          const agentModel = await getAgentModelHint(job.payload.agentDid);
+          if (agentModel) {
+            adapterConfig.model = agentModel;
+            if (!adapterInputs.model) {
+              adapterInputs.model = agentModel;
+            }
+          }
+        }
+
         const adapterResult = await callExternalAgent({
           endpoint: job.target_url,
           capability: job.payload?.capabilityId || "",
-          inputs: job.payload?.inputs || {},
-          config: {}, // Could be loaded from agent/capability metadata
+          inputs: adapterInputs,
+          config: adapterConfig, // Could be loaded from agent/capability metadata
+          traceId,
         });
         
         if (adapterResult.success) {
@@ -325,7 +351,7 @@ async function processOnce() {
                 job.node_id,
                 "schema_violation",
                 job.payload?.agentDid,
-                faultResult.evidence
+                { ...faultResult.evidence, traceId }
               );
               // Release budget and treat as failure
               await releaseBudget(job.workflow_id, job.node_id);
@@ -366,19 +392,20 @@ async function processOnce() {
             input: job.payload?.inputs || job.payload?.payload || {},
             creditsEarned: budgetCheck.requiredBudget || 0,
             profile: 3,
+            traceId,
           });
 
           // Handle payment: release escrow, pay agent, update reputation
-          if (agentDid) {
-            // Record circuit breaker success
-            recordSuccess(agentDid);
+        if (agentDid) {
+          // Record circuit breaker success
+          recordSuccess(agentDid);
             
-            await handleNodeSuccess(
-              job.workflow_id,
-              job.node_id,
-              agentDid,
-              adapterResult.latency_ms
-            );
+          await handleNodeSuccess(
+            job.workflow_id,
+            job.node_id,
+            agentDid,
+            adapterResult.latency_ms
+          );
             console.log(`[dispatcher] payment success handled for node=${job.node_id} agent=${agentDid}`);
           }
           
@@ -439,6 +466,7 @@ async function processOnce() {
         input: job.payload?.inputs || job.payload?.payload || {},
         creditsEarned: budgetCheck.requiredBudget || 0,
         profile: 3,
+        traceId,
       });
     } catch (err: any) {
       console.error(`[dispatcher] error job=${job.id} attempt=${attempt} err=${err?.message || err}`);
@@ -454,7 +482,7 @@ async function processOnce() {
           job.node_id,
           "error",
           agentDid || null,
-          { error: String(err?.message || err), attempts: nextAttempt }
+          { error: String(err?.message || err), attempts: nextAttempt, traceId }
         );
 
         // Release reserved budget (refund to workflow)

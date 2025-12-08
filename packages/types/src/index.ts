@@ -34,6 +34,29 @@ export {
   type ReceiptClaims,
 } from "./agent.js";
 
+// AgentCard v2 (Nooterra + A2A projection)
+export {
+  type AgentId,
+  type CapabilityId,
+  type PolicyId,
+  type NooterraAgentCard,
+  type NooterraCapabilityDescriptor,
+  type NooterraAgentEndpoints,
+  type NooterraAgentKeys,
+  type NooterraAgentEconomics,
+  type NooterraAgentReputation,
+  type NooterraAgentPolicyProfile,
+  type NooterraAgentContact,
+  type A2AAgentCard,
+  type A2AAgentCapability,
+  type A2AAgentPricing,
+  type A2AAgentContact,
+  type A2AAuthConfig,
+  type A2AApiDescriptor,
+  type ToA2AAgentCardOptions,
+  toA2AAgentCard,
+} from "./agent-card.js";
+
 // Ledger types
 export {
   type Currency,

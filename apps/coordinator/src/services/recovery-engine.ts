@@ -273,8 +273,9 @@ async function selectAlternativeAgent(
   const candidatesRes = await pool.query(
     `SELECT a.did, a.endpoint, COALESCE(r.overall_score, 0.5) as score
      FROM agents a
+     JOIN capabilities c ON c.agent_did = a.did
      LEFT JOIN agent_reputation r ON r.agent_did = a.did
-     WHERE $1 = ANY(a.capabilities) 
+     WHERE c.capability_id = $1
        AND a.is_active = true 
        AND a.health_status != 'unhealthy'
        AND NOT (a.did = ANY($2))
@@ -339,10 +340,13 @@ async function enqueueRecoveryDispatch(
       isRecovery: true,
     };
 
+    const traceRes = await pool.query(`select trace_id from task_nodes where workflow_id = $1 and name = $2 limit 1`, [workflowId, nodeName]);
+    const traceId = traceRes.rows[0]?.trace_id || null;
+
     await pool.query(
-      `INSERT INTO dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, status, next_attempt)
-       VALUES ($1, $2, $3, 'node.execute', $4, $5, 'pending', NOW())`,
-      [taskId, workflowId, nodeName, endpoint, JSON.stringify(payload)]
+      `INSERT INTO dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, status, next_attempt, trace_id)
+       VALUES ($1, $2, $3, 'node.execute', $4, $5, 'pending', NOW(), $6)`,
+      [taskId, workflowId, nodeName, endpoint, JSON.stringify(payload), traceId]
     );
 
     log("info", "Recovery dispatch enqueued", { workflowId, nodeName, agentDid });

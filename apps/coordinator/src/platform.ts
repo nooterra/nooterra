@@ -12,6 +12,7 @@ import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
 import { pool } from "./db.js";
+import { PaymentService } from "./services/payment-service.js";
 
 // Types
 type AuthenticatedUser = { 
@@ -113,7 +114,26 @@ const deployHFModelSchema = z.object({
   capabilities: z.array(z.string()).optional(),
 });
 
-export function registerPlatformRoutes(app: FastifyInstance<any, any, any, any, any>) {
+export async function registerPlatformRoutes(app: FastifyInstance<any, any, any, any, any>) {
+  // Capture raw body for Stripe webhook only (signature verification needs exact bytes)
+  app.addHook("onRequest", async (request, _reply) => {
+    if (request.method === "POST" && request.url === "/v1/payments/stripe/webhook") {
+      const chunks: Buffer[] = [];
+      for await (const chunk of request.raw) {
+        chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+      }
+      (request as any).rawBody = Buffer.concat(chunks);
+    }
+  });
+  let paymentService: PaymentService | null = null;
+  if (process.env.STRIPE_SECRET_KEY) {
+    try {
+      paymentService = new PaymentService();
+    } catch (err) {
+      app.log.error({ err }, "Failed to initialize PaymentService");
+      paymentService = null;
+    }
+  }
   // ========== CHAT COMPLETIONS ==========
   app.post("/v1/chat/completions", async (request, reply) => {
     const user = await getUserFromRequest(request, reply);
@@ -521,45 +541,30 @@ export function registerPlatformRoutes(app: FastifyInstance<any, any, any, any, 
     const { amount } = parsed.data;
     const amountCents = Math.ceil(amount * 0.01 * 100); // 1 NCR = $0.01
 
-    // In production, use Stripe
-    const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
-    
-    if (STRIPE_SECRET_KEY) {
+    // In production, use PaymentService/StripeRail
+    if (paymentService) {
       try {
-        // Dynamic import of stripe - will fail gracefully if not installed
-        let stripeClient: any;
-        try {
-          const stripeModule = await (Function('return import("stripe")')() as Promise<any>);
-          stripeClient = new stripeModule.default(STRIPE_SECRET_KEY);
-        } catch {
-          app.log.warn("Stripe module not installed, falling back to demo mode");
-          stripeClient = null;
-        }
+        const topUp = await paymentService.requestTopUp({
+          ownerDid: `did:noot:user:${user.id}`,
+          userId: user.id,
+          amountCents,
+          currency: "usd",
+          metadata: { credits: amount.toString() },
+        });
+        await pool.query(
+          `INSERT INTO payment_transactions (user_id, provider_ref, amount_cents, credits_purchased, payment_method, status)
+           VALUES ($1, $2, $3, $4, 'stripe', 'pending')
+           ON CONFLICT (provider_ref) DO NOTHING`,
+          [user.id, topUp.providerRef, amountCents, amount]
+        );
 
-        if (stripeClient) {
-          const paymentIntent = await stripeClient.paymentIntents.create({
-            amount: amountCents,
-            currency: "usd",
-            metadata: {
-              userId: user.id.toString(),
-              credits: amount.toString(),
-            },
-          });
-
-          await pool.query(
-            `INSERT INTO payment_transactions (user_id, stripe_payment_intent_id, amount_cents, credits_purchased)
-             VALUES ($1, $2, $3, $4)`,
-            [user.id, paymentIntent.id, amountCents, amount]
-          );
-
-          return reply.send({
-            clientSecret: paymentIntent.client_secret,
-            amount: amountCents,
-            credits: amount,
-          });
-        }
+        return reply.send({
+          clientSecret: topUp.clientSecret,
+          amount: amountCents,
+          credits: amount,
+        });
       } catch (err: any) {
-        app.log.error({ err }, "Stripe payment intent failed");
+        app.log.error({ err }, "Payment intent failed");
         return reply.status(500).send({ error: "payment_failed" });
       }
     }
@@ -630,6 +635,20 @@ export function registerPlatformRoutes(app: FastifyInstance<any, any, any, any, 
       exchangeRate: 100, // 1 USDC = 100 NCR credits
       minDeposit: 1_000_000, // 1 USDC (6 decimals)
     });
+  });
+
+  // Stripe webhook: confirm payment intents and credit ledger
+  app.post("/v1/payments/stripe/webhook", { config: { rawBody: true } }, async (request, reply) => {
+    if (!paymentService) {
+      return reply.status(400).send({ error: "stripe_not_configured" });
+    }
+    try {
+      const result = await paymentService.handleWebhook(request);
+      return reply.send({ received: true, status: result.status });
+    } catch (err: any) {
+      app.log.error({ err }, "Stripe webhook handling failed");
+      return reply.status(400).send({ error: "webhook_failed" });
+    }
   });
 
   // Record a crypto payment (called after on-chain transfer is confirmed)
@@ -2219,4 +2238,3 @@ export function registerPlatformRoutes(app: FastifyInstance<any, any, any, any, 
 
   app.log.info("Platform routes registered");
 }
-

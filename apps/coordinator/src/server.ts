@@ -10,6 +10,7 @@ import { Resource } from "@opentelemetry/resources";
 import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { pool, migrate } from "./db.js";
+import { assertNoPendingMigrations } from "./migrations.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import fetch from "node-fetch";
@@ -18,6 +19,7 @@ import nacl from "tweetnacl";
 import { validateOutputSchema } from "./validation.js";
 import { listWorkflows } from "./list-workflows.js";
 import { startDispatcherLoop } from "./workers/dispatcher.js";
+import { startEdgeAggregator } from "./workers/edge-aggregator.js";
 import { registerPlatformRoutes } from "./platform.js";
 import { getRedisClient, closeRedis, isRedisAvailable } from "./redis.js";
 import { startHealthChecks } from "./services/health.js";
@@ -46,6 +48,7 @@ const REGISTRY_URL = process.env.REGISTRY_URL || "";
 const REGISTRY_API_KEY = process.env.REGISTRY_API_KEY || "";
 const VALIDATION_TIMEOUT_MS = 2000;
 const ajvInput = new Ajv({ allErrors: true, strict: false });
+const routerConfigSnapshot = loadRouterConfig();
 
 async function validateOutputSchemaWithTimeout(
   registryUrl: string,
@@ -172,6 +175,8 @@ const DISPATCH_BATCH_MS = Number(process.env.DISPATCH_BATCH_MS || 1000);
 const RETRY_BACKOFFS_MS = [0, 1000, 5000, 30000];
 const DAG_MAX_ATTEMPTS = Number(process.env.DAG_MAX_ATTEMPTS || 3);
 const NODE_TIMEOUT_MS = Number(process.env.NODE_TIMEOUT_MS || 60000);
+const USE_AGENT_CARD_ROUTING =
+  (process.env.USE_AGENT_CARD_ROUTING || "").toLowerCase() === "true";
 const REQUIRES_HUMAN_FLAG = "requires_human";
 // Quotas and abuse controls (0 = unlimited)
 const MAX_WORKFLOWS_PER_DAY = Number(process.env.MAX_WORKFLOWS_PER_DAY || 0);
@@ -438,10 +443,11 @@ const app = Fastify({
 });
 await app.register(cors, { origin: CORS_ORIGIN });
 
+await assertNoPendingMigrations();
 await migrate();
 
 // Register platform routes for frontend features
-registerPlatformRoutes(app);
+await registerPlatformRoutes(app);
 registerRedactLogger(app);
 
 // Register protocol infrastructure routes
@@ -457,9 +463,12 @@ app.addHook("onRequest", async (request, reply) => {
   const rid =
     (request.headers["x-request-id"] as string | undefined) ||
     (request.headers["x-correlation-id"] as string | undefined) ||
-    uuidv4();
+    `trace-${uuidv4()}`;
   request.headers["x-request-id"] = rid;
+  request.headers["x-correlation-id"] = rid;
   reply.header("x-request-id", rid);
+  reply.header("x-correlation-id", rid);
+  (request as any).traceId = rid;
   (request as any).startTime = Date.now();
 });
 
@@ -1347,12 +1356,13 @@ async function dispatchWebhooks(taskId: string, event: string, payload: WebhookP
     timestamp: new Date().toISOString(),
     eventId: uuidv4(),
     data: payload,
+    traceId: (payload as any)?.traceId || (payload as any)?.workflowId || undefined,
   };
   for (const t of targets) {
     await pool.query(
-      `insert into dispatch_queue (task_id, event, target_url, payload, attempts, next_attempt, status)
-       values ($1, $2, $3, $4, 0, now(), 'pending')`,
-      [taskId, t.event, t.target_url, basePayload]
+      `insert into dispatch_queue (task_id, event, target_url, payload, attempts, next_attempt, status, trace_id)
+       values ($1, $2, $3, $4, 0, now(), 'pending', $5)`,
+      [taskId, t.event, t.target_url, basePayload, basePayload.traceId || null]
     );
   }
 }
@@ -2137,26 +2147,37 @@ async function createWorkflow(
   maxCents?: number,
   parentWorkflowId?: string,
   spawnedFromNode?: string,
-  clientOverride?: any
+  clientOverride?: any,
+  traceId?: string
 ) {
   const workflowId = uuidv4();
   const taskId = uuidv4();
   const db = clientOverride || pool;
+  const tid = traceId || `trace-${workflowId}`;
   // create root task to reuse existing ledger/feedback infra
   await db.query(
     `insert into tasks (id, description, status) values ($1, $2, 'open')`,
     [taskId, intent || "workflow"]
   );
   await db.query(
-    `insert into workflows (id, task_id, intent, status, payer_did, max_cents, spent_cents, parent_workflow_id, spawned_from_node)
-     values ($1, $2, $3, 'pending', $4, $5, 0, $6, $7)`,
-    [workflowId, taskId, intent || null, payerDid || SYSTEM_PAYER, maxCents ?? null, parentWorkflowId || null, spawnedFromNode || null]
+    `insert into workflows (id, task_id, intent, status, payer_did, max_cents, spent_cents, parent_workflow_id, spawned_from_node, trace_id)
+     values ($1, $2, $3, 'pending', $4, $5, 0, $6, $7, $8)`,
+    [
+      workflowId,
+      taskId,
+      intent || null,
+      payerDid || SYSTEM_PAYER,
+      maxCents ?? null,
+      parentWorkflowId || null,
+      spawnedFromNode || null,
+      tid,
+    ]
   );
   for (const [name, node] of Object.entries(nodes)) {
     const requiresHuman = Boolean((node as any).requires_human);
     await db.query(
-      `insert into task_nodes (id, workflow_id, name, capability_id, status, depends_on, payload, max_attempts, requires_verification, requires_human, deadline_at, target_agent_id, allow_broadcast_fallback)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      `insert into task_nodes (id, workflow_id, name, capability_id, status, depends_on, payload, max_attempts, requires_verification, requires_human, deadline_at, target_agent_id, allow_broadcast_fallback, trace_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         uuidv4(),
         workflowId,
@@ -2175,6 +2196,7 @@ async function createWorkflow(
         new Date(Date.now() + NODE_TIMEOUT_MS),
         node.targetAgentId || null,
         node.allowBroadcastFallback ?? false,
+        tid,
       ]
     );
   }
@@ -2222,6 +2244,7 @@ async function enqueueNode(node: any, workflowId: string) {
     inputs,
     eventId: uuidv4(),
     timestamp: new Date().toISOString(),
+    traceId: node.trace_id || undefined,
   };
   const taskId = (await pool.query(`select task_id from workflows where id = $1`, [workflowId])).rows[0].task_id;
 
@@ -2305,10 +2328,19 @@ async function enqueueNode(node: any, workflowId: string) {
       
       const dispatchKey = `${workflowId}:${node.name}:${node.attempts || 0}`;
       await pool.query(
-        `insert into dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, attempts, next_attempt, status, dispatch_key)
-         values ($1, $2, $3, $4, $5, $6, 0, now(), 'pending', $7)
+        `insert into dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, attempts, next_attempt, status, dispatch_key, trace_id)
+         values ($1, $2, $3, $4, $5, $6, 0, now(), 'pending', $7, $8)
          on conflict (dispatch_key) do nothing`,
-        [taskId, workflowId, node.name, "node.dispatch", targetAgent.endpoint, basePayload, dispatchKey]
+        [
+          taskId,
+          workflowId,
+          node.name,
+          "node.dispatch",
+          targetAgent.endpoint,
+          { ...basePayload, agentDid: targetAgentId },
+          dispatchKey,
+          node.trace_id || null,
+        ]
       );
 
       await pool.query(
@@ -2428,10 +2460,71 @@ async function enqueueNode(node: any, workflowId: string) {
     };
   });
 
+  // Shadow canonical-card-based routing and optionally activate it via feature flag.
+  let finalChosenAgents = filtered;
+  try {
+    const cardProfiles = await Promise.all(
+      filtered.map(async (row) => {
+        return {
+          did: row.did,
+          profile: await getAgentRoutingProfile(row.did),
+        };
+      })
+    );
+    const cardFiltered = cardProfiles
+      .filter(({ profile }) => profile && profile.capabilityIds.includes(node.capability_id))
+      .map(({ did }) => filtered.find((r) => r.did === did)!)
+      .filter(Boolean);
+
+    const cardScored = cardFiltered.map((row) => {
+      const rep = Number((row as any).rep || 0);
+      const avail = Number((row as any).avail || 0);
+      const score = 0.7 * rep + 0.3 * avail;
+      return {
+        did: row.did,
+        endpoint: row.endpoint,
+        public_key: (row as any).public_key || null,
+        rep,
+        avail,
+        score,
+      };
+    });
+
+    const cardChosen = cardScored.slice(0, Math.max(1, cardScored.length));
+    const legacyTop = filtered[0]?.did || null;
+    const cardTop = cardChosen[0]?.did || null;
+    const agrees = legacyTop === cardTop;
+
+    app.log.info(
+      {
+        routing: "agent_card_shadow",
+        workflowId,
+        nodeId: node.name,
+        capabilityId: node.capability_id,
+        legacyTop,
+        cardTop,
+        agrees,
+        legacyCount: filtered.length,
+        cardCount: cardFiltered.length,
+      },
+      "AgentCard routing shadow comparison"
+    );
+
+    if (USE_AGENT_CARD_ROUTING && cardFiltered.length > 0) {
+      finalChosenAgents = cardFiltered;
+    }
+  } catch (err: any) {
+    app.log.warn(
+      { err, workflowId, node: node.name },
+      "agent_card routing shadow/activation failed; continuing with legacy selection"
+    );
+    finalChosenAgents = filtered;
+  }
+
   // Redundancy config (critical + requires_verification => N-of-M)
   const redundancy = getRedundancyConfig(node.capability_id, !!node.requires_verification);
-  const replicas = redundancy.enabled ? Math.min(redundancy.total, filtered.length) : 1;
-  const chosenAgents = filtered.slice(0, replicas);
+  const replicas = redundancy.enabled ? Math.min(redundancy.total, finalChosenAgents.length) : 1;
+  const chosenAgents = finalChosenAgents.slice(0, replicas);
 
   // Persist selection log for introspection ("Why this agent?")
   try {
@@ -2455,88 +2548,93 @@ async function enqueueNode(node: any, workflowId: string) {
     // Run the CG router in shadow mode if enabled to compare selections
     const routerConfig = loadRouterConfig();
     if (routerConfig.shadowCoordinationGraph || routerConfig.useCoordinationGraph) {
-      try {
-        const router = createRouter();
-        const taskMessage: NootMessage = {
-          type: MessageType.TASK,
-          id: `dispatch-${workflowId}-${node.name}`,
-          timestamp: new Date().toISOString(),
-          sender: "coordinator",
-          profileLevel: 0,
-          economic: { currency: "NCR" },
-          crypto: { signatureType: "none", signer: "coordinator", signature: "" },
-          payload: {
-            capability: node.capability_id,
-            input: basePayload.inputs || {},
-          } as TaskPayload,
-        };
-        
-        // Build candidates from filtered agents
-        const cgCandidates: CandidateTarget[] = filtered.map(a => ({
-          agentId: a.did,
+      const router = createRouter();
+      const taskMessage: NootMessage = {
+        type: MessageType.TASK,
+        id: `dispatch-${workflowId}-${node.name}`,
+        timestamp: new Date().toISOString(),
+        sender: "coordinator",
+        profileLevel: 0,
+        economic: { currency: "NCR" },
+        crypto: { signatureType: "none", signer: "coordinator", signature: "" },
+        payload: {
           capability: node.capability_id,
-          endpoint: a.endpoint,
-          profileLevel: 0,
-          region: undefined,
-          historicalStats: {
-            reputationScore: Number(a.rep || 0),
-            successRate: Number(a.rep || 0),
-          },
-        }));
-        
-        const cgTargets = await router.selectTargets(taskMessage, cgCandidates, {
+          input: basePayload.inputs || {},
+        } as TaskPayload,
+      };
+      
+      // Build candidates from filtered agents
+      const cgCandidates: CandidateTarget[] = filtered.map((a: any) => ({
+        agentId: a.did,
+        capability: node.capability_id,
+        endpoint: a.endpoint,
+        profileLevel: 0,
+        region: undefined,
+        historicalStats: {
+          reputationScore: Number(a.rep || 0),
+          successRate: Number(a.rep || 0),
+        },
+      }));
+      
+      let cgTargets: any[] = [];
+      let cgError: string | null = null;
+      try {
+        cgTargets = await router.selectTargets(taskMessage, cgCandidates, {
           profileLevel: 0,
           workflowId,
         });
-        
-        const legacyTop = chosenAgents[0]?.did;
-        const cgTop = cgTargets[0]?.agentId;
-        const agrees = legacyTop === cgTop;
-        
-        if (routerConfig.shadowCoordinationGraph) {
-          // Shadow mode: log comparison, use legacy result
-          recordRouterComparison(
-            workflowId,
-            node.name,
-            node.capability_id,
-            legacyTop || null,
-            cgTop || null,
-            chosenAgents.length,
-            cgTargets.length
-          );
-          
-          app.log.info({
-            shadowMode: true,
-            workflowId,
-            nodeId: node.name,
-            capability: node.capability_id,
-            legacyChoice: legacyTop,
-            cgChoice: cgTop,
-            agrees,
-            cgTargetCount: cgTargets.length,
-            legacyTargetCount: chosenAgents.length,
-          }, "Coordination Graph shadow comparison");
-        } else if (routerConfig.useCoordinationGraph && cgTargets.length > 0) {
-          // CG mode enabled: use CG router results instead
-          const cgChosenAgents = cgTargets.slice(0, replicas).map(t => ({
-            did: t.agentId,
-            endpoint: t.endpoint,
-            public_key: null,
-            rep: t.weight,
-            avail: 0,
-            score: t.weight,
-          }));
-          // Note: We don't override chosenAgents here to keep the change minimal.
-          // Full replacement would require refactoring the dispatch loop below.
-          app.log.info({
-            cgEnabled: true,
-            workflowId,
-            nodeId: node.name,
-            cgSelected: cgChosenAgents.map(a => a.did),
-          }, "Coordination Graph router active");
-        }
       } catch (routerErr: any) {
-        app.log.warn({ err: routerErr.message, workflowId, nodeId: node.name }, "CG router error (falling back to legacy)");
+        cgError = routerErr?.message || "cg_router_failed";
+        app.log.warn({ err: cgError, workflowId, nodeId: node.name }, "CG router error (falling back to legacy)");
+      }
+      
+      const legacyTop = chosenAgents[0]?.did;
+      const cgTop = (cgTargets as any)[0]?.agentId;
+      const agrees = legacyTop === cgTop;
+      
+      if (routerConfig.shadowCoordinationGraph) {
+        // Shadow mode: log comparison, use legacy result
+        recordRouterComparison(
+          workflowId,
+          node.name,
+          node.capability_id,
+          legacyTop || null,
+          cgTop || null,
+          chosenAgents.length,
+          (cgTargets as any).length || 0
+        );
+        
+        app.log.info({
+          shadowMode: true,
+          workflowId,
+          nodeId: node.name,
+          capability: node.capability_id,
+          legacyChoice: legacyTop,
+          cgChoice: cgTop,
+          agrees,
+          cgTargetCount: (cgTargets as any).length || 0,
+          legacyTargetCount: chosenAgents.length,
+          cgError,
+        }, "Coordination Graph shadow comparison");
+      } else if (routerConfig.useCoordinationGraph && (cgTargets as any).length > 0) {
+        // CG mode enabled: use CG router results instead
+        const cgChosenAgents = (cgTargets as any).slice(0, replicas).map((t: any) => ({
+          did: t.agentId,
+          endpoint: t.endpoint,
+          public_key: null,
+          rep: t.weight,
+          avail: 0,
+          score: t.weight,
+        }));
+        // Note: We don't override chosenAgents here to keep the change minimal.
+        // Full replacement would require refactoring the dispatch loop below.
+        app.log.info({
+          cgEnabled: true,
+          workflowId,
+          nodeId: node.name,
+          cgSelected: cgChosenAgents.map((a: any) => a.did),
+          cgError,
+        }, "Coordination Graph router active");
       }
     }
     // ========== END COORDINATION GRAPH SHADOW MODE ==========
@@ -2597,10 +2695,19 @@ async function enqueueNode(node: any, workflowId: string) {
     const agent = chosenAgents[idx];
     const dispatchKey = `${workflowId}:${node.name}:${node.attempts || 0}:r${idx}`;
     await pool.query(
-      `insert into dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, attempts, next_attempt, status, dispatch_key)
-       values ($1, $2, $3, $4, $5, $6, 0, now(), 'pending', $7)
+      `insert into dispatch_queue (task_id, workflow_id, node_id, event, target_url, payload, attempts, next_attempt, status, dispatch_key, trace_id)
+       values ($1, $2, $3, $4, $5, $6, 0, now(), 'pending', $7, $8)
        on conflict (dispatch_key) do nothing`,
-      [taskId, workflowId, node.name, "node.dispatch", agent.endpoint, basePayload, dispatchKey]
+      [
+        taskId,
+        workflowId,
+        node.name,
+        "node.dispatch",
+        agent.endpoint,
+        { ...basePayload, agentDid: agent.did },
+        dispatchKey,
+        node.trace_id || null,
+      ]
     );
     emitEvent("NODE_DISPATCHED", {
       workflowId,
@@ -2999,7 +3106,15 @@ app.post("/v1/workflows/publish", { preHandler: [rateLimitGuard, apiGuard] }, as
   if (!parsed.success) {
     return reply.status(400).send({ error: parsed.error.flatten(), message: "Invalid workflow payload" });
   }
+  const traceId =
+    (request.headers["x-request-id"] as string | undefined) ||
+    (request.headers["x-correlation-id"] as string | undefined) ||
+    `trace-${uuidv4()}`;
   const { intent, nodes, payerDid, maxCents, parentWorkflowId, spawnedFromNode } = parsed.data;
+  const traceId =
+    (request.headers["x-request-id"] as string | undefined) ||
+    (request.headers["x-correlation-id"] as string | undefined) ||
+    `trace-${uuidv4()}`;
   // validate DAG
   const names = Object.keys(nodes);
   for (const [name, node] of Object.entries(nodes)) {
@@ -3184,7 +3299,9 @@ app.post("/v1/workflows/publish", { preHandler: [rateLimitGuard, apiGuard] }, as
     effectivePayerDid,
     effectiveMaxCents == null ? undefined : effectiveMaxCents,
     parentWorkflowId,
-    spawnedFromNode
+    spawnedFromNode,
+    undefined,
+    traceId
   );
   return reply.send({ workflowId, taskId, nodes: Object.keys(nodes) });
 });
@@ -4579,9 +4696,22 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 
 app.listen({ port, host: "0.0.0.0" }).then(() => {
   app.log.info(`Coordinator running on ${port}`);
+  app.log.info(
+    {
+      useCoordinationGraph: routerConfigSnapshot.useCoordinationGraph,
+      shadowCoordinationGraph: routerConfigSnapshot.shadowCoordinationGraph,
+      routerMinWeight: routerConfigSnapshot.minWeightThreshold,
+      routerMaxTargets: routerConfigSnapshot.maxTargets,
+    },
+    "Router configuration snapshot"
+  );
   if (process.env.RUN_DISPATCHER === "true") {
     startDispatcherLoop().catch((err) => app.log.error({ err }, "Dispatcher loop crashed"));
     app.log.info("Dispatcher loop started in-process (RUN_DISPATCHER=true)");
+  }
+  if ((process.env.RUN_EDGE_AGGREGATOR || "").toLowerCase() === "true") {
+    startEdgeAggregator();
+    app.log.info("Edge aggregator started in-process (RUN_EDGE_AGGREGATOR=true)");
   }
   // periodic reputation recompute if configured
   if (REP_INTERVAL_MS > 0) {

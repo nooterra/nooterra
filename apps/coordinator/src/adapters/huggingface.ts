@@ -49,6 +49,15 @@ export async function callHFModel(
 ): Promise<HFInferenceResult> {
   const startTime = Date.now();
   const token = hfToken || process.env.HF_TOKEN;
+  if (!token) {
+    console.error("[hf-adapter] HF_TOKEN missing");
+  } else {
+    console.info("[hf-adapter] token info", {
+      adapter: "huggingface",
+      tokenPrefix: token.slice(0, 7),
+      tokenLength: token.length,
+    });
+  }
   
   if (!token) {
     return {
@@ -294,4 +303,3 @@ export const HF_IMPORTABLE_TASKS = [
   "sentence-similarity",
   "zero-shot-classification",
 ];
-

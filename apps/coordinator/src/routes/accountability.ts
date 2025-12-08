@@ -408,6 +408,24 @@ export async function registerAccountabilityRoutes(app: FastifyInstance<any, any
     
     return result.rows[0];
   });
+
+  // Internal trace context aggregation (non-OTel)
+  app.get("/internal/trace/:traceId", async (req, reply) => {
+    const { traceId } = req.params as { traceId: string };
+    const [wf, nodes, receipts, ledger] = await Promise.all([
+      pool.query(`select * from workflows where trace_id = $1`, [traceId]),
+      pool.query(`select * from task_nodes where trace_id = $1`, [traceId]),
+      pool.query(`select * from task_receipts where trace_id = $1`, [traceId]),
+      pool.query(`select * from ledger_events where trace_id = $1`, [traceId]),
+    ]);
+    return reply.send({
+      traceId,
+      workflows: wf.rows,
+      taskNodes: nodes.rows,
+      receipts: receipts.rows,
+      ledgerEvents: ledger.rows,
+    });
+  });
 }
 
 // Helper: Build span tree for visualization

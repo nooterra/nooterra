@@ -7,7 +7,7 @@ import { embed } from "./embeddings.js";
 import { ensureCollection, upsertCapability, searchCapabilities, deleteByAgent, qdrant } from "./qdrant.js";
 import { randomUUID } from "crypto";
 import pino from "pino";
-import { normalizeEndpoint, verifyACARD, ACARD } from "./acard.js";
+import { normalizeEndpoint, verifyACARD, ACARD, acardToNooterraAgentCard } from "./acard.js";
 import * as Sentry from "@sentry/node";
 import { filterAndVerifyVcs, parseIssuerKeyMap } from "./services/vc.js";
 import { recordReputationEvent, getReputation } from "./services/reputation.js";
@@ -17,7 +17,13 @@ import { SemanticResourceAttributes } from "@opentelemetry/semantic-conventions"
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
-import { getCapabilitySchema, CapabilitySchemaValidator } from "@nooterra/types";
+import {
+  getCapabilitySchema,
+  CapabilitySchemaValidator,
+  type NooterraAgentCard,
+  toA2AAgentCard,
+  type A2AAuthConfig,
+} from "@nooterra/types";
 
 dotenv.config();
 
@@ -428,6 +434,7 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
   let acardLineage: string | null = null;
   let acardSignature: string | null = null;
   let acardRaw: ACARD | null = null;
+  let agentCard: NooterraAgentCard | null = null;
   let didMethod: string | null = null;
   let pqcPublicKey: string | null = null;
   let validatedVcs: any[] | null = null;
@@ -488,6 +495,13 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
       ...acardCleaned,
       vcs: validatedVcs || [],
     } as any;
+    try {
+      agentCard = acardToNooterraAgentCard(acardRaw as ACARD);
+    } catch (err) {
+      app.log.error({ err }, "failed to canonicalize ACARD into NooterraAgentCard");
+      // Do not block registration if canonicalization fails; keep agentCard null.
+      agentCard = null;
+    }
     didMethod = (acard as any).did_method || null;
     pqcPublicKey = (acard as any).pqc_public_key || null;
   } else {
@@ -498,8 +512,8 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
 
   try {
     await pool.query(
-      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw, did_method, pqc_public_key, updated_at, is_conflicted, source_peer)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), false, null)
+      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw, agent_card, did_method, pqc_public_key, updated_at, is_conflicted, source_peer)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now(), false, null)
      on conflict (did) do update set
        name = excluded.name,
        endpoint = excluded.endpoint,
@@ -509,6 +523,7 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
        acard_lineage = excluded.acard_lineage,
        acard_signature = excluded.acard_signature,
        acard_raw = excluded.acard_raw,
+       agent_card = excluded.agent_card,
        did_method = excluded.did_method,
        pqc_public_key = excluded.pqc_public_key,
        is_conflicted = false,
@@ -523,6 +538,7 @@ app.post("/v1/agent/register", { preHandler: [rateLimitGuard, apiGuard] }, async
         acardLineage,
         acardSignature,
         acardRaw,
+        agentCard,
         didMethod,
         pqcPublicKey,
       ]
@@ -940,6 +956,55 @@ app.post("/v1/agent/discovery", { preHandler: [rateLimitGuard, apiGuard] }, asyn
   return reply.send({ results });
 });
 
+// Public A2A-style Agent Card export for a specific agent.
+// This exposes a projection of the canonical NooterraAgentCard into the A2A JSON format.
+app.get("/v1/agent/:did/a2a-card", async (request, reply) => {
+  const did = (request.params as any)?.did as string | undefined;
+  if (!did) {
+    return reply.status(400).send({ error: "did is required" });
+  }
+
+  const res = await pool.query<{ agent_card: any | null; acard_raw: any | null }>(
+    `select agent_card, acard_raw from agents where did = $1 limit 1`,
+    [did]
+  );
+  if (!res.rowCount) {
+    return reply.status(404).send({ error: "Agent not found" });
+  }
+
+  let card: NooterraAgentCard | null = null;
+  const row = res.rows[0];
+
+  if (row.agent_card) {
+    card = row.agent_card as NooterraAgentCard;
+  } else if (row.acard_raw) {
+    try {
+      card = acardToNooterraAgentCard(row.acard_raw as ACARD);
+    } catch (err) {
+      app.log.error({ err, did }, "failed to convert legacy ACARD to NooterraAgentCard for A2A export");
+      card = null;
+    }
+  }
+
+  if (!card) {
+    return reply.status(404).send({ error: "Agent does not have a canonical card" });
+  }
+
+  const authConfig: A2AAuthConfig = {
+    type: "none",
+    instructions:
+      "This describes the agent's capabilities only. Authentication and invocation occur via the Nooterra coordinator.",
+  };
+
+  const a2aCard = toA2AAgentCard(card, {
+    auth: authConfig,
+    a2aUrl: card.endpoints.a2aUrl ?? card.endpoints.primaryUrl,
+  });
+
+  reply.header("Content-Type", "application/json");
+  return reply.send(a2aCard);
+});
+
 // ============================================================
 // FEDERATION (REGISTRY SYNC)
 // ============================================================
@@ -984,7 +1049,7 @@ app.get("/v1/federation/export", async (request, reply) => {
   const stateVersion = await getRegistryStateVersion();
   // For MVP we return full set; future: filter by updated_at > since marker.
   const agentRows = await pool.query(
-    `select did, name, endpoint, public_key, acard_version, acard_lineage, acard_signature, acard_raw, did_method, pqc_public_key, wallet_address, updated_at
+    `select did, name, endpoint, public_key, acard_version, acard_lineage, acard_signature, acard_raw, agent_card, did_method, pqc_public_key, wallet_address, updated_at
      from agents
      where is_conflicted = false`
   );
@@ -1011,6 +1076,7 @@ app.get("/v1/federation/export", async (request, reply) => {
     acard_lineage: row.acard_lineage,
     acard_signature: row.acard_signature,
     acard_raw: row.acard_raw,
+    agent_card: (row as any).agent_card,
     did_method: (row as any).did_method,
     pqc_public_key: (row as any).pqc_public_key,
     wallet_address: row.wallet_address,
@@ -1037,8 +1103,8 @@ async function upsertPeerAgent(agent: any, peerId: string, log: any) {
   if (!hasLocal || incomingVersion > localVersion) {
     // Replace or insert
     await pool.query(
-      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw, did_method, pqc_public_key, source_peer, is_conflicted, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false, now())
+      `insert into agents (did, name, endpoint, public_key, wallet_address, acard_version, acard_lineage, acard_signature, acard_raw, agent_card, did_method, pqc_public_key, source_peer, is_conflicted, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, false, now())
        on conflict (did) do update set
          name = excluded.name,
          endpoint = excluded.endpoint,
@@ -1048,6 +1114,7 @@ async function upsertPeerAgent(agent: any, peerId: string, log: any) {
          acard_lineage = excluded.acard_lineage,
          acard_signature = excluded.acard_signature,
          acard_raw = excluded.acard_raw,
+         agent_card = excluded.agent_card,
          did_method = excluded.did_method,
          pqc_public_key = excluded.pqc_public_key,
          source_peer = excluded.source_peer,
@@ -1063,6 +1130,7 @@ async function upsertPeerAgent(agent: any, peerId: string, log: any) {
         agent.acard_lineage || null,
         agent.acard_signature || null,
         agent.acard_raw || null,
+        (agent as any).agent_card || null,
         (agent as any).did_method || null,
         (agent as any).pqc_public_key || null,
         peerId,

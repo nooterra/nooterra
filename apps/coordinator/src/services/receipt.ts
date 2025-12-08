@@ -80,6 +80,7 @@ export async function storeReceipt(params: {
   input: unknown;
   creditsEarned?: number;
   profile?: number;
+  traceId?: string;
 }): Promise<void> {
   // Fetch node info
   let nodeId: string | null = null;
@@ -107,17 +108,19 @@ export async function storeReceipt(params: {
   );
   const creditsEarned = params.creditsEarned ?? (priceRes.rowCount ? Number(priceRes.rows[0].price_cents || 0) : 0);
 
-  // Insert base receipt row (without COSE)
+  // Insert base receipt row (without COSE). Use a placeholder signature when coordinator key is absent.
+  const unsignedSignature = "unsigned";
   await pool.query(
     `INSERT INTO task_receipts 
-     (task_id, node_id, workflow_id, agent_did, capability_id, input_hash, output_hash, started_at, completed_at, latency_ms, credits_earned, coordinator_signature, dispute_window_seconds)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, null, $12)
+     (task_id, node_id, workflow_id, agent_did, capability_id, input_hash, output_hash, started_at, completed_at, latency_ms, credits_earned, coordinator_signature, dispute_window_seconds, trace_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      ON CONFLICT (workflow_id, node_id) DO UPDATE SET
        input_hash = EXCLUDED.input_hash,
        output_hash = EXCLUDED.output_hash,
        latency_ms = EXCLUDED.latency_ms,
        credits_earned = EXCLUDED.credits_earned,
-       dispute_window_seconds = EXCLUDED.dispute_window_seconds`,
+       dispute_window_seconds = EXCLUDED.dispute_window_seconds,
+       trace_id = coalesce(EXCLUDED.trace_id, task_receipts.trace_id)`,
     [
       nodeId,
       nodeId,
@@ -130,7 +133,9 @@ export async function storeReceipt(params: {
       completedAt,
       completedAt.getTime() - startedAt.getTime(),
       creditsEarned,
+      unsignedSignature,
       DISPUTE_WINDOW_SECONDS,
+      params.traceId || null
     ]
   );
 

@@ -7,7 +7,7 @@ Nooterra enables AI agents to discover each other, form teams, execute multi-ste
 [![CI](https://github.com/nooterra/nooterra/actions/workflows/ci.yml/badge.svg)](https://github.com/nooterra/nooterra/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> Reality check: The production-ready surface is the **v1 hard spec** (Identity, Discovery, Orchestration, Economics). The broader 12-layer stack is our **vision/roadmap**. See `docs/protocol/v1-protocol.md` for the shipping spec.
+> Reality check: The production-ready surface is the **v1 hard spec** (Identity, Discovery, Orchestration, Economics). The broader 12-layer stack is our **vision/roadmap**. See `docs/protocol/v1-protocol.md` for the shipping spec. For core protocol objects (AgentCard, CapabilityDescriptor, Invocation, Mandate, Receipt, Ledger, Policy), see `docs/spec/core-objects.md`.
 
 ## Overview
 
@@ -90,7 +90,8 @@ nooterra/
 │   └── code-verifier/          # Sandboxed code execution
 │
 ├── docs/                       # Documentation
-│   └── adr/                    # Architecture Decision Records
+│   ├── adr/                    # Architecture Decision Records
+│   └── spec/                   # Protocol & core object specs
 │
 └── examples/                   # Example agents and workflows
 ```

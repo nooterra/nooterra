@@ -80,16 +80,13 @@ async function aggregateEdges(since: Date): Promise<number> {
           tn.status,
           tn.depends_on,
           tn.started_at,
-          tn.completed_at,
+          tn.finished_at,
           w.payer_did,
-          COALESCE(
-            EXTRACT(EPOCH FROM (tn.completed_at - tn.started_at)) * 1000,
-            0
-          ) as latency_ms
+          COALESCE(EXTRACT(EPOCH FROM (tn.finished_at - tn.started_at)) * 1000, 0) as latency_ms
         FROM task_nodes tn
         JOIN workflows w ON w.id = tn.workflow_id
-        WHERE tn.completed_at >= $1
-          AND tn.completed_at IS NOT NULL
+        WHERE tn.finished_at >= $1
+          AND tn.finished_at IS NOT NULL
           AND tn.capability_id IS NOT NULL
       ),
       edges AS (
@@ -108,17 +105,17 @@ async function aggregateEdges(since: Date): Promise<number> {
         WHERE upstream.capability_id IS NOT NULL
       )
       SELECT
-        from_capability,
-        to_capability,
-        profile_level,
+        from_capability as "fromCapability",
+        to_capability as "toCapability",
+        profile_level as "profileLevel",
         region,
-        tenant_id,
-        COUNT(*) as call_count,
-        SUM(CASE WHEN is_success THEN 1 ELSE 0 END) as success_count,
-        SUM(CASE WHEN is_success THEN 0 ELSE 1 END) as failure_count,
-        AVG(latency_ms) as avg_latency_ms,
-        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) as p95_latency_ms,
-        NULL::numeric as avg_price_ncr  -- TODO: Get from ledger
+        tenant_id as "tenantId",
+        COUNT(*) as "callCount",
+        SUM(CASE WHEN is_success THEN 1 ELSE 0 END) as "successCount",
+        SUM(CASE WHEN is_success THEN 0 ELSE 1 END) as "failureCount",
+        AVG(latency_ms) as "avgLatencyMs",
+        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms) as "p95LatencyMs",
+        NULL::numeric as "avgPriceNcr"  -- TODO: Get from ledger
       FROM edges
       GROUP BY from_capability, to_capability, profile_level, region, tenant_id
       HAVING COUNT(*) > 0

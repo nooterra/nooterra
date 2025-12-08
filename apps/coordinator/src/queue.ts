@@ -34,8 +34,8 @@ export async function enqueue(dispatch: QueuedDispatch): Promise<boolean> {
   // Fallback to Postgres
   try {
     await pool.query(
-      `INSERT INTO dispatch_queue (workflow_id, node_name, agent_did, payload, attempt, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO dispatch_queue (workflow_id, node_name, agent_did, payload, attempt, created_at, trace_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         dispatch.workflowId,
         dispatch.nodeName,
@@ -43,6 +43,7 @@ export async function enqueue(dispatch: QueuedDispatch): Promise<boolean> {
         dispatch.payload,
         dispatch.attempt,
         dispatch.createdAt,
+        (dispatch.payload as any)?.traceId || null,
       ]
     );
     return true;

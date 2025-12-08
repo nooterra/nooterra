@@ -122,7 +122,10 @@ async function callOpenAI(req: AdapterRequest): Promise<AdapterResponse> {
   const startTime = Date.now();
   
   try {
-    const apiKey = req.config?.api_key || process.env.OPENAI_API_KEY;
+    // Use HF_TOKEN for HuggingFace router, otherwise OPENAI_API_KEY
+    const isHuggingFaceRouter = req.endpoint.includes("router.huggingface.co");
+    const apiKey = req.config?.api_key || 
+                   (isHuggingFaceRouter ? process.env.HF_TOKEN : process.env.OPENAI_API_KEY);
     let baseUrl = req.endpoint.replace(/\/+$/, "");
     
     // Handle endpoints that already include /chat/completions
