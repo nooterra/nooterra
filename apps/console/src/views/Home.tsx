@@ -53,7 +53,7 @@ export default function Home() {
               </a>
               <span className="opacity-40">/</span>
               <a
-                href="https://twitter.com/nooterra"
+                href="https://x.com/nooterradotai"
                 target="_blank"
                 rel="noreferrer"
                 className="hover:opacity-75 transition-opacity"
