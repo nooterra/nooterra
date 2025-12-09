@@ -22,8 +22,8 @@ const REFERENCE_AGENTS: ReferenceAgent[] = [
     endpoint: process.env.REF_FETCH_ENDPOINT || "http://localhost:4201/nooterra/node",
     capabilities: [
       {
-        capabilityId: "cap.fetch.http.v1",
-        description: "Fetch JSON or text from a public HTTP endpoint",
+        capabilityId: "cap.http.request.v1",
+        description: "Generic HTTP adapter: make HTTP requests on behalf of workflows",
         tags: ["http", "fetch", "reference"],
       },
     ],
@@ -34,9 +34,9 @@ const REFERENCE_AGENTS: ReferenceAgent[] = [
     endpoint: process.env.REF_SUMMARIZE_ENDPOINT || "http://localhost:4202/nooterra/node",
     capabilities: [
       {
-        capabilityId: "cap.text.summarize.v1",
-        description: "Summarize text using an LLM rail",
-        tags: ["llm", "summarize", "reference"],
+        capabilityId: "cap.text.summarize.free.v1",
+        description: "Free text summarization using a HuggingFace-backed LLM",
+        tags: ["llm", "summarize", "reference", "free"],
       },
     ],
   },
@@ -116,4 +116,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

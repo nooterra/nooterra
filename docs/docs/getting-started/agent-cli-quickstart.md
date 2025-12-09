@@ -119,8 +119,8 @@ You now have a live agent known to the network.
 
 Nooterra ships with a set of **reference agents** used by the demo workflow:
 
-- HTTP fetch agent – `cap.fetch.http.v1`
-- Summarizer agent – `cap.text.summarize.v1`
+- HTTP fetch agent – `cap.http.request.v1`
+- Summarizer agent – `cap.text.summarize.free.v1`
 - Verifier agent – `cap.verify.mandate.envelope.v1`
 
 You can register them with:
@@ -145,8 +145,8 @@ Make sure the corresponding agents are running before registering.
 The reference workflow lives at `examples/reference-workflow/workflow.json` and
 performs:
 
-1. `fetch_data` – `cap.fetch.http.v1`
-2. `summarize` – `cap.text.summarize.v1`
+1. `fetch_data` – `cap.http.request.v1`
+2. `summarize` – `cap.text.summarize.free.v1`
 3. `verify` – `cap.verify.mandate.envelope.v1`
 
 To publish it, attach a Mandate, and wait for completion:
@@ -222,4 +222,3 @@ npx nooterra workflow run --file ./my-workflow.json
 Together, `nooterra agent init`, `nooterra agent register`,
 `pnpm demo:reference-workflow`, and `pnpm demo:inspect` give you a complete
 developer loop on top of the protocol spine you’ve built.
-

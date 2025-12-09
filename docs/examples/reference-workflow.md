@@ -23,7 +23,7 @@ co-located, but each has its own DID and AgentCard.
 ### 1.1 HTTP Fetch Agent
 
 - **DID**: `did:noot:agent:fetch-http`
-- **Capability**: `cap.fetch.http.v1`
+- **Capability**: `cap.http.request.v1`
 - **Purpose**: Fetch JSON or text from a public HTTP endpoint.
 - **Input** (JSON):
 
@@ -50,7 +50,7 @@ co-located, but each has its own DID and AgentCard.
 
 - **AgentCard notes**:
   - `endpoints.primaryUrl`: public URL of the agent server.
-  - `capabilities`: includes `cap.fetch.http.v1` with appropriate schemas.
+  - `capabilities`: includes `cap.http.request.v1` with appropriate schemas.
   - `economics.defaultPriceCents`: small fixed price, e.g. 1–2 cents.
   - `policyProfile`:
     - `acceptedPolicyIds`: e.g. `["policy.http.public-only"]`
@@ -59,7 +59,7 @@ co-located, but each has its own DID and AgentCard.
 ### 1.2 Summarizer Agent
 
 - **DID**: `did:noot:agent:summarize`
-- **Capability**: `cap.text.summarize.v1`
+- **Capability**: `cap.text.summarize.free.v1`
 - **Purpose**: Summarize arbitrary text using an LLM rail.
 - **Input**:
 
@@ -79,8 +79,8 @@ co-located, but each has its own DID and AgentCard.
   ```
 
 - **AgentCard notes**:
-  - Uses an LLM adapter (OpenAI/HF) behind the scenes.
-  - `economics.defaultPriceCents`: higher than fetch, e.g. 5–10 cents.
+  - Uses an LLM adapter (OpenAI/HF) behind the scenes (free-tier summarizer).
+  - `economics.defaultPriceCents`: can be 0 for free-tier, or a small fixed price.
   - `policyProfile`:
     - `acceptedPolicyIds`: `["policy.demo.strict"]`
     - `jurisdictions`: e.g. `["us-west"]`
@@ -194,14 +194,14 @@ The DAG is expressed as a workflow manifest, e.g.
   "description": "Fetch → Summarize → Verify (Mandate + Envelope)",
   "nodes": {
     "fetch_data": {
-      "capabilityId": "cap.fetch.http.v1",
+      "capabilityId": "cap.http.request.v1",
       "payload": {
         "url": "https://example.com",
         "method": "GET"
       }
     },
     "summarize": {
-      "capabilityId": "cap.text.summarize.v1",
+      "capabilityId": "cap.text.summarize.free.v1",
       "dependsOn": ["fetch_data"],
       "payload": {
         "textFrom": "fetch_data.body",
@@ -291,4 +291,3 @@ This reference workflow is the canonical demonstration that the Nooterra
 coordination node is not just a workflow engine, but a protocol-driven
 machine economy kernel. It should be kept in sync with any major protocol
 changes (AgentCard, Mandate, Invocation, Envelope, Receipt, Reputation).
-

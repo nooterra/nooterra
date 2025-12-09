@@ -21,6 +21,7 @@
     "generate:receipt": "node scripts/generate-receipt.js",
     "conformance:harness": "node scripts/conformance-harness.js",
     "register:reference-agents": "tsx scripts/register-reference-agents.ts",
+    "demo:health-check": "tsx scripts/demo-health-check.ts",
     "demo:reference-workflow": "tsx examples/reference-workflow/run.ts",
     "demo:inspect": "tsx examples/reference-workflow/inspect.ts",
     "demo:federation-two-node": "tsx examples/federation-demo/run-two-node.ts"
