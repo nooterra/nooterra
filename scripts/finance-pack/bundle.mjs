@@ -259,6 +259,8 @@ try {
     monthProofBundle: monthBundle,
     monthProofFiles: monthFiles,
     requireMonthProofAttestation: true,
+    requireHeadAttestation: true,
+    manifestSigner,
     verificationReportSigner: manifestSigner,
     glBatchArtifact: glBatch,
     journalCsvArtifact: journalCsv,

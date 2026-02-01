@@ -7,6 +7,7 @@ This document defines the on-disk format for `FinancePackBundle.v1` and its stri
 ```
 settld.json
 manifest.json
+attestation/bundle_head_attestation.json
 month/...
 finance/...
 verify/verification_report.json
@@ -14,6 +15,7 @@ verify/verification_report.json
 
 Notes:
 - `month/` is a full embedded `MonthProofBundle.v1` directory tree.
+- `attestation/bundle_head_attestation.json` is a signed `BundleHeadAttestation.v1` committing to the FinancePack manifestHash and MonthProof anchor.
 - `verify/verification_report.json` is a signed, machine-ingestible `VerificationReport.v1`.
 
 ## `manifest.json` (FinancePackBundleManifest.v1)
@@ -46,5 +48,6 @@ If the tool version cannot be determined, the report will include a warning code
 
 In strict mode (`settld-verify --strict --finance-pack ...`):
 - The embedded `MonthProofBundle.v1` must strictly verify.
+- `attestation/bundle_head_attestation.json` must exist and have a valid signature.
 - `verify/verification_report.json` must exist, have a valid `reportHash`, and have a valid signature.
 - `VerificationReport.v1.subject.manifestHash` must match the computed bundle `manifestHash`.

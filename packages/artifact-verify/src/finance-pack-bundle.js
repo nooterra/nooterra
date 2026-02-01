@@ -9,6 +9,7 @@ import { validateVerificationWarnings } from "./verification-warnings.js";
 
 export const FINANCE_PACK_BUNDLE_TYPE_V1 = "FinancePackBundle.v1";
 export const FINANCE_PACK_BUNDLE_MANIFEST_SCHEMA_V1 = "FinancePackBundleManifest.v1";
+export const BUNDLE_HEAD_ATTESTATION_SCHEMA_V1 = "BundleHeadAttestation.v1";
 
 async function readJson(filepath) {
   const raw = await fs.readFile(filepath, "utf8");
@@ -43,6 +44,11 @@ function stripVerificationReportSig(report) {
   return rest;
 }
 
+function stripAttestationSig(attestation) {
+  const { signature: _sig, attestationHash: _hash, ...rest } = attestation ?? {};
+  return rest;
+}
+
 function parsePublicKeysV1(keysJson) {
   const publicKeyByKeyId = new Map();
   const keyMetaByKeyId = new Map();
@@ -60,6 +66,153 @@ function parsePublicKeysV1(keysJson) {
   return { ok: true, publicKeyByKeyId, keyMetaByKeyId };
 }
 
+function parseJsonl(text) {
+  const out = [];
+  const lines = String(text ?? "").split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    out.push(JSON.parse(trimmed));
+  }
+  return out;
+}
+
+function safeIsoToMs(value) {
+  const t = Date.parse(String(value ?? ""));
+  return Number.isFinite(t) ? t : NaN;
+}
+
+function keyEffectiveWindowMs(meta) {
+  const validFromMs = safeIsoToMs(meta?.validFrom);
+  const validToMs = safeIsoToMs(meta?.validTo);
+  const rotatedAtMs = safeIsoToMs(meta?.rotatedAt);
+  const revokedAtMs = safeIsoToMs(meta?.revokedAt);
+  return { validFromMs, validToMs, rotatedAtMs, revokedAtMs };
+}
+
+function isServerKeyUsableAtForAttestation({ meta, atIso }) {
+  if (!meta || typeof meta !== "object") return { ok: true };
+  const atMs = safeIsoToMs(atIso);
+  if (!Number.isFinite(atMs)) return { ok: true };
+  const { validFromMs, validToMs, rotatedAtMs, revokedAtMs } = keyEffectiveWindowMs(meta);
+  if (Number.isFinite(validFromMs) && atMs < validFromMs) return { ok: false, reason: "KEY_NOT_YET_VALID", boundary: meta.validFrom };
+  if (Number.isFinite(validToMs) && atMs > validToMs) return { ok: false, reason: "KEY_EXPIRED", boundary: meta.validTo };
+  if (Number.isFinite(revokedAtMs) && atMs > revokedAtMs) return { ok: false, reason: "KEY_REVOKED", boundary: meta.revokedAt };
+  if (Number.isFinite(rotatedAtMs) && atMs > rotatedAtMs) return { ok: false, reason: "KEY_ROTATED", boundary: meta.rotatedAt };
+  return { ok: true };
+}
+
+function deriveServerKeyTimelineFromGovernanceEvents(events) {
+  const derived = new Map(); // keyId -> { validFrom, rotatedAt, revokedAt, serverGoverned }
+  for (const e of Array.isArray(events) ? events : []) {
+    if (!e || typeof e !== "object") continue;
+    const type = String(e.type ?? "");
+    const at = typeof e.at === "string" && e.at.trim() ? e.at : null;
+    const p = e.payload ?? null;
+    if (!p || typeof p !== "object") continue;
+
+    if (type === "SERVER_SIGNER_KEY_REGISTERED") {
+      const keyId = typeof p.keyId === "string" && p.keyId.trim() ? p.keyId : null;
+      const registeredAt = typeof p.registeredAt === "string" && p.registeredAt.trim() ? p.registeredAt : at;
+      if (!keyId || !registeredAt) continue;
+      const row = derived.get(keyId) ?? {};
+      if (!row.validFrom) row.validFrom = registeredAt;
+      row.serverGoverned = true;
+      derived.set(keyId, row);
+    }
+
+    if (type === "SERVER_SIGNER_KEY_ROTATED") {
+      const oldKeyId = typeof p.oldKeyId === "string" && p.oldKeyId.trim() ? p.oldKeyId : null;
+      const newKeyId = typeof p.newKeyId === "string" && p.newKeyId.trim() ? p.newKeyId : null;
+      const rotatedAt = typeof p.rotatedAt === "string" && p.rotatedAt.trim() ? p.rotatedAt : at;
+      if (!rotatedAt) continue;
+      if (oldKeyId) {
+        const row = derived.get(oldKeyId) ?? {};
+        row.rotatedAt = rotatedAt;
+        row.serverGoverned = true;
+        derived.set(oldKeyId, row);
+      }
+      if (newKeyId) {
+        const row = derived.get(newKeyId) ?? {};
+        if (!row.validFrom) row.validFrom = rotatedAt;
+        row.serverGoverned = true;
+        derived.set(newKeyId, row);
+      }
+    }
+
+    if (type === "SERVER_SIGNER_KEY_REVOKED") {
+      const keyId = typeof p.keyId === "string" && p.keyId.trim() ? p.keyId : null;
+      const revokedAt = typeof p.revokedAt === "string" && p.revokedAt.trim() ? p.revokedAt : at;
+      if (!keyId || !revokedAt) continue;
+      const row = derived.get(keyId) ?? {};
+      row.revokedAt = revokedAt;
+      row.serverGoverned = true;
+      derived.set(keyId, row);
+    }
+  }
+  return derived;
+}
+
+function applyDerivedServerTimeline({ keyMetaByKeyId, derived }) {
+  const next = new Map(keyMetaByKeyId);
+  for (const [keyId, timeline] of derived.entries()) {
+    const existing = next.get(keyId) ?? null;
+    if (!existing || typeof existing !== "object") continue;
+    next.set(keyId, {
+      ...existing,
+      validFrom: timeline.validFrom ?? existing.validFrom ?? null,
+      rotatedAt: timeline.rotatedAt ?? existing.rotatedAt ?? null,
+      revokedAt: timeline.revokedAt ?? existing.revokedAt ?? null,
+      serverGoverned: timeline.serverGoverned === true ? true : existing.serverGoverned === true
+    });
+  }
+  return next;
+}
+
+function verifyBundleHeadAttestationV1({ attestation, expectedManifestHash, expectedTenantId, expectedPeriod, monthManifestHash, monthAttestationHash, publicKeyByKeyId, keyMetaByKeyId, strict }) {
+  if (!attestation || typeof attestation !== "object" || Array.isArray(attestation)) return { ok: false, error: "invalid bundle head attestation JSON" };
+  if (String(attestation.schemaVersion ?? "") !== BUNDLE_HEAD_ATTESTATION_SCHEMA_V1) return { ok: false, error: "unsupported attestation schemaVersion" };
+  if (String(attestation.kind ?? "") !== FINANCE_PACK_BUNDLE_TYPE_V1) return { ok: false, error: "attestation kind mismatch", expected: FINANCE_PACK_BUNDLE_TYPE_V1, actual: attestation.kind ?? null };
+  if (String(attestation.tenantId ?? "") !== String(expectedTenantId ?? "")) return { ok: false, error: "attestation tenantId mismatch", expected: expectedTenantId ?? null, actual: attestation.tenantId ?? null };
+  if (String(attestation.scope?.period ?? "") !== String(expectedPeriod ?? "")) return { ok: false, error: "attestation scope.period mismatch", expected: expectedPeriod ?? null, actual: attestation.scope?.period ?? null };
+  if (String(attestation.manifestHash ?? "") !== String(expectedManifestHash ?? "")) return { ok: false, error: "attestation manifestHash mismatch", expected: expectedManifestHash ?? null, actual: attestation.manifestHash ?? null };
+
+  const signerKeyId = typeof attestation.signerKeyId === "string" && attestation.signerKeyId.trim() ? attestation.signerKeyId : null;
+  const signature = typeof attestation.signature === "string" && attestation.signature.trim() ? attestation.signature : null;
+  const signedAt = typeof attestation.signedAt === "string" && attestation.signedAt.trim() ? attestation.signedAt : null;
+  if (strict && (!signerKeyId || !signature || !signedAt)) return { ok: false, error: "attestation missing signature fields", signerKeyId, signature: Boolean(signature), signedAt };
+
+  const expectedHash = sha256HexUtf8(canonicalJsonStringify(stripAttestationSig(attestation)));
+  const declaredHash = typeof attestation.attestationHash === "string" && attestation.attestationHash.trim() ? attestation.attestationHash : null;
+  if (declaredHash && declaredHash !== expectedHash) return { ok: false, error: "attestationHash mismatch", expected: expectedHash, actual: declaredHash };
+
+  if (signature && signerKeyId) {
+    const publicKeyPem = publicKeyByKeyId.get(signerKeyId) ?? null;
+    if (!publicKeyPem) return { ok: false, error: "unknown attestation signerKeyId", signerKeyId };
+    const okSig = verifyHashHexEd25519({ hashHex: expectedHash, signatureBase64: signature, publicKeyPem });
+    if (!okSig) return { ok: false, error: "attestation signature invalid", signerKeyId };
+    if (strict) {
+      const meta = keyMetaByKeyId.get(signerKeyId) ?? null;
+      const governed = Boolean(meta && typeof meta === "object" && meta.serverGoverned === true);
+      if (!governed) return { ok: false, error: "attestation signer key not governed", signerKeyId };
+      if (!(typeof meta?.validFrom === "string" && meta.validFrom.trim())) return { ok: false, error: "attestation signer key missing validFrom", signerKeyId };
+      const usable = isServerKeyUsableAtForAttestation({ meta, atIso: signedAt });
+      if (!usable.ok) return { ok: false, error: "attestation signer key not valid", signerKeyId, reason: usable.reason, boundary: usable.boundary ?? null };
+    }
+  }
+
+  const heads = attestation.heads ?? null;
+  if (!heads || typeof heads !== "object" || Array.isArray(heads)) return { ok: false, error: "attestation missing heads" };
+  const mp = heads.monthProof ?? null;
+  if (!mp || typeof mp !== "object" || Array.isArray(mp)) return { ok: false, error: "attestation missing heads.monthProof" };
+  if (String(mp.manifestHash ?? "") !== String(monthManifestHash ?? "")) return { ok: false, error: "attestation monthProof.manifestHash mismatch", expected: monthManifestHash ?? null, actual: mp.manifestHash ?? null };
+  if (monthAttestationHash && String(mp.attestationHash ?? "") !== String(monthAttestationHash ?? "")) {
+    return { ok: false, error: "attestation monthProof.attestationHash mismatch", expected: monthAttestationHash ?? null, actual: mp.attestationHash ?? null };
+  }
+
+  return { ok: true, attestationHash: expectedHash, signerKeyId, signedAt };
+}
+
 function verifyVerificationReportV1({ report, expectedManifestHash, monthPublicKeys, strict }) {
   if (!report || typeof report !== "object" || Array.isArray(report)) return { ok: false, error: "invalid verification report JSON" };
   if (String(report.schemaVersion ?? "") !== "VerificationReport.v1") return { ok: false, error: "unsupported verification report schemaVersion" };
@@ -72,6 +225,13 @@ function verifyVerificationReportV1({ report, expectedManifestHash, monthPublicK
   if (String(subject.type ?? "") !== FINANCE_PACK_BUNDLE_TYPE_V1) return { ok: false, error: "verification report subject.type mismatch", expected: FINANCE_PACK_BUNDLE_TYPE_V1, actual: subject.type ?? null };
   if (String(subject.manifestHash ?? "") !== String(expectedManifestHash ?? "")) {
     return { ok: false, error: "verification report subject.manifestHash mismatch", expected: expectedManifestHash ?? null, actual: subject.manifestHash ?? null };
+  }
+
+  if (strict) {
+    const b = report.bundleHeadAttestation ?? null;
+    if (!b || typeof b !== "object" || Array.isArray(b)) return { ok: false, error: "verification report missing bundleHeadAttestation" };
+    const declared = typeof b.attestationHash === "string" && b.attestationHash.trim() ? b.attestationHash : null;
+    if (!declared) return { ok: false, error: "verification report bundleHeadAttestation.attestationHash missing" };
   }
 
   const expectedReportHash = sha256HexUtf8(canonicalJsonStringify(stripVerificationReportSig(report)));
@@ -165,6 +325,53 @@ export async function verifyFinancePackBundleDir({ dir, strict = false } = {}) {
     return { ok: false, error: "monthProofBundleHash mismatch", expected: inputs.monthProofBundleHash, actual: monthManifestHash };
   }
 
+  // FinancePack head attestation (strict requires it).
+  let headAttestation = null;
+  try {
+    headAttestation = await readJson(path.join(dir, "attestation", "bundle_head_attestation.json"));
+  } catch {
+    headAttestation = null;
+  }
+  if (strict && !headAttestation) return { ok: false, error: "missing attestation/bundle_head_attestation.json" };
+
+  // Read month keys (needed for finance pack attestation signature + report signature).
+  let monthPublicKeys = null;
+  try {
+    const keysJson = await readJson(path.join(monthDir, "keys", "public_keys.json"));
+    monthPublicKeys = parsePublicKeysV1(keysJson);
+  } catch {
+    monthPublicKeys = null;
+  }
+
+  if (strict && !(monthPublicKeys?.ok)) {
+    return { ok: false, error: "missing month keys/public_keys.json (PublicKeys.v1)" };
+  }
+
+  // Derive governed server key lifecycles from MonthProof global governance events (MonthProof strict already validated them).
+  if (monthPublicKeys?.ok && strict) {
+    const raw = await fs.readFile(path.join(monthDir, "governance", "global", "events", "events.jsonl"), "utf8");
+    const govEvents = parseJsonl(raw);
+    const derived = deriveServerKeyTimelineFromGovernanceEvents(govEvents);
+    monthPublicKeys.keyMetaByKeyId = applyDerivedServerTimeline({ keyMetaByKeyId: monthPublicKeys.keyMetaByKeyId, derived });
+  }
+
+  let headAttestationVerify = null;
+  if (headAttestation) {
+    const monthAttestationHash = typeof monthStrict?.headAttestation?.attestationHash === "string" ? monthStrict.headAttestation.attestationHash : null;
+    headAttestationVerify = verifyBundleHeadAttestationV1({
+      attestation: headAttestation,
+      expectedManifestHash,
+      expectedTenantId: header?.tenantId ?? null,
+      expectedPeriod: header?.period ?? null,
+      monthManifestHash,
+      monthAttestationHash,
+      publicKeyByKeyId: monthPublicKeys.publicKeyByKeyId,
+      keyMetaByKeyId: monthPublicKeys.keyMetaByKeyId,
+      strict
+    });
+    if (!headAttestationVerify.ok) return { ok: false, error: "bundle head attestation invalid", detail: headAttestationVerify };
+  }
+
   // VerificationReport.v1 (strict requires it, signed).
   let verificationReport = null;
   try {
@@ -176,13 +383,6 @@ export async function verifyFinancePackBundleDir({ dir, strict = false } = {}) {
 
   let verificationReportVerify = null;
   if (verificationReport) {
-    let monthPublicKeys = null;
-    try {
-      const keysJson = await readJson(path.join(monthDir, "keys", "public_keys.json"));
-      monthPublicKeys = parsePublicKeysV1(keysJson);
-    } catch {
-      monthPublicKeys = null;
-    }
     verificationReportVerify = verifyVerificationReportV1({
       report: verificationReport,
       expectedManifestHash,
@@ -190,6 +390,14 @@ export async function verifyFinancePackBundleDir({ dir, strict = false } = {}) {
       strict
     });
     if (!verificationReportVerify.ok) return { ok: false, error: "verification report invalid", detail: verificationReportVerify };
+
+    if (strict) {
+      const declaredAttHash = verificationReport?.bundleHeadAttestation?.attestationHash ?? null;
+      const expectedAttHash = headAttestationVerify?.attestationHash ?? null;
+      if (typeof expectedAttHash === "string" && expectedAttHash.trim() && String(declaredAttHash ?? "") !== expectedAttHash) {
+        return { ok: false, error: "verification report bundleHeadAttestation.attestationHash mismatch", expected: expectedAttHash, actual: declaredAttHash ?? null };
+      }
+    }
   }
 
   // GLBatch artifact hash and version checks.
@@ -254,6 +462,7 @@ export async function verifyFinancePackBundleDir({ dir, strict = false } = {}) {
     ok: true,
     strict,
     monthStrict: monthStrict?.ok ? monthStrict : null,
+    headAttestation: headAttestationVerify?.ok ? headAttestationVerify : null,
     verificationReport: verificationReportVerify?.ok ? verificationReportVerify : null,
     type: header.type,
     period: header.period,

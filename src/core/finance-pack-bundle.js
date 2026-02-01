@@ -19,6 +19,7 @@ function assertUint8Array(value, name) {
 export const FINANCE_PACK_BUNDLE_SCHEMA_VERSION_V1 = "FinancePackBundle.v1";
 export const FINANCE_PACK_BUNDLE_MANIFEST_SCHEMA_VERSION_V1 = "FinancePackBundleManifest.v1";
 export const FINANCE_PACK_BUNDLE_MANIFEST_HASHING_SCHEMA_VERSION_V1 = "FinancePackBundleManifestHash.v1";
+export const BUNDLE_HEAD_ATTESTATION_SCHEMA_V1 = "BundleHeadAttestation.v1";
 
 function stripUndefinedDeep(value) {
   if (value === undefined) return null;
@@ -133,7 +134,20 @@ function tryExtractClosePolicyFromMonthProof({ monthProofFiles, period }) {
   return null;
 }
 
-function buildVerificationReportV1({ tenantId, period, createdAt, protocol, manifestHash, inputs, monthProofAttestation, signer, monthProofFiles, warnings, toolVersion }) {
+function buildVerificationReportV1({
+  tenantId,
+  period,
+  createdAt,
+  protocol,
+  manifestHash,
+  bundleHeadAttestation,
+  inputs,
+  monthProofAttestation,
+  signer,
+  monthProofFiles,
+  warnings,
+  toolVersion
+}) {
   const signerKeyId = signer?.keyId && typeof signer.keyId === "string" && signer.keyId.trim() ? signer.keyId : null;
   const signerScope = signerKeyId ? (signer?.scope ?? "global") : null;
   const signerGovernanceEventRef = signerKeyId ? findSignerGovernanceEventRef({ monthProofFiles, keyId: signerKeyId }) : null;
@@ -155,6 +169,16 @@ function buildVerificationReportV1({ tenantId, period, createdAt, protocol, mani
           governanceEventRef: signerGovernanceEventRef
         }
       : null,
+    bundleHeadAttestation:
+      bundleHeadAttestation && typeof bundleHeadAttestation === "object"
+        ? {
+            schemaVersion: bundleHeadAttestation.schemaVersion ?? null,
+            attestationHash: bundleHeadAttestation.attestationHash ?? null,
+            signerKeyId: bundleHeadAttestation.signerKeyId ?? null,
+            signedAt: bundleHeadAttestation.signedAt ?? null,
+            manifestHash: bundleHeadAttestation.manifestHash ?? null
+          }
+        : null,
     policy: closePolicyTrace
       ? {
           monthCloseHoldPolicy: closePolicyTrace.closeHoldPolicy ?? null,
@@ -181,6 +205,33 @@ function buildVerificationReportV1({ tenantId, period, createdAt, protocol, mani
     signedAt = createdAt;
   }
   return stripUndefinedDeep({ ...core, reportHash, signature, signerKeyId, signedAt });
+}
+
+function buildBundleHeadAttestationV1({ tenantId, period, createdAt, manifestHash, heads, signer }) {
+  assertNonEmptyString(tenantId, "tenantId");
+  assertNonEmptyString(period, "period");
+  assertNonEmptyString(createdAt, "createdAt");
+  assertNonEmptyString(manifestHash, "manifestHash");
+  if (!isPlainObject(heads)) throw new TypeError("heads must be an object");
+  if (!signer || typeof signer !== "object") throw new TypeError("signer is required");
+  assertNonEmptyString(signer.keyId, "signer.keyId");
+  assertNonEmptyString(signer.privateKeyPem, "signer.privateKeyPem");
+
+  const signedAt = createdAt;
+  const core = stripUndefinedDeep({
+    schemaVersion: BUNDLE_HEAD_ATTESTATION_SCHEMA_V1,
+    kind: FINANCE_PACK_BUNDLE_SCHEMA_VERSION_V1,
+    tenantId,
+    scope: { period },
+    generatedAt: createdAt,
+    manifestHash,
+    heads,
+    signedAt,
+    signerKeyId: signer.keyId
+  });
+  const attestationHash = sha256Hex(canonicalJsonStringify(core));
+  const signature = signHashHexEd25519(attestationHash, signer.privateKeyPem);
+  return { ...core, attestationHash, signature };
 }
 
 export function computeFinancePackBundleManifestV1({ files, period, tenantId, createdAt, protocol } = {}) {
@@ -251,6 +302,8 @@ export function buildFinancePackBundleV1({
   monthProofBundle,
   monthProofFiles,
   requireMonthProofAttestation = false,
+  requireHeadAttestation = false,
+  manifestSigner = null,
   verificationReportSigner = null,
   verificationReportWarnings = null,
   toolVersion = null,
@@ -266,6 +319,8 @@ export function buildFinancePackBundleV1({
   if (!monthProofBundle || typeof monthProofBundle !== "object") throw new TypeError("monthProofBundle is required");
   if (!(monthProofFiles instanceof Map)) throw new TypeError("monthProofFiles must be a Map");
   if (requireMonthProofAttestation !== true && requireMonthProofAttestation !== false) throw new TypeError("requireMonthProofAttestation must be a boolean");
+  if (requireHeadAttestation !== true && requireHeadAttestation !== false) throw new TypeError("requireHeadAttestation must be a boolean");
+  if (manifestSigner !== null && typeof manifestSigner !== "object") throw new TypeError("manifestSigner must be null or an object");
   if (verificationReportSigner !== null && typeof verificationReportSigner !== "object") throw new TypeError("verificationReportSigner must be null or an object");
   if (!glBatchArtifact || typeof glBatchArtifact !== "object") throw new TypeError("glBatchArtifact is required");
   if (!journalCsvArtifact || typeof journalCsvArtifact !== "object") throw new TypeError("journalCsvArtifact is required");
@@ -281,6 +336,11 @@ export function buildFinancePackBundleV1({
   if (requireMonthProofAttestation && !monthProofFiles.has("attestation/bundle_head_attestation.json")) {
     const err = new Error("MonthProofBundle is missing attestation/bundle_head_attestation.json");
     err.code = "MONTH_PROOF_ATTESTATION_REQUIRED";
+    throw err;
+  }
+  if (requireHeadAttestation && !manifestSigner) {
+    const err = new Error("FinancePackBundle head attestation requested, but manifestSigner is missing");
+    err.code = "FINANCE_PACK_ATTESTATION_SIGNER_REQUIRED";
     throw err;
   }
 
@@ -336,13 +396,34 @@ export function buildFinancePackBundleV1({
       }
     : null;
 
-  let { manifest, manifestHash } = computeFinancePackBundleManifestV1({ files, tenantId, period, createdAt, protocol });
+  const { manifest, manifestHash } = computeFinancePackBundleManifestV1({ files, tenantId, period, createdAt, protocol });
+  files.set("manifest.json", encoder.encode(`${canonicalJsonStringify({ ...manifest, manifestHash })}\n`));
+
+  let headAttestation = null;
+  if (manifestSigner) {
+    headAttestation = buildBundleHeadAttestationV1({
+      tenantId,
+      period,
+      createdAt,
+      manifestHash,
+      heads: {
+        monthProof: {
+          manifestHash: monthProofBundleHash,
+          attestationHash: monthProofAttestation?.attestationHash ?? null
+        }
+      },
+      signer: manifestSigner
+    });
+    files.set("attestation/bundle_head_attestation.json", encoder.encode(`${canonicalJsonStringify(headAttestation)}\n`));
+  }
+
   const verificationReportFinal = buildVerificationReportV1({
     tenantId,
     period,
     createdAt,
     protocol,
     manifestHash,
+    bundleHeadAttestation: headAttestation,
     inputs,
     monthProofAttestation,
     signer: verificationReportSigner,
@@ -351,9 +432,6 @@ export function buildFinancePackBundleV1({
     toolVersion
   });
   files.set("verify/verification_report.json", encoder.encode(`${canonicalJsonStringify(verificationReportFinal)}\n`));
-
-  ({ manifest, manifestHash } = computeFinancePackBundleManifestV1({ files, tenantId, period, createdAt, protocol }));
-  files.set("manifest.json", encoder.encode(`${canonicalJsonStringify({ ...manifest, manifestHash })}\n`));
 
   const bundle = {
     schemaVersion: FINANCE_PACK_BUNDLE_SCHEMA_VERSION_V1,
