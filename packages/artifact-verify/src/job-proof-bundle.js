@@ -143,6 +143,8 @@ function verifyVerificationReportV1ForProofBundle({
       const governed = Boolean(meta && typeof meta === "object" && meta.serverGoverned === true);
       if (!governed) return { ok: false, error: "verification report signer key not governed", signerKeyId };
       if (!(typeof meta?.validFrom === "string" && meta.validFrom.trim())) return { ok: false, error: "verification report signer key missing validFrom", signerKeyId };
+      const purpose = normalizedPurpose(meta);
+      if (purpose !== "server") return { ok: false, error: "verification report signer key purpose invalid", signerKeyId, purpose: meta?.purpose ?? null };
       const usable = isServerKeyUsableAtForAttestation({ meta, atIso: signedAt });
       if (!usable.ok) return { ok: false, error: "verification report signer key not valid", signerKeyId, reason: usable.reason, boundary: usable.boundary ?? null };
     }
@@ -544,6 +546,12 @@ function isServerKeyUsableAtForAttestation({ meta, atIso }) {
   return { ok: true };
 }
 
+function normalizedPurpose(meta) {
+  if (!meta || typeof meta !== "object") return null;
+  const p = typeof meta.purpose === "string" && meta.purpose.trim() ? meta.purpose.trim().toLowerCase() : null;
+  return p || null;
+}
+
 function verifyEventStreamIntegrityV1({ events, payloadMaterial, publicKeyByKeyId, keyMetaByKeyId, declaredHeadChainHash, declaredHeadEventId, strict }) {
   if (!Array.isArray(events)) return { ok: false, error: "missing events" };
   if (strict !== true && strict !== false) strict = false;
@@ -609,6 +617,10 @@ function verifyEventStreamIntegrityV1({ events, payloadMaterial, publicKeyByKeyI
         const hasValidFrom = typeof meta?.validFrom === "string" && meta.validFrom.trim();
         if (!hasValidFrom) {
           return { ok: false, error: `server signer key missing validFrom at index ${i}`, eventId: e?.id ?? null, signerKeyId: e.signerKeyId };
+        }
+        const purpose = normalizedPurpose(meta);
+        if (purpose !== "server") {
+          return { ok: false, error: `server signer key purpose invalid at index ${i}`, eventId: e?.id ?? null, signerKeyId: e.signerKeyId, purpose: meta?.purpose ?? null };
         }
       }
 
@@ -995,6 +1007,8 @@ function verifyBundleHeadAttestationV1({
     const governed = Boolean(meta && typeof meta === "object" && meta.serverGoverned === true);
     if (!governed) return { ok: false, error: "attestation signer key not governed", signerKeyId };
     if (!(typeof meta?.validFrom === "string" && meta.validFrom.trim())) return { ok: false, error: "attestation signer key missing validFrom", signerKeyId };
+    const purpose = normalizedPurpose(meta);
+    if (purpose !== "server") return { ok: false, error: "attestation signer key purpose invalid", signerKeyId, purpose: meta?.purpose ?? null };
   }
   const usable = isServerKeyUsableAtForAttestation({ meta, atIso: signedAt });
   if (!usable.ok) return { ok: false, error: "attestation signer key not valid", signerKeyId, reason: usable.reason, boundary: usable.boundary ?? null };

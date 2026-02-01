@@ -102,6 +102,12 @@ function isServerKeyUsableAtForAttestation({ meta, atIso }) {
   return { ok: true };
 }
 
+function normalizedPurpose(meta) {
+  if (!meta || typeof meta !== "object") return null;
+  const p = typeof meta.purpose === "string" && meta.purpose.trim() ? meta.purpose.trim().toLowerCase() : null;
+  return p || null;
+}
+
 function deriveServerKeyTimelineFromGovernanceEvents(events) {
   const derived = new Map(); // keyId -> { validFrom, rotatedAt, revokedAt, serverGoverned }
   for (const e of Array.isArray(events) ? events : []) {
@@ -196,6 +202,8 @@ function verifyBundleHeadAttestationV1({ attestation, expectedManifestHash, expe
       const governed = Boolean(meta && typeof meta === "object" && meta.serverGoverned === true);
       if (!governed) return { ok: false, error: "attestation signer key not governed", signerKeyId };
       if (!(typeof meta?.validFrom === "string" && meta.validFrom.trim())) return { ok: false, error: "attestation signer key missing validFrom", signerKeyId };
+      const purpose = normalizedPurpose(meta);
+      if (purpose !== "server") return { ok: false, error: "attestation signer key purpose invalid", signerKeyId, purpose: meta?.purpose ?? null };
       const usable = isServerKeyUsableAtForAttestation({ meta, atIso: signedAt });
       if (!usable.ok) return { ok: false, error: "attestation signer key not valid", signerKeyId, reason: usable.reason, boundary: usable.boundary ?? null };
     }
@@ -265,6 +273,17 @@ function verifyVerificationReportV1({ report, expectedManifestHash, monthPublicK
     if (!publicKeyPem) return { ok: false, error: "verification report signerKeyId not found in month keys", signerKeyId };
     const ok = verifyHashHexEd25519({ hashHex: actualReportHash, signatureBase64: signature, publicKeyPem });
     if (!ok) return { ok: false, error: "verification report signature invalid", signerKeyId };
+
+    if (strict) {
+      const meta = monthPublicKeys?.keyMetaByKeyId?.get?.(signerKeyId) ?? null;
+      const governed = Boolean(meta && typeof meta === "object" && meta.serverGoverned === true);
+      if (!governed) return { ok: false, error: "verification report signer key not governed", signerKeyId };
+      if (!(typeof meta?.validFrom === "string" && meta.validFrom.trim())) return { ok: false, error: "verification report signer key missing validFrom", signerKeyId };
+      const purpose = normalizedPurpose(meta);
+      if (purpose !== "server") return { ok: false, error: "verification report signer key purpose invalid", signerKeyId, purpose: meta?.purpose ?? null };
+      const usable = isServerKeyUsableAtForAttestation({ meta, atIso: signedAt });
+      if (!usable.ok) return { ok: false, error: "verification report signer key not valid", signerKeyId, reason: usable.reason, boundary: usable.boundary ?? null };
+    }
   }
 
   return { ok: true, reportHash: actualReportHash, signerKeyId: signerKeyId ?? null };

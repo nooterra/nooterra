@@ -18,7 +18,7 @@
           "keyId": { "type": "string" },
           "publicKeyPem": { "type": "string" },
           "tenantId": { "type": ["string", "null"] },
-          "purpose": { "type": ["string", "null"] },
+          "purpose": { "type": ["string", "null"], "enum": ["robot", "operator", "server", null] },
           "status": { "type": ["string", "null"] },
           "description": { "type": ["string", "null"] },
           "validFrom": { "type": ["string", "null"] },
@@ -31,4 +31,3 @@
     }
   }
 }
-

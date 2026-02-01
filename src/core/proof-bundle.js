@@ -6,6 +6,7 @@ import { computeArtifactHash } from "./artifacts.js";
 import { compileContractPolicyTemplate } from "./contract-compiler.js";
 import { DEFAULT_TENANT_ID } from "./tenancy.js";
 import { VERIFICATION_WARNING_CODE, normalizeVerificationWarnings } from "./verification-warnings.js";
+import { normalizeSignerKeyPurpose, normalizeSignerKeyStatus, SIGNER_KEY_PURPOSE } from "./signer-keys.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -24,11 +25,24 @@ function normalizeIsoOrNull(value) {
   return Number.isFinite(ms) ? s : null;
 }
 
-function buildPublicKeysFileV1({ tenantId, generatedAt, publicKeyByKeyId, signerKeys = [], keyIds = null } = {}) {
+function buildPublicKeysFileV1({ tenantId, generatedAt, publicKeyByKeyId, signerKeys = [], keyIds = null, governanceEvents = null } = {}) {
   assertNonEmptyString(tenantId, "tenantId");
   assertNonEmptyString(generatedAt, "generatedAt");
   if (!(publicKeyByKeyId instanceof Map)) throw new TypeError("publicKeyByKeyId must be a Map");
   if (!Array.isArray(signerKeys)) throw new TypeError("signerKeys must be an array");
+  if (governanceEvents !== null && !Array.isArray(governanceEvents)) throw new TypeError("governanceEvents must be null or an array");
+
+  const serverSignerKeyIds = new Set();
+  for (const e of Array.isArray(governanceEvents) ? governanceEvents : []) {
+    if (!e || typeof e !== "object") continue;
+    const type = String(e.type ?? "");
+    if (!type.startsWith("SERVER_SIGNER_KEY_")) continue;
+    const p = e.payload ?? null;
+    if (!p || typeof p !== "object") continue;
+    if (typeof p.keyId === "string" && p.keyId.trim()) serverSignerKeyIds.add(String(p.keyId));
+    if (typeof p.oldKeyId === "string" && p.oldKeyId.trim()) serverSignerKeyIds.add(String(p.oldKeyId));
+    if (typeof p.newKeyId === "string" && p.newKeyId.trim()) serverSignerKeyIds.add(String(p.newKeyId));
+  }
 
   const metaByKeyId = new Map();
   for (const r of signerKeys) {
@@ -47,12 +61,32 @@ function buildPublicKeysFileV1({ tenantId, generatedAt, publicKeyByKeyId, signer
     const publicKeyPem = publicKeyByKeyId.get(keyId) ?? null;
     if (!publicKeyPem) continue;
     const meta = metaByKeyId.get(keyId) ?? null;
+
+    let purpose = null;
+    let status = null;
+    if (meta?.purpose !== undefined && meta?.purpose !== null) {
+      try {
+        purpose = normalizeSignerKeyPurpose(String(meta.purpose));
+      } catch {
+        purpose = null;
+      }
+    }
+    if (meta?.status !== undefined && meta?.status !== null) {
+      try {
+        status = normalizeSignerKeyStatus(String(meta.status));
+      } catch {
+        status = null;
+      }
+    }
+    // Governance events are the authoritative declaration that a key is a server signer key.
+    if (!purpose && serverSignerKeyIds.has(keyId)) purpose = SIGNER_KEY_PURPOSE.SERVER;
+
     keys.push({
       keyId,
       publicKeyPem: String(publicKeyPem),
       tenantId: meta?.tenantId ?? tenantId,
-      purpose: meta?.purpose ?? null,
-      status: meta?.status ?? null,
+      purpose,
+      status,
       description: meta?.description ?? null,
       validFrom: normalizeIsoOrNull(meta?.validFrom ?? null),
       validTo: normalizeIsoOrNull(meta?.validTo ?? null),
@@ -614,7 +648,7 @@ export function buildJobProofBundleV1({
         .filter((v) => typeof v === "string" && v.trim())
     )
   ).sort();
-  const keysFile = buildPublicKeysFileV1({ tenantId, generatedAt, publicKeyByKeyId, signerKeys, keyIds });
+  const keysFile = buildPublicKeysFileV1({ tenantId, generatedAt, publicKeyByKeyId, signerKeys, keyIds, governanceEvents });
   files.set("keys/public_keys.json", new TextEncoder().encode(`${canonicalJsonStringify(keysFile)}\n`));
 
 	  const eventChain = verifyEventChain(jobEvents, publicKeyByKeyId);
@@ -820,7 +854,7 @@ export function buildMonthProofBundleV1({
         .filter((v) => typeof v === "string" && v.trim())
     )
   ).sort();
-  const keysFile = buildPublicKeysFileV1({ tenantId, generatedAt, publicKeyByKeyId, signerKeys, keyIds: monthKeyIds });
+  const keysFile = buildPublicKeysFileV1({ tenantId, generatedAt, publicKeyByKeyId, signerKeys, keyIds: monthKeyIds, governanceEvents });
   files.set("keys/public_keys.json", new TextEncoder().encode(`${canonicalJsonStringify(keysFile)}\n`));
 
   const eventChain = verifyEventChain(monthEvents, publicKeyByKeyId);
