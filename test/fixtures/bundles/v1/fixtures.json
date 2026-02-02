@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "FixtureMatrix.v1",
+  "root": "test/fixtures/bundles/v1",
+  "trust": "test/fixtures/bundles/v1/trust.json",
+  "fixtures": [
+    {
+      "id": "jobproof_strict_pass",
+      "kind": "job-proof",
+      "path": "jobproof/strict-pass",
+      "strict": true,
+      "expected": { "exitCode": 0, "ok": true, "verificationOk": true, "errorCodes": [], "warningCodes": [] }
+    },
+    {
+      "id": "jobproof_strict_fail_missing_verification_report",
+      "kind": "job-proof",
+      "path": "jobproof/strict-fail-missing-verification-report",
+      "strict": true,
+      "expected": {
+        "exitCode": 1,
+        "ok": false,
+        "verificationOk": false,
+        "errorCodes": ["missing verify/verification_report.json"],
+        "warningCodes": []
+      }
+    },
+    {
+      "id": "jobproof_nonstrict_pass_missing_verification_report",
+      "kind": "job-proof",
+      "path": "jobproof/nonstrict-pass-missing-verification-report",
+      "strict": false,
+      "expected": { "exitCode": 0, "ok": true, "verificationOk": true, "errorCodes": [], "warningCodes": ["VERIFICATION_REPORT_MISSING_LENIENT"] }
+    },
+    {
+      "id": "jobproof_strict_fail_manifest_tamper",
+      "kind": "job-proof",
+      "path": "jobproof/strict-fail-manifest-tamper",
+      "strict": true,
+      "expected": { "exitCode": 1, "ok": false, "verificationOk": false, "errorCodes": ["sha256 mismatch"], "warningCodes": [] }
+    },
+    {
+      "id": "jobproof_strict_fail_report_binding_mismatch",
+      "kind": "job-proof",
+      "path": "jobproof/strict-fail-verification-report-binding-mismatch",
+      "strict": true,
+      "expected": {
+        "exitCode": 1,
+        "ok": false,
+        "verificationOk": false,
+        "errorCodes": ["verification report bundleHeadAttestation.attestationHash mismatch"],
+        "warningCodes": []
+      }
+    },
+    {
+      "id": "jobproof_strict_fail_unauthorized_signer",
+      "kind": "job-proof",
+      "path": "jobproof/strict-fail-unauthorized-signer",
+      "strict": true,
+      "expected": { "exitCode": 1, "ok": false, "verificationOk": false, "errorCodes": ["signer keyId not allowed by policy"], "warningCodes": [] }
+    },
+    {
+      "id": "jobproof_strict_fail_revoked_at_or_after_with_timeproof",
+      "kind": "job-proof",
+      "path": "jobproof/strict-fail-revoked-at-or-after-with-timeproof",
+      "strict": true,
+      "needsTrustedTimeAuthorities": true,
+      "expected": { "exitCode": 1, "ok": false, "verificationOk": false, "errorCodes": ["SIGNER_REVOKED"], "warningCodes": [] }
+    },
+    {
+      "id": "jobproof_strict_fail_revoked_before_without_timeproof",
+      "kind": "job-proof",
+      "path": "jobproof/strict-fail-revoked-before-without-timeproof",
+      "strict": true,
+      "expected": { "exitCode": 1, "ok": false, "verificationOk": false, "errorCodes": ["SIGNING_TIME_UNPROVABLE"], "warningCodes": [] }
+    },
+    {
+      "id": "monthproof_strict_pass",
+      "kind": "month-proof",
+      "path": "monthproof/strict-pass",
+      "strict": true,
+      "expected": { "exitCode": 0, "ok": true, "verificationOk": true, "errorCodes": [], "warningCodes": [] }
+    },
+    {
+      "id": "monthproof_strict_fail_missing_verification_report",
+      "kind": "month-proof",
+      "path": "monthproof/strict-fail-missing-verification-report",
+      "strict": true,
+      "expected": {
+        "exitCode": 1,
+        "ok": false,
+        "verificationOk": false,
+        "errorCodes": ["missing verify/verification_report.json"],
+        "warningCodes": []
+      }
+    },
+    {
+      "id": "monthproof_nonstrict_pass_missing_verification_report",
+      "kind": "month-proof",
+      "path": "monthproof/nonstrict-pass-missing-verification-report",
+      "strict": false,
+      "expected": { "exitCode": 0, "ok": true, "verificationOk": true, "errorCodes": [], "warningCodes": ["VERIFICATION_REPORT_MISSING_LENIENT"] }
+    },
+    {
+      "id": "financepack_strict_pass",
+      "kind": "finance-pack",
+      "path": "financepack/strict-pass",
+      "strict": true,
+      "expected": { "exitCode": 0, "ok": true, "verificationOk": true, "errorCodes": [], "warningCodes": [] }
+    },
+    {
+      "id": "financepack_nonstrict_pass_missing_verification_report",
+      "kind": "finance-pack",
+      "path": "financepack/nonstrict-pass-missing-verification-report",
+      "strict": false,
+      "expected": { "exitCode": 0, "ok": true, "verificationOk": true, "errorCodes": [], "warningCodes": ["VERIFICATION_REPORT_MISSING_LENIENT"] }
+    },
+    {
+      "id": "financepack_strict_pass_tool_version_unknown_warning",
+      "kind": "finance-pack",
+      "path": "financepack/pass-with-tool-version-unknown-warning",
+      "strict": true,
+      "expected": { "exitCode": 0, "ok": true, "verificationOk": true, "errorCodes": [], "warningCodes": ["TOOL_VERSION_UNKNOWN"] }
+    }
+  ]
+}
+

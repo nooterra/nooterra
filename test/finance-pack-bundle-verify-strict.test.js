@@ -16,6 +16,7 @@ import { DEFAULT_TENANT_ID } from "../src/core/tenancy.js";
 
 import { verifyFinancePackBundleDir } from "../packages/artifact-verify/src/index.js";
 import { writeZipFromDir } from "../scripts/proof-bundle/lib.mjs";
+import { withEnv } from "./lib/with-env.js";
 
 function bytes(text) {
   return new TextEncoder().encode(text);
@@ -52,6 +53,12 @@ test("FinancePackBundle.v1 strict verification succeeds (MonthProof strict + sig
   const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
   const keyId = keyIdFromPublicKeyPem(publicKeyPem);
   const signer = { keyId, privateKeyPem };
+  const govRoot = createEd25519Keypair();
+  const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
+  const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
+  await withEnv(
+    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    async () => {
 
   const publicKeyByKeyId = new Map([[keyId, publicKeyPem]]);
 
@@ -118,39 +125,43 @@ test("FinancePackBundle.v1 strict verification succeeds (MonthProof strict + sig
     publicKeyByKeyId,
     signerKeys: [],
     manifestSigner: signer,
+    governancePolicySigner: govSigner,
     requireHeadAttestation: true,
     generatedAt
   });
 
-	  const built = buildFinancePackBundleV1({
-	    tenantId,
-	    period,
-	    protocol: "1.0",
-	    createdAt,
-	    monthProofBundle: monthBundle,
-	    monthProofFiles: monthFiles,
-	    requireMonthProofAttestation: true,
-	    requireHeadAttestation: true,
-	    manifestSigner: signer,
-	    verificationReportSigner: signer,
-	    glBatchArtifact: glBatch,
-	    journalCsvArtifact: journalCsv,
-	    reconcileReport: reconcile,
-	    reconcileReportBytes: reconcileBytes
-  });
+		  const built = buildFinancePackBundleV1({
+		    tenantId,
+		    period,
+		    protocol: "1.0",
+		    createdAt,
+        governancePolicySigner: govSigner,
+		    monthProofBundle: monthBundle,
+		    monthProofFiles: monthFiles,
+		    requireMonthProofAttestation: true,
+		    requireHeadAttestation: true,
+		    manifestSigner: signer,
+		    verificationReportSigner: signer,
+		    glBatchArtifact: glBatch,
+		    journalCsvArtifact: journalCsv,
+		    reconcileReport: reconcile,
+		    reconcileReportBytes: reconcileBytes
+	  });
 
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-finance-pack-strict-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files: built.files, outDir: dir });
 
-  const ok = await verifyFinancePackBundleDir({ dir, strict: true });
-  assert.equal(ok.ok, true, JSON.stringify(ok, null, 2));
+    const ok = await verifyFinancePackBundleDir({ dir, strict: true });
+    assert.equal(ok.ok, true, JSON.stringify(ok, null, 2));
 
-  const zipPath = path.join(tmp, "bundle.zip");
-  await writeZipFromDir({ dir, outPath: zipPath, mtime: new Date(createdAt), compression: "stored" });
-  const cli = await runCli(["--strict", "--finance-pack", zipPath]);
-  assert.equal(cli.code, 0, cli.stderr || cli.stdout);
-  assert.match(cli.stdout, /finance-pack: OK/);
+    const zipPath = path.join(tmp, "bundle.zip");
+    await writeZipFromDir({ dir, outPath: zipPath, mtime: new Date(createdAt), compression: "stored" });
+    const cli = await runCli(["--strict", "--finance-pack", zipPath]);
+    assert.equal(cli.code, 0, cli.stderr || cli.stdout);
+    assert.match(cli.stdout, /finance-pack: OK/);
+    }
+  );
 });
 
 test("FinancePackBundle.v1 strict verification fails if verification report is unsigned", async () => {
@@ -161,7 +172,13 @@ test("FinancePackBundle.v1 strict verification fails if verification report is u
   const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
   const keyId = keyIdFromPublicKeyPem(publicKeyPem);
   const signer = { keyId, privateKeyPem };
-  const publicKeyByKeyId = new Map([[keyId, publicKeyPem]]);
+  const govRoot = createEd25519Keypair();
+  const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
+  const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
+  await withEnv(
+    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    async () => {
+      const publicKeyByKeyId = new Map([[keyId, publicKeyPem]]);
 
   const governanceEvents = [];
   const govRegistered = createChainedEvent({
@@ -197,6 +214,7 @@ test("FinancePackBundle.v1 strict verification fails if verification report is u
     publicKeyByKeyId,
     signerKeys: [],
     manifestSigner: signer,
+    governancePolicySigner: govSigner,
     requireHeadAttestation: true,
     generatedAt: createdAt
   });
@@ -218,31 +236,34 @@ test("FinancePackBundle.v1 strict verification fails if verification report is u
   const reconcile = { ok: true, period, basis: "settledAt", entryCount: 0, totalsKeys: 0 };
   const reconcileBytes = bytes(`${canonicalJsonStringify(reconcile)}\n`);
 
-	  const built = buildFinancePackBundleV1({
-	    tenantId,
-	    period,
-	    protocol: "1.0",
-	    createdAt,
-	    monthProofBundle: monthBundle,
-	    monthProofFiles: monthFiles,
-	    requireMonthProofAttestation: true,
-	    requireHeadAttestation: true,
-	    manifestSigner: signer,
-	    verificationReportSigner: null,
-	    glBatchArtifact: glBatch,
-	    journalCsvArtifact: journalCsv,
-	    reconcileReport: reconcile,
-	    reconcileReportBytes: reconcileBytes
-  });
+      const built = buildFinancePackBundleV1({
+        tenantId,
+        period,
+        protocol: "1.0",
+        createdAt,
+        governancePolicySigner: govSigner,
+        monthProofBundle: monthBundle,
+        monthProofFiles: monthFiles,
+        requireMonthProofAttestation: true,
+        requireHeadAttestation: true,
+        manifestSigner: signer,
+        verificationReportSigner: null,
+        glBatchArtifact: glBatch,
+        journalCsvArtifact: journalCsv,
+        reconcileReport: reconcile,
+        reconcileReportBytes: reconcileBytes
+      });
 
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-finance-pack-strict-unsigned-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files: built.files, outDir: dir });
 
-	  const res = await verifyFinancePackBundleDir({ dir, strict: true });
-	  assert.equal(res.ok, false);
-	  assert.equal(res.error, "verification report invalid");
-	});
+      const res = await verifyFinancePackBundleDir({ dir, strict: true });
+      assert.equal(res.ok, false);
+      assert.equal(res.error, "verification report invalid");
+    }
+  );
+});
 
 test("FinancePackBundle.v1 strict verification fails if head attestation is missing", async () => {
   const tenantId = "tenant_strict_finance_pack_missing_attestation";
@@ -252,7 +273,13 @@ test("FinancePackBundle.v1 strict verification fails if head attestation is miss
   const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
   const keyId = keyIdFromPublicKeyPem(publicKeyPem);
   const signer = { keyId, privateKeyPem };
-  const publicKeyByKeyId = new Map([[keyId, publicKeyPem]]);
+  const govRoot = createEd25519Keypair();
+  const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
+  const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
+  await withEnv(
+    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    async () => {
+      const publicKeyByKeyId = new Map([[keyId, publicKeyPem]]);
 
   const governanceEvents = [];
   const govRegistered = createChainedEvent({
@@ -288,6 +315,7 @@ test("FinancePackBundle.v1 strict verification fails if head attestation is miss
     publicKeyByKeyId,
     signerKeys: [],
     manifestSigner: signer,
+    governancePolicySigner: govSigner,
     requireHeadAttestation: true,
     generatedAt: createdAt
   });
@@ -314,6 +342,7 @@ test("FinancePackBundle.v1 strict verification fails if head attestation is miss
     period,
     protocol: "1.0",
     createdAt,
+    governancePolicySigner: govSigner,
     monthProofBundle: monthBundle,
     monthProofFiles: monthFiles,
     requireMonthProofAttestation: true,
@@ -332,9 +361,11 @@ test("FinancePackBundle.v1 strict verification fails if head attestation is miss
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files: built.files, outDir: dir });
 
-  const res = await verifyFinancePackBundleDir({ dir, strict: true });
-  assert.equal(res.ok, false);
-  assert.equal(res.error, "missing attestation/bundle_head_attestation.json");
+      const res = await verifyFinancePackBundleDir({ dir, strict: true });
+      assert.equal(res.ok, false);
+      assert.equal(res.error, "missing attestation/bundle_head_attestation.json");
+    }
+  );
 });
 
 test("FinancePackBundle.v1 strict verification fails if report attestationHash binding is wrong (even if report signature is valid)", async () => {
@@ -345,7 +376,13 @@ test("FinancePackBundle.v1 strict verification fails if report attestationHash b
   const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
   const keyId = keyIdFromPublicKeyPem(publicKeyPem);
   const signer = { keyId, privateKeyPem };
-  const publicKeyByKeyId = new Map([[keyId, publicKeyPem]]);
+  const govRoot = createEd25519Keypair();
+  const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
+  const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
+  await withEnv(
+    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    async () => {
+      const publicKeyByKeyId = new Map([[keyId, publicKeyPem]]);
 
   const governanceEvents = [];
   const govRegistered = createChainedEvent({
@@ -381,6 +418,7 @@ test("FinancePackBundle.v1 strict verification fails if report attestationHash b
     publicKeyByKeyId,
     signerKeys: [],
     manifestSigner: signer,
+    governancePolicySigner: govSigner,
     requireHeadAttestation: true,
     generatedAt: createdAt
   });
@@ -407,6 +445,7 @@ test("FinancePackBundle.v1 strict verification fails if report attestationHash b
     period,
     protocol: "1.0",
     createdAt,
+    governancePolicySigner: govSigner,
     monthProofBundle: monthBundle,
     monthProofFiles: monthFiles,
     requireMonthProofAttestation: true,
@@ -426,12 +465,10 @@ test("FinancePackBundle.v1 strict verification fails if report attestationHash b
   report.bundleHeadAttestation = report.bundleHeadAttestation ?? {};
   report.bundleHeadAttestation.attestationHash = "0".repeat(64);
 
-  const { reportHash: _h, signature: _sig, signerKeyId: _kid, signedAt: _signedAt, ...core } = report;
+  const { reportHash: _h, signature: _sig, ...core } = report;
   const newReportHash = sha256Hex(bytes(canonicalJsonStringify(core)));
   report.reportHash = newReportHash;
   report.signature = signHashHexEd25519(newReportHash, signer.privateKeyPem);
-  report.signerKeyId = signer.keyId;
-  report.signedAt = createdAt;
 
   built.files.set("verify/verification_report.json", bytes(`${canonicalJsonStringify(report)}\n`));
 
@@ -439,7 +476,9 @@ test("FinancePackBundle.v1 strict verification fails if report attestationHash b
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files: built.files, outDir: dir });
 
-  const res = await verifyFinancePackBundleDir({ dir, strict: true });
-  assert.equal(res.ok, false);
-  assert.equal(res.error, "verification report bundleHeadAttestation.attestationHash mismatch");
+      const res = await verifyFinancePackBundleDir({ dir, strict: true });
+      assert.equal(res.ok, false);
+      assert.equal(res.error, "verification report bundleHeadAttestation.attestationHash mismatch");
+    }
+  );
 });

@@ -12,10 +12,10 @@
     "generatedAt": { "type": "string" },
     "manifestHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "heads": { "type": "object" },
+    "timestampProof": { "$ref": "https://settld.local/schemas/TimestampProof.v1.schema.json" },
     "signedAt": { "type": "string" },
     "signerKeyId": { "type": "string" },
     "attestationHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "signature": { "type": "string" }
   }
 }
-

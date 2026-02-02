@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/GovernancePolicy.v2.schema.json",
+  "title": "GovernancePolicy.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "policyId",
+    "generatedAt",
+    "algorithms",
+    "verificationReportSigners",
+    "bundleHeadAttestationSigners",
+    "revocationList",
+    "signerKeyId",
+    "signedAt",
+    "policyHash",
+    "signature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "GovernancePolicy.v2" },
+    "policyId": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "algorithms": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "enum": ["ed25519"] }
+    },
+    "verificationReportSigners": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/SignerRuleV2" }
+    },
+    "bundleHeadAttestationSigners": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/SignerRuleV2" }
+    },
+    "revocationList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "signerKeyId": { "type": ["string", "null"] },
+    "signedAt": { "type": ["string", "null"] },
+    "policyHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "signature": { "type": ["string", "null"] }
+  },
+  "$defs": {
+    "SignerRuleV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subjectType", "allowedScopes", "allowedKeyIds", "requireGoverned", "requiredPurpose"],
+      "properties": {
+        "subjectType": { "type": "string" },
+        "allowedScopes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "enum": ["global", "tenant"] }
+        },
+        "allowedKeyIds": { "type": "array", "items": { "type": "string" } },
+        "requireGoverned": { "type": "boolean" },
+        "requiredPurpose": { "type": "string", "enum": ["server"] }
+      }
+    }
+  }
+}
+

@@ -3,7 +3,17 @@ import path from "node:path";
 
 import { canonicalJsonStringify } from "./canonical-json.js";
 import { sha256HexBytes, sha256HexUtf8, verifyHashHexEd25519 } from "./crypto.js";
-import { validateVerificationWarnings } from "./verification-warnings.js";
+import {
+  GOVERNANCE_POLICY_SCHEMA_V2,
+  authorizeServerSignerForPolicy,
+  parseGovernancePolicyV1,
+  parseGovernancePolicyV2,
+  verifyGovernancePolicyV2Signature
+} from "./governance-policy.js";
+import { deriveKeyTimelineFromRevocationList, parseRevocationListV1, verifyRevocationListV1Signature } from "./revocation-list.js";
+import { verifyTimestampProofV1 } from "./timestamp-proof.js";
+import { trustedGovernanceRootKeysFromEnv, trustedTimeAuthorityKeysFromEnv } from "./trust.js";
+import { VERIFICATION_WARNING_CODE, validateVerificationWarnings } from "./verification-warnings.js";
 
 export const PROOF_BUNDLE_MANIFEST_SCHEMA_V1 = "ProofBundleManifest.v1";
 export const BUNDLE_HEAD_ATTESTATION_SCHEMA_V1 = "BundleHeadAttestation.v1";
@@ -71,7 +81,7 @@ function stripAttestationSig(attestation) {
 }
 
 function stripVerificationReportSig(report) {
-  const { reportHash: _h, signature: _sig, signerKeyId: _kid, signedAt: _signedAt, ...rest } = report ?? {};
+  const { reportHash: _h, signature: _sig, ...rest } = report ?? {};
   return rest;
 }
 
@@ -82,6 +92,9 @@ function verifyVerificationReportV1ForProofBundle({
   expectedBundleHeadAttestationHash,
   publicKeyByKeyId,
   keyMetaByKeyId,
+  governancePolicy,
+  revocationTimelineByKeyId,
+  trustedTimeAuthorities,
   strict
 }) {
   if (!report || typeof report !== "object" || Array.isArray(report)) return { ok: false, error: "invalid verification report JSON" };
@@ -110,7 +123,8 @@ function verifyVerificationReportV1ForProofBundle({
     }
   }
 
-  const expectedReportHash = sha256HexUtf8(canonicalJsonStringify(stripVerificationReportSig(report)));
+  const reportCore = stripVerificationReportSig(report);
+  const expectedReportHash = sha256HexUtf8(canonicalJsonStringify(reportCore));
   const actualReportHash = typeof report.reportHash === "string" ? report.reportHash : null;
   if (!actualReportHash) return { ok: false, error: "verification report missing reportHash" };
   if (expectedReportHash !== actualReportHash) return { ok: false, error: "verification report reportHash mismatch", expected: expectedReportHash, actual: actualReportHash };
@@ -138,17 +152,32 @@ function verifyVerificationReportV1ForProofBundle({
     const okSig = verifyHashHexEd25519({ hashHex: expectedReportHash, signatureBase64: signature, publicKeyPem });
     if (!okSig) return { ok: false, error: "verification report signature invalid", signerKeyId };
 
-    if (strict) {
-      const meta = (keyMetaByKeyId instanceof Map ? keyMetaByKeyId.get(signerKeyId) ?? null : null) ?? null;
-      const governed = Boolean(meta && typeof meta === "object" && meta.serverGoverned === true);
-      if (!governed) return { ok: false, error: "verification report signer key not governed", signerKeyId };
-      if (!(typeof meta?.validFrom === "string" && meta.validFrom.trim())) return { ok: false, error: "verification report signer key missing validFrom", signerKeyId };
-      const purpose = normalizedPurpose(meta);
-      if (purpose !== "server") return { ok: false, error: "verification report signer key purpose invalid", signerKeyId, purpose: meta?.purpose ?? null };
-      const usable = isServerKeyUsableAtForAttestation({ meta, atIso: signedAt });
-      if (!usable.ok) return { ok: false, error: "verification report signer key not valid", signerKeyId, reason: usable.reason, boundary: usable.boundary ?? null };
-    }
-  }
+	    if (strict) {
+	      const meta = (keyMetaByKeyId instanceof Map ? keyMetaByKeyId.get(signerKeyId) ?? null : null) ?? null;
+	      const auth = authorizeServerSignerForPolicy({
+	        policy: governancePolicy,
+	        documentKind: "verification_report",
+	        subjectType: expectedBundleType,
+	        signerKeyId,
+	        signerScope: signer?.scope ?? "global",
+	        keyMeta: meta
+	      });
+	      if (!auth.ok) return { ok: false, error: "verification report signer not authorized", detail: auth, signerKeyId };
+	      if (!(typeof meta?.validFrom === "string" && meta.validFrom.trim())) return { ok: false, error: "verification report signer key missing validFrom", signerKeyId };
+	      if (revocationTimelineByKeyId instanceof Map) {
+	        const time = effectiveSigningTimeFromTimestampProof({ documentCoreWithProof: reportCore, fallbackSignedAt: signedAt, trustedTimeAuthorities });
+	        const effectiveSignedAt = time.effectiveSignedAt;
+	        const basic = isKeyUsableAt(meta, effectiveSignedAt);
+	        if (!basic.ok) return { ok: false, error: "verification report signer key not valid", signerKeyId, reason: basic.reason, boundary: basic.boundary ?? null };
+	        const row = revocationTimelineByKeyId.get(signerKeyId) ?? null;
+	        const timelineCheck = enforceProspectiveKeyTimeline({ signerKeyId, effectiveSignedAt, trustworthyTime: time.trustworthy, timelineRow: row });
+	        if (!timelineCheck.ok) return { ok: false, error: timelineCheck.error, detail: { ...timelineCheck, timeProof: time.proof ?? null }, signerKeyId };
+	      } else {
+	        const usable = isServerKeyUsableAtForAttestation({ meta, atIso: signedAt });
+	        if (!usable.ok) return { ok: false, error: "verification report signer key not valid", signerKeyId, reason: usable.reason, boundary: usable.boundary ?? null };
+	      }
+	    }
+	  }
 
   return { ok: true };
 }
@@ -543,6 +572,47 @@ function isServerKeyUsableAtForAttestation({ meta, atIso }) {
   const { rotatedAtMs, revokedAtMs } = keyEffectiveWindowMs(meta);
   if (Number.isFinite(revokedAtMs) && atMs > revokedAtMs) return { ok: false, reason: "KEY_REVOKED", boundary: meta.revokedAt };
   if (Number.isFinite(rotatedAtMs) && atMs > rotatedAtMs) return { ok: false, reason: "KEY_ROTATED", boundary: meta.rotatedAt };
+  return { ok: true };
+}
+
+function effectiveSigningTimeFromTimestampProof({ documentCoreWithProof, fallbackSignedAt, trustedTimeAuthorities }) {
+  if (!(trustedTimeAuthorities instanceof Map)) return { ok: true, effectiveSignedAt: fallbackSignedAt, trustworthy: false, proof: null };
+  const check = verifyTimestampProofV1({ documentCoreWithProof, trustedPublicKeyByKeyId: trustedTimeAuthorities });
+  if (check.ok) return { ok: true, effectiveSignedAt: check.timestamp, trustworthy: true, proof: check };
+  return { ok: true, effectiveSignedAt: fallbackSignedAt, trustworthy: false, proof: check };
+}
+
+function enforceProspectiveKeyTimeline({ signerKeyId, effectiveSignedAt, trustworthyTime, timelineRow }) {
+  const atMs = Date.parse(String(effectiveSignedAt ?? ""));
+  if (!Number.isFinite(atMs)) return { ok: true };
+  if (!timelineRow || typeof timelineRow !== "object") return { ok: true };
+
+  const revokedAt = typeof timelineRow.revokedAt === "string" && timelineRow.revokedAt.trim() ? timelineRow.revokedAt.trim() : null;
+  const rotatedAt = typeof timelineRow.rotatedAt === "string" && timelineRow.rotatedAt.trim() ? timelineRow.rotatedAt.trim() : null;
+  const validFrom = typeof timelineRow.validFrom === "string" && timelineRow.validFrom.trim() ? timelineRow.validFrom.trim() : null;
+
+  // validity window start
+  if (validFrom) {
+    const vfMs = Date.parse(validFrom);
+    if (Number.isFinite(vfMs) && atMs < vfMs) return { ok: false, error: "SIGNER_NOT_YET_VALID", signerKeyId, boundary: validFrom };
+  }
+
+  // revocation wins over rotation
+  if (revokedAt) {
+    const rMs = Date.parse(revokedAt);
+    if (Number.isFinite(rMs)) {
+      if (atMs >= rMs) return { ok: false, error: "SIGNER_REVOKED", signerKeyId, boundary: revokedAt };
+      if (!trustworthyTime) return { ok: false, error: "SIGNING_TIME_UNPROVABLE", signerKeyId, boundary: revokedAt };
+    }
+  }
+  if (rotatedAt) {
+    const rtMs = Date.parse(rotatedAt);
+    if (Number.isFinite(rtMs)) {
+      if (atMs >= rtMs) return { ok: false, error: "SIGNER_ROTATED", signerKeyId, boundary: rotatedAt };
+      if (!trustworthyTime) return { ok: false, error: "SIGNING_TIME_UNPROVABLE", signerKeyId, boundary: rotatedAt };
+    }
+  }
+
   return { ok: true };
 }
 
@@ -971,6 +1041,9 @@ function verifyBundleHeadAttestationV1({
   jobSnapshot,
   monthHead,
   governanceSnapshots,
+  governancePolicy,
+  revocationTimelineByKeyId,
+  trustedTimeAuthorities,
   publicKeyByKeyId,
   keyMetaByKeyId,
   strict
@@ -1004,14 +1077,30 @@ function verifyBundleHeadAttestationV1({
 
   const meta = keyMetaByKeyId.get(signerKeyId) ?? null;
   if (strict) {
-    const governed = Boolean(meta && typeof meta === "object" && meta.serverGoverned === true);
-    if (!governed) return { ok: false, error: "attestation signer key not governed", signerKeyId };
+    const subjectType = String(attestation.kind ?? manifestKind ?? "");
+    const auth = authorizeServerSignerForPolicy({
+      policy: governancePolicy,
+      documentKind: "bundle_head_attestation",
+      subjectType,
+      signerKeyId,
+      signerScope: "global",
+      keyMeta: meta
+    });
+    if (!auth.ok) return { ok: false, error: "attestation signer not authorized", detail: auth, signerKeyId };
     if (!(typeof meta?.validFrom === "string" && meta.validFrom.trim())) return { ok: false, error: "attestation signer key missing validFrom", signerKeyId };
-    const purpose = normalizedPurpose(meta);
-    if (purpose !== "server") return { ok: false, error: "attestation signer key purpose invalid", signerKeyId, purpose: meta?.purpose ?? null };
   }
-  const usable = isServerKeyUsableAtForAttestation({ meta, atIso: signedAt });
-  if (!usable.ok) return { ok: false, error: "attestation signer key not valid", signerKeyId, reason: usable.reason, boundary: usable.boundary ?? null };
+  if (strict && revocationTimelineByKeyId instanceof Map) {
+    const time = effectiveSigningTimeFromTimestampProof({ documentCoreWithProof: attestationCore, fallbackSignedAt: signedAt, trustedTimeAuthorities });
+    const effectiveSignedAt = time.effectiveSignedAt;
+    const basic = isKeyUsableAt(meta, effectiveSignedAt);
+    if (!basic.ok) return { ok: false, error: "attestation signer key not valid", signerKeyId, reason: basic.reason, boundary: basic.boundary ?? null };
+    const row = revocationTimelineByKeyId.get(signerKeyId) ?? null;
+    const timelineCheck = enforceProspectiveKeyTimeline({ signerKeyId, effectiveSignedAt, trustworthyTime: time.trustworthy, timelineRow: row });
+    if (!timelineCheck.ok) return { ok: false, error: timelineCheck.error, detail: { ...timelineCheck, timeProof: time.proof ?? null }, signerKeyId };
+  } else {
+    const usable = isServerKeyUsableAtForAttestation({ meta, atIso: signedAt });
+    if (!usable.ok) return { ok: false, error: "attestation signer key not valid", signerKeyId, reason: usable.reason, boundary: usable.boundary ?? null };
+  }
 
   // Heads must match what the bundle declares.
   const heads = attestation.heads ?? null;
@@ -1116,17 +1205,19 @@ export async function verifyJobProofBundleDir({ dir, strict = false } = {}) {
     // Base: all job bundles require event stream, payload material, job snapshot, and keys.
     // `verify/*` files are derived outputs and intentionally excluded from the manifest.
     required.push("events/events.jsonl", "events/payload_material.jsonl", "job/snapshot.json", "keys/public_keys.json");
-    // Dual-scope governance is mandatory in strict mode.
-    if (strict) {
-      required.push(
-        "governance/global/events/events.jsonl",
-        "governance/global/events/payload_material.jsonl",
-        "governance/global/snapshot.json",
-        "governance/tenant/events/events.jsonl",
-        "governance/tenant/events/payload_material.jsonl",
-        "governance/tenant/snapshot.json"
-      );
-    }
+	    // Dual-scope governance is mandatory in strict mode.
+	    if (strict) {
+	      required.push(
+	        "governance/policy.json",
+	        "governance/revocations.json",
+	        "governance/global/events/events.jsonl",
+	        "governance/global/events/payload_material.jsonl",
+	        "governance/global/snapshot.json",
+	        "governance/tenant/events/events.jsonl",
+	        "governance/tenant/events/payload_material.jsonl",
+	        "governance/tenant/snapshot.json"
+	      );
+	    }
     const missing = required.filter((n) => !present.has(n));
     if (missing.length) {
       if (strict) return { ok: false, error: "manifest missing required files", kind, missing, warnings };
@@ -1145,6 +1236,73 @@ export async function verifyJobProofBundleDir({ dir, strict = false } = {}) {
     const actual = sha256HexBytes(b);
     if (actual !== expectedSha) return { ok: false, error: "sha256 mismatch", name, expected: expectedSha, actual, warnings };
   }
+
+	  // Governance policy: strict signer authorization contract.
+	  // v1 exists for non-strict/legacy compatibility; strict requires v2 with governance-root signature.
+	  let governancePolicy = null;
+	  let revocationTimelineByKeyId = new Map();
+	  let trustedGovernanceRoots = new Map();
+	  let trustedTimeAuthorities = new Map();
+	  try {
+	    const policyJson = await readJson(path.join(dir, "governance", "policy.json"));
+	    const schemaVersion = String(policyJson?.schemaVersion ?? "");
+	    if (schemaVersion === GOVERNANCE_POLICY_SCHEMA_V2) {
+	      const parsed = parseGovernancePolicyV2(policyJson);
+	      if (!parsed.ok) {
+	        if (strict) return { ok: false, error: "invalid governance/policy.json", detail: parsed, warnings };
+	      } else {
+	        governancePolicy = parsed.policy;
+	      }
+	    } else {
+	      const parsed = parseGovernancePolicyV1(policyJson);
+	      if (!parsed.ok) {
+	        if (strict) return { ok: false, error: "invalid governance/policy.json", detail: parsed, warnings };
+	      } else {
+	        governancePolicy = parsed.policy;
+	      }
+	    }
+	  } catch {
+	    if (strict) return { ok: false, error: "missing governance/policy.json", warnings };
+	    warnings.push({ code: VERIFICATION_WARNING_CODE.GOVERNANCE_POLICY_MISSING_LENIENT });
+	  }
+	  if (!strict && governancePolicy && String(governancePolicy.schemaVersion ?? "") !== GOVERNANCE_POLICY_SCHEMA_V2) {
+	    warnings.push({
+	      code: VERIFICATION_WARNING_CODE.GOVERNANCE_POLICY_V1_ACCEPTED_LENIENT,
+	      detail: { schemaVersion: governancePolicy.schemaVersion ?? null }
+	    });
+	  }
+
+	  if (strict) {
+	    if (!governancePolicy) return { ok: false, error: "missing governance policy", warnings };
+	    if (String(governancePolicy.schemaVersion ?? "") !== GOVERNANCE_POLICY_SCHEMA_V2) {
+	      return { ok: false, error: "strict requires GovernancePolicy.v2", schemaVersion: governancePolicy.schemaVersion ?? null, warnings };
+	    }
+
+	    trustedGovernanceRoots = trustedGovernanceRootKeysFromEnv();
+	    if (trustedGovernanceRoots.size === 0) {
+	      return { ok: false, error: "strict requires trusted governance root keys", env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
+	    }
+
+	    const sigOk = verifyGovernancePolicyV2Signature({ policy: governancePolicy, trustedGovernanceRootPublicKeyByKeyId: trustedGovernanceRoots });
+	    if (!sigOk.ok) return { ok: false, error: "governance policy signature invalid", detail: sigOk, warnings };
+
+	    const refPath = String(governancePolicy?.revocationList?.path ?? "");
+	    if (!refPath || !refPath.startsWith("governance/")) {
+	      return { ok: false, error: "governance policy revocationList.path invalid", path: governancePolicy?.revocationList?.path ?? null, warnings };
+	    }
+	    const revJson = await readJson(path.join(dir, refPath));
+	    const parsedList = parseRevocationListV1(revJson);
+	    if (!parsedList.ok) return { ok: false, error: "invalid governance revocation list", detail: parsedList, warnings };
+	    const listSigOk = verifyRevocationListV1Signature({ list: parsedList.list, trustedGovernanceRootPublicKeyByKeyId: trustedGovernanceRoots });
+	    if (!listSigOk.ok) return { ok: false, error: "revocation list signature invalid", detail: listSigOk, warnings };
+	    const expectedSha = String(governancePolicy?.revocationList?.sha256 ?? "");
+	    if (!expectedSha || listSigOk.listHash !== expectedSha) {
+	      return { ok: false, error: "revocation list hash mismatch", expected: expectedSha || null, actual: listSigOk.listHash ?? null, warnings };
+	    }
+	    revocationTimelineByKeyId = deriveKeyTimelineFromRevocationList(parsedList.list);
+
+	    trustedTimeAuthorities = trustedTimeAuthorityKeysFromEnv();
+	  }
 
   // Event stream integrity (no gaps, no selective history): validate against payload material + signatures.
   let events = null;
@@ -1234,6 +1392,7 @@ export async function verifyJobProofBundleDir({ dir, strict = false } = {}) {
     verificationReport = null;
   }
   if (strict && !verificationReport) return { ok: false, error: "missing verify/verification_report.json", warnings };
+  if (!strict && !verificationReport) warnings.push({ code: VERIFICATION_WARNING_CODE.VERIFICATION_REPORT_MISSING_LENIENT });
 
   let governance = { global: null, tenant: null };
   let governanceStream = null;
@@ -1344,25 +1503,29 @@ export async function verifyJobProofBundleDir({ dir, strict = false } = {}) {
           }
         : null
     };
-    attestationVerify = verifyBundleHeadAttestationV1({
-      attestation: headAttestation,
-      manifestHash: expectedManifestHash,
-      manifestKind: manifestWithHash.kind ?? null,
-      tenantId: manifestWithHash.tenantId ?? null,
-      scope: manifestWithHash.scope ?? null,
-      jobSnapshot,
-      monthHead: null,
-      governanceSnapshots,
-      publicKeyByKeyId,
-      keyMetaByKeyId,
-      strict
-    });
+	    attestationVerify = verifyBundleHeadAttestationV1({
+	      attestation: headAttestation,
+	      manifestHash: expectedManifestHash,
+	      manifestKind: manifestWithHash.kind ?? null,
+	      tenantId: manifestWithHash.tenantId ?? null,
+	      scope: manifestWithHash.scope ?? null,
+	      jobSnapshot,
+	      monthHead: null,
+	      governanceSnapshots,
+	      governancePolicy,
+	      revocationTimelineByKeyId,
+	      trustedTimeAuthorities,
+	      publicKeyByKeyId,
+	      keyMetaByKeyId,
+	      strict
+	    });
     if (!attestationVerify.ok) {
       if (strict) return { ok: false, error: "bundle head attestation invalid", detail: attestationVerify, warnings };
       warnings.push({ warning: "BUNDLE_HEAD_ATTESTATION_INVALID", detail: attestationVerify });
     }
   } else {
     warnings.push({ warning: "MISSING_BUNDLE_HEAD_ATTESTATION" });
+    warnings.push({ code: VERIFICATION_WARNING_CODE.BUNDLE_HEAD_ATTESTATION_MISSING_LENIENT });
   }
 
   // Provenance refs: settlement/hold decisions must reference real proof events and be fresh at decision time.
@@ -1372,15 +1535,18 @@ export async function verifyJobProofBundleDir({ dir, strict = false } = {}) {
   // Signed verification report must match the bundle manifestHash.
   let verificationReportVerify = null;
   if (verificationReport) {
-    verificationReportVerify = verifyVerificationReportV1ForProofBundle({
-      report: verificationReport,
-      expectedManifestHash,
-      expectedBundleType: JOB_PROOF_BUNDLE_SCHEMA_VERSION_V1,
-      expectedBundleHeadAttestationHash: attestationVerify?.attestationHash ?? null,
-      publicKeyByKeyId,
-      keyMetaByKeyId,
-      strict
-    });
+	    verificationReportVerify = verifyVerificationReportV1ForProofBundle({
+	      report: verificationReport,
+	      expectedManifestHash,
+	      expectedBundleType: JOB_PROOF_BUNDLE_SCHEMA_VERSION_V1,
+	      expectedBundleHeadAttestationHash: attestationVerify?.attestationHash ?? null,
+	      publicKeyByKeyId,
+	      keyMetaByKeyId,
+	      governancePolicy,
+	      revocationTimelineByKeyId,
+	      trustedTimeAuthorities,
+	      strict
+	    });
     if (!verificationReportVerify.ok) return { ok: false, error: "verification report invalid", detail: verificationReportVerify, warnings };
   }
 
@@ -1433,17 +1599,19 @@ export async function verifyMonthProofBundleDir({ dir, strict = false } = {}) {
       present.add(name);
     }
     // `verify/*` files are derived outputs and intentionally excluded from the manifest.
-    const required = ["events/events.jsonl", "events/payload_material.jsonl", "keys/public_keys.json"];
-    if (strict) {
-      required.push(
-        "governance/global/events/events.jsonl",
-        "governance/global/events/payload_material.jsonl",
-        "governance/global/snapshot.json",
-        "governance/tenant/events/events.jsonl",
-        "governance/tenant/events/payload_material.jsonl",
-        "governance/tenant/snapshot.json"
-      );
-    }
+	    const required = ["events/events.jsonl", "events/payload_material.jsonl", "keys/public_keys.json"];
+	    if (strict) {
+	      required.push(
+	        "governance/policy.json",
+	        "governance/revocations.json",
+	        "governance/global/events/events.jsonl",
+	        "governance/global/events/payload_material.jsonl",
+	        "governance/global/snapshot.json",
+	        "governance/tenant/events/events.jsonl",
+	        "governance/tenant/events/payload_material.jsonl",
+	        "governance/tenant/snapshot.json"
+	      );
+	    }
     const missing = required.filter((n) => !present.has(n));
     if (missing.length) {
       if (strict) return { ok: false, error: "manifest missing required files", missing, warnings };
@@ -1462,6 +1630,72 @@ export async function verifyMonthProofBundleDir({ dir, strict = false } = {}) {
     const actual = sha256HexBytes(b);
     if (actual !== expectedSha) return { ok: false, error: "sha256 mismatch", name, expected: expectedSha, actual, warnings };
   }
+
+	  // Governance policy: strict signer authorization contract.
+	  // v1 exists for non-strict/legacy compatibility; strict requires v2 with governance-root signature.
+	  let governancePolicy = null;
+	  let revocationTimelineByKeyId = new Map();
+	  let trustedGovernanceRoots = new Map();
+	  let trustedTimeAuthorities = new Map();
+	  try {
+	    const policyJson = await readJson(path.join(dir, "governance", "policy.json"));
+	    const schemaVersion = String(policyJson?.schemaVersion ?? "");
+	    if (schemaVersion === GOVERNANCE_POLICY_SCHEMA_V2) {
+	      const parsed = parseGovernancePolicyV2(policyJson);
+	      if (!parsed.ok) {
+	        if (strict) return { ok: false, error: "invalid governance/policy.json", detail: parsed, warnings };
+	      } else {
+	        governancePolicy = parsed.policy;
+	      }
+	    } else {
+	      const parsed = parseGovernancePolicyV1(policyJson);
+	      if (!parsed.ok) {
+	        if (strict) return { ok: false, error: "invalid governance/policy.json", detail: parsed, warnings };
+	      } else {
+	        governancePolicy = parsed.policy;
+	      }
+	    }
+	  } catch {
+	    if (strict) return { ok: false, error: "missing governance/policy.json", warnings };
+	    warnings.push({ code: VERIFICATION_WARNING_CODE.GOVERNANCE_POLICY_MISSING_LENIENT });
+	  }
+	  if (!strict && governancePolicy && String(governancePolicy.schemaVersion ?? "") !== GOVERNANCE_POLICY_SCHEMA_V2) {
+	    warnings.push({
+	      code: VERIFICATION_WARNING_CODE.GOVERNANCE_POLICY_V1_ACCEPTED_LENIENT,
+	      detail: { schemaVersion: governancePolicy.schemaVersion ?? null }
+	    });
+	  }
+
+	  if (strict) {
+	    if (!governancePolicy) return { ok: false, error: "missing governance policy", warnings };
+	    if (String(governancePolicy.schemaVersion ?? "") !== GOVERNANCE_POLICY_SCHEMA_V2) {
+	      return { ok: false, error: "strict requires GovernancePolicy.v2", schemaVersion: governancePolicy.schemaVersion ?? null, warnings };
+	    }
+
+	    trustedGovernanceRoots = trustedGovernanceRootKeysFromEnv();
+	    if (trustedGovernanceRoots.size === 0) {
+	      return { ok: false, error: "strict requires trusted governance root keys", env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
+	    }
+
+	    const sigOk = verifyGovernancePolicyV2Signature({ policy: governancePolicy, trustedGovernanceRootPublicKeyByKeyId: trustedGovernanceRoots });
+	    if (!sigOk.ok) return { ok: false, error: "governance policy signature invalid", detail: sigOk, warnings };
+
+	    const refPath = String(governancePolicy?.revocationList?.path ?? "");
+	    if (!refPath || !refPath.startsWith("governance/")) {
+	      return { ok: false, error: "governance policy revocationList.path invalid", path: governancePolicy?.revocationList?.path ?? null, warnings };
+	    }
+	    const revJson = await readJson(path.join(dir, refPath));
+	    const parsedList = parseRevocationListV1(revJson);
+	    if (!parsedList.ok) return { ok: false, error: "invalid governance revocation list", detail: parsedList, warnings };
+	    const listSigOk = verifyRevocationListV1Signature({ list: parsedList.list, trustedGovernanceRootPublicKeyByKeyId: trustedGovernanceRoots });
+	    if (!listSigOk.ok) return { ok: false, error: "revocation list signature invalid", detail: listSigOk, warnings };
+	    const expectedSha = String(governancePolicy?.revocationList?.sha256 ?? "");
+	    if (!expectedSha || listSigOk.listHash !== expectedSha) {
+	      return { ok: false, error: "revocation list hash mismatch", expected: expectedSha || null, actual: listSigOk.listHash ?? null, warnings };
+	    }
+	    revocationTimelineByKeyId = deriveKeyTimelineFromRevocationList(parsedList.list);
+	    trustedTimeAuthorities = trustedTimeAuthorityKeysFromEnv();
+	  }
 
   // Read keys.
   let publicKeyByKeyId = new Map();
@@ -1536,6 +1770,7 @@ export async function verifyMonthProofBundleDir({ dir, strict = false } = {}) {
     verificationReport = null;
   }
   if (strict && !verificationReport) return { ok: false, error: "missing verify/verification_report.json", warnings };
+  if (!strict && !verificationReport) warnings.push({ code: VERIFICATION_WARNING_CODE.VERIFICATION_REPORT_MISSING_LENIENT });
 
   // Derive server key timelines.
   {
@@ -1634,39 +1869,46 @@ export async function verifyMonthProofBundleDir({ dir, strict = false } = {}) {
         : null
     };
     const monthHead = eventStream.head ? { eventId: eventStream.head.eventId, chainHash: eventStream.head.chainHash } : null;
-    attestationVerify = verifyBundleHeadAttestationV1({
-      attestation: headAttestation,
-      manifestHash: expectedManifestHash,
-      manifestKind: manifestWithHash.kind ?? null,
-      tenantId: manifestWithHash.tenantId ?? null,
-      scope: manifestWithHash.scope ?? null,
-      jobSnapshot: null,
-      monthHead,
-      governanceSnapshots,
-      publicKeyByKeyId,
-      keyMetaByKeyId,
-      strict
-    });
+	    attestationVerify = verifyBundleHeadAttestationV1({
+	      attestation: headAttestation,
+	      manifestHash: expectedManifestHash,
+	      manifestKind: manifestWithHash.kind ?? null,
+	      tenantId: manifestWithHash.tenantId ?? null,
+	      scope: manifestWithHash.scope ?? null,
+	      jobSnapshot: null,
+	      monthHead,
+	      governanceSnapshots,
+	      governancePolicy,
+	      revocationTimelineByKeyId,
+	      trustedTimeAuthorities,
+	      publicKeyByKeyId,
+	      keyMetaByKeyId,
+	      strict
+	    });
     if (!attestationVerify.ok) {
       if (strict) return { ok: false, error: "bundle head attestation invalid", detail: attestationVerify, warnings };
       warnings.push({ warning: "BUNDLE_HEAD_ATTESTATION_INVALID", detail: attestationVerify });
     }
   } else {
     warnings.push({ warning: "MISSING_BUNDLE_HEAD_ATTESTATION" });
+    warnings.push({ code: VERIFICATION_WARNING_CODE.BUNDLE_HEAD_ATTESTATION_MISSING_LENIENT });
   }
 
   // Signed verification report must match the bundle manifestHash.
   let verificationReportVerify = null;
   if (verificationReport) {
-    verificationReportVerify = verifyVerificationReportV1ForProofBundle({
-      report: verificationReport,
-      expectedManifestHash,
-      expectedBundleType: MONTH_PROOF_BUNDLE_SCHEMA_VERSION_V1,
-      expectedBundleHeadAttestationHash: attestationVerify?.attestationHash ?? null,
-      publicKeyByKeyId,
-      keyMetaByKeyId,
-      strict
-    });
+	    verificationReportVerify = verifyVerificationReportV1ForProofBundle({
+	      report: verificationReport,
+	      expectedManifestHash,
+	      expectedBundleType: MONTH_PROOF_BUNDLE_SCHEMA_VERSION_V1,
+	      expectedBundleHeadAttestationHash: attestationVerify?.attestationHash ?? null,
+	      publicKeyByKeyId,
+	      keyMetaByKeyId,
+	      governancePolicy,
+	      revocationTimelineByKeyId,
+	      trustedTimeAuthorities,
+	      strict
+	    });
     if (!verificationReportVerify.ok) return { ok: false, error: "verification report invalid", detail: verificationReportVerify, warnings };
   }
 

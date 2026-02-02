@@ -96,6 +96,7 @@ async function buildMinimalBundles() {
     publicKeyByKeyId,
     signerKeys,
     manifestSigner: signer,
+    governancePolicySigner: signer,
     requireHeadAttestation: true,
     generatedAt
   });
@@ -129,6 +130,7 @@ async function buildMinimalBundles() {
     publicKeyByKeyId,
     signerKeys,
     manifestSigner: signer,
+    governancePolicySigner: signer,
     requireHeadAttestation: true,
     generatedAt
   });
@@ -156,6 +158,7 @@ async function buildMinimalBundles() {
     period,
     protocol: "1.0",
     createdAt,
+    governancePolicySigner: signer,
     monthProofBundle: month.bundle,
     monthProofFiles: month.files,
     requireMonthProofAttestation: true,
@@ -183,12 +186,18 @@ test("docs/spec/schemas validate real generated bundles (smoke)", async () => {
   const validateProofManifest = ajv.getSchema("https://settld.local/schemas/ProofBundleManifest.v1.schema.json");
   const validateFinanceManifest = ajv.getSchema("https://settld.local/schemas/FinancePackBundleManifest.v1.schema.json");
   const validateKeys = ajv.getSchema("https://settld.local/schemas/PublicKeys.v1.schema.json");
+  const validateGovernancePolicy = ajv.getSchema("https://settld.local/schemas/GovernancePolicy.v2.schema.json");
+  const validateRevocationList = ajv.getSchema("https://settld.local/schemas/RevocationList.v1.schema.json");
+  const validateVerifyCliOutput = ajv.getSchema("https://settld.local/schemas/VerifyCliOutput.v1.schema.json");
 
   assert.ok(validateReport);
   assert.ok(validateAttestation);
   assert.ok(validateProofManifest);
   assert.ok(validateFinanceManifest);
   assert.ok(validateKeys);
+  assert.ok(validateGovernancePolicy);
+  assert.ok(validateRevocationList);
+  assert.ok(validateVerifyCliOutput);
 
   const { job, month, finance } = await buildMinimalBundles();
 
@@ -197,16 +206,22 @@ test("docs/spec/schemas validate real generated bundles (smoke)", async () => {
   assert.equal(validateAttestation(parseJson(job.files.get("attestation/bundle_head_attestation.json"))), true);
   assert.equal(validateReport(parseJson(job.files.get("verify/verification_report.json"))), true);
   assert.equal(validateKeys(parseJson(job.files.get("keys/public_keys.json"))), true);
+  assert.equal(validateGovernancePolicy(parseJson(job.files.get("governance/policy.json"))), true);
+  assert.equal(validateRevocationList(parseJson(job.files.get("governance/revocations.json"))), true);
 
   assert.equal(validateProofManifest(parseJson(month.files.get("manifest.json"))), true);
   assert.equal(validateAttestation(parseJson(month.files.get("attestation/bundle_head_attestation.json"))), true);
   assert.equal(validateReport(parseJson(month.files.get("verify/verification_report.json"))), true);
   assert.equal(validateKeys(parseJson(month.files.get("keys/public_keys.json"))), true);
+  assert.equal(validateGovernancePolicy(parseJson(month.files.get("governance/policy.json"))), true);
+  assert.equal(validateRevocationList(parseJson(month.files.get("governance/revocations.json"))), true);
 
   // FinancePack
   assert.equal(validateFinanceManifest(parseJson(finance.files.get("manifest.json"))), true);
   assert.equal(validateAttestation(parseJson(finance.files.get("attestation/bundle_head_attestation.json"))), true);
   assert.equal(validateReport(parseJson(finance.files.get("verify/verification_report.json"))), true);
+  assert.equal(validateGovernancePolicy(parseJson(finance.files.get("governance/policy.json"))), true);
+  assert.equal(validateRevocationList(parseJson(finance.files.get("governance/revocations.json"))), true);
 });
 
 test("schema catches missing required fields (smoke)", async () => {
@@ -215,11 +230,17 @@ test("schema catches missing required fields (smoke)", async () => {
     if (schema && typeof schema === "object" && typeof schema.$id === "string") ajv.addSchema(schema, schema.$id);
   }
   const validateReport = ajv.getSchema("https://settld.local/schemas/VerificationReport.v1.schema.json");
+  const validateVerifyCliOutput = ajv.getSchema("https://settld.local/schemas/VerifyCliOutput.v1.schema.json");
   assert.ok(validateReport);
+  assert.ok(validateVerifyCliOutput);
 
   const examplePath = path.resolve(process.cwd(), "docs/spec/examples/verification_report_v1.example.json");
   const example = JSON.parse(await fs.readFile(examplePath, "utf8"));
   assert.equal(validateReport(example), true);
+
+  const cliExamplePath = path.resolve(process.cwd(), "docs/spec/examples/verify_cli_output_v1.example.json");
+  const cliExample = JSON.parse(await fs.readFile(cliExamplePath, "utf8"));
+  assert.equal(validateVerifyCliOutput(cliExample), true);
 
   const broken = { ...example };
   // eslint-disable-next-line no-prototype-builtins

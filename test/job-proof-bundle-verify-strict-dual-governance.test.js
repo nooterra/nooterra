@@ -11,6 +11,7 @@ import { GOVERNANCE_STREAM_ID } from "../src/core/governance.js";
 
 import { verifyJobProofBundleDir } from "../packages/artifact-verify/src/job-proof-bundle.js";
 import { writeFilesToDir } from "../scripts/proof-bundle/lib.mjs";
+import { withEnv } from "./lib/with-env.js";
 
 test("JobProofBundle.v1 strict verification succeeds with dual-scope governance streams (and governed server signer)", async () => {
   const tenantId = "tenant_default";
@@ -19,6 +20,12 @@ test("JobProofBundle.v1 strict verification succeeds with dual-scope governance 
 
   const serverKeys = createEd25519Keypair();
   const serverKeyId = keyIdFromPublicKeyPem(serverKeys.publicKeyPem);
+  const govRoot = createEd25519Keypair();
+  const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
+  const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
+  await withEnv(
+    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    async () => {
 
   const jobEvents = [];
   const e1 = createChainedEvent({
@@ -63,6 +70,7 @@ test("JobProofBundle.v1 strict verification succeeds with dual-scope governance 
     publicKeyByKeyId,
     signerKeys,
     manifestSigner: { keyId: serverKeyId, privateKeyPem: serverKeys.privateKeyPem },
+    governancePolicySigner: govSigner,
     generatedAt
   });
 
@@ -70,10 +78,12 @@ test("JobProofBundle.v1 strict verification succeeds with dual-scope governance 
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 
-  const res = await verifyJobProofBundleDir({ dir, strict: true });
-  assert.equal(res.ok, true);
-  assert.equal(res.strict, true);
-  assert.ok(Array.isArray(res.warnings));
+    const res = await verifyJobProofBundleDir({ dir, strict: true });
+    assert.equal(res.ok, true);
+    assert.equal(res.strict, true);
+    assert.ok(Array.isArray(res.warnings));
+    }
+  );
 });
 
 test("JobProofBundle.v1 strict verification fails when verify/verification_report.json is missing", async () => {
@@ -83,6 +93,12 @@ test("JobProofBundle.v1 strict verification fails when verify/verification_repor
 
   const serverKeys = createEd25519Keypair();
   const serverKeyId = keyIdFromPublicKeyPem(serverKeys.publicKeyPem);
+  const govRoot = createEd25519Keypair();
+  const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
+  const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
+  await withEnv(
+    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    async () => {
 
   const jobEvents = [];
   const e1 = createChainedEvent({
@@ -126,6 +142,7 @@ test("JobProofBundle.v1 strict verification fails when verify/verification_repor
     publicKeyByKeyId,
     signerKeys,
     manifestSigner: { keyId: serverKeyId, privateKeyPem: serverKeys.privateKeyPem },
+    governancePolicySigner: govSigner,
     generatedAt
   });
 
@@ -134,9 +151,11 @@ test("JobProofBundle.v1 strict verification fails when verify/verification_repor
   await writeFilesToDir({ files, outDir: dir });
   await fs.rm(path.join(dir, "verify", "verification_report.json"));
 
-  const res = await verifyJobProofBundleDir({ dir, strict: true });
-  assert.equal(res.ok, false);
-  assert.equal(res.error, "missing verify/verification_report.json");
+    const res = await verifyJobProofBundleDir({ dir, strict: true });
+    assert.equal(res.ok, false);
+    assert.equal(res.error, "missing verify/verification_report.json");
+    }
+  );
 });
 
 test("JobProofBundle.v1 strict verification fails when governance streams are missing", async () => {
@@ -146,6 +165,12 @@ test("JobProofBundle.v1 strict verification fails when governance streams are mi
 
   const serverKeys = createEd25519Keypair();
   const serverKeyId = keyIdFromPublicKeyPem(serverKeys.publicKeyPem);
+  const govRoot = createEd25519Keypair();
+  const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
+  const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
+  await withEnv(
+    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    async () => {
 
   const jobEvents = [];
   const e1 = createChainedEvent({
@@ -173,6 +198,7 @@ test("JobProofBundle.v1 strict verification fails when governance streams are mi
     publicKeyByKeyId,
     signerKeys,
     manifestSigner: { keyId: serverKeyId, privateKeyPem: serverKeys.privateKeyPem },
+    governancePolicySigner: govSigner,
     generatedAt
   });
 
@@ -180,7 +206,9 @@ test("JobProofBundle.v1 strict verification fails when governance streams are mi
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 
-  const res = await verifyJobProofBundleDir({ dir, strict: true });
-  assert.equal(res.ok, false);
-  assert.equal(res.error, "manifest missing required files");
+    const res = await verifyJobProofBundleDir({ dir, strict: true });
+    assert.equal(res.ok, false);
+    assert.equal(res.error, "manifest missing required files");
+    }
+  );
 });

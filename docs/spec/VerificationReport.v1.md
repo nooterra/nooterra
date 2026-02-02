@@ -25,11 +25,15 @@ In strict mode, it is **required** and **must be signed**.
 
 ## Report hash + signature
 
-- `reportHash` is computed over the canonical JSON object with signature fields removed.
+- `reportHash` is computed over the canonical JSON object with `reportHash` and `signature` removed.
 - If the report is signed, it includes:
   - `signature` (base64)
   - `signerKeyId`
   - `signedAt`
+
+## Timestamp proof (optional)
+
+`timestampProof` (when present) provides a verifier-trusted signing time for revocation/rotation historical acceptance checks. It is computed over the report core **without** `timestampProof` so it can bind to the report payload.
 
 ## No circular hashing
 
@@ -38,4 +42,3 @@ In strict mode, it is **required** and **must be signed**.
 - including `subject.manifestHash`
 - including `bundleHeadAttestation.attestationHash`
 - being signed by a governed server key (in strict mode)
-

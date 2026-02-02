@@ -4,19 +4,73 @@
   "signer": {
     "keyId": "key_282c80df2381d6831a92e89b"
   },
+  "canonicalJson": {
+    "jcs": "RFC8785",
+    "cases": [
+      {
+        "name": "object_key_ordering_is_lexicographic",
+        "valueA": {
+          "b": 1,
+          "a": 2,
+          "c": {
+            "y": true,
+            "x": false
+          }
+        },
+        "valueB": {
+          "c": {
+            "x": false,
+            "y": true
+          },
+          "a": 2,
+          "b": 1
+        },
+        "canonical": "{\"a\":2,\"b\":1,\"c\":{\"x\":false,\"y\":true}}",
+        "sha256": "42aaf6f2c976f80db0240703956528caf86ada70ab5bddae3a4f05eae8c4731b"
+      },
+      {
+        "name": "unicode_and_escaping",
+        "value": {
+          "s": "café ∑ — 😀",
+          "escaped": "line\nbreak\tand\\slash"
+        },
+        "canonical": "{\"escaped\":\"line\\nbreak\\tand\\\\slash\",\"s\":\"café ∑ — 😀\"}",
+        "sha256": "43e7d8e4dfb4659ab89bbcc2e9331471dda1ab05487b1ccefd92ee14621d7de5"
+      },
+      {
+        "name": "number_serialization",
+        "value": {
+          "ints": [
+            0,
+            1,
+            -1,
+            10,
+            1000
+          ],
+          "floats": [
+            1.5,
+            1e+21,
+            1e-9
+          ]
+        },
+        "canonical": "{\"floats\":[1.5,1e+21,1e-9],\"ints\":[0,1,-1,10,1000]}",
+        "sha256": "cecb937bf5b36220a9885a4cf94ba0761811914a978e86d917c06c28a336203f"
+      }
+    ]
+  },
   "jobProof": {
-    "manifestHash": "485198cd39393f8f5e9ba51f07b1466350491a310f0f572c793ce188db5cef83",
-    "headAttestationHash": "648935526e6d98e9044b0eceaec4216c88e0d97c64fbb3c96d02fb9c66491cfb",
-    "verificationReportHash": "b277e8e5e97bf3627fb627d2d98afee2861a7f3cdba298c3f6c63bc757e0a481"
+    "manifestHash": "14e8197d32fc7eeb95c7e49c0b23443776b410617ae30e3f1f05539fad520b25",
+    "headAttestationHash": "53e67250dbe0611c26beac8142bf0c18deab49f790719f4f6876f39d7abc5e34",
+    "verificationReportHash": "917d57e4a663c50bef07aed1fd2afb56236317a9fea32bf71b44bef1f9e1562f"
   },
   "monthProof": {
-    "manifestHash": "f423835688355b910bb09885b2fd6f4332b797224c914c8ef6a5de00a529dfc6",
-    "headAttestationHash": "6598e1466b4b893e4fb73528f38f377c1c350cbcd40c0f1b2b25073bcc932c08",
-    "verificationReportHash": "f503a301e5c8bf6e2eec3caebbe9d92c93039d7e4547c195dea77e05ba577f1d"
+    "manifestHash": "40850cbc9e3b797dd660a525e7c53902af36abad61c88ea4b1b0a5e05176282f",
+    "headAttestationHash": "25f6dba998fd0ee1b0fd41ed987583235778fb4e5fdbcd6eed4df8b8acd1a61d",
+    "verificationReportHash": "b414854f4a1069d7cadfe09403d69222e9c181cfc1ef0d8be232523dd15e5465"
   },
   "financePack": {
-    "manifestHash": "387084e777a0e2afec17a0bdd3e458b05f75ec5f57f9801aec118aa5e27853c5",
-    "headAttestationHash": "79a1ac6dd696bd56906b698e934caf78d03bffa1521a2f0d5bddac9993cc5f30",
-    "verificationReportHash": "59863614ff41bc39ed5e690b87c7f3d65330035fbfd5d9372223ad18d7bd23c9"
+    "manifestHash": "870bc7d1191bfcb2ba722ac92752ea8711af7f34eef825e1418d09de6430a016",
+    "headAttestationHash": "61d92b1af6fd60fa29e14250bf78459b721f1cb7fe3f0299ee12f52d2892c7d1",
+    "verificationReportHash": "1741402eb47fa8aa8d0602386409d6d24e8936de97e58d18665a2078e7f129b4"
   }
 }

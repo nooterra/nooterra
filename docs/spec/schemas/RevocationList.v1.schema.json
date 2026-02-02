@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/RevocationList.v1.schema.json",
+  "title": "RevocationList.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "listId", "generatedAt", "rotations", "revocations", "signerKeyId", "signedAt", "listHash", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "RevocationList.v1" },
+    "listId": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "rotations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Rotation" }
+    },
+    "revocations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Revocation" }
+    },
+    "signerKeyId": { "type": ["string", "null"] },
+    "signedAt": { "type": ["string", "null"] },
+    "listHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "signature": { "type": ["string", "null"] }
+  },
+  "$defs": {
+    "Rotation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["oldKeyId", "newKeyId", "rotatedAt"],
+      "properties": {
+        "oldKeyId": { "type": "string" },
+        "newKeyId": { "type": "string" },
+        "rotatedAt": { "type": "string" },
+        "reason": { "type": ["string", "null"] },
+        "scope": { "type": ["object", "null"] }
+      }
+    },
+    "Revocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["keyId", "revokedAt"],
+      "properties": {
+        "keyId": { "type": "string" },
+        "revokedAt": { "type": "string" },
+        "reason": { "type": ["string", "null"] },
+        "scope": { "type": ["object", "null"] }
+      }
+    }
+  }
+}
+

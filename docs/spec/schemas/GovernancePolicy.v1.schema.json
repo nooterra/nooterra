@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/GovernancePolicy.v1.schema.json",
+  "title": "GovernancePolicy.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "policyId", "generatedAt", "algorithms", "verificationReportSigners", "bundleHeadAttestationSigners"],
+  "properties": {
+    "schemaVersion": { "const": "GovernancePolicy.v1" },
+    "policyId": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "algorithms": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "enum": ["ed25519"] }
+    },
+    "verificationReportSigners": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/SignerRule" }
+    },
+    "bundleHeadAttestationSigners": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/SignerRule" }
+    }
+  },
+  "$defs": {
+    "SignerRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subjectType", "allowedScopes", "allowedKeyIds", "requireGoverned", "requiredPurpose"],
+      "properties": {
+        "subjectType": { "type": "string" },
+        "allowedScopes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "enum": ["global", "tenant"] }
+        },
+        "allowedKeyIds": { "type": ["array", "null"], "items": { "type": "string" } },
+        "requireGoverned": { "type": "boolean" },
+        "requiredPurpose": { "type": "string", "enum": ["server"] }
+      }
+    }
+  }
+}
+

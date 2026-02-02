@@ -83,6 +83,7 @@ async function main() {
       { tenantId: DEFAULT_TENANT_ID, keyId, publicKeyPem, validFrom: "2026-01-01T00:00:00.000Z", serverGoverned: true }
     ],
     manifestSigner: signer,
+    governancePolicySigner: signer,
     requireHeadAttestation: true,
     generatedAt
   });
@@ -118,6 +119,7 @@ async function main() {
       { tenantId: DEFAULT_TENANT_ID, keyId, publicKeyPem, validFrom: "2026-01-01T00:00:00.000Z", serverGoverned: true }
     ],
     manifestSigner: signer,
+    governancePolicySigner: signer,
     requireHeadAttestation: true,
     generatedAt
   });
@@ -140,11 +142,63 @@ async function main() {
   const reconcileReport = { ok: true, period, basis: "settledAt", entryCount: 0, totalsKeys: 0 };
   const reconcileBytes = bytes(`${canonicalJsonStringify(reconcileReport)}\n`);
 
+  const canonicalJson = (() => {
+    // These cases exist to make canonicalization rules cross-language implementable.
+    // Each case includes the canonical string and its sha256 (over UTF-8 bytes).
+    const cases = [];
+
+    // Key ordering must not depend on insertion order.
+    {
+      const valueA = { b: 1, a: 2, c: { y: true, x: false } };
+      const valueB = {};
+      valueB.c = {};
+      valueB.c.x = false;
+      valueB.c.y = true;
+      valueB.a = 2;
+      valueB.b = 1;
+      const canonical = canonicalJsonStringify(valueA);
+      cases.push({
+        name: "object_key_ordering_is_lexicographic",
+        valueA,
+        valueB,
+        canonical,
+        sha256: sha256Hex(canonical)
+      });
+    }
+
+    // Unicode must be hashed as UTF-8 bytes of the canonical JSON string.
+    {
+      const value = { s: "café ∑ — 😀", escaped: "line\nbreak\tand\\slash" };
+      const canonical = canonicalJsonStringify(value);
+      cases.push({
+        name: "unicode_and_escaping",
+        value,
+        canonical,
+        sha256: sha256Hex(canonical)
+      });
+    }
+
+    // Numbers must be finite and not -0; exponent formatting must be stable.
+    {
+      const value = { ints: [0, 1, -1, 10, 1000], floats: [1.5, 1e21, 1e-9] };
+      const canonical = canonicalJsonStringify(value);
+      cases.push({
+        name: "number_serialization",
+        value,
+        canonical,
+        sha256: sha256Hex(canonical)
+      });
+    }
+
+    return { jcs: "RFC8785", cases };
+  })();
+
   const { files: financeFiles, bundle: financeBundle } = buildFinancePackBundleV1({
     tenantId,
     period,
     protocol: "1.0",
     createdAt,
+    governancePolicySigner: signer,
     monthProofBundle: monthBundle,
     monthProofFiles: monthFiles,
     requireMonthProofAttestation: true,
@@ -162,6 +216,7 @@ async function main() {
     schemaVersion: "ProtocolVectors.v1",
     generatedAt,
     signer: { keyId },
+    canonicalJson,
     jobProof: {
       manifestHash: jobBundle.manifestHash,
       headAttestationHash: parseJson(jobFiles.get("attestation/bundle_head_attestation.json")).attestationHash,
@@ -187,4 +242,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

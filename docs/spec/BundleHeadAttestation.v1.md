@@ -19,6 +19,7 @@ In strict mode, finance-grade bundles require this attestation.
 - `generatedAt`: bundle generation time (best-effort timestamp)
 - `manifestHash`: bundle manifest hash
 - `heads`: kind-specific head commitments
+- `timestampProof` (optional): a trustworthy signing time proof used for revocation/rotation historical acceptance checks
 - `signedAt`: attestation signing time (server time)
 - `signerKeyId`
 - `attestationHash`: canonical hash of the attestation core (signature excluded)
@@ -29,4 +30,3 @@ In strict mode, finance-grade bundles require this attestation.
 - Signature must verify with the governed server key identified by `signerKeyId`.
 - The signer key must be governed/valid per the embedded governance stream rules.
 - `manifestHash` must match the bundle’s computed manifest hash.
-

@@ -10,6 +10,7 @@ import { buildJobProofBundleV1 } from "../src/core/proof-bundle.js";
 
 import { verifyJobProofBundleDir } from "../packages/artifact-verify/src/job-proof-bundle.js";
 import { writeFilesToDir } from "../scripts/proof-bundle/lib.mjs";
+import { withEnv } from "./lib/with-env.js";
 
 test("perf: verifyJobProofBundleDir baseline (skipped unless SETTLD_PERF_TESTS=1)", { skip: process.env.SETTLD_PERF_TESTS !== "1" }, async () => {
   const tenantId = "tenant_default";
@@ -18,6 +19,12 @@ test("perf: verifyJobProofBundleDir baseline (skipped unless SETTLD_PERF_TESTS=1
 
   const serverKeys = createEd25519Keypair();
   const serverKeyId = keyIdFromPublicKeyPem(serverKeys.publicKeyPem);
+  const govRoot = createEd25519Keypair();
+  const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
+  const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
+  await withEnv(
+    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    async () => {
 
   const jobEvents = [];
   let prev = null;
@@ -51,6 +58,7 @@ test("perf: verifyJobProofBundleDir baseline (skipped unless SETTLD_PERF_TESTS=1
     publicKeyByKeyId,
     signerKeys: [{ tenantId, keyId: serverKeyId, publicKeyPem: serverKeys.publicKeyPem, status: "ACTIVE", purpose: "SIGNER" }],
     manifestSigner: { keyId: serverKeyId, privateKeyPem: serverKeys.privateKeyPem },
+    governancePolicySigner: govSigner,
     generatedAt
   });
 
@@ -58,12 +66,13 @@ test("perf: verifyJobProofBundleDir baseline (skipped unless SETTLD_PERF_TESTS=1
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 
-  const t0 = Date.now();
-  const res = await verifyJobProofBundleDir({ dir, strict: true });
-  const dtMs = Date.now() - t0;
+    const t0 = Date.now();
+    const res = await verifyJobProofBundleDir({ dir, strict: true });
+    const dtMs = Date.now() - t0;
 
-  assert.equal(res.ok, true);
-  // Baseline only: set a generous bound and tune per CI hardware later.
-  assert.ok(dtMs < 15_000, `verification took too long: ${dtMs}ms`);
+    assert.equal(res.ok, true);
+    // Baseline only: set a generous bound and tune per CI hardware later.
+    assert.ok(dtMs < 15_000, `verification took too long: ${dtMs}ms`);
+    }
+  );
 });
-

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/TimestampProof.v1.schema.json",
+  "title": "TimestampProof.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "timestamp", "messageHash", "signerKeyId", "signature"],
+  "properties": {
+    "schemaVersion": { "const": "TimestampProof.v1" },
+    "kind": { "type": "string", "enum": ["ed25519_time_authority"] },
+    "timestamp": { "type": "string" },
+    "messageHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "signerKeyId": { "type": "string" },
+    "signature": { "type": "string" }
+  }
+}
+

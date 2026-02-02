@@ -1,0 +1,8 @@
+{
+  "governanceRoots": {
+    "key_4bd1ee0813b265cb6670a1cc": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAFzw7qxt31VJOSAJCw7zy267twYhbJzf9H0dwm3ZmCDM=\n-----END PUBLIC KEY-----\n"
+  },
+  "timeAuthorities": {
+    "key_0c6b00150d3433d8d612eef2": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA9CRBU82m4eS1uHNL6PtKBKPLN0YdtubYFP/f9flGVd0=\n-----END PUBLIC KEY-----\n"
+  }
+}

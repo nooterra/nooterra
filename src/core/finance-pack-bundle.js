@@ -1,6 +1,16 @@
 import { canonicalJsonStringify } from "./canonical-json.js";
 import { sha256Hex, signHashHexEd25519 } from "./crypto.js";
 import { VERIFICATION_WARNING_CODE, normalizeVerificationWarnings } from "./verification-warnings.js";
+import {
+  GOVERNANCE_POLICY_SCHEMA_V2,
+  buildDefaultGovernancePolicyV1,
+  buildGovernancePolicyV2Unsigned,
+  signGovernancePolicyV2,
+  validateGovernancePolicyV1,
+  validateGovernancePolicyV2
+} from "./governance-policy.js";
+import { REVOCATION_LIST_SCHEMA_V1, buildRevocationListV1Core, signRevocationListV1, validateRevocationListV1 } from "./revocation-list.js";
+import { buildTimestampProofV1 } from "./timestamp-proof.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -144,6 +154,7 @@ function buildVerificationReportV1({
   inputs,
   monthProofAttestation,
   signer,
+  timestampAuthoritySigner = null,
   monthProofFiles,
   warnings,
   toolVersion
@@ -153,8 +164,9 @@ function buildVerificationReportV1({
   const signerGovernanceEventRef = signerKeyId ? findSignerGovernanceEventRef({ monthProofFiles, keyId: signerKeyId }) : null;
   const closePolicyTrace = tryExtractClosePolicyFromMonthProof({ monthProofFiles, period });
   const tool = warningsWithToolVersion({ warnings, toolVersion: toolVersion ?? readRepoVersionBestEffort() });
+  const signedAt = createdAt;
 
-  const core = stripUndefinedDeep({
+  const coreNoProof = stripUndefinedDeep({
     schemaVersion: "VerificationReport.v1",
     profile: "strict",
     tool: {
@@ -169,6 +181,8 @@ function buildVerificationReportV1({
           governanceEventRef: signerGovernanceEventRef
         }
       : null,
+    signerKeyId,
+    signedAt,
     bundleHeadAttestation:
       bundleHeadAttestation && typeof bundleHeadAttestation === "object"
         ? {
@@ -197,17 +211,23 @@ function buildVerificationReportV1({
     inputs,
     monthProofAttestation
   });
+
+  let timestampProof;
+  if (timestampAuthoritySigner && typeof timestampAuthoritySigner === "object") {
+    const messageHash = sha256Hex(canonicalJsonStringify(coreNoProof));
+    timestampProof = buildTimestampProofV1({ messageHash, timestamp: signedAt, signer: timestampAuthoritySigner });
+  }
+  const core = stripUndefinedDeep({ ...coreNoProof, timestampProof });
+
   const reportHash = sha256Hex(canonicalJsonStringify(core));
   let signature = null;
-  let signedAt = null;
   if (signer?.privateKeyPem && signerKeyId) {
     signature = signHashHexEd25519(reportHash, signer.privateKeyPem);
-    signedAt = createdAt;
   }
-  return stripUndefinedDeep({ ...core, reportHash, signature, signerKeyId, signedAt });
+  return stripUndefinedDeep({ ...core, reportHash, signature });
 }
 
-function buildBundleHeadAttestationV1({ tenantId, period, createdAt, manifestHash, heads, signer }) {
+function buildBundleHeadAttestationV1({ tenantId, period, createdAt, manifestHash, heads, signer, timestampAuthoritySigner = null }) {
   assertNonEmptyString(tenantId, "tenantId");
   assertNonEmptyString(period, "period");
   assertNonEmptyString(createdAt, "createdAt");
@@ -218,7 +238,7 @@ function buildBundleHeadAttestationV1({ tenantId, period, createdAt, manifestHas
   assertNonEmptyString(signer.privateKeyPem, "signer.privateKeyPem");
 
   const signedAt = createdAt;
-  const core = stripUndefinedDeep({
+  const coreNoProof = stripUndefinedDeep({
     schemaVersion: BUNDLE_HEAD_ATTESTATION_SCHEMA_V1,
     kind: FINANCE_PACK_BUNDLE_SCHEMA_VERSION_V1,
     tenantId,
@@ -229,6 +249,12 @@ function buildBundleHeadAttestationV1({ tenantId, period, createdAt, manifestHas
     signedAt,
     signerKeyId: signer.keyId
   });
+  let timestampProof;
+  if (timestampAuthoritySigner && typeof timestampAuthoritySigner === "object") {
+    const messageHash = sha256Hex(canonicalJsonStringify(coreNoProof));
+    timestampProof = buildTimestampProofV1({ messageHash, timestamp: signedAt, signer: timestampAuthoritySigner });
+  }
+  const core = stripUndefinedDeep({ ...coreNoProof, timestampProof });
   const attestationHash = sha256Hex(canonicalJsonStringify(core));
   const signature = signHashHexEd25519(attestationHash, signer.privateKeyPem);
   return { ...core, attestationHash, signature };
@@ -299,12 +325,16 @@ export function buildFinancePackBundleV1({
   period,
   protocol,
   createdAt,
+  governancePolicy = null,
+  governancePolicySigner = null,
+  revocationList = null,
   monthProofBundle,
   monthProofFiles,
   requireMonthProofAttestation = false,
   requireHeadAttestation = false,
   manifestSigner = null,
   verificationReportSigner = null,
+  timestampAuthoritySigner = null,
   verificationReportWarnings = null,
   toolVersion = null,
   glBatchArtifact,
@@ -316,12 +346,16 @@ export function buildFinancePackBundleV1({
   assertNonEmptyString(period, "period");
   assertNonEmptyString(protocol, "protocol");
   assertNonEmptyString(createdAt, "createdAt");
+  if (governancePolicy !== null && typeof governancePolicy !== "object") throw new TypeError("governancePolicy must be null or an object");
+  if (governancePolicySigner !== null && typeof governancePolicySigner !== "object") throw new TypeError("governancePolicySigner must be null or an object");
+  if (revocationList !== null && typeof revocationList !== "object") throw new TypeError("revocationList must be null or an object");
   if (!monthProofBundle || typeof monthProofBundle !== "object") throw new TypeError("monthProofBundle is required");
   if (!(monthProofFiles instanceof Map)) throw new TypeError("monthProofFiles must be a Map");
   if (requireMonthProofAttestation !== true && requireMonthProofAttestation !== false) throw new TypeError("requireMonthProofAttestation must be a boolean");
   if (requireHeadAttestation !== true && requireHeadAttestation !== false) throw new TypeError("requireHeadAttestation must be a boolean");
   if (manifestSigner !== null && typeof manifestSigner !== "object") throw new TypeError("manifestSigner must be null or an object");
   if (verificationReportSigner !== null && typeof verificationReportSigner !== "object") throw new TypeError("verificationReportSigner must be null or an object");
+  if (timestampAuthoritySigner !== null && typeof timestampAuthoritySigner !== "object") throw new TypeError("timestampAuthoritySigner must be null or an object");
   if (!glBatchArtifact || typeof glBatchArtifact !== "object") throw new TypeError("glBatchArtifact is required");
   if (!journalCsvArtifact || typeof journalCsvArtifact !== "object") throw new TypeError("journalCsvArtifact is required");
   if (!reconcileReport || typeof reconcileReport !== "object") throw new TypeError("reconcileReport is required");
@@ -346,6 +380,79 @@ export function buildFinancePackBundleV1({
 
   const files = new Map();
 
+  const encoder = new TextEncoder();
+
+  // Governance policy: strict authorization contract, optionally signed by a governance root key.
+  if (governancePolicySigner) {
+    const list =
+      revocationList ??
+      ({
+        schemaVersion: REVOCATION_LIST_SCHEMA_V1,
+        listId: "revocations_default_v1",
+        generatedAt: createdAt,
+        rotations: [],
+        revocations: [],
+        signerKeyId: null,
+        signedAt: null,
+        listHash: null,
+        signature: null
+      });
+    validateRevocationListV1(list);
+    const signedList = signRevocationListV1({
+      listCore: buildRevocationListV1Core({
+        listId: list.listId ?? "revocations_default_v1",
+        generatedAt: createdAt,
+        rotations: list.rotations ?? [],
+        revocations: list.revocations ?? [],
+        signerKeyId: governancePolicySigner.keyId,
+        signedAt: createdAt
+      }),
+      signer: governancePolicySigner
+    });
+    files.set("governance/revocations.json", encoder.encode(`${canonicalJsonStringify(signedList)}\n`));
+
+    const policyUnsigned =
+      governancePolicy && governancePolicy.schemaVersion === GOVERNANCE_POLICY_SCHEMA_V2
+        ? {
+            ...governancePolicy,
+            revocationList: { path: "governance/revocations.json", sha256: signedList.listHash },
+            signerKeyId: null,
+            signedAt: null,
+            policyHash: null,
+            signature: null
+          }
+        : buildGovernancePolicyV2Unsigned({
+            policyId: "governance_policy_default_v2",
+            generatedAt: createdAt,
+            revocationList: { path: "governance/revocations.json", sha256: signedList.listHash },
+            verificationReportSigners: [
+              {
+                subjectType: FINANCE_PACK_BUNDLE_SCHEMA_VERSION_V1,
+                allowedScopes: ["global", "tenant"],
+                allowedKeyIds: [String((verificationReportSigner ?? manifestSigner)?.keyId ?? "")].filter(Boolean),
+                requireGoverned: true,
+                requiredPurpose: "server"
+              }
+            ],
+            bundleHeadAttestationSigners: [
+              {
+                subjectType: FINANCE_PACK_BUNDLE_SCHEMA_VERSION_V1,
+                allowedScopes: ["global", "tenant"],
+                allowedKeyIds: [String(manifestSigner?.keyId ?? "")].filter(Boolean),
+                requireGoverned: true,
+                requiredPurpose: "server"
+              }
+            ]
+          });
+    validateGovernancePolicyV2(policyUnsigned);
+    const signedPolicy = signGovernancePolicyV2({ policy: policyUnsigned, signer: governancePolicySigner, signedAt: createdAt });
+    files.set("governance/policy.json", encoder.encode(`${canonicalJsonStringify(signedPolicy)}\n`));
+  } else {
+    const policy = governancePolicy ?? buildDefaultGovernancePolicyV1({ generatedAt: createdAt });
+    validateGovernancePolicyV1(policy);
+    files.set("governance/policy.json", encoder.encode(`${canonicalJsonStringify(policy)}\n`));
+  }
+
   // month/ contents: byte-for-byte copy of the MonthProofBundle dir structure.
   for (const [name, bytes] of Array.from(monthProofFiles.entries()).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
     assertNonEmptyString(name, "month proof file name");
@@ -354,7 +461,6 @@ export function buildFinancePackBundleV1({
   }
 
   // finance/ exports
-  const encoder = new TextEncoder();
   files.set("finance/GLBatch.v1.json", encoder.encode(`${canonicalJsonStringify(glBatchArtifact)}\n`));
   files.set("finance/JournalCsv.v1.json", encoder.encode(`${canonicalJsonStringify(journalCsvArtifact)}\n`));
   files.set("finance/JournalCsv.v1.csv", encoder.encode(String(journalCsvArtifact.csv ?? "")));
@@ -400,37 +506,39 @@ export function buildFinancePackBundleV1({
   files.set("manifest.json", encoder.encode(`${canonicalJsonStringify({ ...manifest, manifestHash })}\n`));
 
   let headAttestation = null;
-  if (manifestSigner) {
-    headAttestation = buildBundleHeadAttestationV1({
-      tenantId,
-      period,
-      createdAt,
-      manifestHash,
+	  if (manifestSigner) {
+	    headAttestation = buildBundleHeadAttestationV1({
+	      tenantId,
+	      period,
+	      createdAt,
+	      manifestHash,
       heads: {
         monthProof: {
           manifestHash: monthProofBundleHash,
           attestationHash: monthProofAttestation?.attestationHash ?? null
         }
-      },
-      signer: manifestSigner
-    });
-    files.set("attestation/bundle_head_attestation.json", encoder.encode(`${canonicalJsonStringify(headAttestation)}\n`));
-  }
+	      },
+	      signer: manifestSigner,
+	      timestampAuthoritySigner
+	    });
+	    files.set("attestation/bundle_head_attestation.json", encoder.encode(`${canonicalJsonStringify(headAttestation)}\n`));
+	  }
 
-  const verificationReportFinal = buildVerificationReportV1({
-    tenantId,
-    period,
-    createdAt,
-    protocol,
-    manifestHash,
-    bundleHeadAttestation: headAttestation,
-    inputs,
-    monthProofAttestation,
-    signer: verificationReportSigner,
-    monthProofFiles,
-    warnings: verificationReportWarnings,
-    toolVersion
-  });
+	  const verificationReportFinal = buildVerificationReportV1({
+	    tenantId,
+	    period,
+	    createdAt,
+	    protocol,
+	    manifestHash,
+	    bundleHeadAttestation: headAttestation,
+	    inputs,
+	    monthProofAttestation,
+	    signer: verificationReportSigner,
+	    timestampAuthoritySigner,
+	    monthProofFiles,
+	    warnings: verificationReportWarnings,
+	    toolVersion
+	  });
   files.set("verify/verification_report.json", encoder.encode(`${canonicalJsonStringify(verificationReportFinal)}\n`));
 
   const bundle = {

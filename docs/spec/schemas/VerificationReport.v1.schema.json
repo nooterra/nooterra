@@ -25,8 +25,12 @@
             "enum": [
               "LEGACY_KEYS_FORMAT_USED",
               "NONSERVER_REVOCATION_NOT_ENFORCED",
+              "GOVERNANCE_POLICY_MISSING_LENIENT",
+              "GOVERNANCE_POLICY_V1_ACCEPTED_LENIENT",
+              "BUNDLE_HEAD_ATTESTATION_MISSING_LENIENT",
               "MISSING_GOVERNANCE_SNAPSHOT_LENIENT",
               "UNSIGNED_REPORT_LENIENT",
+              "VERIFICATION_REPORT_MISSING_LENIENT",
               "TOOL_VERSION_UNKNOWN"
             ]
           },
@@ -53,6 +57,7 @@
         "manifestHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
       }
     },
+    "timestampProof": { "$ref": "https://settld.local/schemas/TimestampProof.v1.schema.json" },
     "policy": { "type": ["object", "null"] },
     "subject": {
       "type": "object",
@@ -74,4 +79,3 @@
     "signedAt": { "type": ["string", "null"] }
   }
 }
-

@@ -1,0 +1,22 @@
+{
+  "govRoot": {
+    "keyId": "key_4bd1ee0813b265cb6670a1cc",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAFzw7qxt31VJOSAJCw7zy267twYhbJzf9H0dwm3ZmCDM=\n-----END PUBLIC KEY-----\n",
+    "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIATJ5cPIVnqSgMVEsfkFlEoaLyRTG4PM5HWUeeyaJ4pJ\n-----END PRIVATE KEY-----\n"
+  },
+  "timeAuthority": {
+    "keyId": "key_0c6b00150d3433d8d612eef2",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA9CRBU82m4eS1uHNL6PtKBKPLN0YdtubYFP/f9flGVd0=\n-----END PUBLIC KEY-----\n",
+    "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIIP7NPqYQlQBA9+NK9h/MlzDY6BjU8NgZ42tJpUguxR3\n-----END PRIVATE KEY-----\n"
+  },
+  "serverA": {
+    "keyId": "key_9ed38005b42d9364601ffab3",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAQ70D1FtwopWnvJeFsiKdThSP/9QADgSeaZYKip79KQI=\n-----END PUBLIC KEY-----\n",
+    "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEILP0SvKxPshPvhk7qDsIZPZTTQiy3RG+aX9dOG9+VL3F\n-----END PRIVATE KEY-----\n"
+  },
+  "serverB": {
+    "keyId": "key_c1868dd2389722b00bec86dc",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAMyfrBz0qLx9N1s/SscjIsvJQyysXA7n4GKQ+vshoFfE=\n-----END PUBLIC KEY-----\n",
+    "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIPOn7fFOmKxeNyrBe6JaE8Q1+lRNKl9P1EqLyUPqh5OK\n-----END PRIVATE KEY-----\n"
+  }
+}

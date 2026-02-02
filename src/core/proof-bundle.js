@@ -7,6 +7,16 @@ import { compileContractPolicyTemplate } from "./contract-compiler.js";
 import { DEFAULT_TENANT_ID } from "./tenancy.js";
 import { VERIFICATION_WARNING_CODE, normalizeVerificationWarnings } from "./verification-warnings.js";
 import { normalizeSignerKeyPurpose, normalizeSignerKeyStatus, SIGNER_KEY_PURPOSE } from "./signer-keys.js";
+import {
+  GOVERNANCE_POLICY_SCHEMA_V2,
+  buildDefaultGovernancePolicyV1,
+  buildGovernancePolicyV2Unsigned,
+  signGovernancePolicyV2,
+  validateGovernancePolicyV1,
+  validateGovernancePolicyV2
+} from "./governance-policy.js";
+import { REVOCATION_LIST_SCHEMA_V1, buildRevocationListV1Core, signRevocationListV1, validateRevocationListV1 } from "./revocation-list.js";
+import { buildTimestampProofV1 } from "./timestamp-proof.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -33,8 +43,10 @@ function buildPublicKeysFileV1({ tenantId, generatedAt, publicKeyByKeyId, signer
   if (governanceEvents !== null && !Array.isArray(governanceEvents)) throw new TypeError("governanceEvents must be null or an array");
 
   const serverSignerKeyIds = new Set();
+  const eventSignerKeyIds = new Set();
   for (const e of Array.isArray(governanceEvents) ? governanceEvents : []) {
     if (!e || typeof e !== "object") continue;
+    if (typeof e.signerKeyId === "string" && e.signerKeyId.trim()) eventSignerKeyIds.add(String(e.signerKeyId));
     const type = String(e.type ?? "");
     if (!type.startsWith("SERVER_SIGNER_KEY_")) continue;
     const p = e.payload ?? null;
@@ -56,6 +68,8 @@ function buildPublicKeysFileV1({ tenantId, generatedAt, publicKeyByKeyId, signer
   }
 
   const needed = new Set(Array.isArray(keyIds) ? keyIds.filter((k) => typeof k === "string" && k.trim()) : Array.from(publicKeyByKeyId.keys()));
+  for (const kid of serverSignerKeyIds) needed.add(kid);
+  for (const kid of eventSignerKeyIds) needed.add(kid);
   const keys = [];
   for (const keyId of Array.from(needed).sort()) {
     const publicKeyPem = publicKeyByKeyId.get(keyId) ?? null;
@@ -207,6 +221,7 @@ function buildVerificationReportV1ForProofBundle({
   manifestHash,
   bundleHeadAttestation,
   signer,
+  timestampAuthoritySigner = null,
   bundleFiles,
   warnings,
   toolVersion
@@ -221,8 +236,9 @@ function buildVerificationReportV1ForProofBundle({
   const signerScope = signerKeyId ? (signer?.scope ?? "global") : null;
   const signerGovernanceEventRef = signerKeyId ? findSignerGovernanceEventRef({ bundleFiles, keyId: signerKeyId }) : null;
   const tool = warningsWithToolVersion({ warnings, toolVersion: toolVersion ?? readRepoVersionBestEffort() });
+  const signedAt = generatedAt;
 
-  const core = stripUndefinedDeep({
+  const coreNoProof = stripUndefinedDeep({
     schemaVersion: "VerificationReport.v1",
     profile: "strict",
     tool: {
@@ -237,6 +253,8 @@ function buildVerificationReportV1ForProofBundle({
           governanceEventRef: signerGovernanceEventRef
         }
       : null,
+    signerKeyId,
+    signedAt,
     bundleHeadAttestation:
       bundleHeadAttestation && typeof bundleHeadAttestation === "object"
         ? {
@@ -256,17 +274,22 @@ function buildVerificationReportV1ForProofBundle({
     }
   });
 
+  let timestampProof;
+  if (timestampAuthoritySigner && typeof timestampAuthoritySigner === "object") {
+    const messageHash = sha256Hex(canonicalJsonStringify(coreNoProof));
+    timestampProof = buildTimestampProofV1({ messageHash, timestamp: signedAt, signer: timestampAuthoritySigner });
+  }
+  const core = stripUndefinedDeep({ ...coreNoProof, timestampProof });
+
   const reportHash = sha256Hex(canonicalJsonStringify(core));
   let signature = null;
-  let signedAt = null;
   if (signer?.privateKeyPem && signerKeyId) {
     signature = signHashHexEd25519(reportHash, signer.privateKeyPem);
-    signedAt = generatedAt;
   }
-  return stripUndefinedDeep({ ...core, reportHash, signature, signerKeyId, signedAt });
+  return stripUndefinedDeep({ ...core, reportHash, signature });
 }
 
-function buildBundleHeadAttestationV1({ kind, tenantId, scope, generatedAt, manifestHash, heads, signer } = {}) {
+function buildBundleHeadAttestationV1({ kind, tenantId, scope, generatedAt, manifestHash, heads, signer, timestampAuthoritySigner = null } = {}) {
   assertNonEmptyString(kind, "kind");
   assertNonEmptyString(tenantId, "tenantId");
   if (!isPlainObject(scope)) throw new TypeError("scope must be an object");
@@ -278,7 +301,7 @@ function buildBundleHeadAttestationV1({ kind, tenantId, scope, generatedAt, mani
   assertNonEmptyString(signer.privateKeyPem, "signer.privateKeyPem");
 
   const signedAt = generatedAt;
-  const core = stripUndefinedDeep({
+  const coreNoProof = stripUndefinedDeep({
     schemaVersion: BUNDLE_HEAD_ATTESTATION_SCHEMA_V1,
     kind,
     tenantId,
@@ -289,6 +312,12 @@ function buildBundleHeadAttestationV1({ kind, tenantId, scope, generatedAt, mani
     signedAt,
     signerKeyId: signer.keyId
   });
+  let timestampProof;
+  if (timestampAuthoritySigner && typeof timestampAuthoritySigner === "object") {
+    const messageHash = sha256Hex(canonicalJsonStringify(coreNoProof));
+    timestampProof = buildTimestampProofV1({ messageHash, timestamp: signedAt, signer: timestampAuthoritySigner });
+  }
+  const core = stripUndefinedDeep({ ...coreNoProof, timestampProof });
   const attestationHash = sha256Hex(canonicalJsonStringify(core));
   const signature = signHashHexEd25519(attestationHash, signer.privateKeyPem);
   return { ...core, attestationHash, signature };
@@ -514,11 +543,17 @@ export function buildJobProofBundleV1({
   governanceSnapshot = null,
   tenantGovernanceEvents = null,
   tenantGovernanceSnapshot = null,
+  governancePolicy = null,
+  governancePolicySigner = null,
+  revocationList = null,
   artifacts,
   contractDocsByHash = new Map(),
   publicKeyByKeyId = new Map(),
   signerKeys = [],
   manifestSigner = null,
+  verificationReportSigner = null,
+  timestampAuthoritySigner = null,
+  toolVersion = null,
   requireHeadAttestation = false,
   generatedAt
 } = {}) {
@@ -532,11 +567,17 @@ export function buildJobProofBundleV1({
   if (tenantGovernanceSnapshot !== null && typeof tenantGovernanceSnapshot !== "object") {
     throw new TypeError("tenantGovernanceSnapshot must be null or an object");
   }
+  if (governancePolicy !== null && typeof governancePolicy !== "object") throw new TypeError("governancePolicy must be null or an object");
+  if (governancePolicySigner !== null && typeof governancePolicySigner !== "object") throw new TypeError("governancePolicySigner must be null or an object");
+  if (revocationList !== null && typeof revocationList !== "object") throw new TypeError("revocationList must be null or an object");
   if (!Array.isArray(artifacts)) throw new TypeError("artifacts must be an array");
   if (!(contractDocsByHash instanceof Map)) throw new TypeError("contractDocsByHash must be a Map");
   if (!(publicKeyByKeyId instanceof Map)) throw new TypeError("publicKeyByKeyId must be a Map");
   if (!Array.isArray(signerKeys)) throw new TypeError("signerKeys must be an array");
   if (manifestSigner !== null && typeof manifestSigner !== "object") throw new TypeError("manifestSigner must be null or an object");
+  if (verificationReportSigner !== null && typeof verificationReportSigner !== "object") throw new TypeError("verificationReportSigner must be null or an object");
+  if (timestampAuthoritySigner !== null && typeof timestampAuthoritySigner !== "object") throw new TypeError("timestampAuthoritySigner must be null or an object");
+  if (toolVersion !== null && typeof toolVersion !== "string") throw new TypeError("toolVersion must be null or a string");
   if (requireHeadAttestation !== true && requireHeadAttestation !== false) throw new TypeError("requireHeadAttestation must be a boolean");
   assertNonEmptyString(generatedAt, "generatedAt");
 
@@ -549,6 +590,79 @@ export function buildJobProofBundleV1({
   const files = new Map();
   let tenantGovSnapshotUsed = null;
   let globalGovSnapshotUsed = null;
+
+  // Governance policy: strict authorization contract, optionally signed by a governance root key.
+  // - If a signed policy signer is provided, we emit GovernancePolicy.v2 + RevocationList.v1.
+  // - Otherwise, fall back to GovernancePolicy.v1 (non-strict / legacy).
+  if (governancePolicySigner) {
+    const list =
+      revocationList ??
+      ({
+        schemaVersion: REVOCATION_LIST_SCHEMA_V1,
+        listId: "revocations_default_v1",
+        generatedAt,
+        rotations: [],
+        revocations: [],
+        signerKeyId: null,
+        signedAt: null,
+        listHash: null,
+        signature: null
+      });
+    validateRevocationListV1(list);
+    const signedList = signRevocationListV1({
+      listCore: buildRevocationListV1Core({
+        listId: list.listId ?? "revocations_default_v1",
+        generatedAt,
+        rotations: list.rotations ?? [],
+        revocations: list.revocations ?? [],
+        signerKeyId: governancePolicySigner.keyId,
+        signedAt: generatedAt
+      }),
+      signer: governancePolicySigner
+    });
+    files.set("governance/revocations.json", new TextEncoder().encode(`${canonicalJsonStringify(signedList)}\n`));
+
+    const policyUnsigned =
+      governancePolicy && governancePolicy.schemaVersion === GOVERNANCE_POLICY_SCHEMA_V2
+        ? {
+            ...governancePolicy,
+            revocationList: { path: "governance/revocations.json", sha256: signedList.listHash },
+            signerKeyId: null,
+            signedAt: null,
+            policyHash: null,
+            signature: null
+          }
+        : buildGovernancePolicyV2Unsigned({
+            policyId: "governance_policy_default_v2",
+            generatedAt,
+            revocationList: { path: "governance/revocations.json", sha256: signedList.listHash },
+            verificationReportSigners: [
+              {
+                subjectType: JOB_PROOF_BUNDLE_SCHEMA_VERSION_V1,
+                allowedScopes: ["global", "tenant"],
+                allowedKeyIds: [String((verificationReportSigner ?? manifestSigner)?.keyId ?? "")].filter(Boolean),
+                requireGoverned: true,
+                requiredPurpose: "server"
+              }
+            ],
+            bundleHeadAttestationSigners: [
+              {
+                subjectType: JOB_PROOF_BUNDLE_SCHEMA_VERSION_V1,
+                allowedScopes: ["global", "tenant"],
+                allowedKeyIds: [String(manifestSigner?.keyId ?? "")].filter(Boolean),
+                requireGoverned: true,
+                requiredPurpose: "server"
+              }
+            ]
+          });
+    validateGovernancePolicyV2(policyUnsigned);
+    const signedPolicy = signGovernancePolicyV2({ policy: policyUnsigned, signer: governancePolicySigner, signedAt: generatedAt });
+    files.set("governance/policy.json", new TextEncoder().encode(`${canonicalJsonStringify(signedPolicy)}\n`));
+  } else {
+    const policy = governancePolicy ?? buildDefaultGovernancePolicyV1({ generatedAt });
+    validateGovernancePolicyV1(policy);
+    files.set("governance/policy.json", new TextEncoder().encode(`${canonicalJsonStringify(policy)}\n`));
+  }
 
   // Event bytes used for payloadHash material (the "physics" bytes).
   const payloadMaterial = jobEvents.map((e) => ({
@@ -648,7 +762,14 @@ export function buildJobProofBundleV1({
         .filter((v) => typeof v === "string" && v.trim())
     )
   ).sort();
-  const keysFile = buildPublicKeysFileV1({ tenantId, generatedAt, publicKeyByKeyId, signerKeys, keyIds, governanceEvents });
+  const keysFile = buildPublicKeysFileV1({
+    tenantId,
+    generatedAt,
+    publicKeyByKeyId,
+    signerKeys,
+    keyIds,
+    governanceEvents: [...(Array.isArray(governanceEvents) ? governanceEvents : []), ...(Array.isArray(tenantGovernanceEvents) ? tenantGovernanceEvents : [])]
+  });
   files.set("keys/public_keys.json", new TextEncoder().encode(`${canonicalJsonStringify(keysFile)}\n`));
 
 	  const eventChain = verifyEventChain(jobEvents, publicKeyByKeyId);
@@ -690,13 +811,15 @@ export function buildJobProofBundleV1({
       generatedAt,
       manifestHash,
       heads,
-      signer: manifestSigner
+      signer: manifestSigner,
+      timestampAuthoritySigner
     });
     files.set("attestation/bundle_head_attestation.json", new TextEncoder().encode(`${canonicalJsonStringify(att)}\n`));
   }
 
   if (manifestSigner) {
     const attestation = JSON.parse(new TextDecoder().decode(files.get("attestation/bundle_head_attestation.json")));
+    const reportSigner = verificationReportSigner ?? manifestSigner;
     const vr = buildVerificationReportV1ForProofBundle({
       kind: JOB_PROOF_BUNDLE_SCHEMA_VERSION_V1,
       tenantId,
@@ -704,7 +827,9 @@ export function buildJobProofBundleV1({
       generatedAt,
       manifestHash,
       bundleHeadAttestation: attestation,
-      signer: manifestSigner,
+      signer: reportSigner,
+      timestampAuthoritySigner,
+      toolVersion,
       bundleFiles: files
     });
     files.set("verify/verification_report.json", new TextEncoder().encode(`${canonicalJsonStringify(vr)}\n`));
@@ -731,11 +856,17 @@ export function buildMonthProofBundleV1({
   governanceSnapshot = null,
   tenantGovernanceEvents = null,
   tenantGovernanceSnapshot = null,
+  governancePolicy = null,
+  governancePolicySigner = null,
+  revocationList = null,
   artifacts,
   contractDocsByHash = new Map(),
   publicKeyByKeyId = new Map(),
   signerKeys = [],
   manifestSigner = null,
+  verificationReportSigner = null,
+  timestampAuthoritySigner = null,
+  toolVersion = null,
   requireHeadAttestation = false,
   generatedAt
 } = {}) {
@@ -749,11 +880,17 @@ export function buildMonthProofBundleV1({
   if (tenantGovernanceSnapshot !== null && typeof tenantGovernanceSnapshot !== "object") {
     throw new TypeError("tenantGovernanceSnapshot must be null or an object");
   }
+  if (governancePolicy !== null && typeof governancePolicy !== "object") throw new TypeError("governancePolicy must be null or an object");
+  if (governancePolicySigner !== null && typeof governancePolicySigner !== "object") throw new TypeError("governancePolicySigner must be null or an object");
+  if (revocationList !== null && typeof revocationList !== "object") throw new TypeError("revocationList must be null or an object");
   if (!Array.isArray(artifacts)) throw new TypeError("artifacts must be an array");
   if (!(contractDocsByHash instanceof Map)) throw new TypeError("contractDocsByHash must be a Map");
   if (!(publicKeyByKeyId instanceof Map)) throw new TypeError("publicKeyByKeyId must be a Map");
   if (!Array.isArray(signerKeys)) throw new TypeError("signerKeys must be an array");
   if (manifestSigner !== null && typeof manifestSigner !== "object") throw new TypeError("manifestSigner must be null or an object");
+  if (verificationReportSigner !== null && typeof verificationReportSigner !== "object") throw new TypeError("verificationReportSigner must be null or an object");
+  if (timestampAuthoritySigner !== null && typeof timestampAuthoritySigner !== "object") throw new TypeError("timestampAuthoritySigner must be null or an object");
+  if (toolVersion !== null && typeof toolVersion !== "string") throw new TypeError("toolVersion must be null or a string");
   if (requireHeadAttestation !== true && requireHeadAttestation !== false) throw new TypeError("requireHeadAttestation must be a boolean");
   assertNonEmptyString(generatedAt, "generatedAt");
 
@@ -766,6 +903,77 @@ export function buildMonthProofBundleV1({
   const files = new Map();
   let tenantGovSnapshotUsed = null;
   let globalGovSnapshotUsed = null;
+
+  // Governance policy: strict authorization contract, optionally signed by a governance root key.
+  if (governancePolicySigner) {
+    const list =
+      revocationList ??
+      ({
+        schemaVersion: REVOCATION_LIST_SCHEMA_V1,
+        listId: "revocations_default_v1",
+        generatedAt,
+        rotations: [],
+        revocations: [],
+        signerKeyId: null,
+        signedAt: null,
+        listHash: null,
+        signature: null
+      });
+    validateRevocationListV1(list);
+    const signedList = signRevocationListV1({
+      listCore: buildRevocationListV1Core({
+        listId: list.listId ?? "revocations_default_v1",
+        generatedAt,
+        rotations: list.rotations ?? [],
+        revocations: list.revocations ?? [],
+        signerKeyId: governancePolicySigner.keyId,
+        signedAt: generatedAt
+      }),
+      signer: governancePolicySigner
+    });
+    files.set("governance/revocations.json", new TextEncoder().encode(`${canonicalJsonStringify(signedList)}\n`));
+
+    const policyUnsigned =
+      governancePolicy && governancePolicy.schemaVersion === GOVERNANCE_POLICY_SCHEMA_V2
+        ? {
+            ...governancePolicy,
+            revocationList: { path: "governance/revocations.json", sha256: signedList.listHash },
+            signerKeyId: null,
+            signedAt: null,
+            policyHash: null,
+            signature: null
+          }
+        : buildGovernancePolicyV2Unsigned({
+            policyId: "governance_policy_default_v2",
+            generatedAt,
+            revocationList: { path: "governance/revocations.json", sha256: signedList.listHash },
+            verificationReportSigners: [
+              {
+                subjectType: MONTH_PROOF_BUNDLE_SCHEMA_VERSION_V1,
+                allowedScopes: ["global", "tenant"],
+                allowedKeyIds: [String((verificationReportSigner ?? manifestSigner)?.keyId ?? "")].filter(Boolean),
+                requireGoverned: true,
+                requiredPurpose: "server"
+              }
+            ],
+            bundleHeadAttestationSigners: [
+              {
+                subjectType: MONTH_PROOF_BUNDLE_SCHEMA_VERSION_V1,
+                allowedScopes: ["global", "tenant"],
+                allowedKeyIds: [String(manifestSigner?.keyId ?? "")].filter(Boolean),
+                requireGoverned: true,
+                requiredPurpose: "server"
+              }
+            ]
+          });
+    validateGovernancePolicyV2(policyUnsigned);
+    const signedPolicy = signGovernancePolicyV2({ policy: policyUnsigned, signer: governancePolicySigner, signedAt: generatedAt });
+    files.set("governance/policy.json", new TextEncoder().encode(`${canonicalJsonStringify(signedPolicy)}\n`));
+  } else {
+    const policy = governancePolicy ?? buildDefaultGovernancePolicyV1({ generatedAt });
+    validateGovernancePolicyV1(policy);
+    files.set("governance/policy.json", new TextEncoder().encode(`${canonicalJsonStringify(policy)}\n`));
+  }
 
   const payloadMaterial = monthEvents.map((e) => ({
     v: e?.v ?? null,
@@ -854,7 +1062,14 @@ export function buildMonthProofBundleV1({
         .filter((v) => typeof v === "string" && v.trim())
     )
   ).sort();
-  const keysFile = buildPublicKeysFileV1({ tenantId, generatedAt, publicKeyByKeyId, signerKeys, keyIds: monthKeyIds, governanceEvents });
+  const keysFile = buildPublicKeysFileV1({
+    tenantId,
+    generatedAt,
+    publicKeyByKeyId,
+    signerKeys,
+    keyIds: monthKeyIds,
+    governanceEvents: [...(Array.isArray(governanceEvents) ? governanceEvents : []), ...(Array.isArray(tenantGovernanceEvents) ? tenantGovernanceEvents : [])]
+  });
   files.set("keys/public_keys.json", new TextEncoder().encode(`${canonicalJsonStringify(keysFile)}\n`));
 
   const eventChain = verifyEventChain(monthEvents, publicKeyByKeyId);
@@ -898,13 +1113,15 @@ export function buildMonthProofBundleV1({
       generatedAt,
       manifestHash,
       heads,
-      signer: manifestSigner
+      signer: manifestSigner,
+      timestampAuthoritySigner
     });
     files.set("attestation/bundle_head_attestation.json", new TextEncoder().encode(`${canonicalJsonStringify(att)}\n`));
   }
 
   if (manifestSigner) {
     const attestation = JSON.parse(new TextDecoder().decode(files.get("attestation/bundle_head_attestation.json")));
+    const reportSigner = verificationReportSigner ?? manifestSigner;
     const vr = buildVerificationReportV1ForProofBundle({
       kind: MONTH_PROOF_BUNDLE_SCHEMA_VERSION_V1,
       tenantId,
@@ -912,7 +1129,9 @@ export function buildMonthProofBundleV1({
       generatedAt,
       manifestHash,
       bundleHeadAttestation: attestation,
-      signer: manifestSigner,
+      signer: reportSigner,
+      timestampAuthoritySigner,
+      toolVersion,
       bundleFiles: files
     });
     files.set("verify/verification_report.json", new TextEncoder().encode(`${canonicalJsonStringify(vr)}\n`));

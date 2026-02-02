@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/VerifyCliOutput.v1.schema.json",
+  "title": "VerifyCliOutput.v1",
+  "type": "object",
+  "required": ["schemaVersion", "tool", "mode", "target", "ok", "verificationOk", "errors", "warnings", "summary"],
+  "properties": {
+    "schemaVersion": { "const": "VerifyCliOutput.v1" },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": ["string", "null"] }
+      }
+    },
+    "mode": {
+      "type": "object",
+      "required": ["strict", "failOnWarnings"],
+      "properties": {
+        "strict": { "type": "boolean" },
+        "failOnWarnings": { "type": "boolean" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["kind", "input", "resolved", "dir"],
+      "properties": {
+        "kind": { "type": "string" },
+        "input": { "type": ["string", "null"] },
+        "resolved": { "type": ["string", "null"] },
+        "dir": { "type": ["string", "null"] }
+      }
+    },
+    "ok": { "type": "boolean" },
+    "verificationOk": { "type": "boolean" },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "path", "message", "detail"],
+        "properties": {
+          "code": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "message": { "type": ["string", "null"] },
+          "detail": {}
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "path", "message", "detail"],
+        "properties": {
+          "code": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "message": { "type": ["string", "null"] },
+          "detail": {}
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["tenantId", "period", "type", "manifestHash"],
+      "properties": {
+        "tenantId": { "type": ["string", "null"] },
+        "period": { "type": ["string", "null"] },
+        "type": { "type": ["string", "null"] },
+        "manifestHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}
+

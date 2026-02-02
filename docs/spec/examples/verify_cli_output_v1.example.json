@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "VerifyCliOutput.v1",
+  "tool": { "name": "settld-verify", "version": "0.0.0" },
+  "mode": { "strict": false, "failOnWarnings": false },
+  "target": { "kind": "job-proof", "input": "/path/to/bundle", "resolved": "/path/to/bundle", "dir": "/path/to/bundle" },
+  "ok": true,
+  "verificationOk": true,
+  "errors": [],
+  "warnings": [
+    { "code": "VERIFICATION_REPORT_MISSING_LENIENT", "path": "verify/verification_report.json", "message": null, "detail": null }
+  ],
+  "summary": { "tenantId": "tenant_default", "period": null, "type": "JobProofBundle.v1", "manifestHash": "0000000000000000000000000000000000000000000000000000000000000000" }
+}
+
