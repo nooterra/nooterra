@@ -11,7 +11,7 @@ on:
         required: true
 
 permissions:
-  contents: read
+  contents: write
   packages: write
   id-token: write
 
@@ -133,3 +133,303 @@ jobs:
         with:
           name: helm-chart-${{ steps.v.outputs.version }}
           path: /tmp/settld-*.tgz
+
+  npm_packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: v
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ -z "${VERSION}" ]]; then
+            echo "missing version" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - name: Pack npm artifacts (no publish)
+        run: |
+          set -euo pipefail
+          OUT="/tmp/npm-artifacts"
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+
+          # Best-effort reproducibility: normalize mtimes before packing.
+          find packages -maxdepth 2 -type f -name "package.json" -print0 | while IFS= read -r -d '' pkg; do
+            d="$(dirname "$pkg")"
+            find "$d" -type f -print0 | xargs -0 -r touch -h -t 202602020000.00
+          done
+
+          (cd packages/api-sdk && npm pack --silent --pack-destination "$OUT")
+          (cd packages/executor-sdk && npm pack --silent --pack-destination "$OUT")
+          (cd packages/artifact-verify && npm pack --silent --pack-destination "$OUT")
+
+          (cd "$OUT" && ls -la && sha256sum *.tgz | tee npm-SHA256SUMS)
+
+      - name: Upload npm artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-artifacts-${{ steps.v.outputs.version }}
+          path: /tmp/npm-artifacts
+
+  python_package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: v
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ -z "${VERSION}" ]]; then
+            echo "missing version" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build Python distribution artifacts (no publish)
+        run: |
+          set -euo pipefail
+          OUT=".artifacts/python"
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+
+          python3 -m pip install --disable-pip-version-check --no-input --upgrade build
+          export SOURCE_DATE_EPOCH="$(date -u -d '2026-02-02 00:00:00' +%s)"
+          export PYTHONDONTWRITEBYTECODE=1
+          python3 -m build packages/api-sdk-python --sdist --wheel --outdir "$OUT"
+
+          ls "$OUT"/settld_api_sdk_python-*.whl >/dev/null
+          ls "$OUT"/settld_api_sdk_python-*.tar.gz >/dev/null
+          ls "$OUT"/settld_api_sdk_python-${{ steps.v.outputs.version }}.tar.gz >/dev/null
+          ls "$OUT"/settld_api_sdk_python-${{ steps.v.outputs.version }}-*.whl >/dev/null
+          (cd "$OUT" && sha256sum settld_api_sdk_python-*.whl settld_api_sdk_python-*.tar.gz | tee python-SHA256SUMS)
+
+      - name: Upload Python artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-artifacts-${{ steps.v.outputs.version }}
+          path: .artifacts/python
+
+  python_publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [python_package]
+    environment:
+      name: pypi
+      url: https://pypi.org/project/settld-api-sdk-python/
+    permissions:
+      id-token: write
+    steps:
+      - name: Compute version
+        id: v
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ -z "${VERSION}" ]]; then
+            echo "missing version" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-artifacts-${{ steps.v.outputs.version }}
+          path: .artifacts/python
+
+      - name: Assert Python release artifacts match tag version
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.v.outputs.version }}"
+          ls -la .artifacts/python
+          ls .artifacts/python/settld_api_sdk_python-${VERSION}.tar.gz >/dev/null
+          ls .artifacts/python/settld_api_sdk_python-${VERSION}-*.whl >/dev/null
+          test -f .artifacts/python/python-SHA256SUMS
+
+      - name: Publish Python package to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: .artifacts/python
+          skip-existing: true
+
+  conformance_pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: v
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ -z "${VERSION}" ]]; then
+            echo "missing version" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build conformance pack tarball
+        run: |
+          set -euo pipefail
+          OUT="/tmp/conformance-artifacts"
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+
+          rm -rf /tmp/conformance-v1
+          mkdir -p /tmp/conformance-v1
+          cp -a conformance/v1/. /tmp/conformance-v1/
+
+          tar --sort=name --mtime='2026-02-02 00:00:00Z' --owner=0 --group=0 --numeric-owner -cf "$OUT/conformance-v1.tar" -C /tmp conformance-v1
+          gzip -n -9 -c "$OUT/conformance-v1.tar" > "$OUT/conformance-v1.tar.gz"
+          rm -f "$OUT/conformance-v1.tar"
+          (cd "$OUT" && sha256sum conformance-v1.tar.gz | tee conformance-v1-SHA256SUMS)
+
+      - name: Upload conformance pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-pack-${{ steps.v.outputs.version }}
+          path: /tmp/conformance-artifacts
+
+  audit_packet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Compute version
+        id: v
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ -z "${VERSION}" ]]; then
+            echo "missing version" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build audit packet zip
+        run: |
+          set -euo pipefail
+          OUT="/tmp/audit-artifacts"
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+
+          node scripts/audit/build-audit-packet.mjs --out "$OUT" --packet-version v1
+          (cd "$OUT" && sha256sum settld-audit-packet-v1.zip | tee settld-audit-packet-v1.zip.sha256)
+
+      - name: Upload audit packet
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-packet-${{ steps.v.outputs.version }}
+          path: /tmp/audit-artifacts
+
+  github_release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [docker_image, helm_chart, npm_packages, python_publish, conformance_pack, audit_packet]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Compute version
+        id: v
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+            TAG="v${VERSION}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/release-artifacts
+
+      - name: Prepare asset directory
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/release-assets
+          find /tmp/release-artifacts -type f -print0 | while IFS= read -r -d '' f; do
+            cp "$f" /tmp/release-assets/
+          done
+          ls -la /tmp/release-assets
+
+      - name: Assert required release assets exist
+        run: |
+          set -euo pipefail
+          ls -la /tmp/release-assets
+          test -f /tmp/release-assets/conformance-v1.tar.gz
+          test -f /tmp/release-assets/conformance-v1-SHA256SUMS
+          test -f /tmp/release-assets/settld-audit-packet-v1.zip
+          test -f /tmp/release-assets/settld-audit-packet-v1.zip.sha256
+          # npm tgz artifacts + checksums
+          ls /tmp/release-assets/settld-api-sdk-*.tgz >/dev/null
+          ls /tmp/release-assets/settld-executor-sdk-*.tgz >/dev/null
+          ls /tmp/release-assets/settld-artifact-verify-*.tgz >/dev/null
+          test -f /tmp/release-assets/npm-SHA256SUMS
+          # python distribution artifacts + checksums
+          ls /tmp/release-assets/settld_api_sdk_python-*.whl >/dev/null
+          ls /tmp/release-assets/settld_api_sdk_python-*.tar.gz >/dev/null
+          test -f /tmp/release-assets/python-SHA256SUMS
+
+      - name: Generate ReleaseIndex.v1 (signed release manifest)
+        run: |
+          set -euo pipefail
+          node scripts/release/generate-release-index.mjs --dir /tmp/release-assets --tag "${{ steps.v.outputs.tag }}" --version "${{ steps.v.outputs.version }}" --commit "${{ github.sha }}"
+
+      - name: Sign ReleaseIndex.v1
+        env:
+          SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM }}
+        run: |
+          set -euo pipefail
+          node scripts/release/sign-release-index.mjs --index /tmp/release-assets/release_index_v1.json --out /tmp/release-assets/release_index_v1.sig --private-key-env SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM
+
+      - name: Validate release assets (checksums + contents + ReleaseIndex signature)
+        run: node scripts/release/validate-release-assets.mjs --dir /tmp/release-assets --release-trust trust/release-trust.json
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.v.outputs.tag }}
+          name: ${{ steps.v.outputs.tag }}
+          files: /tmp/release-assets/*

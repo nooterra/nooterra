@@ -33,7 +33,7 @@ jobs:
       - name: Build Python distribution artifacts (TestPyPI candidate)
         run: |
           set -euo pipefail
-          OUT="/tmp/python-artifacts"
+          OUT=".artifacts/python"
           rm -rf "$OUT"
           mkdir -p "$OUT"
 
@@ -50,7 +50,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: python-testpypi-artifacts-${{ steps.v.outputs.version }}
-          path: /tmp/python-artifacts
+          path: .artifacts/python
 
   publish_testpypi:
     runs-on: ubuntu-latest
@@ -65,20 +65,20 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: python-testpypi-artifacts-${{ needs.build_python.outputs.version }}
-          path: /tmp/python-artifacts
+          path: .artifacts/python
 
       - name: Assert TestPyPI artifacts exist
         run: |
           set -euo pipefail
           VERSION="${{ needs.build_python.outputs.version }}"
-          ls -la /tmp/python-artifacts
-          ls /tmp/python-artifacts/settld_api_sdk_python-${VERSION}.tar.gz >/dev/null
-          ls /tmp/python-artifacts/settld_api_sdk_python-${VERSION}-*.whl >/dev/null
-          test -f /tmp/python-artifacts/python-SHA256SUMS
+          ls -la .artifacts/python
+          ls .artifacts/python/settld_api_sdk_python-${VERSION}.tar.gz >/dev/null
+          ls .artifacts/python/settld_api_sdk_python-${VERSION}-*.whl >/dev/null
+          test -f .artifacts/python/python-SHA256SUMS
 
       - name: Publish to TestPyPI (Trusted Publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
-          packages-dir: /tmp/python-artifacts
+          packages-dir: .artifacts/python
           skip-existing: true
