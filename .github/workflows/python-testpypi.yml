@@ -36,15 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           EXPECTED="${{ steps.v.outputs.version }}"
-          ACTUAL="$(python3 - <<'PY'
-import pathlib
-import tomllib
-
-pyproject = pathlib.Path("packages/api-sdk-python/pyproject.toml")
-data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-print(str(data.get("project", {}).get("version", "")).strip())
-PY
-)"
+          ACTUAL="$(python3 -c 'import pathlib,tomllib; data=tomllib.loads(pathlib.Path(\"packages/api-sdk-python/pyproject.toml\").read_text(encoding=\"utf-8\")); print(str(data.get(\"project\", {}).get(\"version\", \"\")).strip())')"
           if [[ "${ACTUAL}" != "${EXPECTED}" ]]; then
             echo "pyproject version mismatch: expected ${EXPECTED}, got ${ACTUAL}" >&2
             exit 1
