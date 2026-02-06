@@ -19,7 +19,7 @@ jobs:
       - name: Compute version
         id: v
         run: |
-          VERSION="$(awk -F'=' '/^[[:space:]]*version[[:space:]]*=/{gsub(/[[:space:]\"]/, \"\", $2); print $2; exit}' packages/api-sdk-python/pyproject.toml)"
+          VERSION="$(grep -E '^version = \"' packages/api-sdk-python/pyproject.toml | head -n1 | cut -d'"' -f2)"
           if [[ -z "${VERSION}" ]]; then
             echo "missing version" >&2
             exit 1
