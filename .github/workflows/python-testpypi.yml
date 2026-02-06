@@ -1,0 +1,114 @@
+name: python-testpypi
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Python package version to publish (e.g. 0.3.1)"
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build_python:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: v
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ -z "${VERSION}" ]]; then
+            echo "missing version" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Assert pyproject version matches workflow input
+        run: |
+          set -euo pipefail
+          EXPECTED="${{ steps.v.outputs.version }}"
+          ACTUAL="$(python3 - <<'PY'
+import pathlib
+import tomllib
+
+pyproject = pathlib.Path("packages/api-sdk-python/pyproject.toml")
+data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+print(str(data.get("project", {}).get("version", "")).strip())
+PY
+)"
+          if [[ "${ACTUAL}" != "${EXPECTED}" ]]; then
+            echo "pyproject version mismatch: expected ${EXPECTED}, got ${ACTUAL}" >&2
+            exit 1
+          fi
+
+      - name: Build Python distribution artifacts (TestPyPI candidate)
+        run: |
+          set -euo pipefail
+          OUT="/tmp/python-artifacts"
+          rm -rf "$OUT"
+          mkdir -p "$OUT"
+
+          python3 -m pip install --disable-pip-version-check --no-input --upgrade build
+          export SOURCE_DATE_EPOCH="$(date -u -d '2026-02-02 00:00:00' +%s)"
+          export PYTHONDONTWRITEBYTECODE=1
+          python3 -m build packages/api-sdk-python --sdist --wheel --outdir "$OUT"
+
+          ls "$OUT"/settld_api_sdk_python-${{ steps.v.outputs.version }}.tar.gz >/dev/null
+          ls "$OUT"/settld_api_sdk_python-${{ steps.v.outputs.version }}-*.whl >/dev/null
+          (cd "$OUT" && sha256sum settld_api_sdk_python-*.whl settld_api_sdk_python-*.tar.gz | tee python-SHA256SUMS)
+
+      - name: Upload Python artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-testpypi-artifacts-${{ steps.v.outputs.version }}
+          path: /tmp/python-artifacts
+
+  publish_testpypi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [build_python]
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/settld-api-sdk-python/
+    permissions:
+      id-token: write
+    steps:
+      - name: Compute version
+        id: v
+        run: |
+          VERSION="${{ inputs.version }}"
+          if [[ -z "${VERSION}" ]]; then
+            echo "missing version" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-testpypi-artifacts-${{ steps.v.outputs.version }}
+          path: /tmp/python-artifacts
+
+      - name: Assert TestPyPI artifacts exist
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.v.outputs.version }}"
+          ls -la /tmp/python-artifacts
+          ls /tmp/python-artifacts/settld_api_sdk_python-${VERSION}.tar.gz >/dev/null
+          ls /tmp/python-artifacts/settld_api_sdk_python-${VERSION}-*.whl >/dev/null
+          test -f /tmp/python-artifacts/python-SHA256SUMS
+
+      - name: Publish to TestPyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: /tmp/python-artifacts
+          skip-existing: true

@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "settld-api-sdk-python"
+version = "0.0.0"
+description = "Settld API SDK (Python)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "UNLICENSED" }
+authors = [{ name = "Settld" }]
+dependencies = []
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["settld_api_sdk*"]
