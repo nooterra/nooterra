@@ -76,6 +76,7 @@ import {
   validateRunStartedPayload
 } from "../core/agent-runs.js";
 import {
+  AGENT_RUN_SETTLEMENT_DISPUTE_STATUS,
   AGENT_RUN_SETTLEMENT_DISPUTE_CHANNEL,
   AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL,
   AGENT_RUN_SETTLEMENT_DECISION_MODE,
@@ -756,6 +757,248 @@ export function createApi({
       deliveriesFailed,
       ingestRejected,
       deliveryDlqTopDestinations
+    };
+  }
+
+  function readMetricLabelValue(metricKey, label) {
+    if (typeof metricKey !== "string" || typeof label !== "string" || !label) return null;
+    const prefix = `${label}=`;
+    const parts = metricKey.split("|");
+    for (const part of parts) {
+      if (typeof part === "string" && part.startsWith(prefix)) return part.slice(prefix.length);
+    }
+    return null;
+  }
+
+  async function listAgentRunsForTenant({ tenantId } = {}) {
+    const t = normalizeTenant(tenantId);
+    if (typeof store.listAgentRuns === "function") {
+      const pageSize = 1000;
+      const out = [];
+      let offset = 0;
+      let page = 0;
+      while (page < 200) {
+        page += 1;
+        const batch = await store.listAgentRuns({ tenantId: t, agentId: null, status: null, limit: pageSize, offset });
+        if (!Array.isArray(batch) || batch.length === 0) break;
+        out.push(...batch);
+        if (batch.length < pageSize) break;
+        offset += batch.length;
+      }
+      return out;
+    }
+    return listAgentRuns({ tenantId: t, agentId: null, status: null });
+  }
+
+  async function computeNetworkCommandCenterSummary({
+    tenantId,
+    transactionFeeBps = 100,
+    windowHours = 24,
+    disputeSlaHours = 24
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    const nowAt = nowIso();
+    const nowMs = Date.parse(nowAt);
+    const safeWindowHours = Number.isSafeInteger(Number(windowHours)) && Number(windowHours) > 0 ? Number(windowHours) : 24;
+    const safeDisputeSlaHours =
+      Number.isSafeInteger(Number(disputeSlaHours)) && Number(disputeSlaHours) > 0 ? Number(disputeSlaHours) : 24;
+    const safeTransactionFeeBps =
+      Number.isSafeInteger(Number(transactionFeeBps)) && Number(transactionFeeBps) >= 0 && Number(transactionFeeBps) <= 5000
+        ? Number(transactionFeeBps)
+        : 100;
+    const windowStartMs = Number.isFinite(nowMs) ? nowMs - safeWindowHours * 60 * 60 * 1000 : Number.NaN;
+
+    const backlog = await computeOpsBacklogSummary({ tenantId: t, includeOutbox: true });
+    const snapshot = (() => {
+      try {
+        return metrics.snapshot();
+      } catch {
+        return null;
+      }
+    })();
+
+    let httpTotal = 0;
+    let http4xx = 0;
+    let http5xx = 0;
+    if (snapshot && typeof snapshot === "object" && snapshot.counters && typeof snapshot.counters === "object") {
+      for (const [metricKey, rawValue] of Object.entries(snapshot.counters)) {
+        if (typeof metricKey !== "string" || !metricKey.startsWith("http_requests_total|")) continue;
+        const value = Number(rawValue);
+        if (!Number.isFinite(value) || value <= 0) continue;
+        httpTotal += value;
+        const statusRaw = readMetricLabelValue(metricKey, "status");
+        const status = Number(statusRaw);
+        if (Number.isFinite(status) && status >= 500) http5xx += value;
+        else if (Number.isFinite(status) && status >= 400) http4xx += value;
+      }
+    }
+
+    const appendRejectedTopReasons = parseTopReasonCodesFromMetrics({
+      metricPrefix: "append_rejected_total",
+      snapshot,
+      topN: 10
+    });
+    const ingestRejectedTopReasons = parseTopReasonCodesFromMetrics({
+      metricPrefix: "ingest_rejected_total",
+      snapshot,
+      topN: 10
+    });
+    const determinismSensitiveRejects = appendRejectedTopReasons.reduce((sum, row) => {
+      const reason = String(row?.reason ?? "");
+      const count = Number(row?.count ?? 0);
+      if (!Number.isFinite(count) || count <= 0) return sum;
+      if (/chain|payload.?hash|signature/i.test(reason)) return sum + count;
+      return sum;
+    }, 0);
+
+    const runs = await listAgentRunsForTenant({ tenantId: t });
+    const settlements = await listAgentRunSettlementsForRuns({ tenantId: t, runs });
+
+    let resolvedCountInWindow = 0;
+    let releasedAmountCentsInWindow = 0;
+    let refundedAmountCentsInWindow = 0;
+    let settlementAmountCentsInWindow = 0;
+    let lockedCount = 0;
+    let disputeOpenCount = 0;
+    let disputeOpenedInWindow = 0;
+    let disputeClosedInWindow = 0;
+    let disputeOldestOpenAgeSeconds = 0;
+    let disputeOverSlaCount = 0;
+    let disputeExpiredWindowOpenCount = 0;
+    let estimatedTransactionFeesCentsInWindow = 0;
+
+    for (const settlement of settlements) {
+      if (!settlement || typeof settlement !== "object") continue;
+      const status = String(settlement.status ?? "").toLowerCase();
+      if (status === AGENT_RUN_SETTLEMENT_STATUS.LOCKED) lockedCount += 1;
+
+      const resolvedAtMs = settlement?.resolvedAt ? Date.parse(String(settlement.resolvedAt)) : Number.NaN;
+      const inWindow = Number.isFinite(windowStartMs) && Number.isFinite(resolvedAtMs) && resolvedAtMs >= windowStartMs && resolvedAtMs <= nowMs;
+      if (inWindow) {
+        resolvedCountInWindow += 1;
+        const released = Number(settlement.releasedAmountCents ?? 0);
+        const refunded = Number(settlement.refundedAmountCents ?? 0);
+        const amount = Number(settlement.amountCents ?? 0);
+        if (Number.isFinite(released)) releasedAmountCentsInWindow += released;
+        if (Number.isFinite(refunded)) refundedAmountCentsInWindow += refunded;
+        if (Number.isFinite(amount)) settlementAmountCentsInWindow += amount;
+        if (Number.isFinite(released) && safeTransactionFeeBps > 0) {
+          estimatedTransactionFeesCentsInWindow += Math.floor((released * safeTransactionFeeBps) / 10000);
+        }
+      }
+
+      const disputeStatus = String(settlement.disputeStatus ?? "").toLowerCase();
+      const disputeOpenedAtMs = settlement?.disputeOpenedAt ? Date.parse(String(settlement.disputeOpenedAt)) : Number.NaN;
+      const disputeClosedAtMs = settlement?.disputeClosedAt ? Date.parse(String(settlement.disputeClosedAt)) : Number.NaN;
+      const disputeWindowEndsAtMs = settlement?.disputeWindowEndsAt ? Date.parse(String(settlement.disputeWindowEndsAt)) : Number.NaN;
+
+      if (disputeStatus === AGENT_RUN_SETTLEMENT_DISPUTE_STATUS.OPEN) {
+        disputeOpenCount += 1;
+        const ageSeconds =
+          Number.isFinite(disputeOpenedAtMs) && Number.isFinite(nowMs) ? Math.max(0, Math.floor((nowMs - disputeOpenedAtMs) / 1000)) : 0;
+        if (ageSeconds > disputeOldestOpenAgeSeconds) disputeOldestOpenAgeSeconds = ageSeconds;
+        if (ageSeconds > safeDisputeSlaHours * 60 * 60) disputeOverSlaCount += 1;
+        if (Number.isFinite(disputeWindowEndsAtMs) && Number.isFinite(nowMs) && nowMs > disputeWindowEndsAtMs) {
+          disputeExpiredWindowOpenCount += 1;
+        }
+      }
+      if (Number.isFinite(windowStartMs) && Number.isFinite(disputeOpenedAtMs) && disputeOpenedAtMs >= windowStartMs && disputeOpenedAtMs <= nowMs) {
+        disputeOpenedInWindow += 1;
+      }
+      if (Number.isFinite(windowStartMs) && Number.isFinite(disputeClosedAtMs) && disputeClosedAtMs >= windowStartMs && disputeClosedAtMs <= nowMs) {
+        disputeClosedInWindow += 1;
+      }
+    }
+
+    let totalAgents = 0;
+    let activeAgents = 0;
+    let trustSampledAgents = 0;
+    let trustScoreTotal = 0;
+    try {
+      const identities = typeof store.listAgentIdentities === "function"
+        ? await store.listAgentIdentities({ tenantId: t, status: null, limit: 5000, offset: 0 })
+        : listAgentIdentities({ tenantId: t, status: null });
+      totalAgents = Array.isArray(identities) ? identities.length : 0;
+      const active = (Array.isArray(identities) ? identities : []).filter(
+        (identity) => String(identity?.status ?? "active").toLowerCase() === "active"
+      );
+      activeAgents = active.length;
+      const trustCandidates = active.slice(0, 100);
+      for (const identity of trustCandidates) {
+        const agentId = typeof identity?.agentId === "string" ? identity.agentId : null;
+        if (!agentId) continue;
+        const reputation = await computeAgentReputationSnapshotVersioned({
+          tenantId: t,
+          agentId,
+          at: nowAt,
+          reputationVersion: "v2",
+          reputationWindow: AGENT_REPUTATION_WINDOW.THIRTY_DAYS
+        });
+        const trustScore = Number(reputation?.trustScore ?? Number.NaN);
+        if (!Number.isFinite(trustScore)) continue;
+        trustSampledAgents += 1;
+        trustScoreTotal += trustScore;
+      }
+    } catch {
+      // trust summary is best-effort.
+    }
+
+    let currentPlatformRevenueCents = null;
+    try {
+      if (store?.ledger?.balances instanceof Map) {
+        const raw = Number(store.ledger.balances.get("acct_platform_revenue"));
+        if (Number.isFinite(raw)) currentPlatformRevenueCents = Math.round(-raw);
+      }
+    } catch {
+      // best-effort for non-ledger stores.
+    }
+
+    return {
+      generatedAt: nowAt,
+      freshness: {
+        maxAgeSeconds: 15 * 60,
+        generatedWithinSla: true
+      },
+      reliability: {
+        httpRequestsTotal: Math.round(httpTotal),
+        http4xxTotal: Math.round(http4xx),
+        http5xxTotal: Math.round(http5xx),
+        httpClientErrorRatePct: httpTotal > 0 ? Number(((http4xx / httpTotal) * 100).toFixed(2)) : 0,
+        httpServerErrorRatePct: httpTotal > 0 ? Number(((http5xx / httpTotal) * 100).toFixed(2)) : 0,
+        backlog
+      },
+      determinism: {
+        appendRejectedTopReasons,
+        ingestRejectedTopReasons,
+        determinismSensitiveRejects: Math.round(determinismSensitiveRejects)
+      },
+      settlement: {
+        windowHours: safeWindowHours,
+        resolvedCount: resolvedCountInWindow,
+        lockedCount,
+        settlementAmountCents: settlementAmountCentsInWindow,
+        releasedAmountCents: releasedAmountCentsInWindow,
+        refundedAmountCents: refundedAmountCentsInWindow
+      },
+      disputes: {
+        openCount: disputeOpenCount,
+        openedCountInWindow: disputeOpenedInWindow,
+        closedCountInWindow: disputeClosedInWindow,
+        oldestOpenAgeSeconds: disputeOldestOpenAgeSeconds,
+        overSlaCount: disputeOverSlaCount,
+        expiredWindowOpenCount: disputeExpiredWindowOpenCount
+      },
+      revenue: {
+        transactionFeeBps: safeTransactionFeeBps,
+        estimatedTransactionFeesCentsInWindow,
+        currentPlatformRevenueCents
+      },
+      trust: {
+        totalAgents,
+        activeAgents,
+        sampledAgents: trustSampledAgents,
+        averageTrustScore: trustSampledAgents > 0 ? Number((trustScoreTotal / trustSampledAgents).toFixed(2)) : null
+      }
     };
   }
 
@@ -10420,6 +10663,49 @@ export function createApi({
               topAppendRejected: topAppendRejectReasons,
               topIngestRejected: topIngestRejectReasons
             }
+          });
+        }
+
+        if (parts[1] === "network" && parts[2] === "command-center" && parts.length === 3 && req.method === "GET") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+          const transactionFeeBpsRaw = url.searchParams.get("transactionFeeBps");
+          const windowHoursRaw = url.searchParams.get("windowHours");
+          const disputeSlaHoursRaw = url.searchParams.get("disputeSlaHours");
+
+          const transactionFeeBps =
+            transactionFeeBpsRaw === null || transactionFeeBpsRaw.trim() === ""
+              ? 100
+              : Number(transactionFeeBpsRaw);
+          if (!Number.isSafeInteger(transactionFeeBps) || transactionFeeBps < 0 || transactionFeeBps > 5000) {
+            return sendError(res, 400, "transactionFeeBps must be an integer within 0..5000");
+          }
+
+          const windowHours =
+            windowHoursRaw === null || windowHoursRaw.trim() === ""
+              ? 24
+              : Number(windowHoursRaw);
+          if (!Number.isSafeInteger(windowHours) || windowHours <= 0 || windowHours > 24 * 365) {
+            return sendError(res, 400, "windowHours must be an integer within 1..8760");
+          }
+
+          const disputeSlaHours =
+            disputeSlaHoursRaw === null || disputeSlaHoursRaw.trim() === ""
+              ? 24
+              : Number(disputeSlaHoursRaw);
+          if (!Number.isSafeInteger(disputeSlaHours) || disputeSlaHours <= 0 || disputeSlaHours > 24 * 365) {
+            return sendError(res, 400, "disputeSlaHours must be an integer within 1..8760");
+          }
+
+          const commandCenter = await computeNetworkCommandCenterSummary({
+            tenantId,
+            transactionFeeBps,
+            windowHours,
+            disputeSlaHours
+          });
+          return sendJson(res, 200, {
+            ok: true,
+            tenantId,
+            commandCenter
           });
         }
 
