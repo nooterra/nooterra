@@ -37,6 +37,8 @@ async function registerAgent(api, { tenantId, agentId, ownerId = "svc_pg_billabl
   const payerAgentId = "agt_pg_billable_payer";
   const payeeAgentId = "agt_pg_billable_payee";
   const runId = "run_pg_billable_1";
+  const disputeId = "dispute_pg_billable_1";
+  const caseId = "arb_case_pg_billable_1";
   const period = "2026-02";
 
   const store = await createPgStore({ databaseUrl, schema, dropSchemaOnClose: true });
@@ -77,7 +79,8 @@ async function registerAgent(api, { tenantId, agentId, ownerId = "svc_pg_billabl
         settlement: {
           payerAgentId,
           amountCents: 1500,
-          currency: "USD"
+          currency: "USD",
+          disputeWindowDays: 3
         }
       }
     });
@@ -101,6 +104,38 @@ async function registerAgent(api, { tenantId, agentId, ownerId = "svc_pg_billabl
     assert.equal(completed.statusCode, 201);
     assert.equal(completed.json?.settlement?.status, "released");
 
+    const openedDispute = await request(api, {
+      method: "POST",
+      path: `/runs/${encodeURIComponent(runId)}/dispute/open`,
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-idempotency-key": "pg_billable_dispute_open_1"
+      },
+      body: {
+        disputeId,
+        reason: "validate arbitration billing",
+        openedByAgentId: payerAgentId
+      }
+    });
+    assert.equal(openedDispute.statusCode, 200);
+    assert.equal(openedDispute.json?.settlement?.disputeStatus, "open");
+
+    const openedArbitration = await request(api, {
+      method: "POST",
+      path: `/runs/${encodeURIComponent(runId)}/arbitration/open`,
+      headers: {
+        "x-proxy-tenant-id": tenantId,
+        "x-idempotency-key": "pg_billable_arbitration_open_1"
+      },
+      body: {
+        disputeId,
+        caseId,
+        arbiterAgentId: payerAgentId
+      }
+    });
+    assert.equal(openedArbitration.statusCode, 201);
+    assert.equal(openedArbitration.json?.arbitrationCase?.caseId, caseId);
+
     const billable = await request(api, {
       method: "GET",
       path: `/ops/finance/billable-events?period=${encodeURIComponent(period)}&limit=50`,
@@ -111,21 +146,29 @@ async function registerAgent(api, { tenantId, agentId, ownerId = "svc_pg_billabl
     });
     assert.equal(billable.statusCode, 200);
     const events = Array.isArray(billable.json?.events) ? billable.json.events : [];
-    assert.equal(events.length, 2);
+    assert.equal(events.length, 3);
     assert.deepEqual(
       new Set(events.map((event) => String(event?.eventType ?? ""))),
-      new Set(["verified_run", "settled_volume"])
+      new Set(["verified_run", "settled_volume", "arbitration_usage"])
     );
 
     const settledEvent = events.find((event) => event?.eventType === "settled_volume");
     assert.equal(settledEvent?.amountCents, 1500);
     assert.equal(settledEvent?.currency, "USD");
+    const arbitrationEvent = events.find((event) => event?.eventType === "arbitration_usage");
+    assert.equal(arbitrationEvent?.arbitrationCaseId, caseId);
 
     const persistedCount = await store.pg.pool.query(
       "SELECT COUNT(*)::int AS c FROM billable_usage_events WHERE tenant_id = $1 AND period = $2",
       [tenantId, period]
     );
-    assert.equal(Number(persistedCount.rows[0]?.c ?? 0), 2);
+    assert.equal(Number(persistedCount.rows[0]?.c ?? 0), 3);
+
+    const persistedArbitrationCase = await store.pg.pool.query(
+      "SELECT COUNT(*)::int AS c FROM snapshots WHERE tenant_id = $1 AND aggregate_type = 'arbitration_case' AND aggregate_id = $2",
+      [tenantId, caseId]
+    );
+    assert.equal(Number(persistedArbitrationCase.rows[0]?.c ?? 0), 1);
   } finally {
     try {
       await store.close();

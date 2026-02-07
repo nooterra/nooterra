@@ -153,6 +153,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.months.clear();
     if (!(store.agentRuns instanceof Map)) store.agentRuns = new Map();
     store.agentRuns.clear();
+    if (!(store.arbitrationCases instanceof Map)) store.arbitrationCases = new Map();
+    store.arbitrationCases.clear();
 
     const res = await pool.query("SELECT tenant_id, aggregate_type, aggregate_id, snapshot_json FROM snapshots");
     for (const row of res.rows) {
@@ -167,6 +169,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       if (type === "operator") store.operators.set(key, { ...snap, tenantId: snap?.tenantId ?? tenantId });
       if (type === "month") store.months.set(key, { ...snap, tenantId: snap?.tenantId ?? tenantId });
       if (type === "agent_run") store.agentRuns.set(key, { ...snap, tenantId: snap?.tenantId ?? tenantId, runId: snap?.runId ?? String(id) });
+      if (type === "arbitration_case") {
+        store.arbitrationCases.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          caseId: snap?.caseId ?? String(id)
+        });
+      }
     }
   }
 
@@ -1058,6 +1067,34 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     );
   }
 
+  async function persistArbitrationCase(client, { tenantId, caseId, arbitrationCase }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!arbitrationCase || typeof arbitrationCase !== "object" || Array.isArray(arbitrationCase)) {
+      throw new TypeError("arbitrationCase is required");
+    }
+    const normalizedCaseId = caseId ? String(caseId) : arbitrationCase.caseId ? String(arbitrationCase.caseId) : null;
+    if (!normalizedCaseId) throw new TypeError("caseId is required");
+
+    const updatedAt = parseIsoOrNull(arbitrationCase.updatedAt) ?? new Date().toISOString();
+    const normalizedCase = {
+      ...arbitrationCase,
+      tenantId,
+      caseId: normalizedCaseId,
+      updatedAt
+    };
+
+    await client.query(
+      `
+        INSERT INTO snapshots (tenant_id, aggregate_type, aggregate_id, seq, at_chain_hash, snapshot_json, updated_at)
+        VALUES ($1, 'arbitration_case', $2, 0, NULL, $3, $4)
+        ON CONFLICT (tenant_id, aggregate_type, aggregate_id) DO UPDATE SET
+          snapshot_json = EXCLUDED.snapshot_json,
+          updated_at = EXCLUDED.updated_at
+      `,
+      [tenantId, normalizedCaseId, JSON.stringify(normalizedCase), updatedAt]
+    );
+  }
+
   function authKeyRowToRecord(row) {
     if (!row) return null;
     const tenantId = normalizeTenantId(row?.tenant_id ?? DEFAULT_TENANT_ID);
@@ -1490,6 +1527,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "AGENT_WALLET_UPSERT",
       "AGENT_RUN_EVENTS_APPENDED",
       "AGENT_RUN_SETTLEMENT_UPSERT",
+      "ARBITRATION_CASE_UPSERT",
       "MARKETPLACE_TASK_UPSERT",
       "MARKETPLACE_TASK_BIDS_SET",
       "TENANT_SETTLEMENT_POLICY_UPSERT",
@@ -2256,6 +2294,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? op.settlement?.tenantId ?? DEFAULT_TENANT_ID);
           await persistAgentRunSettlement(client, { tenantId, runId: op.runId, settlement: op.settlement });
         }
+        if (op.kind === "ARBITRATION_CASE_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.arbitrationCase?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistArbitrationCase(client, { tenantId, caseId: op.caseId, arbitrationCase: op.arbitrationCase });
+        }
         if (op.kind === "MARKETPLACE_TASK_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.task?.tenantId ?? DEFAULT_TENANT_ID);
           await persistMarketplaceTask(client, { tenantId, task: op.task });
@@ -2587,6 +2629,100 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return store.agentRunSettlements.get(makeScopedKey({ tenantId, id: String(runId) })) ?? null;
+    }
+  };
+
+  function arbitrationCaseSnapshotRowToRecord(row) {
+    const arbitrationCase = row?.snapshot_json ?? null;
+    if (!arbitrationCase || typeof arbitrationCase !== "object" || Array.isArray(arbitrationCase)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? arbitrationCase?.tenantId ?? DEFAULT_TENANT_ID);
+    const caseId = row?.aggregate_id ? String(row.aggregate_id) : arbitrationCase?.caseId ? String(arbitrationCase.caseId) : null;
+    if (!caseId) return null;
+    return {
+      ...arbitrationCase,
+      tenantId,
+      caseId
+    };
+  }
+
+  store.getArbitrationCase = async function getArbitrationCase({ tenantId = DEFAULT_TENANT_ID, caseId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(caseId, "caseId");
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'arbitration_case' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, String(caseId)]
+      );
+      return res.rows.length ? arbitrationCaseSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.arbitrationCases.get(makeScopedKey({ tenantId, id: String(caseId) })) ?? null;
+    }
+  };
+
+  store.listArbitrationCases = async function listArbitrationCases({
+    tenantId = DEFAULT_TENANT_ID,
+    runId = null,
+    disputeId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (runId !== null) assertNonEmptyString(runId, "runId");
+    if (disputeId !== null) assertNonEmptyString(disputeId, "disputeId");
+    if (status !== null) assertNonEmptyString(status, "status");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    try {
+      const params = [tenantId];
+      const where = ["tenant_id = $1", "aggregate_type = 'arbitration_case'"];
+      if (runId !== null) {
+        params.push(String(runId));
+        where.push(`snapshot_json->>'runId' = $${params.length}`);
+      }
+      if (disputeId !== null) {
+        params.push(String(disputeId));
+        where.push(`snapshot_json->>'disputeId' = $${params.length}`);
+      }
+      if (status !== null) {
+        params.push(String(status).toLowerCase());
+        where.push(`lower(snapshot_json->>'status') = $${params.length}`);
+      }
+      params.push(safeLimit);
+      params.push(safeOffset);
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE ${where.join(" AND ")}
+          ORDER BY aggregate_id ASC
+          LIMIT $${params.length - 1} OFFSET $${params.length}
+        `,
+        params
+      );
+      return res.rows.map(arbitrationCaseSnapshotRowToRecord).filter(Boolean);
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      const statusFilter = status === null ? null : String(status).toLowerCase();
+      const out = [];
+      for (const row of store.arbitrationCases.values()) {
+        if (!row || typeof row !== "object") continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (runId !== null && String(row.runId ?? "") !== String(runId)) continue;
+        if (disputeId !== null && String(row.disputeId ?? "") !== String(disputeId)) continue;
+        if (statusFilter !== null && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.caseId ?? "").localeCompare(String(right.caseId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
     }
   };
 
