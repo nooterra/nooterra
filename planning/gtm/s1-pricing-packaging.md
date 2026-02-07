@@ -42,3 +42,32 @@ Owner: PM
 - At least 5 pilot conversations validate willingness to pay.
 - At least 2 pilots accept paid pilot structure.
 - No pricing blocker from procurement on metering language.
+
+## Self-serve ICP v1 decision (February 7, 2026)
+
+- First self-serve ICP: AI tool providers.
+- Primary positioning: contract + proof + settlement + dispute for tool invocations.
+- Source-of-truth board: `planning/sprints/self-serve-icp-v1-30-day.md`.
+
+### Self-serve tiers (launch candidate)
+
+1. Free
+- Sandbox only + capped live trial.
+- No real payout rails.
+
+2. Builder (`$99/mo`)
+- 10k verified runs/month included.
+- 0.75% settled volume fee.
+- 30-day evidence retention.
+
+3. Growth (`$599/mo`)
+- 100k verified runs/month included.
+- 0.45% settled volume fee.
+- 180-day retention + exports.
+
+4. Enterprise (custom annual)
+- 0.20%-0.35% settled volume fee.
+
+Overages:
+- verified runs: `$0.01/run` (Builder), `$0.007/run` (Growth)
+- arbitration cases: `$2/case` (Builder), `$1/case` (Growth)
