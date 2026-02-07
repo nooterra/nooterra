@@ -669,7 +669,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       { kind: "AGENT_IDENTITY_UPSERT", tenantId, agentIdentity: record },
       { kind: "PUBLIC_KEY_PUT", keyId: String(keyId), publicKeyPem: String(publicKeyPem) }
     ];
-    store.commitTx({ at: nowAt, ops, audit });
+    await store.commitTx({ at: nowAt, ops, audit });
     return store.getAgentIdentity({ tenantId, agentId: String(agentId) });
   };
 
@@ -711,7 +711,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     const agentId = wallet.agentId ?? null;
     if (typeof agentId !== "string" || agentId.trim() === "") throw new TypeError("wallet.agentId is required");
     const key = makeScopedKey({ tenantId, id: String(agentId) });
-    store.commitTx({ at: wallet.updatedAt ?? new Date().toISOString(), ops: [{ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: { ...wallet, tenantId, agentId } }] });
+    await store.commitTx({ at: wallet.updatedAt ?? new Date().toISOString(), ops: [{ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: { ...wallet, tenantId, agentId } }] });
     return store.agentWallets.get(key) ?? null;
   };
 
@@ -1449,7 +1449,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     const status = typeof authKey.status === "string" && authKey.status.trim() ? String(authKey.status).trim().toLowerCase() : "active";
 
     store.ensureTenant(tenantId);
-    store.commitTx({
+    await store.commitTx({
       at: nowAt,
       ops: [
         {
@@ -1493,7 +1493,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     if (typeof keyId !== "string" || keyId.trim() === "") throw new TypeError("keyId is required");
     if (typeof status !== "string" || status.trim() === "") throw new TypeError("status is required");
     const nowAt = at ?? (typeof store.nowIso === "function" ? store.nowIso() : new Date().toISOString());
-    store.commitTx({
+    await store.commitTx({
       at: nowAt,
       ops: [
         {
@@ -1538,7 +1538,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     const expiresAt = newAuthKey.expiresAt ?? existing.expiresAt ?? null;
     const description = newAuthKey.description ?? existing.description ?? null;
 
-    store.commitTx({
+    await store.commitTx({
       at: nowAt,
       ops: [
         { kind: "AUTH_KEY_STATUS_SET", tenantId, keyId: String(oldKeyId), status: "rotated", rotatedAt: nowAt },
@@ -1594,7 +1594,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     store.opsAuditSeq += 1;
     const id = store.opsAuditSeq;
     const record = { ...audit, id, tenantId, at: audit?.at ?? nowAt };
-    store.commitTx({ at: nowAt, ops: [{ kind: "OPS_AUDIT_APPEND", tenantId, audit: record }] });
+    await store.commitTx({ at: nowAt, ops: [{ kind: "OPS_AUDIT_APPEND", tenantId, audit: record }] });
     return record;
   };
 
@@ -1633,7 +1633,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     const status = normalizeSignerKeyStatus(signerKey.status ?? "active");
 
     const nowAt = typeof store.nowIso === "function" ? store.nowIso() : new Date().toISOString();
-    store.commitTx({
+    await store.commitTx({
       at: nowAt,
       ops: [
         {
@@ -1667,7 +1667,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     if (typeof keyId !== "string" || keyId.trim() === "") throw new TypeError("keyId is required");
     const normalizedStatus = normalizeSignerKeyStatus(status);
     const nowAt = at ?? (typeof store.nowIso === "function" ? store.nowIso() : new Date().toISOString());
-    store.commitTx({
+    await store.commitTx({
       at: nowAt,
       ops: [
         {
