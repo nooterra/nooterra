@@ -48,6 +48,7 @@ import { migratePg } from "./migrate.js";
 
 function assertNonEmptyString(value, name) {
   if (typeof value !== "string" || value.trim() === "") throw new TypeError(`${name} must be a non-empty string`);
+  return value.trim();
 }
 
 function safeSchemaName(name) {
