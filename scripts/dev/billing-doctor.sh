@@ -83,9 +83,38 @@ echo "[4/5] Reading billable events..."
 EVENTS_JSON="$(curl -sS "$SETTLD_BASE_URL/ops/finance/billable-events?period=$PERIOD" \
   -H "authorization: Bearer $PROXY_OPS_TOKEN" \
   -H "x-proxy-tenant-id: $SETTLD_TENANT_ID")"
-echo "$EVENTS_JSON" | jq .
 
-ARBITRATION_EVENTS_FOR_CASE="$(echo "$EVENTS_JSON" | jq --arg caseId "$CASE_ID" '[.events[] | select(.eventType=="arbitration_usage" and .arbitrationCaseId==$caseId)] | length')"
+SCOPED_EVENTS_JSON="$(echo "$EVENTS_JSON" | jq --arg runId "$RUN_ID" --arg caseId "$CASE_ID" '
+  [.events[] | select((.runId == $runId) or (.arbitrationCaseId == $caseId))]
+')"
+echo "$SCOPED_EVENTS_JSON" | jq --arg tenantId "$SETTLD_TENANT_ID" --arg runId "$RUN_ID" --arg caseId "$CASE_ID" --arg period "$PERIOD" '
+{
+  tenantId: $tenantId,
+  period: $period,
+  runId: $runId,
+  arbitrationCaseId: $caseId,
+  count: length,
+  eventTypeCounts: (reduce .[] as $event ({verified_run: 0, settled_volume: 0, arbitration_usage: 0};
+    if ($event.eventType == "verified_run") then .verified_run += 1
+    elif ($event.eventType == "settled_volume") then .settled_volume += 1
+    elif ($event.eventType == "arbitration_usage") then .arbitration_usage += 1
+    else .
+    end)),
+  events: .
+}'
+
+RUN_VERIFIED_EVENTS="$(echo "$SCOPED_EVENTS_JSON" | jq --arg runId "$RUN_ID" '[.[] | select(.eventType=="verified_run" and .runId==$runId)] | length')"
+RUN_SETTLED_EVENTS="$(echo "$SCOPED_EVENTS_JSON" | jq --arg runId "$RUN_ID" '[.[] | select(.eventType=="settled_volume" and .runId==$runId)] | length')"
+ARBITRATION_EVENTS_FOR_CASE="$(echo "$SCOPED_EVENTS_JSON" | jq --arg caseId "$CASE_ID" '[.[] | select(.eventType=="arbitration_usage" and .arbitrationCaseId==$caseId)] | length')"
+
+if [[ "$RUN_VERIFIED_EVENTS" -lt 1 ]]; then
+  echo "Expected at least one verified_run event for run $RUN_ID, found $RUN_VERIFIED_EVENTS."
+  exit 1
+fi
+if [[ "$RUN_SETTLED_EVENTS" -lt 1 ]]; then
+  echo "Expected at least one settled_volume event for run $RUN_ID, found $RUN_SETTLED_EVENTS."
+  exit 1
+fi
 if [[ "$ARBITRATION_EVENTS_FOR_CASE" -lt 1 ]]; then
   echo "Expected at least one arbitration_usage event for case $CASE_ID, found $ARBITRATION_EVENTS_FOR_CASE."
   exit 1
@@ -95,7 +124,13 @@ echo "[5/5] Reading billing summary..."
 SUMMARY_JSON="$(curl -sS "$SETTLD_BASE_URL/ops/finance/billing/summary?period=$PERIOD" \
   -H "authorization: Bearer $PROXY_OPS_TOKEN" \
   -H "x-proxy-tenant-id: $SETTLD_TENANT_ID")"
-echo "$SUMMARY_JSON" | jq .
+echo "$SUMMARY_JSON" | jq '{
+  tenantId,
+  period,
+  plan: { planId: .plan.planId },
+  usage: .usage,
+  enforcement: .enforcement
+}'
 
 ARBITRATION_CASES="$(echo "$SUMMARY_JSON" | jq -r '.usage.arbitrationCases // 0')"
 if [[ "$ARBITRATION_CASES" -lt 1 ]]; then
