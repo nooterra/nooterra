@@ -5928,6 +5928,181 @@ export function createApi({
     });
   }
 
+  function normalizeBillingProvider(value) {
+    if (value === null || value === undefined || String(value).trim() === "") return null;
+    return String(value).trim().toLowerCase();
+  }
+
+  function normalizeBillingTimestampInput(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+    if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+      value = Number(value.trim());
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      const millis = value > 1_000_000_000_000 ? value : value * 1000;
+      if (!Number.isFinite(millis)) return null;
+      return new Date(millis).toISOString();
+    }
+    const millis = Date.parse(String(value));
+    if (!Number.isFinite(millis)) return null;
+    return new Date(millis).toISOString();
+  }
+
+  function normalizeOptionalBillingPlanId(value, { strict = false } = {}) {
+    if (value === null || value === undefined || String(value).trim() === "") return null;
+    try {
+      return normalizeBillingPlanId(value, { allowNull: false, defaultPlan: BILLING_PLAN_ID.FREE });
+    } catch (err) {
+      if (strict) throw err;
+      return null;
+    }
+  }
+
+  function normalizeBillingSubscriptionRecord(input, { allowNull = true, strictPlan = false } = {}) {
+    if (input === null || input === undefined) {
+      if (allowNull) return null;
+      throw new TypeError("billing subscription is required");
+    }
+    if (typeof input !== "object" || Array.isArray(input)) {
+      throw new TypeError("billing subscription must be an object");
+    }
+
+    const customerIdRaw = input.customerId ?? input.providerCustomerId ?? null;
+    const subscriptionIdRaw = input.subscriptionId ?? input.providerSubscriptionId ?? null;
+    const priceIdRaw = input.priceId ?? input.providerPriceId ?? null;
+    const sourceEventCreatedAtRaw = input.sourceEventCreatedAt ?? input.eventCreatedAt ?? null;
+    const metadataRaw = input.metadata ?? null;
+    const metadata =
+      metadataRaw && typeof metadataRaw === "object" && !Array.isArray(metadataRaw)
+        ? { ...metadataRaw }
+        : null;
+
+    return {
+      provider: normalizeBillingProvider(input.provider),
+      customerId: customerIdRaw === null || customerIdRaw === undefined || String(customerIdRaw).trim() === "" ? null : String(customerIdRaw).trim(),
+      subscriptionId:
+        subscriptionIdRaw === null || subscriptionIdRaw === undefined || String(subscriptionIdRaw).trim() === ""
+          ? null
+          : String(subscriptionIdRaw).trim(),
+      priceId: priceIdRaw === null || priceIdRaw === undefined || String(priceIdRaw).trim() === "" ? null : String(priceIdRaw).trim(),
+      status:
+        input.status === null || input.status === undefined || String(input.status).trim() === ""
+          ? null
+          : String(input.status).trim().toLowerCase(),
+      plan: normalizeOptionalBillingPlanId(input.plan ?? input.planId ?? null, { strict: strictPlan }),
+      currentPeriodStart: normalizeBillingTimestampInput(input.currentPeriodStart ?? input.currentPeriodStartAt ?? null),
+      currentPeriodEnd: normalizeBillingTimestampInput(input.currentPeriodEnd ?? input.currentPeriodEndAt ?? null),
+      cancelAtPeriodEnd: input.cancelAtPeriodEnd === true,
+      canceledAt: normalizeBillingTimestampInput(input.canceledAt ?? null),
+      sourceEventCreatedAt: normalizeBillingTimestampInput(sourceEventCreatedAtRaw),
+      lastEventId:
+        input.lastEventId === null || input.lastEventId === undefined || String(input.lastEventId).trim() === ""
+          ? null
+          : String(input.lastEventId).trim(),
+      lastEventType:
+        input.lastEventType === null || input.lastEventType === undefined || String(input.lastEventType).trim() === ""
+          ? null
+          : String(input.lastEventType).trim(),
+      updatedAt: normalizeBillingTimestampInput(input.updatedAt) ?? nowIso(),
+      metadata
+    };
+  }
+
+  function readMetadataPlanCandidate(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const candidates = [value.settldPlan, value.settld_plan, value.plan, value.planId, value.plan_id];
+    for (const candidate of candidates) {
+      if (candidate === null || candidate === undefined || String(candidate).trim() === "") continue;
+      const normalized = normalizeOptionalBillingPlanId(candidate, { strict: false });
+      if (normalized) return normalized;
+    }
+    return null;
+  }
+
+  function extractStripeSubscriptionPrice(subscriptionObject) {
+    if (!subscriptionObject || typeof subscriptionObject !== "object" || Array.isArray(subscriptionObject)) return null;
+    const itemList = Array.isArray(subscriptionObject?.items?.data) ? subscriptionObject.items.data : [];
+    for (const item of itemList) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const price = item.price;
+      if (price && typeof price === "object" && !Array.isArray(price)) {
+        return price;
+      }
+    }
+    const planLike = subscriptionObject.plan;
+    if (planLike && typeof planLike === "object" && !Array.isArray(planLike)) return planLike;
+    return null;
+  }
+
+  function resolveStripeSubscriptionPlanId(subscriptionObject) {
+    const directCandidate = readMetadataPlanCandidate(subscriptionObject?.metadata ?? null);
+    if (directCandidate) return directCandidate;
+    const price = extractStripeSubscriptionPrice(subscriptionObject);
+    const fromPriceMetadata = readMetadataPlanCandidate(price?.metadata ?? null);
+    if (fromPriceMetadata) return fromPriceMetadata;
+    return null;
+  }
+
+  function normalizeStripeSubscriptionWebhookEvent(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new TypeError("stripe event payload must be an object");
+    }
+    const eventId = typeof input.id === "string" && input.id.trim() !== "" ? input.id.trim() : null;
+    const eventType = typeof input.type === "string" && input.type.trim() !== "" ? input.type.trim() : null;
+    if (!eventId) throw new TypeError("stripe event id is required");
+    if (!eventType) throw new TypeError("stripe event type is required");
+    const object = input?.data?.object ?? null;
+    if (!object || typeof object !== "object" || Array.isArray(object)) {
+      throw new TypeError("stripe event data.object is required");
+    }
+
+    const price = extractStripeSubscriptionPrice(object);
+    const priceId = price?.id ?? null;
+    const planId = resolveStripeSubscriptionPlanId(object);
+    const statusFromEvent = eventType === "customer.subscription.deleted" ? "canceled" : object.status;
+
+    return {
+      eventId,
+      eventType,
+      occurredAt: normalizeBillingTimestampInput(input.created) ?? nowIso(),
+      subscription: normalizeBillingSubscriptionRecord(
+        {
+          provider: "stripe",
+          customerId: object.customer ?? null,
+          subscriptionId: object.id ?? null,
+          priceId,
+          status: statusFromEvent,
+          plan: planId,
+          currentPeriodStart: object.current_period_start ?? null,
+          currentPeriodEnd: object.current_period_end ?? null,
+          cancelAtPeriodEnd: object.cancel_at_period_end === true,
+          canceledAt: object.canceled_at ?? null,
+          sourceEventCreatedAt: input.created ?? null,
+          lastEventId: eventId,
+          lastEventType: eventType,
+          metadata: object.metadata ?? null,
+          updatedAt: nowIso()
+        },
+        { allowNull: false, strictPlan: false }
+      )
+    };
+  }
+
+  function normalizeBillingProviderEventDedupList(value) {
+    if (!Array.isArray(value)) return [];
+    const deduped = [];
+    const seen = new Set();
+    for (const entry of value) {
+      if (entry === null || entry === undefined) continue;
+      const text = String(entry).trim();
+      if (!text || seen.has(text)) continue;
+      seen.add(text);
+      deduped.push(text);
+    }
+    return deduped;
+  }
+
   async function listBillableUsageEventsAll({
     tenantId,
     period = null,
@@ -12632,6 +12807,190 @@ export function createApi({
             return sendJson(res, 200, {
               tenantId,
               billing: nextBilling,
+              resolvedPlan: resolveTenantBillingPlan({ tenantId })
+            });
+          }
+
+          if (parts[1] === "finance" && parts[2] === "billing" && parts[3] === "subscription" && parts.length === 4 && req.method === "GET") {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            const cfg = getTenantConfig(tenantId) ?? {};
+            const billingCfg = cfg?.billing && typeof cfg.billing === "object" && !Array.isArray(cfg.billing) ? cfg.billing : {};
+            const subscription = normalizeBillingSubscriptionRecord(billingCfg.subscription ?? null, { allowNull: true, strictPlan: false });
+            return sendJson(res, 200, {
+              tenantId,
+              subscription,
+              resolvedPlan: resolveTenantBillingPlan({ tenantId })
+            });
+          }
+
+          if (parts[1] === "finance" && parts[2] === "billing" && parts[3] === "subscription" && parts.length === 4 && req.method === "PUT") {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            const body = (await readJsonBody(req)) ?? {};
+            const hasExplicitSubscriptionField = Object.prototype.hasOwnProperty.call(body, "subscription");
+            const rawSubscription = hasExplicitSubscriptionField ? body.subscription : body;
+            const updatePlanFromBody = Object.prototype.hasOwnProperty.call(body, "plan");
+            const shouldUpdateSubscription =
+              hasExplicitSubscriptionField || Object.keys(body).some((key) => key !== "plan");
+
+            let nextSubscription = null;
+            let explicitPlan = null;
+            const cfg = getTenantConfig(tenantId);
+            if (!cfg || typeof cfg !== "object") return sendError(res, 500, "tenant config unavailable");
+            const existingBilling = cfg.billing && typeof cfg.billing === "object" && !Array.isArray(cfg.billing) ? cfg.billing : {};
+
+            try {
+              nextSubscription = shouldUpdateSubscription
+                ? normalizeBillingSubscriptionRecord(rawSubscription, { allowNull: true, strictPlan: true })
+                : normalizeBillingSubscriptionRecord(existingBilling.subscription ?? null, { allowNull: true, strictPlan: false });
+              explicitPlan = updatePlanFromBody
+                ? normalizeBillingPlanId(body?.plan, { allowNull: false, defaultPlan: BILLING_PLAN_ID.FREE })
+                : null;
+            } catch (err) {
+              return sendError(res, 400, "invalid billing subscription payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const plan = explicitPlan ?? nextSubscription?.plan ?? normalizeBillingPlanId(existingBilling.plan ?? BILLING_PLAN_ID.FREE);
+            const nextBilling = {
+              ...existingBilling,
+              plan,
+              subscription: nextSubscription
+            };
+            cfg.billing = nextBilling;
+
+            if (typeof store.appendOpsAudit === "function") {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "BILLING_SUBSCRIPTION_UPSERT",
+                  targetType: "billing_subscription",
+                  targetId: nextSubscription?.subscriptionId ?? "none",
+                  details: {
+                    provider: nextSubscription?.provider ?? null,
+                    status: nextSubscription?.status ?? null,
+                    customerId: nextSubscription?.customerId ?? null,
+                    plan
+                  }
+                })
+              });
+            }
+
+            return sendJson(res, 200, {
+              tenantId,
+              subscription: nextSubscription,
+              resolvedPlan: resolveTenantBillingPlan({ tenantId })
+            });
+          }
+
+          if (
+            parts[1] === "finance" &&
+            parts[2] === "billing" &&
+            parts[3] === "providers" &&
+            parts[4] === "stripe" &&
+            parts[5] === "webhook" &&
+            parts.length === 6 &&
+            req.method === "POST"
+          ) {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            const body = (await readJsonBody(req)) ?? {};
+
+            const cfg = getTenantConfig(tenantId);
+            if (!cfg || typeof cfg !== "object") return sendError(res, 500, "tenant config unavailable");
+            if (!cfg.billing || typeof cfg.billing !== "object" || Array.isArray(cfg.billing)) {
+              cfg.billing = {
+                plan: BILLING_PLAN_ID.FREE,
+                planOverrides: null,
+                hardLimitEnforced: true
+              };
+            }
+
+            let parsed;
+            try {
+              parsed = normalizeStripeSubscriptionWebhookEvent(body);
+            } catch (err) {
+              return sendError(res, 400, "invalid stripe event", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+
+            const dedupKey = `stripe:${parsed.eventId}`;
+            const dedupList = normalizeBillingProviderEventDedupList(cfg.billing.providerEventDedupKeys ?? []);
+            if (dedupList.includes(dedupKey)) {
+              const currentSubscription = normalizeBillingSubscriptionRecord(cfg.billing.subscription ?? null, { allowNull: true, strictPlan: false });
+              return sendJson(res, 200, {
+                tenantId,
+                provider: "stripe",
+                duplicate: true,
+                eventId: parsed.eventId,
+                eventType: parsed.eventType,
+                subscription: currentSubscription,
+                resolvedPlan: resolveTenantBillingPlan({ tenantId })
+              });
+            }
+
+            if (!parsed.eventType.startsWith("customer.subscription.")) {
+              const nextDedupList = normalizeBillingProviderEventDedupList([...dedupList, dedupKey]).slice(-500);
+              cfg.billing.providerEventDedupKeys = nextDedupList;
+              return sendJson(res, 200, {
+                tenantId,
+                provider: "stripe",
+                duplicate: false,
+                ignored: true,
+                eventId: parsed.eventId,
+                eventType: parsed.eventType,
+                reason: "unsupported_event_type"
+              });
+            }
+
+            const existingBilling = cfg.billing && typeof cfg.billing === "object" && !Array.isArray(cfg.billing) ? cfg.billing : {};
+            const previousPlan = normalizeBillingPlanId(existingBilling.plan ?? BILLING_PLAN_ID.FREE, {
+              allowNull: false,
+              defaultPlan: BILLING_PLAN_ID.FREE
+            });
+            const nextPlan = parsed.subscription.plan ?? previousPlan;
+            const nextDedupList = normalizeBillingProviderEventDedupList([...dedupList, dedupKey]).slice(-500);
+
+            cfg.billing = {
+              ...existingBilling,
+              plan: nextPlan,
+              subscription: parsed.subscription,
+              providerEventDedupKeys: nextDedupList
+            };
+
+            const planChanged = previousPlan !== nextPlan;
+
+            if (typeof store.appendOpsAudit === "function") {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "BILLING_PROVIDER_EVENT_INGEST",
+                  targetType: "billing_provider_event",
+                  targetId: parsed.eventId,
+                  details: {
+                    provider: "stripe",
+                    eventType: parsed.eventType,
+                    planChanged,
+                    previousPlan,
+                    nextPlan,
+                    subscriptionId: parsed.subscription.subscriptionId ?? null,
+                    customerId: parsed.subscription.customerId ?? null,
+                    status: parsed.subscription.status ?? null
+                  }
+                })
+              });
+            }
+
+            return sendJson(res, 200, {
+              tenantId,
+              provider: "stripe",
+              duplicate: false,
+              eventId: parsed.eventId,
+              eventType: parsed.eventType,
+              occurredAt: parsed.occurredAt,
+              applied: {
+                planChanged,
+                previousPlan,
+                nextPlan
+              },
+              subscription: parsed.subscription,
               resolvedPlan: resolveTenantBillingPlan({ tenantId })
             });
           }
