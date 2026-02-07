@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "magicLink.fullname" . }}
+  labels:
+    {{- include "magicLink.labels" . | nindent 4 }}
+    app.kubernetes.io/component: magic-link
+  annotations:
+    {{- toYaml .Values.magicLink.service.annotations | nindent 4 }}
+spec:
+  type: {{ .Values.magicLink.service.type }}
+  selector:
+    app.kubernetes.io/name: {{ include "magicLink.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: magic-link
+  ports:
+    - name: http
+      port: {{ .Values.magicLink.service.port }}
+      targetPort: http
+

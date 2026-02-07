@@ -1,0 +1,88 @@
+image:
+  repository: ghcr.io/settld/settld
+  tag: "0.0.0"
+  pullPolicy: IfNotPresent
+
+# Optional: surfaced as PROXY_BUILD and x-settld-build (when used by image code).
+buildId: ""
+
+magicLink:
+  replicas: 1
+
+  service:
+    type: ClusterIP
+    port: 8787
+    annotations: {}
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  podAnnotations: {}
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  volumes:
+    tmp:
+      enabled: true
+
+  persistence:
+    enabled: true
+    existingClaim: ""
+    size: 2Gi
+    accessModes: ["ReadWriteOnce"]
+    storageClassName: ""
+    mountPath: /data
+
+  # Non-secret env vars (safe to inline in values).
+  env:
+    MAGIC_LINK_HOST: "0.0.0.0"
+    MAGIC_LINK_PORT: "8787"
+    MAGIC_LINK_DATA_DIR: "/data"
+    MAGIC_LINK_WEBHOOK_DELIVERY_MODE: "record"
+
+  # Secret env vars (recommended for API keys, settings keys, trust roots, SMTP creds, etc).
+  # - name: MAGIC_LINK_API_KEY
+  #   secretName: magic-link-secrets
+  #   secretKey: MAGIC_LINK_API_KEY
+  secretEnv: []
+
+  # Mount extra secrets for file:/... references if needed.
+  extraSecretMounts: []
+  # - name: webhook-secret
+  #   secretName: magic-link-webhook-secret
+  #   mountPath: /var/run/secrets
+  #   items:
+#     - key: webhook_secret
+#       path: webhook_secret
+
+maintenance:
+  enabled: true
+  intervalSeconds: 300
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+  podAnnotations: {}
+  env: {}

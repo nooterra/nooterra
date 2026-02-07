@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "ProduceConformanceCases.v1",
+  "cases": [
+    {
+      "id": "produce_jobproof_remote_auth_missing",
+      "description": "Producer fail: remote signer auth missing (no token)",
+      "scenario": "remote_auth_missing",
+      "expected": { "exitCode": 1, "errors": ["SIGNER_AUTH_MISSING"], "warnings": [], "verifyOk": false },
+      "invariantIds": ["PROD-001", "PROD-002"]
+    },
+    {
+      "id": "produce_jobproof_remote_command_bad_json",
+      "description": "Producer fail: remote signer command returns invalid JSON",
+      "scenario": "remote_command_bad_json",
+      "expected": { "exitCode": 1, "errors": ["SIGNER_BAD_RESPONSE"], "warnings": [], "verifyOk": false },
+      "invariantIds": ["PROD-001", "PROD-003"]
+    },
+    {
+      "id": "produce_jobproof_remote_command_stderr_only_exit1",
+      "description": "Producer fail: remote signer command writes to stderr only and exits nonzero",
+      "scenario": "remote_command_stderr_only_exit1",
+      "expected": { "exitCode": 1, "errors": ["SIGNER_BAD_RESPONSE"], "warnings": [], "verifyOk": false },
+      "invariantIds": ["PROD-001", "PROD-003"]
+    },
+    {
+      "id": "produce_jobproof_remote_command_partial_stdout_exit1",
+      "description": "Producer fail: remote signer command writes partial stdout and exits nonzero",
+      "scenario": "remote_command_partial_stdout_exit1",
+      "expected": { "exitCode": 1, "errors": ["SIGNER_BAD_RESPONSE"], "warnings": [], "verifyOk": false },
+      "invariantIds": ["PROD-001", "PROD-003"]
+    },
+    {
+      "id": "produce_jobproof_plugin_load_failed",
+      "description": "Producer fail: plugin module cannot be loaded",
+      "scenario": "plugin_load_failed",
+      "expected": { "exitCode": 1, "errors": ["SIGNER_PLUGIN_LOAD_FAILED"], "warnings": [], "verifyOk": false },
+      "invariantIds": ["PROD-001", "PROD-004"]
+    },
+    {
+      "id": "produce_jobproof_plugin_missing_export",
+      "description": "Producer fail: plugin missing expected export",
+      "scenario": "plugin_missing_export",
+      "expected": { "exitCode": 1, "errors": ["SIGNER_PLUGIN_MISSING_EXPORT"], "warnings": [], "verifyOk": false },
+      "invariantIds": ["PROD-001", "PROD-004"]
+    },
+    {
+      "id": "produce_jobproof_plugin_invalid_provider",
+      "description": "Producer fail: plugin export returns an invalid provider",
+      "scenario": "plugin_invalid_provider",
+      "expected": { "exitCode": 1, "errors": ["SIGNER_PLUGIN_INVALID_PROVIDER"], "warnings": [], "verifyOk": false },
+      "invariantIds": ["PROD-001", "PROD-004"]
+    },
+    {
+      "id": "produce_jobproof_plugin_success_strict_verify",
+      "description": "Producer pass: plugin signer produces JobProof that strict-verify passes",
+      "scenario": "plugin_success",
+      "expected": { "exitCode": 0, "errors": [], "warnings": [], "verifyOk": true },
+      "invariantIds": ["PROD-001", "PROD-005"]
+    },
+    {
+      "id": "produce_jobproof_remote_process_success_strict_verify",
+      "description": "Producer pass: remote signer (process/stdio) produces JobProof that strict-verify passes",
+      "scenario": "remote_process_success",
+      "expected": { "exitCode": 0, "errors": [], "warnings": [], "verifyOk": true },
+      "invariantIds": ["PROD-001", "PROD-006"]
+    },
+    {
+      "id": "produce_trust_remote_only_init_then_remote_sign_strict_verify",
+      "description": "Producer pass: settld-trust init --mode remote-only produces a trust.json that strict-verifies a remote-signed JobProof",
+      "scenario": "trust_remote_only_init_remote_sign",
+      "expected": { "exitCode": 0, "errors": [], "warnings": [], "verifyOk": true },
+      "invariantIds": ["PROD-001", "PROD-008"]
+    }
+  ]
+}

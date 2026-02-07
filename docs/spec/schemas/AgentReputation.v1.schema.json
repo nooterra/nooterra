@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/AgentReputation.v1.schema.json",
+  "title": "AgentReputation.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "agentId",
+    "tenantId",
+    "trustScore",
+    "riskTier",
+    "totalRuns",
+    "terminalRuns",
+    "createdRuns",
+    "runningRuns",
+    "completedRuns",
+    "failedRuns",
+    "runsWithEvidence",
+    "totalSettlements",
+    "lockedSettlements",
+    "releasedSettlements",
+    "refundedSettlements",
+    "runCompletionRatePct",
+    "evidenceCoverageRatePct",
+    "settlementReleaseRatePct",
+    "avgRunDurationMs",
+    "scoreBreakdown",
+    "computedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "AgentReputation.v1"
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "trustScore": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "riskTier": {
+      "type": "string",
+      "enum": ["low", "guarded", "elevated", "high"]
+    },
+    "totalRuns": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "terminalRuns": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "createdRuns": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "runningRuns": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "completedRuns": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failedRuns": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "runsWithEvidence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "totalSettlements": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "lockedSettlements": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "releasedSettlements": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "refundedSettlements": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "runCompletionRatePct": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "evidenceCoverageRatePct": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "settlementReleaseRatePct": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "avgRunDurationMs": {
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "scoreBreakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runQuality", "settlementQuality", "evidenceQuality", "activityScore"],
+      "properties": {
+        "runQuality": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "settlementQuality": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "evidenceQuality": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "activityScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "computedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

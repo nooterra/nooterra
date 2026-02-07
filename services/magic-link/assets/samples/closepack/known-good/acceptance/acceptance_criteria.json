@@ -1,0 +1,1 @@
+{"criteria":[{"criterionId":"proof_status_pass","expectedStatus":"PASS","kind":"PROOF_STATUS_EQUALS"},{"criterionId":"sla_overall_ok","kind":"SLA_OVERALL_OK"}],"generatedAt":"2026-02-02T00:00:00.000Z","schemaVersion":"AcceptanceCriteria.v1"}

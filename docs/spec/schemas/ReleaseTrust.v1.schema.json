@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/ReleaseTrust.v1.schema.json",
+  "title": "ReleaseTrust.v1",
+  "type": "object",
+  "required": ["schemaVersion", "releaseRoots"],
+  "properties": {
+    "schemaVersion": { "const": "ReleaseTrust.v1" },
+    "releaseRoots": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}
+

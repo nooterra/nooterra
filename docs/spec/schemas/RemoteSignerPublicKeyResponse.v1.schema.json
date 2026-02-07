@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/RemoteSignerPublicKeyResponse.v1.schema.json",
+  "title": "RemoteSignerPublicKeyResponse.v1",
+  "type": "object",
+  "required": ["schemaVersion", "keyId", "algorithm", "publicKeyPem"],
+  "properties": {
+    "schemaVersion": { "const": "RemoteSignerPublicKeyResponse.v1" },
+    "keyId": { "type": "string" },
+    "algorithm": { "enum": ["ed25519"] },
+    "publicKeyPem": { "type": "string" }
+  }
+}
+

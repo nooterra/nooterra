@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/ReleaseIndexSignature.v1.schema.json",
+  "title": "ReleaseIndexSignature.v1",
+  "type": "object",
+  "required": ["schemaVersion", "algorithm", "messageSha256", "publicKeyPem", "signatureBase64"],
+  "properties": {
+    "schemaVersion": { "const": "ReleaseIndexSignature.v1" },
+    "algorithm": { "const": "ed25519-sha256" },
+    "keyId": { "type": ["string", "null"] },
+    "messageSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "publicKeyPem": { "type": "string" },
+    "signatureBase64": { "type": "string", "pattern": "^[A-Za-z0-9+/=]+$" }
+  }
+}
+

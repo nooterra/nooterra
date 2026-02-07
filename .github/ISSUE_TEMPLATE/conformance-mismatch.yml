@@ -1,0 +1,41 @@
+name: Conformance pack mismatch
+description: Report a mismatch between conformance expected results and an implementation
+title: "[conformance] mismatch: <case id>"
+labels: ["bug"]
+body:
+  - type: input
+    id: pack_version
+    attributes:
+      label: Conformance pack version
+      placeholder: "e.g. conformance v1 (from release v1.0.0-rc.1)"
+    validations:
+      required: true
+  - type: textarea
+    id: runner_output
+    attributes:
+      label: Runner output
+      description: Paste the output of `node conformance/v1/run.mjs ...` including FAIL lines.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: about
+    attributes:
+      label: `settld-verify --about --format json`
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: install_mode
+    attributes:
+      label: Verifier install mode
+      placeholder: "npm version, npm tarball, or source"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS + Node version
+      placeholder: "e.g. windows-latest, Node 20.11.1"
+    validations:
+      required: true

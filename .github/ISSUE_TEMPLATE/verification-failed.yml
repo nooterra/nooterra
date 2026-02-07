@@ -1,0 +1,56 @@
+name: Verification failed (strict)
+description: Report a strict-mode verification failure with reproducible evidence
+title: "[verify] strict failure: <error code>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Provide the machine outputs first. We can usually diagnose from codes + details without source access.
+  - type: textarea
+    id: about
+    attributes:
+      label: `settld-verify --about --format json`
+      description: Paste the exact JSON output from the verifier you ran.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: verify_output
+    attributes:
+      label: `VerifyCliOutput.v1` JSON
+      description: Paste the full `settld-verify --format json --strict ...` output.
+      render: json
+    validations:
+      required: true
+  - type: input
+    id: install_mode
+    attributes:
+      label: Install mode
+      description: npm install (version pinned), npm tarball, or from source?
+      placeholder: "e.g. npm tarball from GitHub Release"
+    validations:
+      required: true
+  - type: textarea
+    id: trust
+    attributes:
+      label: Trust anchors provided
+      description: How did you provide trust roots/time authorities (env vars, trust.json path, etc.)? Do not paste private keys.
+      placeholder: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON=... (keyIds only), trust file path, etc."
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS + Node version
+      placeholder: "e.g. ubuntu-latest, Node 20.11.1"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro steps / commands
+      description: Exact commands (redact secrets).
+      render: bash
+    validations:
+      required: true

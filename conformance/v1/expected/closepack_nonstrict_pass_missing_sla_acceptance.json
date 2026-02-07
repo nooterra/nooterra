@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "ConformanceExpected.v1",
+  "exitCode": 0,
+  "ok": true,
+  "verificationOk": true,
+  "errorCodes": [],
+  "warningCodes": ["CLOSE_PACK_ACCEPTANCE_SURFACES_MISSING_LENIENT", "CLOSE_PACK_SLA_SURFACES_MISSING_LENIENT"]
+}
+

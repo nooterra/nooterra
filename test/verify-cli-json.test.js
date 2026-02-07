@@ -24,7 +24,10 @@ async function runCli(args, { env } = {}) {
   const stderr = [];
   proc.stdout.on("data", (d) => stdout.push(d));
   proc.stderr.on("data", (d) => stderr.push(d));
-  const code = await new Promise((resolve) => proc.on("exit", resolve));
+  const code = await new Promise((resolve, reject) => {
+    proc.on("error", reject);
+    proc.on("close", (code) => resolve(code ?? 1));
+  });
   return { code, stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8") };
 }
 
@@ -129,4 +132,3 @@ test("CLI --format json: strict missing report -> fail (exit 1) with stable erro
   assert.equal(parsed.verificationOk, false);
   assert.equal(parsed.errors.some((e) => e.code === "missing verify/verification_report.json"), true);
 });
-

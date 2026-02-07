@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/EvidenceIndex.v1.schema.json",
+  "title": "EvidenceIndex.v1",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "jobProof", "items"],
+  "properties": {
+    "schemaVersion": { "const": "EvidenceIndex.v1" },
+    "generatedAt": { "type": "string" },
+    "jobProof": {
+      "type": "object",
+      "required": ["embeddedPath", "manifestHash", "headAttestationHash"],
+      "properties": {
+        "embeddedPath": { "type": "string" },
+        "manifestHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "headAttestationHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "source"],
+        "properties": {
+          "key": { "type": "string" },
+          "source": { "enum": ["metering_evidence_ref", "job_evidence_event"] },
+          "path": { "type": ["string", "null"] },
+          "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+          "eventId": { "type": ["string", "null"] },
+          "at": { "type": ["string", "null"] },
+          "evidenceId": { "type": ["string", "null"] },
+          "kind": { "type": ["string", "null"] },
+          "contentType": { "type": ["string", "null"] },
+          "sizeBytes": { "type": ["integer", "null"], "minimum": 0 },
+          "evidenceRefHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    }
+  }
+}
+

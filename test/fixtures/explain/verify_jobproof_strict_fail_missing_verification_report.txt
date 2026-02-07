@@ -1,0 +1,19 @@
+settld-verify explain v1
+target.kind=job-proof
+target.input=test/fixtures/bundles/v1/jobproof/strict-fail-missing-verification-report
+target.resolved=<REPO>/test/fixtures/bundles/v1/jobproof/strict-fail-missing-verification-report
+target.dir=<REPO>/test/fixtures/bundles/v1/jobproof/strict-fail-missing-verification-report
+mode.strict=true
+mode.failOnWarnings=false
+mode.format=json
+hash.concurrency=
+trust.governanceRoots.count=1
+trust.timeAuthorities.count=
+trust.pricingSigners.count=
+result.ok=false
+result.error=missing verify/verification_report.json
+result.manifestHash=
+cli.ok=false
+cli.verificationOk=false
+cli.errors=missing verify/verification_report.json
+cli.warnings=

@@ -7,6 +7,8 @@ import { computeArtifactHash } from "../../src/core/artifacts.js";
 import { createChainedEvent, appendChainedEvent } from "../../src/core/event-chain.js";
 import { buildJobProofBundleV1, buildMonthProofBundleV1 } from "../../src/core/proof-bundle.js";
 import { buildFinancePackBundleV1 } from "../../src/core/finance-pack-bundle.js";
+import { buildInvoiceBundleV1 } from "../../src/core/invoice-bundle.js";
+import { buildClosePackBundleV1 } from "../../src/core/close-pack-bundle.js";
 import { GOVERNANCE_STREAM_ID } from "../../src/core/governance.js";
 import { DEFAULT_TENANT_ID } from "../../src/core/tenancy.js";
 import { buildGovernancePolicyV2Unsigned } from "../../src/core/governance-policy.js";
@@ -25,6 +27,16 @@ function bytes(text) {
 async function ensureEmptyDir(dir) {
   await fs.rm(dir, { recursive: true, force: true });
   await fs.mkdir(dir, { recursive: true });
+}
+
+async function prepareOutDir(outDir) {
+  await fs.mkdir(outDir, { recursive: true });
+  await ensureEmptyDir(path.join(outDir, "jobproof"));
+  await ensureEmptyDir(path.join(outDir, "monthproof"));
+  await ensureEmptyDir(path.join(outDir, "financepack"));
+  await ensureEmptyDir(path.join(outDir, "invoicebundle"));
+  await ensureEmptyDir(path.join(outDir, "closepack"));
+  await fs.rm(path.join(outDir, "trust.json"), { force: true });
 }
 
 async function readFixtureKeypairs() {
@@ -83,7 +95,8 @@ function buildJobProofBase({
   governancePolicy,
   revocationList,
   includeTimestampProof,
-  toolVersion
+  toolVersion,
+  toolCommit
 }) {
   const governanceEvents = buildGovernanceEvents({ tenantId, serverKeys });
   const governanceSnapshot = governanceSnapshotFor(governanceEvents);
@@ -128,6 +141,7 @@ function buildJobProofBase({
     verificationReportSigner: serverKeys.signerA,
     timestampAuthoritySigner: includeTimestampProof ? timeSigner : null,
     toolVersion: toolVersion ?? null,
+    toolCommit: toolCommit ?? null,
     requireHeadAttestation: true,
     generatedAt
   });
@@ -146,7 +160,8 @@ function buildMonthProofBase({
   governancePolicy,
   revocationList,
   includeTimestampProof,
-  toolVersion
+  toolVersion,
+  toolCommit
 }) {
   const governanceEvents = buildGovernanceEvents({ tenantId, serverKeys });
   const governanceSnapshot = governanceSnapshotFor(governanceEvents);
@@ -190,6 +205,7 @@ function buildMonthProofBase({
     verificationReportSigner: serverKeys.signerA,
     timestampAuthoritySigner: includeTimestampProof ? timeSigner : null,
     toolVersion: toolVersion ?? null,
+    toolCommit: toolCommit ?? null,
     requireHeadAttestation: true,
     generatedAt
   });
@@ -197,7 +213,7 @@ function buildMonthProofBase({
   return { files, bundle };
 }
 
-function buildFinancePackBase({ tenantId, period, createdAt, serverKeys, govSigner, monthProof }) {
+function buildFinancePackBase({ tenantId, period, createdAt, serverKeys, govSigner, monthProof, toolCommit }) {
   const glBatch = { artifactType: "GLBatch.v1", schemaVersion: "GLBatch.v1", artifactId: "gl_fixture", tenantId, period, basis: "settledAt", batch: { lines: [] } };
   glBatch.artifactHash = computeArtifactHash(glBatch);
 
@@ -235,10 +251,56 @@ function buildFinancePackBase({ tenantId, period, createdAt, serverKeys, govSign
     journalCsvArtifact: journalCsv,
     reconcileReport: reconcile,
     reconcileReportBytes: reconcileBytes,
-    toolVersion: "0.0.0-fixture"
+    toolVersion: "0.0.0-fixture",
+    toolCommit: toolCommit ?? null
   });
 
   return files;
+}
+
+function buildInvoiceBundleBase({
+  tenantId,
+  invoiceId,
+  createdAt,
+  serverKeys,
+  govSigner,
+  jobProofFiles,
+  toolCommit,
+  pricingMatrix,
+  meteringReport,
+  invoiceClaim,
+  pricingMatrixSigners = null,
+  pricingMatrixSignaturesOverride = undefined
+}) {
+  const jobManifest = JSON.parse(new TextDecoder().decode(jobProofFiles.get("manifest.json")));
+  const jobAtt = JSON.parse(new TextDecoder().decode(jobProofFiles.get("attestation/bundle_head_attestation.json")));
+  const jobProofBundle = { manifestHash: String(jobManifest?.manifestHash ?? "") };
+
+  const { files } = buildInvoiceBundleV1({
+    tenantId,
+    invoiceId,
+    protocol: "1.0",
+    createdAt,
+    governancePolicySigner: govSigner,
+    pricingMatrixSigners,
+    pricingMatrixSignaturesOverride,
+    jobProofBundle,
+    jobProofFiles,
+    requireJobProofAttestation: true,
+    requireHeadAttestation: true,
+    manifestSigner: serverKeys.signerA,
+    verificationReportSigner: serverKeys.signerA,
+    toolVersion: "0.0.0-fixture",
+    toolCommit: toolCommit ?? null,
+    pricingMatrix,
+    meteringReport,
+    invoiceClaim:
+      invoiceClaim ??
+      null
+  });
+
+  // Ensure caller can construct binding objects without re-parsing.
+  return { files, jobProof: { embeddedPath: "payload/job_proof_bundle", manifestHash: jobManifest.manifestHash, headAttestationHash: jobAtt.attestationHash } };
 }
 
 async function main() {
@@ -265,11 +327,14 @@ async function main() {
     signerA: { keyId: keypairs.serverA.keyId, privateKeyPem: keypairs.serverA.privateKeyPem }
   };
 
-  await ensureEmptyDir(outDir);
+  await prepareOutDir(outDir);
 
   const tenantId = "tenant_fixture";
   const generatedAt = "2026-02-02T00:00:00.000Z";
   const toolVersion = "0.0.0-fixture";
+  const toolCommit = "0123456789abcdef0123456789abcdef01234567";
+
+  let jobProofStrictPass = null;
 
   // JobProof fixtures
   {
@@ -281,8 +346,10 @@ async function main() {
       govSigner,
       timeSigner,
       includeTimestampProof: false,
-      toolVersion
+      toolVersion,
+      toolCommit
     });
+    jobProofStrictPass = base;
     const dir = path.join(outDir, "jobproof", "strict-pass");
     await ensureEmptyDir(dir);
     writeFilesToDir({ files: base, outDir: dir });
@@ -345,7 +412,8 @@ async function main() {
       timeSigner,
       governancePolicy: unauthorizedPolicy,
       includeTimestampProof: false,
-      toolVersion
+      toolVersion,
+      toolCommit
     });
     const dirUnauthorized = path.join(outDir, "jobproof", "strict-fail-unauthorized-signer");
     await ensureEmptyDir(dirUnauthorized);
@@ -372,7 +440,8 @@ async function main() {
       timeSigner,
       revocationList: revokedList,
       includeTimestampProof: true,
-      toolVersion
+      toolVersion,
+      toolCommit
     });
     const dirRevokedAfter = path.join(outDir, "jobproof", "strict-fail-revoked-at-or-after-with-timeproof");
     await ensureEmptyDir(dirRevokedAfter);
@@ -391,7 +460,8 @@ async function main() {
       timeSigner,
       revocationList: revokedBeforeList,
       includeTimestampProof: false,
-      toolVersion
+      toolVersion,
+      toolCommit
     });
     const dirRevokedNoProof = path.join(outDir, "jobproof", "strict-fail-revoked-before-without-timeproof");
     await ensureEmptyDir(dirRevokedNoProof);
@@ -408,7 +478,8 @@ async function main() {
     govSigner,
     timeSigner,
     includeTimestampProof: false,
-    toolVersion
+    toolVersion,
+    toolCommit
   });
   {
     const dir = path.join(outDir, "monthproof", "strict-pass");
@@ -424,20 +495,78 @@ async function main() {
     const dirMissingNonStrict = path.join(outDir, "monthproof", "nonstrict-pass-missing-verification-report");
     await ensureEmptyDir(dirMissingNonStrict);
     writeFilesToDir({ files: missingReport, outDir: dirMissingNonStrict });
+
+    const tamper = new Map(monthProof.files);
+    const eventsRaw = new TextDecoder().decode(tamper.get("events/events.jsonl"));
+    tamper.set("events/events.jsonl", bytes(`${eventsRaw}\n`));
+    const dirTamper = path.join(outDir, "monthproof", "strict-fail-manifest-tamper");
+    await ensureEmptyDir(dirTamper);
+    writeFilesToDir({ files: tamper, outDir: dirTamper });
+
+    const unauthorizedPolicy = buildGovernancePolicyV2Unsigned({
+      policyId: "governance_policy_fixture_deny_month_serverA",
+      generatedAt,
+      revocationList: { path: "governance/revocations.json", sha256: "0".repeat(64) },
+      verificationReportSigners: [
+        {
+          subjectType: "MonthProofBundle.v1",
+          allowedScopes: ["global", "tenant"],
+          allowedKeyIds: [keypairs.serverA.keyId],
+          requireGoverned: true,
+          requiredPurpose: "server"
+        }
+      ],
+      bundleHeadAttestationSigners: [
+        {
+          subjectType: "MonthProofBundle.v1",
+          allowedScopes: ["global", "tenant"],
+          allowedKeyIds: [keypairs.serverB.keyId],
+          requireGoverned: true,
+          requiredPurpose: "server"
+        }
+      ]
+    });
+    const monthUnauthorized = buildMonthProofBase({
+      tenantId,
+      period: "2026-01",
+      basis: "settledAt",
+      generatedAt,
+      serverKeys: { ...serverKeys, signerA: serverKeys.signerA, signerB: { keyId: keypairs.serverB.keyId, privateKeyPem: keypairs.serverB.privateKeyPem } },
+      govSigner,
+      timeSigner,
+      governancePolicy: unauthorizedPolicy,
+      includeTimestampProof: false,
+      toolVersion,
+      toolCommit
+    });
+    const dirUnauthorized = path.join(outDir, "monthproof", "strict-fail-unauthorized-signer");
+    await ensureEmptyDir(dirUnauthorized);
+    writeFilesToDir({ files: monthUnauthorized.files, outDir: dirUnauthorized });
   }
 
   // FinancePack fixtures (with embedded MonthProof)
   {
-    const finance = buildFinancePackBase({ tenantId, period: "2026-01", createdAt: generatedAt, serverKeys, govSigner, monthProof });
+    const finance = buildFinancePackBase({ tenantId, period: "2026-01", createdAt: generatedAt, serverKeys, govSigner, monthProof, toolCommit });
     const dir = path.join(outDir, "financepack", "strict-pass");
     await ensureEmptyDir(dir);
     writeFilesToDir({ files: finance, outDir: dir });
 
     const missingReport = new Map(finance);
     missingReport.delete("verify/verification_report.json");
+    const dirMissingStrict = path.join(outDir, "financepack", "strict-fail-missing-verification-report");
+    await ensureEmptyDir(dirMissingStrict);
+    writeFilesToDir({ files: missingReport, outDir: dirMissingStrict });
+
     const dirMissingNonStrict = path.join(outDir, "financepack", "nonstrict-pass-missing-verification-report");
     await ensureEmptyDir(dirMissingNonStrict);
     writeFilesToDir({ files: missingReport, outDir: dirMissingNonStrict });
+
+    const tamper = new Map(finance);
+    const reconcileRaw = new TextDecoder().decode(tamper.get("finance/reconcile.json"));
+    tamper.set("finance/reconcile.json", bytes(`${reconcileRaw}\n`));
+    const dirTamper = path.join(outDir, "financepack", "strict-fail-manifest-tamper");
+    await ensureEmptyDir(dirTamper);
+    writeFilesToDir({ files: tamper, outDir: dirTamper });
 
     const financeToolUnknown = new Map(finance);
     const report = JSON.parse(new TextDecoder().decode(financeToolUnknown.get("verify/verification_report.json")));
@@ -454,11 +583,292 @@ async function main() {
     const dirToolUnknown = path.join(outDir, "financepack", "pass-with-tool-version-unknown-warning");
     await ensureEmptyDir(dirToolUnknown);
     writeFilesToDir({ files: financeToolUnknown, outDir: dirToolUnknown });
+
+    const financeCommitUnknown = new Map(finance);
+    const commitUnknownReport = JSON.parse(new TextDecoder().decode(financeCommitUnknown.get("verify/verification_report.json")));
+    if (commitUnknownReport.tool && typeof commitUnknownReport.tool === "object") {
+      // Optional fields should be omitted when absent.
+      delete commitUnknownReport.tool.commit;
+    }
+    commitUnknownReport.warnings = Array.isArray(commitUnknownReport.warnings)
+      ? [...commitUnknownReport.warnings, { code: "TOOL_COMMIT_UNKNOWN" }]
+      : [{ code: "TOOL_COMMIT_UNKNOWN" }];
+    const commitUnknownCore = (() => {
+      const { reportHash: _h, signature: _sig, ...rest } = commitUnknownReport;
+      return rest;
+    })();
+    const commitUnknownHash = sha256Hex(canonicalJsonStringify(commitUnknownCore));
+    const commitUnknownSig = signHashHexEd25519(commitUnknownHash, serverKeys.serverA.privateKeyPem);
+    financeCommitUnknown.set(
+      "verify/verification_report.json",
+      bytes(`${canonicalJsonStringify({ ...commitUnknownCore, reportHash: commitUnknownHash, signature: commitUnknownSig })}\n`)
+    );
+    const dirCommitUnknown = path.join(outDir, "financepack", "pass-with-tool-commit-unknown-warning");
+    await ensureEmptyDir(dirCommitUnknown);
+    writeFilesToDir({ files: financeCommitUnknown, outDir: dirCommitUnknown });
+  }
+
+  // InvoiceBundle fixtures (with embedded JobProof)
+  {
+    if (!(jobProofStrictPass instanceof Map)) throw new Error("jobProofStrictPass not captured");
+    const invoiceId = "invoice_fixture_1";
+    const pricingMatrix = {
+      currency: "USD",
+      prices: [{ code: "WORK_MINUTES", unitPriceCents: "150" }]
+    };
+    const evidenceSha = sha256Hex(jobProofStrictPass.get("job/snapshot.json"));
+    const meteringReport = {
+      generatedAt,
+      items: [{ code: "WORK_MINUTES", quantity: "10" }],
+      evidenceRefs: [{ path: "job/snapshot.json", sha256: evidenceSha }]
+    };
+
+    const pass = buildInvoiceBundleBase({
+      tenantId,
+      invoiceId,
+      createdAt: generatedAt,
+      serverKeys,
+      govSigner,
+      jobProofFiles: jobProofStrictPass,
+      toolCommit,
+      pricingMatrix,
+      meteringReport
+    });
+    const dir = path.join(outDir, "invoicebundle", "strict-pass");
+    await ensureEmptyDir(dir);
+    writeFilesToDir({ files: pass.files, outDir: dir });
+
+    const missingReport = new Map(pass.files);
+    missingReport.delete("verify/verification_report.json");
+    const dirMissingStrict = path.join(outDir, "invoicebundle", "strict-fail-missing-verification-report");
+    await ensureEmptyDir(dirMissingStrict);
+    writeFilesToDir({ files: missingReport, outDir: dirMissingStrict });
+    const dirMissingNonStrict = path.join(outDir, "invoicebundle", "nonstrict-pass-missing-verification-report");
+    await ensureEmptyDir(dirMissingNonStrict);
+    writeFilesToDir({ files: missingReport, outDir: dirMissingNonStrict });
+
+    const wrongTotal = buildInvoiceBundleBase({
+      tenantId,
+      invoiceId: "invoice_fixture_wrong_total",
+      createdAt: generatedAt,
+      serverKeys,
+      govSigner,
+      jobProofFiles: jobProofStrictPass,
+      toolCommit,
+      pricingMatrix,
+      meteringReport,
+      invoiceClaim: {
+        schemaVersion: "InvoiceClaim.v1",
+        tenantId,
+        invoiceId: "invoice_fixture_wrong_total",
+        createdAt: generatedAt,
+        currency: "USD",
+        jobProof: pass.jobProof,
+        totalCents: "999999"
+      }
+    });
+    const dirWrongTotal = path.join(outDir, "invoicebundle", "strict-fail-invoice-total-mismatch");
+    await ensureEmptyDir(dirWrongTotal);
+    writeFilesToDir({ files: wrongTotal.files, outDir: dirWrongTotal });
+
+    const badEvidence = buildInvoiceBundleBase({
+      tenantId,
+      invoiceId: "invoice_fixture_bad_evidence",
+      createdAt: generatedAt,
+      serverKeys,
+      govSigner,
+      jobProofFiles: jobProofStrictPass,
+      toolCommit,
+      pricingMatrix,
+      meteringReport: { ...meteringReport, evidenceRefs: [{ path: "job/snapshot.json", sha256: "0".repeat(64) }] }
+    });
+    const dirBadEvidence = path.join(outDir, "invoicebundle", "strict-fail-evidence-sha-mismatch");
+    await ensureEmptyDir(dirBadEvidence);
+    writeFilesToDir({ files: badEvidence.files, outDir: dirBadEvidence });
+
+    const unknownPricing = buildInvoiceBundleBase({
+      tenantId,
+      invoiceId: "invoice_fixture_unknown_pricing",
+      createdAt: generatedAt,
+      serverKeys,
+      govSigner,
+      jobProofFiles: jobProofStrictPass,
+      toolCommit,
+      pricingMatrix,
+      meteringReport: { ...meteringReport, items: [{ code: "UNKNOWN_CODE", quantity: "1" }] },
+      invoiceClaim: {
+        schemaVersion: "InvoiceClaim.v1",
+        tenantId,
+        invoiceId: "invoice_fixture_unknown_pricing",
+        createdAt: generatedAt,
+        currency: "USD",
+        jobProof: pass.jobProof,
+        totalCents: "0"
+      }
+    });
+    const dirUnknownPricing = path.join(outDir, "invoicebundle", "strict-fail-pricing-code-unknown");
+    await ensureEmptyDir(dirUnknownPricing);
+    writeFilesToDir({ files: unknownPricing.files, outDir: dirUnknownPricing });
+
+    const unsigned = buildInvoiceBundleBase({
+      tenantId,
+      invoiceId: "invoice_fixture_unsigned_matrix",
+      createdAt: generatedAt,
+      serverKeys,
+      govSigner,
+      jobProofFiles: jobProofStrictPass,
+      toolCommit,
+      pricingMatrix,
+      meteringReport,
+      pricingMatrixSigners: []
+    });
+    const dirUnsignedStrict = path.join(outDir, "invoicebundle", "strict-fail-missing-pricing-matrix-signature");
+    await ensureEmptyDir(dirUnsignedStrict);
+    writeFilesToDir({ files: unsigned.files, outDir: dirUnsignedStrict });
+    const dirUnsignedNonStrict = path.join(outDir, "invoicebundle", "nonstrict-pass-unsigned-pricing-matrix-warning");
+    await ensureEmptyDir(dirUnsignedNonStrict);
+    writeFilesToDir({ files: unsigned.files, outDir: dirUnsignedNonStrict });
+
+    const invalidSig = buildInvoiceBundleBase({
+      tenantId,
+      invoiceId: "invoice_fixture_invalid_matrix_sig",
+      createdAt: generatedAt,
+      serverKeys,
+      govSigner,
+      jobProofFiles: jobProofStrictPass,
+      toolCommit,
+      pricingMatrix,
+      meteringReport,
+      pricingMatrixSigners: [
+        // Claim the buyer's keyId but sign with the wrong private key to force signature verification failure.
+        { keyId: keypairs.govRoot.keyId, privateKeyPem: keypairs.serverA.privateKeyPem }
+      ]
+    });
+    const dirInvalidSig = path.join(outDir, "invoicebundle", "strict-fail-invalid-pricing-matrix-signature");
+    await ensureEmptyDir(dirInvalidSig);
+    writeFilesToDir({ files: invalidSig.files, outDir: dirInvalidSig });
+
+    // PricingMatrix signature payload mismatch (integrity-valid): pricing matrix altered but signature surface binds to the old canonical hash.
+    const passPricingSig = JSON.parse(new TextDecoder().decode(pass.files.get("pricing/pricing_matrix_signatures.json")));
+    const pricingAltered = buildInvoiceBundleBase({
+      tenantId,
+      invoiceId: "invoice_fixture_pricing_altered",
+      createdAt: generatedAt,
+      serverKeys,
+      govSigner,
+      jobProofFiles: jobProofStrictPass,
+      toolCommit,
+      pricingMatrix: { currency: "USD", prices: [{ code: "WORK_MINUTES", unitPriceCents: "151" }] },
+      meteringReport,
+      pricingMatrixSigners: [],
+      pricingMatrixSignaturesOverride: passPricingSig
+    });
+    const dirPricingAltered = path.join(outDir, "invoicebundle", "strict-fail-pricing-altered");
+    await ensureEmptyDir(dirPricingAltered);
+    writeFilesToDir({ files: pricingAltered.files, outDir: dirPricingAltered });
+
+    // ClosePack fixtures (wrap InvoiceBundle)
+    {
+      const invoiceManifest = JSON.parse(new TextDecoder().decode(pass.files.get("manifest.json")));
+      const invoiceBundle = { manifestHash: String(invoiceManifest?.manifestHash ?? "") };
+      const closePack = buildClosePackBundleV1({
+        tenantId,
+        invoiceId,
+        protocol: "1.0",
+        createdAt: generatedAt,
+        governancePolicySigner: govSigner,
+        invoiceBundle,
+        invoiceBundleFiles: pass.files,
+        requireInvoiceAttestation: true,
+        requireHeadAttestation: true,
+        manifestSigner: serverKeys.signerA,
+        verificationReportSigner: serverKeys.signerA,
+        toolVersion,
+        toolCommit
+      });
+
+      const dirClosePass = path.join(outDir, "closepack", "strict-pass");
+      await ensureEmptyDir(dirClosePass);
+      writeFilesToDir({ files: closePack.files, outDir: dirClosePass });
+
+      const evidenceJson = JSON.parse(new TextDecoder().decode(closePack.files.get("evidence/evidence_index.json")));
+      const badEvidence = evidenceJson && typeof evidenceJson === "object" ? { ...evidenceJson } : { schemaVersion: "EvidenceIndex.v1", generatedAt, jobProof: {}, items: [] };
+      badEvidence.items = Array.isArray(badEvidence.items) ? badEvidence.items.map((x) => x) : [];
+      if (badEvidence.items.length) {
+        const first = badEvidence.items[0];
+        if (first && typeof first === "object") badEvidence.items[0] = { ...first, key: `${String(first.key ?? "")}_tampered` };
+        else badEvidence.items[0] = { key: "tampered", source: "metering_evidence_ref" };
+      } else {
+        badEvidence.items = [{ key: "tampered", source: "metering_evidence_ref" }];
+      }
+      const closePackEvidenceMismatch = buildClosePackBundleV1({
+        tenantId,
+        invoiceId,
+        protocol: "1.0",
+        createdAt: generatedAt,
+        governancePolicySigner: govSigner,
+        invoiceBundle,
+        invoiceBundleFiles: pass.files,
+        requireInvoiceAttestation: true,
+        requireHeadAttestation: true,
+        manifestSigner: serverKeys.signerA,
+        verificationReportSigner: serverKeys.signerA,
+        toolVersion,
+        toolCommit,
+        evidenceIndexOverride: badEvidence
+      });
+      const dirEvidenceMismatch = path.join(outDir, "closepack", "strict-fail-evidence-index-mismatch");
+      await ensureEmptyDir(dirEvidenceMismatch);
+      writeFilesToDir({ files: closePackEvidenceMismatch.files, outDir: dirEvidenceMismatch });
+
+      const invoiceFailManifest = JSON.parse(new TextDecoder().decode(wrongTotal.files.get("manifest.json")));
+      const invoiceFailBundle = { manifestHash: String(invoiceFailManifest?.manifestHash ?? "") };
+      const closeWithBadInvoice = buildClosePackBundleV1({
+        tenantId,
+        invoiceId: "invoice_fixture_wrong_total",
+        protocol: "1.0",
+        createdAt: generatedAt,
+        governancePolicySigner: govSigner,
+        invoiceBundle: invoiceFailBundle,
+        invoiceBundleFiles: wrongTotal.files,
+        requireInvoiceAttestation: true,
+        requireHeadAttestation: true,
+        manifestSigner: serverKeys.signerA,
+        verificationReportSigner: serverKeys.signerA,
+        toolVersion,
+        toolCommit
+      });
+      const dirBadInvoice = path.join(outDir, "closepack", "strict-fail-embedded-invoice-fails");
+      await ensureEmptyDir(dirBadInvoice);
+      writeFilesToDir({ files: closeWithBadInvoice.files, outDir: dirBadInvoice });
+
+      const closePackNoSlaAcceptance = buildClosePackBundleV1({
+        tenantId,
+        invoiceId,
+        protocol: "1.0",
+        createdAt: generatedAt,
+        governancePolicySigner: govSigner,
+        invoiceBundle,
+        invoiceBundleFiles: pass.files,
+        requireInvoiceAttestation: true,
+        requireHeadAttestation: true,
+        manifestSigner: serverKeys.signerA,
+        verificationReportSigner: serverKeys.signerA,
+        toolVersion,
+        toolCommit,
+        includeSlaSurfaces: false,
+        includeAcceptanceSurfaces: false
+      });
+      const dirMissingSlaAcceptance = path.join(outDir, "closepack", "nonstrict-pass-missing-sla-acceptance");
+      await ensureEmptyDir(dirMissingSlaAcceptance);
+      writeFilesToDir({ files: closePackNoSlaAcceptance.files, outDir: dirMissingSlaAcceptance });
+    }
   }
 
   // Trust anchors used by strict-mode fixture tests (out-of-band).
   const trust = {
     governanceRoots: { [keypairs.govRoot.keyId]: keypairs.govRoot.publicKeyPem },
+    pricingSigners: { [keypairs.govRoot.keyId]: keypairs.govRoot.publicKeyPem },
     timeAuthorities: { [keypairs.timeAuthority.keyId]: keypairs.timeAuthority.publicKeyPem }
   };
   await fs.writeFile(path.join(outDir, "trust.json"), `${JSON.stringify(trust, null, 2)}\n`, "utf8");

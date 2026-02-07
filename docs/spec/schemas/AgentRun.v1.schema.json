@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/AgentRun.v1.schema.json",
+  "title": "AgentRun.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "agentId", "tenantId", "status", "createdAt", "updatedAt"],
+  "properties": {
+    "schemaVersion": { "const": "AgentRun.v1" },
+    "runId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "taskType": {
+      "type": ["string", "null"],
+      "maxLength": 200
+    },
+    "inputRef": {
+      "type": ["string", "null"],
+      "maxLength": 500
+    },
+    "status": {
+      "type": "string",
+      "enum": ["created", "running", "completed", "failed"]
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 500
+      },
+      "uniqueItems": true,
+      "maxItems": 10000
+    },
+    "metrics": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "failure": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string", "maxLength": 200 },
+        "message": { "type": "string", "maxLength": 4000 }
+      }
+    },
+    "startedAt": { "type": ["string", "null"], "format": "date-time" },
+    "completedAt": { "type": ["string", "null"], "format": "date-time" },
+    "failedAt": { "type": ["string", "null"], "format": "date-time" },
+    "lastEventId": { "type": ["string", "null"], "maxLength": 200 },
+    "lastChainHash": { "type": ["string", "null"], "maxLength": 500 },
+    "revision": { "type": "integer", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

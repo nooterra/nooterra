@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/SlaDefinition.v1.schema.json",
+  "title": "SlaDefinition.v1",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "rules"],
+  "properties": {
+    "schemaVersion": { "const": "SlaDefinition.v1" },
+    "generatedAt": { "type": "string" },
+    "rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ruleId", "kind"],
+        "properties": {
+          "ruleId": { "type": "string" },
+          "kind": {
+            "enum": [
+              "MUST_START_WITHIN_WINDOW",
+              "MAX_EXECUTION_MS",
+              "MAX_STALL_MS",
+              "PROOF_ZONE_COVERAGE_MIN_PCT"
+            ]
+          },
+          "maxExecutionMs": { "type": "integer", "minimum": 0 },
+          "maxStallMs": { "type": "integer", "minimum": 0 },
+          "thresholdPct": { "type": "integer", "minimum": 0, "maximum": 100 }
+        }
+      }
+    }
+  }
+}
+

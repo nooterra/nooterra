@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/ReleaseTrust.v2.schema.json",
+  "title": "ReleaseTrust.v2",
+  "type": "object",
+  "required": ["schemaVersion", "policy", "keys"],
+  "properties": {
+    "schemaVersion": { "const": "ReleaseTrust.v2" },
+    "policy": {
+      "type": "object",
+      "required": ["minSignatures"],
+      "properties": {
+        "minSignatures": { "type": "integer", "minimum": 1 },
+        "requiredKeyIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "keys": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["keyId", "publicKeyPem"],
+        "properties": {
+          "keyId": { "type": "string" },
+          "publicKeyPem": { "type": "string" },
+          "notBeforeEpochSeconds": { "type": "integer", "minimum": 0 },
+          "notAfterEpochSeconds": { "type": "integer", "minimum": 0 },
+          "revokedAtEpochSeconds": { "type": "integer", "minimum": 0 },
+          "comment": { "type": "string" }
+        }
+      }
+    }
+  }
+}
+

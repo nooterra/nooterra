@@ -1,0 +1,381 @@
+{
+  "schemaVersion": "ConformanceCases.v1",
+  "trustFile": "trust.json",
+  "cases": [
+    {
+      "id": "jobproof_strict_pass",
+      "description": "JobProof strict pass",
+      "kind": "job-proof",
+      "bundlePath": "bundles/jobproof/strict-pass",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-003", "INV-004", "INV-007", "INV-009", "INV-010", "INV-011", "INV-014"],
+      "expectedFile": "expected/jobproof_strict_pass.json"
+    },
+    {
+      "id": "jobproof_strict_fail_manifest_tamper",
+      "description": "JobProof strict fail: manifest file hash mismatch",
+      "kind": "job-proof",
+      "bundlePath": "bundles/jobproof/strict-fail-manifest-tamper",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-004"],
+      "expectedFile": "expected/jobproof_strict_fail_manifest_tamper.json"
+    },
+    {
+      "id": "jobproof_strict_fail_unauthorized_signer",
+      "description": "JobProof strict fail: signer not allowed by policy",
+      "kind": "job-proof",
+      "bundlePath": "bundles/jobproof/strict-fail-unauthorized-signer",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-014"],
+      "expectedFile": "expected/jobproof_strict_fail_unauthorized_signer.json"
+    },
+    {
+      "id": "jobproof_nonstrict_pass_missing_verification_report",
+      "description": "JobProof non-strict pass with warning: missing verification report",
+      "kind": "job-proof",
+      "bundlePath": "bundles/jobproof/nonstrict-pass-missing-verification-report",
+      "strict": false,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-008"],
+      "expectedFile": "expected/jobproof_nonstrict_pass_missing_verification_report.json"
+    },
+    {
+      "id": "monthproof_strict_pass",
+      "description": "MonthProof strict pass",
+      "kind": "month-proof",
+      "bundlePath": "bundles/monthproof/strict-pass",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-003", "INV-004", "INV-007", "INV-009", "INV-010", "INV-011", "INV-014"],
+      "expectedFile": "expected/monthproof_strict_pass.json"
+    },
+    {
+      "id": "monthproof_strict_fail_manifest_tamper",
+      "description": "MonthProof strict fail: manifest file hash mismatch",
+      "kind": "month-proof",
+      "bundlePath": "bundles/monthproof/strict-fail-manifest-tamper",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-004"],
+      "expectedFile": "expected/monthproof_strict_fail_manifest_tamper.json"
+    },
+    {
+      "id": "monthproof_strict_fail_unauthorized_signer",
+      "description": "MonthProof strict fail: signer not allowed by policy",
+      "kind": "month-proof",
+      "bundlePath": "bundles/monthproof/strict-fail-unauthorized-signer",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-014"],
+      "expectedFile": "expected/monthproof_strict_fail_unauthorized_signer.json"
+    },
+    {
+      "id": "monthproof_nonstrict_pass_missing_verification_report",
+      "description": "MonthProof non-strict pass with warning: missing verification report",
+      "kind": "month-proof",
+      "bundlePath": "bundles/monthproof/nonstrict-pass-missing-verification-report",
+      "strict": false,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-008"],
+      "expectedFile": "expected/monthproof_nonstrict_pass_missing_verification_report.json"
+    },
+    {
+      "id": "financepack_strict_pass",
+      "description": "FinancePack strict pass",
+      "kind": "finance-pack",
+      "bundlePath": "bundles/financepack/strict-pass",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-003", "INV-004", "INV-007", "INV-009", "INV-010", "INV-011", "INV-014"],
+      "expectedFile": "expected/financepack_strict_pass.json"
+    },
+    {
+      "id": "financepack_strict_fail_missing_verification_report",
+      "description": "FinancePack strict fail: missing verification report",
+      "kind": "finance-pack",
+      "bundlePath": "bundles/financepack/strict-fail-missing-verification-report",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-007"],
+      "expectedFile": "expected/financepack_strict_fail_missing_verification_report.json"
+    },
+    {
+      "id": "financepack_strict_fail_trust_roots_missing",
+      "description": "FinancePack strict fail: missing trusted governance root keys",
+      "kind": "finance-pack",
+      "bundlePath": "bundles/financepack/strict-pass",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "envOverrides": {
+        "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": ""
+      },
+      "invariantIds": ["INV-009"],
+      "expectedFile": "expected/financepack_strict_fail_trust_roots_missing.json"
+    },
+    {
+      "id": "financepack_strict_fail_trust_roots_wrong",
+      "description": "FinancePack strict fail: wrong trusted governance root keys",
+      "kind": "finance-pack",
+      "bundlePath": "bundles/financepack/strict-pass",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "envOverrides": {
+        "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": "{\"key_fake\":\"x\"}"
+      },
+      "invariantIds": ["INV-009"],
+      "expectedFile": "expected/financepack_strict_fail_trust_roots_wrong.json"
+    },
+    {
+      "id": "financepack_strict_fail_on_warnings_tool_version_unknown",
+      "description": "Fail only due to --fail-on-warnings",
+      "kind": "finance-pack",
+      "bundlePath": "bundles/financepack/pass-with-tool-version-unknown-warning",
+      "strict": true,
+      "failOnWarnings": true,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-012", "INV-015"],
+      "expectedFile": "expected/financepack_strict_fail_on_warnings_tool_version_unknown.json"
+    },
+    {
+      "id": "invoicebundle_strict_pass",
+      "description": "InvoiceBundle strict pass",
+      "kind": "invoice-bundle",
+      "bundlePath": "bundles/invoicebundle/strict-pass",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-003", "INV-004", "INV-007", "INV-009", "INV-010", "INV-011", "INV-014", "INV-017"],
+      "expectedFile": "expected/invoicebundle_strict_pass.json"
+    },
+    {
+      "id": "invoicebundle_strict_fail_missing_pricing_matrix_signature",
+      "description": "InvoiceBundle strict fail: missing pricing matrix signatures",
+      "kind": "invoice-bundle",
+      "bundlePath": "bundles/invoicebundle/strict-fail-missing-pricing-matrix-signature",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-017"],
+      "expectedFile": "expected/invoicebundle_strict_fail_missing_pricing_matrix_signature.json"
+    },
+    {
+      "id": "invoicebundle_nonstrict_pass_unsigned_pricing_matrix_warning",
+      "description": "InvoiceBundle non-strict pass with warning: unsigned pricing matrix",
+      "kind": "invoice-bundle",
+      "bundlePath": "bundles/invoicebundle/nonstrict-pass-unsigned-pricing-matrix-warning",
+      "strict": false,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-017"],
+      "expectedFile": "expected/invoicebundle_nonstrict_pass_unsigned_pricing_matrix_warning.json"
+    },
+    {
+      "id": "invoicebundle_strict_fail_invalid_pricing_matrix_signature",
+      "description": "InvoiceBundle strict fail: invalid pricing matrix signatures",
+      "kind": "invoice-bundle",
+      "bundlePath": "bundles/invoicebundle/strict-fail-invalid-pricing-matrix-signature",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-017"],
+      "expectedFile": "expected/invoicebundle_strict_fail_invalid_pricing_matrix_signature.json"
+    },
+    {
+      "id": "invoicebundle_strict_fail_missing_verification_report",
+      "description": "InvoiceBundle strict fail: missing verification report",
+      "kind": "invoice-bundle",
+      "bundlePath": "bundles/invoicebundle/strict-fail-missing-verification-report",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-007"],
+      "expectedFile": "expected/invoicebundle_strict_fail_missing_verification_report.json"
+    },
+    {
+      "id": "invoicebundle_nonstrict_pass_missing_verification_report",
+      "description": "InvoiceBundle non-strict pass with warning: missing verification report",
+      "kind": "invoice-bundle",
+      "bundlePath": "bundles/invoicebundle/nonstrict-pass-missing-verification-report",
+      "strict": false,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-008"],
+      "expectedFile": "expected/invoicebundle_nonstrict_pass_missing_verification_report.json"
+    },
+    {
+      "id": "invoicebundle_strict_fail_invoice_total_mismatch",
+      "description": "InvoiceBundle strict fail: invoice total mismatch",
+      "kind": "invoice-bundle",
+      "bundlePath": "bundles/invoicebundle/strict-fail-invoice-total-mismatch",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-004"],
+      "expectedFile": "expected/invoicebundle_strict_fail_invoice_total_mismatch.json"
+    },
+    {
+      "id": "invoicebundle_strict_fail_evidence_sha_mismatch",
+      "description": "InvoiceBundle strict fail: metering evidence sha mismatch",
+      "kind": "invoice-bundle",
+      "bundlePath": "bundles/invoicebundle/strict-fail-evidence-sha-mismatch",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-004"],
+      "expectedFile": "expected/invoicebundle_strict_fail_evidence_sha_mismatch.json"
+    },
+    {
+      "id": "invoicebundle_strict_fail_pricing_code_unknown",
+      "description": "InvoiceBundle strict fail: pricing code unknown",
+      "kind": "invoice-bundle",
+      "bundlePath": "bundles/invoicebundle/strict-fail-pricing-code-unknown",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-004"],
+      "expectedFile": "expected/invoicebundle_strict_fail_pricing_code_unknown.json"
+    },
+    {
+      "id": "closepack_strict_pass",
+      "description": "ClosePack strict pass",
+      "kind": "close-pack",
+      "bundlePath": "bundles/closepack/strict-pass",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-003", "INV-004", "INV-007", "INV-009", "INV-010", "INV-011", "INV-014", "INV-017"],
+      "expectedFile": "expected/closepack_strict_pass.json"
+    },
+    {
+      "id": "closepack_strict_fail_evidence_index_mismatch",
+      "description": "ClosePack strict fail: evidence index mismatch",
+      "kind": "close-pack",
+      "bundlePath": "bundles/closepack/strict-fail-evidence-index-mismatch",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-004"],
+      "expectedFile": "expected/closepack_strict_fail_evidence_index_mismatch.json"
+    },
+    {
+      "id": "closepack_strict_fail_embedded_invoice_fails",
+      "description": "ClosePack strict fail: embedded invoice bundle fails verification",
+      "kind": "close-pack",
+      "bundlePath": "bundles/closepack/strict-fail-embedded-invoice-fails",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-004"],
+      "expectedFile": "expected/closepack_strict_fail_embedded_invoice_fails.json"
+    },
+    {
+      "id": "closepack_nonstrict_pass_missing_sla_acceptance",
+      "description": "ClosePack non-strict pass with warnings: missing SLA + acceptance surfaces",
+      "kind": "close-pack",
+      "bundlePath": "bundles/closepack/nonstrict-pass-missing-sla-acceptance",
+      "strict": false,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "invariantIds": ["INV-008"],
+      "expectedFile": "expected/closepack_nonstrict_pass_missing_sla_acceptance.json"
+    },
+    {
+      "id": "security_manifest_path_traversal",
+      "description": "Security invariant: manifest must not include ../ traversal paths",
+      "kind": "job-proof",
+      "bundlePath": "bundles/jobproof/nonstrict-pass-missing-verification-report",
+      "strict": false,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "mutations": [
+        {
+          "type": "manifest_add_entry",
+          "entry": {
+            "name": "../outside.txt",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "bytes": 1
+          }
+        }
+      ],
+      "invariantIds": ["INV-010"],
+      "expectedFile": "expected/security_manifest_path_traversal.json"
+    },
+    {
+      "id": "security_manifest_duplicate_paths",
+      "description": "Security invariant: manifest must not include duplicate file entries",
+      "kind": "job-proof",
+      "bundlePath": "bundles/jobproof/nonstrict-pass-missing-verification-report",
+      "strict": false,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "mutations": [
+        {
+          "type": "manifest_duplicate_entry",
+          "name": "job/snapshot.json"
+        }
+      ],
+      "invariantIds": ["INV-010"],
+      "expectedFile": "expected/security_manifest_duplicate_paths.json"
+    },
+    {
+      "id": "security_manifest_case_collision",
+      "description": "Security invariant: manifest must not include paths that collide under case-insensitive normalization",
+      "kind": "job-proof",
+      "bundlePath": "bundles/jobproof/nonstrict-pass-missing-verification-report",
+      "strict": false,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "mutations": [
+        {
+          "type": "manifest_add_entry",
+          "entry": {
+            "name": "job/SNAPSHOT.json",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "bytes": 1
+          }
+        }
+      ],
+      "invariantIds": ["INV-018"],
+      "expectedFile": "expected/security_manifest_case_collision.json"
+    },
+    {
+      "id": "security_bundle_symlink_outside",
+      "description": "Security invariant: symlinks are forbidden (especially to outside bundle)",
+      "kind": "job-proof",
+      "bundlePath": "bundles/jobproof/strict-pass",
+      "strict": true,
+      "failOnWarnings": false,
+      "hashConcurrency": 8,
+      "allowSkip": true,
+      "mutations": [
+        {
+          "type": "write_outside_file",
+          "relativeOutsidePath": "outside.txt",
+          "contents": "outside\\n"
+        },
+        {
+          "type": "replace_with_symlink",
+          "name": "job/snapshot.json",
+          "targetRelative": "../outside.txt"
+        }
+      ],
+      "invariantIds": ["INV-011"],
+      "expectedFile": "expected/security_bundle_symlink_outside.json"
+    }
+  ]
+}

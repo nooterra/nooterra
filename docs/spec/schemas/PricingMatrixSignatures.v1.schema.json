@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/PricingMatrixSignatures.v1.schema.json",
+  "title": "PricingMatrixSignatures.v1",
+  "type": "object",
+  "required": ["schemaVersion", "pricingMatrixHash", "signatures"],
+  "properties": {
+    "schemaVersion": { "const": "PricingMatrixSignatures.v1" },
+    "pricingMatrixHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "signatures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["signerKeyId", "signedAt", "signature"],
+        "properties": {
+          "signerKeyId": { "type": "string" },
+          "signedAt": { "type": "string" },
+          "signature": { "type": "string" }
+        }
+      }
+    }
+  }
+}
+

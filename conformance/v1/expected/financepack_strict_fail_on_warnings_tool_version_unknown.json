@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "ConformanceExpected.v1",
+  "exitCode": 1,
+  "ok": false,
+  "verificationOk": true,
+  "errorCodes": ["FAIL_ON_WARNINGS"],
+  "warningCodes": ["TOOL_VERSION_UNKNOWN"]
+}
+

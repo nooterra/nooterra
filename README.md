@@ -1,6 +1,6 @@
 # Settld
 
-Settld is the closure layer for delegated physical work.
+Settld is the closure layer for delegated autonomous work.
 
 The core mental model in this repo:
 
@@ -10,6 +10,19 @@ The core mental model in this repo:
 - **Money is a ledger**: every settlement is double-entry and must always balance.
 
 This repository is a runnable Node.js prototype (API + agent simulator) and a set of product/architecture docs.
+
+## Bundle verification (CI / audit evidence)
+
+- Overview: `docs/OVERVIEW.md`
+- Quickstart: `docs/QUICKSTART_VERIFY.md`
+- Producer bootstrap: `docs/QUICKSTART_PRODUCE.md` (trust → produce → strict verify)
+- SDK quickstart (first verified run): `docs/QUICKSTART_SDK.md`
+- SDK quickstart (Python): `docs/QUICKSTART_SDK_PYTHON.md`
+- Integrations (GitHub Actions templates): `docs/integrations/README.md`
+- Protocol contract (schemas/specs): `docs/spec/README.md`
+- Conformance pack (portable oracle): `conformance/v1/README.md`
+- Audit packet generator: `npm run audit:packet` (see `docs/RELEASE_CHECKLIST.md`)
+- Support / filing bugs: `docs/SUPPORT.md`
 
 ## Quick start
 
@@ -65,7 +78,7 @@ curl -sS -X POST http://localhost:3000/jobs \
   -d '{"templateId":"reset_lite","constraints":{"roomsAllowed":["kitchen","living_room"],"privacyMode":"minimal"}}' | jq
 ```
 
-Run the agent simulator (creates a robot and executes a sample job lifecycle):
+Run the agent simulator (registers an executor and runs a sample job lifecycle):
 
 ```sh
 npm run agent:sim
@@ -94,3 +107,13 @@ npm test
 - `docs/INCIDENT_TAXONOMY.md`
 - `docs/ONCALL_PLAYBOOK.md`
 - `docs/MVP_BUILD_ORDER.md`
+- `docs/QUICKSTART_VERIFY.md`
+- `docs/QUICKSTART_PRODUCE.md`
+- `docs/QUICKSTART_SDK.md`
+- `docs/QUICKSTART_SDK_PYTHON.md`
+- `docs/ADOPTION_CHECKLIST.md`
+- `docs/SUPPORT.md`
+- `docs/OPERATIONS_SIGNING.md`
+- `docs/ops/ARTIFACT_VERIFICATION_STATUS.md`
+- `docs/ops/TRUST_CONFIG_WIZARD.md`
+- `docs/integrations/README.md`

@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "ShiftLogSummary.v1",
+  "generatedAt": "2026-02-05T00:00:00.000Z",
+  "shifts": [
+    { "startedAt": "2026-02-04T10:00:00.000Z", "endedAt": "2026-02-04T10:30:00.000Z" },
+    { "startedAt": "2026-02-04T11:00:00.000Z" }
+  ],
+  "evidencePaths": ["job/snapshot.json"]
+}
+

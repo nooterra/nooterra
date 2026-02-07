@@ -6,6 +6,17 @@ on:
   pull_request:
 
 jobs:
+  changelog_guard:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Enforce CHANGELOG discipline for protocol/release-note PRs
+        run: node scripts/ci/changelog-guard.mjs --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.sha }}"
+
   unit_tests:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -32,3 +43,108 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres
 
+  openapi_drift:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Regenerate OpenAPI and assert no drift
+        run: |
+          set -euo pipefail
+          npm run openapi:write
+          git diff --exit-code -- openapi/settld.openapi.json
+
+  npm_pack_smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: npm pack + install smoke (settld-verify + settld-produce)
+        run: node scripts/ci/npm-pack-smoke.mjs
+
+  cli_cross_platform:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - name: Run CLI/conformance tests (no Postgres required)
+        run: >
+          node --test
+          test/verify-cli-about.test.js
+          test/verify-cli-json.test.js
+          test/verify-cli-determinism.test.js
+          test/verify-cli-sarif.test.js
+          test/conformance-pack-v1.test.js
+          test/verify-fixture-bundles.test.js
+
+  python_verifier_conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install python deps (cryptography)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install cryptography
+      - name: Run conformance pack v1 against python verifier
+        run: node conformance/v1/run.mjs --bin reference/verifier-py/settld-verify-py
+
+  github_action_settld_verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        bundle:
+          - { kind: jobproof, path: test/fixtures/bundles/v1/jobproof/strict-pass }
+          - { kind: monthproof, path: test/fixtures/bundles/v1/monthproof/strict-pass }
+          - { kind: financepack, path: test/fixtures/bundles/v1/financepack/strict-pass }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify fixture bundle via composite action
+        id: verify
+        uses: ./.github/actions/settld-verify
+        with:
+          bundle_path: ${{ matrix.bundle.path }}
+          strict: "true"
+          fail_on_warnings: "false"
+          hash_concurrency: "4"
+          trust_file: test/fixtures/bundles/v1/trust.json
+          output_json_path: settld-verify-${{ matrix.bundle.kind }}.json
+      - name: Assert VerifyCliOutput.v1 shape
+        run: |
+          node -e '
+            import fs from "node:fs";
+            const p = process.env.OUT;
+            const j = JSON.parse(fs.readFileSync(p, "utf8"));
+            if (j?.schemaVersion !== "VerifyCliOutput.v1") throw new Error(`bad schemaVersion: ${j?.schemaVersion}`);
+            if (j?.ok !== true) throw new Error(`verification failed: ${JSON.stringify(j)}`);
+          '
+        env:
+          OUT: ${{ steps.verify.outputs.output_json_path }}

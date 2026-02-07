@@ -11,6 +11,7 @@ import {
 } from "./governance-policy.js";
 import { REVOCATION_LIST_SCHEMA_V1, buildRevocationListV1Core, signRevocationListV1, validateRevocationListV1 } from "./revocation-list.js";
 import { buildTimestampProofV1 } from "./timestamp-proof.js";
+import { normalizeCommitSha, readToolCommitBestEffort, readToolVersionBestEffort } from "./tool-provenance.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -94,29 +95,19 @@ function findSignerGovernanceEventRef({ monthProofFiles, keyId }) {
   return null;
 }
 
-function readRepoVersionBestEffort() {
-  try {
-    // Keep this best-effort to avoid failures in non-repo environments.
-    const p = path.resolve(process.cwd(), "SETTLD_VERSION");
-    const raw = fs.readFileSync(p, "utf8");
-    const v = String(raw).trim();
-    return v || null;
-  } catch {
-    return null;
-  }
-}
+// NOTE: tool provenance derivation lives in src/core/tool-provenance.js
 
-function warningsWithToolVersion({ warnings, toolVersion }) {
-  const resolved = typeof toolVersion === "string" && toolVersion.trim() ? toolVersion.trim() : null;
+function warningsWithToolIdentity({ warnings, toolVersion, toolCommit }) {
+  const resolvedVersion = typeof toolVersion === "string" && toolVersion.trim() ? toolVersion.trim() : null;
+  const resolvedCommit = normalizeCommitSha(toolCommit) ?? readToolCommitBestEffort();
   const out = [];
   if (warnings !== null && warnings !== undefined) {
     if (!Array.isArray(warnings)) throw new TypeError("verificationReportWarnings must be an array");
     out.push(...warnings);
   }
-  if (!resolved) {
-    out.push({ code: VERIFICATION_WARNING_CODE.TOOL_VERSION_UNKNOWN });
-  }
-  return { resolved, warnings: out };
+  if (!resolvedVersion) out.push({ code: VERIFICATION_WARNING_CODE.TOOL_VERSION_UNKNOWN });
+  if (!resolvedCommit) out.push({ code: VERIFICATION_WARNING_CODE.TOOL_COMMIT_UNKNOWN });
+  return { version: resolvedVersion, commit: resolvedCommit ?? undefined, warnings: out };
 }
 
 function tryExtractClosePolicyFromMonthProof({ monthProofFiles, period }) {
@@ -157,13 +148,14 @@ function buildVerificationReportV1({
   timestampAuthoritySigner = null,
   monthProofFiles,
   warnings,
-  toolVersion
+  toolVersion,
+  toolCommit
 }) {
   const signerKeyId = signer?.keyId && typeof signer.keyId === "string" && signer.keyId.trim() ? signer.keyId : null;
   const signerScope = signerKeyId ? (signer?.scope ?? "global") : null;
   const signerGovernanceEventRef = signerKeyId ? findSignerGovernanceEventRef({ monthProofFiles, keyId: signerKeyId }) : null;
   const closePolicyTrace = tryExtractClosePolicyFromMonthProof({ monthProofFiles, period });
-  const tool = warningsWithToolVersion({ warnings, toolVersion: toolVersion ?? readRepoVersionBestEffort() });
+  const tool = warningsWithToolIdentity({ warnings, toolVersion: toolVersion ?? readToolVersionBestEffort(), toolCommit });
   const signedAt = createdAt;
 
   const coreNoProof = stripUndefinedDeep({
@@ -171,7 +163,8 @@ function buildVerificationReportV1({
     profile: "strict",
     tool: {
       name: "settld",
-      version: tool.resolved
+      version: tool.version,
+      commit: tool.commit
     },
     warnings: normalizeVerificationWarnings(tool.warnings),
     signer: signerKeyId
@@ -337,6 +330,7 @@ export function buildFinancePackBundleV1({
   timestampAuthoritySigner = null,
   verificationReportWarnings = null,
   toolVersion = null,
+  toolCommit = null,
   glBatchArtifact,
   journalCsvArtifact,
   reconcileReport,
@@ -356,6 +350,11 @@ export function buildFinancePackBundleV1({
   if (manifestSigner !== null && typeof manifestSigner !== "object") throw new TypeError("manifestSigner must be null or an object");
   if (verificationReportSigner !== null && typeof verificationReportSigner !== "object") throw new TypeError("verificationReportSigner must be null or an object");
   if (timestampAuthoritySigner !== null && typeof timestampAuthoritySigner !== "object") throw new TypeError("timestampAuthoritySigner must be null or an object");
+  if (verificationReportWarnings !== null && verificationReportWarnings !== undefined && !Array.isArray(verificationReportWarnings)) {
+    throw new TypeError("verificationReportWarnings must be null or an array");
+  }
+  if (toolVersion !== null && typeof toolVersion !== "string") throw new TypeError("toolVersion must be null or a string");
+  if (toolCommit !== null && typeof toolCommit !== "string") throw new TypeError("toolCommit must be null or a string");
   if (!glBatchArtifact || typeof glBatchArtifact !== "object") throw new TypeError("glBatchArtifact is required");
   if (!journalCsvArtifact || typeof journalCsvArtifact !== "object") throw new TypeError("journalCsvArtifact is required");
   if (!reconcileReport || typeof reconcileReport !== "object") throw new TypeError("reconcileReport is required");
@@ -537,7 +536,8 @@ export function buildFinancePackBundleV1({
 	    timestampAuthoritySigner,
 	    monthProofFiles,
 	    warnings: verificationReportWarnings,
-	    toolVersion
+	    toolVersion,
+	    toolCommit
 	  });
   files.set("verify/verification_report.json", encoder.encode(`${canonicalJsonStringify(verificationReportFinal)}\n`));
 

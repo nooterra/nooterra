@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "ReleaseIndex.v1",
+  "release": { "tag": "v1.0.0", "version": "1.0.0" },
+  "toolchain": {
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "buildEpochSeconds": 0,
+    "canonicalJson": "RFC8785",
+    "includedSchemas": ["VerifyCliOutput.v1", "ProduceCliOutput.v1", "ReleaseIndex.v1"]
+  },
+  "artifacts": [
+    { "path": "settld-artifact-verify-1.0.0.tgz", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "sizeBytes": 0, "kind": "npm-tgz" },
+    { "path": "conformance-v1.tar.gz", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "sizeBytes": 0, "kind": "conformance" }
+  ]
+}
+

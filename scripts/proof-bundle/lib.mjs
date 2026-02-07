@@ -11,7 +11,9 @@ export function writeFilesToDir({ files, outDir }) {
   if (!outDir) throw new TypeError("outDir is required");
   ensureDir(outDir);
 
-  for (const [name, bytes] of files.entries()) {
+  // Deterministic: do not depend on Map insertion order.
+  const entries = Array.from(files.entries()).sort(([a], [b]) => a.localeCompare(b));
+  for (const [name, bytes] of entries) {
     const full = path.join(outDir, name);
     ensureDir(path.dirname(full));
     fs.writeFileSync(full, Buffer.from(bytes));

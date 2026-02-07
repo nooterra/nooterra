@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/TenantSettings.v1.schema.json",
+  "title": "TenantSettings.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "defaultMode", "retentionDays", "webhooks"],
+  "properties": {
+    "schemaVersion": { "const": "TenantSettings.v1" },
+    "defaultMode": { "enum": ["auto", "strict", "compat"] },
+    "governanceTrustRootsJson": {
+      "type": ["object", "null"],
+      "additionalProperties": { "type": "string" }
+    },
+    "pricingSignerKeysJson": {
+      "type": ["object", "null"],
+      "additionalProperties": { "type": "string" }
+    },
+    "trustedPricingSignerKeyIds": { "type": ["array", "null"], "items": { "type": "string" } },
+    "retentionDays": { "type": "integer", "minimum": 1, "maximum": 3650 },
+    "maxUploadBytesOverride": { "type": ["integer", "null"], "minimum": 1 },
+    "maxVerificationsPerMonth": { "type": ["integer", "null"], "minimum": 0 },
+    "maxStoredBundles": { "type": ["integer", "null"], "minimum": 0 },
+    "vendorPolicies": {
+      "type": ["object", "null"],
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "requiredMode": { "enum": ["auto", "strict", "compat"] },
+          "failOnWarnings": { "type": "boolean" },
+          "allowAmberApprovals": { "type": "boolean" },
+          "requiredPricingMatrixSignerKeyIds": { "type": ["array", "null"], "items": { "type": "string" } },
+          "requireProducerReceiptPresent": { "type": "boolean" },
+          "retentionDays": { "type": ["integer", "null"], "minimum": 1, "maximum": 3650 }
+        }
+      }
+    },
+    "contractPolicies": {
+      "type": ["object", "null"],
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "requiredMode": { "enum": ["auto", "strict", "compat"] },
+          "failOnWarnings": { "type": "boolean" },
+          "allowAmberApprovals": { "type": "boolean" },
+          "requiredPricingMatrixSignerKeyIds": { "type": ["array", "null"], "items": { "type": "string" } },
+          "requireProducerReceiptPresent": { "type": "boolean" },
+          "retentionDays": { "type": ["integer", "null"], "minimum": 1, "maximum": 3650 }
+        }
+      }
+    },
+    "buyerAuthEmailDomains": { "type": "array", "items": { "type": "string" } },
+    "buyerUserRoles": {
+      "type": ["object", "null"],
+      "additionalProperties": { "enum": ["admin", "approver", "viewer"] }
+    },
+    "decisionAuthEmailDomains": { "type": "array", "items": { "type": "string" } },
+    "settlementDecisionSigner": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["signerKeyId"],
+      "properties": {
+        "signerKeyId": { "type": "string" },
+        "privateKeyPem": { "type": ["string", "null"] },
+        "remoteSignerUrl": { "type": ["string", "null"] },
+        "remoteSignerBearerToken": { "type": ["string", "null"] }
+      }
+    },
+    "webhooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["url", "events", "enabled"],
+        "properties": {
+          "url": { "type": "string" },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "enum": ["verification.completed", "verification.failed"] }
+          },
+          "secret": { "type": ["string", "null"] },
+          "enabled": { "type": "boolean" }
+        }
+      }
+    }
+  }
+}

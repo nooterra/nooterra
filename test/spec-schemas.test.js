@@ -231,8 +231,22 @@ test("schema catches missing required fields (smoke)", async () => {
   }
   const validateReport = ajv.getSchema("https://settld.local/schemas/VerificationReport.v1.schema.json");
   const validateVerifyCliOutput = ajv.getSchema("https://settld.local/schemas/VerifyCliOutput.v1.schema.json");
+  const validateProduceCliOutput = ajv.getSchema("https://settld.local/schemas/ProduceCliOutput.v1.schema.json");
+  const validateReleaseIndex = ajv.getSchema("https://settld.local/schemas/ReleaseIndex.v1.schema.json");
+  const validateReleaseSig = ajv.getSchema("https://settld.local/schemas/ReleaseIndexSignature.v1.schema.json");
+  const validateReleaseSigs = ajv.getSchema("https://settld.local/schemas/ReleaseIndexSignatures.v1.schema.json");
+  const validateReleaseTrust = ajv.getSchema("https://settld.local/schemas/ReleaseTrust.v1.schema.json");
+  const validateReleaseTrustV2 = ajv.getSchema("https://settld.local/schemas/ReleaseTrust.v2.schema.json");
+  const validateVerifyReleaseOut = ajv.getSchema("https://settld.local/schemas/VerifyReleaseOutput.v1.schema.json");
   assert.ok(validateReport);
   assert.ok(validateVerifyCliOutput);
+  assert.ok(validateProduceCliOutput);
+  assert.ok(validateReleaseIndex);
+  assert.ok(validateReleaseSig);
+  assert.ok(validateReleaseSigs);
+  assert.ok(validateReleaseTrust);
+  assert.ok(validateReleaseTrustV2);
+  assert.ok(validateVerifyReleaseOut);
 
   const examplePath = path.resolve(process.cwd(), "docs/spec/examples/verification_report_v1.example.json");
   const example = JSON.parse(await fs.readFile(examplePath, "utf8"));
@@ -241,6 +255,30 @@ test("schema catches missing required fields (smoke)", async () => {
   const cliExamplePath = path.resolve(process.cwd(), "docs/spec/examples/verify_cli_output_v1.example.json");
   const cliExample = JSON.parse(await fs.readFile(cliExamplePath, "utf8"));
   assert.equal(validateVerifyCliOutput(cliExample), true);
+
+  const prodExamplePath = path.resolve(process.cwd(), "docs/spec/examples/produce_cli_output_v1.example.json");
+  const prodExample = JSON.parse(await fs.readFile(prodExamplePath, "utf8"));
+  assert.equal(validateProduceCliOutput(prodExample), true);
+
+  const releaseIndexExamplePath = path.resolve(process.cwd(), "docs/spec/examples/release_index_v1.example.json");
+  const releaseIndexExample = JSON.parse(await fs.readFile(releaseIndexExamplePath, "utf8"));
+  assert.equal(validateReleaseIndex(releaseIndexExample), true);
+
+  const releaseSigExamplePath = path.resolve(process.cwd(), "docs/spec/examples/release_index_signature_v1.example.json");
+  const releaseSigExample = JSON.parse(await fs.readFile(releaseSigExamplePath, "utf8"));
+  assert.equal(validateReleaseSig(releaseSigExample), true);
+
+  const releaseSigsExamplePath = path.resolve(process.cwd(), "docs/spec/examples/release_index_signatures_v1.example.json");
+  const releaseSigsExample = JSON.parse(await fs.readFile(releaseSigsExamplePath, "utf8"));
+  assert.equal(validateReleaseSigs(releaseSigsExample), true);
+
+  const releaseTrustExamplePath = path.resolve(process.cwd(), "docs/spec/examples/release_trust_v1.example.json");
+  const releaseTrustExample = JSON.parse(await fs.readFile(releaseTrustExamplePath, "utf8"));
+  assert.equal(validateReleaseTrust(releaseTrustExample), true);
+
+  const releaseTrustV2ExamplePath = path.resolve(process.cwd(), "docs/spec/examples/release_trust_v2.example.json");
+  const releaseTrustV2Example = JSON.parse(await fs.readFile(releaseTrustV2ExamplePath, "utf8"));
+  assert.equal(validateReleaseTrustV2(releaseTrustV2Example), true);
 
   const broken = { ...example };
   // eslint-disable-next-line no-prototype-builtins

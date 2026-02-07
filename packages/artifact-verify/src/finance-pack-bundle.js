@@ -2,7 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { canonicalJsonStringify } from "./canonical-json.js";
-import { sha256HexBytes, sha256HexUtf8, verifyHashHexEd25519 } from "./crypto.js";
+import { sha256HexUtf8, verifyHashHexEd25519 } from "./crypto.js";
+import { hashFile } from "./hash-file.js";
+import { mapWithConcurrency } from "./map-with-concurrency.js";
+import { prevalidateManifestFileEntries, resolveBundlePath } from "./bundle-path.js";
 import {
   GOVERNANCE_POLICY_SCHEMA_V2,
   authorizeServerSignerForPolicy,
@@ -21,13 +24,65 @@ export const FINANCE_PACK_BUNDLE_TYPE_V1 = "FinancePackBundle.v1";
 export const FINANCE_PACK_BUNDLE_MANIFEST_SCHEMA_V1 = "FinancePackBundleManifest.v1";
 export const BUNDLE_HEAD_ATTESTATION_SCHEMA_V1 = "BundleHeadAttestation.v1";
 
+const DEFAULT_HASH_CONCURRENCY = 16;
+
 async function readJson(filepath) {
   const raw = await fs.readFile(filepath, "utf8");
   return JSON.parse(raw);
 }
 
-async function readBytes(filepath) {
-  return new Uint8Array(await fs.readFile(filepath));
+function normalizeHashConcurrency(value) {
+  if (value === null || value === undefined) return DEFAULT_HASH_CONCURRENCY;
+  if (!Number.isInteger(value) || value < 1) throw new TypeError("hashConcurrency must be a positive integer");
+  return value;
+}
+
+async function verifyManifestFileHashes({ dir, manifestFiles, warnings, hashConcurrency }) {
+  const entries = [];
+  const seen = new Set();
+  for (const f of manifestFiles ?? []) {
+    if (!f || typeof f !== "object") continue;
+    const name = typeof f.name === "string" ? f.name : null;
+    const expectedSha = typeof f.sha256 === "string" ? f.sha256 : null;
+    if (!name || !expectedSha) continue;
+    if (seen.has(name)) return { ok: false, error: "MANIFEST_DUPLICATE_PATH", name, warnings };
+    seen.add(name);
+    const rp = resolveBundlePath({ bundleDir: dir, name });
+    if (!rp.ok) return { ok: false, error: rp.error, name: rp.name ?? name, reason: rp.reason ?? null, warnings };
+    entries.push({ name, expectedSha, fp: rp.path });
+  }
+
+  const actualByIndex = await mapWithConcurrency(entries, hashConcurrency, async (e) => {
+    try {
+      const st = await fs.lstat(e.fp);
+      if (st.isSymbolicLink()) return { ok: false, error: { code: "SYMLINK" } };
+      if (!st.isFile()) return { ok: false, error: { code: "NOT_FILE" } };
+      const actualSha = await hashFile(e.fp, { algo: "sha256" });
+      return { ok: true, actualSha };
+    } catch (err) {
+      return { ok: false, error: err };
+    }
+  });
+
+  for (let i = 0; i < entries.length; i += 1) {
+    const e = entries[i];
+    const res = actualByIndex[i];
+    if (!res?.ok) {
+      if (res?.error?.code === "SYMLINK") return { ok: false, error: "MANIFEST_SYMLINK_FORBIDDEN", name: e.name, warnings };
+      const code = res?.error?.code ?? null;
+      if (code === "ENOENT") return { ok: false, error: "missing file", name: e.name, warnings };
+      return {
+        ok: false,
+        error: "failed to hash file",
+        name: e.name,
+        warnings,
+        detail: { code, message: res?.error?.message ?? String(res?.error ?? "") }
+      };
+    }
+    if (res.actualSha !== e.expectedSha) return { ok: false, error: "sha256 mismatch", name: e.name, expected: e.expectedSha, actual: res.actualSha, warnings };
+  }
+
+  return { ok: true };
 }
 
 function stripManifestHash(manifestWithHash) {
@@ -382,11 +437,16 @@ function verifyVerificationReportV1({ report, expectedManifestHash, monthPublicK
   return { ok: true, reportHash: actualReportHash, signerKeyId: signerKeyId ?? null };
 }
 
-export async function verifyFinancePackBundleDir({ dir, strict = false } = {}) {
+export async function verifyFinancePackBundleDir({ dir, strict = false, hashConcurrency = null } = {}) {
   if (!dir) throw new Error("dir is required");
   if (strict !== true && strict !== false) throw new TypeError("strict must be a boolean");
+  hashConcurrency = normalizeHashConcurrency(hashConcurrency);
 
   const warnings = [];
+  if (!strict) {
+    const rawTrusted = String(process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "").trim();
+    if (!rawTrusted) warnings.push({ code: VERIFICATION_WARNING_CODE.TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT, detail: { env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON" } });
+  }
 
   const settldPath = path.join(dir, "settld.json");
   const manifestPath = path.join(dir, "manifest.json");
@@ -399,6 +459,11 @@ export async function verifyFinancePackBundleDir({ dir, strict = false } = {}) {
   const manifestWithHash = await readJson(manifestPath);
   if (manifestWithHash?.schemaVersion !== FINANCE_PACK_BUNDLE_MANIFEST_SCHEMA_V1) {
     return { ok: false, error: "unsupported manifest schemaVersion", schemaVersion: manifestWithHash?.schemaVersion ?? null, warnings };
+  }
+
+  {
+    const pre = prevalidateManifestFileEntries({ bundleDir: dir, manifestFiles: manifestWithHash?.files });
+    if (!pre.ok) return { ...pre, warnings };
   }
 
   const expectedManifestHash = String(manifestWithHash?.manifestHash ?? "");
@@ -432,16 +497,10 @@ export async function verifyFinancePackBundleDir({ dir, strict = false } = {}) {
     if (strict && missing.length) return { ok: false, error: "manifest missing required files", missing, warnings };
   }
 
-  // Verify every file hash listed in manifest.json.
-  for (const f of manifestWithHash.files ?? []) {
-    if (!f || typeof f !== "object") continue;
-    const name = typeof f.name === "string" ? f.name : null;
-    const expectedSha = typeof f.sha256 === "string" ? f.sha256 : null;
-    if (!name || !expectedSha) continue;
-    const fp = path.join(dir, name);
-    const b = await readBytes(fp);
-    const actual = sha256HexBytes(b);
-    if (actual !== expectedSha) return { ok: false, error: "sha256 mismatch", name, expected: expectedSha, actual, warnings };
+  // Verify every file hash listed in manifest.json (streaming, concurrency-limited).
+  {
+    const check = await verifyManifestFileHashes({ dir, manifestFiles: manifestWithHash.files, warnings, hashConcurrency });
+    if (!check.ok) return check;
   }
 
 	  // Governance policy: strict signer authorization contract.
@@ -515,7 +574,7 @@ export async function verifyFinancePackBundleDir({ dir, strict = false } = {}) {
   const monthDir = path.join(dir, "month");
   let monthStrict = null;
   if (strict) {
-    monthStrict = await verifyMonthProofBundleDir({ dir: monthDir, strict: true });
+    monthStrict = await verifyMonthProofBundleDir({ dir: monthDir, strict: true, hashConcurrency });
     if (!monthStrict.ok) return { ok: false, error: "month proof strict verification failed", detail: monthStrict, warnings };
   }
 
@@ -630,8 +689,7 @@ export async function verifyFinancePackBundleDir({ dir, strict = false } = {}) {
 
   // JournalCsv artifact checks + csv bytes hash.
   const journalCsv = await readJson(path.join(dir, "finance", "JournalCsv.v1.json"));
-  const csvBytes = await readBytes(path.join(dir, "finance", "JournalCsv.v1.csv"));
-  const csvSha = sha256HexBytes(csvBytes);
+  const csvSha = await hashFile(path.join(dir, "finance", "JournalCsv.v1.csv"), { algo: "sha256" });
   const csvHash = verifyArtifactTypeAndHash({ artifact: journalCsv, expectedType: "JournalCsv.v1" });
   if (!csvHash.ok) return { ok: false, error: `JournalCsv: ${csvHash.error}`, detail: csvHash, warnings };
   if (typeof journalCsv?.csvSha256 === "string" && journalCsv.csvSha256 !== csvSha) {
@@ -672,8 +730,7 @@ export async function verifyFinancePackBundleDir({ dir, strict = false } = {}) {
     }
   }
 
-  const reconcileBytes = await readBytes(path.join(dir, "finance", "reconcile.json"));
-  const reconcileSha = sha256HexBytes(reconcileBytes);
+  const reconcileSha = await hashFile(path.join(dir, "finance", "reconcile.json"), { algo: "sha256" });
   if (typeof inputs?.reconcileReportHash === "string" && inputs.reconcileReportHash !== reconcileSha) {
     return { ok: false, error: "reconcileReportHash mismatch", expected: inputs.reconcileReportHash, actual: reconcileSha, warnings };
   }

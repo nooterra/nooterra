@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "VerifyAboutOutput.v1",
+  "tool": {
+    "name": "settld-verify",
+    "version": "0.0.0",
+    "commit": "0123456789abcdef"
+  },
+  "protocol": {
+    "canonicalJson": "RFC8785",
+    "objects": [
+      "ProofBundleManifest.v1",
+      "FinancePackBundleManifest.v1",
+      "BundleHeadAttestation.v1",
+      "VerificationReport.v1",
+      "VerifyCliOutput.v1",
+      "VerifyAboutOutput.v1"
+    ]
+  },
+  "defaults": {
+    "strict": false,
+    "hashConcurrency": 16
+  },
+  "features": {
+    "format": ["human", "json"],
+    "failOnWarnings": true,
+    "hashConcurrency": true
+  }
+}
+

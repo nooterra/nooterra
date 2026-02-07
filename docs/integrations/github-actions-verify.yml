@@ -1,0 +1,31 @@
+name: verify bundles (settld)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Replace this with the path to the bundle produced by your pipeline.
+      # For demo/conformance, we point at committed fixtures.
+      - name: Verify bundle (strict)
+        id: verify
+        # For external adoption:
+        # uses: settld/settld/.github/actions/settld-verify@vX.Y.Z
+        uses: ./.github/actions/settld-verify
+        with:
+          bundle_path: test/fixtures/bundles/v1/jobproof/strict-pass
+          strict: "true"
+          fail_on_warnings: "false"
+          hash_concurrency: "8"
+          trust_file: test/fixtures/bundles/v1/trust.json
+          output_json_path: settld-verify-output.json
+
+      - name: Upload verification output JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: settld-verify-output
+          path: settld-verify-output.json

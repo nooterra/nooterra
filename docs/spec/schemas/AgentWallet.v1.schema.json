@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/AgentWallet.v1.schema.json",
+  "title": "AgentWallet.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "walletId",
+    "agentId",
+    "tenantId",
+    "currency",
+    "availableCents",
+    "escrowLockedCents",
+    "totalDebitedCents",
+    "totalCreditedCents",
+    "revision",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "AgentWallet.v1" },
+    "walletId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "currency": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 12,
+      "pattern": "^[A-Z][A-Z0-9_]{2,11}$"
+    },
+    "availableCents": { "type": "integer", "minimum": 0 },
+    "escrowLockedCents": { "type": "integer", "minimum": 0 },
+    "totalDebitedCents": { "type": "integer", "minimum": 0 },
+    "totalCreditedCents": { "type": "integer", "minimum": 0 },
+    "revision": { "type": "integer", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

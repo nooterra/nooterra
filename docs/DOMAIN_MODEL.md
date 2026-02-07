@@ -3,8 +3,8 @@
 ## Actors
 
 - **Requester**: Household or Business that pays and grants scoped access.
-- **Owner**: supplies robots and receives payouts.
-- **Robot**: endpoint with capabilities, health, and safety profile.
+- **Owner**: supplies executors and receives payouts.
+- **Executor**: endpoint with capabilities, health, and safety profile.
 - **Operator**: remote assist + exception handling; actions are audited.
 - **Developer**: publishes skills.
 - **Trust Counterparty**: insurance/guarantee/claims partner.
@@ -21,7 +21,7 @@ Key fields:
 - constraints (rooms allowed, privacy mode, fragile items, pets, etc.)
 - scheduling window
 - price quote + risk premium
-- selected robot + operator coverage (optional)
+- selected executor + operator coverage (optional)
 - state machine status
 
 ### Task Template
@@ -45,9 +45,9 @@ Signed bundle:
 
 ### Capability
 
-Robot-agnostic API surface (e.g., `NavigateTo`, `Pick`, `Place`, `ObserveROI`).
+Runtime-agnostic API surface (e.g., `ExecuteWorkflow`, `CallTool`, `CollectEvidence`, `ObserveROI`).
 
-Robots advertise:
+Executors advertise:
 
 - mobility/manipulation properties
 - allowed speed/force envelopes
@@ -86,7 +86,7 @@ Invariant: every journal entry balances to zero.
 
 Used for dispatch, pricing, and environment gating:
 
-- robot trust score
+- executor trust score
 - owner trust score
 - building trust score
 - skill trust score / certification tier

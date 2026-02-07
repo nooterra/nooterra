@@ -1,0 +1,1 @@
+{"actor":{"id":"proxy","type":"system"},"at":"2026-02-02T00:00:00.000Z","id":"evt_month_close_requested","payload":{"basis":"settledAt","period":"2026-01"},"streamId":"month_2026-01","type":"MONTH_CLOSE_REQUESTED","v":1}

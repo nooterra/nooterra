@@ -1,0 +1,1553 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import base64
+import hashlib
+import json
+import os
+import pathlib
+import sys
+from typing import Any, Dict, List, Optional, Tuple
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+
+def _read_text(fp: pathlib.Path) -> str:
+  return fp.read_text(encoding="utf-8")
+
+
+def _read_json(fp: pathlib.Path) -> Any:
+  return json.loads(_read_text(fp))
+
+
+def _sha256_hex_file(fp: pathlib.Path) -> str:
+  h = hashlib.sha256()
+  with fp.open("rb") as f:
+    for chunk in iter(lambda: f.read(1024 * 1024), b""):
+      h.update(chunk)
+  return h.hexdigest()
+
+
+def _valid_commit(s: Optional[str]) -> Optional[str]:
+  if not s:
+    return None
+  v = s.strip().lower()
+  if 7 <= len(v) <= 64 and all(c in "0123456789abcdef" for c in v):
+    return v
+  return None
+
+
+def _tool_commit() -> Optional[str]:
+  for k in ("SETTLD_COMMIT_SHA", "PROXY_BUILD", "GIT_SHA", "GITHUB_SHA"):
+    v = _valid_commit(os.environ.get(k))
+    if v:
+      return v
+  return None
+
+
+def _tool_version() -> Optional[str]:
+  v = os.environ.get("SETTLD_VERSION")
+  if v and v.strip():
+    return v.strip()
+  try:
+    # Match TOOL_PROVENANCE.md: prefer repo/service version stamp file when present in working dir.
+    stamp = pathlib.Path(os.getcwd()) / "SETTLD_VERSION"
+    if stamp.exists():
+      s = stamp.read_text(encoding="utf-8").strip()
+      if s:
+        return s
+  except Exception:
+    pass
+  return None
+
+
+def _load_governance_roots_from_env() -> Optional[Dict[str, str]]:
+  raw = os.environ.get("SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", "")
+  if not raw or not raw.strip():
+    return None
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    return None
+  if not isinstance(parsed, dict):
+    return None
+  out: Dict[str, str] = {}
+  for k, v in parsed.items():
+    if isinstance(k, str) and k and isinstance(v, str) and v.strip():
+      out[k] = v
+  return out or None
+
+
+def _load_pricing_signers_from_env() -> Optional[Dict[str, str]]:
+  raw = os.environ.get("SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON", "")
+  if not raw or not raw.strip():
+    return None
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    return None
+  if not isinstance(parsed, dict):
+    return None
+  out: Dict[str, str] = {}
+  for k, v in parsed.items():
+    if isinstance(k, str) and k and isinstance(v, str) and v.strip():
+      out[k] = v
+  return out or None
+
+
+def _load_settlement_decision_signers_from_env() -> Optional[Dict[str, str]]:
+  raw = os.environ.get("SETTLD_TRUSTED_SETTLEMENT_DECISION_SIGNER_KEYS_JSON", "")
+  if not raw or not raw.strip():
+    return None
+  try:
+    parsed = json.loads(raw)
+  except Exception:
+    return None
+  if not isinstance(parsed, dict):
+    return None
+  out: Dict[str, str] = {}
+  for k, v in parsed.items():
+    if isinstance(k, str) and k and isinstance(v, str) and v.strip():
+      out[k] = v
+  return out or None
+
+
+def _canonicalize_for_jcs(value: Any) -> Any:
+  if value is None:
+    return None
+  if isinstance(value, (str, bool)):
+    return value
+  if isinstance(value, (int, float)):
+    # Pricing/decision protocol surfaces should avoid JSON numbers entirely, but keep
+    # a best-effort RFC8785 posture for shared hashing/signing helpers.
+    if isinstance(value, float):
+      if value != value or value in (float("inf"), float("-inf")):
+        raise ValueError("Unsupported number for canonical JSON: non-finite")
+      # Detect -0.0 (python int can't represent -0).
+      if value == 0.0 and json.dumps(value).startswith("-"):
+        raise ValueError("Unsupported number for canonical JSON: -0")
+    return value
+  if isinstance(value, list):
+    return [_canonicalize_for_jcs(v) for v in value]
+  if isinstance(value, dict):
+    out: Dict[str, Any] = {}
+    for k in sorted(value.keys()):
+      if not isinstance(k, str):
+        raise ValueError("Unsupported object for canonical JSON: non-string key")
+      out[k] = _canonicalize_for_jcs(value[k])
+    return out
+  raise ValueError("Unsupported value for canonical JSON")
+
+
+def _canonical_json_stringify(value: Any) -> str:
+  can = _canonicalize_for_jcs(value)
+  return json.dumps(can, separators=(",", ":"), ensure_ascii=False)
+
+
+def _sha256_hex_canonical_json(value: Any) -> str:
+  return hashlib.sha256(_canonical_json_stringify(value).encode("utf-8")).hexdigest()
+
+
+def _verify_ed25519_hashhex_signature(*, hash_hex: str, signature_b64: str, public_key_pem: str) -> bool:
+  try:
+    msg = bytes.fromhex(str(hash_hex))
+  except Exception:
+    return False
+  try:
+    sig = base64.b64decode(signature_b64, validate=True)
+  except Exception:
+    return False
+  try:
+    pk = serialization.load_pem_public_key(public_key_pem.encode("utf-8"))
+  except Exception:
+    return False
+  if not isinstance(pk, Ed25519PublicKey):
+    return False
+  try:
+    pk.verify(sig, msg)
+    return True
+  except InvalidSignature:
+    return False
+
+
+def _strip_settlement_decision_sig(report: Dict[str, Any]) -> Dict[str, Any]:
+  out: Dict[str, Any] = {}
+  for k, v in report.items():
+    if k in ("reportHash", "signature", "signerKeyId", "signedAt"):
+      continue
+    out[k] = v
+  return out
+
+
+def _compute_settlement_decision_report_hash_v1(report: Dict[str, Any]) -> str:
+  core = _strip_settlement_decision_sig(report)
+  return _sha256_hex_canonical_json(core)
+
+
+def _final_output_settlement_decision(
+  *,
+  decision_input_arg: str,
+  decision_path: pathlib.Path,
+  bundle_dir: pathlib.Path,
+  strict: bool,
+  fail_on_warnings: bool,
+  summary_type: Optional[str],
+  summary_manifest_hash: Optional[str],
+  summary_tenant_id: Optional[str],
+  errors: List[Dict[str, Any]],
+  warnings: List[Dict[str, Any]]
+) -> Dict[str, Any]:
+  errors_sorted = _sort_issues(errors)
+  warnings_sorted = _sort_issues(warnings)
+  verification_ok = len(errors_sorted) == 0
+  ok = bool(verification_ok) and not (fail_on_warnings and len(warnings_sorted) > 0)
+  if fail_on_warnings and verification_ok and warnings_sorted:
+    ok = False
+  return {
+    "schemaVersion": "VerifyCliOutput.v1",
+    "tool": {"name": "settld-verify", "version": _tool_version(), "commit": _tool_commit()},
+    "mode": {"strict": bool(strict), "failOnWarnings": bool(fail_on_warnings)},
+    "target": {"kind": "settlement-decision", "input": decision_input_arg, "resolved": str(decision_path.resolve()), "dir": str(bundle_dir.resolve())},
+    "ok": bool(ok),
+    "verificationOk": bool(verification_ok),
+    "errors": errors_sorted,
+    "warnings": warnings_sorted,
+    "summary": {"tenantId": summary_tenant_id, "period": None, "type": summary_type, "manifestHash": summary_manifest_hash}
+  }
+
+
+def _path_is_valid_manifest_name(name: Any) -> Tuple[bool, str]:
+  if not isinstance(name, str) or not name:
+    return False, "empty"
+  if name.startswith("/"):
+    return False, "absolute"
+  if "\\" in name or ":" in name or "\x00" in name:
+    return False, "ambiguous"
+  if name.endswith("/"):
+    return False, "dir-marker"
+  parts = name.split("/")
+  if any(p in (".", "..") for p in parts):
+    return False, "traversal"
+  if any(p == "" for p in parts):
+    return False, "empty-segment"
+  return True, "ok"
+
+
+def _parse_nonneg_int_str(value: Any) -> Optional[int]:
+  if not isinstance(value, str) or not value.strip():
+    return None
+  s = value.strip()
+  if not s.isdigit():
+    return None
+  try:
+    return int(s, 10)
+  except Exception:
+    return None
+
+
+def _verify_invoice_bundle_math(*, bundle_dir: pathlib.Path) -> Optional[Tuple[str, Optional[str]]]:
+  """
+  Returns (error_code, path_hint) on failure, or None on success.
+  This is a minimal InvoiceBundle verifier sufficient for conformance cases.
+  """
+  pricing_fp = bundle_dir / "pricing" / "pricing_matrix.json"
+  metering_fp = bundle_dir / "metering" / "metering_report.json"
+  claim_fp = bundle_dir / "invoice" / "invoice_claim.json"
+  job_manifest_fp = bundle_dir / "payload" / "job_proof_bundle" / "manifest.json"
+
+  try:
+    pricing = _read_json(pricing_fp)
+  except Exception:
+    return ("invalid JSON", str(pricing_fp))
+  if not isinstance(pricing, dict) or str(pricing.get("schemaVersion") or "") != "PricingMatrix.v1":
+    return ("unsupported pricing schemaVersion", None)
+
+  try:
+    metering = _read_json(metering_fp)
+  except Exception:
+    return ("invalid JSON", str(metering_fp))
+  if not isinstance(metering, dict) or str(metering.get("schemaVersion") or "") != "MeteringReport.v1":
+    return ("unsupported metering schemaVersion", None)
+
+  try:
+    claim = _read_json(claim_fp)
+  except Exception:
+    return ("invalid JSON", str(claim_fp))
+  if not isinstance(claim, dict) or str(claim.get("schemaVersion") or "") != "InvoiceClaim.v1":
+    return ("unsupported invoice claim schemaVersion", None)
+
+  try:
+    job_manifest = _read_json(job_manifest_fp)
+  except Exception:
+    return ("invalid JSON", str(job_manifest_fp))
+
+  job_sha_by_name: Dict[str, str] = {}
+  if isinstance(job_manifest, dict) and isinstance(job_manifest.get("files"), list):
+    for e in job_manifest["files"]:
+      if not isinstance(e, dict):
+        continue
+      n = e.get("name")
+      s = e.get("sha256")
+      if isinstance(n, str) and n and isinstance(s, str) and s:
+        job_sha_by_name[n] = s
+
+  refs = metering.get("evidenceRefs") if isinstance(metering.get("evidenceRefs"), list) else []
+  for r in refs:
+    if not isinstance(r, dict):
+      continue
+    p = r.get("path")
+    s = r.get("sha256")
+    if not isinstance(p, str) or not isinstance(s, str):
+      continue
+    expected = job_sha_by_name.get(p)
+    if expected is None:
+      return ("metering evidenceRef not in job proof manifest", p)
+    if expected != s:
+      return ("metering evidenceRef sha256 mismatch", p)
+
+  price_by_code: Dict[str, int] = {}
+  for row in pricing.get("prices") if isinstance(pricing.get("prices"), list) else []:
+    if not isinstance(row, dict):
+      continue
+    code = row.get("code")
+    cents = _parse_nonneg_int_str(row.get("unitPriceCents"))
+    if isinstance(code, str) and code and cents is not None:
+      price_by_code[code] = cents
+
+  computed_total = 0
+  for it in metering.get("items") if isinstance(metering.get("items"), list) else []:
+    if not isinstance(it, dict):
+      continue
+    code = it.get("code")
+    qty = _parse_nonneg_int_str(it.get("quantity"))
+    if not isinstance(code, str) or not code or qty is None:
+      continue
+    unit = price_by_code.get(code)
+    if unit is None:
+      return ("invoice pricing code unknown", None)
+    computed_total += qty * unit
+
+  declared_total = _parse_nonneg_int_str(claim.get("totalCents"))
+  if declared_total is None:
+    return ("invoiceClaim totalCents invalid", None)
+  if declared_total != computed_total:
+    return ("invoiceClaim totalCents mismatch", None)
+
+  return None
+
+
+def _resolve_under_bundle_root(bundle_dir: pathlib.Path, name: str) -> pathlib.Path:
+  # name is portable path with "/" separators.
+  p = bundle_dir
+  for part in name.split("/"):
+    p = p / part
+  # Ensure resolved path stays under bundle root even with oddities.
+  root = bundle_dir.resolve()
+  resolved = p.resolve()
+  if root == resolved:
+    raise ValueError("path resolves to bundle root")
+  if root not in resolved.parents:
+    raise ValueError("path escapes bundle root")
+  return p
+
+
+def _format_issue(*, code: str, path: Optional[str]) -> Dict[str, Any]:
+  return {"code": code, "path": path, "message": None, "detail": None}
+
+
+def _parse_jsonl(fp: pathlib.Path) -> List[Any]:
+  out: List[Any] = []
+  raw = _read_text(fp)
+  for line in raw.split("\n"):
+    t = line.strip()
+    if not t:
+      continue
+    out.append(json.loads(t))
+  return out
+
+
+def _sha256_hex_utf8(s: str) -> str:
+  return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _compute_closepack_evidence_index(*, generated_at: str, invoice_dir: pathlib.Path, closepack_job_embedded_path: str) -> Dict[str, Any]:
+  metering_fp = invoice_dir / "metering" / "metering_report.json"
+  metering = _read_json(metering_fp)
+  if not isinstance(metering, dict):
+    raise ValueError("metering report invalid")
+  job_proof = metering.get("jobProof") if isinstance(metering.get("jobProof"), dict) else None
+  if not isinstance(job_proof, dict):
+    raise ValueError("meteringReport jobProof binding missing")
+  job_manifest_hash = job_proof.get("manifestHash") if isinstance(job_proof.get("manifestHash"), str) else None
+  job_att_hash = job_proof.get("headAttestationHash") if isinstance(job_proof.get("headAttestationHash"), str) else None
+  if not isinstance(job_manifest_hash, str) or not isinstance(job_att_hash, str):
+    raise ValueError("meteringReport jobProof binding missing")
+
+  items: List[Dict[str, Any]] = []
+  refs = metering.get("evidenceRefs") if isinstance(metering.get("evidenceRefs"), list) else []
+  for r in refs:
+    if not isinstance(r, dict):
+      continue
+    p = r.get("path")
+    s = r.get("sha256")
+    if isinstance(p, str) and p and isinstance(s, str) and s:
+      items.append(
+        {
+          "key": f"metering:{p}",
+          "source": "metering_evidence_ref",
+          "path": p,
+          "sha256": s,
+          "eventId": None,
+          "at": None,
+          "evidenceId": None,
+          "kind": None,
+          "contentType": None,
+          "sizeBytes": None,
+          "evidenceRefHash": None,
+        }
+      )
+
+  job_events_fp = invoice_dir / "payload" / "job_proof_bundle" / "events" / "events.jsonl"
+  for e in _parse_jsonl(job_events_fp):
+    if not isinstance(e, dict):
+      continue
+    if str(e.get("type") or "") != "EVIDENCE_CAPTURED":
+      continue
+    p = e.get("payload")
+    if not isinstance(p, dict):
+      continue
+    evidence_id = p.get("evidenceId")
+    if not isinstance(evidence_id, str) or not evidence_id.strip():
+      continue
+    evidence_ref = p.get("evidenceRef")
+    evidence_ref_hash = _sha256_hex_utf8(evidence_ref) if isinstance(evidence_ref, str) and evidence_ref.strip() else None
+    items.append(
+      {
+        "key": f"evidence:{evidence_id}",
+        "source": "job_evidence_event",
+        "path": None,
+        "sha256": None,
+        "eventId": e.get("id") if isinstance(e.get("id"), str) else None,
+        "at": e.get("at") if isinstance(e.get("at"), str) else None,
+        "evidenceId": evidence_id,
+        "kind": p.get("kind") if isinstance(p.get("kind"), str) else None,
+        "contentType": p.get("contentType") if isinstance(p.get("contentType"), str) else None,
+        "sizeBytes": p.get("sizeBytes") if isinstance(p.get("sizeBytes"), int) and p.get("sizeBytes") >= 0 else None,
+        "evidenceRefHash": evidence_ref_hash,
+      }
+    )
+
+  items.sort(key=lambda x: str(x.get("key") or ""))
+  return {
+    "schemaVersion": "EvidenceIndex.v1",
+    "generatedAt": generated_at,
+    "jobProof": {
+      "embeddedPath": closepack_job_embedded_path,
+      "manifestHash": job_manifest_hash,
+      "headAttestationHash": job_att_hash,
+    },
+    "items": items,
+  }
+
+
+def _extract_latest_event_payload(*, events: List[Any], event_type: str) -> Optional[Dict[str, Any]]:
+  latest = None
+  for e in events:
+    if not isinstance(e, dict):
+      continue
+    if str(e.get("type") or "") != event_type:
+      continue
+    p = e.get("payload")
+    if isinstance(p, dict):
+      latest = p
+  return latest
+
+
+def _closepack_execution_window(events: List[Any]) -> Tuple[Optional[str], Optional[str]]:
+  started_at = None
+  completed_at = None
+  for e in events:
+    if not isinstance(e, dict):
+      continue
+    t = str(e.get("type") or "")
+    at = e.get("at") if isinstance(e.get("at"), str) else None
+    if started_at is None and t in ("EXECUTION_STARTED", "JOB_EXECUTION_STARTED"):
+      started_at = at
+    if completed_at is None and t in ("EXECUTION_COMPLETED", "JOB_EXECUTION_COMPLETED"):
+      completed_at = at
+  return started_at, completed_at
+
+
+def _closepack_sla_evaluation(*, generated_at: str, sla_def: Dict[str, Any], job_events: List[Any]) -> Dict[str, Any]:
+  booked = _extract_latest_event_payload(events=job_events, event_type="BOOKED")
+  proof = _extract_latest_event_payload(events=job_events, event_type="PROOF_EVALUATED")
+
+  started_at, completed_at = _closepack_execution_window(job_events)
+  stall_ms = 0
+  # Best-effort: python stdlib lacks strict ISO parsing without datetime; keep simple.
+  try:
+    import datetime
+    stall_ms = 0
+    stall_start: Optional[datetime.datetime] = None
+    for e in job_events:
+      if not isinstance(e, dict):
+        continue
+      t = str(e.get("type") or "")
+      at = e.get("at") if isinstance(e.get("at"), str) else None
+      if not at:
+        continue
+      if t == "JOB_EXECUTION_STALLED":
+        stall_start = datetime.datetime.fromisoformat(at.replace("Z", "+00:00"))
+      if t == "JOB_EXECUTION_RESUMED" and stall_start is not None:
+        resumed = datetime.datetime.fromisoformat(at.replace("Z", "+00:00"))
+        delta = resumed - stall_start
+        stall_ms += max(0, int(delta.total_seconds() * 1000))
+        stall_start = None
+  except Exception:
+    stall_ms = 0
+
+  exec_ms: Optional[int] = None
+  try:
+    import datetime
+    if isinstance(started_at, str) and isinstance(completed_at, str):
+      s = datetime.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+      c = datetime.datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+      exec_ms = max(0, int((c - s).total_seconds() * 1000))
+  except Exception:
+    exec_ms = None
+
+  results: List[Dict[str, Any]] = []
+  for r in sla_def.get("rules") if isinstance(sla_def.get("rules"), list) else []:
+    if not isinstance(r, dict):
+      continue
+    rule_id = r.get("ruleId") if isinstance(r.get("ruleId"), str) else None
+    kind = r.get("kind") if isinstance(r.get("kind"), str) else None
+    if not rule_id or not kind:
+      continue
+    if kind == "MUST_START_WITHIN_WINDOW":
+      start_at = booked.get("startAt") if isinstance(booked, dict) and isinstance(booked.get("startAt"), str) else None
+      end_at = booked.get("endAt") if isinstance(booked, dict) and isinstance(booked.get("endAt"), str) else None
+      if not (isinstance(start_at, str) and isinstance(end_at, str) and isinstance(started_at, str)):
+        results.append({"ruleId": rule_id, "kind": kind, "status": "unknown", "detail": {"startedAt": started_at, "window": {"startAt": start_at, "endAt": end_at}}})
+      else:
+        try:
+          import datetime
+          s = datetime.datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+          ws = datetime.datetime.fromisoformat(start_at.replace("Z", "+00:00"))
+          we = datetime.datetime.fromisoformat(end_at.replace("Z", "+00:00"))
+          ok = (s >= ws and s <= we)
+          results.append({"ruleId": rule_id, "kind": kind, "status": "ok" if ok else "breach", "detail": {"startedAt": started_at, "window": {"startAt": start_at, "endAt": end_at}}})
+        except Exception:
+          results.append({"ruleId": rule_id, "kind": kind, "status": "unknown", "detail": {"startedAt": started_at, "window": {"startAt": start_at, "endAt": end_at}}})
+      continue
+    if kind == "MAX_EXECUTION_MS":
+      max_ms = r.get("maxExecutionMs") if isinstance(r.get("maxExecutionMs"), int) else None
+      if max_ms is None or exec_ms is None:
+        results.append({"ruleId": rule_id, "kind": kind, "status": "unknown", "detail": {"executionMs": exec_ms, "maxExecutionMs": max_ms}})
+      else:
+        ok = exec_ms <= max_ms
+        results.append({"ruleId": rule_id, "kind": kind, "status": "ok" if ok else "breach", "detail": {"executionMs": exec_ms, "maxExecutionMs": max_ms}})
+      continue
+    if kind == "MAX_STALL_MS":
+      max_ms = r.get("maxStallMs") if isinstance(r.get("maxStallMs"), int) else None
+      if max_ms is None:
+        results.append({"ruleId": rule_id, "kind": kind, "status": "unknown", "detail": {"stallMs": stall_ms, "maxStallMs": max_ms}})
+      else:
+        ok = stall_ms <= max_ms
+        results.append({"ruleId": rule_id, "kind": kind, "status": "ok" if ok else "breach", "detail": {"stallMs": stall_ms, "maxStallMs": max_ms}})
+      continue
+    if kind == "PROOF_ZONE_COVERAGE_MIN_PCT":
+      threshold = r.get("thresholdPct") if isinstance(r.get("thresholdPct"), int) else None
+      min_cov = proof.get("metrics", {}).get("minCoveragePct") if isinstance(proof, dict) and isinstance(proof.get("metrics"), dict) and isinstance(proof.get("metrics", {}).get("minCoveragePct"), int) else None
+      if threshold is None or min_cov is None:
+        results.append({"ruleId": rule_id, "kind": kind, "status": "unknown", "detail": {"minCoveragePct": min_cov, "thresholdPct": threshold}})
+      else:
+        ok = min_cov >= threshold
+        results.append({"ruleId": rule_id, "kind": kind, "status": "ok" if ok else "breach", "detail": {"minCoveragePct": min_cov, "thresholdPct": threshold}})
+      continue
+    results.append({"ruleId": rule_id, "kind": kind, "status": "unknown", "detail": {"reason": "unsupported rule kind"}})
+
+  results.sort(key=lambda x: str(x.get("ruleId") or ""))
+  overall = "ok"
+  if any(r.get("status") == "breach" for r in results):
+    overall = "breach"
+  elif any(r.get("status") == "unknown" for r in results):
+    overall = "unknown"
+  return {"schemaVersion": "SlaEvaluation.v1", "generatedAt": generated_at, "overallStatus": overall, "results": results}
+
+
+def _closepack_acceptance_evaluation(*, generated_at: str, criteria: Dict[str, Any], job_events: List[Any], sla_eval: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  proof = _extract_latest_event_payload(events=job_events, event_type="PROOF_EVALUATED")
+  results: List[Dict[str, Any]] = []
+  for c in criteria.get("criteria") if isinstance(criteria.get("criteria"), list) else []:
+    if not isinstance(c, dict):
+      continue
+    cid = c.get("criterionId") if isinstance(c.get("criterionId"), str) else None
+    kind = c.get("kind") if isinstance(c.get("kind"), str) else None
+    if not cid or not kind:
+      continue
+    if kind == "PROOF_STATUS_EQUALS":
+      expected = c.get("expectedStatus") if isinstance(c.get("expectedStatus"), str) else None
+      actual = proof.get("status") if isinstance(proof, dict) and isinstance(proof.get("status"), str) else None
+      if not expected or not actual:
+        results.append({"criterionId": cid, "kind": kind, "status": "unknown", "detail": {"expectedStatus": expected, "actualStatus": actual}})
+      else:
+        results.append({"criterionId": cid, "kind": kind, "status": "ok" if actual == expected else "fail", "detail": {"expectedStatus": expected, "actualStatus": actual}})
+      continue
+    if kind == "SLA_OVERALL_OK":
+      overall = sla_eval.get("overallStatus") if isinstance(sla_eval, dict) and isinstance(sla_eval.get("overallStatus"), str) else None
+      if not overall:
+        results.append({"criterionId": cid, "kind": kind, "status": "unknown", "detail": {"overallStatus": None}})
+      else:
+        results.append({"criterionId": cid, "kind": kind, "status": "ok" if overall == "ok" else "fail", "detail": {"overallStatus": overall}})
+      continue
+    results.append({"criterionId": cid, "kind": kind, "status": "unknown", "detail": {"reason": "unsupported criterion kind"}})
+  results.sort(key=lambda x: str(x.get("criterionId") or ""))
+  overall = "ok"
+  if any(r.get("status") == "fail" for r in results):
+    overall = "fail"
+  elif any(r.get("status") == "unknown" for r in results):
+    overall = "unknown"
+  return {"schemaVersion": "AcceptanceEvaluation.v1", "generatedAt": generated_at, "overallStatus": overall, "results": results}
+
+
+def _sort_issues(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  def k(x: Dict[str, Any]) -> Tuple[str, str]:
+    p = x.get("path")
+    return ("" if p is None else str(p), str(x.get("code") or ""))
+
+  return sorted(items, key=k)
+
+
+def verify_bundle(*, kind: str, input_arg: str, bundle_dir: pathlib.Path, strict: bool, fail_on_warnings: bool) -> Tuple[Dict[str, Any], int]:
+  errors: List[Dict[str, Any]] = []
+  warnings: List[Dict[str, Any]] = []
+
+  manifest_fp = bundle_dir / "manifest.json"
+  try:
+    manifest = _read_json(manifest_fp)
+  except Exception:
+    errors.append(_format_issue(code="invalid JSON", path=None))
+    return (
+      _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=None, errors=errors, warnings=warnings),
+      1
+    )
+
+  files = manifest.get("files") if isinstance(manifest, dict) else None
+  if not isinstance(files, list):
+    errors.append(_format_issue(code="manifest missing required files", path=None))
+    return (
+      _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+      1
+    )
+
+  # Security invariant: validate entry names + duplicates before hashing.
+  sha_by_name: Dict[str, str] = {}
+  seen: set[str] = set()
+  seen_lower: Dict[str, str] = {}
+  for entry in files:
+    name = entry.get("name") if isinstance(entry, dict) else None
+    ok, _reason = _path_is_valid_manifest_name(name)
+    if not ok:
+      errors.append(_format_issue(code="MANIFEST_PATH_INVALID", path=str(name) if isinstance(name, str) else None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    assert isinstance(name, str)
+    folded = name.lower()
+    prior = seen_lower.get(folded)
+    if prior is not None and prior != name:
+      errors.append(_format_issue(code="MANIFEST_PATH_CASE_COLLISION", path=name))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    seen_lower[folded] = name
+    sha = entry.get("sha256") if isinstance(entry, dict) else None
+    if isinstance(sha, str) and sha and len(sha) == 64:
+      sha_by_name[name] = sha
+    if name in seen:
+      errors.append(_format_issue(code="MANIFEST_DUPLICATE_PATH", path=name))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    seen.add(name)
+
+  # Hash each manifest-listed file as raw bytes; refuse symlinks.
+  for entry in files:
+    if not isinstance(entry, dict):
+      continue
+    name = entry.get("name")
+    if not isinstance(name, str):
+      continue
+    expected_sha = entry.get("sha256")
+    if not isinstance(expected_sha, str) or len(expected_sha) != 64:
+      continue
+    try:
+      fp = _resolve_under_bundle_root(bundle_dir, name)
+    except Exception:
+      errors.append(_format_issue(code="MANIFEST_PATH_INVALID", path=name))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    try:
+      st = fp.lstat()
+    except FileNotFoundError:
+      errors.append(_format_issue(code="missing file", path=name))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    if fp.is_symlink() or (st.st_mode & 0o170000) == 0o120000:
+      errors.append(_format_issue(code="MANIFEST_SYMLINK_FORBIDDEN", path=name))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    actual_sha = _sha256_hex_file(fp)
+    if actual_sha != expected_sha:
+      errors.append(_format_issue(code="sha256 mismatch", path=name))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+
+  # Verification report presence + warnings.
+  report_fp = bundle_dir / "verify" / "verification_report.json"
+  report = None
+  if report_fp.exists():
+    try:
+      report = _read_json(report_fp)
+    except Exception:
+      errors.append(_format_issue(code="invalid verification report JSON", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+  else:
+    if strict:
+      errors.append(_format_issue(code="missing verify/verification_report.json", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    warnings.append(_format_issue(code="VERIFICATION_REPORT_MISSING_LENIENT", path=None))
+
+  if isinstance(report, dict):
+    for w in report.get("warnings") if isinstance(report.get("warnings"), list) else []:
+      if isinstance(w, dict) and isinstance(w.get("code"), str) and w.get("code"):
+        warnings.append({"code": w["code"], "path": None, "message": w.get("message"), "detail": w.get("detail")})
+
+  # Governance policy roots + basic authorization (enough for conformance cases).
+  policy_fp = bundle_dir / "governance" / "policy.json"
+  policy = None
+  if policy_fp.exists():
+    try:
+      policy = _read_json(policy_fp)
+    except Exception:
+      errors.append(_format_issue(code="invalid governance/policy.json", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+  else:
+    if strict:
+      errors.append(_format_issue(code="missing governance/policy.json", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+
+  # PricingMatrix buyer signature surface (InvoiceBundle only).
+  if kind == "invoice-bundle" and len(errors) == 0:
+    pricing_signers = None
+    if strict:
+      pricing_signers = _load_pricing_signers_from_env()
+      if not pricing_signers:
+        errors.append(_format_issue(code="strict requires trusted pricing signer keys", path=None))
+        return (
+          _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+          1
+        )
+
+    pricing_hash = sha_by_name.get("pricing/pricing_matrix.json")
+    sig_manifest_hash = sha_by_name.get("pricing/pricing_matrix_signatures.json")
+
+    if sig_manifest_hash is None:
+      if strict:
+        errors.append(_format_issue(code="PRICING_MATRIX_SIGNATURE_MISSING", path=None))
+        return (
+          _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+          1
+        )
+      warnings.append(_format_issue(code="PRICING_MATRIX_UNSIGNED_LENIENT", path=None))
+    else:
+      sig_fp = bundle_dir / "pricing" / "pricing_matrix_signatures.json"
+      try:
+        sig_doc = _read_json(sig_fp)
+      except Exception:
+        errors.append(_format_issue(code="invalid JSON", path="pricing/pricing_matrix_signatures.json"))
+        return (
+          _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+          1
+        )
+
+      schema_version = str(sig_doc.get("schemaVersion") or "") if isinstance(sig_doc, dict) else ""
+      if schema_version not in ("PricingMatrixSignatures.v1", "PricingMatrixSignatures.v2"):
+        errors.append(_format_issue(code="unsupported pricing matrix signatures schemaVersion", path=None))
+        return (
+          _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+          1
+        )
+
+      declared_hash: Optional[str] = None
+      expected_hash: Optional[str] = None
+      if schema_version == "PricingMatrixSignatures.v1":
+        declared_hash = sig_doc.get("pricingMatrixHash")
+        expected_hash = pricing_hash
+      if schema_version == "PricingMatrixSignatures.v2":
+        declared_hash = sig_doc.get("pricingMatrixCanonicalHash")
+        try:
+          pricing_obj = _read_json(bundle_dir / "pricing" / "pricing_matrix.json")
+        except Exception:
+          errors.append(_format_issue(code="invalid JSON", path="pricing/pricing_matrix.json"))
+          return (
+            _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+            1
+          )
+        try:
+          expected_hash = _sha256_hex_canonical_json(pricing_obj)
+        except Exception:
+          errors.append(_format_issue(code="invalid canonical JSON", path="pricing/pricing_matrix.json"))
+          return (
+            _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+            1
+          )
+
+      if not isinstance(declared_hash, str) or not declared_hash or expected_hash is None or declared_hash != expected_hash:
+        errors.append(_format_issue(code="PRICING_MATRIX_SIGNATURE_PAYLOAD_MISMATCH", path=None))
+        return (
+          _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+          1
+        )
+
+      # In strict mode, validate at least one trusted signature (buyer keys are the trusted governance roots).
+      valid_signers: set[str] = set()
+      if strict:
+        sigs = sig_doc.get("signatures") if isinstance(sig_doc.get("signatures"), list) else []
+        for s in sigs:
+          if not isinstance(s, dict):
+            continue
+          signer_key_id = s.get("signerKeyId")
+          signature_b64 = s.get("signature")
+          if not isinstance(signer_key_id, str) or not signer_key_id:
+            continue
+          if not isinstance(signature_b64, str) or not signature_b64:
+            continue
+          pub_pem = pricing_signers.get(signer_key_id) if pricing_signers else None
+          if not isinstance(pub_pem, str) or not pub_pem:
+            continue
+          if not _verify_ed25519_hashhex_signature(hash_hex=expected_hash, signature_b64=signature_b64, public_key_pem=pub_pem):
+            errors.append(_format_issue(code="PRICING_MATRIX_SIGNATURE_INVALID", path=None))
+            return (
+              _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+              1
+            )
+          valid_signers.add(signer_key_id)
+
+        if len(valid_signers) == 0:
+          errors.append(_format_issue(code="PRICING_MATRIX_SIGNATURE_MISSING", path=None))
+          return (
+            _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+            1
+          )
+
+  roots: Optional[Dict[str, str]] = None
+  if strict:
+    if not isinstance(policy, dict):
+      errors.append(_format_issue(code="missing governance policy", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    if str(policy.get("schemaVersion") or "") != "GovernancePolicy.v2":
+      errors.append(_format_issue(code="strict requires GovernancePolicy.v2", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+
+    roots = _load_governance_roots_from_env()
+    if not roots:
+      errors.append(_format_issue(code="strict requires trusted governance root keys", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+
+    policy_signer = policy.get("signerKeyId")
+    if not isinstance(policy_signer, str) or not policy_signer or (policy_signer not in roots):
+      errors.append(_format_issue(code="governance policy signerKeyId not trusted", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    pub_pem = roots.get(policy_signer)
+    if not isinstance(pub_pem, str) or not pub_pem:
+      errors.append(_format_issue(code="governance policy signerKeyId not trusted", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+
+    # Validate policy signature if fields are present.
+    ph = policy.get("policyHash")
+    sig = policy.get("signature")
+    if isinstance(ph, str) and isinstance(sig, str) and ph and sig:
+      if not _verify_ed25519_hashhex_signature(hash_hex=ph, signature_b64=sig, public_key_pem=pub_pem):
+        errors.append(_format_issue(code="governance policy signature invalid", path=None))
+        return (
+          _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+          1
+        )
+
+    # Authorization checks (conformance expects signer keyId allowlist enforcement).
+    def allowed(rules_key: str, subject_type: str, signer_key_id: str, signer_scope: str = "global") -> bool:
+      rules = policy.get(rules_key)
+      if not isinstance(rules, list):
+        return False
+      for r in rules:
+        if not isinstance(r, dict):
+          continue
+        if str(r.get("subjectType") or "") != str(subject_type or ""):
+          continue
+        scopes = r.get("allowedScopes")
+        if isinstance(scopes, list) and signer_scope not in scopes:
+          continue
+        allowed_ids = r.get("allowedKeyIds")
+        if isinstance(allowed_ids, list) and signer_key_id in allowed_ids:
+          return True
+      return False
+
+    # Head attestation signer
+    att_fp = bundle_dir / "attestation" / "bundle_head_attestation.json"
+    if att_fp.exists():
+      try:
+        att = _read_json(att_fp)
+      except Exception:
+        att = None
+      if isinstance(att, dict):
+        subject_type = str(att.get("kind") or "")
+        signer_key = str(att.get("signerKeyId") or "")
+        if signer_key and subject_type and not allowed("bundleHeadAttestationSigners", subject_type, signer_key, "global"):
+          errors.append(_format_issue(code="signer keyId not allowed by policy", path=None))
+          return (
+            _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+            1
+          )
+
+    # Verification report signer
+    if isinstance(report, dict):
+      subject = report.get("subject") if isinstance(report.get("subject"), dict) else {}
+      subject_type = str(subject.get("type") or "")
+      signer_key = report.get("signerKeyId")
+      if not isinstance(signer_key, str) or not signer_key:
+        signer_key = None
+      signer_scope = "global"
+      signer_obj = report.get("signer")
+      if isinstance(signer_obj, dict) and isinstance(signer_obj.get("scope"), str):
+        signer_scope = signer_obj["scope"]
+      if signer_key and subject_type and not allowed("verificationReportSigners", subject_type, signer_key, signer_scope):
+        errors.append(_format_issue(code="signer keyId not allowed by policy", path=None))
+        return (
+          _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+          1
+        )
+
+  # ClosePack embeds an InvoiceBundle and adds evidence/SLA/acceptance surfaces.
+  if kind == "close-pack" and len(errors) == 0:
+    try:
+      header = _read_json(bundle_dir / "settld.json")
+    except Exception:
+      errors.append(_format_issue(code="invalid JSON", path="settld.json"))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    if not isinstance(header, dict) or str(header.get("type") or "") != "ClosePack.v1":
+      errors.append(_format_issue(code="unsupported bundle type", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+
+    invoice_dir = (bundle_dir / "payload" / "invoice_bundle").resolve()
+    inv_out, inv_code = verify_bundle(kind="invoice-bundle", input_arg=str(invoice_dir), bundle_dir=invoice_dir, strict=bool(strict), fail_on_warnings=bool(fail_on_warnings))
+    if inv_code != 0:
+      embedded_code = None
+      if isinstance(inv_out, dict):
+        errs = inv_out.get("errors")
+        if isinstance(errs, list) and len(errs) > 0 and isinstance(errs[0], dict) and isinstance(errs[0].get("code"), str):
+          embedded_code = errs[0].get("code")
+      errors.append(_format_issue(code=str(embedded_code or "embedded invoice bundle verification failed"), path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+
+    evidence_fp = bundle_dir / "evidence" / "evidence_index.json"
+    try:
+      evidence = _read_json(evidence_fp)
+    except Exception:
+      errors.append(_format_issue(code="missing evidence/evidence_index.json", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    if not isinstance(evidence, dict) or str(evidence.get("schemaVersion") or "") != "EvidenceIndex.v1":
+      errors.append(_format_issue(code="unsupported evidence index schemaVersion", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+
+    metering_fp = invoice_dir / "metering" / "metering_report.json"
+    try:
+      metering = _read_json(metering_fp)
+    except Exception:
+      errors.append(_format_issue(code="invalid JSON", path=str(metering_fp)))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    job_proof = metering.get("jobProof") if isinstance(metering, dict) else None
+    embedded_job = job_proof.get("embeddedPath") if isinstance(job_proof, dict) and isinstance(job_proof.get("embeddedPath"), str) else None
+    if not embedded_job:
+      errors.append(_format_issue(code="meteringReport jobProof binding missing", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+    closepack_job_path = f"payload/invoice_bundle/{embedded_job}".replace("\\", "/")
+    derived = _compute_closepack_evidence_index(generated_at=str(evidence.get("generatedAt") or header.get("createdAt") or ""), invoice_dir=invoice_dir, closepack_job_embedded_path=closepack_job_path)
+    if _canonical_json_stringify(derived) != _canonical_json_stringify(evidence):
+      errors.append(_format_issue(code="closepack evidence_index mismatch", path=None))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+
+    # SLA/acceptance surfaces (optional but verifier checks if present).
+    sla_def_fp = bundle_dir / "sla" / "sla_definition.json"
+    sla_eval_fp = bundle_dir / "sla" / "sla_evaluation.json"
+    acceptance_def_fp = bundle_dir / "acceptance" / "acceptance_criteria.json"
+    acceptance_eval_fp = bundle_dir / "acceptance" / "acceptance_evaluation.json"
+    job_events = _parse_jsonl(invoice_dir / "payload" / "job_proof_bundle" / "events" / "events.jsonl")
+
+    sla_def = _read_json(sla_def_fp) if sla_def_fp.exists() else None
+    sla_eval = _read_json(sla_eval_fp) if sla_eval_fp.exists() else None
+    if not strict and sla_def is None and sla_eval is None:
+      warnings.append(_format_issue(code="CLOSE_PACK_SLA_SURFACES_MISSING_LENIENT", path=None))
+    if (sla_def is None) != (sla_eval is None):
+      if strict:
+        errors.append(_format_issue(code="closepack sla surfaces incomplete", path=None))
+        return (
+          _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+          1
+        )
+    if isinstance(sla_def, dict) and isinstance(sla_eval, dict):
+      derived_sla = _closepack_sla_evaluation(generated_at=str(sla_eval.get("generatedAt") or header.get("createdAt") or ""), sla_def=sla_def, job_events=job_events)
+      if _canonical_json_stringify(derived_sla) != _canonical_json_stringify(sla_eval):
+        errors.append(_format_issue(code="closepack sla_evaluation mismatch", path=None))
+        return (
+          _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+          1
+        )
+
+    acc_def = _read_json(acceptance_def_fp) if acceptance_def_fp.exists() else None
+    acc_eval = _read_json(acceptance_eval_fp) if acceptance_eval_fp.exists() else None
+    if not strict and acc_def is None and acc_eval is None:
+      warnings.append(_format_issue(code="CLOSE_PACK_ACCEPTANCE_SURFACES_MISSING_LENIENT", path=None))
+    if (acc_def is None) != (acc_eval is None):
+      if strict:
+        errors.append(_format_issue(code="closepack acceptance surfaces incomplete", path=None))
+        return (
+          _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+          1
+        )
+    if isinstance(acc_def, dict) and isinstance(acc_eval, dict):
+      derived_acc = _closepack_acceptance_evaluation(generated_at=str(acc_eval.get("generatedAt") or header.get("createdAt") or ""), criteria=acc_def, job_events=job_events, sla_eval=sla_eval if isinstance(sla_eval, dict) else None)
+      if _canonical_json_stringify(derived_acc) != _canonical_json_stringify(acc_eval):
+        errors.append(_format_issue(code="closepack acceptance_evaluation mismatch", path=None))
+        return (
+          _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+          1
+        )
+  # InvoiceBundle-specific contract checks (pricing/metering/claim binding).
+  if kind == "invoice-bundle" and len(errors) == 0:
+    invoice_err = _verify_invoice_bundle_math(bundle_dir=bundle_dir)
+    if invoice_err is not None:
+      code, path_hint = invoice_err
+      errors.append(_format_issue(code=code, path=path_hint))
+      return (
+        _final_output(kind=kind, input_arg=input_arg, bundle_dir=bundle_dir, strict=strict, fail_on_warnings=fail_on_warnings, manifest=manifest, errors=errors, warnings=warnings),
+        1
+      )
+
+  # CLI policy gating
+  verification_ok = len(errors) == 0
+  cli_errors = list(errors)
+  if fail_on_warnings and warnings and verification_ok:
+    cli_errors.append(_format_issue(code="FAIL_ON_WARNINGS", path=None))
+
+  out = _final_output(
+    kind=kind,
+    input_arg=input_arg,
+    bundle_dir=bundle_dir,
+    strict=strict,
+    fail_on_warnings=fail_on_warnings,
+    manifest=manifest,
+    errors=cli_errors,
+    warnings=warnings,
+    verification_ok_override=verification_ok
+  )
+  ok = bool(out.get("ok"))
+  return out, (0 if ok else 1)
+
+
+def _final_output(
+  *,
+  kind: str,
+  input_arg: str,
+  bundle_dir: pathlib.Path,
+  strict: bool,
+  fail_on_warnings: bool,
+  manifest: Any,
+  errors: List[Dict[str, Any]],
+  warnings: List[Dict[str, Any]],
+  verification_ok_override: Optional[bool] = None
+) -> Dict[str, Any]:
+  errors_sorted = _sort_issues(errors)
+  warnings_sorted = _sort_issues(warnings)
+
+  verification_ok = verification_ok_override if verification_ok_override is not None else (len(errors_sorted) == 0)
+  ok = bool(verification_ok) and not (fail_on_warnings and len(warnings_sorted) > 0)
+  if fail_on_warnings and verification_ok and warnings_sorted:
+    ok = False
+
+  manifest_hash = None
+  tenant_id = None
+  period = None
+  bundle_type = None
+  if verification_ok and isinstance(manifest, dict):
+    manifest_hash = manifest.get("manifestHash") if isinstance(manifest.get("manifestHash"), str) else None
+    tenant_id = manifest.get("tenantId") if isinstance(manifest.get("tenantId"), str) else None
+    period = manifest.get("period") if isinstance(manifest.get("period"), str) else None
+    bundle_type = manifest.get("kind") if isinstance(manifest.get("kind"), str) else manifest.get("type") if isinstance(manifest.get("type"), str) else None
+
+  return {
+    "schemaVersion": "VerifyCliOutput.v1",
+    "tool": {"name": "settld-verify", "version": _tool_version(), "commit": _tool_commit()},
+    "mode": {"strict": bool(strict), "failOnWarnings": bool(fail_on_warnings)},
+    "target": {"kind": kind, "input": input_arg, "resolved": str(bundle_dir.resolve()), "dir": str(bundle_dir.resolve())},
+    "ok": bool(ok),
+    "verificationOk": bool(verification_ok),
+    "errors": errors_sorted,
+    "warnings": warnings_sorted,
+    "summary": {"tenantId": tenant_id, "period": period, "type": bundle_type, "manifestHash": manifest_hash}
+  }
+
+
+def main(argv: List[str]) -> int:
+  ap = argparse.ArgumentParser(prog="settld-verify-py")
+  ap.add_argument("--strict", action="store_true")
+  ap.add_argument("--fail-on-warnings", action="store_true")
+  ap.add_argument("--format", default="text")
+  ap.add_argument("--hash-concurrency", type=int, default=None)
+  ap.add_argument("--job-proof", dest="job_proof")
+  ap.add_argument("--month-proof", dest="month_proof")
+  ap.add_argument("--finance-pack", dest="finance_pack")
+  ap.add_argument("--invoice-bundle", dest="invoice_bundle")
+  ap.add_argument("--close-pack", dest="close_pack")
+  ap.add_argument("--settlement-decision", dest="settlement_decision")
+  ap.add_argument("--trusted-buyer-keys", dest="trusted_buyer_keys")
+  args = ap.parse_args(argv)
+
+  if args.format != "json":
+    sys.stderr.write("only --format json is supported by this reference verifier\n")
+    return 2
+
+  targets = [
+    ("job-proof", args.job_proof),
+    ("month-proof", args.month_proof),
+    ("finance-pack", args.finance_pack),
+    ("invoice-bundle", args.invoice_bundle),
+    ("close-pack", args.close_pack)
+  ]
+  selected = [(k, v) for (k, v) in targets if isinstance(v, str) and v.strip()]
+  if len(selected) != 1:
+    sys.stderr.write("exactly one of --job-proof/--month-proof/--finance-pack/--invoice-bundle/--close-pack is required\n")
+    return 2
+
+  kind, p = selected[0]
+  bundle_dir = pathlib.Path(p).resolve()
+  if kind == "invoice-bundle" and isinstance(args.settlement_decision, str) and args.settlement_decision.strip():
+    decision_input = str(args.settlement_decision)
+    decision_path = pathlib.Path(decision_input).resolve()
+
+    errors: List[Dict[str, Any]] = []
+    warnings: List[Dict[str, Any]] = []
+
+    try:
+      decision_report = _read_json(decision_path)
+    except Exception:
+      errors.append(_format_issue(code="invalid JSON", path=decision_input))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type=None,
+        summary_manifest_hash=None,
+        summary_tenant_id=None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    if not isinstance(decision_report, dict):
+      errors.append(_format_issue(code="settlement decision report must be an object", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type=None,
+        summary_manifest_hash=None,
+        summary_tenant_id=None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    if str(decision_report.get("schemaVersion") or "") != "SettlementDecisionReport.v1":
+      errors.append(_format_issue(code="unsupported settlement decision report schemaVersion", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type=None,
+        summary_manifest_hash=None,
+        summary_tenant_id=None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    # Compute manifest hash deterministically from manifest.json core (hash binding).
+    manifest_fp = bundle_dir / "manifest.json"
+    try:
+      manifest = _read_json(manifest_fp)
+    except Exception:
+      errors.append(_format_issue(code="invalid JSON", path="manifest.json"))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=None,
+        summary_tenant_id=None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+    if not isinstance(manifest, dict):
+      errors.append(_format_issue(code="invalid JSON", path="manifest.json"))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=None,
+        summary_tenant_id=None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    declared_manifest_hash = manifest.get("manifestHash") if isinstance(manifest.get("manifestHash"), str) else None
+    manifest_core: Dict[str, Any] = {}
+    for k, v in manifest.items():
+      if k == "manifestHash":
+        continue
+      manifest_core[k] = v
+    computed_manifest_hash = _sha256_hex_canonical_json(manifest_core)
+    if declared_manifest_hash != computed_manifest_hash:
+      errors.append(_format_issue(code="manifestHash mismatch", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=None,
+        summary_tenant_id=None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    head_attestation_fp = bundle_dir / "attestation" / "bundle_head_attestation.json"
+    head_attestation_hash = None
+    try:
+      head_att = _read_json(head_attestation_fp)
+      if isinstance(head_att, dict) and isinstance(head_att.get("attestationHash"), str):
+        head_attestation_hash = head_att.get("attestationHash")
+    except Exception:
+      head_attestation_hash = None
+    if not head_attestation_hash:
+      errors.append(_format_issue(code="missing attestation/bundle_head_attestation.json", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=computed_manifest_hash,
+        summary_tenant_id=manifest.get("tenantId") if isinstance(manifest.get("tenantId"), str) else None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    # Load trusted buyer decision keys (arg takes precedence over env).
+    raw_keys = args.trusted_buyer_keys if isinstance(args.trusted_buyer_keys, str) and args.trusted_buyer_keys.strip() else os.environ.get("SETTLD_TRUSTED_SETTLEMENT_DECISION_SIGNER_KEYS_JSON", "")
+    keys_text = str(raw_keys or "").strip()
+    if not keys_text:
+      errors.append(_format_issue(code="settlement decision trusted buyer keys missing", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=computed_manifest_hash,
+        summary_tenant_id=manifest.get("tenantId") if isinstance(manifest.get("tenantId"), str) else None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    key_json_text = keys_text
+    if not keys_text.startswith("{"):
+      try:
+        key_json_text = _read_text(pathlib.Path(keys_text).resolve())
+      except Exception:
+        errors.append(_format_issue(code="settlement decision trusted buyer keys invalid", path=None))
+        out = _final_output_settlement_decision(
+          decision_input_arg=decision_input,
+          decision_path=decision_path,
+          bundle_dir=bundle_dir,
+          strict=bool(args.strict),
+          fail_on_warnings=bool(args.fail_on_warnings),
+          summary_type="SettlementDecisionReport.v1",
+          summary_manifest_hash=computed_manifest_hash,
+          summary_tenant_id=manifest.get("tenantId") if isinstance(manifest.get("tenantId"), str) else None,
+          errors=errors,
+          warnings=warnings
+        )
+        sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+        return 1
+
+    trusted_keys: Optional[Dict[str, str]] = None
+    try:
+      parsed_keys = json.loads(key_json_text)
+      if isinstance(parsed_keys, dict):
+        out_keys: Dict[str, str] = {}
+        for k, v in parsed_keys.items():
+          if isinstance(k, str) and k and isinstance(v, str) and v.strip():
+            out_keys[k] = v
+        trusted_keys = out_keys or None
+    except Exception:
+      trusted_keys = None
+    if not trusted_keys:
+      errors.append(_format_issue(code="settlement decision trusted buyer keys invalid", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=computed_manifest_hash,
+        summary_tenant_id=manifest.get("tenantId") if isinstance(manifest.get("tenantId"), str) else None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    signer_key_id = decision_report.get("signerKeyId") if isinstance(decision_report.get("signerKeyId"), str) else None
+    signature_b64 = decision_report.get("signature") if isinstance(decision_report.get("signature"), str) else None
+    declared_hash = decision_report.get("reportHash") if isinstance(decision_report.get("reportHash"), str) else None
+    if not signer_key_id or not signature_b64 or not declared_hash:
+      errors.append(_format_issue(code="settlement decision report missing signature fields", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=computed_manifest_hash,
+        summary_tenant_id=manifest.get("tenantId") if isinstance(manifest.get("tenantId"), str) else None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    expected_hash = _compute_settlement_decision_report_hash_v1(decision_report)
+    if expected_hash != declared_hash:
+      errors.append(_format_issue(code="SETTLEMENT_DECISION_SIGNATURE_PAYLOAD_MISMATCH", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=computed_manifest_hash,
+        summary_tenant_id=manifest.get("tenantId") if isinstance(manifest.get("tenantId"), str) else None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    public_key_pem = trusted_keys.get(signer_key_id)
+    if not public_key_pem:
+      errors.append(_format_issue(code="settlement decision signerKeyId not trusted", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=computed_manifest_hash,
+        summary_tenant_id=manifest.get("tenantId") if isinstance(manifest.get("tenantId"), str) else None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    if not _verify_ed25519_hashhex_signature(hash_hex=expected_hash, signature_b64=signature_b64, public_key_pem=public_key_pem):
+      errors.append(_format_issue(code="SETTLEMENT_DECISION_SIGNATURE_INVALID", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=computed_manifest_hash,
+        summary_tenant_id=manifest.get("tenantId") if isinstance(manifest.get("tenantId"), str) else None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    bundle_ref = decision_report.get("invoiceBundle") if isinstance(decision_report.get("invoiceBundle"), dict) else None
+    rep_manifest_hash = bundle_ref.get("manifestHash") if isinstance(bundle_ref.get("manifestHash"), str) else None if isinstance(bundle_ref, dict) else None
+    rep_head_hash = bundle_ref.get("headAttestationHash") if isinstance(bundle_ref.get("headAttestationHash"), str) else None if isinstance(bundle_ref, dict) else None
+    if rep_manifest_hash != computed_manifest_hash:
+      errors.append(_format_issue(code="settlement decision invoiceBundle.manifestHash mismatch", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=computed_manifest_hash,
+        summary_tenant_id=manifest.get("tenantId") if isinstance(manifest.get("tenantId"), str) else None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+    if rep_head_hash != head_attestation_hash:
+      errors.append(_format_issue(code="settlement decision invoiceBundle.headAttestationHash mismatch", path=None))
+      out = _final_output_settlement_decision(
+        decision_input_arg=decision_input,
+        decision_path=decision_path,
+        bundle_dir=bundle_dir,
+        strict=bool(args.strict),
+        fail_on_warnings=bool(args.fail_on_warnings),
+        summary_type="SettlementDecisionReport.v1",
+        summary_manifest_hash=computed_manifest_hash,
+        summary_tenant_id=manifest.get("tenantId") if isinstance(manifest.get("tenantId"), str) else None,
+        errors=errors,
+        warnings=warnings
+      )
+      sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+      return 1
+
+    tenant_id = None
+    try:
+      settld = _read_json(bundle_dir / "settld.json")
+      if isinstance(settld, dict) and isinstance(settld.get("tenantId"), str):
+        tenant_id = settld.get("tenantId")
+    except Exception:
+      tenant_id = None
+
+    out = _final_output_settlement_decision(
+      decision_input_arg=decision_input,
+      decision_path=decision_path,
+      bundle_dir=bundle_dir,
+      strict=bool(args.strict),
+      fail_on_warnings=bool(args.fail_on_warnings),
+      summary_type="SettlementDecisionReport.v1",
+      summary_manifest_hash=computed_manifest_hash,
+      summary_tenant_id=tenant_id,
+      errors=errors,
+      warnings=warnings
+    )
+    sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+    return 0
+
+  out, code = verify_bundle(kind=kind, input_arg=str(p), bundle_dir=bundle_dir, strict=bool(args.strict), fail_on_warnings=bool(args.fail_on_warnings))
+  sys.stdout.write(json.dumps(out, indent=2, sort_keys=False, ensure_ascii=False) + "\n")
+  return code
+
+
+if __name__ == "__main__":
+  raise SystemExit(main(sys.argv[1:]))

@@ -1,0 +1,1 @@
+{"generatedAt":"2026-02-02T00:00:00.000Z","overallStatus":"unknown","results":[{"criterionId":"proof_status_pass","detail":{"actualStatus":null,"expectedStatus":"PASS"},"kind":"PROOF_STATUS_EQUALS","status":"unknown"},{"criterionId":"sla_overall_ok","detail":{"overallStatus":"ok"},"kind":"SLA_OVERALL_OK","status":"ok"}],"schemaVersion":"AcceptanceEvaluation.v1"}

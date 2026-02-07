@@ -1,0 +1,111 @@
+{
+  "schemaVersion": "ReleaseConformanceCases.v1",
+  "cases": [
+    {
+      "id": "release_pass",
+      "description": "Release verification pass (signature + assets match)",
+      "releaseDir": "releases/release_pass",
+      "trustFile": "release-trust.json",
+      "expected": {
+        "exitCode": 0,
+        "ok": true,
+        "signatureOk": true,
+        "artifactsOk": true,
+        "errors": [],
+        "warnings": []
+      },
+      "invariantIds": ["REL-001"]
+    },
+    {
+      "id": "release_fail_asset_hash_mismatch",
+      "description": "Release verification fail: asset sha256 mismatch",
+      "releaseDir": "releases/release_fail_asset_hash_mismatch",
+      "trustFile": "release-trust.json",
+      "expected": {
+        "exitCode": 5,
+        "ok": false,
+        "signatureOk": true,
+        "artifactsOk": false,
+        "errors": ["RELEASE_ASSET_HASH_MISMATCH"],
+        "warnings": []
+      },
+      "invariantIds": ["REL-002"]
+    },
+    {
+      "id": "release_fail_missing_asset",
+      "description": "Release verification fail: asset missing",
+      "releaseDir": "releases/release_fail_missing_asset",
+      "trustFile": "release-trust.json",
+      "expected": {
+        "exitCode": 5,
+        "ok": false,
+        "signatureOk": true,
+        "artifactsOk": false,
+        "errors": ["RELEASE_ASSET_MISSING"],
+        "warnings": []
+      },
+      "invariantIds": ["REL-002"]
+    },
+    {
+      "id": "release_fail_signature_invalid",
+      "description": "Release verification fail: signature invalid",
+      "releaseDir": "releases/release_fail_signature_invalid",
+      "trustFile": "release-trust.json",
+      "expected": {
+        "exitCode": 4,
+        "ok": false,
+        "signatureOk": false,
+        "artifactsOk": true,
+        "errors": ["RELEASE_SIGNATURE_INVALID", "RELEASE_SIGNATURE_QUORUM_NOT_SATISFIED"],
+        "warnings": []
+      },
+      "invariantIds": ["REL-003"]
+    },
+    {
+      "id": "release_fail_trust_missing",
+      "description": "Release verification fail: trust missing",
+      "releaseDir": "releases/release_pass",
+      "trustFile": null,
+      "expected": {
+        "exitCode": 3,
+        "ok": false,
+        "signatureOk": false,
+        "artifactsOk": true,
+        "errors": ["RELEASE_TRUST_MISSING"],
+        "warnings": []
+      },
+      "invariantIds": ["REL-004"]
+    },
+    {
+      "id": "release_fail_signer_revoked",
+      "description": "Release verification fail: signer revoked at release time",
+      "releaseDir": "releases/release_pass",
+      "trustFile": "release-trust-revoked.json",
+      "expected": {
+        "exitCode": 4,
+        "ok": false,
+        "signatureOk": false,
+        "artifactsOk": true,
+        "errors": ["RELEASE_SIGNER_REVOKED", "RELEASE_SIGNATURE_QUORUM_NOT_SATISFIED"],
+        "warnings": []
+      },
+      "invariantIds": ["REL-005"]
+    },
+    {
+      "id": "release_fail_quorum_not_satisfied",
+      "description": "Release verification fail: signature quorum not satisfied",
+      "releaseDir": "releases/release_pass",
+      "trustFile": "release-trust-quorum.json",
+      "expected": {
+        "exitCode": 4,
+        "ok": false,
+        "signatureOk": false,
+        "artifactsOk": true,
+        "errors": ["RELEASE_SIGNATURE_QUORUM_NOT_SATISFIED"],
+        "warnings": []
+      },
+      "invariantIds": ["REL-006"]
+    }
+  ]
+}
+

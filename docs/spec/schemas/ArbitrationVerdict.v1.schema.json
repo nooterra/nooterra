@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/ArbitrationVerdict.v1.schema.json",
+  "title": "ArbitrationVerdict.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "verdictId",
+    "caseId",
+    "tenantId",
+    "runId",
+    "settlementId",
+    "disputeId",
+    "arbiterAgentId",
+    "outcome",
+    "releaseRatePct",
+    "rationale",
+    "evidenceRefs",
+    "issuedAt",
+    "signature",
+    "revision",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "ArbitrationVerdict.v1" },
+    "verdictId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200
+    },
+    "caseId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "settlementId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200
+    },
+    "disputeId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200
+    },
+    "arbiterAgentId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": ["accepted", "rejected", "partial"]
+    },
+    "releaseRatePct": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "rationale": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "maxItems": 1000,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "issuedAt": { "type": "string", "format": "date-time" },
+    "appealRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["appealCaseId", "parentVerdictId"],
+      "properties": {
+        "appealCaseId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "parentVerdictId": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "signerKeyId", "verdictHash", "signature"],
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["ed25519"]
+        },
+        "signerKeyId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "verdictHash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

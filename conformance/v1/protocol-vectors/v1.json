@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "ProtocolVectors.v1",
+  "generatedAt": "2026-02-01T00:00:00.000Z",
+  "signer": {
+    "keyId": "key_282c80df2381d6831a92e89b"
+  },
+  "canonicalJson": {
+    "jcs": "RFC8785",
+    "cases": [
+      {
+        "name": "object_key_ordering_is_lexicographic",
+        "valueA": {
+          "b": 1,
+          "a": 2,
+          "c": {
+            "y": true,
+            "x": false
+          }
+        },
+        "valueB": {
+          "c": {
+            "x": false,
+            "y": true
+          },
+          "a": 2,
+          "b": 1
+        },
+        "canonical": "{\"a\":2,\"b\":1,\"c\":{\"x\":false,\"y\":true}}",
+        "sha256": "42aaf6f2c976f80db0240703956528caf86ada70ab5bddae3a4f05eae8c4731b"
+      },
+      {
+        "name": "unicode_and_escaping",
+        "value": {
+          "s": "café ∑ — 😀",
+          "escaped": "line\nbreak\tand\\slash"
+        },
+        "canonical": "{\"escaped\":\"line\\nbreak\\tand\\\\slash\",\"s\":\"café ∑ — 😀\"}",
+        "sha256": "43e7d8e4dfb4659ab89bbcc2e9331471dda1ab05487b1ccefd92ee14621d7de5"
+      },
+      {
+        "name": "number_serialization",
+        "value": {
+          "ints": [
+            0,
+            1,
+            -1,
+            10,
+            1000
+          ],
+          "floats": [
+            1.5,
+            1e+21,
+            1e-9
+          ]
+        },
+        "canonical": "{\"floats\":[1.5,1e+21,1e-9],\"ints\":[0,1,-1,10,1000]}",
+        "sha256": "cecb937bf5b36220a9885a4cf94ba0761811914a978e86d917c06c28a336203f"
+      }
+    ]
+  },
+  "jobProof": {
+    "manifestHash": "14e8197d32fc7eeb95c7e49c0b23443776b410617ae30e3f1f05539fad520b25",
+    "headAttestationHash": "53e67250dbe0611c26beac8142bf0c18deab49f790719f4f6876f39d7abc5e34",
+    "verificationReportHash": "93122fb5c4848d4a785217faede173bf3ce7f0d8340de4da5e339b4da5481944"
+  },
+  "monthProof": {
+    "manifestHash": "40850cbc9e3b797dd660a525e7c53902af36abad61c88ea4b1b0a5e05176282f",
+    "headAttestationHash": "25f6dba998fd0ee1b0fd41ed987583235778fb4e5fdbcd6eed4df8b8acd1a61d",
+    "verificationReportHash": "430d54209b9cf8e750edb921ba8f7113fc2641b41f2e2482497c8a1c15a28da2"
+  },
+  "financePack": {
+    "manifestHash": "769a0df040516d84c55d30f8cf355aac31a4e75c1dad196752c64fc9072b91eb",
+    "headAttestationHash": "61eb103ae05d44052de21f9ac603e1144468edc316f4ced6bf6f423dfe77b064",
+    "verificationReportHash": "99e42c89b16180f34530b717390189efaace3471fb4cbcbacd712a4dc2c76733"
+  },
+  "invoice": {
+    "manifestHash": "cca61c49c3cb3109c2cfc949ccffb10ed319ad0aee8816dbc27c0e7eb100e1cd",
+    "headAttestationHash": "c115bcc24d151695a497bd8c44f95f428d2d7bcd543739ef83a64fbef67c5c77",
+    "verificationReportHash": "36077ee12971728d23b4792c23a654ee97504474c1397b31f45f8cdf46ac8c9e"
+  }
+}

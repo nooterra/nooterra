@@ -15,7 +15,7 @@ In strict mode, it is **required** and **must be signed**.
 
 - `schemaVersion = "VerificationReport.v1"`
 - `profile = "strict"`
-- `tool`: `{ name: "settld", version: string | null }`
+- `tool`: `{ name: "settld", version: string | null, commit?: string }`
 - `warnings`: array of warning objects (see `WARNINGS.md`)
 - `subject`:
   - `type`: bundle kind/type (e.g. `JobProofBundle.v1`, `MonthProofBundle.v1`, `FinancePackBundle.v1`)
@@ -42,3 +42,9 @@ In strict mode, it is **required** and **must be signed**.
 - including `subject.manifestHash`
 - including `bundleHeadAttestation.attestationHash`
 - being signed by a governed server key (in strict mode)
+
+## Tool identity completeness
+
+`tool.commit` is a best-effort build identifier (typically a git commit SHA) intended to answer “what build produced this receipt”.
+
+- If the tool commit cannot be determined, the report MUST include warning code `TOOL_COMMIT_UNKNOWN`.

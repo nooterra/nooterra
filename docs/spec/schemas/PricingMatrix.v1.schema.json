@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/PricingMatrix.v1.schema.json",
+  "title": "PricingMatrix.v1",
+  "type": "object",
+  "required": ["schemaVersion", "currency", "prices"],
+  "properties": {
+    "schemaVersion": { "const": "PricingMatrix.v1" },
+    "currency": { "type": "string" },
+    "prices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "unitPriceCents"],
+        "properties": {
+          "code": { "type": "string" },
+          "unitPriceCents": { "type": "string", "pattern": "^[0-9]+$" }
+        }
+      }
+    },
+    "generatedAt": { "type": ["string", "null"] }
+  }
+}
+

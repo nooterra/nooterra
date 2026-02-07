@@ -1,11 +1,11 @@
 # Settld Architecture (v0)
 
-Settld is a **trust fabric + runtime + ledger** for embodied work.
+Settld is a **trust fabric + runtime + ledger** for autonomous work.
 
 ## Layers (logical)
 
 1. **Marketplace**: task templates, quotes, booking, payments, scheduling.
-2. **Operations**: fleet health, dispatch, runtime control, operator assist.
+2. **Operations**: runtime health, dispatch, control loops, human/operator assist.
 3. **Skills**: packaging, certification, licensing, execution orchestration.
 4. **Trust**: telemetry black box, incident detection, claims, audits.
 
@@ -36,7 +36,7 @@ Invariants:
 - **Trust Service**: evidence bundling, incident/claims workflow.
 - **Skill Registry**: signed bundles, certification tiers, distribution rules.
 
-### Settld Agent (on/near robot)
+### Settld Agent (on/near execution runtime)
 
 - Secure channel to cloud (mTLS + rotating certs).
 - Advertises capabilities/health.

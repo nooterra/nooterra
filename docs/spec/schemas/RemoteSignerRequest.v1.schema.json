@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/RemoteSignerRequest.v1.schema.json",
+  "title": "RemoteSignerRequest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["op"],
+  "properties": {
+    "schemaVersion": { "const": "RemoteSignerRequest.v1" },
+    "op": { "enum": ["publicKey", "sign"] },
+    "keyId": { "type": "string", "minLength": 1 },
+    "body": { "$ref": "https://settld.local/schemas/RemoteSignerSignRequest.v1.schema.json" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "op": { "const": "publicKey" } } },
+      "then": { "required": ["keyId"], "not": { "required": ["body"] } }
+    },
+    {
+      "if": { "properties": { "op": { "const": "sign" } } },
+      "then": { "required": ["body"], "not": { "required": ["keyId"] } }
+    }
+  ]
+}

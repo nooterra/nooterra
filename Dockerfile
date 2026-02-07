@@ -37,6 +37,7 @@ COPY --from=prep /data /data
 COPY src ./src
 COPY packages ./packages
 COPY services ./services
+COPY docs/pilot-kit ./docs/pilot-kit
 
 EXPOSE 3000
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Backend Implementer"
+  short_description: "Ship backend APIs and data models"
+  default_prompt: "Use $ai-backend-implementer to implement backend tickets with tests and migrations."

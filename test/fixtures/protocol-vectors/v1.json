@@ -61,16 +61,87 @@
   "jobProof": {
     "manifestHash": "14e8197d32fc7eeb95c7e49c0b23443776b410617ae30e3f1f05539fad520b25",
     "headAttestationHash": "53e67250dbe0611c26beac8142bf0c18deab49f790719f4f6876f39d7abc5e34",
-    "verificationReportHash": "917d57e4a663c50bef07aed1fd2afb56236317a9fea32bf71b44bef1f9e1562f"
+    "verificationReportHash": "93122fb5c4848d4a785217faede173bf3ce7f0d8340de4da5e339b4da5481944"
   },
   "monthProof": {
     "manifestHash": "40850cbc9e3b797dd660a525e7c53902af36abad61c88ea4b1b0a5e05176282f",
     "headAttestationHash": "25f6dba998fd0ee1b0fd41ed987583235778fb4e5fdbcd6eed4df8b8acd1a61d",
-    "verificationReportHash": "b414854f4a1069d7cadfe09403d69222e9c181cfc1ef0d8be232523dd15e5465"
+    "verificationReportHash": "430d54209b9cf8e750edb921ba8f7113fc2641b41f2e2482497c8a1c15a28da2"
   },
   "financePack": {
-    "manifestHash": "870bc7d1191bfcb2ba722ac92752ea8711af7f34eef825e1418d09de6430a016",
-    "headAttestationHash": "61d92b1af6fd60fa29e14250bf78459b721f1cb7fe3f0299ee12f52d2892c7d1",
-    "verificationReportHash": "1741402eb47fa8aa8d0602386409d6d24e8936de97e58d18665a2078e7f129b4"
+    "manifestHash": "769a0df040516d84c55d30f8cf355aac31a4e75c1dad196752c64fc9072b91eb",
+    "headAttestationHash": "61eb103ae05d44052de21f9ac603e1144468edc316f4ced6bf6f423dfe77b064",
+    "verificationReportHash": "99e42c89b16180f34530b717390189efaace3471fb4cbcbacd712a4dc2c76733"
+  },
+  "invoice": {
+    "manifestHash": "62678ed9973295dffe0f791527ae19b45380d069e68e4262f342948f28303721",
+    "headAttestationHash": "70711a21bcffe3467cf8e07f627dabe6ff098e2e47f9f18c2a6643b6c5ae8d60",
+    "verificationReportHash": "06cf848b42f3a2bd08fdac317b5b62b73f5e162521aafd3e531452a7ba08a602"
+  },
+  "agentIdentity": {
+    "schemaVersion": "AgentIdentity.v1",
+    "keyId": "key_282c80df2381d6831a92e89b",
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"capabilities\":[\"dispatch_job\",\"verify_bundle\"],\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"displayName\":\"Vector Agent\",\"keys\":{\"algorithm\":\"ed25519\",\"keyId\":\"key_282c80df2381d6831a92e89b\",\"publicKeyPem\":\"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAhmTc0vvEd3k+JFIr58rahGv7ryY7lZW3unw7rhYyBm8=\\n-----END PUBLIC KEY-----\\n\"},\"metadata\":{\"stage\":\"vectors\"},\"owner\":{\"ownerId\":\"acme_vectors\",\"ownerType\":\"business\"},\"schemaVersion\":\"AgentIdentity.v1\",\"status\":\"active\",\"tenantId\":\"tenant_vectors\",\"updatedAt\":\"2026-02-01T00:00:00.000Z\",\"walletPolicy\":{\"maxDailyCents\":50000,\"maxPerTransactionCents\":5000,\"requireApprovalAboveCents\":25000}}",
+    "sha256": "cf38cc83e7353c54da0716af8730d71f6c2bae83ef7e897c2ba3d6ba8ec85f7e"
+  },
+  "agentRun": {
+    "schemaVersion": "AgentRun.v1",
+    "runId": "run_vectors_0001",
+    "status": "completed",
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"completedAt\":\"2026-02-01T00:02:00.000Z\",\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"evidenceRefs\":[\"evidence://run_vectors_0001/output.json\"],\"failedAt\":null,\"failure\":null,\"inputRef\":\"urn:task:vectors:translation\",\"lastChainHash\":\"ch_run_vectors_0003\",\"lastEventId\":\"ev_run_vectors_0003\",\"metrics\":{\"latencyMs\":1200,\"tokensProcessed\":512},\"revision\":3,\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"AgentRun.v1\",\"startedAt\":\"2026-02-01T00:01:00.000Z\",\"status\":\"completed\",\"taskType\":\"translation\",\"tenantId\":\"tenant_vectors\",\"updatedAt\":\"2026-02-01T00:02:00.000Z\"}",
+    "sha256": "b44bec50ff7de7e44956cd9c7b202b60a8c5ea1e9e96eee1ebbbce4f1ee70ab7"
+  },
+  "agentEvent": {
+    "schemaVersion": "AgentEvent.v1",
+    "type": "RUN_COMPLETED",
+    "keyId": "key_282c80df2381d6831a92e89b",
+    "canonicalJson": "{\"actor\":{\"id\":\"agt_vectors_0001\",\"type\":\"agent\"},\"at\":\"2026-02-01T00:02:00.000Z\",\"chainHash\":\"ch_run_vectors_0003\",\"id\":\"ev_run_vectors_0003\",\"payload\":{\"metrics\":{\"latencyMs\":1200,\"tokensProcessed\":512},\"outputRef\":\"evidence://run_vectors_0001/output.json\",\"runId\":\"run_vectors_0001\"},\"payloadHash\":\"ph_run_vectors_0003\",\"prevChainHash\":\"ch_run_vectors_0002\",\"schemaVersion\":\"AgentEvent.v1\",\"signature\":\"sig_run_vectors_0003\",\"signerKeyId\":\"key_282c80df2381d6831a92e89b\",\"streamId\":\"run_vectors_0001\",\"type\":\"RUN_COMPLETED\",\"v\":1}",
+    "sha256": "4e471eb3cd42e1808a18bdbbc29ff7a9ed7278c168b54662c7c010c64b34f6ad"
+  },
+  "agentWallet": {
+    "schemaVersion": "AgentWallet.v1",
+    "walletId": "wallet_agt_vectors_0001",
+    "currency": "USD",
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"availableCents\":2750,\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"currency\":\"USD\",\"escrowLockedCents\":1250,\"revision\":7,\"schemaVersion\":\"AgentWallet.v1\",\"tenantId\":\"tenant_vectors\",\"totalCreditedCents\":4900,\"totalDebitedCents\":900,\"updatedAt\":\"2026-02-01T00:03:00.000Z\",\"walletId\":\"wallet_agt_vectors_0001\"}",
+    "sha256": "03508b38b49176ce1473f8c7043c8599f14d1c4606b1f5fbcd1390ede61bced9"
+  },
+  "agentRunSettlement": {
+    "schemaVersion": "AgentRunSettlement.v1",
+    "settlementId": "setl_run_vectors_0001",
+    "status": "locked",
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"amountCents\":1250,\"createdAt\":\"2026-02-01T00:00:30.000Z\",\"currency\":\"USD\",\"lockedAt\":\"2026-02-01T00:00:30.000Z\",\"payerAgentId\":\"agt_vectors_payer_0001\",\"resolutionEventId\":null,\"resolvedAt\":null,\"revision\":0,\"runId\":\"run_vectors_0001\",\"runStatus\":null,\"schemaVersion\":\"AgentRunSettlement.v1\",\"settlementId\":\"setl_run_vectors_0001\",\"status\":\"locked\",\"tenantId\":\"tenant_vectors\",\"updatedAt\":\"2026-02-01T00:00:30.000Z\"}",
+    "sha256": "61fc9b56362a00b61b68f5e7c861e833130bed336fa38fc788829de78b49f04c"
+  },
+  "agentReputation": {
+    "schemaVersion": "AgentReputation.v1",
+    "trustScore": 48,
+    "riskTier": "high",
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"avgRunDurationMs\":60000,\"completedRuns\":1,\"computedAt\":\"2026-02-01T00:06:00.000Z\",\"createdRuns\":0,\"evidenceCoverageRatePct\":50,\"failedRuns\":1,\"lockedSettlements\":0,\"refundedSettlements\":1,\"releasedSettlements\":1,\"riskTier\":\"high\",\"runCompletionRatePct\":50,\"runningRuns\":0,\"runsWithEvidence\":1,\"schemaVersion\":\"AgentReputation.v1\",\"scoreBreakdown\":{\"activityScore\":4,\"evidenceQuality\":50,\"runQuality\":50,\"settlementQuality\":50},\"settlementReleaseRatePct\":50,\"tenantId\":\"tenant_vectors\",\"terminalRuns\":2,\"totalRuns\":2,\"totalSettlements\":2,\"trustScore\":48}",
+    "sha256": "1194219dea42ef0de87c22bdc8383e23d27ca23bea3b4cf27cb3828f0b4d6192"
+  },
+  "agentReputationV2": {
+    "schemaVersion": "AgentReputation.v2",
+    "primaryWindow": "30d",
+    "trustScore": 48,
+    "riskTier": "high",
+    "windowTrustScores": {
+      "7d": 48,
+      "30d": 48,
+      "allTime": 48
+    },
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"computedAt\":\"2026-02-01T00:06:00.000Z\",\"primaryWindow\":\"30d\",\"riskTier\":\"high\",\"schemaVersion\":\"AgentReputation.v2\",\"tenantId\":\"tenant_vectors\",\"trustScore\":48,\"windows\":{\"30d\":{\"avgRunDurationMs\":60000,\"completedRuns\":1,\"computedAt\":\"2026-02-01T00:06:00.000Z\",\"createdRuns\":0,\"evidenceCoverageRatePct\":50,\"failedRuns\":1,\"lockedSettlements\":0,\"refundedSettlements\":1,\"releasedSettlements\":1,\"riskTier\":\"high\",\"runCompletionRatePct\":50,\"runningRuns\":0,\"runsWithEvidence\":1,\"scoreBreakdown\":{\"activityScore\":4,\"evidenceQuality\":50,\"runQuality\":50,\"settlementQuality\":50},\"settlementReleaseRatePct\":50,\"terminalRuns\":2,\"totalRuns\":2,\"totalSettlements\":2,\"trustScore\":48},\"7d\":{\"avgRunDurationMs\":60000,\"completedRuns\":1,\"computedAt\":\"2026-02-01T00:06:00.000Z\",\"createdRuns\":0,\"evidenceCoverageRatePct\":50,\"failedRuns\":1,\"lockedSettlements\":0,\"refundedSettlements\":1,\"releasedSettlements\":1,\"riskTier\":\"high\",\"runCompletionRatePct\":50,\"runningRuns\":0,\"runsWithEvidence\":1,\"scoreBreakdown\":{\"activityScore\":4,\"evidenceQuality\":50,\"runQuality\":50,\"settlementQuality\":50},\"settlementReleaseRatePct\":50,\"terminalRuns\":2,\"totalRuns\":2,\"totalSettlements\":2,\"trustScore\":48},\"allTime\":{\"avgRunDurationMs\":60000,\"completedRuns\":1,\"computedAt\":\"2026-02-01T00:06:00.000Z\",\"createdRuns\":0,\"evidenceCoverageRatePct\":50,\"failedRuns\":1,\"lockedSettlements\":0,\"refundedSettlements\":1,\"releasedSettlements\":1,\"riskTier\":\"high\",\"runCompletionRatePct\":50,\"runningRuns\":0,\"runsWithEvidence\":1,\"scoreBreakdown\":{\"activityScore\":4,\"evidenceQuality\":50,\"runQuality\":50,\"settlementQuality\":50},\"settlementReleaseRatePct\":50,\"terminalRuns\":2,\"totalRuns\":2,\"totalSettlements\":2,\"trustScore\":48}}}",
+    "sha256": "4b6c4a2f157619478c61dff685524a324b8900561b87777590391420536764d8"
+  },
+  "interactionDirectionMatrix": {
+    "schemaVersion": "InteractionDirectionMatrix.v1",
+    "directionalCount": 16,
+    "entityTypes": [
+      "agent",
+      "human",
+      "robot",
+      "machine"
+    ],
+    "canonicalJson": "{\"directionalCount\":16,\"directions\":{\"agent\":{\"agent\":true,\"human\":true,\"machine\":true,\"robot\":true},\"human\":{\"agent\":true,\"human\":true,\"machine\":true,\"robot\":true},\"machine\":{\"agent\":true,\"human\":true,\"machine\":true,\"robot\":true},\"robot\":{\"agent\":true,\"human\":true,\"machine\":true,\"robot\":true}},\"entityTypes\":[\"agent\",\"human\",\"robot\",\"machine\"],\"schemaVersion\":\"InteractionDirectionMatrix.v1\"}",
+    "sha256": "eb6726525b858f8a0ea293c498783a704816d50d39f205425b0bcba66fa5c24a"
   }
 }

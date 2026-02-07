@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/VerifyAboutOutput.v1.schema.json",
+  "title": "VerifyAboutOutput.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "tool", "protocol", "defaults", "features"],
+  "properties": {
+    "schemaVersion": { "const": "VerifyAboutOutput.v1" },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "commit"],
+      "properties": {
+        "name": { "const": "settld-verify" },
+        "version": { "type": ["string", "null"] },
+        "commit": { "type": ["string", "null"] }
+      }
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonicalJson", "objects"],
+      "properties": {
+        "canonicalJson": { "const": "RFC8785" },
+        "objects": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strict", "hashConcurrency"],
+      "properties": {
+        "strict": { "type": "boolean" },
+        "hashConcurrency": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "failOnWarnings", "hashConcurrency"],
+      "properties": {
+        "format": {
+          "type": "array",
+          "items": { "enum": ["human", "json"] },
+          "minItems": 1
+        },
+        "failOnWarnings": { "type": "boolean" },
+        "hashConcurrency": { "type": "boolean" }
+      }
+    }
+  }
+}
+

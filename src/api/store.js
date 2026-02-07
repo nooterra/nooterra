@@ -205,6 +205,14 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     robotEvents: new Map(), // `${tenantId}\n${robotId}` -> chained events
     operators: new Map(), // `${tenantId}\n${operatorId}` -> snapshot
     operatorEvents: new Map(), // `${tenantId}\n${operatorId}` -> chained events
+    agentIdentities: new Map(), // `${tenantId}\n${agentId}` -> AgentIdentity.v1 record
+    agentWallets: new Map(), // `${tenantId}\n${agentId}` -> AgentWallet.v1 record
+    agentRuns: new Map(), // `${tenantId}\n${runId}` -> AgentRun.v1 snapshot
+    agentRunEvents: new Map(), // `${tenantId}\n${runId}` -> AgentEvent.v1[]
+    agentRunSettlements: new Map(), // `${tenantId}\n${runId}` -> AgentRunSettlement.v1
+    marketplaceTasks: new Map(), // `${tenantId}\n${taskId}` -> MarketplaceTask.v1
+    marketplaceTaskBids: new Map(), // `${tenantId}\n${taskId}` -> MarketplaceBid.v1[]
+    tenantSettlementPolicies: new Map(), // `${tenantId}\n${policyId}\n${policyVersion}` -> TenantSettlementPolicy.v1
 	    contracts: new Map(), // `${tenantId}\n${contractId}` -> contract
 	    idempotency: new Map(),
 	    publicKeyByKeyId,
@@ -539,6 +547,199 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     return out.slice(safeOffset, safeOffset + safeLimit);
   };
 
+  store.putAgentIdentity = async function putAgentIdentity({ tenantId = DEFAULT_TENANT_ID, agentIdentity, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!agentIdentity || typeof agentIdentity !== "object" || Array.isArray(agentIdentity)) throw new TypeError("agentIdentity is required");
+
+    const agentId = agentIdentity.agentId ?? agentIdentity.id ?? null;
+    if (typeof agentId !== "string" || agentId.trim() === "") throw new TypeError("agentIdentity.agentId is required");
+
+    const owner = agentIdentity.owner ?? null;
+    if (!owner || typeof owner !== "object" || Array.isArray(owner)) throw new TypeError("agentIdentity.owner is required");
+    const ownerType = owner.ownerType ?? null;
+    const ownerId = owner.ownerId ?? null;
+    if (ownerType !== "human" && ownerType !== "business" && ownerType !== "service") {
+      throw new TypeError("agentIdentity.owner.ownerType must be human|business|service");
+    }
+    if (typeof ownerId !== "string" || ownerId.trim() === "") throw new TypeError("agentIdentity.owner.ownerId is required");
+
+    const keys = agentIdentity.keys ?? null;
+    if (!keys || typeof keys !== "object" || Array.isArray(keys)) throw new TypeError("agentIdentity.keys is required");
+    const keyId = keys.keyId ?? null;
+    const algorithm = keys.algorithm ?? null;
+    const publicKeyPem = keys.publicKeyPem ?? null;
+    if (typeof keyId !== "string" || keyId.trim() === "") throw new TypeError("agentIdentity.keys.keyId is required");
+    if (String(algorithm ?? "").toLowerCase() !== "ed25519") throw new TypeError("agentIdentity.keys.algorithm must be ed25519");
+    if (typeof publicKeyPem !== "string" || publicKeyPem.trim() === "") throw new TypeError("agentIdentity.keys.publicKeyPem is required");
+
+    const displayName = agentIdentity.displayName ?? null;
+    if (typeof displayName !== "string" || displayName.trim() === "") throw new TypeError("agentIdentity.displayName is required");
+
+    const status = String(agentIdentity.status ?? "active").trim().toLowerCase();
+    if (status !== "active" && status !== "suspended" && status !== "revoked") {
+      throw new TypeError("agentIdentity.status must be active|suspended|revoked");
+    }
+
+    const capabilitiesIn = Array.isArray(agentIdentity.capabilities) ? agentIdentity.capabilities : [];
+    const capabilities = [...new Set(capabilitiesIn.map((value) => String(value ?? "").trim()).filter(Boolean))].sort((left, right) =>
+      left.localeCompare(right)
+    );
+
+    const walletPolicyIn = agentIdentity.walletPolicy;
+    if (walletPolicyIn !== undefined && walletPolicyIn !== null && (typeof walletPolicyIn !== "object" || Array.isArray(walletPolicyIn))) {
+      throw new TypeError("agentIdentity.walletPolicy must be an object or null");
+    }
+    let walletPolicy = null;
+    if (walletPolicyIn && typeof walletPolicyIn === "object" && !Array.isArray(walletPolicyIn)) {
+      const allowedWalletPolicyFields = new Set(["maxPerTransactionCents", "maxDailyCents", "requireApprovalAboveCents"]);
+      for (const key of Object.keys(walletPolicyIn)) {
+        if (!allowedWalletPolicyFields.has(key)) throw new TypeError(`agentIdentity.walletPolicy contains unknown field: ${key}`);
+      }
+      walletPolicy = {};
+      for (const field of allowedWalletPolicyFields) {
+        const raw = walletPolicyIn[field];
+        if (raw === undefined || raw === null) continue;
+        const amount = Number(raw);
+        if (!Number.isSafeInteger(amount) || amount < 0) throw new TypeError(`agentIdentity.walletPolicy.${field} must be a non-negative integer`);
+        walletPolicy[field] = amount;
+      }
+    }
+
+    const metadataIn = agentIdentity.metadata;
+    if (metadataIn !== undefined && metadataIn !== null && (typeof metadataIn !== "object" || Array.isArray(metadataIn))) {
+      throw new TypeError("agentIdentity.metadata must be an object or null");
+    }
+
+    const nowAt = typeof store.nowIso === "function" ? store.nowIso() : new Date().toISOString();
+    const key = makeScopedKey({ tenantId, id: String(agentId) });
+    const existing = store.agentIdentities.get(key) ?? null;
+    if (existing) {
+      const err = new Error("agent identity already exists");
+      err.code = "AGENT_IDENTITY_EXISTS";
+      throw err;
+    }
+    const createdAt = typeof existing?.createdAt === "string" && existing.createdAt.trim() !== "" ? existing.createdAt : nowAt;
+
+    const record = {
+      schemaVersion: "AgentIdentity.v1",
+      agentId: String(agentId),
+      tenantId,
+      displayName: String(displayName),
+      description: typeof agentIdentity.description === "string" && agentIdentity.description.trim() !== "" ? agentIdentity.description : null,
+      status,
+      owner: {
+        ownerType: String(ownerType),
+        ownerId: String(ownerId)
+      },
+      keys: {
+        keyId: String(keyId),
+        algorithm: "ed25519",
+        publicKeyPem: String(publicKeyPem)
+      },
+      capabilities,
+      walletPolicy,
+      metadata:
+        metadataIn && typeof metadataIn === "object" && !Array.isArray(metadataIn)
+          ? { ...metadataIn }
+          : null,
+      revision:
+        Number.isSafeInteger(agentIdentity.revision) && agentIdentity.revision >= 0
+          ? Number(agentIdentity.revision)
+          : 0,
+      createdAt,
+      updatedAt: nowAt
+    };
+
+    const ops = [
+      { kind: "AGENT_IDENTITY_UPSERT", tenantId, agentIdentity: record },
+      { kind: "PUBLIC_KEY_PUT", keyId: String(keyId), publicKeyPem: String(publicKeyPem) }
+    ];
+    store.commitTx({ at: nowAt, ops, audit });
+    return store.getAgentIdentity({ tenantId, agentId: String(agentId) });
+  };
+
+  store.getAgentIdentity = async function getAgentIdentity({ tenantId = DEFAULT_TENANT_ID, agentId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof agentId !== "string" || agentId.trim() === "") throw new TypeError("agentId is required");
+    const key = makeScopedKey({ tenantId, id: String(agentId) });
+    return store.agentIdentities.get(key) ?? null;
+  };
+
+  store.listAgentIdentities = async function listAgentIdentities({ tenantId = DEFAULT_TENANT_ID, status = null, limit = 200, offset = 0 } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const out = [];
+    for (const row of store.agentIdentities.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (statusFilter !== null && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
+    return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.getAgentWallet = async function getAgentWallet({ tenantId = DEFAULT_TENANT_ID, agentId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof agentId !== "string" || agentId.trim() === "") throw new TypeError("agentId is required");
+    return store.agentWallets.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
+  };
+
+  store.putAgentWallet = async function putAgentWallet({ tenantId = DEFAULT_TENANT_ID, wallet } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!wallet || typeof wallet !== "object" || Array.isArray(wallet)) throw new TypeError("wallet is required");
+    const agentId = wallet.agentId ?? null;
+    if (typeof agentId !== "string" || agentId.trim() === "") throw new TypeError("wallet.agentId is required");
+    const key = makeScopedKey({ tenantId, id: String(agentId) });
+    store.commitTx({ at: wallet.updatedAt ?? new Date().toISOString(), ops: [{ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: { ...wallet, tenantId, agentId } }] });
+    return store.agentWallets.get(key) ?? null;
+  };
+
+  store.getAgentRun = async function getAgentRun({ tenantId = DEFAULT_TENANT_ID, runId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof runId !== "string" || runId.trim() === "") throw new TypeError("runId is required");
+    return store.agentRuns.get(makeScopedKey({ tenantId, id: String(runId) })) ?? null;
+  };
+
+  store.listAgentRuns = async function listAgentRuns({ tenantId = DEFAULT_TENANT_ID, agentId = null, status = null, limit = 200, offset = 0 } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (agentId !== null && (typeof agentId !== "string" || agentId.trim() === "")) throw new TypeError("agentId must be null or a non-empty string");
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const out = [];
+    for (const row of store.agentRuns.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (agentId !== null && String(row.agentId ?? "") !== String(agentId)) continue;
+      if (statusFilter !== null && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.runId ?? "").localeCompare(String(right.runId ?? "")));
+    return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.getAgentRunEvents = async function getAgentRunEvents({ tenantId = DEFAULT_TENANT_ID, runId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof runId !== "string" || runId.trim() === "") throw new TypeError("runId is required");
+    return store.agentRunEvents.get(makeScopedKey({ tenantId, id: String(runId) })) ?? [];
+  };
+
+  store.getAgentRunSettlement = async function getAgentRunSettlement({ tenantId = DEFAULT_TENANT_ID, runId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof runId !== "string" || runId.trim() === "") throw new TypeError("runId is required");
+    return store.agentRunSettlements.get(makeScopedKey({ tenantId, id: String(runId) })) ?? null;
+  };
+
   store.refreshFromDb = async function refreshFromDb() {
     // No-op for in-memory store.
   };
@@ -551,6 +752,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     if (aggregateType === "job") return store.jobEvents.get(key) ?? [];
     if (aggregateType === "robot") return store.robotEvents.get(key) ?? [];
     if (aggregateType === "operator") return store.operatorEvents.get(key) ?? [];
+    if (aggregateType === "agent_run") return store.agentRunEvents.get(key) ?? [];
     if (aggregateType === "month") return store.monthEvents.get(key) ?? [];
     throw new TypeError(`unsupported aggregateType: ${aggregateType}`);
   };
@@ -620,8 +822,17 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     return store.artifacts.get(key);
   };
 
-  store.listArtifacts = async function listArtifacts({ tenantId = DEFAULT_TENANT_ID, jobId = null, artifactType = null, sourceEventId = null } = {}) {
+  store.listArtifacts = async function listArtifacts({ tenantId = DEFAULT_TENANT_ID, jobId = null, jobIds = null, artifactType = null, sourceEventId = null } = {}) {
     tenantId = normalizeTenantId(tenantId);
+    let jobIdSet = null;
+    if (jobIds !== null && jobIds !== undefined) {
+      if (!Array.isArray(jobIds)) throw new TypeError("jobIds must be null or an array");
+      jobIdSet = new Set();
+      for (const item of jobIds) {
+        if (typeof item !== "string" || item.trim() === "") throw new TypeError("jobIds[] must be non-empty strings");
+        jobIdSet.add(String(item));
+      }
+    }
     const all = [];
     const sourceFilter = typeof sourceEventId === "string" && sourceEventId.trim() !== "" ? String(sourceEventId) : null;
     const typeFilter = typeof artifactType === "string" && artifactType.trim() !== "" ? String(artifactType) : null;
@@ -629,6 +840,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       if (!art || typeof art !== "object") continue;
       if (normalizeTenantId(art.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
       if (jobId !== null && String(art.jobId ?? "") !== String(jobId)) continue;
+      if (jobIdSet && !jobIdSet.has(String(art.jobId ?? ""))) continue;
       if (typeFilter !== null && String(art.artifactType ?? art.schemaVersion ?? "") !== typeFilter) continue;
       if (sourceFilter !== null && String(art.sourceEventId ?? "") !== sourceFilter) continue;
       all.push(art);

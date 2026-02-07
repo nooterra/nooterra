@@ -6,11 +6,14 @@ import { createChainedEvent, appendChainedEvent } from "../../src/core/event-cha
 import { keyIdFromPublicKeyPem } from "../../src/core/crypto.js";
 import { buildJobProofBundleV1, buildMonthProofBundleV1 } from "../../src/core/proof-bundle.js";
 import { buildFinancePackBundleV1 } from "../../src/core/finance-pack-bundle.js";
+import { buildInvoiceBundleV1 } from "../../src/core/invoice-bundle.js";
 import { GOVERNANCE_STREAM_ID } from "../../src/core/governance.js";
 import { DEFAULT_TENANT_ID } from "../../src/core/tenancy.js";
 import { computeArtifactHash } from "../../src/core/artifacts.js";
 import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
 import { sha256Hex } from "../../src/core/crypto.js";
+import { computeAgentReputation, computeAgentReputationV2 } from "../../src/core/agent-reputation.js";
+import { buildInteractionDirectionMatrixV1 } from "../../src/core/interaction-directions.js";
 
 function bytes(text) {
   return new TextEncoder().encode(text);
@@ -34,6 +37,7 @@ async function main() {
   const period = "2026-01";
   const generatedAt = "2026-02-01T00:00:00.000Z";
   const createdAt = "2026-02-01T00:00:00.000Z";
+  const toolCommit = "0123456789abcdef0123456789abcdef01234567";
 
   const { publicKeyPem, privateKeyPem } = await loadTestSigner();
   const keyId = keyIdFromPublicKeyPem(publicKeyPem);
@@ -84,6 +88,7 @@ async function main() {
     ],
     manifestSigner: signer,
     governancePolicySigner: signer,
+    toolCommit,
     requireHeadAttestation: true,
     generatedAt
   });
@@ -120,6 +125,7 @@ async function main() {
     ],
     manifestSigner: signer,
     governancePolicySigner: signer,
+    toolCommit,
     requireHeadAttestation: true,
     generatedAt
   });
@@ -206,11 +212,230 @@ async function main() {
     manifestSigner: signer,
     verificationReportSigner: signer,
     toolVersion: "0.0.0-vectors",
+    toolCommit,
     glBatchArtifact: glBatch,
     journalCsvArtifact: journalCsv,
     reconcileReport,
     reconcileReportBytes: reconcileBytes
   });
+
+  const invoiceId = "inv_det_00000001";
+  const { files: invoiceFiles, bundle: invoiceBundle } = buildInvoiceBundleV1({
+    tenantId,
+    invoiceId,
+    protocol: "1.0",
+    createdAt,
+    governancePolicySigner: signer,
+    jobProofBundle: jobBundle,
+    jobProofFiles: jobFiles,
+    requireJobProofAttestation: true,
+    requireHeadAttestation: true,
+    manifestSigner: signer,
+    verificationReportSigner: signer,
+    toolVersion: "0.0.0-vectors",
+    toolCommit,
+    pricingMatrix: {
+      currency: "USD",
+      prices: [
+        { code: "WORK_MINUTES", unitPriceCents: "150" }
+      ]
+    },
+    meteringReport: {
+      generatedAt,
+      items: [{ code: "WORK_MINUTES", quantity: "10" }],
+      evidenceRefs: [
+        { path: "job/snapshot.json", sha256: sha256Hex(jobFiles.get("job/snapshot.json")) }
+      ]
+    }
+  });
+
+  const agentIdentity = {
+    schemaVersion: "AgentIdentity.v1",
+    agentId: "agt_vectors_0001",
+    tenantId,
+    displayName: "Vector Agent",
+    status: "active",
+    owner: {
+      ownerType: "business",
+      ownerId: "acme_vectors"
+    },
+    keys: {
+      keyId,
+      algorithm: "ed25519",
+      publicKeyPem
+    },
+    capabilities: ["dispatch_job", "verify_bundle"],
+    walletPolicy: {
+      maxPerTransactionCents: 5000,
+      maxDailyCents: 50000,
+      requireApprovalAboveCents: 25000
+    },
+    metadata: {
+      stage: "vectors"
+    },
+    createdAt: generatedAt,
+    updatedAt: generatedAt
+  };
+  const agentIdentityCanonical = canonicalJsonStringify(agentIdentity);
+
+  const agentRun = {
+    schemaVersion: "AgentRun.v1",
+    runId: "run_vectors_0001",
+    agentId: agentIdentity.agentId,
+    tenantId,
+    taskType: "translation",
+    inputRef: "urn:task:vectors:translation",
+    status: "completed",
+    evidenceRefs: ["evidence://run_vectors_0001/output.json"],
+    metrics: {
+      latencyMs: 1200,
+      tokensProcessed: 512
+    },
+    failure: null,
+    startedAt: "2026-02-01T00:01:00.000Z",
+    completedAt: "2026-02-01T00:02:00.000Z",
+    failedAt: null,
+    revision: 3,
+    createdAt: generatedAt,
+    updatedAt: "2026-02-01T00:02:00.000Z",
+    lastEventId: "ev_run_vectors_0003",
+    lastChainHash: "ch_run_vectors_0003"
+  };
+  const agentRunCanonical = canonicalJsonStringify(agentRun);
+
+  const agentEvent = {
+    schemaVersion: "AgentEvent.v1",
+    v: 1,
+    id: "ev_run_vectors_0003",
+    streamId: agentRun.runId,
+    type: "RUN_COMPLETED",
+    at: "2026-02-01T00:02:00.000Z",
+    actor: {
+      type: "agent",
+      id: agentIdentity.agentId
+    },
+    payload: {
+      runId: agentRun.runId,
+      outputRef: "evidence://run_vectors_0001/output.json",
+      metrics: {
+        latencyMs: 1200,
+        tokensProcessed: 512
+      }
+    },
+    payloadHash: "ph_run_vectors_0003",
+    prevChainHash: "ch_run_vectors_0002",
+    chainHash: "ch_run_vectors_0003",
+    signature: "sig_run_vectors_0003",
+    signerKeyId: keyId
+  };
+  const agentEventCanonical = canonicalJsonStringify(agentEvent);
+
+  const agentWallet = {
+    schemaVersion: "AgentWallet.v1",
+    walletId: "wallet_agt_vectors_0001",
+    agentId: agentIdentity.agentId,
+    tenantId,
+    currency: "USD",
+    availableCents: 2750,
+    escrowLockedCents: 1250,
+    totalDebitedCents: 900,
+    totalCreditedCents: 4900,
+    revision: 7,
+    createdAt: generatedAt,
+    updatedAt: "2026-02-01T00:03:00.000Z"
+  };
+  const agentWalletCanonical = canonicalJsonStringify(agentWallet);
+
+  const agentRunSettlement = {
+    schemaVersion: "AgentRunSettlement.v1",
+    settlementId: "setl_run_vectors_0001",
+    runId: agentRun.runId,
+    tenantId,
+    agentId: agentIdentity.agentId,
+    payerAgentId: "agt_vectors_payer_0001",
+    amountCents: 1250,
+    currency: "USD",
+    status: "locked",
+    lockedAt: "2026-02-01T00:00:30.000Z",
+    resolvedAt: null,
+    resolutionEventId: null,
+    runStatus: null,
+    revision: 0,
+    createdAt: "2026-02-01T00:00:30.000Z",
+    updatedAt: "2026-02-01T00:00:30.000Z"
+  };
+  const agentRunSettlementCanonical = canonicalJsonStringify(agentRunSettlement);
+
+  const agentRunFailed = {
+    schemaVersion: "AgentRun.v1",
+    runId: "run_vectors_0002",
+    agentId: agentIdentity.agentId,
+    tenantId,
+    taskType: "classification",
+    inputRef: "urn:task:vectors:classification",
+    status: "failed",
+    evidenceRefs: [],
+    metrics: null,
+    failure: {
+      code: "MODEL_TIMEOUT",
+      message: "deterministic vector failure"
+    },
+    startedAt: "2026-02-01T00:05:00.000Z",
+    completedAt: null,
+    failedAt: "2026-02-01T00:06:00.000Z",
+    revision: 2,
+    createdAt: "2026-02-01T00:04:30.000Z",
+    updatedAt: "2026-02-01T00:06:00.000Z",
+    lastEventId: "ev_run_vectors_0002_2",
+    lastChainHash: "ch_run_vectors_0002_2"
+  };
+
+  const agentReleasedSettlement = {
+    ...agentRunSettlement,
+    status: "released",
+    resolvedAt: "2026-02-01T00:02:00.000Z",
+    resolutionEventId: "ev_run_vectors_0003",
+    runStatus: "completed",
+    revision: 1,
+    updatedAt: "2026-02-01T00:02:00.000Z"
+  };
+  const agentRefundedSettlement = {
+    schemaVersion: "AgentRunSettlement.v1",
+    settlementId: "setl_run_vectors_0002",
+    runId: agentRunFailed.runId,
+    tenantId,
+    agentId: agentIdentity.agentId,
+    payerAgentId: "agt_vectors_payer_0001",
+    amountCents: 800,
+    currency: "USD",
+    status: "refunded",
+    lockedAt: "2026-02-01T00:04:40.000Z",
+    resolvedAt: "2026-02-01T00:06:00.000Z",
+    resolutionEventId: "ev_run_vectors_0002_2",
+    runStatus: "failed",
+    revision: 1,
+    createdAt: "2026-02-01T00:04:40.000Z",
+    updatedAt: "2026-02-01T00:06:00.000Z"
+  };
+  const agentReputation = computeAgentReputation({
+    tenantId,
+    agentId: agentIdentity.agentId,
+    runs: [agentRun, agentRunFailed],
+    settlements: [agentReleasedSettlement, agentRefundedSettlement],
+    at: "2026-02-01T00:06:00.000Z"
+  });
+  const agentReputationCanonical = canonicalJsonStringify(agentReputation);
+  const agentReputationV2 = computeAgentReputationV2({
+    tenantId,
+    agentId: agentIdentity.agentId,
+    runs: [agentRun, agentRunFailed],
+    settlements: [agentReleasedSettlement, agentRefundedSettlement],
+    at: "2026-02-01T00:06:00.000Z",
+    primaryWindow: "30d"
+  });
+  const agentReputationV2Canonical = canonicalJsonStringify(agentReputationV2);
+  const interactionDirectionMatrix = buildInteractionDirectionMatrixV1();
+  const interactionDirectionMatrixCanonical = canonicalJsonStringify(interactionDirectionMatrix);
 
   const out = {
     schemaVersion: "ProtocolVectors.v1",
@@ -231,6 +456,72 @@ async function main() {
       manifestHash: financeBundle.manifestHash,
       headAttestationHash: parseJson(financeFiles.get("attestation/bundle_head_attestation.json")).attestationHash,
       verificationReportHash: parseJson(financeFiles.get("verify/verification_report.json")).reportHash
+    },
+    invoice: {
+      manifestHash: invoiceBundle.manifestHash,
+      headAttestationHash: parseJson(invoiceFiles.get("attestation/bundle_head_attestation.json")).attestationHash,
+      verificationReportHash: parseJson(invoiceFiles.get("verify/verification_report.json")).reportHash
+    },
+    agentIdentity: {
+      schemaVersion: "AgentIdentity.v1",
+      keyId,
+      canonicalJson: agentIdentityCanonical,
+      sha256: sha256Hex(agentIdentityCanonical)
+    },
+    agentRun: {
+      schemaVersion: "AgentRun.v1",
+      runId: agentRun.runId,
+      status: agentRun.status,
+      canonicalJson: agentRunCanonical,
+      sha256: sha256Hex(agentRunCanonical)
+    },
+    agentEvent: {
+      schemaVersion: "AgentEvent.v1",
+      type: agentEvent.type,
+      keyId,
+      canonicalJson: agentEventCanonical,
+      sha256: sha256Hex(agentEventCanonical)
+    },
+    agentWallet: {
+      schemaVersion: "AgentWallet.v1",
+      walletId: agentWallet.walletId,
+      currency: agentWallet.currency,
+      canonicalJson: agentWalletCanonical,
+      sha256: sha256Hex(agentWalletCanonical)
+    },
+    agentRunSettlement: {
+      schemaVersion: "AgentRunSettlement.v1",
+      settlementId: agentRunSettlement.settlementId,
+      status: agentRunSettlement.status,
+      canonicalJson: agentRunSettlementCanonical,
+      sha256: sha256Hex(agentRunSettlementCanonical)
+    },
+    agentReputation: {
+      schemaVersion: "AgentReputation.v1",
+      trustScore: agentReputation.trustScore,
+      riskTier: agentReputation.riskTier,
+      canonicalJson: agentReputationCanonical,
+      sha256: sha256Hex(agentReputationCanonical)
+    },
+    agentReputationV2: {
+      schemaVersion: "AgentReputation.v2",
+      primaryWindow: agentReputationV2.primaryWindow,
+      trustScore: agentReputationV2.trustScore,
+      riskTier: agentReputationV2.riskTier,
+      windowTrustScores: {
+        "7d": agentReputationV2.windows?.["7d"]?.trustScore ?? null,
+        "30d": agentReputationV2.windows?.["30d"]?.trustScore ?? null,
+        allTime: agentReputationV2.windows?.allTime?.trustScore ?? null
+      },
+      canonicalJson: agentReputationV2Canonical,
+      sha256: sha256Hex(agentReputationV2Canonical)
+    },
+    interactionDirectionMatrix: {
+      schemaVersion: interactionDirectionMatrix.schemaVersion,
+      directionalCount: interactionDirectionMatrix.directionalCount,
+      entityTypes: interactionDirectionMatrix.entityTypes,
+      canonicalJson: interactionDirectionMatrixCanonical,
+      sha256: sha256Hex(interactionDirectionMatrixCanonical)
     }
   };
 

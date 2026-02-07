@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "ReleaseIndexSignature.v1",
+  "algorithm": "ed25519-sha256",
+  "keyId": "key_example",
+  "messageSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA0000000000000000000000000000000000000000000=\n-----END PUBLIC KEY-----\n",
+  "signatureBase64": "AAAA"
+}
+

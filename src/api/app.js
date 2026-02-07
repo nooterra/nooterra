@@ -2,7 +2,7 @@ import { createStore } from "./store.js";
 import { readJsonBody, sendError, sendJson, sendText } from "./http.js";
 import { createId } from "../core/ids.js";
 import { appendChainedEvent, createChainedEvent, verifyChainedEvents } from "../core/event-chain.js";
-import { keyIdFromPublicKeyPem, sha256Hex, verifyHashHexEd25519 } from "../core/crypto.js";
+import { keyIdFromPublicKeyPem, sha256Hex, signHashHexEd25519, verifyHashHexEd25519 } from "../core/crypto.js";
 import { listKnownEventTypes, requiredSignerKindForEventType, SIGNER_KIND } from "../core/event-policy.js";
 import { canonicalJsonStringify, normalizeForCanonicalJson } from "../core/canonical-json.js";
 import { reduceJob } from "../core/job-reducer.js";
@@ -60,7 +60,46 @@ import { validateJobRescheduledPayload } from "../core/rescheduling.js";
 import { validateJobCancelledPayload } from "../core/cancellation.js";
 import { normalizeZoneId } from "../core/zones.js";
 import { computeSlaPolicy } from "../core/sla.js";
+import { SLA_POLICY_TEMPLATE_CATALOG_VERSION, listSlaPolicyTemplates } from "../core/sla-policy-templates.js";
 import { getPilotTemplate, listPilotTemplates } from "../core/pilot-templates.js";
+import {
+  AGENT_RUN_EVENT_SCHEMA_VERSION,
+  AGENT_RUN_EVENT_TYPE,
+  AGENT_RUN_STATUS,
+  computeAgentRunVerification,
+  reduceAgentRun,
+  validateEvidenceAddedPayload,
+  validateRunCompletedPayload,
+  validateRunCreatedPayload,
+  validateRunFailedPayload,
+  validateRunHeartbeatPayload,
+  validateRunStartedPayload
+} from "../core/agent-runs.js";
+import {
+  AGENT_RUN_SETTLEMENT_DISPUTE_CHANNEL,
+  AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL,
+  AGENT_RUN_SETTLEMENT_DECISION_MODE,
+  AGENT_RUN_SETTLEMENT_DECISION_STATUS,
+  AGENT_RUN_SETTLEMENT_STATUS,
+  createAgentRunSettlement,
+  createAgentWallet,
+  creditAgentWallet,
+  ensureAgentWallet,
+  lockAgentWalletEscrow,
+  refundAgentWalletEscrow,
+  releaseAgentWalletEscrowToPayee,
+  resolveAgentRunSettlement,
+  patchAgentRunSettlementDisputeContext,
+  updateAgentRunSettlementDecision,
+  updateAgentRunSettlementDispute,
+  validateAgentRunSettlementRequest
+} from "../core/agent-wallets.js";
+import {
+  AGENT_REPUTATION_WINDOW,
+  computeAgentReputation,
+  computeAgentReputationV2
+} from "../core/agent-reputation.js";
+import { normalizeInteractionDirection } from "../core/interaction-directions.js";
 import {
   validateDispatchConfirmedPayload,
   validateDispatchEvaluatedPayload,
@@ -99,6 +138,16 @@ import { computeFinanceAccountMapHash, validateFinanceAccountMapV1 } from "../co
 import { renderJournalCsvV1 } from "../core/journal-csv.js";
 import { buildEvidenceDownloadUrl, verifyEvidenceDownload } from "../core/evidence-store.js";
 import { computeHoldExposureV1 } from "../core/hold-exposure.js";
+import {
+  ESCROW_OPERATION_TYPE,
+  applyEscrowOperation,
+  createEscrowLedger,
+  getEscrowLedgerBalance,
+  upsertEscrowLedgerWalletBalances,
+  walletAvailableAccountId,
+  walletEscrowAccountId
+} from "../core/escrow-ledger.js";
+import { createInMemoryMoneyRailAdapter, createMoneyRailAdapterRegistry } from "../core/money-rail-adapters.js";
 import { buildDeterministicZipStore, sha256HexBytes } from "../core/deterministic-zip.js";
 import { buildFinancePackBundleV1 } from "../core/finance-pack-bundle.js";
 import { buildMonthProofBundleV1 } from "../core/proof-bundle.js";
@@ -115,6 +164,7 @@ import {
   hmacSignArtifact,
   sliceEventsThroughChainHash
 } from "../core/artifacts.js";
+import { computeArtifactVerificationStatus } from "../core/artifact-verification-status.js";
 import { buildPolicySnapshot, computePolicyHash } from "../core/policy.js";
 import { MONTH_CLOSE_BASIS, makeMonthCloseStreamId, reduceMonthClose, validateMonthCloseRequestedPayload, validateMonthClosedPayload, validateMonthCloseReopenedPayload } from "../core/month-close.js";
 import { MONTH_CLOSE_HOLD_POLICY, normalizeMonthCloseHoldPolicy } from "../core/month-close-hold-policy.js";
@@ -129,6 +179,13 @@ import { computePartyStatement, computePayoutAmountCentsForStatement, jobIdFromL
 import { RISK_BASIS, computeRiskAssessment, validateRiskScoredPayload } from "../core/risk.js";
 import { FINANCE_STREAM_ID, validateInsurerReimbursementRecordedPayload } from "../core/insurer-reimbursements.js";
 import { ledgerEntriesForFinanceEvent } from "../core/ledger-postings-finance.js";
+import {
+  computeVerificationMethodHash,
+  computeSettlementPolicyHash,
+  evaluateSettlementPolicy,
+  normalizeSettlementPolicy,
+  normalizeVerificationMethod
+} from "../core/settlement-policy.js";
 import { createArtifactWorker, deriveArtifactEnqueuesFromJobEvents } from "./workers/artifacts.js";
 import { createDeliveryWorker } from "./workers/deliveries.js";
 import { createProofWorker, deriveProofEvalEnqueuesFromJobEvents } from "./workers/proof.js";
@@ -503,6 +560,22 @@ export function createApi({
   // Keep in-memory derived subsystems (deliveries/correlations) time-consistent in tests.
   if (store && typeof store === "object" && typeof store.nowIso === "function") {
     store.nowIso = nowIso;
+  }
+
+  const defaultMoneyRailProviderId =
+    typeof process !== "undefined" && typeof process.env.PROXY_MONEY_RAIL_PROVIDER_ID === "string" && process.env.PROXY_MONEY_RAIL_PROVIDER_ID.trim() !== ""
+      ? process.env.PROXY_MONEY_RAIL_PROVIDER_ID.trim()
+      : "stub_default";
+  const moneyRailAdapters = createMoneyRailAdapterRegistry({
+    adapters: [createInMemoryMoneyRailAdapter({ providerId: defaultMoneyRailProviderId, now: nowIso })]
+  });
+
+  try {
+    if (!store.moneyRailAdapters || typeof store.moneyRailAdapters !== "object") {
+      store.moneyRailAdapters = moneyRailAdapters;
+    }
+  } catch {
+    // ignore
   }
 
   const metrics = store?.metrics && typeof store.metrics.incCounter === "function" ? store.metrics : createMetrics();
@@ -926,8 +999,111 @@ export function createApi({
     return makeScopedKey({ tenantId: normalizeTenant(tenantId), id: operatorId });
   }
 
+  function runStoreKey(tenantId, runId) {
+    return makeScopedKey({ tenantId: normalizeTenant(tenantId), id: runId });
+  }
+
+  function taskStoreKey(tenantId, taskId) {
+    return makeScopedKey({ tenantId: normalizeTenant(tenantId), id: taskId });
+  }
+
   function monthStoreKey(tenantId, monthId) {
     return makeScopedKey({ tenantId: normalizeTenant(tenantId), id: monthId });
+  }
+
+  function getMoneyRailAdapter(providerId) {
+    const normalizedProviderId = typeof providerId === "string" && providerId.trim() !== "" ? providerId.trim() : defaultMoneyRailProviderId;
+    return moneyRailAdapters.get(normalizedProviderId) ?? null;
+  }
+
+  function syncEscrowLedgerWalletSnapshot({ ledgerState, tenantId, wallet }) {
+    if (!wallet || typeof wallet !== "object") return;
+    const walletId = typeof wallet.walletId === "string" && wallet.walletId.trim() !== "" ? wallet.walletId.trim() : `wallet_${String(wallet.agentId ?? "")}`;
+    if (!walletId || walletId === "wallet_") return;
+    upsertEscrowLedgerWalletBalances({
+      state: ledgerState,
+      tenantId: normalizeTenant(tenantId),
+      walletId,
+      availableCents: Number(wallet.availableCents ?? 0),
+      escrowLockedCents: Number(wallet.escrowLockedCents ?? 0)
+    });
+  }
+
+  function assertEscrowLedgerMatchesWallet({ ledgerState, tenantId, wallet, contextLabel }) {
+    if (!wallet || typeof wallet !== "object") return;
+    const walletId = typeof wallet.walletId === "string" && wallet.walletId.trim() !== "" ? wallet.walletId.trim() : `wallet_${String(wallet.agentId ?? "")}`;
+    if (!walletId || walletId === "wallet_") return;
+    const accountAvailable = walletAvailableAccountId({ tenantId: normalizeTenant(tenantId), walletId });
+    const accountEscrow = walletEscrowAccountId({ tenantId: normalizeTenant(tenantId), walletId });
+    const ledgerAvailable = getEscrowLedgerBalance({ state: ledgerState, accountId: accountAvailable });
+    const ledgerEscrowLocked = getEscrowLedgerBalance({ state: ledgerState, accountId: accountEscrow });
+    const walletAvailable = Number(wallet.availableCents ?? 0);
+    const walletEscrowLocked = Number(wallet.escrowLockedCents ?? 0);
+    if (ledgerAvailable !== walletAvailable || ledgerEscrowLocked !== walletEscrowLocked) {
+      const err = new Error(`escrow ledger projection mismatch (${contextLabel})`);
+      err.code = "ESCROW_LEDGER_MISMATCH";
+      err.details = {
+        walletId,
+        contextLabel,
+        ledgerAvailable,
+        ledgerEscrowLocked,
+        walletAvailable,
+        walletEscrowLocked
+      };
+      throw err;
+    }
+  }
+
+  function projectEscrowLedgerOperation({
+    tenantId,
+    settlement,
+    operationId,
+    type,
+    amountCents,
+    at,
+    payerWalletBefore = null,
+    payerWalletAfter = null,
+    payeeWalletBefore = null,
+    payeeWalletAfter = null,
+    memo = null
+  }) {
+    const cents = Number(amountCents ?? 0);
+    if (!Number.isSafeInteger(cents) || cents <= 0) return null;
+    const normalizedCurrency = typeof settlement?.currency === "string" && settlement.currency.trim() !== "" ? settlement.currency.trim() : "USD";
+    const ledgerState = createEscrowLedger({ currency: normalizedCurrency });
+    syncEscrowLedgerWalletSnapshot({ ledgerState, tenantId, wallet: payerWalletBefore ?? payerWalletAfter });
+    if (type === ESCROW_OPERATION_TYPE.RELEASE) {
+      syncEscrowLedgerWalletSnapshot({ ledgerState, tenantId, wallet: payeeWalletBefore ?? payeeWalletAfter });
+    }
+    const input = {
+      operationId,
+      tenantId: normalizeTenant(tenantId),
+      type,
+      payerWalletId: (payerWalletAfter ?? payerWalletBefore)?.walletId ?? `wallet_${String(settlement?.payerAgentId ?? "")}`,
+      payeeWalletId:
+        type === ESCROW_OPERATION_TYPE.RELEASE
+          ? (payeeWalletAfter ?? payeeWalletBefore)?.walletId ?? `wallet_${String(settlement?.agentId ?? "")}`
+          : null,
+      amountCents: cents,
+      at,
+      memo
+    };
+    const applied = applyEscrowOperation({ state: ledgerState, input });
+    assertEscrowLedgerMatchesWallet({
+      ledgerState,
+      tenantId,
+      wallet: payerWalletAfter ?? payerWalletBefore,
+      contextLabel: `${String(type)}:payer`
+    });
+    if (type === ESCROW_OPERATION_TYPE.RELEASE) {
+      assertEscrowLedgerMatchesWallet({
+        ledgerState,
+        tenantId,
+        wallet: payeeWalletAfter ?? payeeWalletBefore,
+        contextLabel: `${String(type)}:payee`
+      });
+    }
+    return applied?.operation ?? null;
   }
 
   function getTenantConfig(tenantId) {
@@ -3726,6 +3902,669 @@ export function createApi({
     return robots;
   }
 
+  function listAgentIdentities({ tenantId, status = null } = {}) {
+    const t = normalizeTenant(tenantId);
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const agents = [];
+    if (!(store.agentIdentities instanceof Map)) return agents;
+    for (const row of store.agentIdentities.values()) {
+      if (!row || typeof row !== "object") continue;
+      const rowTenant = normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID);
+      if (rowTenant !== t) continue;
+      if (statusFilter !== null && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      agents.push(row);
+    }
+    agents.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
+    return agents;
+  }
+
+  function listAgentRuns({ tenantId, agentId = null, status = null } = {}) {
+    const t = normalizeTenant(tenantId);
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const runs = [];
+    if (!(store.agentRuns instanceof Map)) return runs;
+    for (const row of store.agentRuns.values()) {
+      if (!row || typeof row !== "object") continue;
+      const rowTenant = normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID);
+      if (rowTenant !== t) continue;
+      if (agentId !== null && String(row.agentId ?? "") !== String(agentId)) continue;
+      if (statusFilter !== null && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      runs.push(row);
+    }
+    runs.sort((left, right) => String(left.runId ?? "").localeCompare(String(right.runId ?? "")));
+    return runs;
+  }
+
+  async function listAgentRunSettlementsForRuns({ tenantId, runs = [] } = {}) {
+    const t = normalizeTenant(tenantId);
+    const out = [];
+    if (!Array.isArray(runs) || runs.length === 0) return out;
+    for (const run of runs) {
+      const runId = run?.runId;
+      if (typeof runId !== "string" || runId.trim() === "") continue;
+      try {
+        const settlement = await getAgentRunSettlementRecord({ tenantId: t, runId });
+        if (settlement && typeof settlement === "object" && !Array.isArray(settlement)) out.push(settlement);
+      } catch {
+        // Ignore unsupported settlement store or missing record.
+      }
+    }
+    return out;
+  }
+
+  function parseReputationVersion(rawValue) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return "v1";
+    const value = String(rawValue).trim().toLowerCase();
+    if (value !== "v1" && value !== "v2") throw new TypeError("reputationVersion must be v1 or v2");
+    return value;
+  }
+
+  function parseReputationWindow(rawValue) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return AGENT_REPUTATION_WINDOW.THIRTY_DAYS;
+    const value = String(rawValue).trim();
+    if (!Object.values(AGENT_REPUTATION_WINDOW).includes(value)) throw new TypeError("reputationWindow must be one of 7d|30d|allTime");
+    return value;
+  }
+
+  function parseDiscoveryStatus(rawValue) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return "active";
+    const value = String(rawValue).trim().toLowerCase();
+    if (value !== "active" && value !== "suspended" && value !== "revoked" && value !== "all") {
+      throw new TypeError("status must be active|suspended|revoked|all");
+    }
+    return value;
+  }
+
+  function parseScoreStrategy(rawValue) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return "balanced";
+    const value = String(rawValue).trim().toLowerCase();
+    if (value !== "balanced" && value !== "recent_bias") throw new TypeError("scoreStrategy must be balanced|recent_bias");
+    return value;
+  }
+
+  function computeMarketplaceRankingScore({ reputation, strategy = "balanced", reputationVersion = "v2", reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS } = {}) {
+    const baseScore = Number(reputation?.trustScore ?? 0);
+    if (strategy !== "recent_bias") return Math.max(0, Math.min(100, baseScore));
+
+    if (reputationVersion !== "v2") return Math.max(0, Math.min(100, baseScore));
+    const recentWindow = reputation?.windows?.[AGENT_REPUTATION_WINDOW.SEVEN_DAYS];
+    const selectedWindow = reputation?.windows?.[reputationWindow];
+    const recentScore = Number(recentWindow?.trustScore ?? baseScore);
+    const selectedScore = Number(selectedWindow?.trustScore ?? baseScore);
+    const blended = Math.round(recentScore * 0.7 + selectedScore * 0.3);
+    return Math.max(0, Math.min(100, blended));
+  }
+
+  async function computeAgentReputationSnapshotVersioned({ tenantId, agentId, at = nowIso(), reputationVersion = "v1", reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS } = {}) {
+    const t = normalizeTenant(tenantId);
+    const a = String(agentId ?? "");
+    if (a.trim() === "") throw new TypeError("agentId is required");
+    const version = parseReputationVersion(reputationVersion);
+    const window = parseReputationWindow(reputationWindow);
+
+    let runs = [];
+    if (typeof store.listAgentRuns === "function") {
+      try {
+        const pagedRuns = [];
+        const pageSize = 1000;
+        let offset = 0;
+        let page = 0;
+        while (page < 200) {
+          page += 1;
+          const batch = await store.listAgentRuns({ tenantId: t, agentId: a, status: null, limit: pageSize, offset });
+          if (!Array.isArray(batch) || batch.length === 0) break;
+          pagedRuns.push(...batch);
+          if (batch.length < pageSize) break;
+          offset += batch.length;
+        }
+        runs = pagedRuns;
+      } catch {
+        runs = [];
+      }
+    } else {
+      runs = listAgentRuns({ tenantId: t, agentId: a, status: null });
+    }
+
+    const settlements = await listAgentRunSettlementsForRuns({ tenantId: t, runs });
+    if (version === "v2") {
+      return computeAgentReputationV2({
+        tenantId: t,
+        agentId: a,
+        runs,
+        settlements,
+        at,
+        primaryWindow: window
+      });
+    }
+    return computeAgentReputation({ tenantId: t, agentId: a, runs, settlements, at });
+  }
+
+  async function searchMarketplaceAgents({
+    tenantId,
+    capability = null,
+    status = "active",
+    minTrustScore = null,
+    riskTier = null,
+    limit = 50,
+    offset = 0,
+    includeReputation = true,
+    reputationVersion = "v2",
+    reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+    scoreStrategy = "balanced"
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(100, limit) : 50;
+    const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+    const statusFilter = parseDiscoveryStatus(status);
+    const version = parseReputationVersion(reputationVersion);
+    const window = parseReputationWindow(reputationWindow);
+    const rankingStrategy = parseScoreStrategy(scoreStrategy);
+
+    const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const minScore = minTrustScore === null || minTrustScore === undefined ? null : Number(minTrustScore);
+    if (minScore !== null && (!Number.isSafeInteger(minScore) || minScore < 0 || minScore > 100)) {
+      throw new TypeError("minTrustScore must be an integer within 0..100");
+    }
+    const riskTierFilter = riskTier === null || riskTier === undefined ? null : String(riskTier).trim().toLowerCase();
+    if (riskTierFilter !== null && riskTierFilter !== "low" && riskTierFilter !== "guarded" && riskTierFilter !== "elevated" && riskTierFilter !== "high") {
+      throw new TypeError("riskTier must be low|guarded|elevated|high");
+    }
+
+    let agents;
+    if (typeof store.listAgentIdentities === "function") {
+      agents = await store.listAgentIdentities({ tenantId: t, status: statusFilter === "all" ? null : statusFilter, limit: 10_000, offset: 0 });
+    } else {
+      agents = listAgentIdentities({ tenantId: t, status: statusFilter === "all" ? null : statusFilter });
+    }
+
+    if (capabilityFilter) {
+      agents = agents.filter((agentIdentity) => Array.isArray(agentIdentity?.capabilities) && agentIdentity.capabilities.includes(capabilityFilter));
+    }
+
+    const ranked = [];
+    for (const agentIdentity of agents) {
+      const agentId = String(agentIdentity?.agentId ?? "");
+      if (!agentId) continue;
+      const reputation = await computeAgentReputationSnapshotVersioned({
+        tenantId: t,
+        agentId,
+        at: nowIso(),
+        reputationVersion: version,
+        reputationWindow: window
+      });
+      const trustScore = Number(reputation?.trustScore ?? 0);
+      const riskTierValue = String(reputation?.riskTier ?? "high");
+      if (minScore !== null && trustScore < minScore) continue;
+      if (riskTierFilter !== null && riskTierValue !== riskTierFilter) continue;
+      const runVolume =
+        version === "v2" ? Number(reputation?.windows?.[window]?.totalRuns ?? 0) : Number(reputation?.totalRuns ?? 0);
+      const rankingScore = computeMarketplaceRankingScore({
+        reputation,
+        strategy: rankingStrategy,
+        reputationVersion: version,
+        reputationWindow: window
+      });
+      ranked.push({
+        agentIdentity,
+        reputation,
+        trustScore,
+        riskTier: riskTierValue,
+        runVolume,
+        rankingScore
+      });
+    }
+
+    ranked.sort((left, right) => {
+      if (right.rankingScore !== left.rankingScore) return right.rankingScore - left.rankingScore;
+      if (right.trustScore !== left.trustScore) return right.trustScore - left.trustScore;
+      if (right.runVolume !== left.runVolume) return right.runVolume - left.runVolume;
+      return String(left.agentIdentity?.agentId ?? "").localeCompare(String(right.agentIdentity?.agentId ?? ""));
+    });
+
+    const total = ranked.length;
+    const paged = ranked.slice(safeOffset, safeOffset + safeLimit);
+    const results = paged.map((entry, index) => {
+      const item = {
+        rank: safeOffset + index + 1,
+        rankingScore: entry.rankingScore,
+        riskTier: entry.riskTier,
+        agentIdentity: entry.agentIdentity
+      };
+      if (includeReputation) item.reputation = entry.reputation;
+      return item;
+    });
+
+    return {
+      reputationVersion: version,
+      reputationWindow: window,
+      scoreStrategy: rankingStrategy,
+      total,
+      limit: safeLimit,
+      offset: safeOffset,
+      results
+    };
+  }
+
+  function parseMarketplaceTaskStatus(rawValue, { allowAll = true, defaultStatus = "all" } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultStatus;
+    const value = String(rawValue).trim().toLowerCase();
+    if (value === "open" || value === "assigned" || value === "cancelled" || value === "closed") return value;
+    if (allowAll && value === "all") return value;
+    throw new TypeError("status must be open|assigned|cancelled|closed|all");
+  }
+
+  function parseMarketplaceBidStatus(rawValue, { allowAll = true, defaultStatus = "all" } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultStatus;
+    const value = String(rawValue).trim().toLowerCase();
+    if (value === "pending" || value === "accepted" || value === "rejected") return value;
+    if (allowAll && value === "all") return value;
+    throw new TypeError("status must be pending|accepted|rejected|all");
+  }
+
+  function parseInteractionDirection({
+    fromTypeRaw,
+    toTypeRaw,
+    defaultFromType = "agent",
+    defaultToType = "agent"
+  } = {}) {
+    return normalizeInteractionDirection({
+      fromType: fromTypeRaw,
+      toType: toTypeRaw,
+      defaultFromType,
+      defaultToType
+    });
+  }
+
+  const MARKETPLACE_POLICY_REF_SCHEMA_VERSION = "MarketplaceSettlementPolicyRef.v1";
+  const TENANT_SETTLEMENT_POLICY_SCHEMA_VERSION = "TenantSettlementPolicy.v1";
+  const MARKETPLACE_BID_ACCEPTANCE_SCHEMA_VERSION = "MarketplaceBidAcceptance.v1";
+  const MARKETPLACE_AGREEMENT_ACCEPTANCE_SCHEMA_VERSION = "MarketplaceAgreementAcceptance.v1";
+  const MARKETPLACE_AGREEMENT_ACCEPTANCE_SIGNATURE_SCHEMA_VERSION = "MarketplaceAgreementAcceptanceSignature.v1";
+  const MARKETPLACE_AGREEMENT_CHANGE_ORDER_ACCEPTANCE_SIGNATURE_SCHEMA_VERSION =
+    "MarketplaceAgreementChangeOrderAcceptanceSignature.v1";
+  const MARKETPLACE_AGREEMENT_CANCELLATION_ACCEPTANCE_SIGNATURE_SCHEMA_VERSION =
+    "MarketplaceAgreementCancellationAcceptanceSignature.v1";
+  const MARKETPLACE_AGREEMENT_POLICY_BINDING_SCHEMA_VERSION = "MarketplaceAgreementPolicyBinding.v1";
+  const AGENT_DELEGATION_LINK_SCHEMA_VERSION = "AgentDelegationLink.v1";
+  const AGENT_ACTING_ON_BEHALF_OF_SCHEMA_VERSION = "AgentActingOnBehalfOf.v1";
+  const MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_ACCEPT = "marketplace.agreement.accept";
+  const MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_CHANGE_ORDER = "marketplace.agreement.change_order";
+  const MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_CANCEL = "marketplace.agreement.cancel";
+
+  function parseSettlementPolicyRegistryId(rawValue, { fieldPath = "policyId", allowNull = false } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const value = String(rawValue).trim();
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(value)) {
+      throw new TypeError(`${fieldPath} must match /^[A-Za-z0-9._:-]{1,128}$/`);
+    }
+    return value;
+  }
+
+  function parseSettlementPolicyVersion(rawValue, { fieldPath = "policyVersion", allowNull = false } = {}) {
+    if (rawValue === null || rawValue === undefined || rawValue === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const value = Number(rawValue);
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      throw new TypeError(`${fieldPath} must be a positive safe integer`);
+    }
+    return value;
+  }
+
+  function normalizeOptionalHashInput(rawValue, fieldPath) {
+    if (rawValue === null || rawValue === undefined || rawValue === "") return null;
+    if (typeof rawValue !== "string" || rawValue.trim() === "") {
+      throw new TypeError(`${fieldPath} must be a non-empty string`);
+    }
+    return rawValue.trim().toLowerCase();
+  }
+
+  function normalizeSha256HashInput(rawValue, fieldPath, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || rawValue === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    if (typeof rawValue !== "string") throw new TypeError(`${fieldPath} must be a sha256 hex string`);
+    const value = rawValue.trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(value)) throw new TypeError(`${fieldPath} must match /^[0-9a-f]{64}$/`);
+    return value;
+  }
+
+  function tenantSettlementPolicyStoreKey({ tenantId, policyId, policyVersion }) {
+    return makeScopedKey({
+      tenantId: normalizeTenant(tenantId),
+      id: `${parseSettlementPolicyRegistryId(policyId, { fieldPath: "policyId" })}::${parseSettlementPolicyVersion(policyVersion, {
+        fieldPath: "policyVersion"
+      })}`
+    });
+  }
+
+  function parseSettlementPolicyRefInput(input, { fieldPath = "policyRef", allowNull = true } = {}) {
+    if (input === null || input === undefined) {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    if (typeof input !== "object" || Array.isArray(input)) {
+      throw new TypeError(`${fieldPath} must be an object`);
+    }
+    const source =
+      typeof input.source === "string" && input.source.trim() !== "" ? String(input.source).trim().toLowerCase() : "tenant_registry";
+    if (source !== "tenant_registry" && source !== "inline") {
+      throw new TypeError(`${fieldPath}.source must be tenant_registry|inline`);
+    }
+    const policyId = parseSettlementPolicyRegistryId(input.policyId, {
+      fieldPath: `${fieldPath}.policyId`,
+      allowNull: source === "inline"
+    });
+    const policyVersion = parseSettlementPolicyVersion(input.policyVersion, { fieldPath: `${fieldPath}.policyVersion` });
+    return {
+      schemaVersion: MARKETPLACE_POLICY_REF_SCHEMA_VERSION,
+      source,
+      policyId,
+      policyVersion,
+      policyHash: normalizeOptionalHashInput(input.policyHash, `${fieldPath}.policyHash`),
+      verificationMethodHash: normalizeOptionalHashInput(input.verificationMethodHash, `${fieldPath}.verificationMethodHash`)
+    };
+  }
+
+  function listTenantSettlementPolicyRecords({
+    tenantId,
+    policyId = null
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    const policyIdFilter =
+      policyId === null || policyId === undefined || String(policyId).trim() === ""
+        ? null
+        : parseSettlementPolicyRegistryId(policyId, { fieldPath: "policyId" });
+    const rows = [];
+    if (!(store.tenantSettlementPolicies instanceof Map)) return rows;
+    for (const row of store.tenantSettlementPolicies.values()) {
+      if (!row || typeof row !== "object") continue;
+      const rowTenant = normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID);
+      if (rowTenant !== t) continue;
+      if (policyIdFilter && String(row.policyId ?? "") !== policyIdFilter) continue;
+      rows.push(row);
+    }
+    rows.sort((left, right) => {
+      const leftAt = Date.parse(String(left.updatedAt ?? ""));
+      const rightAt = Date.parse(String(right.updatedAt ?? ""));
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      const policyIdOrder = String(left.policyId ?? "").localeCompare(String(right.policyId ?? ""));
+      if (policyIdOrder !== 0) return policyIdOrder;
+      return Number(right.policyVersion ?? 0) - Number(left.policyVersion ?? 0);
+    });
+    return rows;
+  }
+
+  function getTenantSettlementPolicyRecord({ tenantId, policyId, policyVersion }) {
+    if (!(store.tenantSettlementPolicies instanceof Map)) return null;
+    return store.tenantSettlementPolicies.get(tenantSettlementPolicyStoreKey({ tenantId, policyId, policyVersion })) ?? null;
+  }
+
+  function resolveMarketplaceSettlementPolicySelection({
+    tenantId,
+    policyRefInput = null,
+    verificationMethodInput = undefined,
+    settlementPolicyInput = undefined,
+    fallbackVerificationMethodInput = undefined,
+    fallbackSettlementPolicyInput = undefined
+  } = {}) {
+    const parsedRef = parseSettlementPolicyRefInput(policyRefInput, { allowNull: true });
+    let explicitVerificationMethod = undefined;
+    if (verificationMethodInput !== undefined) {
+      try {
+        explicitVerificationMethod = parseVerificationMethodInput(verificationMethodInput ?? null);
+      } catch (err) {
+        err.code = err?.code ?? "INVALID_VERIFICATION_METHOD";
+        throw err;
+      }
+    }
+    let explicitPolicy = undefined;
+    if (settlementPolicyInput !== undefined) {
+      try {
+        explicitPolicy = parseSettlementPolicyInput(settlementPolicyInput ?? null);
+      } catch (err) {
+        err.code = err?.code ?? "INVALID_SETTLEMENT_POLICY";
+        throw err;
+      }
+    }
+
+    if (parsedRef && parsedRef.source === "tenant_registry") {
+      const policyRecord = getTenantSettlementPolicyRecord({
+        tenantId,
+        policyId: parsedRef.policyId,
+        policyVersion: parsedRef.policyVersion
+      });
+      if (!policyRecord) {
+        const err = new Error("policyRef not found in tenant settlement policy registry");
+        err.code = "TENANT_SETTLEMENT_POLICY_NOT_FOUND";
+        throw err;
+      }
+      if (parsedRef.policyHash && parsedRef.policyHash !== String(policyRecord.policyHash ?? "").toLowerCase()) {
+        const err = new Error("policyRef.policyHash does not match tenant registry");
+        err.code = "TENANT_SETTLEMENT_POLICY_REF_MISMATCH";
+        throw err;
+      }
+      if (
+        parsedRef.verificationMethodHash &&
+        parsedRef.verificationMethodHash !== String(policyRecord.verificationMethodHash ?? "").toLowerCase()
+      ) {
+        const err = new Error("policyRef.verificationMethodHash does not match tenant registry");
+        err.code = "TENANT_SETTLEMENT_POLICY_REF_MISMATCH";
+        throw err;
+      }
+      if (explicitPolicy && explicitPolicy.policyHash !== policyRecord.policyHash) {
+        const err = new Error("policy payload does not match policyRef");
+        err.code = "TENANT_SETTLEMENT_POLICY_REF_MISMATCH";
+        throw err;
+      }
+      if (explicitVerificationMethod && computeVerificationMethodHash(explicitVerificationMethod) !== policyRecord.verificationMethodHash) {
+        const err = new Error("verificationMethod payload does not match policyRef");
+        err.code = "TENANT_SETTLEMENT_POLICY_REF_MISMATCH";
+        throw err;
+      }
+      return {
+        verificationMethod: policyRecord.verificationMethod,
+        policy: policyRecord.policy,
+        policyRef: normalizeForCanonicalJson(
+          {
+            schemaVersion: MARKETPLACE_POLICY_REF_SCHEMA_VERSION,
+            source: "tenant_registry",
+            policyId: policyRecord.policyId,
+            policyVersion: policyRecord.policyVersion,
+            policyHash: policyRecord.policyHash,
+            verificationMethodHash: policyRecord.verificationMethodHash
+          },
+          { path: "$" }
+        )
+      };
+    }
+
+    let verificationMethod = explicitVerificationMethod;
+    if (verificationMethod === undefined) {
+      try {
+        verificationMethod =
+          fallbackVerificationMethodInput !== undefined
+            ? parseVerificationMethodInput(fallbackVerificationMethodInput ?? null)
+            : parseVerificationMethodInput(null);
+      } catch (err) {
+        err.code = err?.code ?? "INVALID_VERIFICATION_METHOD";
+        throw err;
+      }
+    }
+    let policy = explicitPolicy;
+    if (policy === undefined) {
+      try {
+        policy =
+          fallbackSettlementPolicyInput !== undefined
+            ? parseSettlementPolicyInput(fallbackSettlementPolicyInput ?? null)
+            : parseSettlementPolicyInput(null);
+      } catch (err) {
+        err.code = err?.code ?? "INVALID_SETTLEMENT_POLICY";
+        throw err;
+      }
+    }
+    const verificationMethodHash = computeVerificationMethodHash(verificationMethod);
+    const policyRef = normalizeForCanonicalJson(
+      {
+        schemaVersion: MARKETPLACE_POLICY_REF_SCHEMA_VERSION,
+        source: "inline",
+        policyId: null,
+        policyVersion: Number(policy.policyVersion ?? 1),
+        policyHash: policy.policyHash,
+        verificationMethodHash
+      },
+      { path: "$" }
+    );
+    return { verificationMethod, policy, policyRef };
+  }
+
+  function resolveAgreementPolicyMaterial({ tenantId, agreement }) {
+    const agreementObj = agreement && typeof agreement === "object" && !Array.isArray(agreement) ? agreement : null;
+    let policyRef = null;
+    if (agreementObj?.policyRef && typeof agreementObj.policyRef === "object" && !Array.isArray(agreementObj.policyRef)) {
+      try {
+        policyRef = parseSettlementPolicyRefInput(agreementObj.policyRef, { allowNull: true });
+      } catch {
+        policyRef = null;
+      }
+    }
+    let policy =
+      agreementObj?.policy && typeof agreementObj.policy === "object" && !Array.isArray(agreementObj.policy) ? agreementObj.policy : null;
+    let verificationMethod =
+      agreementObj?.verificationMethod && typeof agreementObj.verificationMethod === "object" && !Array.isArray(agreementObj.verificationMethod)
+        ? agreementObj.verificationMethod
+        : null;
+
+    if ((!policy || !verificationMethod) && policyRef?.source === "tenant_registry" && policyRef.policyId) {
+      const registryRecord = getTenantSettlementPolicyRecord({
+        tenantId,
+        policyId: policyRef.policyId,
+        policyVersion: policyRef.policyVersion
+      });
+      if (registryRecord) {
+        if (!policy) policy = registryRecord.policy;
+        if (!verificationMethod) verificationMethod = registryRecord.verificationMethod;
+      }
+    }
+
+    const policyHash =
+      agreementObj?.policyHash ??
+      (policy && typeof policy.policyHash === "string" ? policy.policyHash : null) ??
+      policyRef?.policyHash ??
+      null;
+    const verificationMethodHash =
+      agreementObj?.verificationMethodHash ??
+      (verificationMethod ? computeVerificationMethodHash(verificationMethod) : null) ??
+      policyRef?.verificationMethodHash ??
+      null;
+    const policyVersion =
+      (policy && Number.isSafeInteger(Number(policy.policyVersion)) ? Number(policy.policyVersion) : null) ??
+      (policyRef && Number.isSafeInteger(Number(policyRef.policyVersion)) ? Number(policyRef.policyVersion) : null);
+    return {
+      policy,
+      verificationMethod,
+      policyRef,
+      policyHash,
+      verificationMethodHash,
+      policyVersion
+    };
+  }
+
+  function parsePagination({ limitRaw, offsetRaw, defaultLimit = 50, maxLimit = 200 } = {}) {
+    const limit = limitRaw === null || limitRaw === undefined || String(limitRaw).trim() === "" ? defaultLimit : Number(limitRaw);
+    const offset = offsetRaw === null || offsetRaw === undefined || String(offsetRaw).trim() === "" ? 0 : Number(offsetRaw);
+    const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(maxLimit, limit) : defaultLimit;
+    const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+    return { limit: safeLimit, offset: safeOffset };
+  }
+
+  function listMarketplaceTasks({
+    tenantId,
+    status = "all",
+    capability = null,
+    posterAgentId = null
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    const statusFilter = parseMarketplaceTaskStatus(status, { allowAll: true, defaultStatus: "all" });
+    const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const posterFilter = posterAgentId && String(posterAgentId).trim() !== "" ? String(posterAgentId).trim() : null;
+
+    const rows = [];
+    if (!(store.marketplaceTasks instanceof Map)) return rows;
+    for (const row of store.marketplaceTasks.values()) {
+      if (!row || typeof row !== "object") continue;
+      const rowTenant = normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID);
+      if (rowTenant !== t) continue;
+      const rowStatus = String(row.status ?? "open").toLowerCase();
+      if (statusFilter !== "all" && rowStatus !== statusFilter) continue;
+      if (capabilityFilter && String(row.capability ?? "") !== capabilityFilter) continue;
+      if (posterFilter && String(row.posterAgentId ?? "") !== posterFilter) continue;
+      rows.push(row);
+    }
+
+    rows.sort((left, right) => {
+      const leftAt = Date.parse(String(left.createdAt ?? ""));
+      const rightAt = Date.parse(String(right.createdAt ?? ""));
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left.taskId ?? "").localeCompare(String(right.taskId ?? ""));
+    });
+    return rows;
+  }
+
+  function getMarketplaceTask({ tenantId, taskId }) {
+    if (!(store.marketplaceTasks instanceof Map)) return null;
+    return store.marketplaceTasks.get(taskStoreKey(tenantId, taskId)) ?? null;
+  }
+
+  function findMarketplaceTaskByRunId({ tenantId, runId }) {
+    if (!(store.marketplaceTasks instanceof Map)) return null;
+    const t = normalizeTenant(tenantId);
+    for (const task of store.marketplaceTasks.values()) {
+      if (!task || typeof task !== "object") continue;
+      if (normalizeTenant(task.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
+      if (String(task.runId ?? "") !== String(runId)) continue;
+      return task;
+    }
+    return null;
+  }
+
+  function listMarketplaceTaskBids({
+    tenantId,
+    taskId,
+    status = "all",
+    bidderAgentId = null
+  } = {}) {
+    const statusFilter = parseMarketplaceBidStatus(status, { allowAll: true, defaultStatus: "all" });
+    const bidderFilter = bidderAgentId && String(bidderAgentId).trim() !== "" ? String(bidderAgentId).trim() : null;
+
+    if (!(store.marketplaceTaskBids instanceof Map)) return [];
+    const rows = store.marketplaceTaskBids.get(taskStoreKey(tenantId, taskId));
+    const all = Array.isArray(rows) ? rows : [];
+    const filtered = [];
+    for (const row of all) {
+      if (!row || typeof row !== "object") continue;
+      const rowStatus = String(row.status ?? "pending").toLowerCase();
+      if (statusFilter !== "all" && rowStatus !== statusFilter) continue;
+      if (bidderFilter && String(row.bidderAgentId ?? "") !== bidderFilter) continue;
+      filtered.push(row);
+    }
+    filtered.sort((left, right) => {
+      const leftAmount = Number(left.amountCents ?? Number.MAX_SAFE_INTEGER);
+      const rightAmount = Number(right.amountCents ?? Number.MAX_SAFE_INTEGER);
+      if (Number.isFinite(leftAmount) && Number.isFinite(rightAmount) && leftAmount !== rightAmount) return leftAmount - rightAmount;
+      const leftAt = Date.parse(String(left.createdAt ?? ""));
+      const rightAt = Date.parse(String(right.createdAt ?? ""));
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && leftAt !== rightAt) return leftAt - rightAt;
+      return String(left.bidId ?? "").localeCompare(String(right.bidId ?? ""));
+    });
+    return filtered;
+  }
+
   function listOperators({ tenantId } = {}) {
     const t = normalizeTenant(tenantId);
     const operators = [];
@@ -3757,12 +4596,43 @@ export function createApi({
     return store.jobEvents.get(jobStoreKey(tenantId, jobId)) ?? [];
   }
 
+  async function getJobEventsFresh(tenantId, jobId, { force = false } = {}) {
+    let events = force ? [] : getJobEvents(tenantId, jobId);
+    if ((force || !events.length) && typeof store.listAggregateEvents === "function") {
+      try {
+        events = await store.listAggregateEvents({ tenantId, aggregateType: "job", aggregateId: String(jobId) });
+        if (Array.isArray(events) && events.length) setJobEvents(tenantId, jobId, events);
+      } catch {
+        events = [];
+      }
+    }
+    return Array.isArray(events) ? events : [];
+  }
+
   function setJobEvents(tenantId, jobId, events) {
     store.jobEvents.set(jobStoreKey(tenantId, jobId), events);
   }
 
   function getRobotEvents(tenantId, robotId) {
     return store.robotEvents.get(robotStoreKey(tenantId, robotId)) ?? [];
+  }
+
+  async function getRobotFresh(tenantId, robotId) {
+    const key = robotStoreKey(tenantId, robotId);
+    let robot = store.robots.get(key) ?? null;
+    if (!robot && typeof store.listAggregateEvents === "function") {
+      try {
+        const events = await store.listAggregateEvents({ tenantId, aggregateType: "robot", aggregateId: String(robotId) });
+        if (Array.isArray(events) && events.length) {
+          setRobotEvents(tenantId, robotId, events);
+          robot = reduceRobot(events);
+          if (robot) store.robots.set(key, robot);
+        }
+      } catch {
+        robot = null;
+      }
+    }
+    return robot;
   }
 
   function setRobotEvents(tenantId, robotId, events) {
@@ -3773,8 +4643,2664 @@ export function createApi({
     return store.operatorEvents.get(operatorStoreKey(tenantId, operatorId)) ?? [];
   }
 
+  async function getOperatorFresh(tenantId, operatorId) {
+    const key = operatorStoreKey(tenantId, operatorId);
+    let operator = store.operators.get(key) ?? null;
+    if (!operator && typeof store.listAggregateEvents === "function") {
+      try {
+        const events = await store.listAggregateEvents({ tenantId, aggregateType: "operator", aggregateId: String(operatorId) });
+        if (Array.isArray(events) && events.length) {
+          setOperatorEvents(tenantId, operatorId, events);
+          operator = reduceOperator(events);
+          if (operator) store.operators.set(key, operator);
+        }
+      } catch {
+        operator = null;
+      }
+    }
+    return operator;
+  }
+
   function setOperatorEvents(tenantId, operatorId, events) {
     store.operatorEvents.set(operatorStoreKey(tenantId, operatorId), events);
+  }
+
+  async function ensureSignerContextFresh({ tenantId, event } = {}) {
+    const t = normalizeTenant(tenantId);
+    if (!event || typeof event !== "object" || Array.isArray(event)) return;
+
+    const actorType = event?.actor?.type;
+    const actorId = typeof event?.actor?.id === "string" && event.actor.id.trim() ? event.actor.id : null;
+    if (actorType === "robot" && actorId) await getRobotFresh(t, actorId);
+    if (actorType === "operator" && actorId) await getOperatorFresh(t, actorId);
+
+    const signerKeyId = typeof event?.signerKeyId === "string" && event.signerKeyId.trim() ? event.signerKeyId : null;
+    if (!signerKeyId) return;
+
+    const signerMapKey = makeScopedKey({ tenantId: t, id: signerKeyId });
+    const hasSignerKey = store.signerKeys?.get?.(signerMapKey) ?? null;
+    const hasPublicKey = store.publicKeyByKeyId?.get?.(signerKeyId) ?? null;
+    if (hasSignerKey && hasPublicKey) return;
+
+    if (typeof store.getSignerKey === "function") {
+      try {
+        const signerKey = await store.getSignerKey({ tenantId: t, keyId: signerKeyId });
+        if (signerKey && store.signerKeys instanceof Map) {
+          store.signerKeys.set(signerMapKey, signerKey);
+        }
+        if (signerKey?.publicKeyPem && store.publicKeyByKeyId instanceof Map) {
+          store.publicKeyByKeyId.set(signerKeyId, signerKey.publicKeyPem);
+        }
+      } catch {
+        // Keep local signer context as-is if DB lookup fails.
+      }
+    }
+  }
+
+  function normalizeAgentRunEventRecord(event) {
+    if (!event || typeof event !== "object" || Array.isArray(event)) return event;
+    if (event.schemaVersion === AGENT_RUN_EVENT_SCHEMA_VERSION) return event;
+    return { ...event, schemaVersion: AGENT_RUN_EVENT_SCHEMA_VERSION };
+  }
+
+  function normalizeAgentRunEventRecords(events) {
+    if (!Array.isArray(events)) return [];
+    return events.map(normalizeAgentRunEventRecord);
+  }
+
+  async function getAgentRunEvents(tenantId, runId) {
+    if (typeof store.getAgentRunEvents === "function") {
+      try {
+        const events = await store.getAgentRunEvents({ tenantId, runId });
+        return normalizeAgentRunEventRecords(events);
+      } catch {
+        // Fall through to local projection below.
+      }
+    }
+    return normalizeAgentRunEventRecords(store.agentRunEvents.get(runStoreKey(tenantId, runId)) ?? []);
+  }
+
+  function setAgentRunEvents(tenantId, runId, events) {
+    store.agentRunEvents.set(runStoreKey(tenantId, runId), normalizeAgentRunEventRecords(events));
+  }
+
+  async function getAgentWalletRecord({ tenantId, agentId }) {
+    if (typeof store.getAgentWallet === "function") return store.getAgentWallet({ tenantId, agentId });
+    if (store.agentWallets instanceof Map) return store.agentWallets.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
+    throw new TypeError("agent wallets not supported for this store");
+  }
+
+  async function getAgentIdentityRecord({ tenantId, agentId }) {
+    if (typeof store.getAgentIdentity === "function") return store.getAgentIdentity({ tenantId, agentId });
+    if (store.agentIdentities instanceof Map) return store.agentIdentities.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
+    throw new TypeError("agent identities not supported for this store");
+  }
+
+  async function getAgentRunSettlementRecord({ tenantId, runId }) {
+    if (typeof store.getAgentRunSettlement === "function") return store.getAgentRunSettlement({ tenantId, runId });
+    if (store.agentRunSettlements instanceof Map) return store.agentRunSettlements.get(makeScopedKey({ tenantId, id: String(runId) })) ?? null;
+    throw new TypeError("agent run settlements not supported for this store");
+  }
+
+  function normalizePercentIntOrNull(value) {
+    if (value === null || value === undefined) return null;
+    const n = Number(value);
+    if (!Number.isSafeInteger(n) || n < 0 || n > 100) return null;
+    return n;
+  }
+
+  function resolveRunSettlementReleaseRatePct({ run, verification }) {
+    const metricPct = normalizePercentIntOrNull(run?.metrics?.settlementReleaseRatePct);
+    if (metricPct !== null) return metricPct;
+    const verificationStatus = String(verification?.verificationStatus ?? "").toLowerCase();
+    if (verificationStatus === "green") return 100;
+    if (verificationStatus === "red") return 0;
+    return 50;
+  }
+
+  function parseVerificationMethodInput(input) {
+    try {
+      const raw = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+      const expectedHash =
+        typeof raw.verificationMethodHash === "string" && raw.verificationMethodHash.trim() !== ""
+          ? raw.verificationMethodHash.trim().toLowerCase()
+          : null;
+      const normalized = normalizeVerificationMethod(raw);
+      const computedHash = computeVerificationMethodHash(normalized);
+      if (expectedHash && expectedHash !== computedHash) {
+        throw new TypeError("verificationMethodHash does not match canonical verificationMethod");
+      }
+      return normalized;
+    } catch (err) {
+      const wrapped = new TypeError(`invalid verificationMethod: ${err?.message ?? "unknown error"}`);
+      wrapped.cause = err;
+      throw wrapped;
+    }
+  }
+
+  function parseSettlementPolicyInput(input) {
+    try {
+      const raw = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+      const expectedHash =
+        typeof raw.policyHash === "string" && raw.policyHash.trim() !== ""
+          ? raw.policyHash.trim().toLowerCase()
+          : null;
+      const normalized = normalizeSettlementPolicy(raw);
+      const computedHash = computeSettlementPolicyHash(normalized);
+      if (expectedHash && expectedHash !== computedHash) {
+        throw new TypeError("policyHash does not match canonical policy");
+      }
+      return {
+        ...normalized,
+        policyHash: computedHash
+      };
+    } catch (err) {
+      const wrapped = new TypeError(`invalid policy: ${err?.message ?? "unknown error"}`);
+      wrapped.cause = err;
+      throw wrapped;
+    }
+  }
+
+  function normalizeMarketplaceBidNoteInput(value, { allowNull = true } = {}) {
+    if (value === undefined) return undefined;
+    if (value === null) return allowNull ? null : "";
+    const text = String(value).trim();
+    if (!text) return allowNull ? null : "";
+    return text;
+  }
+
+  function normalizeMarketplaceBidMetadataInput(value, { fieldPath = "metadata", allowUndefined = true } = {}) {
+    if (value === undefined) return allowUndefined ? undefined : null;
+    if (value === null) return null;
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError(`${fieldPath} must be an object or null`);
+    }
+    return { ...value };
+  }
+
+  function normalizeMarketplaceCounterOfferPolicyInput(input, { fieldPath = "counterOfferPolicy" } = {}) {
+    const raw = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+    const readBoolean = (value, path, defaultValue) => {
+      if (value === undefined || value === null || value === "") return defaultValue;
+      if (typeof value !== "boolean") throw new TypeError(`${path} must be boolean`);
+      return value;
+    };
+    const readInt = ({ value, path, min = 0, defaultValue }) => {
+      if (value === undefined || value === null || value === "") return defaultValue;
+      const parsed = Number(value);
+      if (!Number.isSafeInteger(parsed) || parsed < min) throw new TypeError(`${path} must be an integer >= ${min}`);
+      return parsed;
+    };
+
+    const allowPosterCounterOffers = readBoolean(
+      raw.allowPosterCounterOffers ?? raw.allowPoster,
+      `${fieldPath}.allowPosterCounterOffers`,
+      true
+    );
+    const allowBidderCounterOffers = readBoolean(
+      raw.allowBidderCounterOffers ?? raw.allowBidder,
+      `${fieldPath}.allowBidderCounterOffers`,
+      true
+    );
+    if (!allowPosterCounterOffers && !allowBidderCounterOffers) {
+      throw new TypeError(`${fieldPath} must allow at least one proposer role`);
+    }
+
+    const maxRevisions = readInt({
+      value: raw.maxRevisions,
+      path: `${fieldPath}.maxRevisions`,
+      min: 1,
+      defaultValue: 6
+    });
+    const timeoutSeconds = readInt({
+      value: raw.timeoutSeconds,
+      path: `${fieldPath}.timeoutSeconds`,
+      min: 1,
+      defaultValue: 86400
+    });
+
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "MarketplaceCounterOfferPolicy.v1",
+        allowPosterCounterOffers,
+        allowBidderCounterOffers,
+        maxRevisions,
+        timeoutSeconds
+      },
+      { path: "$" }
+    );
+  }
+
+  function resolveMarketplaceBidCounterOfferRole({ task, bid, proposerAgentId }) {
+    const safeProposerAgentId = typeof proposerAgentId === "string" ? proposerAgentId.trim() : "";
+    if (!safeProposerAgentId) return null;
+    const bidderAgentId = typeof bid?.bidderAgentId === "string" ? bid.bidderAgentId.trim() : "";
+    if (safeProposerAgentId === bidderAgentId) return "bidder";
+    const posterAgentId = typeof task?.posterAgentId === "string" ? task.posterAgentId.trim() : "";
+    if (safeProposerAgentId === posterAgentId) return "poster";
+    return null;
+  }
+
+  function resolveMarketplaceCounterOfferPolicy({ task, bid } = {}) {
+    const candidates = [
+      bid?.counterOfferPolicy,
+      bid?.negotiation?.counterOfferPolicy,
+      task?.counterOfferPolicy,
+      null
+    ];
+    for (const candidate of candidates) {
+      if (candidate === undefined || candidate === null) continue;
+      try {
+        return normalizeMarketplaceCounterOfferPolicyInput(candidate);
+      } catch {
+        // Continue and fall back to defaults.
+      }
+    }
+    return normalizeMarketplaceCounterOfferPolicyInput(null);
+  }
+
+  function computeMarketplaceNegotiationExpiresAt({ createdAt, timeoutSeconds }) {
+    const createdMs = typeof createdAt === "string" ? Date.parse(createdAt) : Number.NaN;
+    const timeout = Number(timeoutSeconds);
+    if (!Number.isFinite(createdMs) || !Number.isSafeInteger(timeout) || timeout <= 0) return null;
+    return new Date(createdMs + timeout * 1000).toISOString();
+  }
+
+  function applyMarketplaceBidNegotiationPolicy({
+    negotiation,
+    counterOfferPolicy,
+    at = nowIso(),
+    expireIfTimedOut = false
+  } = {}) {
+    if (!negotiation || typeof negotiation !== "object" || Array.isArray(negotiation)) {
+      return {
+        negotiation: null,
+        counterOfferPolicy: normalizeMarketplaceCounterOfferPolicyInput(counterOfferPolicy ?? null),
+        expiresAt: null,
+        expired: false,
+        justExpired: false
+      };
+    }
+    const policy = normalizeMarketplaceCounterOfferPolicyInput(counterOfferPolicy ?? negotiation?.counterOfferPolicy ?? null);
+    const createdAt =
+      typeof negotiation?.createdAt === "string" && Number.isFinite(Date.parse(negotiation.createdAt))
+        ? new Date(Date.parse(negotiation.createdAt)).toISOString()
+        : at;
+    const expiresAt = computeMarketplaceNegotiationExpiresAt({ createdAt, timeoutSeconds: policy.timeoutSeconds });
+    const nowMs = Date.parse(at);
+    const expiresMs = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+    const state = String(negotiation?.state ?? "open").trim().toLowerCase();
+    const shouldExpire =
+      expireIfTimedOut &&
+      state === "open" &&
+      Number.isFinite(nowMs) &&
+      Number.isFinite(expiresMs) &&
+      nowMs >= expiresMs;
+
+    let nextNegotiation = normalizeForCanonicalJson(
+      {
+        ...negotiation,
+        createdAt,
+        updatedAt:
+          typeof negotiation?.updatedAt === "string" && Number.isFinite(Date.parse(negotiation.updatedAt))
+            ? negotiation.updatedAt
+            : createdAt,
+        counterOfferPolicy: policy,
+        expiresAt,
+        expiredAt:
+          typeof negotiation?.expiredAt === "string" && Number.isFinite(Date.parse(negotiation.expiredAt))
+            ? negotiation.expiredAt
+            : null
+      },
+      { path: "$" }
+    );
+    if (shouldExpire) {
+      nextNegotiation = updateMarketplaceBidNegotiationState({
+        negotiation: nextNegotiation,
+        state: "expired",
+        at
+      });
+    }
+    const nextState = String(nextNegotiation?.state ?? "").trim().toLowerCase();
+    return {
+      negotiation: nextNegotiation,
+      counterOfferPolicy: policy,
+      expiresAt,
+      expired: nextState === "expired",
+      justExpired: shouldExpire
+    };
+  }
+
+  function buildMarketplaceBidNegotiationProposal({
+    task,
+    bidId,
+    revision,
+    proposerAgentId,
+    amountCents,
+    currency,
+    etaSeconds = null,
+    note = null,
+    verificationMethodInput = null,
+    settlementPolicyInput = null,
+    policyRefInput = null,
+    prevProposalHashInput = null,
+    metadataInput = null,
+    proposalIdInput = null,
+    proposedAt = nowIso()
+  }) {
+    const safeBidId = typeof bidId === "string" && bidId.trim() !== "" ? bidId.trim() : null;
+    if (!safeBidId) throw new TypeError("bidId is required");
+    const safeRevision = Number(revision);
+    if (!Number.isSafeInteger(safeRevision) || safeRevision <= 0) {
+      throw new TypeError("negotiation revision must be a positive safe integer");
+    }
+    const safeProposerAgentId = typeof proposerAgentId === "string" && proposerAgentId.trim() !== "" ? proposerAgentId.trim() : null;
+    if (!safeProposerAgentId) throw new TypeError("proposerAgentId is required");
+
+    const safeAmountCents = Number(amountCents);
+    if (!Number.isSafeInteger(safeAmountCents) || safeAmountCents <= 0) {
+      throw new TypeError("amountCents must be a positive safe integer");
+    }
+
+    const taskCurrency = typeof task?.currency === "string" && task.currency.trim() !== "" ? task.currency.trim().toUpperCase() : null;
+    const safeCurrency = typeof currency === "string" && currency.trim() !== "" ? currency.trim().toUpperCase() : taskCurrency ?? "USD";
+    if (!safeCurrency) throw new TypeError("currency must be a non-empty string");
+    if (taskCurrency && safeCurrency !== taskCurrency) {
+      throw new TypeError("proposal currency must match task currency");
+    }
+
+    let safeEtaSeconds = null;
+    if (etaSeconds !== null && etaSeconds !== undefined && etaSeconds !== "") {
+      const parsedEta = Number(etaSeconds);
+      if (!Number.isSafeInteger(parsedEta) || parsedEta <= 0) {
+        throw new TypeError("etaSeconds must be a positive safe integer");
+      }
+      safeEtaSeconds = parsedEta;
+    }
+
+    const safeNote = normalizeMarketplaceBidNoteInput(note, { allowNull: true });
+    const safeMetadata = normalizeMarketplaceBidMetadataInput(metadataInput, {
+      fieldPath: "proposal.metadata",
+      allowUndefined: false
+    });
+    const safeProposalId =
+      typeof proposalIdInput === "string" && proposalIdInput.trim() !== ""
+        ? proposalIdInput.trim()
+        : `ofr_${safeBidId}_${safeRevision}`;
+    const prevProposalHash = normalizeSha256HashInput(prevProposalHashInput, "proposal.prevProposalHash", {
+      allowNull: true
+    });
+    if (safeRevision === 1 && prevProposalHash !== null) {
+      throw new TypeError("proposal.prevProposalHash must be null for revision 1");
+    }
+    if (safeRevision > 1 && prevProposalHash === null) {
+      throw new TypeError("proposal.prevProposalHash is required for revision > 1");
+    }
+    const normalizedProposedAt =
+      typeof proposedAt === "string" && Number.isFinite(Date.parse(proposedAt)) ? new Date(Date.parse(proposedAt)).toISOString() : nowIso();
+
+    const verificationMethod = parseVerificationMethodInput(verificationMethodInput ?? null);
+    const policy = parseSettlementPolicyInput(settlementPolicyInput ?? null);
+    const verificationMethodHash = computeVerificationMethodHash(verificationMethod);
+    const policyRef =
+      policyRefInput && typeof policyRefInput === "object" && !Array.isArray(policyRefInput)
+        ? normalizeForCanonicalJson(
+            {
+              schemaVersion: MARKETPLACE_POLICY_REF_SCHEMA_VERSION,
+              source:
+                typeof policyRefInput.source === "string" && policyRefInput.source.trim() !== ""
+                  ? String(policyRefInput.source).trim().toLowerCase()
+                  : "tenant_registry",
+              policyId:
+                policyRefInput.policyId === null || policyRefInput.policyId === undefined || String(policyRefInput.policyId).trim() === ""
+                  ? null
+                  : String(policyRefInput.policyId).trim(),
+              policyVersion: Number(policyRefInput.policyVersion ?? policy.policyVersion ?? 1),
+              policyHash: policy.policyHash,
+              verificationMethodHash
+            },
+            { path: "$" }
+          )
+        : normalizeForCanonicalJson(
+            {
+              schemaVersion: MARKETPLACE_POLICY_REF_SCHEMA_VERSION,
+              source: "inline",
+              policyId: null,
+              policyVersion: Number(policy.policyVersion ?? 1),
+              policyHash: policy.policyHash,
+              verificationMethodHash
+            },
+            { path: "$" }
+          );
+    const policyRefHash = sha256Hex(canonicalJsonStringify(policyRef));
+
+    const proposalCore = normalizeForCanonicalJson(
+      {
+        schemaVersion: "MarketplaceBidProposal.v1",
+        proposalId: safeProposalId,
+        bidId: safeBidId,
+        revision: safeRevision,
+        proposerAgentId: safeProposerAgentId,
+        amountCents: safeAmountCents,
+        currency: safeCurrency,
+        etaSeconds: safeEtaSeconds,
+        note: safeNote === undefined ? null : safeNote,
+        verificationMethod,
+        policy,
+        policyRef,
+        policyRefHash,
+        prevProposalHash,
+        metadata: safeMetadata ?? null,
+        proposedAt: normalizedProposedAt
+      },
+      { path: "$" }
+    );
+    const proposalHash = sha256Hex(canonicalJsonStringify(proposalCore));
+
+    return normalizeForCanonicalJson(
+      {
+        ...proposalCore,
+        proposalHash
+      },
+      { path: "$" }
+    );
+  }
+
+  function buildMarketplaceBidNegotiation({ bidId, initialProposal, counterOfferPolicy = null, at = nowIso() }) {
+    if (!initialProposal || typeof initialProposal !== "object" || Array.isArray(initialProposal)) {
+      throw new TypeError("initial negotiation proposal is required");
+    }
+    const policy = normalizeMarketplaceCounterOfferPolicyInput(counterOfferPolicy ?? null, {
+      fieldPath: "counterOfferPolicy"
+    });
+    const expiresAt = computeMarketplaceNegotiationExpiresAt({ createdAt: at, timeoutSeconds: policy.timeoutSeconds });
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "MarketplaceBidNegotiation.v1",
+        bidId: String(bidId),
+        state: "open",
+        latestRevision: Number(initialProposal.revision),
+        acceptedRevision: null,
+        acceptedProposalId: null,
+        acceptedAt: null,
+        acceptance: null,
+        createdAt: at,
+        updatedAt: at,
+        counterOfferPolicy: policy,
+        expiresAt,
+        expiredAt: null,
+        proposals: [initialProposal]
+      },
+      { path: "$" }
+    );
+  }
+
+  function getLatestMarketplaceBidProposal(negotiation) {
+    if (!negotiation || typeof negotiation !== "object" || Array.isArray(negotiation)) return null;
+    const proposals = Array.isArray(negotiation.proposals) ? negotiation.proposals : [];
+    for (let i = proposals.length - 1; i >= 0; i -= 1) {
+      const candidate = proposals[i];
+      if (candidate && typeof candidate === "object" && !Array.isArray(candidate)) return candidate;
+    }
+    return null;
+  }
+
+  function deriveMarketplaceProposalHash(proposal) {
+    if (!proposal || typeof proposal !== "object" || Array.isArray(proposal)) return null;
+    let providedHash = null;
+    try {
+      providedHash = normalizeSha256HashInput(proposal.proposalHash, "proposal.proposalHash", { allowNull: true });
+    } catch {
+      providedHash = null;
+    }
+    if (providedHash) return providedHash;
+    try {
+      const copy = { ...proposal };
+      delete copy.proposalHash;
+      return sha256Hex(canonicalJsonStringify(normalizeForCanonicalJson(copy, { path: "$" })));
+    } catch {
+      return null;
+    }
+  }
+
+  function bootstrapMarketplaceBidNegotiation({ task, bid, counterOfferPolicy = null, at = nowIso() }) {
+    const bidId = typeof bid?.bidId === "string" && bid.bidId.trim() !== "" ? bid.bidId.trim() : null;
+    if (!bidId) throw new TypeError("bid.bidId is required");
+    const proposerAgentId = typeof bid?.bidderAgentId === "string" && bid.bidderAgentId.trim() !== "" ? bid.bidderAgentId.trim() : null;
+    if (!proposerAgentId) throw new TypeError("bid.bidderAgentId is required for negotiation bootstrap");
+    const proposal = buildMarketplaceBidNegotiationProposal({
+      task,
+      bidId,
+      revision: 1,
+      proposerAgentId,
+      amountCents: bid?.amountCents,
+      currency: bid?.currency ?? task?.currency ?? "USD",
+      etaSeconds: bid?.etaSeconds ?? null,
+      note: bid?.note ?? null,
+      verificationMethodInput: bid?.verificationMethod ?? null,
+      settlementPolicyInput: bid?.policy ?? null,
+      policyRefInput: bid?.policyRef ?? null,
+      metadataInput: bid?.metadata ?? null,
+      proposalIdInput: null,
+      proposedAt: bid?.createdAt ?? at
+    });
+    return buildMarketplaceBidNegotiation({
+      bidId,
+      initialProposal: proposal,
+      counterOfferPolicy: counterOfferPolicy ?? bid?.counterOfferPolicy ?? task?.counterOfferPolicy ?? null,
+      at
+    });
+  }
+
+  function appendMarketplaceBidNegotiationProposal({ negotiation, proposal, at = nowIso() }) {
+    if (!negotiation || typeof negotiation !== "object" || Array.isArray(negotiation)) {
+      throw new TypeError("negotiation is required");
+    }
+    if (!proposal || typeof proposal !== "object" || Array.isArray(proposal)) {
+      throw new TypeError("proposal is required");
+    }
+    const current = Array.isArray(negotiation.proposals) ? negotiation.proposals : [];
+    return normalizeForCanonicalJson(
+      {
+        ...negotiation,
+        state: "open",
+        latestRevision: Number(proposal.revision),
+        acceptedRevision: null,
+        acceptedProposalId: null,
+        acceptedAt: null,
+        acceptance: null,
+        updatedAt: at,
+        expiredAt: null,
+        proposals: [...current, proposal]
+      },
+      { path: "$" }
+    );
+  }
+
+  function updateMarketplaceBidNegotiationState({
+    negotiation,
+    state,
+    at = nowIso(),
+    acceptedByAgentId = null,
+    acceptedProposalId = null,
+    acceptedRevision = null
+  }) {
+    if (!negotiation || typeof negotiation !== "object" || Array.isArray(negotiation)) return null;
+    const safeState = String(state ?? "").trim().toLowerCase();
+    if (
+      safeState !== "open" &&
+      safeState !== "accepted" &&
+      safeState !== "rejected" &&
+      safeState !== "cancelled" &&
+      safeState !== "expired"
+    ) {
+      throw new TypeError("unsupported negotiation state");
+    }
+    return normalizeForCanonicalJson(
+      {
+        ...negotiation,
+        state: safeState,
+        acceptedProposalId: safeState === "accepted" ? acceptedProposalId ?? null : null,
+        acceptedRevision:
+          safeState === "accepted" && Number.isSafeInteger(Number(acceptedRevision)) && Number(acceptedRevision) > 0
+            ? Number(acceptedRevision)
+            : null,
+        acceptedAt: safeState === "accepted" ? at : null,
+        acceptance:
+          safeState === "accepted"
+            ? normalizeForCanonicalJson(
+                {
+                  schemaVersion: MARKETPLACE_BID_ACCEPTANCE_SCHEMA_VERSION,
+                  acceptedAt: at,
+                  acceptedByAgentId: acceptedByAgentId ?? null,
+                  acceptedProposalId: acceptedProposalId ?? null,
+                  acceptedRevision:
+                    Number.isSafeInteger(Number(acceptedRevision)) && Number(acceptedRevision) > 0 ? Number(acceptedRevision) : null
+                },
+                { path: "$" }
+              )
+            : null,
+        expiredAt:
+          safeState === "expired"
+            ? typeof negotiation?.expiredAt === "string" && Number.isFinite(Date.parse(negotiation.expiredAt))
+              ? negotiation.expiredAt
+              : at
+            : null,
+        updatedAt: at
+      },
+      { path: "$" }
+    );
+  }
+
+  function summarizeMarketplaceBidNegotiationForAgreement(negotiation) {
+    if (!negotiation || typeof negotiation !== "object" || Array.isArray(negotiation)) {
+      return {
+        negotiation: null,
+        offerChainHash: null,
+        acceptedProposalId: null,
+        acceptedRevision: null,
+        acceptedProposalHash: null,
+        acceptance: null
+      };
+    }
+    const proposals = Array.isArray(negotiation.proposals)
+      ? negotiation.proposals.filter((row) => row && typeof row === "object" && !Array.isArray(row))
+      : [];
+    if (!proposals.length) {
+      return {
+        negotiation: null,
+        offerChainHash: null,
+        acceptedProposalId: null,
+        acceptedRevision: null,
+        acceptedProposalHash: null,
+        acceptance: null
+      };
+    }
+    const latest = proposals[proposals.length - 1];
+    const acceptedProposalId =
+      typeof negotiation?.acceptedProposalId === "string" && negotiation.acceptedProposalId.trim() !== ""
+        ? negotiation.acceptedProposalId.trim()
+        : typeof latest?.proposalId === "string"
+          ? latest.proposalId
+          : null;
+    const acceptedRevisionCandidate =
+      negotiation?.acceptedRevision !== null && negotiation?.acceptedRevision !== undefined
+        ? Number(negotiation.acceptedRevision)
+        : Number(latest?.revision);
+    const acceptedRevision =
+      Number.isSafeInteger(acceptedRevisionCandidate) && acceptedRevisionCandidate > 0 ? acceptedRevisionCandidate : null;
+    const acceptedProposal =
+      proposals.find((row) => String(row?.proposalId ?? "") === String(acceptedProposalId ?? "")) ??
+      (acceptedRevision !== null ? proposals.find((row) => Number(row?.revision) === acceptedRevision) : null) ??
+      latest;
+    const acceptedProposalHash =
+      deriveMarketplaceProposalHash(acceptedProposal);
+    const acceptance = normalizeForCanonicalJson(
+      {
+        schemaVersion: MARKETPLACE_AGREEMENT_ACCEPTANCE_SCHEMA_VERSION,
+        acceptedAt:
+          typeof negotiation?.acceptedAt === "string" && Number.isFinite(Date.parse(negotiation.acceptedAt))
+            ? negotiation.acceptedAt
+            : null,
+        acceptedByAgentId:
+          negotiation?.acceptance &&
+          typeof negotiation.acceptance === "object" &&
+          !Array.isArray(negotiation.acceptance) &&
+          typeof negotiation.acceptance.acceptedByAgentId === "string" &&
+          negotiation.acceptance.acceptedByAgentId.trim() !== ""
+            ? negotiation.acceptance.acceptedByAgentId.trim()
+            : null,
+        acceptedProposalId,
+        acceptedRevision,
+        acceptedProposalHash,
+        offerChainHash: sha256Hex(canonicalJsonStringify(normalizeForCanonicalJson(proposals, { path: "$" }))),
+        proposalCount: proposals.length
+      },
+      { path: "$" }
+    );
+    const summary = normalizeForCanonicalJson(
+      {
+        schemaVersion: "MarketplaceAgreementNegotiation.v1",
+        state: String(negotiation?.state ?? "open").trim().toLowerCase(),
+        latestRevision: Number.isSafeInteger(Number(negotiation?.latestRevision)) ? Number(negotiation.latestRevision) : acceptedRevision ?? 1,
+        acceptedRevision,
+        acceptedProposalId,
+        proposalCount: proposals.length
+      },
+      { path: "$" }
+    );
+    return {
+      negotiation: summary,
+      offerChainHash: acceptance.offerChainHash,
+      acceptedProposalId,
+      acceptedRevision,
+      acceptedProposalHash,
+      acceptance
+    };
+  }
+
+  function isValidIsoDateTime(value) {
+    return typeof value === "string" && value.trim() !== "" && Number.isFinite(Date.parse(value.trim()));
+  }
+
+  function normalizeDelegationScope(value) {
+    if (value === null || value === undefined) return null;
+    const text = String(value).trim();
+    if (text === "") return null;
+    return text.toLowerCase();
+  }
+
+  function delegationScopeAllows({ grantedScope, requiredScope }) {
+    if (!requiredScope) return true;
+    const required = String(requiredScope).trim().toLowerCase();
+    if (!required) return true;
+    const granted = normalizeDelegationScope(grantedScope);
+    if (!granted) return true;
+    if (granted === "*" || granted === required) return true;
+    if (granted.endsWith("*")) {
+      const prefix = granted.slice(0, -1);
+      return prefix !== "" && required.startsWith(prefix);
+    }
+    return false;
+  }
+
+  function normalizeDelegationLinkCore({ tenantId, delegationLinkInput, path = "actingOnBehalfOf.delegationChain[]", allowNullExpiry = true } = {}) {
+    if (
+      !delegationLinkInput ||
+      typeof delegationLinkInput !== "object" ||
+      Array.isArray(delegationLinkInput)
+    ) {
+      throw new TypeError(`${path} must contain objects`);
+    }
+    const schemaVersionRaw = delegationLinkInput.schemaVersion;
+    if (schemaVersionRaw !== null && schemaVersionRaw !== undefined) {
+      const schemaVersion = String(schemaVersionRaw).trim();
+      if (schemaVersion !== AGENT_DELEGATION_LINK_SCHEMA_VERSION) {
+        throw new TypeError(`${path}.schemaVersion must be ${AGENT_DELEGATION_LINK_SCHEMA_VERSION}`);
+      }
+    }
+    const delegationId =
+      typeof delegationLinkInput.delegationId === "string" && delegationLinkInput.delegationId.trim() !== ""
+        ? delegationLinkInput.delegationId.trim()
+        : null;
+    if (!delegationId) throw new TypeError(`${path}.delegationId is required`);
+    const linkTenantId =
+      typeof delegationLinkInput.tenantId === "string" && delegationLinkInput.tenantId.trim() !== ""
+        ? delegationLinkInput.tenantId.trim()
+        : normalizeTenant(tenantId);
+    if (linkTenantId !== normalizeTenant(tenantId)) {
+      throw new TypeError(`${path}.tenantId must match tenant`);
+    }
+    const principalAgentId =
+      typeof delegationLinkInput.principalAgentId === "string" && delegationLinkInput.principalAgentId.trim() !== ""
+        ? delegationLinkInput.principalAgentId.trim()
+        : null;
+    if (!principalAgentId) throw new TypeError(`${path}.principalAgentId is required`);
+    const delegateAgentId =
+      typeof delegationLinkInput.delegateAgentId === "string" && delegationLinkInput.delegateAgentId.trim() !== ""
+        ? delegationLinkInput.delegateAgentId.trim()
+        : null;
+    if (!delegateAgentId) throw new TypeError(`${path}.delegateAgentId is required`);
+    if (delegateAgentId === principalAgentId) {
+      throw new TypeError(`${path}.delegateAgentId must differ from principalAgentId`);
+    }
+    const issuedAtRaw = delegationLinkInput.issuedAt;
+    const issuedAt = typeof issuedAtRaw === "string" && issuedAtRaw.trim() !== "" ? issuedAtRaw.trim() : null;
+    if (!isValidIsoDateTime(issuedAt)) {
+      throw new TypeError(`${path}.issuedAt must be an ISO date-time`);
+    }
+    const expiresAtRaw = delegationLinkInput.expiresAt;
+    const expiresAt =
+      expiresAtRaw === null || expiresAtRaw === undefined || expiresAtRaw === ""
+        ? null
+        : typeof expiresAtRaw === "string" && expiresAtRaw.trim() !== ""
+          ? expiresAtRaw.trim()
+          : null;
+    if (!allowNullExpiry && !expiresAt) {
+      throw new TypeError(`${path}.expiresAt is required`);
+    }
+    if (expiresAt !== null && !isValidIsoDateTime(expiresAt)) {
+      throw new TypeError(`${path}.expiresAt must be an ISO date-time`);
+    }
+    if (expiresAt !== null && Date.parse(expiresAt) <= Date.parse(issuedAt)) {
+      throw new TypeError(`${path}.expiresAt must be later than issuedAt`);
+    }
+    const scope = normalizeDelegationScope(delegationLinkInput.scope);
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: AGENT_DELEGATION_LINK_SCHEMA_VERSION,
+        delegationId,
+        tenantId: linkTenantId,
+        principalAgentId,
+        delegateAgentId,
+        scope,
+        issuedAt,
+        expiresAt
+      },
+      { path: "$" }
+    );
+  }
+
+  async function parseActingOnBehalfOf({
+    tenantId,
+    acceptedByAgentId,
+    signerAgentId,
+    signedAt,
+    actingOnBehalfOfInput,
+    requiredScope
+  } = {}) {
+    if (actingOnBehalfOfInput === null || actingOnBehalfOfInput === undefined) return null;
+    if (
+      !actingOnBehalfOfInput ||
+      typeof actingOnBehalfOfInput !== "object" ||
+      Array.isArray(actingOnBehalfOfInput)
+    ) {
+      throw new TypeError("acceptanceSignature.actingOnBehalfOf must be an object");
+    }
+    const schemaVersionRaw = actingOnBehalfOfInput.schemaVersion;
+    if (schemaVersionRaw !== null && schemaVersionRaw !== undefined) {
+      const schemaVersion = String(schemaVersionRaw).trim();
+      if (schemaVersion !== AGENT_ACTING_ON_BEHALF_OF_SCHEMA_VERSION) {
+        throw new TypeError(
+          `acceptanceSignature.actingOnBehalfOf.schemaVersion must be ${AGENT_ACTING_ON_BEHALF_OF_SCHEMA_VERSION}`
+        );
+      }
+    }
+    const principalAgentId =
+      typeof actingOnBehalfOfInput.principalAgentId === "string" &&
+      actingOnBehalfOfInput.principalAgentId.trim() !== ""
+        ? actingOnBehalfOfInput.principalAgentId.trim()
+        : null;
+    if (!principalAgentId) {
+      throw new TypeError("acceptanceSignature.actingOnBehalfOf.principalAgentId is required");
+    }
+    if (principalAgentId !== acceptedByAgentId) {
+      throw new TypeError("acceptanceSignature.actingOnBehalfOf.principalAgentId must match acceptedByAgentId");
+    }
+    const delegationChainInput = Array.isArray(actingOnBehalfOfInput.delegationChain)
+      ? actingOnBehalfOfInput.delegationChain
+      : null;
+    if (!delegationChainInput || delegationChainInput.length === 0) {
+      throw new TypeError("acceptanceSignature.actingOnBehalfOf.delegationChain must be a non-empty array");
+    }
+    const signedAtIso = typeof signedAt === "string" && signedAt.trim() !== "" ? signedAt.trim() : null;
+    if (!isValidIsoDateTime(signedAtIso)) {
+      throw new TypeError("acceptanceSignature.signedAt must be an ISO date-time");
+    }
+    const signedAtMs = Date.parse(signedAtIso);
+    const normalizedChain = [];
+    let expectedPrincipalAgentId = principalAgentId;
+    for (let index = 0; index < delegationChainInput.length; index += 1) {
+      const path = `acceptanceSignature.actingOnBehalfOf.delegationChain[${index}]`;
+      const rawLink = delegationChainInput[index];
+      const core = normalizeDelegationLinkCore({ tenantId, delegationLinkInput: rawLink, path });
+      if (core.principalAgentId !== expectedPrincipalAgentId) {
+        throw new TypeError(`${path}.principalAgentId must continue the delegation chain`);
+      }
+      if (!delegationScopeAllows({ grantedScope: core.scope, requiredScope })) {
+        throw new TypeError(`${path}.scope does not allow ${requiredScope}`);
+      }
+      if (signedAtMs < Date.parse(core.issuedAt)) {
+        throw new TypeError(`${path} is not active at acceptanceSignature.signedAt`);
+      }
+      if (core.expiresAt !== null && signedAtMs > Date.parse(core.expiresAt)) {
+        throw new TypeError(`${path} expired before acceptanceSignature.signedAt`);
+      }
+      const signerKeyId =
+        typeof rawLink?.signerKeyId === "string" && rawLink.signerKeyId.trim() !== ""
+          ? rawLink.signerKeyId.trim()
+          : null;
+      const signature =
+        typeof rawLink?.signature === "string" && rawLink.signature.trim() !== ""
+          ? rawLink.signature.trim()
+          : null;
+      if (!signerKeyId || !signature) {
+        throw new TypeError(`${path}.signerKeyId and ${path}.signature are required`);
+      }
+      const providedDelegationHash = normalizeSha256HashInput(rawLink?.delegationHash, `${path}.delegationHash`, {
+        allowNull: true
+      });
+      if (!providedDelegationHash) {
+        throw new TypeError(`${path}.delegationHash is required`);
+      }
+      const expectedDelegationHash = sha256Hex(canonicalJsonStringify(core));
+      if (providedDelegationHash !== expectedDelegationHash) {
+        throw new TypeError(`${path}.delegationHash does not match canonical delegation payload`);
+      }
+      const principalIdentity = await getAgentIdentityRecord({ tenantId, agentId: core.principalAgentId });
+      if (!principalIdentity) throw new TypeError(`${path}.principalAgentId identity not found`);
+      const expectedAgentKeyId = String(principalIdentity?.keys?.keyId ?? "");
+      if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
+        throw new TypeError(`${path}.signerKeyId does not match principal agent key`);
+      }
+      const publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+      const isValidSignature = verifyHashHexEd25519({
+        hashHex: providedDelegationHash,
+        signatureBase64: signature,
+        publicKeyPem
+      });
+      if (!isValidSignature) {
+        throw new TypeError(`${path}.signature is invalid`);
+      }
+      const normalizedLink = normalizeForCanonicalJson(
+        {
+          ...core,
+          signerKeyId,
+          delegationHash: providedDelegationHash,
+          signature
+        },
+        { path: "$" }
+      );
+      normalizedChain.push(normalizedLink);
+      expectedPrincipalAgentId = core.delegateAgentId;
+    }
+    const delegateAgentId = expectedPrincipalAgentId;
+    if (delegateAgentId !== signerAgentId) {
+      throw new TypeError("acceptanceSignature.signerAgentId must match actingOnBehalfOf delegated agent");
+    }
+    const computedChainHash = sha256Hex(canonicalJsonStringify(normalizedChain));
+    const chainHashRaw = actingOnBehalfOfInput.chainHash;
+    if (chainHashRaw !== null && chainHashRaw !== undefined && chainHashRaw !== "") {
+      const providedChainHash = normalizeSha256HashInput(
+        chainHashRaw,
+        "acceptanceSignature.actingOnBehalfOf.chainHash",
+        { allowNull: true }
+      );
+      if (providedChainHash && providedChainHash !== computedChainHash) {
+        throw new TypeError("acceptanceSignature.actingOnBehalfOf.chainHash mismatch");
+      }
+    }
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: AGENT_ACTING_ON_BEHALF_OF_SCHEMA_VERSION,
+        principalAgentId,
+        delegateAgentId,
+        delegationChain: normalizedChain,
+        chainHash: computedChainHash
+      },
+      { path: "$" }
+    );
+  }
+
+  function buildMarketplaceAgreementAcceptanceSignatureCore({ agreement, actingOnBehalfOf = null } = {}) {
+    const agreementObj = agreement && typeof agreement === "object" && !Array.isArray(agreement) ? agreement : null;
+    if (!agreementObj) throw new TypeError("agreement is required for acceptance signature");
+    const acceptanceObj =
+      agreementObj.acceptance && typeof agreementObj.acceptance === "object" && !Array.isArray(agreementObj.acceptance)
+        ? agreementObj.acceptance
+        : null;
+    const acceptedByAgentId =
+      typeof agreementObj.acceptedByAgentId === "string" && agreementObj.acceptedByAgentId.trim() !== ""
+        ? agreementObj.acceptedByAgentId.trim()
+        : typeof acceptanceObj?.acceptedByAgentId === "string" && acceptanceObj.acceptedByAgentId.trim() !== ""
+          ? acceptanceObj.acceptedByAgentId.trim()
+          : null;
+    if (!acceptedByAgentId) throw new TypeError("agreement.acceptedByAgentId is required for acceptance signature");
+    const acceptedProposalId =
+      typeof acceptanceObj?.acceptedProposalId === "string" && acceptanceObj.acceptedProposalId.trim() !== ""
+        ? acceptanceObj.acceptedProposalId.trim()
+        : typeof agreementObj.acceptedProposalId === "string" && agreementObj.acceptedProposalId.trim() !== ""
+          ? agreementObj.acceptedProposalId.trim()
+          : null;
+    const acceptedRevisionRaw =
+      acceptanceObj?.acceptedRevision !== null && acceptanceObj?.acceptedRevision !== undefined
+        ? Number(acceptanceObj.acceptedRevision)
+        : Number(agreementObj.acceptedRevision);
+    const acceptedRevision =
+      Number.isSafeInteger(acceptedRevisionRaw) && acceptedRevisionRaw > 0 ? acceptedRevisionRaw : null;
+    const acceptedProposalHash = normalizeSha256HashInput(
+      acceptanceObj?.acceptedProposalHash ?? agreementObj.acceptedProposalHash ?? null,
+      "agreement.acceptedProposalHash",
+      { allowNull: true }
+    );
+    const offerChainHash = normalizeSha256HashInput(
+      acceptanceObj?.offerChainHash ?? agreementObj.offerChainHash ?? null,
+      "agreement.offerChainHash",
+      { allowNull: true }
+    );
+    const proposalCountRaw = acceptanceObj?.proposalCount;
+    const proposalCount =
+      Number.isSafeInteger(Number(proposalCountRaw)) && Number(proposalCountRaw) > 0 ? Number(proposalCountRaw) : null;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: MARKETPLACE_AGREEMENT_ACCEPTANCE_SIGNATURE_SCHEMA_VERSION,
+        agreementId: String(agreementObj.agreementId ?? ""),
+        tenantId: String(agreementObj.tenantId ?? ""),
+        taskId: String(agreementObj.taskId ?? ""),
+        runId: String(agreementObj.runId ?? ""),
+        bidId: String(agreementObj.bidId ?? ""),
+        acceptedByAgentId,
+        acceptedProposalId,
+        acceptedRevision,
+        acceptedProposalHash,
+        offerChainHash,
+        proposalCount,
+        actingOnBehalfOfPrincipalAgentId:
+          actingOnBehalfOf && typeof actingOnBehalfOf === "object" ? actingOnBehalfOf.principalAgentId ?? null : null,
+        actingOnBehalfOfDelegateAgentId:
+          actingOnBehalfOf && typeof actingOnBehalfOf === "object" ? actingOnBehalfOf.delegateAgentId ?? null : null,
+        actingOnBehalfOfChainHash:
+          actingOnBehalfOf && typeof actingOnBehalfOf === "object" ? actingOnBehalfOf.chainHash ?? null : null
+      },
+      { path: "$" }
+    );
+  }
+
+  async function parseSignedMarketplaceAgreementAcceptance({
+    tenantId,
+    agreement,
+    acceptedByAgentId = null,
+    acceptedByIdentity = null,
+    acceptanceSignatureInput
+  } = {}) {
+    if (!acceptanceSignatureInput || typeof acceptanceSignatureInput !== "object" || Array.isArray(acceptanceSignatureInput)) {
+      throw new TypeError("acceptanceSignature must be an object");
+    }
+    const acceptedByNormalized =
+      typeof acceptedByAgentId === "string" && acceptedByAgentId.trim() !== "" ? acceptedByAgentId.trim() : null;
+    const signerAgentIdRaw = acceptanceSignatureInput.signerAgentId;
+    const signerAgentId =
+      typeof signerAgentIdRaw === "string" && signerAgentIdRaw.trim() !== ""
+        ? signerAgentIdRaw.trim()
+        : acceptedByNormalized;
+    if (!signerAgentId) throw new TypeError("acceptanceSignature.signerAgentId is required");
+    const signedAtRaw = acceptanceSignatureInput.signedAt;
+    const signedAt =
+      typeof signedAtRaw === "string" && signedAtRaw.trim() !== "" ? signedAtRaw.trim() : nowIso();
+    if (!Number.isFinite(Date.parse(signedAt))) throw new TypeError("acceptanceSignature.signedAt must be an ISO date-time");
+    const actingOnBehalfOf = await parseActingOnBehalfOf({
+      tenantId,
+      acceptedByAgentId: acceptedByNormalized,
+      signerAgentId,
+      signedAt,
+      actingOnBehalfOfInput: acceptanceSignatureInput.actingOnBehalfOf,
+      requiredScope: MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_ACCEPT
+    });
+    if (!actingOnBehalfOf && acceptedByNormalized && signerAgentId !== acceptedByNormalized) {
+      throw new TypeError("acceptanceSignature.signerAgentId must match acceptedByAgentId");
+    }
+
+    const signerIdentity =
+      acceptedByIdentity && signerAgentId === acceptedByNormalized
+        ? acceptedByIdentity
+        : await getAgentIdentityRecord({ tenantId, agentId: signerAgentId });
+    if (!signerIdentity) throw new TypeError("acceptanceSignature signer agent not found");
+
+    const signerKeyId =
+      typeof acceptanceSignatureInput.signerKeyId === "string" && acceptanceSignatureInput.signerKeyId.trim() !== ""
+        ? acceptanceSignatureInput.signerKeyId.trim()
+        : null;
+    const signature =
+      typeof acceptanceSignatureInput.signature === "string" && acceptanceSignatureInput.signature.trim() !== ""
+        ? acceptanceSignatureInput.signature.trim()
+        : null;
+    if (!signerKeyId || !signature) {
+      throw new TypeError("acceptanceSignature.signerKeyId and acceptanceSignature.signature are required");
+    }
+    const expectedAgentKeyId = String(signerIdentity?.keys?.keyId ?? "");
+    if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
+      throw new TypeError("acceptanceSignature.signerKeyId does not match signer agent key");
+    }
+
+    const core = buildMarketplaceAgreementAcceptanceSignatureCore({ agreement, actingOnBehalfOf });
+    const expectedSignerAgentId = actingOnBehalfOf?.delegateAgentId ?? core.acceptedByAgentId;
+    if (expectedSignerAgentId && expectedSignerAgentId !== signerAgentId) {
+      throw new TypeError("acceptanceSignature.signerAgentId must match agreement.acceptedByAgentId");
+    }
+    const acceptanceHash = sha256Hex(canonicalJsonStringify(core));
+    const publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+    const isValid = verifyHashHexEd25519({
+      hashHex: acceptanceHash,
+      signatureBase64: signature,
+      publicKeyPem
+    });
+    if (!isValid) throw new TypeError("invalid acceptanceSignature signature");
+
+    return normalizeForCanonicalJson(
+      {
+        ...core,
+        signerAgentId,
+        signerKeyId,
+        signedAt,
+        actingOnBehalfOf: actingOnBehalfOf ?? null,
+        acceptanceHash,
+        signature
+      },
+      { path: "$" }
+    );
+  }
+
+  async function loadSignerPublicKeyPem({ tenantId, signerKeyId }) {
+    const keyId = typeof signerKeyId === "string" ? signerKeyId.trim() : "";
+    if (!keyId) throw new TypeError("signerKeyId is required");
+    const fromCache = store.publicKeyByKeyId instanceof Map ? store.publicKeyByKeyId.get(keyId) ?? null : null;
+    if (typeof fromCache === "string" && fromCache.trim() !== "") return fromCache;
+    if (typeof store.getSignerKey === "function") {
+      const signerKey = await store.getSignerKey({ tenantId, keyId });
+      if (signerKey?.publicKeyPem) {
+        if (store.publicKeyByKeyId instanceof Map) {
+          store.publicKeyByKeyId.set(keyId, signerKey.publicKeyPem);
+        }
+        return signerKey.publicKeyPem;
+      }
+    }
+    throw new TypeError("unknown signerKeyId");
+  }
+
+  async function parseSignedDisputeVerdict({
+    tenantId,
+    runId,
+    settlement,
+    disputeId,
+    verdictInput
+  } = {}) {
+    if (!verdictInput || typeof verdictInput !== "object" || Array.isArray(verdictInput)) {
+      throw new TypeError("verdict must be an object");
+    }
+    const normalizedDisputeId = typeof disputeId === "string" && disputeId.trim() !== "" ? disputeId.trim() : null;
+    if (!normalizedDisputeId) throw new TypeError("disputeId is required for verdict signing");
+    const verdictIdRaw = verdictInput.verdictId ?? createId("vrd");
+    const verdictId = typeof verdictIdRaw === "string" && verdictIdRaw.trim() !== "" ? verdictIdRaw.trim() : null;
+    if (!verdictId) throw new TypeError("verdict.verdictId must be a non-empty string");
+    const arbiterAgentId = typeof verdictInput.arbiterAgentId === "string" && verdictInput.arbiterAgentId.trim() !== ""
+      ? verdictInput.arbiterAgentId.trim()
+      : null;
+    if (!arbiterAgentId) throw new TypeError("verdict.arbiterAgentId is required");
+    const arbiterIdentity = await getAgentIdentityRecord({ tenantId, agentId: arbiterAgentId });
+    if (!arbiterIdentity) throw new TypeError("verdict.arbiterAgentId not found");
+
+    const outcome = typeof verdictInput.outcome === "string" ? verdictInput.outcome.trim().toLowerCase() : "";
+    if (outcome !== "accepted" && outcome !== "rejected" && outcome !== "partial") {
+      throw new TypeError("verdict.outcome must be accepted|rejected|partial");
+    }
+    const issuedAt = typeof verdictInput.issuedAt === "string" && verdictInput.issuedAt.trim() !== ""
+      ? verdictInput.issuedAt.trim()
+      : nowIso();
+    if (!Number.isFinite(Date.parse(issuedAt))) throw new TypeError("verdict.issuedAt must be an ISO date-time");
+
+    const releaseRatePctRaw = verdictInput.releaseRatePct;
+    const releaseRatePct =
+      releaseRatePctRaw === null || releaseRatePctRaw === undefined || releaseRatePctRaw === ""
+        ? null
+        : Number(releaseRatePctRaw);
+    if (releaseRatePct !== null && (!Number.isSafeInteger(releaseRatePct) || releaseRatePct < 0 || releaseRatePct > 100)) {
+      throw new TypeError("verdict.releaseRatePct must be an integer within 0..100");
+    }
+    const rationale =
+      typeof verdictInput.rationale === "string" && verdictInput.rationale.trim() !== ""
+        ? verdictInput.rationale.trim()
+        : null;
+    const signerKeyId = typeof verdictInput.signerKeyId === "string" && verdictInput.signerKeyId.trim() !== ""
+      ? verdictInput.signerKeyId.trim()
+      : null;
+    const signature = typeof verdictInput.signature === "string" && verdictInput.signature.trim() !== ""
+      ? verdictInput.signature.trim()
+      : null;
+    if (!signerKeyId || !signature) throw new TypeError("verdict.signerKeyId and verdict.signature are required");
+    const expectedAgentKeyId = String(arbiterIdentity?.keys?.keyId ?? "");
+    if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
+      throw new TypeError("verdict.signerKeyId does not match arbiter agent key");
+    }
+
+    const core = normalizeForCanonicalJson(
+      {
+        schemaVersion: "DisputeVerdict.v1",
+        verdictId,
+        tenantId: normalizeTenant(tenantId),
+        runId: String(runId),
+        settlementId: String(settlement?.settlementId ?? ""),
+        disputeId: normalizedDisputeId,
+        arbiterAgentId,
+        outcome,
+        releaseRatePct,
+        rationale,
+        issuedAt
+      },
+      { path: "$" }
+    );
+    const verdictHash = sha256Hex(canonicalJsonStringify(core));
+    const publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+    const isValid = verifyHashHexEd25519({
+      hashHex: verdictHash,
+      signatureBase64: signature,
+      publicKeyPem
+    });
+    if (!isValid) throw new TypeError("invalid verdict signature");
+    return {
+      ...core,
+      signerKeyId,
+      signature,
+      verdictHash
+    };
+  }
+
+  function normalizeAgreementMilestoneStatusGate(value, { defaultValue = "any", allowAny = true } = {}) {
+    const fallback = allowAny ? "any" : "green";
+    const normalizedDefault = allowAny && defaultValue === "any" ? "any" : "green";
+    if (value === null || value === undefined) return normalizedDefault;
+    const text = String(value).trim().toLowerCase();
+    if (text === "green" || text === "amber" || text === "red") return text;
+    if (allowAny && text === "any") return "any";
+    return fallback;
+  }
+
+  function normalizeAgreementMilestonesInput(input) {
+    const source = Array.isArray(input) ? input : [];
+    if (!source.length) return [];
+
+    const seen = new Set();
+    const milestones = [];
+    let totalRate = 0;
+    for (const row of source) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        throw new TypeError("agreementTerms.milestones entries must be objects");
+      }
+      const milestoneId = typeof row.milestoneId === "string" && row.milestoneId.trim() !== ""
+        ? row.milestoneId.trim()
+        : null;
+      if (!milestoneId) throw new TypeError("agreementTerms.milestones[].milestoneId is required");
+      if (seen.has(milestoneId)) throw new TypeError(`duplicate milestoneId: ${milestoneId}`);
+      seen.add(milestoneId);
+
+      const releaseRatePct = Number(row.releaseRatePct);
+      if (!Number.isSafeInteger(releaseRatePct) || releaseRatePct < 0 || releaseRatePct > 100) {
+        throw new TypeError("agreementTerms.milestones[].releaseRatePct must be an integer within 0..100");
+      }
+      totalRate += releaseRatePct;
+
+      const requiredEvidenceCountRaw = row.requiredEvidenceCount;
+      const requiredEvidenceCount =
+        requiredEvidenceCountRaw === null || requiredEvidenceCountRaw === undefined || requiredEvidenceCountRaw === ""
+          ? null
+          : Number(requiredEvidenceCountRaw);
+      if (
+        requiredEvidenceCount !== null &&
+        (!Number.isSafeInteger(requiredEvidenceCount) || requiredEvidenceCount < 0)
+      ) {
+        throw new TypeError("agreementTerms.milestones[].requiredEvidenceCount must be a non-negative integer");
+      }
+
+      milestones.push({
+        milestoneId,
+        label: typeof row.label === "string" && row.label.trim() !== "" ? row.label.trim() : null,
+        releaseRatePct,
+        statusGate: normalizeAgreementMilestoneStatusGate(row.statusGate, { defaultValue: "any", allowAny: true }),
+        requiredEvidenceCount
+      });
+    }
+    if (totalRate !== 100) {
+      throw new TypeError("agreementTerms.milestones releaseRatePct sum must equal 100");
+    }
+    return milestones;
+  }
+
+  function normalizeAgreementCancellationInput(input) {
+    const raw = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+    const killFeeRatePctRaw = raw.killFeeRatePct;
+    const killFeeRatePct =
+      killFeeRatePctRaw === null || killFeeRatePctRaw === undefined || killFeeRatePctRaw === ""
+        ? 0
+        : Number(killFeeRatePctRaw);
+    if (!Number.isSafeInteger(killFeeRatePct) || killFeeRatePct < 0 || killFeeRatePct > 100) {
+      throw new TypeError("agreementTerms.cancellation.killFeeRatePct must be an integer within 0..100");
+    }
+    return {
+      allowCancellationBeforeStart: raw.allowCancellationBeforeStart !== false,
+      killFeeRatePct,
+      requireEvidenceOnCancellation: raw.requireEvidenceOnCancellation === true,
+      requireCounterpartyAcceptance: raw.requireCounterpartyAcceptance === true
+    };
+  }
+
+  function normalizeAgreementChangeOrderPolicyInput(input) {
+    const raw = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+    const enabled = raw.enabled === true;
+    const maxChangeOrdersRaw = raw.maxChangeOrders;
+    const maxChangeOrders =
+      maxChangeOrdersRaw === null || maxChangeOrdersRaw === undefined || maxChangeOrdersRaw === ""
+        ? 0
+        : Number(maxChangeOrdersRaw);
+    if (!Number.isSafeInteger(maxChangeOrders) || maxChangeOrders < 0) {
+      throw new TypeError("agreementTerms.changeOrderPolicy.maxChangeOrders must be a non-negative integer");
+    }
+    return {
+      enabled,
+      maxChangeOrders: enabled ? maxChangeOrders : 0,
+      requireCounterpartyAcceptance: raw.requireCounterpartyAcceptance !== false
+    };
+  }
+
+  function buildMarketplaceAgreementTerms({
+    task,
+    bid,
+    agreementTermsInput = null
+  }) {
+    const raw = agreementTermsInput && typeof agreementTermsInput === "object" && !Array.isArray(agreementTermsInput)
+      ? agreementTermsInput
+      : {};
+    return normalizeForCanonicalJson(
+      {
+        title: task?.title ?? null,
+        capability: task?.capability ?? null,
+        deadlineAt: task?.deadlineAt ?? null,
+        etaSeconds: bid?.etaSeconds ?? null,
+        milestones: normalizeAgreementMilestonesInput(raw?.milestones),
+        cancellation: normalizeAgreementCancellationInput(raw?.cancellation),
+        changeOrderPolicy: normalizeAgreementChangeOrderPolicyInput(raw?.changeOrderPolicy ?? raw?.changeOrder ?? null),
+        changeOrders: []
+      },
+      { path: "$" }
+    );
+  }
+
+  function listCompletedMilestoneIdsFromRun(run) {
+    const input = run?.metrics?.completedMilestoneIds;
+    if (!Array.isArray(input)) return [];
+    const out = [];
+    const seen = new Set();
+    for (const raw of input) {
+      if (typeof raw !== "string") continue;
+      const value = raw.trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      out.push(value);
+    }
+    return out;
+  }
+
+  function applyAgreementMilestoneRelease({
+    policyDecision,
+    agreement,
+    run,
+    verification,
+    amountCents
+  }) {
+    const milestones = Array.isArray(agreement?.terms?.milestones) ? agreement.terms.milestones : null;
+    if (!milestones || milestones.length === 0) {
+      return { decision: policyDecision, milestoneEvaluation: null };
+    }
+    const completedMilestoneIds = listCompletedMilestoneIdsFromRun(run);
+    const completedSet = new Set(completedMilestoneIds);
+    const verificationStatus = String(run?.status === "failed" ? "red" : verification?.verificationStatus ?? "amber").trim().toLowerCase();
+    const evidenceCount = Number(verification?.evidenceCount ?? 0);
+
+    let milestoneRatePct = 0;
+    const appliedMilestoneIds = [];
+    for (const milestone of milestones) {
+      const milestoneId = typeof milestone?.milestoneId === "string" ? milestone.milestoneId.trim() : "";
+      if (!milestoneId || !completedSet.has(milestoneId)) continue;
+      const statusGate = normalizeAgreementMilestoneStatusGate(milestone?.statusGate, { defaultValue: "any", allowAny: true });
+      if (statusGate !== "any" && statusGate !== verificationStatus) continue;
+      const requiredEvidenceCount =
+        milestone?.requiredEvidenceCount === null || milestone?.requiredEvidenceCount === undefined
+          ? null
+          : Number(milestone.requiredEvidenceCount);
+      if (requiredEvidenceCount !== null && Number.isSafeInteger(requiredEvidenceCount) && evidenceCount < requiredEvidenceCount) {
+        continue;
+      }
+      const releaseRatePct = Number(milestone?.releaseRatePct);
+      if (!Number.isSafeInteger(releaseRatePct) || releaseRatePct < 0 || releaseRatePct > 100) continue;
+      milestoneRatePct += releaseRatePct;
+      appliedMilestoneIds.push(milestoneId);
+    }
+    milestoneRatePct = Math.min(100, Math.max(0, milestoneRatePct));
+    const baseRatePct = Number(policyDecision?.releaseRatePct ?? 0);
+    const effectiveRatePct = Number.isSafeInteger(baseRatePct) ? Math.min(baseRatePct, milestoneRatePct) : milestoneRatePct;
+    const safeAmountCents = Number(amountCents);
+    const releaseAmountCents =
+      effectiveRatePct <= 0 ? 0 : Math.min(safeAmountCents, Math.floor((safeAmountCents * effectiveRatePct) / 100));
+    const refundAmountCents = safeAmountCents - releaseAmountCents;
+
+    const reasonCodes = Array.isArray(policyDecision?.reasonCodes) ? [...policyDecision.reasonCodes] : [];
+    if (effectiveRatePct !== baseRatePct) reasonCodes.push("milestone_release_cap_applied");
+    const nextDecision = {
+      ...policyDecision,
+      reasonCodes,
+      releaseRatePct: effectiveRatePct,
+      releaseAmountCents,
+      refundAmountCents,
+      settlementStatus: releaseAmountCents > 0 ? "released" : "refunded",
+      milestoneEvaluation: {
+        completedMilestoneIds,
+        appliedMilestoneIds,
+        milestoneRatePct,
+        effectiveRatePct,
+        verificationStatus
+      }
+    };
+    return { decision: nextDecision, milestoneEvaluation: nextDecision.milestoneEvaluation };
+  }
+
+  function buildMarketplaceAgreementPolicyBindingCore({ agreement }) {
+    const agreementObj = agreement && typeof agreement === "object" && !Array.isArray(agreement) ? agreement : null;
+    if (!agreementObj) throw new TypeError("agreement is required for policy binding");
+    const policyRef =
+      agreementObj.policyRef && typeof agreementObj.policyRef === "object" && !Array.isArray(agreementObj.policyRef)
+        ? normalizeForCanonicalJson(agreementObj.policyRef, { path: "$" })
+        : null;
+    if (!policyRef) throw new TypeError("agreement.policyRef is required for policy binding");
+    const policyRefHash = sha256Hex(canonicalJsonStringify(policyRef));
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: MARKETPLACE_AGREEMENT_POLICY_BINDING_SCHEMA_VERSION,
+        agreementId: String(agreementObj.agreementId ?? ""),
+        tenantId: String(agreementObj.tenantId ?? ""),
+        taskId: String(agreementObj.taskId ?? ""),
+        runId: String(agreementObj.runId ?? ""),
+        bidId: String(agreementObj.bidId ?? ""),
+        acceptedAt:
+          typeof agreementObj.acceptedAt === "string" && Number.isFinite(Date.parse(agreementObj.acceptedAt))
+            ? agreementObj.acceptedAt
+            : null,
+        acceptedByAgentId:
+          typeof agreementObj.acceptedByAgentId === "string" && agreementObj.acceptedByAgentId.trim() !== ""
+            ? agreementObj.acceptedByAgentId.trim()
+            : null,
+        offerChainHash: normalizeSha256HashInput(agreementObj.offerChainHash, "agreement.offerChainHash", { allowNull: true }),
+        acceptedProposalId:
+          typeof agreementObj.acceptedProposalId === "string" && agreementObj.acceptedProposalId.trim() !== ""
+            ? agreementObj.acceptedProposalId.trim()
+            : null,
+        acceptedRevision:
+          Number.isSafeInteger(Number(agreementObj.acceptedRevision)) && Number(agreementObj.acceptedRevision) > 0
+            ? Number(agreementObj.acceptedRevision)
+            : null,
+        acceptedProposalHash: normalizeSha256HashInput(agreementObj.acceptedProposalHash, "agreement.acceptedProposalHash", {
+          allowNull: true
+        }),
+        termsHash: normalizeSha256HashInput(agreementObj.termsHash, "agreement.termsHash", { allowNull: false }),
+        policyHash: normalizeSha256HashInput(agreementObj.policyHash, "agreement.policyHash", { allowNull: false }),
+        verificationMethodHash: normalizeSha256HashInput(agreementObj.verificationMethodHash, "agreement.verificationMethodHash", {
+          allowNull: false
+        }),
+        policyRefHash,
+        policyRef
+      },
+      { path: "$" }
+    );
+  }
+
+  function buildMarketplaceAgreementPolicyBinding({
+    agreement,
+    signedAt = nowIso(),
+    signer = serverSigner
+  } = {}) {
+    if (!signer || typeof signer !== "object") throw new TypeError("policy binding signer is required");
+    if (typeof signer.keyId !== "string" || signer.keyId.trim() === "") throw new TypeError("policy binding signer.keyId is required");
+    if (typeof signer.privateKeyPem !== "string" || signer.privateKeyPem.trim() === "") {
+      throw new TypeError("policy binding signer.privateKeyPem is required");
+    }
+    const core = buildMarketplaceAgreementPolicyBindingCore({ agreement });
+    const bindingHash = sha256Hex(canonicalJsonStringify(core));
+    const signature = signHashHexEd25519(bindingHash, signer.privateKeyPem);
+    return normalizeForCanonicalJson(
+      {
+        ...core,
+        signerKeyId: signer.keyId,
+        signedAt: typeof signedAt === "string" && Number.isFinite(Date.parse(signedAt)) ? signedAt : nowIso(),
+        bindingHash,
+        signature
+      },
+      { path: "$" }
+    );
+  }
+
+  async function verifyMarketplaceAgreementPolicyBinding({
+    tenantId,
+    agreement
+  } = {}) {
+    const agreementObj = agreement && typeof agreement === "object" && !Array.isArray(agreement) ? agreement : null;
+    if (!agreementObj) {
+      return { present: false, valid: false, reason: "agreement_missing" };
+    }
+    const binding =
+      agreementObj.policyBinding && typeof agreementObj.policyBinding === "object" && !Array.isArray(agreementObj.policyBinding)
+        ? agreementObj.policyBinding
+        : null;
+    if (!binding) {
+      return { present: false, valid: false, reason: "policy_binding_missing" };
+    }
+    let expectedCore = null;
+    try {
+      expectedCore = buildMarketplaceAgreementPolicyBindingCore({ agreement: agreementObj });
+    } catch (err) {
+      return {
+        present: true,
+        valid: false,
+        reason: "binding_core_invalid",
+        message: err?.message ?? "unable to canonicalize policy binding core"
+      };
+    }
+    const expectedHash = sha256Hex(canonicalJsonStringify(expectedCore));
+    let bindingHash = null;
+    try {
+      bindingHash = normalizeSha256HashInput(binding.bindingHash, "agreement.policyBinding.bindingHash", { allowNull: true });
+    } catch (err) {
+      return {
+        present: true,
+        valid: false,
+        reason: "binding_hash_invalid",
+        expectedHash,
+        message: err?.message ?? "invalid binding hash"
+      };
+    }
+    if (!bindingHash) {
+      return { present: true, valid: false, reason: "binding_hash_missing", expectedHash };
+    }
+    if (bindingHash !== expectedHash) {
+      return { present: true, valid: false, reason: "binding_hash_mismatch", expectedHash, bindingHash };
+    }
+    const signerKeyId =
+      typeof binding.signerKeyId === "string" && binding.signerKeyId.trim() !== "" ? binding.signerKeyId.trim() : null;
+    const signature =
+      typeof binding.signature === "string" && binding.signature.trim() !== "" ? binding.signature.trim() : null;
+    if (!signerKeyId || !signature) {
+      return { present: true, valid: false, reason: "binding_signature_missing", expectedHash, bindingHash };
+    }
+    let publicKeyPem = null;
+    try {
+      publicKeyPem =
+        signerKeyId === String(store.serverSigner?.keyId ?? "")
+          ? String(store.serverSigner?.publicKeyPem ?? "")
+          : await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+    } catch (err) {
+      return {
+        present: true,
+        valid: false,
+        reason: "binding_signer_unknown",
+        expectedHash,
+        bindingHash,
+        signerKeyId,
+        message: err?.message ?? "unable to resolve signer key"
+      };
+    }
+    const signatureValid = verifyHashHexEd25519({
+      hashHex: bindingHash,
+      signatureBase64: signature,
+      publicKeyPem
+    });
+    if (!signatureValid) {
+      return {
+        present: true,
+        valid: false,
+        reason: "binding_signature_invalid",
+        expectedHash,
+        bindingHash,
+        signerKeyId
+      };
+    }
+    return {
+      present: true,
+      valid: true,
+      reason: null,
+      expectedHash,
+      bindingHash,
+      signerKeyId
+    };
+  }
+
+  async function verifyMarketplaceAgreementAcceptanceSignature({
+    tenantId,
+    agreement
+  } = {}) {
+    const agreementObj = agreement && typeof agreement === "object" && !Array.isArray(agreement) ? agreement : null;
+    if (!agreementObj) {
+      return { present: false, valid: false, reason: "agreement_missing" };
+    }
+    const acceptanceSignature =
+      agreementObj.acceptanceSignature && typeof agreementObj.acceptanceSignature === "object" && !Array.isArray(agreementObj.acceptanceSignature)
+        ? agreementObj.acceptanceSignature
+        : null;
+    if (!acceptanceSignature) {
+      return { present: false, valid: false, reason: "acceptance_signature_missing" };
+    }
+    const signerAgentId =
+      typeof acceptanceSignature.signerAgentId === "string" && acceptanceSignature.signerAgentId.trim() !== ""
+        ? acceptanceSignature.signerAgentId.trim()
+        : null;
+    if (!signerAgentId) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signer_agent_missing"
+      };
+    }
+    const signedAt =
+      typeof acceptanceSignature.signedAt === "string" && acceptanceSignature.signedAt.trim() !== ""
+        ? acceptanceSignature.signedAt.trim()
+        : null;
+    if (!isValidIsoDateTime(signedAt)) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signed_at_invalid",
+        signerAgentId
+      };
+    }
+    let actingOnBehalfOf = null;
+    try {
+      actingOnBehalfOf = await parseActingOnBehalfOf({
+        tenantId,
+        acceptedByAgentId:
+          typeof agreementObj.acceptedByAgentId === "string" && agreementObj.acceptedByAgentId.trim() !== ""
+            ? agreementObj.acceptedByAgentId.trim()
+            : null,
+        signerAgentId,
+        signedAt,
+        actingOnBehalfOfInput: acceptanceSignature.actingOnBehalfOf,
+        requiredScope: MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_ACCEPT
+      });
+    } catch (err) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_delegation_invalid",
+        signerAgentId,
+        message: err?.message ?? "invalid acceptance signature delegation chain"
+      };
+    }
+    let expectedCore = null;
+    try {
+      expectedCore = buildMarketplaceAgreementAcceptanceSignatureCore({ agreement: agreementObj, actingOnBehalfOf });
+    } catch (err) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_core_invalid",
+        message: err?.message ?? "unable to canonicalize acceptance signature core"
+      };
+    }
+    const expectedHash = sha256Hex(canonicalJsonStringify(expectedCore));
+    let acceptanceHash = null;
+    try {
+      acceptanceHash = normalizeSha256HashInput(acceptanceSignature.acceptanceHash, "agreement.acceptanceSignature.acceptanceHash", {
+        allowNull: true
+      });
+    } catch (err) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_hash_invalid",
+        expectedHash,
+        message: err?.message ?? "invalid acceptance signature hash"
+      };
+    }
+    if (!acceptanceHash) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_hash_missing",
+        expectedHash
+      };
+    }
+    if (acceptanceHash !== expectedHash) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_hash_mismatch",
+        expectedHash,
+        acceptanceHash
+      };
+    }
+    const expectedSignerAgentId = actingOnBehalfOf?.delegateAgentId ?? expectedCore.acceptedByAgentId;
+    if (expectedSignerAgentId && signerAgentId !== expectedSignerAgentId) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signer_agent_mismatch",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        acceptedByAgentId: expectedCore.acceptedByAgentId,
+        expectedSignerAgentId
+      };
+    }
+    let signerIdentity = null;
+    try {
+      signerIdentity = await getAgentIdentityRecord({ tenantId, agentId: signerAgentId });
+    } catch (err) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signer_agent_lookup_failed",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        message: err?.message ?? "unable to resolve signer agent"
+      };
+    }
+    if (!signerIdentity) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signer_agent_unknown",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId
+      };
+    }
+    const signerKeyId =
+      typeof acceptanceSignature.signerKeyId === "string" && acceptanceSignature.signerKeyId.trim() !== ""
+        ? acceptanceSignature.signerKeyId.trim()
+        : null;
+    const signature =
+      typeof acceptanceSignature.signature === "string" && acceptanceSignature.signature.trim() !== ""
+        ? acceptanceSignature.signature.trim()
+        : null;
+    if (!signerKeyId || !signature) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signature_missing",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId
+      };
+    }
+    const expectedAgentKeyId = String(signerIdentity?.keys?.keyId ?? "");
+    if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signer_key_mismatch",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        signerKeyId,
+        expectedAgentKeyId
+      };
+    }
+    let publicKeyPem = null;
+    try {
+      publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+    } catch (err) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signer_unknown",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        signerKeyId,
+        message: err?.message ?? "unable to resolve signer key"
+      };
+    }
+    const signatureValid = verifyHashHexEd25519({
+      hashHex: acceptanceHash,
+      signatureBase64: signature,
+      publicKeyPem
+    });
+    if (!signatureValid) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signature_invalid",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        signerKeyId
+      };
+    }
+    return {
+      present: true,
+      valid: true,
+      reason: null,
+      expectedHash,
+      acceptanceHash,
+      signerAgentId,
+      signerKeyId,
+      actingOnBehalfOf: actingOnBehalfOf
+        ? {
+            principalAgentId: actingOnBehalfOf.principalAgentId,
+            delegateAgentId: actingOnBehalfOf.delegateAgentId,
+            chainHash: actingOnBehalfOf.chainHash
+          }
+        : null
+    };
+  }
+
+  function buildMarketplaceAgreementChangeOrderAcceptanceSignatureCore({
+    tenantId,
+    runId,
+    agreement,
+    changeOrder,
+    nextMilestones,
+    nextCancellation,
+    actingOnBehalfOf = null
+  } = {}) {
+    const agreementObj = agreement && typeof agreement === "object" && !Array.isArray(agreement) ? agreement : null;
+    if (!agreementObj) throw new TypeError("agreement is required for change order acceptance signature");
+    const changeOrderObj = changeOrder && typeof changeOrder === "object" && !Array.isArray(changeOrder) ? changeOrder : null;
+    if (!changeOrderObj) throw new TypeError("changeOrder is required for change order acceptance signature");
+    const acceptedByAgentId =
+      typeof changeOrderObj.acceptedByAgentId === "string" && changeOrderObj.acceptedByAgentId.trim() !== ""
+        ? changeOrderObj.acceptedByAgentId.trim()
+        : null;
+    if (!acceptedByAgentId) throw new TypeError("change order acceptedByAgentId is required for acceptance signature");
+    const milestones = Array.isArray(nextMilestones) ? normalizeForCanonicalJson(nextMilestones, { path: "$" }) : [];
+    const cancellation = normalizeForCanonicalJson(nextCancellation ?? {}, { path: "$" });
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: MARKETPLACE_AGREEMENT_CHANGE_ORDER_ACCEPTANCE_SIGNATURE_SCHEMA_VERSION,
+        tenantId: normalizeTenant(tenantId),
+        runId: String(runId ?? ""),
+        agreementId: String(agreementObj.agreementId ?? ""),
+        taskId: String(agreementObj.taskId ?? ""),
+        bidId: String(agreementObj.bidId ?? ""),
+        changeOrderId: String(changeOrderObj.changeOrderId ?? ""),
+        requestedByAgentId: String(changeOrderObj.requestedByAgentId ?? ""),
+        acceptedByAgentId,
+        reason: String(changeOrderObj.reason ?? ""),
+        note: typeof changeOrderObj.note === "string" ? changeOrderObj.note : null,
+        previousTermsHash: normalizeSha256HashInput(changeOrderObj.previousTermsHash, "changeOrder.previousTermsHash", { allowNull: true }),
+        milestonesHash: sha256Hex(canonicalJsonStringify(milestones)),
+        cancellationHash: sha256Hex(canonicalJsonStringify(cancellation)),
+        actingOnBehalfOfPrincipalAgentId:
+          actingOnBehalfOf && typeof actingOnBehalfOf === "object" ? actingOnBehalfOf.principalAgentId ?? null : null,
+        actingOnBehalfOfDelegateAgentId:
+          actingOnBehalfOf && typeof actingOnBehalfOf === "object" ? actingOnBehalfOf.delegateAgentId ?? null : null,
+        actingOnBehalfOfChainHash:
+          actingOnBehalfOf && typeof actingOnBehalfOf === "object" ? actingOnBehalfOf.chainHash ?? null : null
+      },
+      { path: "$" }
+    );
+  }
+
+  async function parseSignedMarketplaceAgreementChangeOrderAcceptance({
+    tenantId,
+    runId,
+    agreement,
+    changeOrder,
+    nextMilestones,
+    nextCancellation,
+    acceptanceSignatureInput,
+    acceptedByAgentId = null,
+    acceptedByIdentity = null
+  } = {}) {
+    if (!acceptanceSignatureInput || typeof acceptanceSignatureInput !== "object" || Array.isArray(acceptanceSignatureInput)) {
+      throw new TypeError("acceptanceSignature must be an object");
+    }
+    const acceptedByNormalized =
+      typeof acceptedByAgentId === "string" && acceptedByAgentId.trim() !== "" ? acceptedByAgentId.trim() : null;
+    if (!acceptedByNormalized) throw new TypeError("acceptedByAgentId is required for acceptanceSignature");
+    const signerAgentIdRaw = acceptanceSignatureInput.signerAgentId;
+    const signerAgentId =
+      typeof signerAgentIdRaw === "string" && signerAgentIdRaw.trim() !== ""
+        ? signerAgentIdRaw.trim()
+        : acceptedByNormalized;
+    const signedAtRaw = acceptanceSignatureInput.signedAt;
+    const signedAt = typeof signedAtRaw === "string" && signedAtRaw.trim() !== "" ? signedAtRaw.trim() : nowIso();
+    if (!Number.isFinite(Date.parse(signedAt))) throw new TypeError("acceptanceSignature.signedAt must be an ISO date-time");
+    const actingOnBehalfOf = await parseActingOnBehalfOf({
+      tenantId,
+      acceptedByAgentId: acceptedByNormalized,
+      signerAgentId,
+      signedAt,
+      actingOnBehalfOfInput: acceptanceSignatureInput.actingOnBehalfOf,
+      requiredScope: MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_CHANGE_ORDER
+    });
+    if (!actingOnBehalfOf && signerAgentId !== acceptedByNormalized) {
+      throw new TypeError("acceptanceSignature.signerAgentId must match acceptedByAgentId");
+    }
+    const signerIdentity =
+      acceptedByIdentity && signerAgentId === acceptedByNormalized
+        ? acceptedByIdentity
+        : await getAgentIdentityRecord({ tenantId, agentId: signerAgentId });
+    if (!signerIdentity) throw new TypeError("acceptanceSignature signer agent not found");
+
+    const signerKeyId =
+      typeof acceptanceSignatureInput.signerKeyId === "string" && acceptanceSignatureInput.signerKeyId.trim() !== ""
+        ? acceptanceSignatureInput.signerKeyId.trim()
+        : null;
+    const signature =
+      typeof acceptanceSignatureInput.signature === "string" && acceptanceSignatureInput.signature.trim() !== ""
+        ? acceptanceSignatureInput.signature.trim()
+        : null;
+    if (!signerKeyId || !signature) {
+      throw new TypeError("acceptanceSignature.signerKeyId and acceptanceSignature.signature are required");
+    }
+    const expectedAgentKeyId = String(signerIdentity?.keys?.keyId ?? "");
+    if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
+      throw new TypeError("acceptanceSignature.signerKeyId does not match signer agent key");
+    }
+
+    const core = buildMarketplaceAgreementChangeOrderAcceptanceSignatureCore({
+      tenantId,
+      runId,
+      agreement,
+      changeOrder,
+      nextMilestones,
+      nextCancellation,
+      actingOnBehalfOf
+    });
+    const expectedSignerAgentId = actingOnBehalfOf?.delegateAgentId ?? core.acceptedByAgentId;
+    if (expectedSignerAgentId && expectedSignerAgentId !== signerAgentId) {
+      throw new TypeError("acceptanceSignature.signerAgentId must match changeOrder.acceptedByAgentId");
+    }
+    const acceptanceHash = sha256Hex(canonicalJsonStringify(core));
+    const publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+    const isValid = verifyHashHexEd25519({
+      hashHex: acceptanceHash,
+      signatureBase64: signature,
+      publicKeyPem
+    });
+    if (!isValid) throw new TypeError("invalid acceptanceSignature signature");
+
+    return normalizeForCanonicalJson(
+      {
+        ...core,
+        signerAgentId,
+        signerKeyId,
+        signedAt,
+        actingOnBehalfOf: actingOnBehalfOf ?? null,
+        acceptanceHash,
+        signature
+      },
+      { path: "$" }
+    );
+  }
+
+  async function verifyMarketplaceAgreementChangeOrderAcceptanceSignature({
+    tenantId,
+    runId,
+    agreement,
+    changeOrder,
+    nextMilestones,
+    nextCancellation
+  } = {}) {
+    const signatureObj =
+      changeOrder?.acceptanceSignature &&
+      typeof changeOrder.acceptanceSignature === "object" &&
+      !Array.isArray(changeOrder.acceptanceSignature)
+        ? changeOrder.acceptanceSignature
+        : null;
+    if (!signatureObj) return { present: false, valid: false, reason: "acceptance_signature_missing" };
+    const signerAgentId =
+      typeof signatureObj.signerAgentId === "string" && signatureObj.signerAgentId.trim() !== ""
+        ? signatureObj.signerAgentId.trim()
+        : null;
+    if (!signerAgentId) {
+      return { present: true, valid: false, reason: "acceptance_signature_signer_agent_missing" };
+    }
+    const signedAt =
+      typeof signatureObj.signedAt === "string" && signatureObj.signedAt.trim() !== ""
+        ? signatureObj.signedAt.trim()
+        : null;
+    if (!isValidIsoDateTime(signedAt)) {
+      return { present: true, valid: false, reason: "acceptance_signature_signed_at_invalid", signerAgentId };
+    }
+    const acceptedByAgentId =
+      typeof changeOrder?.acceptedByAgentId === "string" && changeOrder.acceptedByAgentId.trim() !== ""
+        ? changeOrder.acceptedByAgentId.trim()
+        : null;
+    let actingOnBehalfOf = null;
+    try {
+      actingOnBehalfOf = await parseActingOnBehalfOf({
+        tenantId,
+        acceptedByAgentId,
+        signerAgentId,
+        signedAt,
+        actingOnBehalfOfInput: signatureObj.actingOnBehalfOf,
+        requiredScope: MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_CHANGE_ORDER
+      });
+    } catch (err) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_delegation_invalid",
+        signerAgentId,
+        message: err?.message
+      };
+    }
+    let expectedCore = null;
+    try {
+      expectedCore = buildMarketplaceAgreementChangeOrderAcceptanceSignatureCore({
+        tenantId,
+        runId,
+        agreement,
+        changeOrder,
+        nextMilestones,
+        nextCancellation,
+        actingOnBehalfOf
+      });
+    } catch (err) {
+      return { present: true, valid: false, reason: "acceptance_signature_core_invalid", message: err?.message };
+    }
+    const expectedHash = sha256Hex(canonicalJsonStringify(expectedCore));
+    let acceptanceHash = null;
+    try {
+      acceptanceHash = normalizeSha256HashInput(signatureObj.acceptanceHash, "changeOrder.acceptanceSignature.acceptanceHash", {
+        allowNull: true
+      });
+    } catch (err) {
+      return { present: true, valid: false, reason: "acceptance_signature_hash_invalid", expectedHash, message: err?.message };
+    }
+    if (!acceptanceHash) return { present: true, valid: false, reason: "acceptance_signature_hash_missing", expectedHash };
+    if (acceptanceHash !== expectedHash) {
+      return { present: true, valid: false, reason: "acceptance_signature_hash_mismatch", expectedHash, acceptanceHash };
+    }
+    const expectedSignerAgentId = actingOnBehalfOf?.delegateAgentId ?? expectedCore.acceptedByAgentId;
+    if (expectedSignerAgentId && signerAgentId !== expectedSignerAgentId) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signer_agent_mismatch",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        acceptedByAgentId: expectedCore.acceptedByAgentId,
+        expectedSignerAgentId
+      };
+    }
+    const signerKeyId =
+      typeof signatureObj.signerKeyId === "string" && signatureObj.signerKeyId.trim() !== ""
+        ? signatureObj.signerKeyId.trim()
+        : null;
+    const signature =
+      typeof signatureObj.signature === "string" && signatureObj.signature.trim() !== ""
+        ? signatureObj.signature.trim()
+        : null;
+    if (!signerKeyId || !signature) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signature_missing",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId
+      };
+    }
+    let signerIdentity = null;
+    try {
+      signerIdentity = await getAgentIdentityRecord({ tenantId, agentId: signerAgentId });
+    } catch (err) {
+      return { present: true, valid: false, reason: "acceptance_signature_signer_agent_lookup_failed", expectedHash, acceptanceHash, signerAgentId, message: err?.message };
+    }
+    if (!signerIdentity) {
+      return { present: true, valid: false, reason: "acceptance_signature_signer_agent_unknown", expectedHash, acceptanceHash, signerAgentId };
+    }
+    const expectedAgentKeyId = String(signerIdentity?.keys?.keyId ?? "");
+    if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signer_key_mismatch",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        signerKeyId,
+        expectedAgentKeyId
+      };
+    }
+    let publicKeyPem = null;
+    try {
+      publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+    } catch (err) {
+      return { present: true, valid: false, reason: "acceptance_signature_signer_unknown", expectedHash, acceptanceHash, signerAgentId, signerKeyId, message: err?.message };
+    }
+    const signatureValid = verifyHashHexEd25519({
+      hashHex: acceptanceHash,
+      signatureBase64: signature,
+      publicKeyPem
+    });
+    if (!signatureValid) {
+      return { present: true, valid: false, reason: "acceptance_signature_signature_invalid", expectedHash, acceptanceHash, signerAgentId, signerKeyId };
+    }
+    return {
+      present: true,
+      valid: true,
+      reason: null,
+      expectedHash,
+      acceptanceHash,
+      signerAgentId,
+      signerKeyId,
+      actingOnBehalfOf: actingOnBehalfOf
+        ? {
+            principalAgentId: actingOnBehalfOf.principalAgentId,
+            delegateAgentId: actingOnBehalfOf.delegateAgentId,
+            chainHash: actingOnBehalfOf.chainHash
+          }
+        : null
+    };
+  }
+
+  function buildMarketplaceAgreementCancellationAcceptanceSignatureCore({
+    tenantId,
+    runId,
+    agreement,
+    cancellation,
+    actingOnBehalfOf = null
+  } = {}) {
+    const agreementObj = agreement && typeof agreement === "object" && !Array.isArray(agreement) ? agreement : null;
+    if (!agreementObj) throw new TypeError("agreement is required for cancellation acceptance signature");
+    const cancellationObj = cancellation && typeof cancellation === "object" && !Array.isArray(cancellation) ? cancellation : null;
+    if (!cancellationObj) throw new TypeError("cancellation is required for cancellation acceptance signature");
+    const acceptedByAgentId =
+      typeof cancellationObj.acceptedByAgentId === "string" && cancellationObj.acceptedByAgentId.trim() !== ""
+        ? cancellationObj.acceptedByAgentId.trim()
+        : null;
+    if (!acceptedByAgentId) throw new TypeError("cancellation acceptedByAgentId is required for acceptance signature");
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: MARKETPLACE_AGREEMENT_CANCELLATION_ACCEPTANCE_SIGNATURE_SCHEMA_VERSION,
+        tenantId: normalizeTenant(tenantId),
+        runId: String(runId ?? ""),
+        agreementId: String(agreementObj.agreementId ?? ""),
+        taskId: String(agreementObj.taskId ?? ""),
+        bidId: String(agreementObj.bidId ?? ""),
+        cancellationId: String(cancellationObj.cancellationId ?? ""),
+        cancelledByAgentId: String(cancellationObj.cancelledByAgentId ?? ""),
+        acceptedByAgentId,
+        reason: String(cancellationObj.reason ?? ""),
+        evidenceRef: typeof cancellationObj.evidenceRef === "string" && cancellationObj.evidenceRef.trim() !== "" ? cancellationObj.evidenceRef.trim() : null,
+        termsHash: normalizeSha256HashInput(agreementObj.termsHash, "agreement.termsHash", { allowNull: false }),
+        killFeeRatePct:
+          Number.isSafeInteger(Number(cancellationObj.killFeeRatePct)) && Number(cancellationObj.killFeeRatePct) >= 0
+            ? Number(cancellationObj.killFeeRatePct)
+            : 0,
+        actingOnBehalfOfPrincipalAgentId:
+          actingOnBehalfOf && typeof actingOnBehalfOf === "object" ? actingOnBehalfOf.principalAgentId ?? null : null,
+        actingOnBehalfOfDelegateAgentId:
+          actingOnBehalfOf && typeof actingOnBehalfOf === "object" ? actingOnBehalfOf.delegateAgentId ?? null : null,
+        actingOnBehalfOfChainHash:
+          actingOnBehalfOf && typeof actingOnBehalfOf === "object" ? actingOnBehalfOf.chainHash ?? null : null
+      },
+      { path: "$" }
+    );
+  }
+
+  async function parseSignedMarketplaceAgreementCancellationAcceptance({
+    tenantId,
+    runId,
+    agreement,
+    cancellation,
+    acceptanceSignatureInput,
+    acceptedByAgentId = null,
+    acceptedByIdentity = null
+  } = {}) {
+    if (!acceptanceSignatureInput || typeof acceptanceSignatureInput !== "object" || Array.isArray(acceptanceSignatureInput)) {
+      throw new TypeError("acceptanceSignature must be an object");
+    }
+    const acceptedByNormalized =
+      typeof acceptedByAgentId === "string" && acceptedByAgentId.trim() !== "" ? acceptedByAgentId.trim() : null;
+    if (!acceptedByNormalized) throw new TypeError("acceptedByAgentId is required for acceptanceSignature");
+    const signerAgentIdRaw = acceptanceSignatureInput.signerAgentId;
+    const signerAgentId =
+      typeof signerAgentIdRaw === "string" && signerAgentIdRaw.trim() !== ""
+        ? signerAgentIdRaw.trim()
+        : acceptedByNormalized;
+    const signedAtRaw = acceptanceSignatureInput.signedAt;
+    const signedAt = typeof signedAtRaw === "string" && signedAtRaw.trim() !== "" ? signedAtRaw.trim() : nowIso();
+    if (!Number.isFinite(Date.parse(signedAt))) throw new TypeError("acceptanceSignature.signedAt must be an ISO date-time");
+    const actingOnBehalfOf = await parseActingOnBehalfOf({
+      tenantId,
+      acceptedByAgentId: acceptedByNormalized,
+      signerAgentId,
+      signedAt,
+      actingOnBehalfOfInput: acceptanceSignatureInput.actingOnBehalfOf,
+      requiredScope: MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_CANCEL
+    });
+    if (!actingOnBehalfOf && signerAgentId !== acceptedByNormalized) {
+      throw new TypeError("acceptanceSignature.signerAgentId must match acceptedByAgentId");
+    }
+    const signerIdentity =
+      acceptedByIdentity && signerAgentId === acceptedByNormalized
+        ? acceptedByIdentity
+        : await getAgentIdentityRecord({ tenantId, agentId: signerAgentId });
+    if (!signerIdentity) throw new TypeError("acceptanceSignature signer agent not found");
+
+    const signerKeyId =
+      typeof acceptanceSignatureInput.signerKeyId === "string" && acceptanceSignatureInput.signerKeyId.trim() !== ""
+        ? acceptanceSignatureInput.signerKeyId.trim()
+        : null;
+    const signature =
+      typeof acceptanceSignatureInput.signature === "string" && acceptanceSignatureInput.signature.trim() !== ""
+        ? acceptanceSignatureInput.signature.trim()
+        : null;
+    if (!signerKeyId || !signature) {
+      throw new TypeError("acceptanceSignature.signerKeyId and acceptanceSignature.signature are required");
+    }
+    const expectedAgentKeyId = String(signerIdentity?.keys?.keyId ?? "");
+    if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
+      throw new TypeError("acceptanceSignature.signerKeyId does not match signer agent key");
+    }
+
+    const core = buildMarketplaceAgreementCancellationAcceptanceSignatureCore({
+      tenantId,
+      runId,
+      agreement,
+      cancellation,
+      actingOnBehalfOf
+    });
+    const expectedSignerAgentId = actingOnBehalfOf?.delegateAgentId ?? core.acceptedByAgentId;
+    if (expectedSignerAgentId && expectedSignerAgentId !== signerAgentId) {
+      throw new TypeError("acceptanceSignature.signerAgentId must match cancellation.acceptedByAgentId");
+    }
+    const acceptanceHash = sha256Hex(canonicalJsonStringify(core));
+    const publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+    const isValid = verifyHashHexEd25519({
+      hashHex: acceptanceHash,
+      signatureBase64: signature,
+      publicKeyPem
+    });
+    if (!isValid) throw new TypeError("invalid acceptanceSignature signature");
+
+    return normalizeForCanonicalJson(
+      {
+        ...core,
+        signerAgentId,
+        signerKeyId,
+        signedAt,
+        actingOnBehalfOf: actingOnBehalfOf ?? null,
+        acceptanceHash,
+        signature
+      },
+      { path: "$" }
+    );
+  }
+
+  async function verifyMarketplaceAgreementCancellationAcceptanceSignature({
+    tenantId,
+    runId,
+    agreement,
+    cancellation
+  } = {}) {
+    const signatureObj =
+      cancellation?.acceptanceSignature &&
+      typeof cancellation.acceptanceSignature === "object" &&
+      !Array.isArray(cancellation.acceptanceSignature)
+        ? cancellation.acceptanceSignature
+        : null;
+    if (!signatureObj) return { present: false, valid: false, reason: "acceptance_signature_missing" };
+    const signerAgentId =
+      typeof signatureObj.signerAgentId === "string" && signatureObj.signerAgentId.trim() !== ""
+        ? signatureObj.signerAgentId.trim()
+        : null;
+    if (!signerAgentId) {
+      return { present: true, valid: false, reason: "acceptance_signature_signer_agent_missing" };
+    }
+    const signedAt =
+      typeof signatureObj.signedAt === "string" && signatureObj.signedAt.trim() !== ""
+        ? signatureObj.signedAt.trim()
+        : null;
+    if (!isValidIsoDateTime(signedAt)) {
+      return { present: true, valid: false, reason: "acceptance_signature_signed_at_invalid", signerAgentId };
+    }
+    const acceptedByAgentId =
+      typeof cancellation?.acceptedByAgentId === "string" && cancellation.acceptedByAgentId.trim() !== ""
+        ? cancellation.acceptedByAgentId.trim()
+        : null;
+    let actingOnBehalfOf = null;
+    try {
+      actingOnBehalfOf = await parseActingOnBehalfOf({
+        tenantId,
+        acceptedByAgentId,
+        signerAgentId,
+        signedAt,
+        actingOnBehalfOfInput: signatureObj.actingOnBehalfOf,
+        requiredScope: MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_CANCEL
+      });
+    } catch (err) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_delegation_invalid",
+        signerAgentId,
+        message: err?.message
+      };
+    }
+    let expectedCore = null;
+    try {
+      expectedCore = buildMarketplaceAgreementCancellationAcceptanceSignatureCore({
+        tenantId,
+        runId,
+        agreement,
+        cancellation,
+        actingOnBehalfOf
+      });
+    } catch (err) {
+      return { present: true, valid: false, reason: "acceptance_signature_core_invalid", message: err?.message };
+    }
+    const expectedHash = sha256Hex(canonicalJsonStringify(expectedCore));
+    let acceptanceHash = null;
+    try {
+      acceptanceHash = normalizeSha256HashInput(signatureObj.acceptanceHash, "cancellation.acceptanceSignature.acceptanceHash", {
+        allowNull: true
+      });
+    } catch (err) {
+      return { present: true, valid: false, reason: "acceptance_signature_hash_invalid", expectedHash, message: err?.message };
+    }
+    if (!acceptanceHash) return { present: true, valid: false, reason: "acceptance_signature_hash_missing", expectedHash };
+    if (acceptanceHash !== expectedHash) {
+      return { present: true, valid: false, reason: "acceptance_signature_hash_mismatch", expectedHash, acceptanceHash };
+    }
+    const expectedSignerAgentId = actingOnBehalfOf?.delegateAgentId ?? expectedCore.acceptedByAgentId;
+    if (expectedSignerAgentId && signerAgentId !== expectedSignerAgentId) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signer_agent_mismatch",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        acceptedByAgentId: expectedCore.acceptedByAgentId,
+        expectedSignerAgentId
+      };
+    }
+    const signerKeyId =
+      typeof signatureObj.signerKeyId === "string" && signatureObj.signerKeyId.trim() !== ""
+        ? signatureObj.signerKeyId.trim()
+        : null;
+    const signature =
+      typeof signatureObj.signature === "string" && signatureObj.signature.trim() !== ""
+        ? signatureObj.signature.trim()
+        : null;
+    if (!signerKeyId || !signature) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signature_missing",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId
+      };
+    }
+    let signerIdentity = null;
+    try {
+      signerIdentity = await getAgentIdentityRecord({ tenantId, agentId: signerAgentId });
+    } catch (err) {
+      return { present: true, valid: false, reason: "acceptance_signature_signer_agent_lookup_failed", expectedHash, acceptanceHash, signerAgentId, message: err?.message };
+    }
+    if (!signerIdentity) {
+      return { present: true, valid: false, reason: "acceptance_signature_signer_agent_unknown", expectedHash, acceptanceHash, signerAgentId };
+    }
+    const expectedAgentKeyId = String(signerIdentity?.keys?.keyId ?? "");
+    if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
+      return {
+        present: true,
+        valid: false,
+        reason: "acceptance_signature_signer_key_mismatch",
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        signerKeyId,
+        expectedAgentKeyId
+      };
+    }
+    let publicKeyPem = null;
+    try {
+      publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+    } catch (err) {
+      return { present: true, valid: false, reason: "acceptance_signature_signer_unknown", expectedHash, acceptanceHash, signerAgentId, signerKeyId, message: err?.message };
+    }
+    const signatureValid = verifyHashHexEd25519({
+      hashHex: acceptanceHash,
+      signatureBase64: signature,
+      publicKeyPem
+    });
+    if (!signatureValid) {
+      return { present: true, valid: false, reason: "acceptance_signature_signature_invalid", expectedHash, acceptanceHash, signerAgentId, signerKeyId };
+    }
+    return {
+      present: true,
+      valid: true,
+      reason: null,
+      expectedHash,
+      acceptanceHash,
+      signerAgentId,
+      signerKeyId,
+      actingOnBehalfOf: actingOnBehalfOf
+        ? {
+            principalAgentId: actingOnBehalfOf.principalAgentId,
+            delegateAgentId: actingOnBehalfOf.delegateAgentId,
+            chainHash: actingOnBehalfOf.chainHash
+          }
+        : null
+    };
+  }
+
+  function buildMarketplaceTaskAgreement({
+    tenantId,
+    task,
+    bid,
+    runId,
+    acceptedAt,
+    acceptedByAgentId,
+    payerAgentId,
+    fromType = "agent",
+    toType = "agent",
+    disputeWindowDays = 3,
+    verificationMethodInput = null,
+    settlementPolicyInput = null,
+    policyRefInput = null,
+    agreementTermsInput = null
+  }) {
+    const taskId = String(task?.taskId ?? "");
+    const bidId = String(bid?.bidId ?? "");
+    if (!taskId || !bidId) throw new TypeError("task.taskId and bid.bidId are required");
+    const agreedCurrency = typeof bid?.currency === "string" && bid.currency.trim() !== ""
+      ? String(bid.currency).trim().toUpperCase()
+      : String(task?.currency ?? "USD").trim().toUpperCase();
+    const agreedAmountCents = Number(bid?.amountCents);
+    if (!Number.isSafeInteger(agreedAmountCents) || agreedAmountCents <= 0) {
+      throw new TypeError("bid.amountCents must be a positive safe integer");
+    }
+    const normalizedDisputeWindowDays = Number.isSafeInteger(Number(disputeWindowDays)) && Number(disputeWindowDays) >= 0
+      ? Number(disputeWindowDays)
+      : 0;
+    const direction = parseInteractionDirection({ fromTypeRaw: fromType, toTypeRaw: toType });
+    const verificationMethod = parseVerificationMethodInput(verificationMethodInput ?? bid?.verificationMethod ?? null);
+    const policyWithHash = parseSettlementPolicyInput(settlementPolicyInput ?? bid?.policy ?? null);
+    const settlementPolicy = {
+      ...policyWithHash,
+      policyHash: policyWithHash.policyHash
+    };
+    const verificationMethodHash = computeVerificationMethodHash(verificationMethod);
+    const normalizedPolicyRefInput =
+      policyRefInput && typeof policyRefInput === "object" && !Array.isArray(policyRefInput)
+        ? parseSettlementPolicyRefInput(policyRefInput, { allowNull: true })
+        : null;
+    const policyRef = normalizeForCanonicalJson(
+      {
+        schemaVersion: MARKETPLACE_POLICY_REF_SCHEMA_VERSION,
+        source: normalizedPolicyRefInput?.source ?? "inline",
+        policyId: normalizedPolicyRefInput?.policyId ?? null,
+        policyVersion:
+          normalizedPolicyRefInput?.policyVersion !== null && normalizedPolicyRefInput?.policyVersion !== undefined
+            ? Number(normalizedPolicyRefInput.policyVersion)
+            : Number(settlementPolicy.policyVersion ?? 1),
+        policyHash: settlementPolicy.policyHash,
+        verificationMethodHash
+      },
+      { path: "$" }
+    );
+    const negotiationSummary = summarizeMarketplaceBidNegotiationForAgreement(bid?.negotiation ?? null);
+    const agreement = {
+      schemaVersion: "MarketplaceTaskAgreement.v1",
+      agreementId: `agr_${taskId}_${bidId}`,
+      tenantId: String(tenantId),
+      taskId,
+      runId: String(runId),
+      bidId,
+      payerAgentId: String(payerAgentId),
+      payeeAgentId: String(bid?.bidderAgentId ?? ""),
+      fromType: direction.fromType,
+      toType: direction.toType,
+      amountCents: agreedAmountCents,
+      currency: agreedCurrency,
+      acceptedAt,
+      acceptedByAgentId: acceptedByAgentId ?? null,
+      disputeWindowDays: normalizedDisputeWindowDays,
+      offerChainHash: negotiationSummary.offerChainHash,
+      acceptedProposalId: negotiationSummary.acceptedProposalId,
+      acceptedRevision: negotiationSummary.acceptedRevision,
+      acceptedProposalHash: negotiationSummary.acceptedProposalHash,
+      negotiation: negotiationSummary.negotiation,
+      acceptance:
+        negotiationSummary.acceptance ??
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: MARKETPLACE_AGREEMENT_ACCEPTANCE_SCHEMA_VERSION,
+            acceptedAt,
+            acceptedByAgentId: acceptedByAgentId ?? null,
+            acceptedProposalId: negotiationSummary.acceptedProposalId,
+            acceptedRevision: negotiationSummary.acceptedRevision,
+            acceptedProposalHash: negotiationSummary.acceptedProposalHash,
+            offerChainHash: negotiationSummary.offerChainHash,
+            proposalCount:
+              Number.isSafeInteger(Number(negotiationSummary?.negotiation?.proposalCount)) &&
+              Number(negotiationSummary?.negotiation?.proposalCount) > 0
+                ? Number(negotiationSummary?.negotiation?.proposalCount)
+                : 1
+          },
+          { path: "$" }
+        ),
+      verificationMethod,
+      policy: settlementPolicy,
+      policyRef,
+      terms: buildMarketplaceAgreementTerms({
+        task,
+        bid,
+        agreementTermsInput
+      })
+    };
+    agreement.termsHash = sha256Hex(canonicalJsonStringify(agreement.terms));
+    agreement.verificationMethodHash = policyRef.verificationMethodHash;
+    agreement.policyHash = policyRef.policyHash;
+    agreement.policyBinding = buildMarketplaceAgreementPolicyBinding({
+      agreement,
+      signedAt: acceptedAt,
+      signer: serverSigner
+    });
+    return agreement;
+  }
+
+  function makeLifecycleArtifactId({ eventType, sourceEventId, runId, taskId }) {
+    const sanitize = (value) =>
+      String(value ?? "")
+        .trim()
+        .replaceAll(/[^a-zA-Z0-9_-]/g, "_");
+    const eventSeg = sanitize(eventType).toLowerCase() || "event";
+    const sourceSeg = sanitize(sourceEventId) || sanitize(runId) || sanitize(taskId) || createId("evt");
+    return `lifecycle_${eventSeg}_${sourceSeg}`;
+  }
+
+  async function emitMarketplaceLifecycleArtifact({
+    tenantId,
+    eventType,
+    taskId = null,
+    runId = null,
+    sourceEventId = null,
+    actorAgentId = null,
+    agreement = null,
+    settlement = null,
+    details = null
+  } = {}) {
+    if (typeof store.putArtifact !== "function" || typeof store.createDelivery !== "function") return null;
+    const artifactType = "MarketplaceLifecycle.v1";
+    const generatedAt = nowIso();
+    const artifactId = makeLifecycleArtifactId({ eventType, sourceEventId, runId, taskId });
+    const body = {
+      schemaVersion: artifactType,
+      artifactType,
+      artifactId,
+      tenantId: normalizeTenant(tenantId),
+      taskId: taskId ?? null,
+      runId: runId ?? null,
+      sourceEventId: sourceEventId ?? null,
+      eventType,
+      actorAgentId: actorAgentId ?? null,
+      agreementId: agreement?.agreementId ?? null,
+      settlementId: settlement?.settlementId ?? null,
+      generatedAt,
+      payload: {
+        agreement: agreement ?? null,
+        settlement: settlement ?? null,
+        details: details ?? null
+      }
+    };
+    const artifactHash = computeArtifactHash(body);
+    const artifact = { ...body, artifactHash };
+    try {
+      await store.putArtifact({ tenantId, artifact });
+    } catch (err) {
+      if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+    }
+    const destinations = listDestinationsForTenant(tenantId).filter((destination) => {
+      const allowed = Array.isArray(destination?.artifactTypes) && destination.artifactTypes.length ? destination.artifactTypes : null;
+      return !allowed || allowed.includes(artifactType);
+    });
+    let deliveriesCreated = 0;
+    for (const destination of destinations) {
+      const dedupeKey = `${tenantId}:${destination.destinationId}:${artifactType}:${artifactId}:${artifactHash}`;
+      const scopeKey = String(runId ?? taskId ?? sourceEventId ?? eventType);
+      const orderSeq = Date.parse(generatedAt) || 0;
+      const priority = 90;
+      const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
+      try {
+        await store.createDelivery({
+          tenantId,
+          delivery: {
+            destinationId: destination.destinationId,
+            artifactType,
+            artifactId,
+            artifactHash,
+            dedupeKey,
+            scopeKey,
+            orderSeq,
+            priority,
+            orderKey
+          }
+        });
+        deliveriesCreated += 1;
+      } catch (err) {
+        if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+        throw err;
+      }
+    }
+    return { artifactId, artifactHash, deliveriesCreated };
+  }
+
+  async function emitDisputeVerdictArtifact({
+    tenantId,
+    runId,
+    settlement,
+    verdict
+  } = {}) {
+    if (!verdict || typeof verdict !== "object" || Array.isArray(verdict)) return null;
+    if (typeof store.putArtifact !== "function" || typeof store.createDelivery !== "function") return null;
+    const artifactType = "DisputeVerdict.v1";
+    const artifactId = `dispute_verdict_${String(verdict.verdictId ?? createId("vrd"))}`;
+    const body = {
+      schemaVersion: artifactType,
+      artifactType,
+      artifactId,
+      tenantId: normalizeTenant(tenantId),
+      runId: String(runId),
+      settlementId: settlement?.settlementId ?? null,
+      disputeId: settlement?.disputeId ?? null,
+      verdict
+    };
+    const artifactHash = computeArtifactHash(body);
+    const artifact = { ...body, artifactHash };
+    try {
+      await store.putArtifact({ tenantId, artifact });
+    } catch (err) {
+      if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+    }
+    const destinations = listDestinationsForTenant(tenantId).filter((destination) => {
+      const allowed = Array.isArray(destination?.artifactTypes) && destination.artifactTypes.length ? destination.artifactTypes : null;
+      return !allowed || allowed.includes(artifactType);
+    });
+    let deliveriesCreated = 0;
+    for (const destination of destinations) {
+      const dedupeKey = `${tenantId}:${destination.destinationId}:${artifactType}:${artifactId}:${artifactHash}`;
+      const scopeKey = String(runId ?? settlement?.settlementId ?? verdict?.disputeId ?? artifactId);
+      const orderSeq = Date.parse(nowIso()) || 0;
+      const priority = 80;
+      const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
+      try {
+        await store.createDelivery({
+          tenantId,
+          delivery: {
+            destinationId: destination.destinationId,
+            artifactType,
+            artifactId,
+            artifactHash,
+            dedupeKey,
+            scopeKey,
+            orderSeq,
+            priority,
+            orderKey
+          }
+        });
+        deliveriesCreated += 1;
+      } catch (err) {
+        if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+        throw err;
+      }
+    }
+    return { artifactId, artifactHash, deliveriesCreated, verdictHash: verdict.verdictHash ?? null };
   }
 
   function getMonthEvents(tenantId, monthId) {
@@ -3799,6 +7325,26 @@ export function createApi({
     assertNonEmptyString(value, name);
     const t = Date.parse(value);
     if (!Number.isFinite(t)) throw new TypeError(`${name} must be an ISO date string`);
+  }
+
+  function assertSettlementWithinWalletPolicy({ agentIdentity, amountCents }) {
+    if (!agentIdentity || typeof agentIdentity !== "object") return;
+    const walletPolicy = agentIdentity.walletPolicy;
+    if (!walletPolicy || typeof walletPolicy !== "object" || Array.isArray(walletPolicy)) return;
+
+    const maxPerTx = Number(walletPolicy.maxPerTransactionCents);
+    if (Number.isSafeInteger(maxPerTx) && maxPerTx >= 0 && amountCents > maxPerTx) {
+      const err = new Error("amount exceeds wallet maxPerTransactionCents");
+      err.code = "WALLET_POLICY_MAX_PER_TX";
+      throw err;
+    }
+
+    const requireApprovalAbove = Number(walletPolicy.requireApprovalAboveCents);
+    if (Number.isSafeInteger(requireApprovalAbove) && requireApprovalAbove >= 0 && amountCents > requireApprovalAbove) {
+      const err = new Error("amount requires out-of-band approval");
+      err.code = "WALLET_POLICY_APPROVAL_REQUIRED";
+      throw err;
+    }
   }
 
   function parseExpectedPrevChainHashHeader(req) {
@@ -6223,6 +9769,21 @@ export function createApi({
           });
         }
 
+        if (parts[1] === "sla-templates" && parts.length === 2 && req.method === "GET") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+          const vertical = url.searchParams.get("vertical");
+          try {
+            const templates = listSlaPolicyTemplates({ vertical });
+            return sendJson(res, 200, {
+              schemaVersion: SLA_POLICY_TEMPLATE_CATALOG_VERSION,
+              tenantId,
+              templates
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid vertical", { message: err?.message ?? "invalid vertical" }, { code: "SCHEMA_INVALID" });
+          }
+        }
+
         // NOTE: /ops/contracts is a legacy contract upsert surface used by existing tests/integrations.
         // Contracts-as-code v1 lives under /ops/contracts-v2 to avoid breaking legacy payloads.
         if (parts[1] === "contracts-v2" && parts[2] === "simulate" && parts.length === 3 && req.method === "POST") {
@@ -6551,6 +10112,7 @@ export function createApi({
 	          if (typeof store.getPartyStatement !== "function" || typeof store.getArtifact !== "function") {
 	            return sendError(res, 501, "payouts not supported for this store");
 	          }
+          const body = (await readJsonBody(req)) ?? {};
 	          const partyId = String(parts[2]);
 	          const period = String(parts[3]);
 	          const record = await store.getPartyStatement({ tenantId, partyId, period });
@@ -6632,9 +10194,116 @@ export function createApi({
 	              // best-effort
 	            }
 	          }
+          let moneyRailOperation = null;
+          try {
+            const providerIdInput =
+              typeof body?.moneyRailProviderId === "string" && body.moneyRailProviderId.trim() !== ""
+                ? body.moneyRailProviderId.trim()
+                : defaultMoneyRailProviderId;
+            const adapter = getMoneyRailAdapter(providerIdInput);
+            if (!adapter) return sendError(res, 400, "unknown money rail provider");
+            const operationId = `mop_${payoutKey}`;
+            const counterpartyRef =
+              typeof body?.counterpartyRef === "string" && body.counterpartyRef.trim() !== ""
+                ? body.counterpartyRef.trim()
+                : `party:${partyId}`;
+            const createdOperation = await adapter.create({
+              tenantId,
+              operationId,
+              direction: "payout",
+              idempotencyKey: payoutKey,
+              amountCents: payoutAmountCents,
+              currency: "USD",
+              counterpartyRef,
+              metadata: {
+                payoutKey,
+                payoutArtifactId: payoutArtifact.artifactId,
+                payoutArtifactHash: payoutArtifact.artifactHash,
+                period,
+                partyId
+              },
+              at: nowIso()
+            });
+            moneyRailOperation = createdOperation?.operation ?? null;
+          } catch (err) {
+            return sendError(res, 409, "money rail operation rejected", { message: err?.message, code: err?.code ?? null });
+          }
 
-	          return sendJson(res, 201, { ok: true, payout: { payoutKey, artifactId: payoutArtifact.artifactId, artifactHash: payoutArtifact.artifactHash } });
+	          return sendJson(res, 201, {
+              ok: true,
+              payout: { payoutKey, artifactId: payoutArtifact.artifactId, artifactHash: payoutArtifact.artifactHash },
+              moneyRailOperation
+            });
 	        }
+
+          if (parts[1] === "money-rails" && parts[2] && parts[3] === "operations" && parts[4] && parts.length === 5 && req.method === "GET") {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            const providerId = String(parts[2]);
+            const operationId = String(parts[4]);
+            const adapter = getMoneyRailAdapter(providerId);
+            if (!adapter) return sendError(res, 404, "money rail provider not found");
+            const operation = await adapter.status({ tenantId, operationId });
+            if (!operation) return sendError(res, 404, "money rail operation not found");
+            return sendJson(res, 200, { operation });
+          }
+
+          if (
+            parts[1] === "money-rails" &&
+            parts[2] &&
+            parts[3] === "operations" &&
+            parts[4] &&
+            parts[5] === "cancel" &&
+            parts.length === 6 &&
+            req.method === "POST"
+          ) {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            const providerId = String(parts[2]);
+            const operationId = String(parts[4]);
+            const adapter = getMoneyRailAdapter(providerId);
+            if (!adapter) return sendError(res, 404, "money rail provider not found");
+
+            const body = (await readJsonBody(req)) ?? {};
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            const reasonCode =
+              typeof body?.reasonCode === "string" && body.reasonCode.trim() !== "" ? body.reasonCode.trim() : "cancelled_by_ops";
+            let cancelled = null;
+            try {
+              cancelled = await adapter.cancel({ tenantId, operationId, reasonCode, at: nowIso() });
+            } catch (err) {
+              if (err?.code === "MONEY_RAIL_OPERATION_NOT_FOUND") return sendError(res, 404, "money rail operation not found");
+              return sendError(res, 409, "money rail cancellation rejected", { message: err?.message, code: err?.code ?? null });
+            }
+
+            const responseBody = { operation: cancelled?.operation ?? null, applied: Boolean(cancelled?.applied) };
+            if (idemStoreKey) {
+              await commitTx([
+                {
+                  kind: "IDEMPOTENCY_PUT",
+                  key: idemStoreKey,
+                  value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody }
+                }
+              ]);
+            }
+            return sendJson(res, 200, responseBody);
+          }
 
           // Finance Pack v1: tenant-scoped account map + GLBatch CSV export.
           if (parts[1] === "finance" && parts[2] === "account-map" && parts.length === 3 && req.method === "GET") {
@@ -7077,7 +10746,120 @@ export function createApi({
           const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
 
           const page = jobs.slice(safeOffset, safeOffset + safeLimit);
-          return sendJson(res, 200, { jobs: page, total: jobs.length, offset: safeOffset, limit: safeLimit });
+          const pageJobIds = page
+            .map((item) => (typeof item?.id === "string" && item.id.trim() !== "" ? String(item.id) : null))
+            .filter(Boolean);
+
+          const artifactsByJobId = new Map();
+          if (pageJobIds.length && typeof store.listArtifacts === "function") {
+            try {
+              let artifacts = [];
+              if (store.kind === "pg") {
+                const batchLimit = 1000;
+                let batchOffset = 0;
+                while (true) {
+                  const rows = await store.listArtifacts({ tenantId, jobIds: pageJobIds, limit: batchLimit, offset: batchOffset });
+                  if (!Array.isArray(rows) || rows.length === 0) break;
+                  artifacts.push(...rows);
+                  if (rows.length < batchLimit) break;
+                  batchOffset += rows.length;
+                }
+              } else {
+                artifacts = await store.listArtifacts({ tenantId, jobIds: pageJobIds });
+              }
+
+              for (const artifact of artifacts) {
+                if (!artifact || typeof artifact !== "object") continue;
+                const artifactJobId = typeof artifact.jobId === "string" && artifact.jobId.trim() !== "" ? String(artifact.jobId) : null;
+                if (!artifactJobId) continue;
+                const list = artifactsByJobId.get(artifactJobId) ?? [];
+                list.push(artifact);
+                artifactsByJobId.set(artifactJobId, list);
+              }
+            } catch {
+              // Best-effort enrichment; fall back to job-derived proof status below.
+            }
+          }
+
+          const artifactHasProofSignals = (artifact) =>
+            Boolean(
+              artifact &&
+                typeof artifact === "object" &&
+                ((artifact.proof && typeof artifact.proof === "object" && !Array.isArray(artifact.proof)) ||
+                  (artifact.proofReceipt && typeof artifact.proofReceipt === "object" && !Array.isArray(artifact.proofReceipt)) ||
+                  (artifact.settlement &&
+                    typeof artifact.settlement === "object" &&
+                    artifact.settlement.settlementProofRef &&
+                    typeof artifact.settlement.settlementProofRef === "object" &&
+                    !Array.isArray(artifact.settlement.settlementProofRef)))
+            );
+
+          const artifactSortDesc = (left, right) => {
+            const leftAt = Date.parse(left?.generatedAt ?? left?.createdAt ?? left?.updatedAt ?? 0);
+            const rightAt = Date.parse(right?.generatedAt ?? right?.createdAt ?? right?.updatedAt ?? 0);
+            if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+            return String(right?.artifactId ?? "").localeCompare(String(left?.artifactId ?? ""));
+          };
+
+          const pickStatusArtifact = ({ artifacts, job }) => {
+            if (!Array.isArray(artifacts) || artifacts.length === 0) return null;
+            const sorted = [...artifacts].sort(artifactSortDesc);
+            const settledEventId = typeof job?.settlement?.settledEventId === "string" && job.settlement.settledEventId.trim() ? job.settlement.settledEventId : null;
+            if (settledEventId) {
+              const preferredSettled =
+                sorted.find(
+                  (artifact) =>
+                    artifact?.sourceEventId === settledEventId &&
+                    (artifact?.artifactType === ARTIFACT_TYPE.SETTLEMENT_STATEMENT_V1 || artifact?.artifactType === ARTIFACT_TYPE.WORK_CERTIFICATE_V1)
+                ) ?? null;
+              if (preferredSettled) return preferredSettled;
+              const anySettled = sorted.find((artifact) => artifact?.sourceEventId === settledEventId) ?? null;
+              if (anySettled) return anySettled;
+            }
+            const latestWithProof = sorted.find((artifact) => artifactHasProofSignals(artifact)) ?? null;
+            return latestWithProof ?? sorted[0] ?? null;
+          };
+
+          const jobsWithVerification = page.map((jobItem) => {
+            const artifactList = artifactsByJobId.get(String(jobItem.id)) ?? [];
+            const statusArtifact = pickStatusArtifact({ artifacts: artifactList, job: jobItem });
+            const fallbackArtifact = { artifactId: `status_${String(jobItem.id)}`, artifactType: "JobStatusInline.v1" };
+
+            let verification;
+            try {
+              verification = computeArtifactVerificationStatus({ artifact: statusArtifact ?? fallbackArtifact, job: jobItem });
+            } catch {
+              verification = {
+                verificationStatus: "amber",
+                proofStatus: null,
+                reasonCodes: [],
+                missingEvidence: [],
+                evidenceCount: Array.isArray(jobItem?.evidence) ? jobItem.evidence.length : 0,
+                activeEvidenceCount: Array.isArray(jobItem?.evidence)
+                  ? jobItem.evidence.filter((item) => !item?.expiredAt || String(item.expiredAt).trim() === "").length
+                  : 0,
+                slaCompliancePct: null,
+                metrics: {
+                  requiredZones: null,
+                  reportedZones: null,
+                  excusedZones: null,
+                  belowThresholdZones: null,
+                  missingZoneCount: 0
+                }
+              };
+            }
+
+            return {
+              ...jobItem,
+              verificationStatus: verification.verificationStatus,
+              evidenceCount: verification.evidenceCount,
+              activeEvidenceCount: verification.activeEvidenceCount,
+              slaCompliancePct: verification.slaCompliancePct,
+              verification
+            };
+          });
+
+          return sendJson(res, 200, { jobs: jobsWithVerification, total: jobs.length, offset: safeOffset, limit: safeLimit });
         }
 
         if (parts[1] === "robots" && parts.length === 2 && req.method === "GET") {
@@ -9329,6 +13111,1479 @@ export function createApi({
         return sendJson(res, 201, responseBody);
       }
 
+      const marketplaceParts = path.split("/").filter(Boolean);
+      if (marketplaceParts[0] === "marketplace" && marketplaceParts[1] === "settlement-policies") {
+        if (!(store.tenantSettlementPolicies instanceof Map)) store.tenantSettlementPolicies = new Map();
+
+        if (req.method === "POST" && marketplaceParts.length === 2) {
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          let policyId = null;
+          try {
+            policyId = parseSettlementPolicyRegistryId(body?.policyId, { fieldPath: "policyId" });
+          } catch (err) {
+            return sendError(res, 400, "invalid policy registry id", { message: err?.message });
+          }
+
+          let requestedVersion = null;
+          try {
+            requestedVersion =
+              body?.policyVersion === undefined || body?.policyVersion === null || body?.policyVersion === ""
+                ? null
+                : parseSettlementPolicyVersion(body.policyVersion, { fieldPath: "policyVersion" });
+          } catch (err) {
+            return sendError(res, 400, "invalid policy version", { message: err?.message });
+          }
+
+          let verificationMethod = null;
+          try {
+            verificationMethod = parseVerificationMethodInput(body?.verificationMethod ?? null);
+          } catch (err) {
+            return sendError(res, 400, "invalid verificationMethod", { message: err?.message });
+          }
+
+          const rawPolicy = body?.policy;
+          if (!rawPolicy || typeof rawPolicy !== "object" || Array.isArray(rawPolicy)) {
+            return sendError(res, 400, "policy is required");
+          }
+
+          let policy = null;
+          try {
+            const policyInput = {
+              ...rawPolicy,
+              ...(requestedVersion === null ? {} : { policyVersion: requestedVersion })
+            };
+            policy = parseSettlementPolicyInput(policyInput);
+          } catch (err) {
+            return sendError(res, 400, "invalid policy", { message: err?.message });
+          }
+
+          const metadata = body?.metadata ?? null;
+          if (metadata !== null && (typeof metadata !== "object" || Array.isArray(metadata))) {
+            return sendError(res, 400, "metadata must be an object or null");
+          }
+          const description =
+            body?.description === null || body?.description === undefined || String(body.description).trim() === ""
+              ? null
+              : String(body.description).trim();
+
+          const policyVersion = Number(policy.policyVersion);
+          const verificationMethodHash = computeVerificationMethodHash(verificationMethod);
+          const existingPolicy = getTenantSettlementPolicyRecord({ tenantId, policyId, policyVersion });
+          if (
+            existingPolicy &&
+            (String(existingPolicy.policyHash ?? "") !== String(policy.policyHash ?? "") ||
+              String(existingPolicy.verificationMethodHash ?? "") !== String(verificationMethodHash))
+          ) {
+            return sendError(res, 409, "policy version already exists with different canonical hashes");
+          }
+
+          const nowAt = nowIso();
+          const record = {
+            schemaVersion: TENANT_SETTLEMENT_POLICY_SCHEMA_VERSION,
+            tenantId,
+            policyId,
+            policyVersion,
+            policyHash: String(policy.policyHash),
+            verificationMethodHash: String(verificationMethodHash),
+            verificationMethod,
+            policy,
+            description,
+            metadata: metadata ? { ...metadata } : null,
+            createdAt: existingPolicy?.createdAt ?? nowAt,
+            updatedAt: nowAt
+          };
+          const statusCode = existingPolicy ? 200 : 201;
+          const responseBody = { policy: record };
+          const ops = [{ kind: "TENANT_SETTLEMENT_POLICY_UPSERT", tenantId, policy: record }];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode, body: responseBody } });
+          }
+          await commitTx(ops);
+          return sendJson(res, statusCode, responseBody);
+        }
+
+        if (req.method === "GET" && marketplaceParts.length === 2) {
+          const policyId = url.searchParams.get("policyId");
+          const { limit, offset } = parsePagination({
+            limitRaw: url.searchParams.get("limit"),
+            offsetRaw: url.searchParams.get("offset"),
+            defaultLimit: 50,
+            maxLimit: 200
+          });
+          let policies = null;
+          try {
+            policies = listTenantSettlementPolicyRecords({ tenantId, policyId });
+          } catch (err) {
+            return sendError(res, 400, "invalid settlement policy query", { message: err?.message });
+          }
+          const rows = policies.slice(offset, offset + limit);
+          return sendJson(res, 200, { policies: rows, total: policies.length, limit, offset });
+        }
+
+        if (req.method === "GET" && marketplaceParts.length === 4) {
+          let policyId = null;
+          let policyVersion = null;
+          try {
+            policyId = parseSettlementPolicyRegistryId(marketplaceParts[2], { fieldPath: "policyId" });
+            policyVersion = parseSettlementPolicyVersion(marketplaceParts[3], { fieldPath: "policyVersion" });
+          } catch (err) {
+            return sendError(res, 400, "invalid settlement policy reference", { message: err?.message });
+          }
+          const record = getTenantSettlementPolicyRecord({ tenantId, policyId, policyVersion });
+          if (!record) return sendError(res, 404, "settlement policy not found");
+          return sendJson(res, 200, { policy: record });
+        }
+
+        return sendError(res, 404, "not found");
+      }
+
+      if (marketplaceParts[0] === "marketplace" && marketplaceParts[1] === "tasks") {
+        if (!(store.marketplaceTasks instanceof Map)) store.marketplaceTasks = new Map();
+        if (!(store.marketplaceTaskBids instanceof Map)) store.marketplaceTaskBids = new Map();
+
+        if (req.method === "POST" && marketplaceParts.length === 2) {
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          const taskId = body?.taskId && String(body.taskId).trim() !== "" ? String(body.taskId).trim() : createId("task");
+          const title = body?.title && String(body.title).trim() !== "" ? String(body.title).trim() : null;
+          const capability = body?.capability && String(body.capability).trim() !== "" ? String(body.capability).trim() : null;
+          if (!title && !capability) return sendError(res, 400, "task title or capability is required");
+
+          const posterAgentId = body?.posterAgentId && String(body.posterAgentId).trim() !== "" ? String(body.posterAgentId).trim() : null;
+          if (posterAgentId) {
+            let posterIdentity = null;
+            try {
+              posterIdentity = await getAgentIdentityRecord({ tenantId, agentId: posterAgentId });
+            } catch (err) {
+              return sendError(res, 400, "invalid posterAgentId", { message: err?.message });
+            }
+            if (!posterIdentity) return sendError(res, 404, "poster agent identity not found");
+          }
+
+          let taskDirection = null;
+          try {
+            taskDirection = parseInteractionDirection({ fromTypeRaw: body?.fromType, toTypeRaw: body?.toType });
+          } catch (err) {
+            return sendError(res, 400, "invalid interaction direction", { message: err?.message });
+          }
+
+          const existingTask = getMarketplaceTask({ tenantId, taskId });
+          if (existingTask && !idemStoreKey) return sendError(res, 409, "marketplace task already exists");
+
+          let budgetCents = null;
+          if (body?.budgetCents !== undefined && body?.budgetCents !== null) {
+            const parsedBudget = Number(body.budgetCents);
+            if (!Number.isSafeInteger(parsedBudget) || parsedBudget <= 0) {
+              return sendError(res, 400, "budgetCents must be a positive safe integer");
+            }
+            budgetCents = parsedBudget;
+          }
+
+          const currency = body?.currency ? String(body.currency).trim().toUpperCase() : "USD";
+          if (currency === "") return sendError(res, 400, "currency must be a non-empty string");
+
+          let deadlineAt = null;
+          if (body?.deadlineAt !== undefined && body?.deadlineAt !== null) {
+            if (typeof body.deadlineAt !== "string" || body.deadlineAt.trim() === "") return sendError(res, 400, "deadlineAt must be an ISO date-time");
+            const deadlineMs = Date.parse(body.deadlineAt);
+            if (!Number.isFinite(deadlineMs)) return sendError(res, 400, "deadlineAt must be an ISO date-time");
+            deadlineAt = new Date(deadlineMs).toISOString();
+          }
+
+          const metadata = body?.metadata ?? null;
+          if (metadata !== null && (typeof metadata !== "object" || Array.isArray(metadata))) {
+            return sendError(res, 400, "metadata must be an object or null");
+          }
+          let counterOfferPolicy = null;
+          try {
+            counterOfferPolicy = normalizeMarketplaceCounterOfferPolicyInput(body?.counterOfferPolicy ?? null, {
+              fieldPath: "counterOfferPolicy"
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid counterOfferPolicy", { message: err?.message });
+          }
+
+          const nowAt = nowIso();
+          const task = {
+            schemaVersion: "MarketplaceTask.v1",
+            taskId,
+            tenantId,
+            title: title ?? capability,
+            description: body?.description && String(body.description).trim() !== "" ? String(body.description).trim() : null,
+            capability,
+            fromType: taskDirection.fromType,
+            toType: taskDirection.toType,
+            posterAgentId,
+            status: "open",
+            budgetCents,
+            currency,
+            deadlineAt,
+            acceptedBidId: null,
+            acceptedBidderAgentId: null,
+            acceptedAt: null,
+            counterOfferPolicy,
+            metadata: metadata ? { ...metadata } : null,
+            createdAt: nowAt,
+            updatedAt: nowAt
+          };
+
+          const existingBids = listMarketplaceTaskBids({ tenantId, taskId, status: "all" });
+          const ops = [
+            { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task },
+            { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: existingBids }
+          ];
+          const responseBody = { task };
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+          }
+          await commitTx(ops);
+          return sendJson(res, 201, responseBody);
+        }
+
+        if (req.method === "GET" && marketplaceParts.length === 2) {
+          let status = "all";
+          try {
+            status = parseMarketplaceTaskStatus(url.searchParams.get("status"), { allowAll: true, defaultStatus: "all" });
+          } catch (err) {
+            return sendError(res, 400, "invalid marketplace task query", { message: err?.message });
+          }
+
+          const capability = url.searchParams.get("capability");
+          const posterAgentId = url.searchParams.get("posterAgentId");
+          const { limit, offset } = parsePagination({
+            limitRaw: url.searchParams.get("limit"),
+            offsetRaw: url.searchParams.get("offset"),
+            defaultLimit: 50,
+            maxLimit: 200
+          });
+
+          const allTasks = listMarketplaceTasks({ tenantId, status, capability, posterAgentId });
+          const tasks = allTasks.slice(offset, offset + limit);
+          return sendJson(res, 200, { tasks, total: allTasks.length, limit, offset });
+        }
+
+        const taskId = marketplaceParts[2] ? String(marketplaceParts[2]) : null;
+        if (!taskId) return sendError(res, 404, "not found");
+
+        const task = getMarketplaceTask({ tenantId, taskId });
+        if (!task) return sendError(res, 404, "marketplace task not found");
+
+        if (req.method === "GET" && marketplaceParts.length === 4 && marketplaceParts[3] === "bids") {
+          let status = "all";
+          try {
+            status = parseMarketplaceBidStatus(url.searchParams.get("status"), { allowAll: true, defaultStatus: "all" });
+          } catch (err) {
+            return sendError(res, 400, "invalid marketplace bid query", { message: err?.message });
+          }
+
+          const bidderAgentId = url.searchParams.get("bidderAgentId");
+          const { limit, offset } = parsePagination({
+            limitRaw: url.searchParams.get("limit"),
+            offsetRaw: url.searchParams.get("offset"),
+            defaultLimit: 50,
+            maxLimit: 200
+          });
+
+          const allBids = listMarketplaceTaskBids({ tenantId, taskId, status, bidderAgentId });
+          const bids = allBids.slice(offset, offset + limit);
+          return sendJson(res, 200, { taskId, bids, total: allBids.length, limit, offset });
+        }
+
+        if (req.method === "POST" && marketplaceParts.length === 4 && marketplaceParts[3] === "bids") {
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          if (String(task.status ?? "open").toLowerCase() !== "open") return sendError(res, 409, "marketplace task is not open for bidding");
+
+          const bidderAgentId = body?.bidderAgentId && String(body.bidderAgentId).trim() !== "" ? String(body.bidderAgentId).trim() : null;
+          if (!bidderAgentId) return sendError(res, 400, "bidderAgentId is required");
+
+          let bidderIdentity = null;
+          try {
+            bidderIdentity = await getAgentIdentityRecord({ tenantId, agentId: bidderAgentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid bidderAgentId", { message: err?.message });
+          }
+          if (!bidderIdentity) return sendError(res, 404, "bidder agent identity not found");
+
+          let taskDirection = null;
+          let bidDirection = null;
+          try {
+            taskDirection = parseInteractionDirection({ fromTypeRaw: task?.fromType, toTypeRaw: task?.toType });
+            bidDirection = parseInteractionDirection({
+              fromTypeRaw: body?.fromType,
+              toTypeRaw: body?.toType,
+              defaultFromType: taskDirection.fromType,
+              defaultToType: taskDirection.toType
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid interaction direction", { message: err?.message });
+          }
+          if (bidDirection.fromType !== taskDirection.fromType || bidDirection.toType !== taskDirection.toType) {
+            return sendError(res, 409, "bid interaction direction must match task direction");
+          }
+
+          const amountCents = Number(body?.amountCents);
+          if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return sendError(res, 400, "amountCents must be a positive safe integer");
+
+          const currency = body?.currency ? String(body.currency).trim().toUpperCase() : String(task.currency ?? "USD").toUpperCase();
+          if (!currency) return sendError(res, 400, "currency must be a non-empty string");
+          if (String(task.currency ?? "USD").toUpperCase() !== currency) {
+            return sendError(res, 409, "bid currency must match task currency");
+          }
+
+          let etaSeconds = null;
+          if (body?.etaSeconds !== undefined && body?.etaSeconds !== null) {
+            const parsedEta = Number(body.etaSeconds);
+            if (!Number.isSafeInteger(parsedEta) || parsedEta <= 0) return sendError(res, 400, "etaSeconds must be a positive safe integer");
+            etaSeconds = parsedEta;
+          }
+
+          const metadata = body?.metadata ?? null;
+          if (metadata !== null && (typeof metadata !== "object" || Array.isArray(metadata))) {
+            return sendError(res, 400, "metadata must be an object or null");
+          }
+
+          let policySelection = null;
+          try {
+            policySelection = resolveMarketplaceSettlementPolicySelection({
+              tenantId,
+              policyRefInput: body?.policyRef ?? null,
+              verificationMethodInput: body?.verificationMethod ?? undefined,
+              settlementPolicyInput: body?.policy ?? undefined
+            });
+          } catch (err) {
+            if (err?.code === "TENANT_SETTLEMENT_POLICY_NOT_FOUND") {
+              return sendError(res, 404, "policyRef not found");
+            }
+            if (err?.code === "TENANT_SETTLEMENT_POLICY_REF_MISMATCH") {
+              return sendError(res, 409, "policyRef does not match verificationMethod/policy", { message: err?.message });
+            }
+            if (err?.code === "INVALID_VERIFICATION_METHOD") {
+              return sendError(res, 400, "invalid verificationMethod", { message: err?.message });
+            }
+            if (err?.code === "INVALID_SETTLEMENT_POLICY") {
+              return sendError(res, 400, "invalid policy", { message: err?.message });
+            }
+            return sendError(res, 400, "invalid policy selection", { message: err?.message });
+          }
+          const verificationMethod = policySelection.verificationMethod;
+          const policy = policySelection.policy;
+          const policyRef = policySelection.policyRef;
+
+          const bidId = body?.bidId && String(body.bidId).trim() !== "" ? String(body.bidId).trim() : createId("bid");
+          const allExistingBids = listMarketplaceTaskBids({ tenantId, taskId, status: "all" });
+          const duplicate = allExistingBids.find((row) => String(row?.bidId ?? "") === bidId);
+          if (duplicate && !idemStoreKey) return sendError(res, 409, "marketplace bid already exists");
+
+          const nowAt = nowIso();
+          const counterOfferPolicy = resolveMarketplaceCounterOfferPolicy({ task, bid: null });
+          const initialProposal = buildMarketplaceBidNegotiationProposal({
+            task,
+            bidId,
+            revision: 1,
+            proposerAgentId: bidderAgentId,
+            amountCents,
+            currency,
+            etaSeconds,
+            note: body?.note && String(body.note).trim() !== "" ? String(body.note).trim() : null,
+            verificationMethodInput: verificationMethod,
+            settlementPolicyInput: policy,
+            policyRefInput: policyRef,
+            metadataInput: metadata,
+            proposalIdInput: body?.proposalId ?? null,
+            proposedAt: nowAt
+          });
+          const negotiation = buildMarketplaceBidNegotiation({
+            bidId,
+            initialProposal,
+            counterOfferPolicy,
+            at: nowAt
+          });
+          const bid = {
+            schemaVersion: "MarketplaceBid.v1",
+            bidId,
+            taskId,
+            tenantId,
+            fromType: bidDirection.fromType,
+            toType: bidDirection.toType,
+            bidderAgentId,
+            amountCents,
+            currency,
+            etaSeconds,
+            note: body?.note && String(body.note).trim() !== "" ? String(body.note).trim() : null,
+            status: "pending",
+            acceptedAt: null,
+            rejectedAt: null,
+            negotiation,
+            counterOfferPolicy,
+            verificationMethod,
+            policy,
+            policyRef,
+            metadata: metadata ? { ...metadata } : null,
+            createdAt: nowAt,
+            updatedAt: nowAt
+          };
+          const nextBids = [...allExistingBids, bid];
+          const nextTask = { ...task, updatedAt: nowAt };
+          const responseBody = { task: nextTask, bid };
+          const ops = [
+            { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: nextTask },
+            { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: nextBids }
+          ];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+          }
+          await commitTx(ops);
+          try {
+            await emitMarketplaceLifecycleArtifact({
+              tenantId,
+              eventType: "proposal.submitted",
+              taskId,
+              sourceEventId: initialProposal?.proposalId ?? null,
+              actorAgentId: bidderAgentId,
+              details: {
+                bidId,
+                revision: initialProposal?.revision ?? 1,
+                proposal: initialProposal,
+                negotiation
+              }
+            });
+          } catch {
+            // Best-effort lifecycle delivery.
+          }
+          return sendJson(res, 201, responseBody);
+        }
+
+        if (req.method === "POST" && marketplaceParts.length === 6 && marketplaceParts[3] === "bids" && marketplaceParts[5] === "counter-offer") {
+          const bidId = marketplaceParts[4] ? String(marketplaceParts[4]).trim() : "";
+          if (!bidId) return sendError(res, 404, "marketplace bid not found");
+
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          if (String(task.status ?? "open").toLowerCase() !== "open") return sendError(res, 409, "marketplace task is not open for negotiation");
+
+          const proposerAgentId = body?.proposerAgentId && String(body.proposerAgentId).trim() !== "" ? String(body.proposerAgentId).trim() : null;
+          if (!proposerAgentId) return sendError(res, 400, "proposerAgentId is required");
+
+          let proposerIdentity = null;
+          try {
+            proposerIdentity = await getAgentIdentityRecord({ tenantId, agentId: proposerAgentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid proposerAgentId", { message: err?.message });
+          }
+          if (!proposerIdentity) return sendError(res, 404, "proposer agent identity not found");
+
+          const allExistingBids = listMarketplaceTaskBids({ tenantId, taskId, status: "all" });
+          const selectedBid = allExistingBids.find((row) => String(row?.bidId ?? "") === bidId) ?? null;
+          if (!selectedBid) return sendError(res, 404, "marketplace bid not found");
+          if (String(selectedBid.status ?? "pending").toLowerCase() !== "pending") {
+            return sendError(res, 409, "marketplace bid is not pending");
+          }
+
+          const proposerRole = resolveMarketplaceBidCounterOfferRole({
+            task,
+            bid: selectedBid,
+            proposerAgentId
+          });
+          if (!proposerRole) {
+            return sendError(res, 409, "counter-offer proposer must be task poster or bid bidder");
+          }
+          let counterOfferPolicy = resolveMarketplaceCounterOfferPolicy({ task, bid: selectedBid });
+          if (proposerRole === "poster" && counterOfferPolicy.allowPosterCounterOffers !== true) {
+            return sendError(res, 409, "counter-offer proposer role blocked by counterOfferPolicy");
+          }
+          if (proposerRole === "bidder" && counterOfferPolicy.allowBidderCounterOffers !== true) {
+            return sendError(res, 409, "counter-offer proposer role blocked by counterOfferPolicy");
+          }
+
+          let negotiation =
+            selectedBid?.negotiation && typeof selectedBid.negotiation === "object" && !Array.isArray(selectedBid.negotiation)
+              ? selectedBid.negotiation
+              : null;
+          const nowAt = nowIso();
+          if (!negotiation) {
+            try {
+              negotiation = bootstrapMarketplaceBidNegotiation({
+                task,
+                bid: selectedBid,
+                counterOfferPolicy,
+                at: nowAt
+              });
+            } catch (err) {
+              return sendError(res, 409, "unable to bootstrap bid negotiation", { message: err?.message });
+            }
+          }
+          const policyApplied = applyMarketplaceBidNegotiationPolicy({
+            negotiation,
+            counterOfferPolicy,
+            at: nowAt,
+            expireIfTimedOut: true
+          });
+          negotiation = policyApplied.negotiation;
+          counterOfferPolicy = policyApplied.counterOfferPolicy;
+          if (policyApplied.justExpired) {
+            const latestExpiredProposal = getLatestMarketplaceBidProposal(negotiation);
+            const expiredBid = {
+              ...selectedBid,
+              negotiation,
+              counterOfferPolicy,
+              updatedAt: nowAt
+            };
+            const expiredBids = allExistingBids.map((candidate) => {
+              if (!candidate || typeof candidate !== "object") return candidate;
+              if (String(candidate.bidId ?? "") !== bidId) return candidate;
+              return expiredBid;
+            });
+            const expiredTask = {
+              ...task,
+              updatedAt: nowAt
+            };
+            await commitTx([
+              { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: expiredTask },
+              { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: expiredBids }
+            ]);
+            try {
+              await emitMarketplaceLifecycleArtifact({
+                tenantId,
+                eventType: "proposal.expired",
+                taskId,
+                sourceEventId: latestExpiredProposal?.proposalId ?? null,
+                actorAgentId: proposerAgentId,
+                details: {
+                  bidId,
+                  expiresAt: policyApplied.expiresAt ?? null,
+                  negotiation
+                }
+              });
+            } catch {
+              // Best-effort lifecycle delivery.
+            }
+            return sendError(res, 409, "marketplace bid negotiation expired", {
+              expiresAt: policyApplied.expiresAt ?? null
+            });
+          }
+          const negotiationState = String(negotiation?.state ?? "open").toLowerCase();
+          if (negotiationState === "expired") {
+            return sendError(res, 409, "marketplace bid negotiation expired", {
+              expiresAt: policyApplied.expiresAt ?? negotiation?.expiresAt ?? null
+            });
+          }
+          if (negotiationState !== "open") {
+            return sendError(res, 409, "marketplace bid negotiation is not open");
+          }
+          const latestProposal = getLatestMarketplaceBidProposal(negotiation);
+          if (!latestProposal) return sendError(res, 409, "marketplace bid negotiation has no baseline proposal");
+
+          const hasAmountCents = Object.prototype.hasOwnProperty.call(body, "amountCents");
+          const hasCurrency = Object.prototype.hasOwnProperty.call(body, "currency");
+          const hasEtaSeconds = Object.prototype.hasOwnProperty.call(body, "etaSeconds");
+          const hasNote = Object.prototype.hasOwnProperty.call(body, "note");
+          const hasVerificationMethod = Object.prototype.hasOwnProperty.call(body, "verificationMethod");
+          const hasPolicy = Object.prototype.hasOwnProperty.call(body, "policy");
+          const hasPolicyRef = Object.prototype.hasOwnProperty.call(body, "policyRef");
+          const hasMetadata = Object.prototype.hasOwnProperty.call(body, "metadata");
+          if (!hasAmountCents && !hasCurrency && !hasEtaSeconds && !hasNote && !hasVerificationMethod && !hasPolicy && !hasPolicyRef && !hasMetadata) {
+            return sendError(res, 400, "counter-offer must include at least one mutable field");
+          }
+
+          const latestRevision = Number(negotiation?.latestRevision);
+          const nextRevision = Number.isSafeInteger(latestRevision) && latestRevision > 0 ? latestRevision + 1 : 2;
+          if (nextRevision > Number(counterOfferPolicy?.maxRevisions ?? 0)) {
+            return sendError(res, 409, "counter-offer max revisions reached", {
+              maxRevisions: counterOfferPolicy?.maxRevisions ?? null,
+              latestRevision
+            });
+          }
+
+          let policySelection = null;
+          try {
+            policySelection = resolveMarketplaceSettlementPolicySelection({
+              tenantId,
+              policyRefInput: hasPolicyRef ? body?.policyRef ?? null : latestProposal?.policyRef ?? null,
+              verificationMethodInput: hasVerificationMethod ? body?.verificationMethod : latestProposal?.verificationMethod,
+              settlementPolicyInput: hasPolicy ? body?.policy : latestProposal?.policy
+            });
+          } catch (err) {
+            if (err?.code === "TENANT_SETTLEMENT_POLICY_NOT_FOUND") {
+              return sendError(res, 404, "policyRef not found");
+            }
+            if (err?.code === "TENANT_SETTLEMENT_POLICY_REF_MISMATCH") {
+              return sendError(res, 409, "policyRef does not match verificationMethod/policy", { message: err?.message });
+            }
+            if (err?.code === "INVALID_VERIFICATION_METHOD") {
+              return sendError(res, 400, "invalid verificationMethod", { message: err?.message });
+            }
+            if (err?.code === "INVALID_SETTLEMENT_POLICY") {
+              return sendError(res, 400, "invalid policy", { message: err?.message });
+            }
+            return sendError(res, 400, "invalid counter-offer policy selection", { message: err?.message });
+          }
+
+          let proposal = null;
+          try {
+            proposal = buildMarketplaceBidNegotiationProposal({
+              task,
+              bidId,
+              revision: nextRevision,
+              proposerAgentId,
+              amountCents: hasAmountCents ? body?.amountCents : latestProposal?.amountCents,
+              currency: hasCurrency ? body?.currency : latestProposal?.currency,
+              etaSeconds: hasEtaSeconds ? body?.etaSeconds : latestProposal?.etaSeconds,
+              note: hasNote ? body?.note : latestProposal?.note,
+              verificationMethodInput: policySelection.verificationMethod,
+              settlementPolicyInput: policySelection.policy,
+              policyRefInput: policySelection.policyRef,
+              prevProposalHashInput: deriveMarketplaceProposalHash(latestProposal),
+              metadataInput: hasMetadata ? body?.metadata : latestProposal?.metadata,
+              proposalIdInput: body?.proposalId ?? null,
+              proposedAt: nowAt
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid counter-offer", { message: err?.message });
+          }
+
+          const nextNegotiation = appendMarketplaceBidNegotiationProposal({ negotiation, proposal, at: nowAt });
+          const nextBid = {
+            ...selectedBid,
+            amountCents: proposal.amountCents,
+            currency: proposal.currency,
+            etaSeconds: proposal.etaSeconds ?? null,
+            note: proposal.note ?? null,
+            verificationMethod: proposal.verificationMethod,
+            policy: proposal.policy,
+            policyRef: proposal.policyRef ?? null,
+            metadata: proposal.metadata ?? null,
+            negotiation: nextNegotiation,
+            counterOfferPolicy,
+            updatedAt: nowAt
+          };
+          const nextBids = allExistingBids.map((candidate) => {
+            if (!candidate || typeof candidate !== "object") return candidate;
+            if (String(candidate.bidId ?? "") !== bidId) return candidate;
+            return nextBid;
+          });
+          const nextTask = {
+            ...task,
+            updatedAt: nowAt
+          };
+
+          const responseBody = { task: nextTask, bid: nextBid, negotiation: nextNegotiation, proposal };
+          const ops = [
+            { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: nextTask },
+            { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: nextBids }
+          ];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await commitTx(ops);
+          try {
+            await emitMarketplaceLifecycleArtifact({
+              tenantId,
+              eventType: "proposal.submitted",
+              taskId,
+              sourceEventId: proposal?.proposalId ?? null,
+              actorAgentId: proposerAgentId,
+              details: {
+                bidId,
+                revision: proposal?.revision ?? null,
+                proposal,
+                negotiation: nextNegotiation
+              }
+            });
+          } catch {
+            // Best-effort lifecycle delivery.
+          }
+          try {
+            await emitMarketplaceLifecycleArtifact({
+              tenantId,
+              eventType: "marketplace.bid.counter_offer_applied",
+              taskId,
+              sourceEventId: proposal?.proposalId ?? null,
+              actorAgentId: proposerAgentId,
+              details: {
+                bidId,
+                negotiation: nextNegotiation,
+                proposal
+              }
+            });
+          } catch {
+            // Best-effort lifecycle delivery.
+          }
+          return sendJson(res, 200, responseBody);
+        }
+
+        if (req.method === "POST" && marketplaceParts.length === 4 && marketplaceParts[3] === "accept") {
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          if (String(task.status ?? "open").toLowerCase() !== "open") return sendError(res, 409, "marketplace task is not open");
+
+          const bidId = body?.bidId && String(body.bidId).trim() !== "" ? String(body.bidId).trim() : null;
+          if (!bidId) return sendError(res, 400, "bidId is required");
+
+          const acceptedByAgentId = body?.acceptedByAgentId && String(body.acceptedByAgentId).trim() !== "" ? String(body.acceptedByAgentId).trim() : null;
+          const acceptanceSignatureInput =
+            body?.acceptanceSignature && typeof body.acceptanceSignature === "object" && !Array.isArray(body.acceptanceSignature)
+              ? body.acceptanceSignature
+              : null;
+          if (body?.acceptanceSignature !== undefined && acceptanceSignatureInput === null) {
+            return sendError(res, 400, "acceptanceSignature must be an object");
+          }
+          if (acceptanceSignatureInput && !acceptedByAgentId) {
+            return sendError(res, 400, "acceptedByAgentId is required when acceptanceSignature is provided");
+          }
+          let acceptedByIdentity = null;
+          if (acceptedByAgentId) {
+            try {
+              acceptedByIdentity = await getAgentIdentityRecord({ tenantId, agentId: acceptedByAgentId });
+            } catch (err) {
+              return sendError(res, 400, "invalid acceptedByAgentId", { message: err?.message });
+            }
+            if (!acceptedByIdentity) return sendError(res, 404, "accepting agent identity not found");
+          }
+
+          const existingBids = listMarketplaceTaskBids({ tenantId, taskId, status: "all" });
+          const selectedBid = existingBids.find((candidate) => String(candidate?.bidId ?? "") === bidId) ?? null;
+          if (!selectedBid) return sendError(res, 404, "marketplace bid not found");
+          if (String(selectedBid.status ?? "pending").toLowerCase() !== "pending") return sendError(res, 409, "marketplace bid is not pending");
+
+          let taskDirection = null;
+          let bidDirection = null;
+          try {
+            taskDirection = parseInteractionDirection({ fromTypeRaw: task?.fromType, toTypeRaw: task?.toType });
+            bidDirection = parseInteractionDirection({
+              fromTypeRaw: selectedBid?.fromType,
+              toTypeRaw: selectedBid?.toType,
+              defaultFromType: taskDirection.fromType,
+              defaultToType: taskDirection.toType
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid interaction direction", { message: err?.message });
+          }
+          if (bidDirection.fromType !== taskDirection.fromType || bidDirection.toType !== taskDirection.toType) {
+            return sendError(res, 409, "accepted bid interaction direction must match task direction");
+          }
+
+          const payeeAgentId = selectedBid?.bidderAgentId ? String(selectedBid.bidderAgentId) : null;
+          if (!payeeAgentId) return sendError(res, 409, "selected bid is missing bidderAgentId");
+          let payeeIdentity = null;
+          try {
+            payeeIdentity = await getAgentIdentityRecord({ tenantId, agentId: payeeAgentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid bidderAgentId", { message: err?.message });
+          }
+          if (!payeeIdentity) return sendError(res, 404, "bidder agent identity not found");
+
+          const settlementInput = body?.settlement && typeof body.settlement === "object" ? body.settlement : {};
+          let acceptDirection = null;
+          try {
+            acceptDirection = parseInteractionDirection({
+              fromTypeRaw: body?.fromType ?? settlementInput?.fromType,
+              toTypeRaw: body?.toType ?? settlementInput?.toType,
+              defaultFromType: taskDirection.fromType,
+              defaultToType: taskDirection.toType
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid interaction direction", { message: err?.message });
+          }
+          if (acceptDirection.fromType !== taskDirection.fromType || acceptDirection.toType !== taskDirection.toType) {
+            return sendError(res, 409, "settlement interaction direction must match task direction");
+          }
+          const payerAgentIdRaw =
+            settlementInput.payerAgentId ??
+            body?.payerAgentId ??
+            task?.posterAgentId ??
+            null;
+          if (typeof payerAgentIdRaw !== "string" || payerAgentIdRaw.trim() === "") {
+            return sendError(res, 400, "payerAgentId is required (task poster or settlement.payerAgentId)");
+          }
+          const acceptedAt = nowIso();
+          let counterOfferPolicy = resolveMarketplaceCounterOfferPolicy({ task, bid: selectedBid });
+          let selectedBidNegotiation =
+            selectedBid?.negotiation && typeof selectedBid.negotiation === "object" && !Array.isArray(selectedBid.negotiation)
+              ? selectedBid.negotiation
+              : null;
+          if (!selectedBidNegotiation) {
+            try {
+              selectedBidNegotiation = bootstrapMarketplaceBidNegotiation({
+                task,
+                bid: selectedBid,
+                counterOfferPolicy,
+                at: acceptedAt
+              });
+            } catch (err) {
+              return sendError(res, 409, "unable to bootstrap bid negotiation", { message: err?.message });
+            }
+          }
+          const selectedPolicyApplied = applyMarketplaceBidNegotiationPolicy({
+            negotiation: selectedBidNegotiation,
+            counterOfferPolicy,
+            at: acceptedAt,
+            expireIfTimedOut: true
+          });
+          selectedBidNegotiation = selectedPolicyApplied.negotiation;
+          counterOfferPolicy = selectedPolicyApplied.counterOfferPolicy;
+          if (selectedPolicyApplied.justExpired) {
+            const latestExpiredProposal = getLatestMarketplaceBidProposal(selectedBidNegotiation);
+            const expiredBid = {
+              ...selectedBid,
+              negotiation: selectedBidNegotiation,
+              counterOfferPolicy,
+              updatedAt: acceptedAt
+            };
+            const expiredBids = existingBids.map((candidate) => {
+              if (!candidate || typeof candidate !== "object") return candidate;
+              if (String(candidate.bidId ?? "") !== bidId) return candidate;
+              return expiredBid;
+            });
+            const expiredTask = {
+              ...task,
+              updatedAt: acceptedAt
+            };
+            await commitTx([
+              { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: expiredTask },
+              { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: expiredBids }
+            ]);
+            try {
+              await emitMarketplaceLifecycleArtifact({
+                tenantId,
+                eventType: "proposal.expired",
+                taskId,
+                sourceEventId: latestExpiredProposal?.proposalId ?? null,
+                actorAgentId: acceptedByAgentId ?? String(payerAgentIdRaw).trim(),
+                details: {
+                  bidId,
+                  expiresAt: selectedPolicyApplied.expiresAt ?? null,
+                  negotiation: selectedBidNegotiation
+                }
+              });
+            } catch {
+              // Best-effort lifecycle delivery.
+            }
+            return sendError(res, 409, "marketplace bid negotiation expired", {
+              expiresAt: selectedPolicyApplied.expiresAt ?? null
+            });
+          }
+          const selectedNegotiationState = String(selectedBidNegotiation?.state ?? "open").toLowerCase();
+          if (selectedNegotiationState === "expired") {
+            return sendError(res, 409, "marketplace bid negotiation expired", {
+              expiresAt: selectedPolicyApplied.expiresAt ?? selectedBidNegotiation?.expiresAt ?? null
+            });
+          }
+          if (selectedNegotiationState !== "open") {
+            return sendError(res, 409, "marketplace bid negotiation is not open");
+          }
+          const selectedLatestProposal = getLatestMarketplaceBidProposal(selectedBidNegotiation);
+          if (!selectedLatestProposal) return sendError(res, 409, "marketplace bid negotiation has no proposals");
+          selectedBidNegotiation = updateMarketplaceBidNegotiationState({
+            negotiation: selectedBidNegotiation,
+            state: "accepted",
+            at: acceptedAt,
+            acceptedByAgentId: acceptedByAgentId ?? null,
+            acceptedProposalId: selectedLatestProposal?.proposalId ?? null,
+            acceptedRevision: selectedLatestProposal?.revision ?? null
+          });
+          const selectedBidAccepted = {
+            ...selectedBid,
+            amountCents: selectedLatestProposal?.amountCents ?? selectedBid?.amountCents,
+            currency: selectedLatestProposal?.currency ?? selectedBid?.currency,
+            etaSeconds: selectedLatestProposal?.etaSeconds ?? null,
+            note: selectedLatestProposal?.note ?? null,
+            verificationMethod: selectedLatestProposal?.verificationMethod ?? selectedBid?.verificationMethod ?? null,
+            policy: selectedLatestProposal?.policy ?? selectedBid?.policy ?? null,
+            policyRef: selectedLatestProposal?.policyRef ?? selectedBid?.policyRef ?? null,
+            policyRefHash: selectedLatestProposal?.policyRefHash ?? null,
+            metadata: selectedLatestProposal?.metadata ?? null,
+            negotiation: selectedBidNegotiation,
+            counterOfferPolicy,
+            status: "accepted",
+            acceptedAt,
+            rejectedAt: null,
+            updatedAt: acceptedAt
+          };
+          const defaultAmountCents = Number(selectedBidAccepted?.amountCents);
+          const fallbackCurrency =
+            typeof selectedBidAccepted?.currency === "string" && selectedBidAccepted.currency.trim() !== ""
+              ? selectedBidAccepted.currency
+              : task?.currency ?? "USD";
+          let settlementRequest = null;
+          try {
+            settlementRequest = validateAgentRunSettlementRequest({
+              payerAgentId: String(payerAgentIdRaw).trim(),
+              amountCents: settlementInput.amountCents ?? defaultAmountCents,
+              currency: settlementInput.currency ?? fallbackCurrency
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid settlement payload", { message: err?.message });
+          }
+
+          let payerIdentity = null;
+          try {
+            payerIdentity = await getAgentIdentityRecord({ tenantId, agentId: settlementRequest.payerAgentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid payerAgentId", { message: err?.message });
+          }
+          if (!payerIdentity) return sendError(res, 404, "payer agent identity not found");
+          try {
+            assertSettlementWithinWalletPolicy({ agentIdentity: payerIdentity, amountCents: settlementRequest.amountCents });
+          } catch (err) {
+            return sendError(res, 409, "wallet policy blocked settlement", { message: err?.message, code: err?.code ?? null });
+          }
+
+          const runId = body?.runId && String(body.runId).trim() !== "" ? String(body.runId).trim() : `run_${taskId}_${bidId}`;
+          if (typeof runId !== "string" || runId.trim() === "") return sendError(res, 400, "runId must be a non-empty string");
+          let existingRun = null;
+          if (typeof store.getAgentRun === "function") {
+            existingRun = await store.getAgentRun({ tenantId, runId });
+          } else if (store.agentRuns instanceof Map) {
+            existingRun = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+          } else {
+            return sendError(res, 501, "agent runs not supported for this store");
+          }
+          if (existingRun && !idemStoreKey) return sendError(res, 409, "run already exists");
+
+          const runCreatedPayload = {
+            runId,
+            agentId: payeeAgentId,
+            tenantId,
+            taskType:
+              body?.taskType && String(body.taskType).trim() !== ""
+                ? String(body.taskType).trim()
+                : task?.capability ?? task?.title ?? "marketplace-task",
+            inputRef:
+              body?.inputRef && String(body.inputRef).trim() !== ""
+                ? String(body.inputRef).trim()
+                : `marketplace://tasks/${encodeURIComponent(taskId)}`
+          };
+          try {
+            validateRunCreatedPayload(runCreatedPayload);
+          } catch (err) {
+            return sendError(res, 400, "invalid run payload", { message: err?.message });
+          }
+          const createdEvent = createChainedEvent({
+            streamId: runId,
+            type: AGENT_RUN_EVENT_TYPE.RUN_CREATED,
+            actor: { type: "agent", id: payeeAgentId },
+            payload: runCreatedPayload,
+            at: acceptedAt
+          });
+          const runEvents = normalizeAgentRunEventRecords(appendChainedEvent({ events: [], event: createdEvent, signer: serverSigner }));
+          let run = null;
+          try {
+            run = reduceAgentRun(runEvents);
+          } catch (err) {
+            return sendError(res, 400, "run creation rejected", { message: err?.message });
+          }
+
+          let payerWallet = null;
+          try {
+            const existingPayerWallet = await getAgentWalletRecord({ tenantId, agentId: settlementRequest.payerAgentId });
+            const basePayerWallet = ensureAgentWallet({
+              wallet: existingPayerWallet,
+              tenantId,
+              agentId: settlementRequest.payerAgentId,
+              currency: settlementRequest.currency,
+              at: acceptedAt
+            });
+            payerWallet = lockAgentWalletEscrow({ wallet: basePayerWallet, amountCents: settlementRequest.amountCents, at: acceptedAt });
+            projectEscrowLedgerOperation({
+              tenantId,
+              settlement: {
+                payerAgentId: settlementRequest.payerAgentId,
+                agentId: payeeAgentId,
+                currency: settlementRequest.currency
+              },
+              operationId: `escrow_hold_${runId}`,
+              type: ESCROW_OPERATION_TYPE.HOLD,
+              amountCents: settlementRequest.amountCents,
+              at: acceptedAt,
+              payerWalletBefore: basePayerWallet,
+              payerWalletAfter: payerWallet,
+              memo: `run:${runId}:hold`
+            });
+          } catch (err) {
+            return sendError(res, 409, "unable to lock settlement escrow", { message: err?.message, code: err?.code ?? null });
+          }
+
+          const disputeWindowDaysRaw = body?.disputeWindowDays ?? settlementInput?.disputeWindowDays ?? 3;
+          const disputeWindowDays =
+            Number.isSafeInteger(Number(disputeWindowDaysRaw)) && Number(disputeWindowDaysRaw) >= 0 ? Number(disputeWindowDaysRaw) : 3;
+          let policySelection = null;
+          try {
+            policySelection = resolveMarketplaceSettlementPolicySelection({
+              tenantId,
+              policyRefInput: body?.policyRef ?? settlementInput?.policyRef ?? selectedBidAccepted?.policyRef ?? null,
+              verificationMethodInput:
+                body?.verificationMethod ?? settlementInput?.verificationMethod ?? selectedBidAccepted?.verificationMethod ?? undefined,
+              settlementPolicyInput: body?.policy ?? settlementInput?.policy ?? selectedBidAccepted?.policy ?? undefined
+            });
+          } catch (err) {
+            if (err?.code === "TENANT_SETTLEMENT_POLICY_NOT_FOUND") {
+              return sendError(res, 404, "policyRef not found");
+            }
+            if (err?.code === "TENANT_SETTLEMENT_POLICY_REF_MISMATCH") {
+              return sendError(res, 409, "policyRef does not match verificationMethod/policy", { message: err?.message });
+            }
+            if (err?.code === "INVALID_VERIFICATION_METHOD") {
+              return sendError(res, 400, "invalid verificationMethod", { message: err?.message });
+            }
+            if (err?.code === "INVALID_SETTLEMENT_POLICY") {
+              return sendError(res, 400, "invalid policy", { message: err?.message });
+            }
+            return sendError(res, 400, "invalid agreement policy selection", { message: err?.message });
+          }
+
+          const verificationMethodInput = policySelection.verificationMethod;
+          const settlementPolicyInput = policySelection.policy;
+          const policyRefInput = policySelection.policyRef;
+          const agreementTermsInput = body?.agreementTerms ?? settlementInput?.agreementTerms ?? null;
+          let agreement = null;
+          try {
+            agreement = buildMarketplaceTaskAgreement({
+              tenantId,
+              task,
+              bid: selectedBidAccepted,
+              runId,
+              acceptedAt,
+              acceptedByAgentId,
+              payerAgentId: settlementRequest.payerAgentId,
+              fromType: acceptDirection.fromType,
+              toType: acceptDirection.toType,
+              disputeWindowDays,
+              verificationMethodInput,
+              settlementPolicyInput,
+              policyRefInput,
+              agreementTermsInput
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid agreement terms", { message: err?.message });
+          }
+          if (acceptanceSignatureInput) {
+            try {
+              const acceptanceSignature = await parseSignedMarketplaceAgreementAcceptance({
+                tenantId,
+                agreement,
+                acceptedByAgentId,
+                acceptedByIdentity,
+                acceptanceSignatureInput
+              });
+              agreement = {
+                ...agreement,
+                acceptanceSignature
+              };
+            } catch (err) {
+              return sendError(res, 400, "invalid acceptance signature", { message: err?.message });
+            }
+          }
+          let settlement = createAgentRunSettlement({
+            tenantId,
+            runId,
+            agentId: payeeAgentId,
+            payerAgentId: settlementRequest.payerAgentId,
+            amountCents: settlementRequest.amountCents,
+            currency: settlementRequest.currency,
+            at: acceptedAt
+          });
+          settlement = updateAgentRunSettlementDecision({
+            settlement,
+            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.PENDING,
+            decisionMode: agreement?.policy?.mode ?? AGENT_RUN_SETTLEMENT_DECISION_MODE.AUTOMATIC,
+            decisionPolicyHash: agreement?.policyHash ?? null,
+            decisionReason: null,
+            decisionTrace: {
+              phase: "agreement.accepted",
+              verificationMethod: agreement?.verificationMethod ?? null,
+              policy: agreement?.policy ?? null
+            },
+            at: acceptedAt
+          });
+          const nextTask = {
+            ...task,
+            fromType: taskDirection.fromType,
+            toType: taskDirection.toType,
+            status: "assigned",
+            acceptedBidId: bidId,
+            acceptedBidderAgentId: selectedBidAccepted.bidderAgentId ?? null,
+            acceptedAt,
+            acceptedByAgentId: acceptedByAgentId ?? null,
+            runId,
+            agreementId: agreement.agreementId,
+            agreement,
+            settlementId: settlement.settlementId,
+            settlementDecisionStatus: settlement.decisionStatus ?? null,
+            updatedAt: acceptedAt
+          };
+          const nextBids = existingBids.map((candidate) => {
+            if (!candidate || typeof candidate !== "object") return candidate;
+            if (String(candidate.bidId ?? "") === bidId) {
+              return selectedBidAccepted;
+            }
+            const status = String(candidate.status ?? "pending").toLowerCase();
+            if (status === "pending") {
+              let rejectedNegotiation =
+                candidate?.negotiation && typeof candidate.negotiation === "object" && !Array.isArray(candidate.negotiation)
+                  ? candidate.negotiation
+                  : null;
+              try {
+                if (rejectedNegotiation) {
+                  rejectedNegotiation = updateMarketplaceBidNegotiationState({
+                    negotiation: rejectedNegotiation,
+                    state: "rejected",
+                    at: acceptedAt
+                  });
+                }
+              } catch {
+                rejectedNegotiation = null;
+              }
+              return {
+                ...candidate,
+                status: "rejected",
+                rejectedAt: acceptedAt,
+                updatedAt: acceptedAt,
+                negotiation: rejectedNegotiation ?? candidate?.negotiation ?? null
+              };
+            }
+            return candidate;
+          });
+
+          const acceptedBid = nextBids.find((candidate) => String(candidate?.bidId ?? "") === bidId) ?? null;
+          const responseBody = { task: nextTask, acceptedBid, run, settlement, agreement };
+          const ops = [
+            { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: nextTask },
+            { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: nextBids },
+            { kind: "AGENT_RUN_EVENTS_APPENDED", tenantId, runId, events: runEvents },
+            { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
+            { kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement }
+          ];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await commitTx(ops);
+          try {
+            await emitMarketplaceLifecycleArtifact({
+              tenantId,
+              eventType: "marketplace.task.accepted",
+              taskId,
+              runId,
+              sourceEventId: run?.lastEventId ?? null,
+              actorAgentId: acceptedByAgentId ?? settlementRequest.payerAgentId,
+              agreement,
+              settlement,
+              details: {
+                bidId,
+                acceptedBidderAgentId: acceptedBid?.bidderAgentId ?? null
+              }
+            });
+          } catch {
+            // Lifecycle deliveries are best-effort and retried by delivery workers when destinations are configured.
+          }
+          try {
+            await emitMarketplaceLifecycleArtifact({
+              tenantId,
+              eventType: "proposal.accepted",
+              taskId,
+              runId,
+              sourceEventId: selectedLatestProposal?.proposalId ?? null,
+              actorAgentId: acceptedByAgentId ?? settlementRequest.payerAgentId,
+              agreement,
+              settlement,
+              details: {
+                bidId,
+                proposal: selectedLatestProposal,
+                negotiation: selectedBidNegotiation
+              }
+            });
+          } catch {
+            // Lifecycle deliveries are best-effort and retried by delivery workers when destinations are configured.
+          }
+          return sendJson(res, 200, responseBody);
+        }
+
+        return sendError(res, 404, "not found");
+      }
+
+      if (req.method === "GET" && path === "/marketplace/agents/search") {
+        try {
+          const result = await searchMarketplaceAgents({
+            tenantId,
+            capability: url.searchParams.get("capability"),
+            status: url.searchParams.get("status"),
+            minTrustScore: url.searchParams.get("minTrustScore"),
+            riskTier: url.searchParams.get("riskTier"),
+            limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 50,
+            offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0,
+            includeReputation:
+              url.searchParams.get("includeReputation") === null
+                ? true
+                : ["1", "true", "yes", "on"].includes(String(url.searchParams.get("includeReputation")).trim().toLowerCase()),
+            reputationVersion: url.searchParams.get("reputationVersion") ?? "v2",
+            reputationWindow: url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+            scoreStrategy: url.searchParams.get("scoreStrategy") ?? "balanced"
+          });
+          return sendJson(res, 200, result);
+        } catch (err) {
+          return sendError(res, 400, "invalid marketplace search query", { message: err?.message });
+        }
+      }
+
+      if (req.method === "GET" && path === "/agents") {
+        const status = url.searchParams.get("status");
+        const capabilityFilterRaw = url.searchParams.get("capability");
+        const capabilityFilter = capabilityFilterRaw && capabilityFilterRaw.trim() !== "" ? capabilityFilterRaw.trim() : null;
+        const minTrustScoreRaw = url.searchParams.get("minTrustScore");
+        const includeReputationRaw = url.searchParams.get("includeReputation");
+        const includeReputation = includeReputationRaw !== null && ["1", "true", "yes", "on"].includes(String(includeReputationRaw).trim().toLowerCase());
+        const reputationVersionRaw = url.searchParams.get("reputationVersion");
+        const reputationWindowRaw = url.searchParams.get("reputationWindow");
+        let reputationVersion = "v1";
+        let reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS;
+        try {
+          reputationVersion = parseReputationVersion(reputationVersionRaw);
+          reputationWindow = parseReputationWindow(reputationWindowRaw);
+        } catch (err) {
+          return sendError(res, 400, "invalid reputation query", { message: err?.message });
+        }
+        let minTrustScore = null;
+        if (minTrustScoreRaw !== null) {
+          const parsedMinTrustScore = Number(minTrustScoreRaw);
+          if (!Number.isSafeInteger(parsedMinTrustScore) || parsedMinTrustScore < 0 || parsedMinTrustScore > 100) {
+            return sendError(res, 400, "minTrustScore must be an integer within 0..100");
+          }
+          minTrustScore = parsedMinTrustScore;
+        }
+        const limitRaw = url.searchParams.get("limit");
+        const offsetRaw = url.searchParams.get("offset");
+        const limit = limitRaw ? Number(limitRaw) : 200;
+        const offset = offsetRaw ? Number(offsetRaw) : 0;
+        const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+        const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+        const requiresPostFilter = Boolean(capabilityFilter) || minTrustScore !== null || includeReputation;
+
+        let agents;
+        if (typeof store.listAgentIdentities === "function") {
+          try {
+            if (requiresPostFilter) agents = await store.listAgentIdentities({ tenantId, status: status ?? null, limit: 10_000, offset: 0 });
+            else agents = await store.listAgentIdentities({ tenantId, status: status ?? null, limit: safeLimit, offset: safeOffset });
+          } catch (err) {
+            return sendError(res, 400, "invalid agent identity query", { message: err?.message });
+          }
+        } else if (store.agentIdentities instanceof Map) {
+          const all = listAgentIdentities({ tenantId, status: status ?? null });
+          agents = requiresPostFilter ? all : all.slice(safeOffset, safeOffset + safeLimit);
+        } else {
+          return sendError(res, 501, "agent identities not supported for this store");
+        }
+
+        const filteredAgents = capabilityFilter
+          ? agents.filter((agentIdentity) => Array.isArray(agentIdentity?.capabilities) && agentIdentity.capabilities.includes(capabilityFilter))
+          : agents;
+
+        if (!includeReputation && minTrustScore === null) {
+          if (requiresPostFilter) {
+            const paged = filteredAgents.slice(safeOffset, safeOffset + safeLimit);
+            return sendJson(res, 200, { agents: paged, limit: safeLimit, offset: safeOffset });
+          }
+          return sendJson(res, 200, { agents: filteredAgents, limit: safeLimit, offset: safeOffset });
+        }
+
+        const reputations = {};
+        const scopedAgents = [];
+        for (const agentIdentity of filteredAgents) {
+          const agentId = String(agentIdentity?.agentId ?? "");
+          if (!agentId) continue;
+          const reputation = await computeAgentReputationSnapshotVersioned({
+            tenantId,
+            agentId,
+            at: nowIso(),
+            reputationVersion,
+            reputationWindow
+          });
+          if (minTrustScore !== null && Number(reputation?.trustScore ?? 0) < minTrustScore) continue;
+          scopedAgents.push(agentIdentity);
+          if (includeReputation) reputations[agentId] = reputation;
+        }
+
+        const pagedAgents = scopedAgents.slice(safeOffset, safeOffset + safeLimit);
+        const response = { agents: pagedAgents, limit: safeLimit, offset: safeOffset };
+        if (includeReputation) {
+          const pagedReputations = {};
+          for (const agentIdentity of pagedAgents) {
+            const id = String(agentIdentity?.agentId ?? "");
+            if (!id) continue;
+            if (reputations[id]) pagedReputations[id] = reputations[id];
+          }
+          response.reputations = pagedReputations;
+        }
+        return sendJson(res, 200, response);
+      }
+
+      if (req.method === "POST" && path === "/agents/register") {
+        if (typeof store.putAgentIdentity !== "function") return sendError(res, 501, "agent identities not supported for this store");
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const publicKeyPem = body?.publicKeyPem ?? null;
+        if (typeof publicKeyPem !== "string" || publicKeyPem.trim() === "") {
+          return sendError(res, 400, "publicKeyPem is required");
+        }
+
+        const keyId = keyIdFromPublicKeyPem(publicKeyPem);
+        const agentId = body?.agentId ? String(body.agentId) : createId("agt");
+        const existingIdentity = typeof store.getAgentIdentity === "function" ? await store.getAgentIdentity({ tenantId, agentId }) : null;
+        if (existingIdentity && !idemStoreKey) return sendError(res, 409, "agent identity already exists");
+
+        const ownerBody = body?.owner && typeof body.owner === "object" && !Array.isArray(body.owner) ? body.owner : {};
+        const ownerTypeRaw = ownerBody.ownerType ?? body?.ownerType ?? "service";
+        const ownerIdRaw = ownerBody.ownerId ?? body?.ownerId ?? `tenant:${tenantId}`;
+        const ownerType = String(ownerTypeRaw ?? "").trim().toLowerCase();
+        const ownerId = String(ownerIdRaw ?? "").trim();
+        if (ownerType !== "human" && ownerType !== "business" && ownerType !== "service") {
+          return sendError(res, 400, "owner.ownerType must be human|business|service");
+        }
+        if (!ownerId) return sendError(res, 400, "owner.ownerId is required");
+
+        const status = body?.status ? String(body.status).trim().toLowerCase() : "active";
+        if (status !== "active" && status !== "suspended" && status !== "revoked") {
+          return sendError(res, 400, "status must be active|suspended|revoked");
+        }
+
+        const capabilitiesRaw = Array.isArray(body?.capabilities) ? body.capabilities : [];
+        const capabilities = [...new Set(capabilitiesRaw.map((value) => String(value ?? "").trim()).filter(Boolean))].sort((left, right) =>
+          left.localeCompare(right)
+        );
+
+        const nowAt = nowIso();
+        const candidate = {
+          schemaVersion: "AgentIdentity.v1",
+          agentId,
+          tenantId,
+          displayName:
+            typeof body?.displayName === "string" && body.displayName.trim() !== "" ? String(body.displayName) : String(agentId),
+          description: typeof body?.description === "string" && body.description.trim() !== "" ? String(body.description) : null,
+          status,
+          owner: { ownerType, ownerId },
+          keys: {
+            keyId,
+            algorithm: "ed25519",
+            publicKeyPem: String(publicKeyPem)
+          },
+          capabilities,
+          walletPolicy: body?.walletPolicy ?? null,
+          metadata: body?.metadata ?? null,
+          createdAt: nowAt,
+          updatedAt: nowAt
+        };
+
+        let persisted;
+        try {
+          persisted = await store.putAgentIdentity({ tenantId, agentIdentity: candidate });
+        } catch (err) {
+          if (err?.code === "AGENT_IDENTITY_EXISTS") return sendError(res, 409, "agent identity already exists");
+          return sendError(res, 400, "invalid agent identity", { message: err?.message });
+        }
+
+        const responseBody = { agentIdentity: persisted, keyId };
+        if (idemStoreKey) {
+          await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } }]);
+        }
+        return sendJson(res, 201, responseBody);
+      }
+
       if (req.method === "GET" && path === "/robots") {
         return sendJson(res, 200, { robots: listRobots({ tenantId }) });
       }
@@ -9476,6 +14731,2134 @@ export function createApi({
         return sendJson(res, 200, { outbox: store.outbox });
       }
 
+      if (parts[0] === "runs" && parts[1] && parts[2] === "verification" && parts.length === 3 && req.method === "GET") {
+        const runId = parts[1];
+        let run = null;
+        if (typeof store.getAgentRun === "function") {
+          try {
+            run = await store.getAgentRun({ tenantId, runId });
+          } catch (err) {
+            return sendError(res, 400, "invalid run id", { message: err?.message });
+          }
+        } else if (store.agentRuns instanceof Map) {
+          run = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+        } else {
+          return sendError(res, 501, "agent runs not supported for this store");
+        }
+        if (!run) return sendError(res, 404, "run not found");
+
+        let events = [];
+        if (typeof store.getAgentRunEvents === "function") {
+          events = await store.getAgentRunEvents({ tenantId, runId });
+        } else if (store.agentRunEvents instanceof Map) {
+          events = store.agentRunEvents.get(runStoreKey(tenantId, runId)) ?? [];
+        }
+        events = normalizeAgentRunEventRecords(events);
+
+        const verification = computeAgentRunVerification({ run, events });
+        return sendJson(res, 200, { runId, agentId: run.agentId ?? null, runStatus: run.status ?? null, verification });
+      }
+
+      if (parts[0] === "runs" && parts[1] && parts[2] === "settlement" && parts.length === 3 && req.method === "GET") {
+        const runId = parts[1];
+        let settlement = null;
+        try {
+          settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+        } catch (err) {
+          return sendError(res, 501, "agent run settlements not supported for this store", { message: err?.message });
+        }
+        if (!settlement) return sendError(res, 404, "run settlement not found");
+        return sendJson(res, 200, { settlement });
+      }
+
+      if (parts[0] === "runs" && parts[1] && parts[2] === "agreement" && parts.length === 3 && req.method === "GET") {
+        const runId = parts[1];
+        const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
+        if (!linkedTask) return sendError(res, 404, "run has no linked marketplace task");
+        const agreement = linkedTask?.agreement ?? null;
+        if (!agreement || typeof agreement !== "object" || Array.isArray(agreement)) {
+          return sendError(res, 404, "run has no marketplace agreement");
+        }
+        const agreementPolicyMaterial = resolveAgreementPolicyMaterial({ tenantId, agreement });
+        const policyBindingVerification = await verifyMarketplaceAgreementPolicyBinding({ tenantId, agreement });
+        const acceptanceSignatureVerification = await verifyMarketplaceAgreementAcceptanceSignature({ tenantId, agreement });
+        return sendJson(res, 200, {
+          runId,
+          taskId: linkedTask?.taskId ?? null,
+          agreementId: agreement?.agreementId ?? null,
+          agreement,
+          policyRef: agreementPolicyMaterial.policyRef ?? null,
+          policyHash: agreementPolicyMaterial.policyHash ?? null,
+          verificationMethodHash: agreementPolicyMaterial.verificationMethodHash ?? null,
+          policyBindingVerification,
+          acceptanceSignatureVerification
+        });
+      }
+
+      if (parts[0] === "runs" && parts[1] && parts[2] === "agreement" && parts[3] === "change-order" && parts.length === 4 && req.method === "POST") {
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+        const runId = parts[1];
+        const body = await readJsonBody(req);
+
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
+        if (!linkedTask) return sendError(res, 404, "run has no linked marketplace task");
+        const agreement = linkedTask?.agreement ?? null;
+        if (!agreement || typeof agreement !== "object" || Array.isArray(agreement)) {
+          return sendError(res, 404, "run has no marketplace agreement");
+        }
+
+        let run = null;
+        if (typeof store.getAgentRun === "function") {
+          run = await store.getAgentRun({ tenantId, runId });
+        } else if (store.agentRuns instanceof Map) {
+          run = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+        }
+        if (!run) return sendError(res, 404, "run not found");
+        if (run.status === "completed" || run.status === "failed") {
+          return sendError(res, 409, "cannot apply change order to terminal runs");
+        }
+
+        let settlement = null;
+        try {
+          settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+        } catch (err) {
+          return sendError(res, 501, "agent run settlements not supported for this store", { message: err?.message });
+        }
+        if (!settlement) return sendError(res, 404, "run settlement not found");
+        if (settlement.status !== AGENT_RUN_SETTLEMENT_STATUS.LOCKED) {
+          return sendError(res, 409, "change order can only be applied while settlement is locked");
+        }
+
+        const terms = agreement?.terms && typeof agreement.terms === "object" && !Array.isArray(agreement.terms)
+          ? agreement.terms
+          : {};
+        const changeOrderPolicy = normalizeAgreementChangeOrderPolicyInput(terms?.changeOrderPolicy);
+        if (changeOrderPolicy.enabled !== true) {
+          return sendError(res, 409, "agreement does not allow change orders");
+        }
+        const agreementPayerAgentId =
+          typeof agreement?.payerAgentId === "string" && agreement.payerAgentId.trim() !== ""
+            ? agreement.payerAgentId.trim()
+            : null;
+        const agreementPayeeAgentId =
+          typeof agreement?.payeeAgentId === "string" && agreement.payeeAgentId.trim() !== ""
+            ? agreement.payeeAgentId.trim()
+            : null;
+        if (!agreementPayerAgentId || !agreementPayeeAgentId || agreementPayerAgentId === agreementPayeeAgentId) {
+          return sendError(res, 409, "marketplace agreement counterparties are invalid");
+        }
+
+        const requestedByAgentId =
+          typeof body?.requestedByAgentId === "string" && body.requestedByAgentId.trim() !== ""
+            ? body.requestedByAgentId.trim()
+            : null;
+        if (!requestedByAgentId) return sendError(res, 400, "requestedByAgentId is required");
+        if (requestedByAgentId !== agreementPayerAgentId && requestedByAgentId !== agreementPayeeAgentId) {
+          return sendError(res, 409, "requestedByAgentId must be a marketplace agreement counterparty");
+        }
+        const acceptedByAgentId =
+          typeof body?.acceptedByAgentId === "string" && body.acceptedByAgentId.trim() !== ""
+            ? body.acceptedByAgentId.trim()
+            : null;
+        const acceptanceSignatureInput =
+          body?.acceptanceSignature && typeof body.acceptanceSignature === "object" && !Array.isArray(body.acceptanceSignature)
+            ? body.acceptanceSignature
+            : null;
+        if (body?.acceptanceSignature !== undefined && acceptanceSignatureInput === null) {
+          return sendError(res, 400, "acceptanceSignature must be an object");
+        }
+        if (changeOrderPolicy.requireCounterpartyAcceptance === true && !acceptedByAgentId) {
+          return sendError(res, 400, "acceptedByAgentId is required by agreement change order policy");
+        }
+        if (acceptanceSignatureInput && !acceptedByAgentId) {
+          return sendError(res, 400, "acceptedByAgentId is required when acceptanceSignature is provided");
+        }
+        if (acceptedByAgentId) {
+          if (acceptedByAgentId === requestedByAgentId) {
+            return sendError(res, 409, "acceptedByAgentId must differ from requestedByAgentId");
+          }
+          if (acceptedByAgentId !== agreementPayerAgentId && acceptedByAgentId !== agreementPayeeAgentId) {
+            return sendError(res, 409, "acceptedByAgentId must be a marketplace agreement counterparty");
+          }
+        }
+        let requesterIdentity = null;
+        try {
+          requesterIdentity = await getAgentIdentityRecord({ tenantId, agentId: requestedByAgentId });
+        } catch (err) {
+          return sendError(res, 400, "invalid requestedByAgentId", { message: err?.message });
+        }
+        if (!requesterIdentity) return sendError(res, 404, "requesting agent identity not found");
+        let accepterIdentity = null;
+        if (acceptedByAgentId) {
+          try {
+            accepterIdentity = await getAgentIdentityRecord({ tenantId, agentId: acceptedByAgentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid acceptedByAgentId", { message: err?.message });
+          }
+          if (!accepterIdentity) return sendError(res, 404, "accepting agent identity not found");
+        }
+
+        const reason = typeof body?.reason === "string" && body.reason.trim() !== "" ? body.reason.trim() : null;
+        if (!reason) return sendError(res, 400, "reason is required");
+        const changeOrderIdRaw = body?.changeOrderId ?? createId("chg");
+        const changeOrderId = typeof changeOrderIdRaw === "string" && changeOrderIdRaw.trim() !== "" ? changeOrderIdRaw.trim() : null;
+        if (!changeOrderId) return sendError(res, 400, "changeOrderId must be a non-empty string");
+
+        const existingChangeOrders = Array.isArray(terms?.changeOrders)
+          ? terms.changeOrders.filter((row) => row && typeof row === "object" && !Array.isArray(row))
+          : [];
+        if (existingChangeOrders.some((row) => String(row?.changeOrderId ?? "") === changeOrderId)) {
+          return sendError(res, 409, "changeOrderId already exists");
+        }
+        if (existingChangeOrders.length >= changeOrderPolicy.maxChangeOrders) {
+          return sendError(res, 409, "change order limit reached");
+        }
+
+        let nextMilestones = null;
+        try {
+          nextMilestones =
+            body?.milestones === undefined
+              ? normalizeAgreementMilestonesInput(terms?.milestones)
+              : normalizeAgreementMilestonesInput(body?.milestones);
+        } catch (err) {
+          return sendError(res, 400, "invalid agreement milestones", { message: err?.message });
+        }
+
+        let nextCancellation = null;
+        try {
+          nextCancellation =
+            body?.cancellation === undefined
+              ? normalizeAgreementCancellationInput(terms?.cancellation)
+              : normalizeAgreementCancellationInput(body?.cancellation);
+        } catch (err) {
+          return sendError(res, 400, "invalid agreement cancellation terms", { message: err?.message });
+        }
+
+        const note = typeof body?.note === "string" && body.note.trim() !== "" ? body.note.trim() : null;
+        const nowAt = nowIso();
+        const changeOrder = normalizeForCanonicalJson(
+          {
+            changeOrderId,
+            requestedByAgentId,
+            acceptedByAgentId: acceptedByAgentId ?? null,
+            reason,
+            note,
+            issuedAt: nowAt,
+            acceptedAt: acceptedByAgentId ? nowAt : null,
+            previousTermsHash: agreement?.termsHash ?? null
+          },
+          { path: "$" }
+        );
+        let nextChangeOrder = changeOrder;
+        if (acceptanceSignatureInput) {
+          try {
+            const acceptanceSignature = await parseSignedMarketplaceAgreementChangeOrderAcceptance({
+              tenantId,
+              runId,
+              agreement,
+              changeOrder,
+              nextMilestones,
+              nextCancellation,
+              acceptanceSignatureInput,
+              acceptedByAgentId,
+              acceptedByIdentity: accepterIdentity
+            });
+            nextChangeOrder = normalizeForCanonicalJson(
+              {
+                ...changeOrder,
+                acceptanceSignature
+              },
+              { path: "$" }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid acceptance signature", { message: err?.message });
+          }
+        }
+        const nextTerms = normalizeForCanonicalJson(
+          {
+            ...terms,
+            milestones: nextMilestones,
+            cancellation: nextCancellation,
+            changeOrderPolicy,
+            changeOrders: [...existingChangeOrders, nextChangeOrder]
+          },
+          { path: "$" }
+        );
+        const nextAgreement = {
+          ...agreement,
+          terms: nextTerms,
+          termsHash: sha256Hex(canonicalJsonStringify(nextTerms)),
+          agreementRevision: Number(agreement?.agreementRevision ?? 1) + 1,
+          updatedAt: nowAt
+        };
+        nextAgreement.policyBinding = buildMarketplaceAgreementPolicyBinding({
+          agreement: nextAgreement,
+          signedAt: nowAt,
+          signer: serverSigner
+        });
+        const nextTask = {
+          ...linkedTask,
+          agreement: nextAgreement,
+          updatedAt: nowAt
+        };
+
+        const acceptanceSignatureVerification = await verifyMarketplaceAgreementChangeOrderAcceptanceSignature({
+          tenantId,
+          runId,
+          agreement,
+          changeOrder: nextChangeOrder,
+          nextMilestones,
+          nextCancellation
+        });
+        const responseBody = {
+          runId,
+          task: nextTask,
+          agreement: nextAgreement,
+          changeOrder: nextChangeOrder,
+          acceptanceSignatureVerification
+        };
+        const ops = [{ kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: nextTask }];
+        if (idemStoreKey) {
+          ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+        }
+        await commitTx(ops);
+        try {
+          await emitMarketplaceLifecycleArtifact({
+            tenantId,
+            eventType: "marketplace.agreement.change_order_applied",
+            taskId: nextTask?.taskId ?? null,
+            runId,
+            sourceEventId: changeOrderId,
+            actorAgentId: requestedByAgentId,
+            agreement: nextAgreement,
+            settlement,
+            details: { changeOrder: nextChangeOrder, acceptanceSignatureVerification }
+          });
+        } catch {
+          // Best-effort lifecycle delivery.
+        }
+        return sendJson(res, 200, responseBody);
+      }
+
+      if (parts[0] === "runs" && parts[1] && parts[2] === "agreement" && parts[3] === "cancel" && parts.length === 4 && req.method === "POST") {
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+        const runId = parts[1];
+        const body = await readJsonBody(req);
+
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
+        if (!linkedTask) return sendError(res, 404, "run has no linked marketplace task");
+        const agreement = linkedTask?.agreement ?? null;
+        if (!agreement || typeof agreement !== "object" || Array.isArray(agreement)) {
+          return sendError(res, 404, "run has no marketplace agreement");
+        }
+        if (String(linkedTask.status ?? "").toLowerCase() !== "assigned") {
+          return sendError(res, 409, "agreement cancellation is only allowed for assigned tasks");
+        }
+
+        let run = null;
+        if (typeof store.getAgentRun === "function") {
+          run = await store.getAgentRun({ tenantId, runId });
+        } else if (store.agentRuns instanceof Map) {
+          run = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+        }
+        if (!run) return sendError(res, 404, "run not found");
+
+        let settlement = null;
+        try {
+          settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+        } catch (err) {
+          return sendError(res, 501, "agent run settlements not supported for this store", { message: err?.message });
+        }
+        if (!settlement) return sendError(res, 404, "run settlement not found");
+        if (settlement.status !== AGENT_RUN_SETTLEMENT_STATUS.LOCKED) {
+          return sendError(res, 409, "run settlement is already resolved");
+        }
+
+        const cancellationPolicy = normalizeAgreementCancellationInput(agreement?.terms?.cancellation);
+        if (cancellationPolicy.allowCancellationBeforeStart !== true) {
+          return sendError(res, 409, "agreement does not allow cancellation before run start");
+        }
+        const agreementPayerAgentId =
+          typeof agreement?.payerAgentId === "string" && agreement.payerAgentId.trim() !== ""
+            ? agreement.payerAgentId.trim()
+            : null;
+        const agreementPayeeAgentId =
+          typeof agreement?.payeeAgentId === "string" && agreement.payeeAgentId.trim() !== ""
+            ? agreement.payeeAgentId.trim()
+            : null;
+        if (!agreementPayerAgentId || !agreementPayeeAgentId || agreementPayerAgentId === agreementPayeeAgentId) {
+          return sendError(res, 409, "marketplace agreement counterparties are invalid");
+        }
+        if (String(run.status ?? "").toLowerCase() !== "created") {
+          return sendError(res, 409, "agreement cancellation is only allowed before run start; use /runs/{runId}/dispute/open");
+        }
+
+        const cancelledByAgentId =
+          typeof body?.cancelledByAgentId === "string" && body.cancelledByAgentId.trim() !== ""
+            ? body.cancelledByAgentId.trim()
+            : null;
+        if (!cancelledByAgentId) return sendError(res, 400, "cancelledByAgentId is required");
+        if (cancelledByAgentId !== agreementPayerAgentId && cancelledByAgentId !== agreementPayeeAgentId) {
+          return sendError(res, 409, "cancelledByAgentId must be a marketplace agreement counterparty");
+        }
+        const acceptedByAgentId =
+          typeof body?.acceptedByAgentId === "string" && body.acceptedByAgentId.trim() !== ""
+            ? body.acceptedByAgentId.trim()
+            : null;
+        const acceptanceSignatureInput =
+          body?.acceptanceSignature && typeof body.acceptanceSignature === "object" && !Array.isArray(body.acceptanceSignature)
+            ? body.acceptanceSignature
+            : null;
+        if (body?.acceptanceSignature !== undefined && acceptanceSignatureInput === null) {
+          return sendError(res, 400, "acceptanceSignature must be an object");
+        }
+        if (cancellationPolicy.requireCounterpartyAcceptance === true && !acceptedByAgentId) {
+          return sendError(res, 400, "acceptedByAgentId is required by agreement cancellation policy");
+        }
+        if (acceptanceSignatureInput && !acceptedByAgentId) {
+          return sendError(res, 400, "acceptedByAgentId is required when acceptanceSignature is provided");
+        }
+        if (acceptedByAgentId) {
+          if (acceptedByAgentId === cancelledByAgentId) {
+            return sendError(res, 409, "acceptedByAgentId must differ from cancelledByAgentId");
+          }
+          if (acceptedByAgentId !== agreementPayerAgentId && acceptedByAgentId !== agreementPayeeAgentId) {
+            return sendError(res, 409, "acceptedByAgentId must be a marketplace agreement counterparty");
+          }
+        }
+        let cancellerIdentity = null;
+        try {
+          cancellerIdentity = await getAgentIdentityRecord({ tenantId, agentId: cancelledByAgentId });
+        } catch (err) {
+          return sendError(res, 400, "invalid cancelledByAgentId", { message: err?.message });
+        }
+        if (!cancellerIdentity) return sendError(res, 404, "cancelling agent identity not found");
+        let accepterIdentity = null;
+        if (acceptedByAgentId) {
+          try {
+            accepterIdentity = await getAgentIdentityRecord({ tenantId, agentId: acceptedByAgentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid acceptedByAgentId", { message: err?.message });
+          }
+          if (!accepterIdentity) return sendError(res, 404, "accepting agent identity not found");
+        }
+
+        const reason = typeof body?.reason === "string" && body.reason.trim() !== "" ? body.reason.trim() : null;
+        if (!reason) return sendError(res, 400, "reason is required");
+        const evidenceRef = typeof body?.evidenceRef === "string" && body.evidenceRef.trim() !== "" ? body.evidenceRef.trim() : null;
+        if (cancellationPolicy.requireEvidenceOnCancellation === true && !evidenceRef) {
+          return sendError(res, 400, "agreement cancellation requires evidenceRef");
+        }
+
+        const cancellationIdRaw = body?.cancellationId ?? body?.resolutionEventId ?? `cancel_${createId("agr")}`;
+        const cancellationId =
+          typeof cancellationIdRaw === "string" && cancellationIdRaw.trim() !== "" ? cancellationIdRaw.trim() : null;
+        if (!cancellationId) return sendError(res, 400, "cancellationId must be a non-empty string");
+
+        const settledAt = nowIso();
+        const killFeeRatePct = Number(cancellationPolicy.killFeeRatePct ?? 0);
+        const releasedAmountCents = Math.min(settlement.amountCents, Math.floor((settlement.amountCents * killFeeRatePct) / 100));
+        const refundedAmountCents = settlement.amountCents - releasedAmountCents;
+        const releaseRatePct = settlement.amountCents > 0 ? Math.round((releasedAmountCents * 100) / settlement.amountCents) : 0;
+
+        let payerWallet = null;
+        try {
+          const existingPayerWallet = await getAgentWalletRecord({ tenantId, agentId: settlement.payerAgentId });
+          payerWallet = ensureAgentWallet({
+            wallet: existingPayerWallet,
+            tenantId,
+            agentId: settlement.payerAgentId,
+            currency: settlement.currency,
+            at: settledAt
+          });
+        } catch (err) {
+          return sendError(res, 409, "unable to load payer wallet", { message: err?.message, code: err?.code ?? null });
+        }
+
+        let payeeWallet = null;
+        try {
+          if (releasedAmountCents > 0) {
+            const existingPayeeWallet = await getAgentWalletRecord({ tenantId, agentId: settlement.agentId });
+            const normalizedPayeeWallet = ensureAgentWallet({
+              wallet: existingPayeeWallet,
+              tenantId,
+              agentId: settlement.agentId,
+              currency: settlement.currency,
+              at: settledAt
+            });
+            const released = releaseAgentWalletEscrowToPayee({
+              payerWallet,
+              payeeWallet: normalizedPayeeWallet,
+              amountCents: releasedAmountCents,
+              at: settledAt
+            });
+            projectEscrowLedgerOperation({
+              tenantId,
+              settlement,
+              operationId: `escrow_release_${runId}_${cancellationId}`,
+              type: ESCROW_OPERATION_TYPE.RELEASE,
+              amountCents: releasedAmountCents,
+              at: settledAt,
+              payerWalletBefore: payerWallet,
+              payerWalletAfter: released.payerWallet,
+              payeeWalletBefore: normalizedPayeeWallet,
+              payeeWalletAfter: released.payeeWallet,
+              memo: `run:${runId}:agreement_cancel_release`
+            });
+            payerWallet = released.payerWallet;
+            payeeWallet = released.payeeWallet;
+          }
+          if (refundedAmountCents > 0) {
+            const payerBeforeRefund = payerWallet;
+            payerWallet = refundAgentWalletEscrow({
+              wallet: payerWallet,
+              amountCents: refundedAmountCents,
+              at: settledAt
+            });
+            projectEscrowLedgerOperation({
+              tenantId,
+              settlement,
+              operationId: `escrow_forfeit_${runId}_${cancellationId}`,
+              type: ESCROW_OPERATION_TYPE.FORFEIT,
+              amountCents: refundedAmountCents,
+              at: settledAt,
+              payerWalletBefore: payerBeforeRefund,
+              payerWalletAfter: payerWallet,
+              memo: `run:${runId}:agreement_cancel_refund`
+            });
+          }
+        } catch (err) {
+          return sendError(res, 409, "agreement cancellation payment adjustments failed", { message: err?.message, code: err?.code ?? null });
+        }
+
+        try {
+          settlement = resolveAgentRunSettlement({
+            settlement,
+            status: releasedAmountCents > 0 ? AGENT_RUN_SETTLEMENT_STATUS.RELEASED : AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
+            runStatus: AGENT_RUN_STATUS.FAILED,
+            releasedAmountCents,
+            refundedAmountCents,
+            releaseRatePct,
+            disputeWindowDays: settlement.disputeWindowDays ?? 0,
+            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED,
+            decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+            decisionPolicyHash: agreement?.policyHash ?? settlement.decisionPolicyHash ?? null,
+            decisionReason: reason,
+            decisionTrace: {
+              phase: "agreement.cancelled.before_start",
+              cancellationPolicy,
+              cancelledByAgentId,
+              acceptedByAgentId: acceptedByAgentId ?? null,
+              evidenceRef: evidenceRef ?? null
+            },
+            resolutionEventId: cancellationId,
+            at: settledAt
+          });
+        } catch (err) {
+          return sendError(res, 409, "agreement cancellation settlement update failed", { message: err?.message, code: err?.code ?? null });
+        }
+
+        const existingRunEvents = await getAgentRunEvents(tenantId, runId);
+        if (!Array.isArray(existingRunEvents) || existingRunEvents.length === 0) {
+          return sendError(res, 404, "run events not found");
+        }
+        const runFailedDraft = createChainedEvent({
+          streamId: runId,
+          type: AGENT_RUN_EVENT_TYPE.RUN_FAILED,
+          actor: { type: "agent", id: cancelledByAgentId },
+          payload: {
+            runId,
+            code: "MARKETPLACE_AGREEMENT_CANCELLED",
+            message: reason
+          },
+          at: settledAt
+        });
+        const nextRunEvents = normalizeAgentRunEventRecords(
+          appendChainedEvent({ events: existingRunEvents, event: runFailedDraft, signer: serverSigner })
+        );
+        const runFailedEvent = nextRunEvents[nextRunEvents.length - 1];
+        let runAfter = null;
+        try {
+          runAfter = reduceAgentRun(nextRunEvents);
+        } catch (err) {
+          return sendError(res, 409, "agreement cancellation run update failed", { message: err?.message });
+        }
+
+        const cancellationDetails = normalizeForCanonicalJson(
+          {
+            cancellationId,
+            cancelledAt: settledAt,
+            cancelledByAgentId,
+            acceptedByAgentId: acceptedByAgentId ?? null,
+            acceptedAt: acceptedByAgentId ? settledAt : null,
+            reason,
+            evidenceRef: evidenceRef ?? null,
+            killFeeRatePct,
+            releasedAmountCents,
+            refundedAmountCents
+          },
+          { path: "$" }
+        );
+        let nextCancellationDetails = cancellationDetails;
+        if (acceptanceSignatureInput) {
+          try {
+            const acceptanceSignature = await parseSignedMarketplaceAgreementCancellationAcceptance({
+              tenantId,
+              runId,
+              agreement,
+              cancellation: cancellationDetails,
+              acceptanceSignatureInput,
+              acceptedByAgentId,
+              acceptedByIdentity: accepterIdentity
+            });
+            nextCancellationDetails = normalizeForCanonicalJson(
+              {
+                ...cancellationDetails,
+                acceptanceSignature
+              },
+              { path: "$" }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid acceptance signature", { message: err?.message });
+          }
+        }
+        const acceptanceSignatureVerification = await verifyMarketplaceAgreementCancellationAcceptanceSignature({
+          tenantId,
+          runId,
+          agreement,
+          cancellation: nextCancellationDetails
+        });
+        const baseTaskMetadata =
+          linkedTask?.metadata && typeof linkedTask.metadata === "object" && !Array.isArray(linkedTask.metadata)
+            ? { ...linkedTask.metadata }
+            : {};
+        const nextTask = {
+          ...linkedTask,
+          status: "cancelled",
+          settlementStatus: settlement.status,
+          settlementResolvedAt: settlement.resolvedAt ?? settledAt,
+          settlementReleaseRatePct: settlement.releaseRatePct ?? null,
+          settlementDecisionStatus: settlement.decisionStatus ?? null,
+          settlementDecisionReason: settlement.decisionReason ?? null,
+          metadata: { ...baseTaskMetadata, cancellation: nextCancellationDetails },
+          updatedAt: settledAt
+        };
+
+        const responseBody = {
+          runId,
+          task: nextTask,
+          run: runAfter,
+          settlement,
+          agreement: nextTask.agreement ?? null,
+          cancellation: nextCancellationDetails,
+          acceptanceSignatureVerification
+        };
+
+        const ops = [
+          { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
+          { kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement },
+          { kind: "AGENT_RUN_EVENTS_APPENDED", tenantId, runId, events: [runFailedEvent] },
+          { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: nextTask }
+        ];
+        if (payeeWallet) ops.push({ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payeeWallet });
+        if (idemStoreKey) {
+          ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+        }
+
+        await commitTx(ops);
+        try {
+          await emitMarketplaceLifecycleArtifact({
+            tenantId,
+            eventType: "marketplace.agreement.cancelled",
+            taskId: nextTask?.taskId ?? null,
+            runId,
+            sourceEventId: cancellationId,
+            actorAgentId: cancelledByAgentId,
+            agreement: nextTask?.agreement ?? null,
+            settlement,
+            details: { ...nextCancellationDetails, acceptanceSignatureVerification }
+          });
+          if (typeof nextTask?.agreement?.acceptedProposalId === "string" && nextTask.agreement.acceptedProposalId.trim() !== "") {
+            await emitMarketplaceLifecycleArtifact({
+              tenantId,
+              eventType: "proposal.cancelled",
+              taskId: nextTask?.taskId ?? null,
+              runId,
+              sourceEventId: nextTask.agreement.acceptedProposalId,
+              actorAgentId: cancelledByAgentId,
+              agreement: nextTask?.agreement ?? null,
+              settlement,
+              details: { ...nextCancellationDetails, acceptanceSignatureVerification }
+            });
+          }
+        } catch {
+          // Best-effort lifecycle delivery.
+        }
+        return sendJson(res, 200, responseBody);
+      }
+
+      if (parts[0] === "runs" && parts[1] && parts[2] === "settlement" && parts[3] === "policy-replay" && parts.length === 4 && req.method === "GET") {
+        const runId = parts[1];
+        let settlement = null;
+        try {
+          settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+        } catch (err) {
+          return sendError(res, 501, "agent run settlements not supported for this store", { message: err?.message });
+        }
+        if (!settlement) return sendError(res, 404, "run settlement not found");
+
+        let run = null;
+        if (typeof store.getAgentRun === "function") {
+          run = await store.getAgentRun({ tenantId, runId });
+        } else if (store.agentRuns instanceof Map) {
+          run = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+        }
+        if (!run) return sendError(res, 404, "run not found");
+
+        const events = await getAgentRunEvents(tenantId, runId);
+        const verification = computeAgentRunVerification({ run, events });
+        const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
+        const agreement = linkedTask?.agreement ?? null;
+        if (!agreement || typeof agreement !== "object") {
+          return sendError(res, 404, "run has no marketplace agreement policy");
+        }
+        const agreementPolicyMaterial = resolveAgreementPolicyMaterial({ tenantId, agreement });
+        const replayVerificationStatusRaw = run.status === "failed" ? "red" : String(verification.verificationStatus ?? "").toLowerCase();
+        const replayVerificationStatus =
+          replayVerificationStatusRaw === "green" || replayVerificationStatusRaw === "amber" || replayVerificationStatusRaw === "red"
+            ? replayVerificationStatusRaw
+            : "amber";
+        let replayDecision = null;
+        try {
+          replayDecision = evaluateSettlementPolicy({
+            policy: agreementPolicyMaterial.policy ?? null,
+            verificationMethod: agreementPolicyMaterial.verificationMethod ?? null,
+            verificationStatus: replayVerificationStatus,
+            runStatus: run.status === "failed" ? "failed" : "completed",
+            amountCents: settlement.amountCents
+          });
+        } catch (err) {
+          return sendError(res, 409, "policy replay failed", { message: err?.message });
+        }
+        replayDecision = applyAgreementMilestoneRelease({
+          policyDecision: replayDecision,
+          agreement,
+          run,
+          verification,
+          amountCents: settlement.amountCents
+        }).decision;
+
+        const expectedDecisionStatus = replayDecision.shouldAutoResolve
+          ? settlement.status === AGENT_RUN_SETTLEMENT_STATUS.LOCKED
+            ? AGENT_RUN_SETTLEMENT_DECISION_STATUS.PENDING
+            : AGENT_RUN_SETTLEMENT_DECISION_STATUS.AUTO_RESOLVED
+          : AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_REVIEW_REQUIRED;
+        const expectedSettlementStatus = replayDecision.shouldAutoResolve
+          ? replayDecision.settlementStatus
+          : AGENT_RUN_SETTLEMENT_STATUS.LOCKED;
+        const matchesStoredDecision =
+          String(settlement.decisionStatus ?? "").toLowerCase() === String(expectedDecisionStatus).toLowerCase() &&
+          String(settlement.status ?? "").toLowerCase() === String(expectedSettlementStatus).toLowerCase();
+        const policyBindingVerification = await verifyMarketplaceAgreementPolicyBinding({ tenantId, agreement });
+        const acceptanceSignatureVerification = await verifyMarketplaceAgreementAcceptanceSignature({ tenantId, agreement });
+
+        return sendJson(res, 200, {
+          runId,
+          agreementId: agreement?.agreementId ?? null,
+          policyVersion: agreementPolicyMaterial.policyVersion ?? null,
+          policyHash: agreementPolicyMaterial.policyHash ?? null,
+          verificationMethodHash: agreementPolicyMaterial.verificationMethodHash ?? null,
+          policyRef: agreementPolicyMaterial.policyRef ?? null,
+          policyBinding: agreement?.policyBinding ?? null,
+          policyBindingVerification,
+          acceptanceSignatureVerification,
+          runStatus: run.status ?? null,
+          verificationStatus: run.status === "failed" ? "red" : verification.verificationStatus,
+          replay: {
+            computedAt: nowIso(),
+            policy: agreementPolicyMaterial.policy ?? null,
+            verificationMethod: agreementPolicyMaterial.verificationMethod ?? null,
+            decision: replayDecision,
+            expectedDecisionStatus,
+            expectedSettlementStatus
+          },
+          settlement,
+          matchesStoredDecision
+        });
+      }
+
+      if (parts[0] === "runs" && parts[1] && parts[2] === "settlement" && parts[3] === "resolve" && parts.length === 4 && req.method === "POST") {
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+        const runId = parts[1];
+        const body = await readJsonBody(req);
+
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        let settlement = null;
+        try {
+          settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+        } catch (err) {
+          return sendError(res, 501, "agent run settlements not supported for this store", { message: err?.message });
+        }
+        if (!settlement) return sendError(res, 404, "run settlement not found");
+        if (settlement.status !== AGENT_RUN_SETTLEMENT_STATUS.LOCKED) {
+          return sendError(res, 409, "run settlement is already resolved");
+        }
+
+        let run = null;
+        if (typeof store.getAgentRun === "function") {
+          run = await store.getAgentRun({ tenantId, runId });
+        } else if (store.agentRuns instanceof Map) {
+          run = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+        }
+        if (!run) return sendError(res, 404, "run not found");
+        if (run.status !== "completed" && run.status !== "failed") {
+          return sendError(res, 409, "run is not in a terminal state");
+        }
+
+        const statusRaw = String(body?.status ?? "").trim().toLowerCase();
+        if (statusRaw !== AGENT_RUN_SETTLEMENT_STATUS.RELEASED && statusRaw !== AGENT_RUN_SETTLEMENT_STATUS.REFUNDED) {
+          return sendError(res, 400, "status must be released or refunded");
+        }
+
+        const settledAt = nowIso();
+        let payerWallet = null;
+        try {
+          const existingPayerWallet = await getAgentWalletRecord({ tenantId, agentId: settlement.payerAgentId });
+          payerWallet = ensureAgentWallet({
+            wallet: existingPayerWallet,
+            tenantId,
+            agentId: settlement.payerAgentId,
+            currency: settlement.currency,
+            at: settledAt
+          });
+        } catch (err) {
+          return sendError(res, 409, "unable to load payer wallet", { message: err?.message, code: err?.code ?? null });
+        }
+
+        const releaseRatePctRaw = body?.releaseRatePct;
+        const releasedAmountRaw = body?.releasedAmountCents;
+        const refundedAmountRaw = body?.refundedAmountCents;
+        let releaseRatePct = releaseRatePctRaw === undefined || releaseRatePctRaw === null ? null : Number(releaseRatePctRaw);
+        let releasedAmountCents = releasedAmountRaw === undefined || releasedAmountRaw === null ? null : Number(releasedAmountRaw);
+        let refundedAmountCents = refundedAmountRaw === undefined || refundedAmountRaw === null ? null : Number(refundedAmountRaw);
+
+        if (releaseRatePct !== null && (!Number.isSafeInteger(releaseRatePct) || releaseRatePct < 0 || releaseRatePct > 100)) {
+          return sendError(res, 400, "releaseRatePct must be an integer within 0..100");
+        }
+        if (releasedAmountCents !== null && (!Number.isSafeInteger(releasedAmountCents) || releasedAmountCents < 0)) {
+          return sendError(res, 400, "releasedAmountCents must be a non-negative safe integer");
+        }
+        if (refundedAmountCents !== null && (!Number.isSafeInteger(refundedAmountCents) || refundedAmountCents < 0)) {
+          return sendError(res, 400, "refundedAmountCents must be a non-negative safe integer");
+        }
+
+        if (statusRaw === AGENT_RUN_SETTLEMENT_STATUS.REFUNDED) {
+          releaseRatePct = 0;
+          releasedAmountCents = 0;
+          refundedAmountCents = settlement.amountCents;
+        } else {
+          if (releaseRatePct === null && releasedAmountCents === null && refundedAmountCents === null) {
+            releaseRatePct = 100;
+            releasedAmountCents = settlement.amountCents;
+            refundedAmountCents = 0;
+          } else if (releaseRatePct !== null) {
+            releasedAmountCents = Math.min(settlement.amountCents, Math.floor((settlement.amountCents * releaseRatePct) / 100));
+            refundedAmountCents = settlement.amountCents - releasedAmountCents;
+          } else {
+            if (releasedAmountCents === null && refundedAmountCents !== null) {
+              releasedAmountCents = settlement.amountCents - refundedAmountCents;
+            }
+            if (refundedAmountCents === null && releasedAmountCents !== null) {
+              refundedAmountCents = settlement.amountCents - releasedAmountCents;
+            }
+            if (releasedAmountCents === null || refundedAmountCents === null) {
+              return sendError(res, 400, "manual settlement amounts are incomplete");
+            }
+            if (releasedAmountCents + refundedAmountCents !== settlement.amountCents) {
+              return sendError(res, 400, "releasedAmountCents + refundedAmountCents must equal settlement.amountCents");
+            }
+            releaseRatePct = settlement.amountCents > 0 ? Math.round((releasedAmountCents * 100) / settlement.amountCents) : 0;
+          }
+        }
+
+        try {
+          if (releasedAmountCents > 0) {
+            const payeeWalletExisting = await getAgentWalletRecord({ tenantId, agentId: settlement.agentId });
+            const payeeWallet = ensureAgentWallet({
+              wallet: payeeWalletExisting,
+              tenantId,
+              agentId: settlement.agentId,
+              currency: settlement.currency,
+              at: settledAt
+            });
+            const released = releaseAgentWalletEscrowToPayee({
+              payerWallet,
+              payeeWallet,
+              amountCents: releasedAmountCents,
+              at: settledAt
+            });
+            projectEscrowLedgerOperation({
+              tenantId,
+              settlement,
+              operationId: `escrow_release_${runId}_${body?.resolutionEventId ?? "manual_resolution"}`,
+              type: ESCROW_OPERATION_TYPE.RELEASE,
+              amountCents: releasedAmountCents,
+              at: settledAt,
+              payerWalletBefore: payerWallet,
+              payerWalletAfter: released.payerWallet,
+              payeeWalletBefore: payeeWallet,
+              payeeWalletAfter: released.payeeWallet,
+              memo: `run:${runId}:manual_release`
+            });
+            payerWallet = released.payerWallet;
+            if (refundedAmountCents > 0) {
+              const payerBeforeRefund = payerWallet;
+              payerWallet = refundAgentWalletEscrow({
+                wallet: payerWallet,
+                amountCents: refundedAmountCents,
+                at: settledAt
+              });
+              projectEscrowLedgerOperation({
+                tenantId,
+                settlement,
+                operationId: `escrow_forfeit_${runId}_${body?.resolutionEventId ?? "manual_resolution"}`,
+                type: ESCROW_OPERATION_TYPE.FORFEIT,
+                amountCents: refundedAmountCents,
+                at: settledAt,
+                payerWalletBefore: payerBeforeRefund,
+                payerWalletAfter: payerWallet,
+                memo: `run:${runId}:manual_refund`
+              });
+            }
+            settlement = resolveAgentRunSettlement({
+              settlement,
+              status: statusRaw,
+              runStatus: run.status,
+              releasedAmountCents,
+              refundedAmountCents,
+              releaseRatePct,
+              disputeWindowDays: settlement.disputeWindowDays ?? 0,
+              decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED,
+              decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+              decisionPolicyHash: settlement.decisionPolicyHash ?? null,
+              decisionReason:
+                typeof body?.reason === "string" && body.reason.trim() !== ""
+                  ? body.reason.trim()
+                  : "manual settlement resolution",
+              decisionTrace: {
+                phase: "run.settlement.manual_resolve",
+                resolvedByAgentId:
+                  typeof body?.resolvedByAgentId === "string" && body.resolvedByAgentId.trim() !== ""
+                    ? body.resolvedByAgentId.trim()
+                    : null,
+                input: {
+                  status: statusRaw,
+                  releaseRatePct,
+                  releasedAmountCents,
+                  refundedAmountCents
+                }
+              },
+              resolutionEventId: typeof body?.resolutionEventId === "string" && body.resolutionEventId.trim() !== ""
+                ? body.resolutionEventId.trim()
+                : `manual_${createId("setl")}`,
+              at: settledAt
+            });
+
+            const ops = [
+              { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
+              { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: released.payeeWallet },
+              { kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement }
+            ];
+            const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
+            if (linkedTask && String(linkedTask.status ?? "").toLowerCase() === "assigned") {
+              ops.push({
+                kind: "MARKETPLACE_TASK_UPSERT",
+                tenantId,
+                task: {
+                  ...linkedTask,
+                  status: "closed",
+                  settlementStatus: settlement.status,
+                  settlementResolvedAt: settlement.resolvedAt ?? settledAt,
+                  settlementReleaseRatePct: settlement.releaseRatePct ?? null,
+                  settlementDecisionStatus: settlement.decisionStatus ?? null,
+                  settlementDecisionReason: settlement.decisionReason ?? null,
+                  updatedAt: settledAt
+                }
+              });
+            }
+            const responseBody = { settlement };
+            if (idemStoreKey) {
+              ops.push({
+                kind: "IDEMPOTENCY_PUT",
+                key: idemStoreKey,
+                value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody }
+              });
+            }
+            await commitTx(ops);
+            try {
+              await emitMarketplaceLifecycleArtifact({
+                tenantId,
+                eventType: "marketplace.settlement.manually_resolved",
+                taskId: linkedTask?.taskId ?? null,
+                runId,
+                sourceEventId: settlement.resolutionEventId ?? null,
+                actorAgentId:
+                  typeof body?.resolvedByAgentId === "string" && body.resolvedByAgentId.trim() !== ""
+                    ? body.resolvedByAgentId.trim()
+                    : null,
+                settlement,
+                details: {
+                  status: settlement.status,
+                  releaseRatePct: settlement.releaseRatePct ?? null,
+                  releasedAmountCents: settlement.releasedAmountCents ?? 0,
+                  refundedAmountCents: settlement.refundedAmountCents ?? 0
+                }
+              });
+            } catch {
+              // Best-effort lifecycle delivery.
+            }
+            return sendJson(res, 200, responseBody);
+          }
+
+          const payerBeforeRefund = payerWallet;
+          payerWallet = refundAgentWalletEscrow({
+            wallet: payerWallet,
+            amountCents: refundedAmountCents,
+            at: settledAt
+          });
+          projectEscrowLedgerOperation({
+            tenantId,
+            settlement,
+            operationId: `escrow_forfeit_${runId}_${body?.resolutionEventId ?? "manual_resolution"}`,
+            type: ESCROW_OPERATION_TYPE.FORFEIT,
+            amountCents: refundedAmountCents,
+            at: settledAt,
+            payerWalletBefore: payerBeforeRefund,
+            payerWalletAfter: payerWallet,
+            memo: `run:${runId}:manual_refund`
+          });
+
+          settlement = resolveAgentRunSettlement({
+            settlement,
+            status: AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
+            runStatus: run.status,
+            releasedAmountCents: 0,
+            refundedAmountCents: settlement.amountCents,
+            releaseRatePct: 0,
+            disputeWindowDays: settlement.disputeWindowDays ?? 0,
+            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED,
+            decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+            decisionPolicyHash: settlement.decisionPolicyHash ?? null,
+            decisionReason:
+              typeof body?.reason === "string" && body.reason.trim() !== ""
+                ? body.reason.trim()
+                : "manual settlement resolution",
+            decisionTrace: {
+              phase: "run.settlement.manual_resolve",
+              resolvedByAgentId:
+                typeof body?.resolvedByAgentId === "string" && body.resolvedByAgentId.trim() !== ""
+                  ? body.resolvedByAgentId.trim()
+                  : null,
+              input: {
+                status: AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
+                releaseRatePct: 0,
+                releasedAmountCents: 0,
+                refundedAmountCents: settlement.amountCents
+              }
+            },
+            resolutionEventId:
+              typeof body?.resolutionEventId === "string" && body.resolutionEventId.trim() !== ""
+                ? body.resolutionEventId.trim()
+                : `manual_${createId("setl")}`,
+            at: settledAt
+          });
+
+          const ops = [
+            { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
+            { kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement }
+          ];
+          const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
+          if (linkedTask && String(linkedTask.status ?? "").toLowerCase() === "assigned") {
+            ops.push({
+              kind: "MARKETPLACE_TASK_UPSERT",
+              tenantId,
+              task: {
+                ...linkedTask,
+                status: "closed",
+                settlementStatus: settlement.status,
+                settlementResolvedAt: settlement.resolvedAt ?? settledAt,
+                settlementReleaseRatePct: settlement.releaseRatePct ?? null,
+                settlementDecisionStatus: settlement.decisionStatus ?? null,
+                settlementDecisionReason: settlement.decisionReason ?? null,
+                updatedAt: settledAt
+              }
+            });
+          }
+          const responseBody = { settlement };
+          if (idemStoreKey) {
+            ops.push({
+              kind: "IDEMPOTENCY_PUT",
+              key: idemStoreKey,
+              value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody }
+            });
+          }
+          await commitTx(ops);
+          try {
+            await emitMarketplaceLifecycleArtifact({
+              tenantId,
+              eventType: "marketplace.settlement.manually_resolved",
+              taskId: linkedTask?.taskId ?? null,
+              runId,
+              sourceEventId: settlement.resolutionEventId ?? null,
+              actorAgentId:
+                typeof body?.resolvedByAgentId === "string" && body.resolvedByAgentId.trim() !== ""
+                  ? body.resolvedByAgentId.trim()
+                  : null,
+              settlement,
+              details: {
+                status: settlement.status,
+                releaseRatePct: 0,
+                releasedAmountCents: 0,
+                refundedAmountCents: settlement.amountCents
+              }
+            });
+          } catch {
+            // Best-effort lifecycle delivery.
+          }
+          return sendJson(res, 200, responseBody);
+        } catch (err) {
+          return sendError(res, 409, "manual settlement resolution failed", { message: err?.message, code: err?.code ?? null });
+        }
+      }
+
+      if (parts[0] === "runs" && parts[1] && parts[2] === "dispute" && parts.length === 4 && req.method === "POST") {
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+        const runId = parts[1];
+        const action = parts[3];
+        if (action !== "open" && action !== "close" && action !== "evidence" && action !== "escalate") return sendError(res, 404, "not found");
+
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        let settlement = null;
+        try {
+          settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+        } catch (err) {
+          return sendError(res, 501, "agent run settlements not supported for this store", { message: err?.message });
+        }
+        if (!settlement) return sendError(res, 404, "run settlement not found");
+        if (settlement.status === AGENT_RUN_SETTLEMENT_STATUS.LOCKED) {
+          return sendError(res, 409, "cannot dispute settlement before resolution");
+        }
+
+        const nowAt = nowIso();
+        if (action === "open") {
+          const windowDays = Number(settlement.disputeWindowDays ?? 0);
+          const endsAt =
+            settlement.disputeWindowEndsAt && Number.isFinite(Date.parse(String(settlement.disputeWindowEndsAt)))
+              ? Date.parse(String(settlement.disputeWindowEndsAt))
+              : Number.isFinite(Date.parse(String(settlement.resolvedAt ?? "")))
+                ? Date.parse(String(settlement.resolvedAt)) + Math.max(0, windowDays) * 24 * 60 * 60_000
+                : NaN;
+          const nowMs = Date.parse(nowAt);
+          if (!Number.isSafeInteger(windowDays) || windowDays <= 0 || !Number.isFinite(endsAt) || !Number.isFinite(nowMs) || nowMs > endsAt) {
+            return sendError(res, 409, "dispute window has closed");
+          }
+        }
+
+        let signedVerdict = null;
+        if (action === "close" && body?.verdict !== undefined && body?.verdict !== null) {
+          try {
+            signedVerdict = await parseSignedDisputeVerdict({
+              tenantId,
+              runId,
+              settlement,
+              disputeId: body?.disputeId ?? settlement?.disputeId ?? null,
+              verdictInput: body?.verdict
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid dispute verdict", { message: err?.message });
+          }
+        }
+
+        let disputeEvidence = null;
+        let disputeEscalation = null;
+        const disputeContextInput =
+          action === "open"
+            ? {
+                type: body?.disputeType ?? body?.type,
+                priority: body?.disputePriority ?? body?.priority,
+                openedByAgentId: body?.openedByAgentId ?? null,
+                reason: body?.reason ?? null,
+                evidenceRefs: body?.evidenceRefs,
+                channel: body?.disputeChannel ?? body?.channel,
+                escalationLevel: body?.escalationLevel
+              }
+            : null;
+        let resolutionInput = null;
+        if (action === "close") {
+          const resolution = body?.resolution;
+          if (resolution !== undefined && resolution !== null && (typeof resolution !== "object" || Array.isArray(resolution))) {
+            return sendError(res, 400, "resolution must be an object or null");
+          }
+          const mergedResolution = resolution && typeof resolution === "object" && !Array.isArray(resolution) ? { ...resolution } : {};
+          if (body?.resolutionOutcome !== undefined) mergedResolution.outcome = body.resolutionOutcome;
+          if (body?.closedByAgentId !== undefined) mergedResolution.closedByAgentId = body.closedByAgentId;
+          if (body?.resolutionSummary !== undefined) mergedResolution.summary = body.resolutionSummary;
+          if (body?.resolutionEscalationLevel !== undefined) mergedResolution.escalationLevel = body.resolutionEscalationLevel;
+          if (body?.resolutionEvidenceRefs !== undefined) mergedResolution.evidenceRefs = body.resolutionEvidenceRefs;
+          resolutionInput = mergedResolution;
+        }
+        if (action === "close" && signedVerdict) {
+          if (!resolutionInput || typeof resolutionInput !== "object" || Array.isArray(resolutionInput)) resolutionInput = {};
+          if (resolutionInput.outcome === undefined || resolutionInput.outcome === null || String(resolutionInput.outcome).trim() === "") {
+            resolutionInput.outcome = signedVerdict.outcome;
+          }
+          if (resolutionInput.summary === undefined || resolutionInput.summary === null || String(resolutionInput.summary).trim() === "") {
+            resolutionInput.summary = signedVerdict.rationale ?? null;
+          }
+          if (resolutionInput.closedByAgentId === undefined || resolutionInput.closedByAgentId === null) {
+            resolutionInput.closedByAgentId = signedVerdict.arbiterAgentId ?? null;
+          }
+        }
+
+        if (action === "open" || action === "close") {
+          try {
+            settlement = updateAgentRunSettlementDispute({
+              settlement,
+              action,
+              disputeId: body?.disputeId ?? null,
+              contextInput: disputeContextInput,
+              resolutionInput,
+              at: nowAt
+            });
+          } catch (err) {
+            return sendError(res, 409, "dispute transition rejected", { message: err?.message });
+          }
+        } else if (action === "evidence") {
+          const evidenceRef = typeof body?.evidenceRef === "string" && body.evidenceRef.trim() !== "" ? body.evidenceRef.trim() : null;
+          if (!evidenceRef) return sendError(res, 400, "evidenceRef is required");
+          const submittedByAgentId =
+            body?.submittedByAgentId === undefined || body?.submittedByAgentId === null
+              ? null
+              : typeof body?.submittedByAgentId === "string" && body.submittedByAgentId.trim() !== ""
+                ? body.submittedByAgentId.trim()
+                : null;
+          if (body?.submittedByAgentId !== undefined && submittedByAgentId === null) {
+            return sendError(res, 400, "submittedByAgentId must be a non-empty string when provided");
+          }
+          const reason =
+            body?.reason === undefined || body?.reason === null
+              ? null
+              : typeof body?.reason === "string" && body.reason.trim() !== ""
+                ? body.reason.trim()
+                : null;
+          if (body?.reason !== undefined && reason === null) {
+            return sendError(res, 400, "reason must be a non-empty string when provided");
+          }
+          try {
+            settlement = patchAgentRunSettlementDisputeContext({
+              settlement,
+              contextPatch: {
+                openedByAgentId: submittedByAgentId ?? undefined,
+                reason: reason ?? undefined
+              },
+              appendEvidenceRefs: [evidenceRef],
+              at: nowAt
+            });
+          } catch (err) {
+            return sendError(res, 409, "dispute evidence rejected", { message: err?.message });
+          }
+          disputeEvidence = {
+            evidenceRef,
+            submittedAt: nowAt,
+            submittedByAgentId: submittedByAgentId ?? null
+          };
+        } else if (action === "escalate") {
+          const requestedEscalationLevel =
+            typeof body?.escalationLevel === "string" && body.escalationLevel.trim() !== "" ? body.escalationLevel.trim().toLowerCase() : null;
+          if (!requestedEscalationLevel) return sendError(res, 400, "escalationLevel is required");
+          if (!Object.values(AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL).includes(requestedEscalationLevel)) {
+            return sendError(res, 400, "invalid escalationLevel");
+          }
+          const currentEscalationLevel = String(
+            settlement?.disputeContext?.escalationLevel ?? AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL.L1_COUNTERPARTY
+          ).toLowerCase();
+          const escalationRank = new Map([
+            [AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL.L1_COUNTERPARTY, 1],
+            [AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL.L2_ARBITER, 2],
+            [AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL.L3_EXTERNAL, 3]
+          ]);
+          const currentRank = escalationRank.get(currentEscalationLevel) ?? 1;
+          const requestedRank = escalationRank.get(requestedEscalationLevel) ?? 0;
+          if (requestedRank < currentRank) {
+            return sendError(res, 409, "escalationLevel cannot downgrade an active dispute");
+          }
+          const channelByEscalationLevel = new Map([
+            [AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL.L1_COUNTERPARTY, AGENT_RUN_SETTLEMENT_DISPUTE_CHANNEL.COUNTERPARTY],
+            [AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL.L2_ARBITER, AGENT_RUN_SETTLEMENT_DISPUTE_CHANNEL.ARBITER],
+            [AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL.L3_EXTERNAL, AGENT_RUN_SETTLEMENT_DISPUTE_CHANNEL.EXTERNAL]
+          ]);
+          const requestedChannel = body?.channel;
+          const channelInput =
+            typeof requestedChannel === "string" && requestedChannel.trim() !== ""
+              ? requestedChannel.trim().toLowerCase()
+              : channelByEscalationLevel.get(requestedEscalationLevel) ?? AGENT_RUN_SETTLEMENT_DISPUTE_CHANNEL.COUNTERPARTY;
+          if (!Object.values(AGENT_RUN_SETTLEMENT_DISPUTE_CHANNEL).includes(channelInput)) {
+            return sendError(res, 400, "invalid channel");
+          }
+          const reason =
+            body?.reason === undefined || body?.reason === null
+              ? undefined
+              : typeof body?.reason === "string" && body.reason.trim() !== ""
+                ? body.reason.trim()
+                : null;
+          if (body?.reason !== undefined && reason === null) {
+            return sendError(res, 400, "reason must be a non-empty string when provided");
+          }
+          const escalatedByAgentId =
+            body?.escalatedByAgentId === undefined || body?.escalatedByAgentId === null
+              ? null
+              : typeof body?.escalatedByAgentId === "string" && body.escalatedByAgentId.trim() !== ""
+                ? body.escalatedByAgentId.trim()
+                : null;
+          if (body?.escalatedByAgentId !== undefined && escalatedByAgentId === null) {
+            return sendError(res, 400, "escalatedByAgentId must be a non-empty string when provided");
+          }
+          try {
+            settlement = patchAgentRunSettlementDisputeContext({
+              settlement,
+              contextPatch: {
+                escalationLevel: requestedEscalationLevel,
+                channel: channelInput,
+                reason
+              },
+              at: nowAt
+            });
+          } catch (err) {
+            return sendError(res, 409, "dispute escalation rejected", { message: err?.message });
+          }
+          disputeEscalation = {
+            previousEscalationLevel: currentEscalationLevel,
+            escalationLevel: requestedEscalationLevel,
+            channel: channelInput,
+            escalatedAt: nowAt,
+            escalatedByAgentId: escalatedByAgentId ?? null
+          };
+        }
+
+        if (action === "close" && signedVerdict) {
+          settlement = {
+            ...settlement,
+            disputeVerdictId: signedVerdict.verdictId,
+            disputeVerdictHash: signedVerdict.verdictHash,
+            disputeVerdictArtifactId: `dispute_verdict_${String(signedVerdict.verdictId)}`,
+            disputeVerdictSignerKeyId: signedVerdict.signerKeyId ?? null,
+            disputeVerdictIssuedAt: signedVerdict.issuedAt ?? nowAt,
+            revision: Number(settlement.revision ?? 0) + 1,
+            updatedAt: nowAt
+          };
+        }
+
+        const responseBody = {
+          settlement,
+          disputeEvidence: disputeEvidence ?? null,
+          disputeEscalation: disputeEscalation ?? null
+        };
+        const finalResponseBody = { ...responseBody, verdict: signedVerdict, verdictArtifact: null };
+        const ops = [{ kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement }];
+        if (idemStoreKey) {
+          ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: finalResponseBody } });
+        }
+        await commitTx(ops);
+        let verdictArtifact = null;
+        if (action === "close" && signedVerdict) {
+          try {
+            verdictArtifact = await emitDisputeVerdictArtifact({
+              tenantId,
+              runId,
+              settlement,
+              verdict: signedVerdict
+            });
+          } catch {
+            verdictArtifact = null;
+          }
+        }
+        try {
+          let eventType = "marketplace.dispute.updated";
+          if (action === "open") eventType = "marketplace.dispute.opened";
+          else if (action === "close") eventType = "marketplace.dispute.closed";
+          else if (action === "evidence") eventType = "marketplace.dispute.evidence_submitted";
+          else if (action === "escalate") eventType = "marketplace.dispute.escalated";
+          await emitMarketplaceLifecycleArtifact({
+            tenantId,
+            eventType,
+            runId,
+            sourceEventId:
+              action === "evidence"
+                ? disputeEvidence?.evidenceRef ?? null
+                : action === "escalate"
+                  ? disputeEscalation?.escalationLevel ?? null
+                  : body?.disputeId ?? null,
+            settlement,
+            details:
+              action === "close"
+                ? {
+                    resolution: settlement?.disputeResolution ?? null,
+                    verdict: signedVerdict ?? null,
+                    verdictArtifact: verdictArtifact ?? null
+                  }
+                : action === "evidence"
+                  ? { context: settlement?.disputeContext ?? null, evidence: disputeEvidence ?? null }
+                  : action === "escalate"
+                    ? { context: settlement?.disputeContext ?? null, escalation: disputeEscalation ?? null }
+                    : { context: settlement?.disputeContext ?? null }
+          });
+        } catch {
+          // Best-effort lifecycle delivery.
+        }
+        return sendJson(res, 200, { ...finalResponseBody, verdictArtifact });
+      }
+
+      if (parts[0] === "agents" && parts[1] && parts[1] !== "register") {
+        const agentId = parts[1];
+        let agentIdentity = null;
+        if (typeof store.getAgentIdentity === "function") {
+          try {
+            agentIdentity = await store.getAgentIdentity({ tenantId, agentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid agent id", { message: err?.message });
+          }
+        } else if (store.agentIdentities instanceof Map) {
+          agentIdentity = store.agentIdentities.get(makeScopedKey({ tenantId, id: agentId })) ?? null;
+        } else {
+          return sendError(res, 501, "agent identities not supported for this store");
+        }
+        if (!agentIdentity) return sendError(res, 404, "agent identity not found");
+
+        if (req.method === "GET" && parts.length === 2) {
+          return sendJson(res, 200, { agentIdentity });
+        }
+
+        if (parts[2] === "reputation" && req.method === "GET" && parts.length === 3) {
+          const reputationVersionRaw = url.searchParams.get("reputationVersion");
+          const reputationWindowRaw = url.searchParams.get("reputationWindow");
+          let reputationVersion = "v1";
+          let reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS;
+          try {
+            reputationVersion = parseReputationVersion(reputationVersionRaw);
+            reputationWindow = parseReputationWindow(reputationWindowRaw);
+          } catch (err) {
+            return sendError(res, 400, "invalid reputation query", { message: err?.message });
+          }
+          const reputation = await computeAgentReputationSnapshotVersioned({
+            tenantId,
+            agentId,
+            at: nowIso(),
+            reputationVersion,
+            reputationWindow
+          });
+          return sendJson(res, 200, { reputation });
+        }
+
+        if (parts[2] === "wallet") {
+          const hasWalletStore = typeof store.getAgentWallet === "function" || store.agentWallets instanceof Map;
+          if (!hasWalletStore) return sendError(res, 501, "agent wallets not supported for this store");
+
+          if (req.method === "GET" && parts.length === 3) {
+            let wallet = null;
+            try {
+              wallet = await getAgentWalletRecord({ tenantId, agentId });
+            } catch (err) {
+              return sendError(res, 400, "invalid agent wallet query", { message: err?.message });
+            }
+            if (!wallet) {
+              wallet = createAgentWallet({ tenantId, agentId, at: nowIso() });
+            }
+            return sendJson(res, 200, { wallet });
+          }
+
+          if (req.method === "POST" && parts[3] === "credit" && parts.length === 4) {
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+            const body = await readJsonBody(req);
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            const amountCents = Number(body?.amountCents);
+            if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return sendError(res, 400, "amountCents must be a positive safe integer");
+            const currency = body?.currency ?? "USD";
+            const nowAt = nowIso();
+
+            let currentWallet = null;
+            try {
+              currentWallet = await getAgentWalletRecord({ tenantId, agentId });
+            } catch (err) {
+              return sendError(res, 400, "invalid agent wallet query", { message: err?.message });
+            }
+            const baseWallet = ensureAgentWallet({ wallet: currentWallet, tenantId, agentId, currency, at: nowAt });
+            let wallet;
+            try {
+              wallet = creditAgentWallet({ wallet: baseWallet, amountCents, at: nowAt });
+            } catch (err) {
+              return sendError(res, 400, "wallet credit rejected", { message: err?.message, code: err?.code ?? null });
+            }
+
+            const responseBody = { wallet };
+            const ops = [{ kind: "AGENT_WALLET_UPSERT", tenantId, wallet }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+            }
+            await commitTx(ops);
+            return sendJson(res, 201, responseBody);
+          }
+        }
+
+        if (parts[2] === "runs") {
+          const hasRunStore = typeof store.getAgentRun === "function" || store.agentRuns instanceof Map;
+          const hasRunEventStore = typeof store.getAgentRunEvents === "function" || store.agentRunEvents instanceof Map;
+          if (!hasRunStore || !hasRunEventStore) return sendError(res, 501, "agent runs not supported for this store");
+
+          if (req.method === "GET" && parts.length === 3) {
+            const status = url.searchParams.get("status");
+            const limitRaw = url.searchParams.get("limit");
+            const offsetRaw = url.searchParams.get("offset");
+            const limit = limitRaw ? Number(limitRaw) : 200;
+            const offset = offsetRaw ? Number(offsetRaw) : 0;
+            const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+            const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+
+            let runs;
+            if (typeof store.listAgentRuns === "function") {
+              try {
+                runs = await store.listAgentRuns({ tenantId, agentId, status: status ?? null, limit: safeLimit, offset: safeOffset });
+              } catch (err) {
+                return sendError(res, 400, "invalid agent run query", { message: err?.message });
+              }
+            } else {
+              const all = listAgentRuns({ tenantId, agentId, status: status ?? null });
+              runs = all.slice(safeOffset, safeOffset + safeLimit);
+            }
+            let total;
+            if (typeof store.countAgentRuns === "function") {
+              try {
+                total = await store.countAgentRuns({ tenantId, agentId, status: status ?? null });
+              } catch (err) {
+                return sendError(res, 400, "invalid agent run query", { message: err?.message });
+              }
+            } else {
+              total = listAgentRuns({ tenantId, agentId, status: status ?? null }).length;
+            }
+            return sendJson(res, 200, { runs, total, limit: safeLimit, offset: safeOffset });
+          }
+
+          if (req.method === "POST" && parts.length === 3) {
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+            const body = await readJsonBody(req);
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            const runId = body?.runId ? String(body.runId) : createId("run");
+            let existingRun = null;
+            if (typeof store.getAgentRun === "function") {
+              existingRun = await store.getAgentRun({ tenantId, runId });
+            } else if (store.agentRuns instanceof Map) {
+              existingRun = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+            }
+            if (existingRun && !idemStoreKey) return sendError(res, 409, "run already exists");
+
+            let settlementRequest = null;
+            if (body?.settlement !== undefined && body?.settlement !== null) {
+              try {
+                settlementRequest = validateAgentRunSettlementRequest(body.settlement);
+              } catch (err) {
+                return sendError(res, 400, "invalid run settlement payload", { message: err?.message });
+              }
+              const hasWalletStore = typeof store.getAgentWallet === "function" || store.agentWallets instanceof Map;
+              const hasSettlementStore = typeof store.getAgentRunSettlement === "function" || store.agentRunSettlements instanceof Map;
+              if (!hasWalletStore || !hasSettlementStore) {
+                return sendError(res, 501, "agent wallets/settlements not supported for this store");
+              }
+            }
+
+            const createdPayload = {
+              runId,
+              agentId,
+              tenantId,
+              taskType: body?.taskType ?? null,
+              inputRef: body?.inputRef ?? null
+            };
+            try {
+              validateRunCreatedPayload(createdPayload);
+            } catch (err) {
+              return sendError(res, 400, "invalid run payload", { message: err?.message });
+            }
+
+            const createdEvent = createChainedEvent({
+              streamId: runId,
+              type: AGENT_RUN_EVENT_TYPE.RUN_CREATED,
+              actor: { type: "agent", id: agentId },
+              payload: createdPayload,
+              at: nowIso()
+            });
+            const events = normalizeAgentRunEventRecords(appendChainedEvent({ events: [], event: createdEvent, signer: serverSigner }));
+            let run;
+            try {
+              run = reduceAgentRun(events);
+            } catch (err) {
+              return sendError(res, 400, "run creation rejected", { message: err?.message });
+            }
+
+            const nowAt = events[events.length - 1]?.at ?? nowIso();
+            const ops = [{ kind: "AGENT_RUN_EVENTS_APPENDED", tenantId, runId, events }];
+            let settlement = null;
+            if (settlementRequest) {
+              let payerIdentity = null;
+              if (typeof store.getAgentIdentity === "function") {
+                payerIdentity = await store.getAgentIdentity({ tenantId, agentId: settlementRequest.payerAgentId });
+              } else if (store.agentIdentities instanceof Map) {
+                payerIdentity = store.agentIdentities.get(makeScopedKey({ tenantId, id: settlementRequest.payerAgentId })) ?? null;
+              }
+              if (!payerIdentity) return sendError(res, 404, "payer agent identity not found");
+
+              try {
+                assertSettlementWithinWalletPolicy({ agentIdentity: payerIdentity, amountCents: settlementRequest.amountCents });
+              } catch (err) {
+                return sendError(res, 409, "wallet policy blocked settlement", { message: err?.message, code: err?.code ?? null });
+              }
+
+              let payerWallet = null;
+              try {
+                const existingPayerWallet = await getAgentWalletRecord({ tenantId, agentId: settlementRequest.payerAgentId });
+                const basePayerWallet = ensureAgentWallet({
+                  wallet: existingPayerWallet,
+                  tenantId,
+                  agentId: settlementRequest.payerAgentId,
+                  currency: settlementRequest.currency,
+                  at: nowAt
+                });
+                payerWallet = lockAgentWalletEscrow({ wallet: basePayerWallet, amountCents: settlementRequest.amountCents, at: nowAt });
+                projectEscrowLedgerOperation({
+                  tenantId,
+                  settlement: {
+                    payerAgentId: settlementRequest.payerAgentId,
+                    agentId,
+                    currency: settlementRequest.currency
+                  },
+                  operationId: `escrow_hold_${runId}`,
+                  type: ESCROW_OPERATION_TYPE.HOLD,
+                  amountCents: settlementRequest.amountCents,
+                  at: nowAt,
+                  payerWalletBefore: basePayerWallet,
+                  payerWalletAfter: payerWallet,
+                  memo: `run:${runId}:hold`
+                });
+              } catch (err) {
+                return sendError(res, 409, "unable to lock settlement escrow", { message: err?.message, code: err?.code ?? null });
+              }
+
+              settlement = createAgentRunSettlement({
+                tenantId,
+                runId,
+                agentId,
+                payerAgentId: settlementRequest.payerAgentId,
+                amountCents: settlementRequest.amountCents,
+                currency: settlementRequest.currency,
+                at: nowAt
+              });
+              ops.push({ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet });
+              ops.push({ kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement });
+            }
+
+            const responseBody = { run, event: events[events.length - 1], settlement };
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+            }
+            await commitTx(ops);
+            return sendJson(res, 201, responseBody);
+          }
+
+          const runId = parts[3] ?? null;
+          if (runId && req.method === "GET" && parts.length === 4) {
+            let run = null;
+            if (typeof store.getAgentRun === "function") {
+              try {
+                run = await store.getAgentRun({ tenantId, runId });
+              } catch (err) {
+                return sendError(res, 400, "invalid run id", { message: err?.message });
+              }
+            } else if (store.agentRuns instanceof Map) {
+              run = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+            } else {
+              return sendError(res, 501, "agent runs not supported for this store");
+            }
+            if (!run || String(run.agentId ?? "") !== String(agentId)) return sendError(res, 404, "run not found");
+
+            const events = await getAgentRunEvents(tenantId, runId);
+            const verification = computeAgentRunVerification({ run, events });
+            let settlement = null;
+            try {
+              settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+            } catch {
+              settlement = null;
+            }
+            return sendJson(res, 200, { run, verification, settlement });
+          }
+
+          if (runId && parts[4] === "events" && req.method === "GET" && parts.length === 5) {
+            let run = null;
+            if (typeof store.getAgentRun === "function") run = await store.getAgentRun({ tenantId, runId });
+            else if (store.agentRuns instanceof Map) run = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+            if (!run || String(run.agentId ?? "") !== String(agentId)) return sendError(res, 404, "run not found");
+            return sendJson(res, 200, { events: await getAgentRunEvents(tenantId, runId) });
+          }
+
+          if (runId && parts[4] === "events" && req.method === "POST" && parts.length === 5) {
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+            const body = await readJsonBody(req);
+            {
+              const schemaCheck = parseEventSchemaVersionFromBody(body);
+              if (!schemaCheck.ok) return sendError(res, schemaCheck.statusCode ?? 400, schemaCheck.message, schemaCheck.details ?? null, { code: schemaCheck.code });
+            }
+            const type = body?.type;
+            if (!type) return sendError(res, 400, "type is required");
+            res.__settldEventType = type;
+            const supported = new Set([
+              AGENT_RUN_EVENT_TYPE.RUN_STARTED,
+              AGENT_RUN_EVENT_TYPE.RUN_HEARTBEAT,
+              AGENT_RUN_EVENT_TYPE.EVIDENCE_ADDED,
+              AGENT_RUN_EVENT_TYPE.RUN_COMPLETED,
+              AGENT_RUN_EVENT_TYPE.RUN_FAILED
+            ]);
+            if (!supported.has(type)) return sendError(res, 400, "unsupported run event type");
+
+            const expectedHeader = parseExpectedPrevChainHashHeader(req);
+            if (!expectedHeader.ok) return sendError(res, 428, "missing precondition", "x-proxy-expected-prev-chain-hash is required");
+
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({
+                method: "POST",
+                requestPath: path,
+                expectedPrevChainHash: expectedHeader.expectedPrevChainHash,
+                body
+              }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existingIdem = store.idempotency.get(idemStoreKey);
+              if (existingIdem) {
+                if (existingIdem.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existingIdem.statusCode, existingIdem.body);
+              }
+            }
+
+            const existing = await getAgentRunEvents(tenantId, runId);
+            if (!existing.length) return sendError(res, 404, "run not found");
+            const currentPrevChainHash = getCurrentPrevChainHash(existing);
+            if (expectedHeader.expectedPrevChainHash !== currentPrevChainHash) {
+              return sendError(res, 409, "event append conflict", {
+                expectedPrevChainHash: currentPrevChainHash,
+                gotExpectedPrevChainHash: expectedHeader.expectedPrevChainHash
+              });
+            }
+
+            const payloadRaw = body?.payload ?? {};
+            if (!payloadRaw || typeof payloadRaw !== "object" || Array.isArray(payloadRaw)) return sendError(res, 400, "payload must be an object");
+            const payload = { ...payloadRaw, runId };
+            try {
+              if (type === AGENT_RUN_EVENT_TYPE.RUN_STARTED) validateRunStartedPayload(payload);
+              else if (type === AGENT_RUN_EVENT_TYPE.RUN_HEARTBEAT) validateRunHeartbeatPayload(payload);
+              else if (type === AGENT_RUN_EVENT_TYPE.EVIDENCE_ADDED) validateEvidenceAddedPayload(payload);
+              else if (type === AGENT_RUN_EVENT_TYPE.RUN_COMPLETED) validateRunCompletedPayload(payload);
+              else if (type === AGENT_RUN_EVENT_TYPE.RUN_FAILED) validateRunFailedPayload(payload);
+            } catch (err) {
+              return sendError(res, 400, "invalid run event payload", { message: err?.message });
+            }
+
+            const draft = createChainedEvent({
+              streamId: runId,
+              type,
+              actor: body?.actor ?? { type: "agent", id: agentId },
+              payload,
+              at: nowIso()
+            });
+            const nextEvents = normalizeAgentRunEventRecords(appendChainedEvent({ events: existing, event: draft, signer: serverSigner }));
+            const event = nextEvents[nextEvents.length - 1];
+
+            let run;
+            try {
+              run = reduceAgentRun(nextEvents);
+            } catch (err) {
+              return sendError(res, 400, "run update rejected", { message: err?.message });
+            }
+            if (String(run.agentId ?? "") !== String(agentId)) return sendError(res, 400, "run agent mismatch");
+
+            const ops = [{ kind: "AGENT_RUN_EVENTS_APPENDED", tenantId, runId, events: [event] }];
+            let settlement = null;
+            try {
+              settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+            } catch {
+              settlement = null;
+            }
+
+            if (settlement && settlement.status === AGENT_RUN_SETTLEMENT_STATUS.LOCKED) {
+              const terminal = run.status === "completed" || run.status === "failed";
+              if (terminal) {
+                const settledAt = event?.at ?? nowIso();
+                const settlementResolutionKey = typeof event?.id === "string" && event.id.trim() !== "" ? event.id : `run_${runId}_${settledAt}`;
+                try {
+                  const payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId: settlement.payerAgentId });
+                  let payerWallet = ensureAgentWallet({
+                    wallet: payerWalletExisting,
+                    tenantId,
+                    agentId: settlement.payerAgentId,
+                    currency: settlement.currency,
+                    at: settledAt
+                  });
+
+                  const verification = computeAgentRunVerification({ run, events: nextEvents });
+                  const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
+                  const linkedDisputeWindowDaysRaw = linkedTask?.agreement?.disputeWindowDays ?? settlement?.disputeWindowDays ?? 0;
+                  const linkedDisputeWindowDays =
+                    Number.isSafeInteger(Number(linkedDisputeWindowDaysRaw)) && Number(linkedDisputeWindowDaysRaw) >= 0
+                      ? Number(linkedDisputeWindowDaysRaw)
+                      : 0;
+                  const agreementPolicyMaterial = resolveAgreementPolicyMaterial({
+                    tenantId,
+                    agreement: linkedTask?.agreement ?? null
+                  });
+                  const agreementPolicy = agreementPolicyMaterial.policy ?? null;
+                  const agreementVerificationMethod = agreementPolicyMaterial.verificationMethod ?? null;
+                  const hasMarketplaceAgreement = Boolean(linkedTask?.agreement && typeof linkedTask.agreement === "object");
+                  let policyDecision = null;
+                  if (!hasMarketplaceAgreement) {
+                    const fallbackReleaseRatePct = run.status === "failed" ? 0 : resolveRunSettlementReleaseRatePct({ run, verification });
+                    const fallbackReleaseAmountCents =
+                      fallbackReleaseRatePct <= 0
+                        ? 0
+                        : Math.min(settlement.amountCents, Math.floor((settlement.amountCents * fallbackReleaseRatePct) / 100));
+                    policyDecision = {
+                      policy: null,
+                      verificationMethod: null,
+                      decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.AUTOMATIC,
+                      shouldAutoResolve: true,
+                      reasonCodes: [],
+                      releaseRatePct: fallbackReleaseRatePct,
+                      releaseAmountCents: fallbackReleaseAmountCents,
+                      refundAmountCents: settlement.amountCents - fallbackReleaseAmountCents,
+                      settlementStatus: fallbackReleaseAmountCents > 0 ? "released" : "refunded",
+                      verificationStatus: run.status === "failed" ? "red" : verification.verificationStatus,
+                      runStatus: run.status
+                    };
+                  } else {
+                    try {
+                      policyDecision = evaluateSettlementPolicy({
+                        policy: agreementPolicy,
+                        verificationMethod: agreementVerificationMethod,
+                        verificationStatus: run.status === "failed" ? "red" : verification.verificationStatus,
+                        runStatus: run.status,
+                        amountCents: settlement.amountCents
+                      });
+                    } catch {
+                      const fallbackReleaseRatePct = run.status === "failed" ? 0 : resolveRunSettlementReleaseRatePct({ run, verification });
+                      const fallbackReleaseAmountCents =
+                        fallbackReleaseRatePct <= 0
+                          ? 0
+                          : Math.min(settlement.amountCents, Math.floor((settlement.amountCents * fallbackReleaseRatePct) / 100));
+                      policyDecision = {
+                        policy: null,
+                        verificationMethod: null,
+                        decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.AUTOMATIC,
+                        shouldAutoResolve: true,
+                        reasonCodes: ["fallback_policy_decision"],
+                        releaseRatePct: fallbackReleaseRatePct,
+                        releaseAmountCents: fallbackReleaseAmountCents,
+                        refundAmountCents: settlement.amountCents - fallbackReleaseAmountCents,
+                        settlementStatus: fallbackReleaseAmountCents > 0 ? "released" : "refunded",
+                        verificationStatus: run.status === "failed" ? "red" : verification.verificationStatus,
+                        runStatus: run.status
+                      };
+                    }
+                    policyDecision = applyAgreementMilestoneRelease({
+                      policyDecision,
+                      agreement: linkedTask?.agreement ?? null,
+                      run,
+                      verification,
+                      amountCents: settlement.amountCents
+                    }).decision;
+                  }
+
+                  if (!policyDecision.shouldAutoResolve) {
+                    settlement = updateAgentRunSettlementDecision({
+                      settlement,
+                      decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_REVIEW_REQUIRED,
+                      decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+                      decisionPolicyHash: agreementPolicyMaterial.policyHash ?? null,
+                      decisionReason: policyDecision.reasonCodes?.[0] ?? "manual review required by settlement policy",
+                      decisionTrace: {
+                        phase: "run.terminal.awaiting_manual_resolution",
+                        policyDecision
+                      },
+                      at: settledAt
+                    });
+                    settlement = {
+                      ...settlement,
+                      disputeWindowDays: linkedDisputeWindowDays,
+                      revision: Number(settlement.revision ?? 0) + 1,
+                      updatedAt: settledAt
+                    };
+                    ops.push({ kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement });
+                    if (linkedTask && String(linkedTask.status ?? "").toLowerCase() === "assigned") {
+                      const awaitingTask = {
+                        ...linkedTask,
+                        settlementDecisionStatus: settlement.decisionStatus ?? null,
+                        settlementDecisionReason: settlement.decisionReason ?? null,
+                        updatedAt: settledAt
+                      };
+                      ops.push({ kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: awaitingTask });
+                    }
+                  } else {
+                    const releaseAmountCents = Number(policyDecision.releaseAmountCents ?? 0);
+                    const refundAmountCents = Number(policyDecision.refundAmountCents ?? settlement.amountCents);
+                    if (releaseAmountCents > 0) {
+                      const payeeWalletExisting = await getAgentWalletRecord({ tenantId, agentId: settlement.agentId });
+                      const payeeWallet = ensureAgentWallet({
+                        wallet: payeeWalletExisting,
+                        tenantId,
+                        agentId: settlement.agentId,
+                        currency: settlement.currency,
+                        at: settledAt
+                      });
+                      const released = releaseAgentWalletEscrowToPayee({
+                        payerWallet,
+                        payeeWallet,
+                        amountCents: releaseAmountCents,
+                        at: settledAt
+                      });
+                      projectEscrowLedgerOperation({
+                        tenantId,
+                        settlement,
+                        operationId: `escrow_release_${runId}_${settlementResolutionKey}`,
+                        type: ESCROW_OPERATION_TYPE.RELEASE,
+                        amountCents: releaseAmountCents,
+                        at: settledAt,
+                        payerWalletBefore: payerWallet,
+                        payerWalletAfter: released.payerWallet,
+                        payeeWalletBefore: payeeWallet,
+                        payeeWalletAfter: released.payeeWallet,
+                        memo: `run:${runId}:auto_release`
+                      });
+                      payerWallet = released.payerWallet;
+                      ops.push({ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: released.payeeWallet });
+                    }
+                    if (refundAmountCents > 0) {
+                      const payerBeforeRefund = payerWallet;
+                      payerWallet = refundAgentWalletEscrow({
+                        wallet: payerWallet,
+                        amountCents: refundAmountCents,
+                        at: settledAt
+                      });
+                      projectEscrowLedgerOperation({
+                        tenantId,
+                        settlement,
+                        operationId: `escrow_forfeit_${runId}_${settlementResolutionKey}`,
+                        type: ESCROW_OPERATION_TYPE.FORFEIT,
+                        amountCents: refundAmountCents,
+                        at: settledAt,
+                        payerWalletBefore: payerBeforeRefund,
+                        payerWalletAfter: payerWallet,
+                        memo: `run:${runId}:auto_refund`
+                      });
+                    }
+
+                    settlement = resolveAgentRunSettlement({
+                      settlement,
+                      status: releaseAmountCents > 0 ? AGENT_RUN_SETTLEMENT_STATUS.RELEASED : AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
+                      runStatus: run.status,
+                      releasedAmountCents: releaseAmountCents,
+                      refundedAmountCents: refundAmountCents,
+                      releaseRatePct: Number(policyDecision.releaseRatePct ?? 0),
+                      disputeWindowDays: linkedDisputeWindowDays,
+                      decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.AUTO_RESOLVED,
+                      decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.AUTOMATIC,
+                      decisionPolicyHash: agreementPolicyMaterial.policyHash ?? null,
+                      decisionReason: policyDecision.reasonCodes?.[0] ?? null,
+                      decisionTrace: {
+                        phase: "run.terminal.auto_resolved",
+                        policyDecision
+                      },
+                      resolutionEventId: event.id,
+                      at: settledAt
+                    });
+
+                    ops.push({ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet });
+                    ops.push({ kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement });
+
+                    if (linkedTask && String(linkedTask.status ?? "").toLowerCase() === "assigned") {
+                      const closedTask = {
+                        ...linkedTask,
+                        status: "closed",
+                        settlementStatus: settlement.status,
+                        settlementResolvedAt: settlement.resolvedAt ?? settledAt,
+                        settlementReleaseRatePct: settlement.releaseRatePct ?? null,
+                        settlementDecisionStatus: settlement.decisionStatus ?? null,
+                        settlementDecisionReason: settlement.decisionReason ?? null,
+                        updatedAt: settledAt
+                      };
+                      ops.push({ kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: closedTask });
+                    }
+                  }
+                } catch (err) {
+                  return sendError(res, 409, "run settlement failed", { message: err?.message, code: err?.code ?? null });
+                }
+              }
+            }
+
+            const responseBody = { event, run, settlement };
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+            }
+            await commitTx(ops);
+            if (settlement && settlement.status !== AGENT_RUN_SETTLEMENT_STATUS.LOCKED) {
+              try {
+                await emitMarketplaceLifecycleArtifact({
+                  tenantId,
+                  eventType: "marketplace.settlement.resolved",
+                  taskId: findMarketplaceTaskByRunId({ tenantId, runId })?.taskId ?? null,
+                  runId,
+                  sourceEventId: event.id,
+                  actorAgentId: agentId,
+                  settlement,
+                  details: {
+                    runStatus: run.status,
+                    verificationStatus: computeAgentRunVerification({ run, events: nextEvents }).verificationStatus
+                  }
+                });
+              } catch {
+                // Best-effort lifecycle delivery.
+              }
+            } else if (settlement && settlement.decisionStatus === AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_REVIEW_REQUIRED) {
+              try {
+                await emitMarketplaceLifecycleArtifact({
+                  tenantId,
+                  eventType: "marketplace.settlement.manual_review_required",
+                  taskId: findMarketplaceTaskByRunId({ tenantId, runId })?.taskId ?? null,
+                  runId,
+                  sourceEventId: event.id,
+                  actorAgentId: agentId,
+                  settlement,
+                  details: {
+                    runStatus: run.status,
+                    verificationStatus: computeAgentRunVerification({ run, events: nextEvents }).verificationStatus,
+                    decisionReason: settlement.decisionReason ?? null
+                  }
+                });
+              } catch {
+                // Best-effort lifecycle delivery.
+              }
+            }
+            return sendJson(res, 201, responseBody);
+          }
+        }
+      }
+
       if (parts[0] === "robots" && parts[1] && parts[1] !== "register") {
         const robotId = parts[1];
         const robot = store.robots.get(robotStoreKey(tenantId, robotId));
@@ -9564,6 +16947,7 @@ export function createApi({
                 });
               }
 
+              await ensureSignerContextFresh({ tenantId, event });
               const nextEvents = [...existing, event];
               const verify = verifyChainedEvents(nextEvents, { publicKeyByKeyId: store.publicKeyByKeyId });
               if (!verify.ok) return sendError(res, 400, "event chain verification failed", verify.error);
@@ -9837,6 +17221,7 @@ export function createApi({
               }
             }
 
+            await ensureSignerContextFresh({ tenantId, event });
             const nextEvents = [...existing, event];
             const verify = verifyChainedEvents(nextEvents, { publicKeyByKeyId: store.publicKeyByKeyId });
             if (!verify.ok) return sendError(res, 400, "event chain verification failed", verify.error);
@@ -9861,13 +17246,64 @@ export function createApi({
         }
       }
 
+      if (parts[0] === "artifacts" && parts[1] && parts[2] === "status" && parts.length === 3 && req.method === "GET") {
+        if (
+          !(
+            requireScope(auth.scopes, OPS_SCOPES.OPS_READ) ||
+            requireScope(auth.scopes, OPS_SCOPES.AUDIT_READ) ||
+            requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ)
+          )
+        ) {
+          return sendError(res, 403, "forbidden");
+        }
+        if (typeof store.getArtifact !== "function") return sendError(res, 501, "artifacts not supported for this store");
+
+        const artifactId = String(parts[1]);
+        let artifact = null;
+        try {
+          artifact = await store.getArtifact({ tenantId, artifactId });
+        } catch (err) {
+          return sendError(res, 400, "invalid artifact id", { message: err?.message });
+        }
+        if (!artifact) return sendError(res, 404, "artifact not found");
+
+        let job = null;
+        const artifactJobId = typeof artifact.jobId === "string" && artifact.jobId.trim() !== "" ? String(artifact.jobId) : null;
+        if (artifactJobId) {
+          const events = getJobEvents(tenantId, artifactJobId);
+          if (events.length) {
+            try {
+              job = reduceJob(events);
+            } catch {
+              job = null;
+            }
+          }
+        }
+
+        let verification;
+        try {
+          verification = computeArtifactVerificationStatus({ artifact, job });
+        } catch (err) {
+          return sendError(res, 500, "artifact verification status unavailable", { message: err?.message });
+        }
+
+        return sendJson(res, 200, {
+          artifactId: artifact.artifactId ?? artifactId,
+          artifactType: artifact.artifactType ?? artifact.schemaVersion ?? null,
+          artifactHash: artifact.artifactHash ?? null,
+          sourceEventId: artifact.sourceEventId ?? null,
+          jobId: artifactJobId,
+          verification
+        });
+      }
+
       if (parts[0] === "jobs" && parts[1]) {
         const jobId = parts[1];
         const needsFreshForExport =
           req.method === "GET" && (parts[2] === "audit" || parts[2] === "evidence") && store.kind === "pg" && typeof store.refreshFromDb === "function";
         if (needsFreshForExport) await store.refreshFromDb();
 
-        const events = getJobEvents(tenantId, jobId);
+        const events = await getJobEventsFresh(tenantId, jobId, { force: req.method !== "GET" });
         const job = reduceJob(events);
         if (!job) return sendError(res, 404, "job not found");
         if (normalizeTenant(job.tenantId ?? DEFAULT_TENANT_ID) !== normalizeTenant(tenantId)) return sendError(res, 404, "job not found");
@@ -11293,7 +18729,7 @@ export function createApi({
 
 	        if (parts[2] === "events") {
 	          if (req.method === "GET" && parts.length === 3) {
-	            return sendJson(res, 200, { events: getJobEvents(tenantId, jobId) });
+	            return sendJson(res, 200, { events: await getJobEventsFresh(tenantId, jobId, { force: true }) });
 	          }
 
           if (req.method === "POST" && parts.length === 3) {
@@ -11320,7 +18756,7 @@ export function createApi({
 	            }
 
 	            const signerKind = requiredSignerKindForEventType(type);
-	            const existing = getJobEvents(tenantId, jobId);
+	            const existing = await getJobEventsFresh(tenantId, jobId, { force: true });
 	            const jobBefore = reduceJob(existing);
 		            if (!jobBefore) return sendError(res, 404, "job not found");
 	            const currentPrevChainHash = getCurrentPrevChainHash(existing);
@@ -11400,6 +18836,7 @@ export function createApi({
                 });
               }
 
+              await ensureSignerContextFresh({ tenantId, event });
               nextEvents = [...existing, event];
               const verify = verifyChainedEvents(nextEvents, { publicKeyByKeyId: store.publicKeyByKeyId });
               if (!verify.ok) return sendError(res, 400, "event chain verification failed", verify.error);

@@ -6,7 +6,7 @@ Settld is a system-of-record product. We take security issues seriously.
 
 Please report suspected vulnerabilities privately.
 
-- Email: `security@settld.example` (replace with your real address before external distribution)
+- Email: `aiden@settld.work`
 
 Include:
 
@@ -23,4 +23,3 @@ Include:
 ## Supported versions
 
 Security fixes are applied to the latest release line. For pilots, we strongly recommend pinning to an immutable image tag and enabling your image scanner in CI/CD.
-

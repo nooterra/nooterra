@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/AgentEvent.v1.schema.json",
+  "title": "AgentEvent.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "v", "id", "streamId", "type", "at", "actor", "payload"],
+  "properties": {
+    "schemaVersion": { "const": "AgentEvent.v1" },
+    "v": { "const": 1 },
+    "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "streamId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["RUN_CREATED", "RUN_STARTED", "RUN_HEARTBEAT", "EVIDENCE_ADDED", "RUN_COMPLETED", "RUN_FAILED"]
+    },
+    "at": { "type": "string", "format": "date-time" },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["agent", "system", "ops"]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "payloadHash": { "type": ["string", "null"], "maxLength": 500 },
+    "prevChainHash": { "type": ["string", "null"], "maxLength": 500 },
+    "chainHash": { "type": ["string", "null"], "maxLength": 500 },
+    "signature": { "type": ["string", "null"], "maxLength": 2000 },
+    "signerKeyId": { "type": ["string", "null"], "maxLength": 200 }
+  }
+}

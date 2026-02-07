@@ -3,11 +3,18 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "bin": {
-    "settld-verify": "./bin/settld-verify.js"
+  "engines": {
+    "node": ">=20"
   },
+  "bin": {
+    "settld-verify": "./bin/settld-verify.js",
+    "settld-release": "./bin/settld-release.js"
+  },
+  "files": [
+    "bin",
+    "src"
+  ],
   "exports": {
     ".": "./src/index.js"
   }
 }
-

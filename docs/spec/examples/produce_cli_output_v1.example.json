@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "ProduceCliOutput.v1",
+  "tool": {
+    "name": "settld",
+    "version": "0.0.0",
+    "commit": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "mode": {
+    "deterministic": true,
+    "now": "1970-01-01T00:00:00.000Z"
+  },
+  "target": {
+    "kind": "jobproof",
+    "out": "/tmp/out/bundle"
+  },
+  "ok": true,
+  "produceOk": true,
+  "warnings": [],
+  "errors": [],
+  "result": {
+    "bundleDir": "/tmp/out/bundle",
+    "type": "JobProofBundle.v1",
+    "tenantId": "tenant_default",
+    "jobId": "job_default",
+    "period": null,
+    "basis": null,
+    "protocol": null,
+    "manifestHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "attestationHash": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  }
+}
+

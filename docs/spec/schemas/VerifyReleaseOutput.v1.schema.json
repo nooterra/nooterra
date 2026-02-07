@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/VerifyReleaseOutput.v1.schema.json",
+  "title": "VerifyReleaseOutput.v1",
+  "type": "object",
+  "required": ["schemaVersion", "ok", "release", "signatureOk", "artifactsOk", "errors", "warnings"],
+  "properties": {
+    "schemaVersion": { "const": "VerifyReleaseOutput.v1" },
+    "ok": { "type": "boolean" },
+    "release": {
+      "type": "object",
+      "required": ["tag", "version", "commit"],
+      "properties": {
+        "tag": { "type": "string" },
+        "version": { "type": "string" },
+        "commit": { "type": ["string", "null"] }
+      }
+    },
+    "signatureOk": { "type": "boolean" },
+    "artifactsOk": { "type": "boolean" },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "path": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "path": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}
+

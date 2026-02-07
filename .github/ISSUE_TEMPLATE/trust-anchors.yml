@@ -1,0 +1,24 @@
+name: Trust anchors / rotation question
+description: Ask about trust anchor distribution, pinning, or rotation without leaking secrets
+title: "[trust] <question>"
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste private keys. Public keys and keyIds are OK.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What are you trying to do (pin, rotate, debug trust failures)?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Include keyIds involved, whether strict/non-strict, and how trust roots are provided.
+      placeholder: "keyIds=..., strict=true, trust file path/env vars..."
+    validations:
+      required: true

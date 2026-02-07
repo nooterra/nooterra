@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/AgentRunSettlement.v1.schema.json",
+  "title": "AgentRunSettlement.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "settlementId",
+    "runId",
+    "tenantId",
+    "agentId",
+    "payerAgentId",
+    "amountCents",
+    "currency",
+    "status",
+    "lockedAt",
+    "revision",
+    "createdAt",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "AgentRunSettlement.v1" },
+    "settlementId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 200
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "tenantId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "agentId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "payerAgentId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "amountCents": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "currency": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 12,
+      "pattern": "^[A-Z][A-Z0-9_]{2,11}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["locked", "released", "refunded"]
+    },
+    "lockedAt": { "type": "string", "format": "date-time" },
+    "resolvedAt": { "type": ["string", "null"], "format": "date-time" },
+    "resolutionEventId": { "type": ["string", "null"], "maxLength": 200 },
+    "runStatus": { "type": ["string", "null"], "maxLength": 32 },
+    "revision": { "type": "integer", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

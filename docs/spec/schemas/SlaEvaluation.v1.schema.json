@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/SlaEvaluation.v1.schema.json",
+  "title": "SlaEvaluation.v1",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "overallStatus", "results"],
+  "properties": {
+    "schemaVersion": { "const": "SlaEvaluation.v1" },
+    "generatedAt": { "type": "string" },
+    "overallStatus": { "enum": ["ok", "breach", "unknown"] },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ruleId", "kind", "status", "detail"],
+        "properties": {
+          "ruleId": { "type": "string" },
+          "kind": { "type": "string" },
+          "status": { "enum": ["ok", "breach", "unknown"] },
+          "detail": {}
+        }
+      }
+    }
+  }
+}
+

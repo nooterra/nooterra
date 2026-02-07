@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "ArbitrationCase.v1",
+  "caseId": "arb_case_20260207_0001",
+  "tenantId": "tenant_vectors",
+  "runId": "run_vectors_0001",
+  "settlementId": "setl_run_vectors_0001",
+  "disputeId": "dsp_run_vectors_0001",
+  "claimantAgentId": "agt_vectors_payer_0001",
+  "respondentAgentId": "agt_vectors_0001",
+  "arbiterAgentId": "agt_arbiter_0001",
+  "status": "under_review",
+  "openedAt": "2026-02-07T00:00:00.000Z",
+  "summary": "Claimant alleges SLA breach on two milestones.",
+  "evidenceRefs": [
+    "artifact://proof/run_vectors_0001/report.json",
+    "artifact://marketplace/agreements/run_vectors_0001.json"
+  ],
+  "appealRef": {
+    "parentCaseId": "arb_case_20260201_0099",
+    "parentVerdictId": "arb_verdict_20260202_0003",
+    "reason": "New evidence was submitted after initial verdict."
+  },
+  "revision": 2,
+  "createdAt": "2026-02-07T00:00:00.000Z",
+  "updatedAt": "2026-02-07T00:10:00.000Z"
+}

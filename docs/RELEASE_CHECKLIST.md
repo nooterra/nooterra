@@ -1,0 +1,91 @@
+# Release Checklist (v1.0.0+)
+
+This checklist is the “no surprises” gate for shipping Settld as a product (not just a repo).
+
+## Preconditions
+
+- `npm test` is green on main.
+- `CHANGELOG.md` is updated and accurate.
+- Protocol v1 freeze gate is satisfied (no accidental v1 schema/vector drift).
+- PyPI Trusted Publisher is configured for `.github/workflows/release.yml` and the `pypi` GitHub environment is allowed.
+- PyPI Trusted Publisher is configured for `.github/workflows/python-pypi.yml` and the `pypi` GitHub environment is allowed (if using the Python-only lane).
+- TestPyPI Trusted Publisher is configured for `.github/workflows/python-testpypi.yml` and the `testpypi` GitHub environment is allowed.
+
+## Required release artifacts
+
+For a v1 freeze release, the GitHub Release MUST include:
+
+- npm tarballs (`*.tgz`) + `npm-SHA256SUMS`
+- Python distributions (`*.whl`, `*.tar.gz`) + `python-SHA256SUMS`
+- `conformance-v1.tar.gz` + `conformance-v1-SHA256SUMS`
+- `settld-audit-packet-v1.zip` + `settld-audit-packet-v1.zip.sha256`
+- `release_index_v1.json` + `release_index_v1.sig` (signed release manifest)
+
+See `docs/spec/SUPPLY_CHAIN.md` for the release-channel threat model and verification posture.
+
+## Local build + verification (recommended)
+
+Build all artifacts locally:
+
+```sh
+python3 -m pip install --disable-pip-version-check --no-input build
+node scripts/release/build-artifacts.mjs --out dist/release-artifacts
+```
+
+If you want to produce a locally-signed `ReleaseIndex.v1` too, provide a release signing key:
+
+```sh
+export SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM="$(cat /path/to/release_ed25519_private_key.pem)"
+node scripts/release/build-artifacts.mjs --out dist/release-artifacts --sign-release-index
+```
+
+Verify release checksums:
+
+```sh
+(cd dist/release-artifacts && sha256sum -c SHA256SUMS)
+```
+
+Validate conformance from the produced artifacts:
+
+```sh
+(cd dist/release-artifacts && tar -xzf conformance-v1.tar.gz)
+node conformance-v1/run.mjs --node-bin packages/artifact-verify/bin/settld-verify.js
+```
+
+Validate release assets (checksums + archive contents):
+
+```sh
+node scripts/release/validate-release-assets.mjs --dir dist/release-artifacts
+```
+
+Verify release index signature + artifact hashes:
+
+```sh
+node scripts/release/verify-release.mjs --dir dist/release-artifacts --format json
+```
+
+Preferred operator CLI (same contract, packaged):
+
+```sh
+node packages/artifact-verify/bin/settld-release.js verify --dir dist/release-artifacts --trust-file trust/release-trust.json --format json --explain
+```
+
+## Release candidates
+
+Use SemVer pre-release tags for RCs (e.g. `v1.0.0-rc.1`). RCs must meet the same artifact completeness and conformance gates as final releases.
+
+Recommended Python dry-run before final tag release:
+
+- Trigger `.github/workflows/python-testpypi.yml` with the target `version`.
+- Confirm wheel/sdist publish succeeded on TestPyPI.
+- Smoke-install from TestPyPI in a clean environment.
+
+## Tag + release
+
+- Create and push a tag: `vX.Y.Z`.
+- The `release` workflow will:
+  - build and attach npm artifacts + checksums
+  - build and attach Python distribution artifacts + checksums
+  - publish Python distributions to PyPI (Trusted Publishing/OIDC)
+  - attach conformance pack + checksum
+  - attach audit packet zip + checksum

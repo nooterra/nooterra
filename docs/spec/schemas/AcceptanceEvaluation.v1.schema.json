@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/AcceptanceEvaluation.v1.schema.json",
+  "title": "AcceptanceEvaluation.v1",
+  "type": "object",
+  "required": ["schemaVersion", "generatedAt", "overallStatus", "results"],
+  "properties": {
+    "schemaVersion": { "const": "AcceptanceEvaluation.v1" },
+    "generatedAt": { "type": "string" },
+    "overallStatus": { "enum": ["ok", "fail", "unknown"] },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["criterionId", "kind", "status", "detail"],
+        "properties": {
+          "criterionId": { "type": "string" },
+          "kind": { "type": "string" },
+          "status": { "enum": ["ok", "fail", "unknown"] },
+          "detail": {}
+        }
+      }
+    }
+  }
+}
+

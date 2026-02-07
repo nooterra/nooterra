@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/ReleaseIndexSignatures.v1.schema.json",
+  "title": "ReleaseIndexSignatures.v1",
+  "type": "object",
+  "required": ["schemaVersion", "signatures"],
+  "properties": {
+    "schemaVersion": { "const": "ReleaseIndexSignatures.v1" },
+    "signatures": {
+      "type": "array",
+      "items": { "$ref": "https://settld.local/schemas/ReleaseIndexSignature.v1.schema.json" },
+      "minItems": 1
+    }
+  }
+}
+

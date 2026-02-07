@@ -9,3 +9,9 @@ test
 scripts/load
 scripts/acceptance
 *.md
+
+# Verify Cloud security packet includes pilot-kit docs at runtime.
+!docs/
+!docs/pilot-kit/
+!docs/pilot-kit/**
+!docs/pilot-kit/**/*.md

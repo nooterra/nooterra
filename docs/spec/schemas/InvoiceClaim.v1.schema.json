@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/InvoiceClaim.v1.schema.json",
+  "title": "InvoiceClaim.v1",
+  "type": "object",
+  "required": ["schemaVersion", "tenantId", "invoiceId", "createdAt", "currency", "jobProof", "totalCents"],
+  "properties": {
+    "schemaVersion": { "const": "InvoiceClaim.v1" },
+    "tenantId": { "type": "string" },
+    "invoiceId": { "type": "string" },
+    "createdAt": { "type": "string" },
+    "currency": { "type": "string" },
+    "jobProof": {
+      "type": "object",
+      "required": ["embeddedPath", "manifestHash", "headAttestationHash"],
+      "properties": {
+        "embeddedPath": { "const": "payload/job_proof_bundle" },
+        "manifestHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "headAttestationHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "lineItems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "quantity", "unitPriceCents", "amountCents"],
+        "properties": {
+          "code": { "type": "string" },
+          "quantity": { "type": "string", "pattern": "^[0-9]+$" },
+          "unitPriceCents": { "type": "string", "pattern": "^[0-9]+$" },
+          "amountCents": { "type": "string", "pattern": "^[0-9]+$" }
+        }
+      }
+    },
+    "subtotalCents": { "type": ["string", "null"], "pattern": "^[0-9]+$" },
+    "totalCents": { "type": "string", "pattern": "^[0-9]+$" }
+  }
+}
+

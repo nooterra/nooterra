@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/ReleaseIndex.v1.schema.json",
+  "title": "ReleaseIndex.v1",
+  "type": "object",
+  "required": ["schemaVersion", "release", "toolchain", "artifacts"],
+  "properties": {
+    "schemaVersion": { "const": "ReleaseIndex.v1" },
+    "release": {
+      "type": "object",
+      "required": ["tag", "version"],
+      "properties": {
+        "tag": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "toolchain": {
+      "type": "object",
+      "required": ["commit"],
+      "properties": {
+        "commit": { "type": ["string", "null"], "pattern": "^[0-9a-f]{7,64}$" },
+        "buildEpochSeconds": { "type": ["integer", "null"], "minimum": 0 },
+        "canonicalJson": { "type": "string" },
+        "includedSchemas": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256", "sizeBytes"],
+        "properties": {
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "kind": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,27 @@
+settld-verify explain v1
+target.kind=job-proof
+target.input=test/fixtures/bundles/v1/jobproof/strict-pass
+target.resolved=<REPO>/test/fixtures/bundles/v1/jobproof/strict-pass
+target.dir=<REPO>/test/fixtures/bundles/v1/jobproof/strict-pass
+mode.strict=true
+mode.failOnWarnings=false
+mode.format=json
+hash.concurrency=
+trust.governanceRoots.count=1
+trust.timeAuthorities.count=
+trust.pricingSigners.count=
+result.ok=true
+result.manifestHash=6775ce8a23cb436fdd6e2809bf79d2b1ac05f76a820094342b0cc68f425ef9d8
+result.headAttestation.ok=true
+result.headAttestation.attestationHash=c70b62f9e28ac91fa07073c802495d1801921c0d01924a2538f981a7e18f8d5b
+result.headAttestation.signerKeyId=key_9ed38005b42d9364601ffab3
+result.headAttestation.signedAt=2026-02-02T00:00:00.000Z
+result.verificationReport.ok=true
+result.verificationReport.signerKeyId=
+result.verificationReport.signedAt=
+result.verificationReport.manifestHash=
+result.verificationReport.expectedBundleHeadAttestationHash=
+cli.ok=true
+cli.verificationOk=true
+cli.errors=
+cli.warnings=

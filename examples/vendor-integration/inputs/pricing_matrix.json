@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "PricingMatrix.v1",
+  "currency": "USD",
+  "prices": [
+    { "code": "WORK_MINUTES", "unitPriceCents": "150" }
+  ]
+}
+

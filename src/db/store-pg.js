@@ -7,6 +7,8 @@ import { reduceJob } from "../core/job-reducer.js";
 import { reduceRobot } from "../core/robot-reducer.js";
 import { reduceOperator } from "../core/operator-reducer.js";
 import { MONTH_CLOSE_BASIS, makeMonthCloseStreamId, reduceMonthClose, validateMonthClosedPayload } from "../core/month-close.js";
+import { AGENT_RUN_EVENT_SCHEMA_VERSION, reduceAgentRun } from "../core/agent-runs.js";
+import { normalizeInteractionDirection } from "../core/interaction-directions.js";
 import { makeIdempotencyStoreKey, parseIdempotencyStoreKey } from "../core/idempotency.js";
 import { DEFAULT_TENANT_ID, makeScopedKey, normalizeTenantId } from "../core/tenancy.js";
 import { GOVERNANCE_STREAM_ID, validateServerSignerKeyRegisteredPayload } from "../core/governance.js";
@@ -148,6 +150,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.robots.clear();
     store.operators.clear();
     store.months.clear();
+    if (!(store.agentRuns instanceof Map)) store.agentRuns = new Map();
+    store.agentRuns.clear();
 
     const res = await pool.query("SELECT tenant_id, aggregate_type, aggregate_id, snapshot_json FROM snapshots");
     for (const row of res.rows) {
@@ -161,6 +165,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       if (type === "robot") store.robots.set(key, { ...snap, tenantId: snap?.tenantId ?? tenantId });
       if (type === "operator") store.operators.set(key, { ...snap, tenantId: snap?.tenantId ?? tenantId });
       if (type === "month") store.months.set(key, { ...snap, tenantId: snap?.tenantId ?? tenantId });
+      if (type === "agent_run") store.agentRuns.set(key, { ...snap, tenantId: snap?.tenantId ?? tenantId, runId: snap?.runId ?? String(id) });
     }
   }
 
@@ -169,6 +174,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.robotEvents.clear();
     store.operatorEvents.clear();
     store.monthEvents.clear();
+    if (!(store.agentRunEvents instanceof Map)) store.agentRunEvents = new Map();
+    store.agentRunEvents.clear();
 
     const res = await pool.query(
       "SELECT tenant_id, aggregate_type, aggregate_id, event_json FROM events ORDER BY tenant_id, aggregate_type, aggregate_id, seq ASC"
@@ -196,6 +203,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       if (type === "month") {
         const existing = store.monthEvents.get(key) ?? [];
         store.monthEvents.set(key, [...existing, event]);
+      }
+      if (type === "agent_run") {
+        const existing = store.agentRunEvents.get(key) ?? [];
+        store.agentRunEvents.set(key, [...existing, normalizeAgentRunEventRecord(event)]);
       }
     }
   }
@@ -250,6 +261,629 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       const key = makeScopedKey({ tenantId, id: contractId });
       store.contracts.set(key, { ...contract, tenantId, contractId });
     }
+  }
+
+  function parseIsoOrNull(value) {
+    if (value === null || value === undefined || String(value).trim() === "") return null;
+    const ms = Date.parse(String(value));
+    if (!Number.isFinite(ms)) return null;
+    return new Date(ms).toISOString();
+  }
+
+  function parseSafeIntegerOrNull(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+    const n = Number(value);
+    return Number.isSafeInteger(n) ? n : null;
+  }
+
+  function normalizeMarketplaceDirectionForRead({ fromType, toType }) {
+    return normalizeInteractionDirection({
+      fromType,
+      toType,
+      defaultFromType: "agent",
+      defaultToType: "agent",
+      onInvalid: "fallback"
+    });
+  }
+
+  function normalizeMarketplaceDirectionForWrite({ fromType, toType }) {
+    return normalizeInteractionDirection({
+      fromType,
+      toType,
+      defaultFromType: "agent",
+      defaultToType: "agent"
+    });
+  }
+
+  function normalizeAgentRunEventRecord(event) {
+    if (!event || typeof event !== "object" || Array.isArray(event)) return event;
+    if (event.schemaVersion === AGENT_RUN_EVENT_SCHEMA_VERSION) return event;
+    return { ...event, schemaVersion: AGENT_RUN_EVENT_SCHEMA_VERSION };
+  }
+
+  function marketplaceTaskRowToRecord(row) {
+    const task = row?.task_json ?? null;
+    if (!task || typeof task !== "object" || Array.isArray(task)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? task?.tenantId ?? DEFAULT_TENANT_ID);
+    const taskId = row?.task_id ? String(row.task_id) : task?.taskId ? String(task.taskId) : null;
+    if (!taskId) return null;
+
+    const createdAt = parseIsoOrNull(task?.createdAt ?? row?.created_at) ?? new Date(0).toISOString();
+    const updatedAt = parseIsoOrNull(task?.updatedAt ?? row?.updated_at) ?? createdAt;
+    const direction = normalizeMarketplaceDirectionForRead({
+      fromType: task?.fromType,
+      toType: task?.toType
+    });
+    return {
+      ...task,
+      tenantId,
+      taskId,
+      fromType: direction.fromType,
+      toType: direction.toType,
+      status: task?.status ? String(task.status) : row?.status ? String(row.status) : "open",
+      capability: task?.capability ?? row?.capability ?? null,
+      posterAgentId: task?.posterAgentId ?? row?.poster_agent_id ?? null,
+      createdAt,
+      updatedAt
+    };
+  }
+
+  async function refreshMarketplaceTasks() {
+    if (!(store.marketplaceTasks instanceof Map)) store.marketplaceTasks = new Map();
+    store.marketplaceTasks.clear();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, task_id, status, capability, poster_agent_id, created_at, updated_at, task_json
+          FROM marketplace_tasks
+          ORDER BY tenant_id ASC, created_at DESC, task_id DESC
+        `
+      );
+      for (const row of res.rows) {
+        const record = marketplaceTaskRowToRecord(row);
+        if (!record) continue;
+        const key = makeScopedKey({ tenantId: record.tenantId, id: record.taskId });
+        store.marketplaceTasks.set(key, record);
+      }
+    } catch (err) {
+      if (err?.code === "42P01") return;
+      throw err;
+    }
+  }
+
+  function marketplaceBidRowToRecord(row) {
+    const bid = row?.bid_json ?? null;
+    if (!bid || typeof bid !== "object" || Array.isArray(bid)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? bid?.tenantId ?? DEFAULT_TENANT_ID);
+    const taskId = row?.task_id ? String(row.task_id) : bid?.taskId ? String(bid.taskId) : null;
+    const bidId = row?.bid_id ? String(row.bid_id) : bid?.bidId ? String(bid.bidId) : null;
+    if (!taskId || !bidId) return null;
+
+    let amountCents = null;
+    const bidAmount = Number(bid?.amountCents);
+    const rowAmount = Number(row?.amount_cents);
+    if (Number.isSafeInteger(bidAmount)) amountCents = bidAmount;
+    else if (Number.isSafeInteger(rowAmount)) amountCents = rowAmount;
+
+    const createdAt = parseIsoOrNull(bid?.createdAt ?? row?.created_at) ?? new Date(0).toISOString();
+    const updatedAt = parseIsoOrNull(bid?.updatedAt ?? row?.updated_at) ?? createdAt;
+    const direction = normalizeMarketplaceDirectionForRead({
+      fromType: bid?.fromType,
+      toType: bid?.toType
+    });
+    return {
+      ...bid,
+      tenantId,
+      taskId,
+      bidId,
+      fromType: direction.fromType,
+      toType: direction.toType,
+      status: bid?.status ? String(bid.status) : row?.status ? String(row.status) : "pending",
+      bidderAgentId: bid?.bidderAgentId ?? row?.bidder_agent_id ?? null,
+      amountCents,
+      createdAt,
+      updatedAt
+    };
+  }
+
+  async function refreshMarketplaceTaskBids() {
+    if (!(store.marketplaceTaskBids instanceof Map)) store.marketplaceTaskBids = new Map();
+    store.marketplaceTaskBids.clear();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, task_id, bid_id, status, bidder_agent_id, amount_cents, created_at, updated_at, bid_json
+          FROM marketplace_task_bids
+          ORDER BY tenant_id ASC, task_id ASC, amount_cents ASC NULLS LAST, created_at ASC, bid_id ASC
+        `
+      );
+      for (const row of res.rows) {
+        const record = marketplaceBidRowToRecord(row);
+        if (!record) continue;
+        const key = makeScopedKey({ tenantId: record.tenantId, id: record.taskId });
+        const existing = store.marketplaceTaskBids.get(key) ?? [];
+        store.marketplaceTaskBids.set(key, [...existing, record]);
+      }
+    } catch (err) {
+      if (err?.code === "42P01") return;
+      throw err;
+    }
+  }
+
+  function tenantSettlementPolicyRowToRecord(row) {
+    const policyRecord = row?.policy_json ?? null;
+    if (!policyRecord || typeof policyRecord !== "object" || Array.isArray(policyRecord)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? policyRecord?.tenantId ?? DEFAULT_TENANT_ID);
+    const policyId =
+      row?.policy_id !== null && row?.policy_id !== undefined
+        ? String(row.policy_id)
+        : policyRecord?.policyId
+          ? String(policyRecord.policyId)
+          : null;
+    const policyVersionCandidate = parseSafeIntegerOrNull(row?.policy_version ?? policyRecord?.policyVersion);
+    if (!policyId || policyVersionCandidate === null || policyVersionCandidate <= 0) return null;
+
+    const createdAt = parseIsoOrNull(policyRecord?.createdAt ?? row?.created_at) ?? new Date(0).toISOString();
+    const updatedAt = parseIsoOrNull(policyRecord?.updatedAt ?? row?.updated_at) ?? createdAt;
+    const policyHash = typeof (policyRecord?.policyHash ?? row?.policy_hash) === "string"
+      ? String(policyRecord?.policyHash ?? row?.policy_hash)
+      : null;
+    const verificationMethodHash = typeof (policyRecord?.verificationMethodHash ?? row?.verification_method_hash) === "string"
+      ? String(policyRecord?.verificationMethodHash ?? row?.verification_method_hash)
+      : null;
+    if (!policyHash || !verificationMethodHash) return null;
+    return {
+      ...policyRecord,
+      tenantId,
+      policyId,
+      policyVersion: policyVersionCandidate,
+      policyHash,
+      verificationMethodHash,
+      createdAt,
+      updatedAt
+    };
+  }
+
+  async function refreshTenantSettlementPolicies() {
+    if (!(store.tenantSettlementPolicies instanceof Map)) store.tenantSettlementPolicies = new Map();
+    store.tenantSettlementPolicies.clear();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, policy_id, policy_version, policy_hash, verification_method_hash, created_at, updated_at, policy_json
+          FROM tenant_settlement_policies
+          ORDER BY tenant_id ASC, policy_id ASC, policy_version DESC
+        `
+      );
+      for (const row of res.rows) {
+        const record = tenantSettlementPolicyRowToRecord(row);
+        if (!record) continue;
+        const key = makeScopedKey({ tenantId: record.tenantId, id: `${record.policyId}::${record.policyVersion}` });
+        store.tenantSettlementPolicies.set(key, record);
+      }
+    } catch (err) {
+      if (err?.code === "42P01") return;
+      throw err;
+    }
+  }
+
+  function agentIdentityRowToRecord(row) {
+    const identity = row?.identity_json ?? null;
+    if (!identity || typeof identity !== "object" || Array.isArray(identity)) return null;
+
+    const tenantId = normalizeTenantId(row?.tenant_id ?? identity?.tenantId ?? DEFAULT_TENANT_ID);
+    const agentId = row?.agent_id ? String(row.agent_id) : identity?.agentId ? String(identity.agentId) : null;
+    if (!agentId) return null;
+
+    const createdAt = parseIsoOrNull(identity?.createdAt ?? row?.created_at) ?? new Date(0).toISOString();
+    const updatedAt = parseIsoOrNull(identity?.updatedAt ?? row?.updated_at) ?? createdAt;
+    const status = identity?.status ? String(identity.status) : row?.status ? String(row.status) : "active";
+    const displayName = identity?.displayName ?? row?.display_name ?? null;
+    const owner =
+      identity?.owner && typeof identity.owner === "object" && !Array.isArray(identity.owner)
+        ? { ...identity.owner }
+        : row?.owner_type || row?.owner_id
+          ? {
+              ownerType: row?.owner_type ? String(row.owner_type) : null,
+              ownerId: row?.owner_id ? String(row.owner_id) : null
+            }
+          : null;
+    const revision = parseSafeIntegerOrNull(identity?.revision ?? row?.revision) ?? 0;
+
+    return {
+      ...identity,
+      tenantId,
+      agentId,
+      status,
+      displayName: displayName === null || displayName === undefined ? null : String(displayName),
+      owner,
+      revision,
+      createdAt,
+      updatedAt
+    };
+  }
+
+  async function refreshAgentIdentities() {
+    if (!(store.agentIdentities instanceof Map)) store.agentIdentities = new Map();
+    store.agentIdentities.clear();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, agent_id, status, display_name, owner_type, owner_id, revision, created_at, updated_at, identity_json
+          FROM agent_identities
+          ORDER BY tenant_id ASC, agent_id ASC
+        `
+      );
+      for (const row of res.rows) {
+        const record = agentIdentityRowToRecord(row);
+        if (!record) continue;
+        const key = makeScopedKey({ tenantId: record.tenantId, id: record.agentId });
+        store.agentIdentities.set(key, record);
+      }
+    } catch (err) {
+      if (err?.code === "42P01") return;
+      throw err;
+    }
+  }
+
+  async function persistAgentIdentity(client, { tenantId, agentIdentity }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!agentIdentity || typeof agentIdentity !== "object" || Array.isArray(agentIdentity)) {
+      throw new TypeError("agentIdentity is required");
+    }
+    const agentId = agentIdentity.agentId ? String(agentIdentity.agentId) : null;
+    if (!agentId) throw new TypeError("agentIdentity.agentId is required");
+
+    const createdAt = parseIsoOrNull(agentIdentity.createdAt) ?? new Date().toISOString();
+    const updatedAt = parseIsoOrNull(agentIdentity.updatedAt) ?? createdAt;
+    const status = agentIdentity.status ? String(agentIdentity.status) : "active";
+    const displayName =
+      agentIdentity.displayName === null || agentIdentity.displayName === undefined ? null : String(agentIdentity.displayName);
+    const ownerType =
+      agentIdentity?.owner?.ownerType === null || agentIdentity?.owner?.ownerType === undefined
+        ? null
+        : String(agentIdentity.owner.ownerType);
+    const ownerId =
+      agentIdentity?.owner?.ownerId === null || agentIdentity?.owner?.ownerId === undefined
+        ? null
+        : String(agentIdentity.owner.ownerId);
+    const revision = parseSafeIntegerOrNull(agentIdentity.revision) ?? 0;
+
+    const normalizedIdentity = {
+      ...agentIdentity,
+      tenantId,
+      agentId,
+      status,
+      displayName,
+      owner:
+        agentIdentity?.owner && typeof agentIdentity.owner === "object" && !Array.isArray(agentIdentity.owner)
+          ? {
+              ownerType: ownerType,
+              ownerId: ownerId
+            }
+          : null,
+      revision,
+      createdAt,
+      updatedAt
+    };
+
+    await client.query(
+      `
+        INSERT INTO agent_identities (
+          tenant_id, agent_id, status, display_name, owner_type, owner_id, revision, created_at, updated_at, identity_json
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        ON CONFLICT (tenant_id, agent_id) DO UPDATE SET
+          status = EXCLUDED.status,
+          display_name = EXCLUDED.display_name,
+          owner_type = EXCLUDED.owner_type,
+          owner_id = EXCLUDED.owner_id,
+          revision = EXCLUDED.revision,
+          updated_at = EXCLUDED.updated_at,
+          identity_json = EXCLUDED.identity_json
+      `,
+      [tenantId, agentId, status, displayName, ownerType, ownerId, revision, createdAt, updatedAt, JSON.stringify(normalizedIdentity)]
+    );
+  }
+
+  function agentWalletRowToRecord(row) {
+    const wallet = row?.wallet_json ?? null;
+    if (!wallet || typeof wallet !== "object" || Array.isArray(wallet)) return null;
+
+    const tenantId = normalizeTenantId(row?.tenant_id ?? wallet?.tenantId ?? DEFAULT_TENANT_ID);
+    const agentId = row?.agent_id ? String(row.agent_id) : wallet?.agentId ? String(wallet.agentId) : null;
+    if (!agentId) return null;
+
+    const createdAt = parseIsoOrNull(wallet?.createdAt ?? row?.created_at) ?? new Date(0).toISOString();
+    const updatedAt = parseIsoOrNull(wallet?.updatedAt ?? row?.updated_at) ?? createdAt;
+    const currency =
+      wallet?.currency && String(wallet.currency).trim() !== ""
+        ? String(wallet.currency).toUpperCase()
+        : row?.currency
+          ? String(row.currency).toUpperCase()
+          : "USD";
+    const availableCents = parseSafeIntegerOrNull(wallet?.availableCents ?? row?.available_cents) ?? 0;
+    const escrowLockedCents = parseSafeIntegerOrNull(wallet?.escrowLockedCents ?? row?.escrow_locked_cents) ?? 0;
+    const totalCreditedCents = parseSafeIntegerOrNull(wallet?.totalCreditedCents ?? row?.total_credited_cents) ?? 0;
+    const totalDebitedCents = parseSafeIntegerOrNull(wallet?.totalDebitedCents ?? row?.total_debited_cents) ?? 0;
+    const revision = parseSafeIntegerOrNull(wallet?.revision ?? row?.revision) ?? 0;
+    const walletId =
+      wallet?.walletId && String(wallet.walletId).trim() !== ""
+        ? String(wallet.walletId)
+        : row?.wallet_id && String(row.wallet_id).trim() !== ""
+          ? String(row.wallet_id)
+          : `wallet_${agentId}`;
+
+    return {
+      ...wallet,
+      tenantId,
+      agentId,
+      walletId,
+      currency,
+      availableCents,
+      escrowLockedCents,
+      totalCreditedCents,
+      totalDebitedCents,
+      revision,
+      createdAt,
+      updatedAt
+    };
+  }
+
+  async function refreshAgentWallets() {
+    if (!(store.agentWallets instanceof Map)) store.agentWallets = new Map();
+    store.agentWallets.clear();
+    try {
+      const res = await pool.query(
+        `
+          SELECT
+            tenant_id, agent_id, wallet_id, currency,
+            available_cents, escrow_locked_cents, total_credited_cents, total_debited_cents,
+            revision, created_at, updated_at, wallet_json
+          FROM agent_wallets
+          ORDER BY tenant_id ASC, agent_id ASC
+        `
+      );
+      for (const row of res.rows) {
+        const record = agentWalletRowToRecord(row);
+        if (!record) continue;
+        const key = makeScopedKey({ tenantId: record.tenantId, id: record.agentId });
+        store.agentWallets.set(key, record);
+      }
+    } catch (err) {
+      if (err?.code === "42P01") return;
+      throw err;
+    }
+  }
+
+  async function persistAgentWallet(client, { tenantId, wallet }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!wallet || typeof wallet !== "object" || Array.isArray(wallet)) throw new TypeError("wallet is required");
+    const agentId = wallet.agentId ? String(wallet.agentId) : null;
+    if (!agentId) throw new TypeError("wallet.agentId is required");
+
+    const createdAt = parseIsoOrNull(wallet.createdAt) ?? new Date().toISOString();
+    const updatedAt = parseIsoOrNull(wallet.updatedAt) ?? createdAt;
+    const currency =
+      wallet?.currency && String(wallet.currency).trim() !== "" ? String(wallet.currency).toUpperCase() : "USD";
+    const walletId =
+      wallet?.walletId && String(wallet.walletId).trim() !== "" ? String(wallet.walletId) : `wallet_${agentId}`;
+    const availableCents = parseSafeIntegerOrNull(wallet.availableCents) ?? 0;
+    const escrowLockedCents = parseSafeIntegerOrNull(wallet.escrowLockedCents) ?? 0;
+    const totalCreditedCents = parseSafeIntegerOrNull(wallet.totalCreditedCents) ?? 0;
+    const totalDebitedCents = parseSafeIntegerOrNull(wallet.totalDebitedCents) ?? 0;
+    const revision = parseSafeIntegerOrNull(wallet.revision) ?? 0;
+
+    const normalizedWallet = {
+      ...wallet,
+      tenantId,
+      agentId,
+      walletId,
+      currency,
+      availableCents,
+      escrowLockedCents,
+      totalCreditedCents,
+      totalDebitedCents,
+      revision,
+      createdAt,
+      updatedAt
+    };
+
+    await client.query(
+      `
+        INSERT INTO agent_wallets (
+          tenant_id, agent_id, wallet_id, currency,
+          available_cents, escrow_locked_cents, total_credited_cents, total_debited_cents,
+          revision, created_at, updated_at, wallet_json
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        ON CONFLICT (tenant_id, agent_id) DO UPDATE SET
+          wallet_id = EXCLUDED.wallet_id,
+          currency = EXCLUDED.currency,
+          available_cents = EXCLUDED.available_cents,
+          escrow_locked_cents = EXCLUDED.escrow_locked_cents,
+          total_credited_cents = EXCLUDED.total_credited_cents,
+          total_debited_cents = EXCLUDED.total_debited_cents,
+          revision = EXCLUDED.revision,
+          updated_at = EXCLUDED.updated_at,
+          wallet_json = EXCLUDED.wallet_json
+      `,
+      [
+        tenantId,
+        agentId,
+        walletId,
+        currency,
+        availableCents,
+        escrowLockedCents,
+        totalCreditedCents,
+        totalDebitedCents,
+        revision,
+        createdAt,
+        updatedAt,
+        JSON.stringify(normalizedWallet)
+      ]
+    );
+  }
+
+  function agentRunSettlementRowToRecord(row) {
+    const settlement = row?.settlement_json ?? null;
+    if (!settlement || typeof settlement !== "object" || Array.isArray(settlement)) return null;
+
+    const tenantId = normalizeTenantId(row?.tenant_id ?? settlement?.tenantId ?? DEFAULT_TENANT_ID);
+    const runId = row?.run_id ? String(row.run_id) : settlement?.runId ? String(settlement.runId) : null;
+    if (!runId) return null;
+
+    const createdAt = parseIsoOrNull(settlement?.createdAt ?? row?.created_at ?? row?.locked_at) ?? new Date(0).toISOString();
+    const updatedAt = parseIsoOrNull(settlement?.updatedAt ?? row?.updated_at) ?? createdAt;
+    const status = settlement?.status ? String(settlement.status) : row?.status ? String(row.status) : "locked";
+    const agentId = settlement?.agentId ?? (row?.agent_id ? String(row.agent_id) : null);
+    const payerAgentId = settlement?.payerAgentId ?? (row?.payer_agent_id ? String(row.payer_agent_id) : null);
+    const amountCents = parseSafeIntegerOrNull(settlement?.amountCents ?? row?.amount_cents) ?? null;
+    const revision = parseSafeIntegerOrNull(settlement?.revision ?? row?.revision) ?? 0;
+    const currency =
+      settlement?.currency && String(settlement.currency).trim() !== ""
+        ? String(settlement.currency).toUpperCase()
+        : row?.currency
+          ? String(row.currency).toUpperCase()
+          : "USD";
+    const lockedAt = parseIsoOrNull(settlement?.lockedAt ?? row?.locked_at) ?? createdAt;
+    const resolvedAt = parseIsoOrNull(settlement?.resolvedAt ?? row?.resolved_at);
+    const resolutionEventId =
+      settlement?.resolutionEventId && String(settlement.resolutionEventId).trim() !== ""
+        ? String(settlement.resolutionEventId)
+        : row?.resolution_event_id && String(row.resolution_event_id).trim() !== ""
+          ? String(row.resolution_event_id)
+          : null;
+    const runStatus =
+      settlement?.runStatus && String(settlement.runStatus).trim() !== ""
+        ? String(settlement.runStatus)
+        : row?.run_status && String(row.run_status).trim() !== ""
+          ? String(row.run_status)
+          : null;
+
+    return {
+      ...settlement,
+      tenantId,
+      runId,
+      status,
+      agentId,
+      payerAgentId,
+      amountCents,
+      currency,
+      resolutionEventId,
+      runStatus,
+      revision,
+      lockedAt,
+      resolvedAt,
+      createdAt,
+      updatedAt
+    };
+  }
+
+  async function refreshAgentRunSettlements() {
+    if (!(store.agentRunSettlements instanceof Map)) store.agentRunSettlements = new Map();
+    store.agentRunSettlements.clear();
+    try {
+      const res = await pool.query(
+        `
+          SELECT
+            tenant_id, run_id, status, agent_id, payer_agent_id, amount_cents, currency,
+            resolution_event_id, run_status, revision, locked_at, resolved_at, created_at, updated_at, settlement_json
+          FROM agent_run_settlements
+          ORDER BY tenant_id ASC, run_id ASC
+        `
+      );
+      for (const row of res.rows) {
+        const record = agentRunSettlementRowToRecord(row);
+        if (!record) continue;
+        const key = makeScopedKey({ tenantId: record.tenantId, id: record.runId });
+        store.agentRunSettlements.set(key, record);
+      }
+    } catch (err) {
+      if (err?.code === "42P01") return;
+      throw err;
+    }
+  }
+
+  async function persistAgentRunSettlement(client, { tenantId, runId, settlement }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!settlement || typeof settlement !== "object" || Array.isArray(settlement)) throw new TypeError("settlement is required");
+    const normalizedRunId = runId ? String(runId) : settlement.runId ? String(settlement.runId) : null;
+    if (!normalizedRunId) throw new TypeError("runId is required");
+
+    const status = settlement.status ? String(settlement.status) : "locked";
+    const agentId = settlement.agentId === null || settlement.agentId === undefined ? null : String(settlement.agentId);
+    const payerAgentId =
+      settlement.payerAgentId === null || settlement.payerAgentId === undefined ? null : String(settlement.payerAgentId);
+    const amountCents = parseSafeIntegerOrNull(settlement.amountCents);
+    const currency =
+      settlement?.currency && String(settlement.currency).trim() !== "" ? String(settlement.currency).toUpperCase() : "USD";
+    const resolutionEventId =
+      settlement.resolutionEventId === null || settlement.resolutionEventId === undefined
+        ? null
+        : String(settlement.resolutionEventId);
+    const runStatus = settlement.runStatus === null || settlement.runStatus === undefined ? null : String(settlement.runStatus);
+    const revision = parseSafeIntegerOrNull(settlement.revision) ?? 0;
+    const lockedAt = parseIsoOrNull(settlement.lockedAt);
+    const resolvedAt = parseIsoOrNull(settlement.resolvedAt);
+    const createdAt = parseIsoOrNull(settlement.createdAt) ?? lockedAt ?? new Date().toISOString();
+    const updatedAt = parseIsoOrNull(settlement.updatedAt) ?? resolvedAt ?? createdAt;
+
+    const normalizedSettlement = {
+      ...settlement,
+      tenantId,
+      runId: normalizedRunId,
+      status,
+      agentId,
+      payerAgentId,
+      amountCents,
+      currency,
+      resolutionEventId,
+      runStatus,
+      revision,
+      lockedAt,
+      resolvedAt,
+      createdAt,
+      updatedAt
+    };
+
+    await client.query(
+      `
+        INSERT INTO agent_run_settlements (
+          tenant_id, run_id, status, agent_id, payer_agent_id, amount_cents, currency,
+          resolution_event_id, run_status, revision, locked_at, resolved_at, created_at, updated_at, settlement_json
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+        ON CONFLICT (tenant_id, run_id) DO UPDATE SET
+          status = EXCLUDED.status,
+          agent_id = EXCLUDED.agent_id,
+          payer_agent_id = EXCLUDED.payer_agent_id,
+          amount_cents = EXCLUDED.amount_cents,
+          currency = EXCLUDED.currency,
+          resolution_event_id = EXCLUDED.resolution_event_id,
+          run_status = EXCLUDED.run_status,
+          revision = EXCLUDED.revision,
+          locked_at = EXCLUDED.locked_at,
+          resolved_at = EXCLUDED.resolved_at,
+          updated_at = EXCLUDED.updated_at,
+          settlement_json = EXCLUDED.settlement_json
+      `,
+      [
+        tenantId,
+        normalizedRunId,
+        status,
+        agentId,
+        payerAgentId,
+        amountCents,
+        currency,
+        resolutionEventId,
+        runStatus,
+        revision,
+        lockedAt,
+        resolvedAt,
+        createdAt,
+        updatedAt,
+        JSON.stringify(normalizedSettlement)
+      ]
+    );
   }
 
   function authKeyRowToRecord(row) {
@@ -475,11 +1109,169 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     );
   }
 
+  async function persistMarketplaceTask(client, { tenantId, task }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!task || typeof task !== "object" || Array.isArray(task)) throw new TypeError("task is required");
+    const taskId = task.taskId ? String(task.taskId) : null;
+    if (!taskId) throw new TypeError("task.taskId is required");
+
+    const createdAt = parseIsoOrNull(task.createdAt) ?? new Date().toISOString();
+    const updatedAt = parseIsoOrNull(task.updatedAt) ?? createdAt;
+    const status = task.status ? String(task.status) : "open";
+    const capability = task.capability === null || task.capability === undefined ? null : String(task.capability);
+    const posterAgentId = task.posterAgentId === null || task.posterAgentId === undefined ? null : String(task.posterAgentId);
+    const direction = normalizeMarketplaceDirectionForWrite({
+      fromType: task.fromType,
+      toType: task.toType
+    });
+
+    const normalizedTask = {
+      ...task,
+      tenantId,
+      taskId,
+      fromType: direction.fromType,
+      toType: direction.toType,
+      status,
+      capability,
+      posterAgentId,
+      createdAt,
+      updatedAt
+    };
+    await client.query(
+      `
+        INSERT INTO marketplace_tasks (tenant_id, task_id, status, capability, poster_agent_id, created_at, updated_at, task_json)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        ON CONFLICT (tenant_id, task_id) DO UPDATE SET
+          status = EXCLUDED.status,
+          capability = EXCLUDED.capability,
+          poster_agent_id = EXCLUDED.poster_agent_id,
+          updated_at = EXCLUDED.updated_at,
+          task_json = EXCLUDED.task_json
+      `,
+      [tenantId, taskId, status, capability, posterAgentId, createdAt, updatedAt, JSON.stringify(normalizedTask)]
+    );
+  }
+
+  async function persistMarketplaceTaskBids(client, { tenantId, taskId, bids }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(taskId, "taskId");
+    if (!Array.isArray(bids)) throw new TypeError("bids must be an array");
+    const normalizedTaskId = String(taskId);
+
+    await client.query("DELETE FROM marketplace_task_bids WHERE tenant_id = $1 AND task_id = $2", [tenantId, normalizedTaskId]);
+
+    for (const bid of bids) {
+      if (!bid || typeof bid !== "object" || Array.isArray(bid)) throw new TypeError("each bid must be an object");
+      const bidId = bid.bidId ? String(bid.bidId) : null;
+      if (!bidId) throw new TypeError("bid.bidId is required");
+
+      let amountCents = null;
+      if (bid.amountCents !== undefined && bid.amountCents !== null) {
+        const parsedAmount = Number(bid.amountCents);
+        if (!Number.isSafeInteger(parsedAmount)) throw new TypeError("bid.amountCents must be a safe integer");
+        amountCents = parsedAmount;
+      }
+
+      const status = bid.status ? String(bid.status) : "pending";
+      const bidderAgentId = bid.bidderAgentId === null || bid.bidderAgentId === undefined ? null : String(bid.bidderAgentId);
+      const createdAt = parseIsoOrNull(bid.createdAt) ?? new Date().toISOString();
+      const updatedAt = parseIsoOrNull(bid.updatedAt) ?? createdAt;
+      const direction = normalizeMarketplaceDirectionForWrite({
+        fromType: bid.fromType,
+        toType: bid.toType
+      });
+      const normalizedBid = {
+        ...bid,
+        tenantId,
+        taskId: normalizedTaskId,
+        bidId,
+        fromType: direction.fromType,
+        toType: direction.toType,
+        status,
+        bidderAgentId,
+        amountCents,
+        createdAt,
+        updatedAt
+      };
+
+      await client.query(
+        `
+          INSERT INTO marketplace_task_bids (
+            tenant_id, task_id, bid_id, status, bidder_agent_id, amount_cents, created_at, updated_at, bid_json
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        `,
+        [tenantId, normalizedTaskId, bidId, status, bidderAgentId, amountCents, createdAt, updatedAt, JSON.stringify(normalizedBid)]
+      );
+    }
+  }
+
+  async function persistTenantSettlementPolicy(client, { tenantId, policy }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!policy || typeof policy !== "object" || Array.isArray(policy)) {
+      throw new TypeError("policy is required");
+    }
+    const policyId = typeof policy.policyId === "string" && policy.policyId.trim() !== "" ? policy.policyId.trim() : null;
+    const policyVersion = Number(policy.policyVersion);
+    const policyHash = typeof policy.policyHash === "string" && policy.policyHash.trim() !== "" ? policy.policyHash.trim() : null;
+    const verificationMethodHash =
+      typeof policy.verificationMethodHash === "string" && policy.verificationMethodHash.trim() !== ""
+        ? policy.verificationMethodHash.trim()
+        : null;
+    if (!policyId) throw new TypeError("policy.policyId is required");
+    if (!Number.isSafeInteger(policyVersion) || policyVersion <= 0) {
+      throw new TypeError("policy.policyVersion must be a positive safe integer");
+    }
+    if (!policyHash) throw new TypeError("policy.policyHash is required");
+    if (!verificationMethodHash) throw new TypeError("policy.verificationMethodHash is required");
+
+    const createdAt = parseIsoOrNull(policy.createdAt) ?? new Date().toISOString();
+    const updatedAt = parseIsoOrNull(policy.updatedAt) ?? createdAt;
+    const normalizedPolicy = {
+      ...policy,
+      tenantId,
+      policyId,
+      policyVersion,
+      policyHash,
+      verificationMethodHash,
+      createdAt,
+      updatedAt
+    };
+
+    await client.query(
+      `
+        INSERT INTO tenant_settlement_policies (
+          tenant_id, policy_id, policy_version, policy_hash, verification_method_hash, created_at, updated_at, policy_json
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        ON CONFLICT (tenant_id, policy_id, policy_version) DO UPDATE SET
+          policy_hash = EXCLUDED.policy_hash,
+          verification_method_hash = EXCLUDED.verification_method_hash,
+          updated_at = EXCLUDED.updated_at,
+          policy_json = EXCLUDED.policy_json
+      `,
+      [
+        tenantId,
+        policyId,
+        policyVersion,
+        policyHash,
+        verificationMethodHash,
+        createdAt,
+        updatedAt,
+        JSON.stringify(normalizedPolicy)
+      ]
+    );
+  }
+
   await refreshSnapshots();
   await refreshEvents();
   await refreshIdempotency();
   await refreshLedgerBalances();
   await refreshContracts();
+  await refreshMarketplaceTasks();
+  await refreshMarketplaceTaskBids();
+  await refreshTenantSettlementPolicies();
+  await refreshAgentIdentities();
+  await refreshAgentWallets();
+  await refreshAgentRunSettlements();
   await refreshAuthKeys();
   await seedSignerKeysFromSnapshots();
   await refreshSignerKeys();
@@ -522,6 +1314,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "PUBLIC_KEY_PUT",
       "SIGNER_KEY_UPSERT",
       "SIGNER_KEY_STATUS_SET",
+      "AGENT_IDENTITY_UPSERT",
+      "AGENT_WALLET_UPSERT",
+      "AGENT_RUN_EVENTS_APPENDED",
+      "AGENT_RUN_SETTLEMENT_UPSERT",
+      "MARKETPLACE_TASK_UPSERT",
+      "MARKETPLACE_TASK_BIDS_SET",
+      "TENANT_SETTLEMENT_POLICY_UPSERT",
       "IDEMPOTENCY_PUT",
       "OUTBOX_ENQUEUE",
       "INGEST_RECORDS_PUT"
@@ -675,6 +1474,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     if (aggregateType === "robot") snapshot = reduceRobot(events);
     if (aggregateType === "operator") snapshot = reduceOperator(events);
     if (aggregateType === "month") snapshot = reduceMonthClose(events);
+    if (aggregateType === "agent_run") snapshot = reduceAgentRun(events.map(normalizeAgentRunEventRecord));
 
     if (!snapshot) return null;
 
@@ -1171,10 +1971,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
 	                failpoint("ledger.apply.after_postings_before_allocations");
 
 	                const jobRes = await client.query(
-	                  "SELECT payload_json FROM snapshots WHERE tenant_id = $1 AND aggregate_type = 'job' AND aggregate_id = $2",
+	                  "SELECT snapshot_json FROM snapshots WHERE tenant_id = $1 AND aggregate_type = 'job' AND aggregate_id = $2",
 	                  [tenantId, jobId]
 	                );
-	                const job = jobRes.rows.length ? jobRes.rows[0].payload_json ?? null : null;
+	                const job = jobRes.rows.length ? jobRes.rows[0].snapshot_json ?? null : null;
 	                if (job && typeof job === "object") {
 	                  let operatorContractDoc = null;
 	                  const operatorContractHash = job?.operatorContractHash ?? null;
@@ -1267,6 +2067,35 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
           await setSignerKeyStatusRow(client, { tenantId, keyId: op.keyId, status: op.status, at: op.at ?? at ?? new Date().toISOString() });
         }
+        if (op.kind === "AGENT_IDENTITY_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.agentIdentity?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistAgentIdentity(client, { tenantId, agentIdentity: op.agentIdentity });
+        }
+        if (op.kind === "AGENT_WALLET_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.wallet?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistAgentWallet(client, { tenantId, wallet: op.wallet });
+        }
+        if (op.kind === "AGENT_RUN_EVENTS_APPENDED") {
+          const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+          await insertEvents(client, { tenantId, aggregateType: "agent_run", aggregateId: op.runId, events: op.events });
+          await rebuildSnapshot(client, { tenantId, aggregateType: "agent_run", aggregateId: op.runId });
+        }
+        if (op.kind === "AGENT_RUN_SETTLEMENT_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.settlement?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistAgentRunSettlement(client, { tenantId, runId: op.runId, settlement: op.settlement });
+        }
+        if (op.kind === "MARKETPLACE_TASK_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.task?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistMarketplaceTask(client, { tenantId, task: op.task });
+        }
+        if (op.kind === "MARKETPLACE_TASK_BIDS_SET") {
+          const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+          await persistMarketplaceTaskBids(client, { tenantId, taskId: op.taskId, bids: op.bids });
+        }
+        if (op.kind === "TENANT_SETTLEMENT_POLICY_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.policy?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistTenantSettlementPolicy(client, { tenantId, policy: op.policy });
+        }
         if (op.kind === "JOB_EVENTS_APPENDED") {
           const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
           await insertEvents(client, { tenantId, aggregateType: "job", aggregateId: op.jobId, events: op.events });
@@ -1329,8 +2158,264 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     await refreshIdempotency();
     await refreshLedgerBalances();
     await refreshContracts();
+    await refreshMarketplaceTasks();
+    await refreshMarketplaceTaskBids();
+    await refreshTenantSettlementPolicies();
+    await refreshAgentIdentities();
+    await refreshAgentWallets();
+    await refreshAgentRunSettlements();
     await refreshAuthKeys();
     await refreshSignerKeys();
+  };
+
+  function agentRunSnapshotRowToRecord(row) {
+    const run = row?.snapshot_json ?? null;
+    if (!run || typeof run !== "object" || Array.isArray(run)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? run?.tenantId ?? DEFAULT_TENANT_ID);
+    const runId = row?.aggregate_id ? String(row.aggregate_id) : run?.runId ? String(run.runId) : null;
+    if (!runId) return null;
+    return {
+      ...run,
+      tenantId,
+      runId
+    };
+  }
+
+  store.getAgentIdentity = async function getAgentIdentity({ tenantId = DEFAULT_TENANT_ID, agentId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(agentId, "agentId");
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, agent_id, status, display_name, owner_type, owner_id, revision, created_at, updated_at, identity_json
+          FROM agent_identities
+          WHERE tenant_id = $1 AND agent_id = $2
+          LIMIT 1
+        `,
+        [tenantId, String(agentId)]
+      );
+      return res.rows.length ? agentIdentityRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.agentIdentities.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
+    }
+  };
+
+  store.listAgentIdentities = async function listAgentIdentities({ tenantId = DEFAULT_TENANT_ID, status = null, limit = 200, offset = 0 } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (status !== null) assertNonEmptyString(status, "status");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const statusFilter = status === null ? null : String(status).trim().toLowerCase();
+
+    try {
+      const params = [tenantId];
+      const where = ["tenant_id = $1"];
+      if (statusFilter !== null) {
+        params.push(statusFilter);
+        where.push(`lower(status) = $${params.length}`);
+      }
+      params.push(safeLimit);
+      params.push(safeOffset);
+
+      const res = await pool.query(
+        `
+          SELECT tenant_id, agent_id, status, display_name, owner_type, owner_id, revision, created_at, updated_at, identity_json
+          FROM agent_identities
+          WHERE ${where.join(" AND ")}
+          ORDER BY agent_id ASC
+          LIMIT $${params.length - 1} OFFSET $${params.length}
+        `,
+        params
+      );
+      return res.rows.map(agentIdentityRowToRecord).filter(Boolean);
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      const out = [];
+      for (const record of store.agentIdentities.values()) {
+        if (!record || typeof record !== "object") continue;
+        if (normalizeTenantId(record.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (statusFilter !== null && String(record.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(record);
+      }
+      out.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    }
+  };
+
+  store.getAgentWallet = async function getAgentWallet({ tenantId = DEFAULT_TENANT_ID, agentId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(agentId, "agentId");
+    try {
+      const res = await pool.query(
+        `
+          SELECT
+            tenant_id, agent_id, wallet_id, currency,
+            available_cents, escrow_locked_cents, total_credited_cents, total_debited_cents,
+            revision, created_at, updated_at, wallet_json
+          FROM agent_wallets
+          WHERE tenant_id = $1 AND agent_id = $2
+          LIMIT 1
+        `,
+        [tenantId, String(agentId)]
+      );
+      return res.rows.length ? agentWalletRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.agentWallets.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
+    }
+  };
+
+  store.putAgentWallet = async function putAgentWallet({ tenantId = DEFAULT_TENANT_ID, wallet } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!wallet || typeof wallet !== "object" || Array.isArray(wallet)) throw new TypeError("wallet is required");
+    const agentId = wallet.agentId ?? null;
+    assertNonEmptyString(agentId, "wallet.agentId");
+    await store.commitTx({
+      at: wallet.updatedAt ?? new Date().toISOString(),
+      ops: [{ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: { ...wallet, tenantId, agentId: String(agentId) } }]
+    });
+    return store.getAgentWallet({ tenantId, agentId: String(agentId) });
+  };
+
+  store.getAgentRun = async function getAgentRun({ tenantId = DEFAULT_TENANT_ID, runId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(runId, "runId");
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'agent_run' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, String(runId)]
+      );
+      return res.rows.length ? agentRunSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.agentRuns.get(makeScopedKey({ tenantId, id: String(runId) })) ?? null;
+    }
+  };
+
+  store.listAgentRuns = async function listAgentRuns({ tenantId = DEFAULT_TENANT_ID, agentId = null, status = null, limit = 200, offset = 0 } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (agentId !== null) assertNonEmptyString(agentId, "agentId");
+    if (status !== null) assertNonEmptyString(status, "status");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const statusFilter = status === null ? null : String(status).trim().toLowerCase();
+    const agentIdFilter = agentId === null ? null : String(agentId);
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1
+            AND aggregate_type = 'agent_run'
+            AND ($2::text IS NULL OR snapshot_json->>'agentId' = $2)
+            AND ($3::text IS NULL OR lower(snapshot_json->>'status') = $3)
+          ORDER BY aggregate_id ASC
+          LIMIT $4 OFFSET $5
+        `,
+        [tenantId, agentIdFilter, statusFilter, safeLimit, safeOffset]
+      );
+      return res.rows.map(agentRunSnapshotRowToRecord).filter(Boolean);
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      const out = [];
+      for (const run of store.agentRuns.values()) {
+        if (!run || typeof run !== "object") continue;
+        if (normalizeTenantId(run.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (agentIdFilter !== null && String(run.agentId ?? "") !== agentIdFilter) continue;
+        if (statusFilter !== null && String(run.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(run);
+      }
+      out.sort((left, right) => String(left.runId ?? "").localeCompare(String(right.runId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    }
+  };
+
+  store.countAgentRuns = async function countAgentRuns({ tenantId = DEFAULT_TENANT_ID, agentId = null, status = null } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (agentId !== null) assertNonEmptyString(agentId, "agentId");
+    if (status !== null) assertNonEmptyString(status, "status");
+    const statusFilter = status === null ? null : String(status).trim().toLowerCase();
+    const agentIdFilter = agentId === null ? null : String(agentId);
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT COUNT(*)::bigint AS c
+          FROM snapshots
+          WHERE tenant_id = $1
+            AND aggregate_type = 'agent_run'
+            AND ($2::text IS NULL OR snapshot_json->>'agentId' = $2)
+            AND ($3::text IS NULL OR lower(snapshot_json->>'status') = $3)
+        `,
+        [tenantId, agentIdFilter, statusFilter]
+      );
+      const c = Number(res.rows[0]?.c ?? 0);
+      return Number.isSafeInteger(c) && c >= 0 ? c : 0;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      let count = 0;
+      for (const run of store.agentRuns.values()) {
+        if (!run || typeof run !== "object") continue;
+        if (normalizeTenantId(run.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (agentIdFilter !== null && String(run.agentId ?? "") !== agentIdFilter) continue;
+        if (statusFilter !== null && String(run.status ?? "").toLowerCase() !== statusFilter) continue;
+        count += 1;
+      }
+      return count;
+    }
+  };
+
+  store.getAgentRunEvents = async function getAgentRunEvents({ tenantId = DEFAULT_TENANT_ID, runId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(runId, "runId");
+    try {
+      const res = await pool.query(
+        `
+          SELECT event_json
+          FROM events
+          WHERE tenant_id = $1 AND aggregate_type = 'agent_run' AND aggregate_id = $2
+          ORDER BY seq ASC
+        `,
+        [tenantId, String(runId)]
+      );
+      return res.rows.map((row) => normalizeAgentRunEventRecord(row?.event_json)).filter(Boolean);
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return (store.agentRunEvents.get(makeScopedKey({ tenantId, id: String(runId) })) ?? []).map(normalizeAgentRunEventRecord);
+    }
+  };
+
+  store.getAgentRunSettlement = async function getAgentRunSettlement({ tenantId = DEFAULT_TENANT_ID, runId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(runId, "runId");
+    try {
+      const res = await pool.query(
+        `
+          SELECT
+            tenant_id, run_id, status, agent_id, payer_agent_id, amount_cents, currency,
+            resolution_event_id, run_status, revision, locked_at, resolved_at, created_at, updated_at, settlement_json
+          FROM agent_run_settlements
+          WHERE tenant_id = $1 AND run_id = $2
+          LIMIT 1
+        `,
+        [tenantId, String(runId)]
+      );
+      return res.rows.length ? agentRunSettlementRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.agentRunSettlements.get(makeScopedKey({ tenantId, id: String(runId) })) ?? null;
+    }
   };
 
   store.getAuthKey = async function getAuthKey({ tenantId = DEFAULT_TENANT_ID, keyId } = {}) {
@@ -2437,28 +3522,33 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     return res.rows.length ? res.rows[0].artifact_json : null;
   };
 
-	  store.listArtifacts = async function listArtifacts({
-	    tenantId = DEFAULT_TENANT_ID,
-	    jobId = null,
-	    artifactType = null,
-	    sourceEventId = null,
-	    beforeCreatedAt = null,
-	    beforeArtifactId = null,
-	    includeDbMeta = false,
-	    limit = 200,
-	    offset = 0
-	  } = {}) {
-	    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
-	    if (jobId !== null) assertNonEmptyString(jobId, "jobId");
-	    if (artifactType !== null) assertNonEmptyString(artifactType, "artifactType");
-	    if (sourceEventId !== null) assertNonEmptyString(sourceEventId, "sourceEventId");
-	    if (beforeCreatedAt !== null) assertNonEmptyString(beforeCreatedAt, "beforeCreatedAt");
-	    if (beforeArtifactId !== null) assertNonEmptyString(beforeArtifactId, "beforeArtifactId");
-	    if (includeDbMeta !== false && includeDbMeta !== true) throw new TypeError("includeDbMeta must be a boolean");
-	    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
-	    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+  store.listArtifacts = async function listArtifacts({
+    tenantId = DEFAULT_TENANT_ID,
+    jobId = null,
+    jobIds = null,
+    artifactType = null,
+    sourceEventId = null,
+    beforeCreatedAt = null,
+    beforeArtifactId = null,
+    includeDbMeta = false,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (jobId !== null) assertNonEmptyString(jobId, "jobId");
+    if (jobIds !== null && jobIds !== undefined) {
+      if (!Array.isArray(jobIds)) throw new TypeError("jobIds must be null or an array");
+      for (const value of jobIds) assertNonEmptyString(value, "jobIds[]");
+    }
+    if (artifactType !== null) assertNonEmptyString(artifactType, "artifactType");
+    if (sourceEventId !== null) assertNonEmptyString(sourceEventId, "sourceEventId");
+    if (beforeCreatedAt !== null) assertNonEmptyString(beforeCreatedAt, "beforeCreatedAt");
+    if (beforeArtifactId !== null) assertNonEmptyString(beforeArtifactId, "beforeArtifactId");
+    if (includeDbMeta !== false && includeDbMeta !== true) throw new TypeError("includeDbMeta must be a boolean");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
 
-	    const safeLimit = Math.min(1000, limit);
+    const safeLimit = Math.min(1000, limit);
     const safeOffset = offset;
 
     const params = [tenantId];
@@ -2467,50 +3557,56 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       params.push(String(jobId));
       where.push(`job_id = $${params.length}`);
     }
-	    if (artifactType !== null) {
-	      params.push(String(artifactType));
-	      where.push(`artifact_type = $${params.length}`);
-	    }
-	    if (sourceEventId !== null) {
-	      params.push(String(sourceEventId));
-	      where.push(`source_event_id = $${params.length}`);
-	    }
-	    if (beforeCreatedAt !== null || beforeArtifactId !== null) {
-	      if (beforeCreatedAt === null || beforeArtifactId === null) {
-	        throw new TypeError("beforeCreatedAt and beforeArtifactId must be provided together");
-	      }
-	      // ORDER BY created_at DESC, artifact_id DESC
-	      // Seek pagination condition: return rows strictly "after" the cursor in that ordering.
-	      params.push(String(beforeCreatedAt));
-	      params.push(String(beforeArtifactId));
-	      where.push(`(created_at < $${params.length - 1} OR (created_at = $${params.length - 1} AND artifact_id < $${params.length}))`);
-	    }
-	    params.push(safeLimit);
-	    params.push(safeOffset);
+    if (jobIds !== null && jobIds !== undefined) {
+      const values = Array.from(new Set(jobIds.map((v) => String(v))));
+      if (values.length === 0) return [];
+      params.push(values);
+      where.push(`job_id = ANY($${params.length}::text[])`);
+    }
+    if (artifactType !== null) {
+      params.push(String(artifactType));
+      where.push(`artifact_type = $${params.length}`);
+    }
+    if (sourceEventId !== null) {
+      params.push(String(sourceEventId));
+      where.push(`source_event_id = $${params.length}`);
+    }
+    if (beforeCreatedAt !== null || beforeArtifactId !== null) {
+      if (beforeCreatedAt === null || beforeArtifactId === null) {
+        throw new TypeError("beforeCreatedAt and beforeArtifactId must be provided together");
+      }
+      // ORDER BY created_at DESC, artifact_id DESC
+      // Seek pagination condition: return rows strictly "after" the cursor in that ordering.
+      params.push(String(beforeCreatedAt));
+      params.push(String(beforeArtifactId));
+      where.push(`(created_at < $${params.length - 1} OR (created_at = $${params.length - 1} AND artifact_id < $${params.length}))`);
+    }
+    params.push(safeLimit);
+    params.push(safeOffset);
 
-	    if (includeDbMeta) {
-	      const res = await pool.query(
-	        `SELECT artifact_json, artifact_id,
-	            to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_text
-	          FROM artifacts WHERE ${where.join(
-	          " AND "
-	        )} ORDER BY created_at DESC, artifact_id DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
-	        params
-	      );
-	      return res.rows.map((r) => ({
-	        artifact: r.artifact_json,
-	        db: { createdAt: String(r.created_at_text), artifactId: String(r.artifact_id) }
-	      }));
-	    }
+    if (includeDbMeta) {
+      const res = await pool.query(
+        `SELECT artifact_json, artifact_id,
+            to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_at_text
+          FROM artifacts WHERE ${where.join(
+          " AND "
+        )} ORDER BY created_at DESC, artifact_id DESC LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params
+      );
+      return res.rows.map((r) => ({
+        artifact: r.artifact_json,
+        db: { createdAt: String(r.created_at_text), artifactId: String(r.artifact_id) }
+      }));
+    }
 
-	    const res = await pool.query(
-	      `SELECT artifact_json FROM artifacts WHERE ${where.join(" AND ")} ORDER BY created_at DESC, artifact_id DESC LIMIT $${params.length - 1} OFFSET $${
-	        params.length
-	      }`,
-	      params
-	    );
-	    return res.rows.map((r) => r.artifact_json);
-	  };
+    const res = await pool.query(
+      `SELECT artifact_json FROM artifacts WHERE ${where.join(" AND ")} ORDER BY created_at DESC, artifact_id DESC LIMIT $${params.length - 1} OFFSET $${
+        params.length
+      }`,
+      params
+    );
+    return res.rows.map((r) => r.artifact_json);
+  };
 
   store.createDelivery = async function createDelivery({ tenantId = DEFAULT_TENANT_ID, delivery }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);

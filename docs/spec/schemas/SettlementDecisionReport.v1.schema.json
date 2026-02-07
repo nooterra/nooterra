@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/SettlementDecisionReport.v1.schema.json",
+  "title": "SettlementDecisionReport.v1",
+  "type": "object",
+  "required": ["schemaVersion", "decision", "decidedAt", "invoiceBundle", "policy", "verification", "tool", "reportHash", "signature", "signerKeyId", "signedAt"],
+  "properties": {
+    "schemaVersion": { "const": "SettlementDecisionReport.v1" },
+    "decision": { "enum": ["approve", "hold"] },
+    "decidedAt": { "type": "string" },
+    "invoiceBundle": {
+      "type": "object",
+      "required": ["manifestHash", "headAttestationHash"],
+      "properties": {
+        "manifestHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "headAttestationHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "policy": { "type": "object" },
+    "verification": {
+      "type": "object",
+      "required": ["ok", "verificationOk", "mode", "errorCodes", "warningCodes"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "verificationOk": { "type": "boolean" },
+        "mode": {
+          "type": "object",
+          "required": ["strict", "failOnWarnings"],
+          "properties": {
+            "strict": { "type": "boolean" },
+            "failOnWarnings": { "type": "boolean" }
+          }
+        },
+        "errorCodes": { "type": "array", "items": { "type": "string" } },
+        "warningCodes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version", "commit"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": ["string", "null"] },
+        "commit": { "type": ["string", "null"] }
+      }
+    },
+    "actor": {
+      "type": ["object", "null"],
+      "properties": {
+        "email": { "type": ["string", "null"] },
+        "auth": { "type": ["object", "null"] },
+        "client": { "type": ["object", "null"] }
+      }
+    },
+    "reportHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "signature": { "type": "string" },
+    "signerKeyId": { "type": "string" },
+    "signedAt": { "type": "string" }
+  }
+}
+

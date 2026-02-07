@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/ProduceCliOutput.v1.schema.json",
+  "title": "ProduceCliOutput.v1",
+  "type": "object",
+  "required": ["schemaVersion", "tool", "mode", "target", "ok", "produceOk", "errors", "warnings", "result"],
+  "properties": {
+    "schemaVersion": { "const": "ProduceCliOutput.v1" },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": ["string", "null"] },
+        "commit": { "type": ["string", "null"], "pattern": "^[0-9a-f]{7,64}$" }
+      }
+    },
+    "mode": {
+      "type": "object",
+      "required": ["deterministic", "now"],
+      "properties": {
+        "deterministic": { "type": "boolean" },
+        "now": { "type": ["string", "null"] }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["kind", "out"],
+      "properties": {
+        "kind": { "type": ["string", "null"] },
+        "out": { "type": ["string", "null"] }
+      }
+    },
+    "ok": { "type": "boolean" },
+    "produceOk": { "type": "boolean" },
+    "verifyAfter": {
+      "type": "object",
+      "required": ["ok", "exitCode", "output"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "exitCode": { "type": "integer" },
+        "output": {}
+      }
+    },
+    "errors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "path", "message", "detail"],
+        "properties": {
+          "code": { "type": "string" },
+          "causeKind": {
+            "type": "string",
+            "enum": ["signer", "plugin", "verify", "input", "io", "internal"]
+          },
+          "causeCode": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "message": { "type": ["string", "null"] },
+          "detail": {}
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "path", "message", "detail"],
+        "properties": {
+          "code": { "type": "string" },
+          "causeKind": {
+            "type": "string",
+            "enum": ["signer", "plugin", "verify", "input", "io", "internal"]
+          },
+          "causeCode": { "type": "string" },
+          "path": { "type": ["string", "null"] },
+          "message": { "type": ["string", "null"] },
+          "detail": {}
+        }
+      }
+    },
+    "result": {
+      "type": ["object", "null"],
+      "required": [
+        "bundleDir",
+        "type",
+        "tenantId",
+        "jobId",
+        "period",
+        "basis",
+        "protocol",
+        "manifestHash",
+        "attestationHash"
+      ],
+      "properties": {
+        "bundleDir": { "type": ["string", "null"] },
+        "type": { "type": ["string", "null"] },
+        "tenantId": { "type": ["string", "null"] },
+        "jobId": { "type": ["string", "null"] },
+        "period": { "type": ["string", "null"] },
+        "basis": { "type": ["string", "null"] },
+        "protocol": { "type": ["string", "null"] },
+        "manifestHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "attestationHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

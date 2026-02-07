@@ -40,7 +40,10 @@ async function runCli(args) {
   const stderr = [];
   proc.stdout.on("data", (d) => stdout.push(d));
   proc.stderr.on("data", (d) => stderr.push(d));
-  const code = await new Promise((resolve) => proc.on("exit", resolve));
+  const code = await new Promise((resolve, reject) => {
+    proc.on("error", reject);
+    proc.on("close", (code) => resolve(code ?? 1));
+  });
   return { code, stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8") };
 }
 

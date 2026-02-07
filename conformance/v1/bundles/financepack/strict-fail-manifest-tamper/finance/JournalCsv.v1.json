@@ -1,0 +1,1 @@
+{"accountMapHash":"h_map_fixture","artifactHash":"7f1df86d0cd81db6e108fbaf0d0a619fa3d3dbb969ee78c36a79dd72a59e5da3","artifactId":"csv_fixture","artifactType":"JournalCsv.v1","basis":"settledAt","csv":"a,b\n1,2\n","csvSha256":"492d5ea496056f1a6a6592241032fab764c321596317930b4fa0e1e8bc3b7470","period":"2026-01","schemaVersion":"JournalCsv.v1","tenantId":"tenant_fixture"}

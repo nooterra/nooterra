@@ -12,7 +12,8 @@
       "required": ["name", "version"],
       "properties": {
         "name": { "const": "settld" },
-        "version": { "type": ["string", "null"] }
+        "version": { "type": ["string", "null"] },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{7,64}$" }
       }
     },
     "warnings": {
@@ -31,7 +32,8 @@
               "MISSING_GOVERNANCE_SNAPSHOT_LENIENT",
               "UNSIGNED_REPORT_LENIENT",
               "VERIFICATION_REPORT_MISSING_LENIENT",
-              "TOOL_VERSION_UNKNOWN"
+              "TOOL_VERSION_UNKNOWN",
+              "TOOL_COMMIT_UNKNOWN"
             ]
           },
           "message": { "type": ["string", "null"] },

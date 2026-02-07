@@ -1,0 +1,18 @@
+Subject: Verified invoice link (evidence-backed)
+
+Hi,
+
+Here is your verified invoice link:
+<PASTE_MAGIC_LINK_HERE>
+
+This link provides:
+- Green/Amber/Red verification status
+- Invoice totals + line item summary
+- Stable error/warning codes when something fails
+- Downloads for audit/offline replay (bundle ZIP + deterministic verification JSON)
+
+If you need to re-verify offline, download the bundle ZIP from the page and run your verifier under your trust policy.
+
+Thanks,
+<YOUR_NAME>
+

@@ -1,0 +1,12 @@
+Epic Key,Summary,Description,Owner,Priority,Labels
+STLD-E1,R1 Transaction Core Hardening,"Harden identity, marketplace, run verification, settlement, analytics, and dispute flows into a production release candidate.",Backend + QA,Highest,"release1,core,determinism"
+STLD-E2,External Money Rails + Reconciliation,"Move from stub rails to real provider adapters with deterministic reconciliation, mismatch handling, and finance operations tooling.",Backend + DevOps,Highest,"money-rails,reconciliation,release1"
+STLD-E3,Escrow + Netting Engine v1,Ship high-frequency escrow and deterministic netting windows for microtransactions with replay-safe ledgers.,Backend + Tech Lead,Highest,"escrow,netting,microtransactions"
+STLD-E4,Arbitration Layer v1,"Add arbiter assignment, verdict artifacts, and appeal lifecycles with strict evidence linkage.",Backend + QA,High,"arbitration,disputes,release1"
+STLD-E5,Policy + Delegation Control Plane,Deliver versioned policy rollout UX and delegation/org-auth controls including key rotation and revocation paths.,Frontend + Backend,High,"policy,delegation,auth,release1"
+STLD-E6,Plugin + Privacy Platform,Launch verifier plugin registry/sandbox and selective-disclosure artifacts for privacy-aware verification.,Tech Lead + Backend,High,"plugins,privacy,release2"
+STLD-E7,"Reliability, Scale, and SRE","Reach release SLOs, improve incident readiness, and validate throughput targets for autonomous transaction workloads.",DevOps + QA,Highest,"sre,observability,scale"
+STLD-E8,SDK and Developer Adoption,"Ship first-class SDK flows, examples, onboarding docs, and integration templates to become the default developer standard.",SDK/DevEx + PM,High,"sdk,devex,adoption"
+STLD-E9,Commercialization and Billing,"Implement SaaS metering, pricing plans, invoicing, and usage controls that convert adoption into recurring revenue.",PM + Backend,Highest,"pricing,billing,revenue"
+STLD-E10,GTM Pilots and Customer Acquisition,"Run targeted pilots, convert design partners, and establish repeatable demand generation for release expansion.",GTM + PM,Highest,"gtm,pilots,sales,marketing"
+STLD-E11,Autonomous Network Activation,"Convert the platform from release-ready components into a live autonomous transaction network with production rails, policy-safe governance, and lighthouse customer throughput.",Orchestrator + PM,Highest,"network,launch,autonomy,revenue"

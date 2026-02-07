@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "ArbitrationVerdict.v1",
+  "verdictId": "arb_verdict_20260207_0001",
+  "caseId": "arb_case_20260207_0001",
+  "tenantId": "tenant_vectors",
+  "runId": "run_vectors_0001",
+  "settlementId": "setl_run_vectors_0001",
+  "disputeId": "dsp_run_vectors_0001",
+  "arbiterAgentId": "agt_arbiter_0001",
+  "outcome": "partial",
+  "releaseRatePct": 60,
+  "rationale": "Evidence confirms partial completion; release 60% and refund the remainder.",
+  "evidenceRefs": [
+    "artifact://proof/run_vectors_0001/report.json",
+    "artifact://marketplace/disputes/dsp_run_vectors_0001/evidence_02.json"
+  ],
+  "issuedAt": "2026-02-07T00:15:00.000Z",
+  "appealRef": {
+    "appealCaseId": "arb_case_20260208_0002",
+    "parentVerdictId": "arb_verdict_20260206_0012",
+    "reason": "Parent verdict superseded after formal appeal filing."
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "signerKeyId": "key_arbiter_0001",
+    "verdictHash": "4e6b2475878aafaef42d0cb94d8e631f932db09957ea72a6f9a34753220d4fcb",
+    "signature": "m4q2iD6n5J9rL6QmFJ2x0vQfV0dN0uU1V3V9M3rG8yN7n5TzB2W4p0m8l7Qx2k9h5x6j8m1r9p4s2t6u0v3w=="
+  },
+  "revision": 1,
+  "createdAt": "2026-02-07T00:15:00.000Z",
+  "updatedAt": "2026-02-07T00:15:00.000Z"
+}

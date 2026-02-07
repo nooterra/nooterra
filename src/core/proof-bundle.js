@@ -17,6 +17,7 @@ import {
 } from "./governance-policy.js";
 import { REVOCATION_LIST_SCHEMA_V1, buildRevocationListV1Core, signRevocationListV1, validateRevocationListV1 } from "./revocation-list.js";
 import { buildTimestampProofV1 } from "./timestamp-proof.js";
+import { normalizeCommitSha, readToolCommitBestEffort, readToolVersionBestEffort } from "./tool-provenance.js";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -170,16 +171,7 @@ function parseJsonlFromBytes(bytes) {
   return out;
 }
 
-function readRepoVersionBestEffort() {
-  try {
-    const p = path.resolve(process.cwd(), "SETTLD_VERSION");
-    const raw = fs.readFileSync(p, "utf8");
-    const v = String(raw).trim();
-    return v || null;
-  } catch {
-    return null;
-  }
-}
+// NOTE: tool provenance derivation lives in src/core/tool-provenance.js
 
 function findSignerGovernanceEventRef({ bundleFiles, keyId }) {
   if (!(bundleFiles instanceof Map)) return null;
@@ -202,15 +194,17 @@ function findSignerGovernanceEventRef({ bundleFiles, keyId }) {
   return null;
 }
 
-function warningsWithToolVersion({ warnings, toolVersion }) {
-  const resolved = typeof toolVersion === "string" && toolVersion.trim() ? toolVersion.trim() : null;
+function warningsWithToolIdentity({ warnings, toolVersion, toolCommit }) {
+  const resolvedVersion = typeof toolVersion === "string" && toolVersion.trim() ? toolVersion.trim() : null;
+  const resolvedCommit = normalizeCommitSha(toolCommit) ?? readToolCommitBestEffort();
   const out = [];
   if (warnings !== null && warnings !== undefined) {
     if (!Array.isArray(warnings)) throw new TypeError("warnings must be an array");
     out.push(...warnings);
   }
-  if (!resolved) out.push({ code: VERIFICATION_WARNING_CODE.TOOL_VERSION_UNKNOWN });
-  return { resolved, warnings: out };
+  if (!resolvedVersion) out.push({ code: VERIFICATION_WARNING_CODE.TOOL_VERSION_UNKNOWN });
+  if (!resolvedCommit) out.push({ code: VERIFICATION_WARNING_CODE.TOOL_COMMIT_UNKNOWN });
+  return { version: resolvedVersion, commit: resolvedCommit ?? undefined, warnings: out };
 }
 
 function buildVerificationReportV1ForProofBundle({
@@ -224,7 +218,8 @@ function buildVerificationReportV1ForProofBundle({
   timestampAuthoritySigner = null,
   bundleFiles,
   warnings,
-  toolVersion
+  toolVersion,
+  toolCommit
 } = {}) {
   assertNonEmptyString(kind, "kind");
   assertNonEmptyString(tenantId, "tenantId");
@@ -235,7 +230,7 @@ function buildVerificationReportV1ForProofBundle({
   const signerKeyId = signer?.keyId && typeof signer.keyId === "string" && signer.keyId.trim() ? signer.keyId : null;
   const signerScope = signerKeyId ? (signer?.scope ?? "global") : null;
   const signerGovernanceEventRef = signerKeyId ? findSignerGovernanceEventRef({ bundleFiles, keyId: signerKeyId }) : null;
-  const tool = warningsWithToolVersion({ warnings, toolVersion: toolVersion ?? readRepoVersionBestEffort() });
+  const tool = warningsWithToolIdentity({ warnings, toolVersion: toolVersion ?? readToolVersionBestEffort(), toolCommit });
   const signedAt = generatedAt;
 
   const coreNoProof = stripUndefinedDeep({
@@ -243,7 +238,8 @@ function buildVerificationReportV1ForProofBundle({
     profile: "strict",
     tool: {
       name: "settld",
-      version: tool.resolved
+      version: tool.version,
+      commit: tool.commit
     },
     warnings: normalizeVerificationWarnings(tool.warnings),
     signer: signerKeyId
@@ -554,6 +550,7 @@ export function buildJobProofBundleV1({
   verificationReportSigner = null,
   timestampAuthoritySigner = null,
   toolVersion = null,
+  toolCommit = null,
   requireHeadAttestation = false,
   generatedAt
 } = {}) {
@@ -578,6 +575,7 @@ export function buildJobProofBundleV1({
   if (verificationReportSigner !== null && typeof verificationReportSigner !== "object") throw new TypeError("verificationReportSigner must be null or an object");
   if (timestampAuthoritySigner !== null && typeof timestampAuthoritySigner !== "object") throw new TypeError("timestampAuthoritySigner must be null or an object");
   if (toolVersion !== null && typeof toolVersion !== "string") throw new TypeError("toolVersion must be null or a string");
+  if (toolCommit !== null && typeof toolCommit !== "string") throw new TypeError("toolCommit must be null or a string");
   if (requireHeadAttestation !== true && requireHeadAttestation !== false) throw new TypeError("requireHeadAttestation must be a boolean");
   assertNonEmptyString(generatedAt, "generatedAt");
 
@@ -830,6 +828,7 @@ export function buildJobProofBundleV1({
       signer: reportSigner,
       timestampAuthoritySigner,
       toolVersion,
+      toolCommit,
       bundleFiles: files
     });
     files.set("verify/verification_report.json", new TextEncoder().encode(`${canonicalJsonStringify(vr)}\n`));
@@ -867,6 +866,7 @@ export function buildMonthProofBundleV1({
   verificationReportSigner = null,
   timestampAuthoritySigner = null,
   toolVersion = null,
+  toolCommit = null,
   requireHeadAttestation = false,
   generatedAt
 } = {}) {
@@ -891,6 +891,7 @@ export function buildMonthProofBundleV1({
   if (verificationReportSigner !== null && typeof verificationReportSigner !== "object") throw new TypeError("verificationReportSigner must be null or an object");
   if (timestampAuthoritySigner !== null && typeof timestampAuthoritySigner !== "object") throw new TypeError("timestampAuthoritySigner must be null or an object");
   if (toolVersion !== null && typeof toolVersion !== "string") throw new TypeError("toolVersion must be null or a string");
+  if (toolCommit !== null && typeof toolCommit !== "string") throw new TypeError("toolCommit must be null or a string");
   if (requireHeadAttestation !== true && requireHeadAttestation !== false) throw new TypeError("requireHeadAttestation must be a boolean");
   assertNonEmptyString(generatedAt, "generatedAt");
 
@@ -1132,6 +1133,7 @@ export function buildMonthProofBundleV1({
       signer: reportSigner,
       timestampAuthoritySigner,
       toolVersion,
+      toolCommit,
       bundleFiles: files
     });
     files.set("verify/verification_report.json", new TextEncoder().encode(`${canonicalJsonStringify(vr)}\n`));

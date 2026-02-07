@@ -58,6 +58,7 @@ class SettldClient:
         tenant_id: str,
         protocol: str = "1.0",
         api_key: Optional[str] = None,
+        x_api_key: Optional[str] = None,
         user_agent: Optional[str] = None,
         timeout_seconds: float = 30.0,
     ) -> None:
@@ -65,6 +66,7 @@ class SettldClient:
         self.tenant_id = _assert_non_empty_string(tenant_id, "tenant_id")
         self.protocol = protocol
         self.api_key = api_key
+        self.x_api_key = x_api_key
         self.user_agent = user_agent
         self.timeout_seconds = timeout_seconds
 
@@ -90,6 +92,8 @@ class SettldClient:
             headers["user-agent"] = self.user_agent
         if self.api_key:
             headers["authorization"] = f"Bearer {self.api_key}"
+        if self.x_api_key:
+            headers["x-api-key"] = str(self.x_api_key)
         if idempotency_key:
             headers["x-idempotency-key"] = str(idempotency_key)
         if expected_prev_chain_hash:
@@ -196,6 +200,296 @@ class SettldClient:
     def get_run_settlement(self, run_id: str, **opts: Any) -> Dict[str, Any]:
         _assert_non_empty_string(run_id, "run_id")
         return self._request("GET", f"/runs/{parse.quote(run_id, safe='')}/settlement", **opts)
+
+    def get_run_settlement_policy_replay(self, run_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(run_id, "run_id")
+        return self._request("GET", f"/runs/{parse.quote(run_id, safe='')}/settlement/policy-replay", **opts)
+
+    def resolve_run_settlement(self, run_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(run_id, "run_id")
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", f"/runs/{parse.quote(run_id, safe='')}/settlement/resolve", body=body, **opts)
+
+    def open_run_dispute(self, run_id: str, body: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(run_id, "run_id")
+        payload = {} if body is None else body
+        if not isinstance(payload, dict):
+            raise ValueError("body must be an object")
+        return self._request("POST", f"/runs/{parse.quote(run_id, safe='')}/dispute/open", body=payload, **opts)
+
+    def close_run_dispute(self, run_id: str, body: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(run_id, "run_id")
+        payload = {} if body is None else body
+        if not isinstance(payload, dict):
+            raise ValueError("body must be an object")
+        return self._request("POST", f"/runs/{parse.quote(run_id, safe='')}/dispute/close", body=payload, **opts)
+
+    def submit_run_dispute_evidence(self, run_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(run_id, "run_id")
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        _assert_non_empty_string(body.get("evidenceRef"), "body.evidenceRef")
+        return self._request("POST", f"/runs/{parse.quote(run_id, safe='')}/dispute/evidence", body=body, **opts)
+
+    def escalate_run_dispute(self, run_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(run_id, "run_id")
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        _assert_non_empty_string(body.get("escalationLevel"), "body.escalationLevel")
+        return self._request("POST", f"/runs/{parse.quote(run_id, safe='')}/dispute/escalate", body=body, **opts)
+
+    def create_marketplace_task(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/marketplace/tasks", body=body, **opts)
+
+    def list_marketplace_tasks(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        params = {}
+        if isinstance(query, dict):
+            for key in ("status", "capability", "posterAgentId", "limit", "offset"):
+                if query.get(key) is not None:
+                    params[key] = query.get(key)
+        suffix = f"?{parse.urlencode(params)}" if params else ""
+        return self._request("GET", f"/marketplace/tasks{suffix}", **opts)
+
+    def submit_marketplace_bid(self, task_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(task_id, "task_id")
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", f"/marketplace/tasks/{parse.quote(task_id, safe='')}/bids", body=body, **opts)
+
+    def list_marketplace_bids(self, task_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(task_id, "task_id")
+        params = {}
+        if isinstance(query, dict):
+            for key in ("status", "bidderAgentId", "limit", "offset"):
+                if query.get(key) is not None:
+                    params[key] = query.get(key)
+        suffix = f"?{parse.urlencode(params)}" if params else ""
+        return self._request("GET", f"/marketplace/tasks/{parse.quote(task_id, safe='')}/bids{suffix}", **opts)
+
+    def accept_marketplace_bid(self, task_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(task_id, "task_id")
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        _assert_non_empty_string(body.get("bidId"), "body.bidId")
+        return self._request("POST", f"/marketplace/tasks/{parse.quote(task_id, safe='')}/accept", body=body, **opts)
+
+    def get_tenant_analytics(self, tenant_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(tenant_id, "tenant_id")
+        params = {}
+        if isinstance(query, dict):
+            for key in ("month", "bucket", "limit"):
+                if query.get(key) is not None:
+                    params[key] = query.get(key)
+        suffix = f"?{parse.urlencode(params)}" if params else ""
+        return self._request("GET", f"/v1/tenants/{parse.quote(tenant_id, safe='')}/analytics{suffix}", **opts)
+
+    def get_tenant_trust_graph(self, tenant_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(tenant_id, "tenant_id")
+        params = {}
+        if isinstance(query, dict):
+            for key in ("month", "minRuns", "maxEdges"):
+                if query.get(key) is not None:
+                    params[key] = query.get(key)
+        suffix = f"?{parse.urlencode(params)}" if params else ""
+        return self._request("GET", f"/v1/tenants/{parse.quote(tenant_id, safe='')}/trust-graph{suffix}", **opts)
+
+    def list_tenant_trust_graph_snapshots(self, tenant_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(tenant_id, "tenant_id")
+        params = {}
+        if isinstance(query, dict) and query.get("limit") is not None:
+            params["limit"] = query.get("limit")
+        suffix = f"?{parse.urlencode(params)}" if params else ""
+        return self._request("GET", f"/v1/tenants/{parse.quote(tenant_id, safe='')}/trust-graph/snapshots{suffix}", **opts)
+
+    def create_tenant_trust_graph_snapshot(self, tenant_id: str, body: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(tenant_id, "tenant_id")
+        payload = {} if body is None else body
+        if not isinstance(payload, dict):
+            raise ValueError("body must be an object")
+        return self._request("POST", f"/v1/tenants/{parse.quote(tenant_id, safe='')}/trust-graph/snapshots", body=payload, **opts)
+
+    def diff_tenant_trust_graph(self, tenant_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(tenant_id, "tenant_id")
+        params = {}
+        if isinstance(query, dict):
+            for key in ("baseMonth", "compareMonth", "limit", "minRuns", "maxEdges", "includeUnchanged"):
+                if query.get(key) is not None:
+                    params[key] = query.get(key)
+        suffix = f"?{parse.urlencode(params)}" if params else ""
+        return self._request("GET", f"/v1/tenants/{parse.quote(tenant_id, safe='')}/trust-graph/diff{suffix}", **opts)
+
+    def first_paid_task(
+        self,
+        params: Dict[str, Any],
+        *,
+        idempotency_prefix: Optional[str] = None,
+        request_id_prefix: Optional[str] = None,
+        timeout_seconds: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        if not isinstance(params, dict):
+            raise ValueError("params must be an object")
+
+        poster_agent = params.get("poster_agent")
+        bidder_agent = params.get("bidder_agent")
+        if not isinstance(poster_agent, dict):
+            raise ValueError("params.poster_agent is required")
+        if not isinstance(bidder_agent, dict):
+            raise ValueError("params.bidder_agent is required")
+        _assert_non_empty_string(poster_agent.get("publicKeyPem"), "params.poster_agent.publicKeyPem")
+        _assert_non_empty_string(bidder_agent.get("publicKeyPem"), "params.bidder_agent.publicKeyPem")
+
+        step_prefix = _normalize_prefix(
+            idempotency_prefix,
+            f"sdk_first_paid_task_{int(time.time() * 1000):x}_{random.randint(0, 0xFFFFFF):06x}",
+        )
+        request_prefix = _normalize_prefix(request_id_prefix, _random_request_id())
+
+        def make_step_opts(step: str, **extra: Any) -> Dict[str, Any]:
+            out = {
+                "request_id": f"{request_prefix}_{step}",
+                "idempotency_key": f"{step_prefix}_{step}",
+                "timeout_seconds": timeout_seconds,
+            }
+            out.update(extra)
+            return out
+
+        poster_registration = self.register_agent(poster_agent, **make_step_opts("register_poster"))
+        poster_agent_id = poster_registration.get("body", {}).get("agentIdentity", {}).get("agentId")
+        _assert_non_empty_string(poster_agent_id, "poster_agent_id")
+
+        bidder_registration = self.register_agent(bidder_agent, **make_step_opts("register_bidder"))
+        bidder_agent_id = bidder_registration.get("body", {}).get("agentIdentity", {}).get("agentId")
+        _assert_non_empty_string(bidder_agent_id, "bidder_agent_id")
+
+        accepted_by_registration = None
+        accepted_by_agent_id = poster_agent_id
+        accepted_by_agent = params.get("accepted_by_agent")
+        if accepted_by_agent is not None:
+            if not isinstance(accepted_by_agent, dict):
+                raise ValueError("params.accepted_by_agent must be an object")
+            _assert_non_empty_string(accepted_by_agent.get("publicKeyPem"), "params.accepted_by_agent.publicKeyPem")
+            accepted_by_registration = self.register_agent(accepted_by_agent, **make_step_opts("register_accepting_agent"))
+            accepted_by_agent_id = accepted_by_registration.get("body", {}).get("agentIdentity", {}).get("agentId")
+            _assert_non_empty_string(accepted_by_agent_id, "accepted_by_agent_id")
+
+        payer_credit = params.get("payer_credit")
+        credit_result = None
+        if payer_credit is not None:
+            if not isinstance(payer_credit, dict):
+                raise ValueError("params.payer_credit must be an object")
+            amount_cents = payer_credit.get("amountCents")
+            if not isinstance(amount_cents, (int, float)) or amount_cents <= 0:
+                raise ValueError("params.payer_credit.amountCents must be a positive number")
+            credit_result = self.credit_agent_wallet(
+                poster_agent_id,
+                {
+                    "amountCents": int(amount_cents),
+                    "currency": payer_credit.get("currency", "USD"),
+                },
+                **make_step_opts("credit_poster_wallet"),
+            )
+
+        task_defaults = {
+            "taskId": f"task_{step_prefix}",
+            "title": "SDK paid task",
+            "capability": "general",
+            "posterAgentId": poster_agent_id,
+            "budgetCents": 1000,
+            "currency": "USD",
+        }
+        task_body = {**task_defaults, **(params.get("task") if isinstance(params.get("task"), dict) else {})}
+        task_body["posterAgentId"] = poster_agent_id
+        create_task = self.create_marketplace_task(task_body, **make_step_opts("create_task"))
+        task = create_task.get("body", {}).get("task", {}) if isinstance(create_task.get("body"), dict) else {}
+        task_id = task.get("taskId")
+        _assert_non_empty_string(task_id, "task_id")
+
+        bid_defaults = {
+            "bidId": f"bid_{step_prefix}",
+            "bidderAgentId": bidder_agent_id,
+            "amountCents": int(task_body.get("budgetCents", 1000)),
+            "currency": str(task_body.get("currency", "USD")),
+            "etaSeconds": 900,
+        }
+        bid_body = {**bid_defaults, **(params.get("bid") if isinstance(params.get("bid"), dict) else {})}
+        bid_body["bidderAgentId"] = bidder_agent_id
+        submit_bid = self.submit_marketplace_bid(task_id, bid_body, **make_step_opts("submit_bid"))
+        bid = submit_bid.get("body", {}).get("bid", {}) if isinstance(submit_bid.get("body"), dict) else {}
+        bid_id = bid.get("bidId")
+        _assert_non_empty_string(bid_id, "bid_id")
+
+        settlement_config = params.get("settlement") if isinstance(params.get("settlement"), dict) else {}
+        accept_defaults = {
+            "bidId": bid_id,
+            "acceptedByAgentId": accepted_by_agent_id,
+            "settlement": {
+                "payerAgentId": poster_agent_id,
+                "amountCents": int(bid_body.get("amountCents")),
+                "currency": str(bid_body.get("currency", task_body.get("currency", "USD"))),
+            },
+        }
+        accept_body = {**accept_defaults, **(params.get("accept") if isinstance(params.get("accept"), dict) else {})}
+        if not isinstance(accept_body.get("settlement"), dict):
+            accept_body["settlement"] = {}
+        accept_body["settlement"] = {**accept_defaults["settlement"], **accept_body["settlement"], **settlement_config}
+        accept_bid = self.accept_marketplace_bid(task_id, accept_body, **make_step_opts("accept_bid"))
+        accepted_body = accept_bid.get("body", {}) if isinstance(accept_bid.get("body"), dict) else {}
+        run = accepted_body.get("run", {}) if isinstance(accepted_body.get("run"), dict) else {}
+        run_id = run.get("runId")
+        _assert_non_empty_string(run_id, "run_id")
+
+        final_event = None
+        final_run = run
+        final_settlement = accepted_body.get("settlement")
+        if params.get("auto_complete", True):
+            prev_chain_hash = run.get("lastChainHash")
+            _assert_non_empty_string(prev_chain_hash, "run.lastChainHash")
+            completed_payload = dict(params.get("completed_payload") or {})
+            completed_payload.setdefault("outputRef", f"evidence://{run_id}/result.json")
+            if isinstance(params.get("completed_metrics"), dict):
+                completed_payload["metrics"] = params.get("completed_metrics")
+            elif "metrics" not in completed_payload:
+                completed_payload["metrics"] = {"settlementReleaseRatePct": 100}
+            completed = self.append_agent_run_event(
+                bidder_agent_id,
+                run_id,
+                {"type": "RUN_COMPLETED", "actor": {"type": "agent", "id": bidder_agent_id}, "payload": completed_payload},
+                expected_prev_chain_hash=prev_chain_hash,
+                **make_step_opts("run_completed"),
+            )
+            completed_body = completed.get("body", {}) if isinstance(completed.get("body"), dict) else {}
+            final_event = completed_body.get("event")
+            final_run = completed_body.get("run", final_run)
+            final_settlement = completed_body.get("settlement", final_settlement)
+
+        verification = self.get_run_verification(run_id, **make_step_opts("verification", idempotency_key=None))
+        settlement = self.get_run_settlement(run_id, **make_step_opts("settlement", idempotency_key=None))
+
+        return {
+            "ids": {
+                "poster_agent_id": poster_agent_id,
+                "bidder_agent_id": bidder_agent_id,
+                "accepted_by_agent_id": accepted_by_agent_id,
+                "task_id": task_id,
+                "bid_id": bid_id,
+                "run_id": run_id,
+            },
+            "poster_registration": poster_registration,
+            "bidder_registration": bidder_registration,
+            "accepted_by_registration": accepted_by_registration,
+            "payer_credit": credit_result,
+            "create_task": create_task,
+            "submit_bid": submit_bid,
+            "accept_bid": accept_bid,
+            "final_event": final_event,
+            "final_run": final_run,
+            "final_settlement": final_settlement,
+            "verification": verification,
+            "settlement": settlement,
+        }
 
     def first_verified_run(
         self,

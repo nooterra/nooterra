@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/MeteringReport.v1.schema.json",
+  "title": "MeteringReport.v1",
+  "type": "object",
+  "required": ["schemaVersion", "tenantId", "invoiceId", "generatedAt", "jobProof", "items", "evidenceRefs"],
+  "properties": {
+    "schemaVersion": { "const": "MeteringReport.v1" },
+    "tenantId": { "type": "string" },
+    "invoiceId": { "type": "string" },
+    "generatedAt": { "type": "string" },
+    "jobProof": {
+      "type": "object",
+      "required": ["embeddedPath", "manifestHash", "headAttestationHash"],
+      "properties": {
+        "embeddedPath": { "const": "payload/job_proof_bundle" },
+        "manifestHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "headAttestationHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "quantity"],
+        "properties": {
+          "code": { "type": "string" },
+          "quantity": { "type": "string", "pattern": "^[0-9]+$" }
+        }
+      }
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        }
+      }
+    }
+  }
+}
+

@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Frontend Workflow Builder"
+  short_description: "Build operator and buyer workflows"
+  default_prompt: "Use $ai-frontend-workflow-builder to implement workflow UIs from ticket specs."

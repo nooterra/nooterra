@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "RemoteSignerSignResponse.v1",
+  "requestId": "req_00000001",
+  "keyId": "key_example",
+  "algorithm": "ed25519",
+  "signatureBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+  "signerReceipt": "example-receipt"
+}

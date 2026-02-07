@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/TenantSettings.v2.schema.json",
+  "title": "TenantSettings.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "defaultMode", "retentionDays", "webhooks"],
+  "properties": {
+    "schemaVersion": { "const": "TenantSettings.v2" },
+    "defaultMode": { "enum": ["auto", "strict", "compat"] },
+    "governanceTrustRootsJson": {
+      "type": ["object", "null"],
+      "additionalProperties": { "type": "string" }
+    },
+    "pricingSignerKeysJson": {
+      "type": ["object", "null"],
+      "additionalProperties": { "type": "string" }
+    },
+    "trustedPricingSignerKeyIds": { "type": ["array", "null"], "items": { "type": "string" } },
+    "retentionDays": { "type": "integer", "minimum": 1, "maximum": 3650 },
+    "maxUploadBytesOverride": { "type": ["integer", "null"], "minimum": 1 },
+    "maxVerificationsPerMonth": { "type": ["integer", "null"], "minimum": 0 },
+    "maxStoredBundles": { "type": ["integer", "null"], "minimum": 0 },
+    "vendorPolicies": {
+      "type": ["object", "null"],
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "requiredMode": { "enum": ["auto", "strict", "compat"] },
+          "failOnWarnings": { "type": "boolean" },
+          "allowAmberApprovals": { "type": "boolean" },
+          "requiredPricingMatrixSignerKeyIds": { "type": ["array", "null"], "items": { "type": "string" } },
+          "requireProducerReceiptPresent": { "type": "boolean" },
+          "retentionDays": { "type": ["integer", "null"], "minimum": 1, "maximum": 3650 }
+        }
+      }
+    },
+    "contractPolicies": {
+      "type": ["object", "null"],
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "requiredMode": { "enum": ["auto", "strict", "compat"] },
+          "failOnWarnings": { "type": "boolean" },
+          "allowAmberApprovals": { "type": "boolean" },
+          "requiredPricingMatrixSignerKeyIds": { "type": ["array", "null"], "items": { "type": "string" } },
+          "requireProducerReceiptPresent": { "type": "boolean" },
+          "retentionDays": { "type": ["integer", "null"], "minimum": 1, "maximum": 3650 }
+        }
+      }
+    },
+    "buyerAuthEmailDomains": { "type": "array", "items": { "type": "string" } },
+    "buyerUserRoles": {
+      "type": ["object", "null"],
+      "additionalProperties": { "enum": ["admin", "approver", "viewer"] }
+    },
+    "buyerNotifications": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "emails": { "type": "array", "items": { "type": "string" } },
+        "deliveryMode": { "enum": ["smtp", "webhook", "record"] },
+        "webhookUrl": { "type": ["string", "null"] },
+        "webhookSecret": { "type": ["string", "null"] }
+      }
+    },
+    "autoDecision": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "approveOnGreen": { "type": "boolean" },
+        "approveOnAmber": { "type": "boolean" },
+        "holdOnRed": { "type": "boolean" },
+        "templateIds": { "type": ["array", "null"], "items": { "type": "string" } },
+        "actorName": { "type": "string" },
+        "actorEmail": { "type": "string" }
+      }
+    },
+    "paymentTriggers": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "deliveryMode": { "enum": ["record", "webhook"] },
+        "webhookUrl": { "type": ["string", "null"] },
+        "webhookSecret": { "type": ["string", "null"] }
+      }
+    },
+    "decisionAuthEmailDomains": { "type": "array", "items": { "type": "string" } },
+    "settlementDecisionSigner": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["signerKeyId"],
+      "properties": {
+        "signerKeyId": { "type": "string" },
+        "privateKeyPem": { "type": ["string", "null"] },
+        "remoteSignerUrl": { "type": ["string", "null"] },
+        "remoteSignerBearerToken": { "type": ["string", "null"] }
+      }
+    },
+    "webhooks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["url", "events", "enabled"],
+        "properties": {
+          "url": { "type": "string" },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "enum": ["verification.completed", "verification.failed", "decision.approved", "decision.held"] }
+          },
+          "secret": { "type": ["string", "null"] },
+          "enabled": { "type": "boolean" }
+        }
+      }
+    },
+    "rateLimits": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "uploadsPerHour": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "verificationViewsPerHour": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "decisionsPerHour": { "type": "integer", "minimum": 0, "maximum": 1000000 },
+        "otpRequestsPerHour": { "type": "integer", "minimum": 0, "maximum": 1000000 }
+      }
+    },
+    "artifactStorage": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "storeBundleZip": { "type": "boolean" },
+        "storePdf": { "type": "boolean" },
+        "precomputeMonthlyAuditPackets": { "type": "boolean" }
+      }
+    },
+    "archiveExportSink": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["type", "enabled"],
+      "properties": {
+        "type": { "const": "s3" },
+        "enabled": { "type": "boolean" },
+        "endpoint": { "type": ["string", "null"] },
+        "region": { "type": ["string", "null"] },
+        "bucket": { "type": ["string", "null"] },
+        "prefix": { "type": ["string", "null"] },
+        "pathStyle": { "type": ["boolean", "null"] },
+        "accessKeyId": { "type": ["string", "null"] },
+        "secretAccessKey": { "type": ["string", "null"] },
+        "sessionToken": { "type": ["string", "null"] },
+        "sse": { "enum": ["none", "aes256", "aws:kms"] },
+        "kmsKeyId": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

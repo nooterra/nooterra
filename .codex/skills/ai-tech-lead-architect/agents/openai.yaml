@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Tech Lead Architect"
+  short_description: "Own architecture and sequencing decisions"
+  default_prompt: "Use $ai-tech-lead-architect to define scalable implementation plans and tradeoffs."

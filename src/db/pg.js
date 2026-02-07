@@ -93,7 +93,14 @@ export async function createPgPool({ databaseUrl, schema = "public" } = {}) {
   const pool = new Pool({ connectionString: databaseUrl });
 
   if (schema !== "public") {
-    await pool.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(schema)}`);
+    try {
+      await pool.query(`CREATE SCHEMA ${quoteIdent(schema)}`);
+    } catch (err) {
+      const duplicateSchema = err?.code === "42P06" || err?.code === "23505";
+      if (!duplicateSchema) throw err;
+      const existsRes = await pool.query("SELECT 1 FROM pg_namespace WHERE nspname = $1 LIMIT 1", [schema]);
+      if (!existsRes.rows.length) throw err;
+    }
   }
 
   pool.on("connect", (client) => {

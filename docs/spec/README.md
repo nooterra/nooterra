@@ -13,6 +13,15 @@ These specs are written so an independent implementer can build a verifier witho
 ## Documents
 
 - `CANONICAL_JSON.md` — canonical JSON rules used before hashing/signing.
+- `VERSIONING.md` — tool vs protocol versioning policy (SemVer + protocol object evolution).
+- `REFERENCE_VERIFIER_BEHAVIOR.md` — filesystem/path/ordering rules to prevent cross-impl drift.
+- `REFERENCE_IMPLEMENTATIONS.md` — reference verifier implementations and conformance parity policy.
+- `THREAT_MODEL.md` — explicit threats, mitigations, and residual risks (evidence-backed).
+- `INVARIANTS.md` — checklist mapping protocol claims → spec → code → tests → codes.
+- `MONEY_RAIL_STATE_MACHINE.md` — deterministic payout/collection lifecycle and transition rules.
+- `ESCROW_NETTING_INVARIANTS.md` — deterministic escrow mutation, settlement partition, and netting invariants.
+- `CRYPTOGRAPHY.md` — crypto primitives + byte-level hashing/signing inventory.
+- `VERIFIER_ENVIRONMENT.md` — operational assumptions and hardening guidance.
 - `ProofBundleManifest.v1.md` — JobProof/MonthProof manifest + hashing contract.
 - `FinancePackBundleManifest.v1.md` — FinancePack manifest + hashing contract.
 - `BundleHeadAttestation.v1.md` — signed head commitment for bundles.
@@ -21,11 +30,53 @@ These specs are written so an independent implementer can build a verifier witho
 - `RevocationList.v1.md` — prospective revocation/rotation list (signed by governance root).
 - `TimestampProof.v1.md` — trustworthy signing time proof (for historical acceptance).
 - `VerificationReport.v1.md` — signed, machine-ingestible strict verification report.
+- `PricingMatrixSignatures.v2.md` — buyer signature surface for pricing terms in `InvoiceBundle.v1` (canonical JSON binding; recommended).
+- `PricingMatrixSignatures.v1.md` — legacy buyer signature surface (raw bytes binding).
+- `ClosePack.v1.md` — pre-dispute invoice package embedding `InvoiceBundle.v1` + evidence index.
+- `ClosePackManifest.v1.md` — ClosePack manifest + hashing contract.
+- `EvidenceIndex.v1.md` — deterministic evidence reference index for ClosePack.
+- `SlaDefinition.v1.md` / `SlaEvaluation.v1.md` — deterministic SLA rules + evaluation surfaces for ClosePack.
+- `AcceptanceCriteria.v1.md` / `AcceptanceEvaluation.v1.md` — deterministic acceptance rules + evaluation surfaces for ClosePack.
 - `VerifyCliOutput.v1.md` — `settld-verify --format json` machine output contract.
+- `VerifyAboutOutput.v1.md` — `settld-verify --about --format json` tool metadata contract.
+- `ProduceCliOutput.v1.md` — `settld-produce --format json` machine output contract.
+- `AgentIdentity.v1.md` — portable autonomous agent identity contract.
+- `AgentWallet.v1.md` — deterministic autonomous wallet snapshot contract.
+- `AgentRun.v1.md` — deterministic agent run snapshot contract.
+- `AgentEvent.v1.md` — append-only event envelope for agent runs.
+- `AgentRunSettlement.v1.md` — deterministic run escrow/settlement contract.
+- `ArbitrationCase.v1.md` — formal arbitration case contract with appeal linkage.
+- `ArbitrationVerdict.v1.md` — signed arbitration verdict contract with appeal references.
+- `AgentReputation.v1.md` — deterministic trust score snapshot derived from runs + settlement outcomes.
+- `AgentReputation.v2.md` — reputation with recency windows (`7d`, `30d`, `allTime`) for marketplace ranking.
+- `InteractionDirectionMatrix.v1.md` — frozen `4x4` directional interaction matrix (`agent|human|robot|machine`).
+- `TenantSettings.v2.md` — Magic Link / Verify Cloud tenant configuration contract (current).
+- `TenantSettings.v1.md` — legacy (still accepted for stored settings migration).
 - `WARNINGS.md` — warning codes (closed set) and semantics.
+- `ERRORS.md` — error codes (stable identifiers) and semantics.
+- `PRODUCER_ERRORS.md` — producer/tooling error codes (stable identifiers) and semantics.
 - `STRICTNESS.md` — strict vs non-strict verification contract.
+- `TRUST_ANCHORS.md` — verifier trust anchors and out-of-band key injection.
+- `TOOL_PROVENANCE.md` — tool version/commit derivation rules.
+- `REMOTE_SIGNER.md` — tooling contract for remote/delegated signing (no private keys on disk).
+- `RemoteSignerRequest.v1.md` / `RemoteSignerResponse.v1.md` — versioned stdio wrapper contract for process-based signers.
+- `SIGNER_PROVIDER_PLUGIN.md` — tooling contract for signer provider plugins (KMS/HSM/Vault integrations).
+- `ReleaseIndex.v1.md` — signed release manifest (artifact authenticity).
+- `ReleaseIndexSignatures.v1.md` — detached multi-signature wrapper for `ReleaseIndex.v1`.
+- `ReleaseTrust.v1.md` — trusted release signing keys (legacy/simple mapping).
+- `ReleaseTrust.v2.md` — trusted release signing keys with rotation/revocation + quorum.
+- `SUPPLY_CHAIN.md` — release-channel threat model and verification procedure.
 
 ## Schemas + examples
 
 - `schemas/` contains JSON Schema for the on-disk JSON documents.
 - `examples/` contains minimal example instances (illustrative, not authoritative vectors).
+
+## Quickstart
+
+See `docs/QUICKSTART_VERIFY.md` for a CI-friendly verifier quickstart using `settld-verify --format json`.
+
+## Conformance + audit evidence
+
+- Conformance oracle: `conformance/v1/README.md`
+- Audit packet (specs + vectors + conformance + checksums): `npm run audit:packet`

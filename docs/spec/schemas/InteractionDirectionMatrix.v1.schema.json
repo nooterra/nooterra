@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/InteractionDirectionMatrix.v1.schema.json",
+  "title": "InteractionDirectionMatrix.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "entityTypes", "directions", "directionalCount"],
+  "properties": {
+    "schemaVersion": {
+      "const": "InteractionDirectionMatrix.v1"
+    },
+    "entityTypes": {
+      "const": ["agent", "human", "robot", "machine"]
+    },
+    "directions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent", "human", "robot", "machine"],
+      "properties": {
+        "agent": { "$ref": "#/$defs/row" },
+        "human": { "$ref": "#/$defs/row" },
+        "robot": { "$ref": "#/$defs/row" },
+        "machine": { "$ref": "#/$defs/row" }
+      }
+    },
+    "directionalCount": {
+      "const": 16
+    }
+  },
+  "$defs": {
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agent", "human", "robot", "machine"],
+      "properties": {
+        "agent": { "const": true },
+        "human": { "const": true },
+        "robot": { "const": true },
+        "machine": { "const": true }
+      }
+    }
+  }
+}

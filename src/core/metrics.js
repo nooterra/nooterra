@@ -50,6 +50,16 @@ export function createMetrics() {
     return { metric, pairs, key: labelKey ? `${metric}|${labelKey}` : metric };
   }
 
+  function declareCounter(name, labels) {
+    const { key } = keyFor(name, labels);
+    if (!counters.has(key)) counters.set(key, 0);
+  }
+
+  function declareGauge(name, labels) {
+    const { key } = keyFor(name, labels);
+    if (!gauges.has(key)) gauges.set(key, 0);
+  }
+
   function incCounter(name, labels, inc = 1) {
     const { key } = keyFor(name, labels);
     const n = Number(inc);
@@ -111,6 +121,8 @@ export function createMetrics() {
   }
 
   return {
+    declareCounter,
+    declareGauge,
     incCounter,
     setGauge,
     getCounter,
@@ -119,4 +131,3 @@ export function createMetrics() {
     renderPrometheusText
   };
 }
-

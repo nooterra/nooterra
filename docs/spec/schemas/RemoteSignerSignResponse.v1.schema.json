@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/RemoteSignerSignResponse.v1.schema.json",
+  "title": "RemoteSignerSignResponse.v1",
+  "type": "object",
+  "required": ["schemaVersion", "requestId", "keyId", "algorithm", "signatureBase64"],
+  "properties": {
+    "schemaVersion": { "const": "RemoteSignerSignResponse.v1" },
+    "requestId": { "type": ["string", "null"] },
+    "keyId": { "type": "string" },
+    "algorithm": { "enum": ["ed25519"] },
+    "signatureBase64": { "type": "string" },
+    "signerReceipt": { "type": ["string", "null"] }
+  }
+}
+

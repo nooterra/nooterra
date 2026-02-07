@@ -1,0 +1,285 @@
+FAILED
+FAIL_ON_WARNINGS
+MANIFEST_DUPLICATE_PATH
+MANIFEST_PATH_CASE_COLLISION
+MANIFEST_PATH_INVALID
+MANIFEST_SYMLINK_FORBIDDEN
+PRICING_MATRIX_SIGNATURE_INVALID
+PRICING_MATRIX_SIGNATURE_MISSING
+PRICING_MATRIX_SIGNATURE_PAYLOAD_MISMATCH
+PRICING_MATRIX_SIGNATURE_V1_BYTES_LEGACY_STRICT_REJECTED
+SETTLEMENT_DECISION_SIGNATURE_INVALID
+SETTLEMENT_DECISION_SIGNATURE_PAYLOAD_MISMATCH
+SIGNER_NOT_YET_VALID
+SIGNER_REVOKED
+SIGNER_ROTATED
+SIGNING_TIME_UNPROVABLE
+ZIP_COMPRESSION_RATIO_TOO_HIGH
+ZIP_DUPLICATE_ENTRY
+ZIP_ENCRYPTED_UNSUPPORTED
+ZIP_ENTRY_PATH_INVALID
+ZIP_ENTRY_PATH_TOO_LONG
+ZIP_EXTRACT_FAILED
+ZIP_FILE_TOO_LARGE
+ZIP_INTERNAL_ERROR
+ZIP_INVALID_CENTRAL_DIR
+ZIP_INVALID_ENTRY
+ZIP_INVALID_EOCD
+ZIP_LOCAL_HEADER_MISMATCH
+ZIP_OPEN_FAILED
+ZIP_SYMLINK_FORBIDDEN
+ZIP_TOO_MANY_ENTRIES
+ZIP_TOTAL_UNCOMPRESSED_TOO_LARGE
+ZIP_UNSUPPORTED_COMPRESSION
+ZIP_UNSUPPORTED_MULTI_DISK
+ZIP_UNSUPPORTED_ZIP64
+artifactHash mismatch
+artifactType mismatch
+attestation global governance head mismatch (chainHash)
+attestation global governance head mismatch (eventId)
+attestation invoiceBundle.attestationHash mismatch
+attestation invoiceBundle.manifestHash mismatch
+attestation job head mismatch (chainHash)
+attestation job head mismatch (eventId)
+attestation jobProof.attestationHash mismatch
+attestation jobProof.manifestHash mismatch
+attestation kind mismatch
+attestation manifestHash mismatch
+attestation missing heads
+attestation missing heads.invoiceBundle
+attestation missing heads.job
+attestation missing heads.jobProof
+attestation missing heads.month
+attestation missing heads.monthProof
+attestation missing signature fields
+attestation missing signer fields
+attestation month head mismatch (chainHash)
+attestation month head mismatch (eventId)
+attestation monthProof.attestationHash mismatch
+attestation monthProof.manifestHash mismatch
+attestation scope mismatch
+attestation scope.invoiceId mismatch
+attestation scope.period mismatch
+attestation signature invalid
+attestation signer key missing validFrom
+attestation signer key not valid
+attestation signer not authorized
+attestation tenant governance head mismatch (chainHash)
+attestation tenant governance head mismatch (eventId)
+attestation tenantId mismatch
+attestationHash mismatch
+bad signature
+bundle head attestation invalid
+closepack acceptance surfaces incomplete
+closepack acceptance_evaluation mismatch
+closepack evidence_index mismatch
+closepack invoiceBundle.embeddedPath invalid
+closepack invoiceBundle.headAttestationHash mismatch
+closepack invoiceBundle.manifestHash mismatch
+closepack sla surfaces incomplete
+closepack sla_evaluation mismatch
+declared head chainHash mismatch
+declared head eventId mismatch
+embedded invoice bundle verification failed
+event stream integrity invalid
+expected GLBatch.v1
+expected PartyStatement.v1
+failed to hash file
+failed to hash glBatch
+failed to hash partyStatement
+failed to hash settlement decision report
+financeAccountMapHash mismatch
+forfeit decisionEventRef mismatch
+forfeit decisionEventRef missing DECISION_RECORDED
+forfeit freshness check failed
+forfeit missing decision provenance
+forfeit stale at decision time
+glBatch artifactHash mismatch
+glBatch does not net to zero
+glBatchHash mismatch
+governance policy algorithms must be a non-empty array
+governance policy bundleHeadAttestationSigners must be an array
+governance policy does not allow ed25519
+governance policy missing signature fields
+governance policy revocationList invalid
+governance policy revocationList missing
+governance policy revocationList.path invalid
+governance policy signature invalid
+governance policy signerKeyId not trusted
+governance policy verificationReportSigners must be an array
+governance policyHash mismatch
+governance stream integrity invalid
+governance/global contains tenant-scoped event
+governance/tenant contains global-scoped event
+hold freshness check failed
+hold missing referenced PROOF_EVALUATED
+hold missingEvidence mismatch
+hold reasonCodes mismatch
+hold stale at decision time
+hold triggeringProofRef mismatch
+included entry ids mismatch
+incomplete governance/global stream files
+incomplete governance/tenant stream files
+invalid JSON
+invalid artifact JSON
+invalid attestation JSON
+invalid bundle head attestation JSON
+invalid governance revocation list
+invalid governance/policy.json
+invalid schemaVersion
+invalid verification report JSON
+invalid verification report subject
+invalid warning code
+invoice pricing code unknown
+invoiceClaim jobProof.embeddedPath mismatch
+invoiceClaim jobProof.headAttestationHash mismatch
+invoiceClaim jobProof.manifestHash mismatch
+invoiceClaim lineItems mismatch
+invoiceClaim totalCents invalid
+invoiceClaim totalCents mismatch
+job proof events missing
+job proof strict verification failed
+jobProofBundleHash mismatch
+jobProofHeadAttestationHash mismatch
+journalCsv.csvSha256 mismatch
+journalCsvArtifactHash mismatch
+journalCsvHash mismatch
+keyMetaByKeyId must be a Map
+list must be an object
+manifest missing manifestHash
+manifest missing required files
+manifestHash mismatch
+metering evidenceRef not in job proof manifest
+metering evidenceRef sha256 mismatch
+meteringReport jobProof binding missing
+meteringReport jobProof.embeddedPath mismatch
+meteringReport jobProof.headAttestationHash mismatch
+meteringReport jobProof.manifestHash mismatch
+missing artifactHash
+missing artifactType
+missing attestation/bundle_head_attestation.json
+missing events
+missing events/events.jsonl
+missing events/payload_material.jsonl
+missing evidence/evidence_index.json
+missing file
+missing glBatch artifactHash
+missing governance policy
+missing governance/global stream
+missing governance/policy.json
+missing governance/tenant stream
+missing job/snapshot.json
+missing keys/public_keys.json
+missing month keys/public_keys.json (PublicKeys.v1)
+missing or invalid keys/public_keys.json
+missing partyStatement artifactHash
+missing timestampProof
+missing verify/verification_report.json
+month proof strict verification failed
+monthProofBundleHash mismatch
+no governance policy rule for subjectType
+non-numeric posting total
+partyStatement artifactHash mismatch
+partyStatement basis mismatch
+partyStatement period mismatch
+partyStatement totalsByAccountId contains non-integer
+partyStatement totalsByAccountId missing
+payload_material length mismatch
+policy must be an object
+postings do not balance
+provenance refs invalid
+publicKeyByKeyId must be a Map
+reconcile.json mismatch
+reconcileReportHash mismatch
+release freshness check failed
+release missing referenced PROOF_EVALUATED
+release releasingProofRef mismatch
+release stale at decision time
+revocation list generatedAt missing
+revocation list hash mismatch
+revocation list listId missing
+revocation list missing signature fields
+revocation list must be an object
+revocation list revocations must be an array
+revocation list rotations must be an array
+revocation list signature invalid
+revocation list signerKeyId not trusted
+revocation listHash mismatch
+revocationList sha256 mismatch
+schemaVersion mismatch
+settlement decision invoiceBundle.headAttestationHash mismatch
+settlement decision invoiceBundle.manifestHash mismatch
+settlement decision report missing signature fields
+settlement decision report must be an object
+settlement decision signerKeyId not trusted
+settlement decision trusted buyer keys invalid
+settlement decision trusted buyer keys missing
+settlement forfeit ref missing SETTLEMENT_FORFEITED
+settlement forfeitEventChainHash mismatch
+settlement forfeitEventPayloadHash mismatch
+settlement freshness check failed
+settlement missing referenced PROOF_EVALUATED
+settlement settlementProofRef mismatch
+settlement stale at decision time
+sha256 mismatch
+signer key is not governed
+signer key purpose not allowed by policy
+signer keyId not allowed by policy
+signer scope not allowed by policy
+strict requires GovernancePolicy.v2
+strict requires trusted governance root keys
+strict requires trusted pricing signer keys
+tenant governance stream integrity invalid
+timestampProof messageHash invalid
+timestampProof messageHash mismatch
+timestampProof missing required fields
+timestampProof must be an object
+timestampProof signature invalid
+timestampProof signerKeyId not trusted
+totals mismatch
+trustedBuyerDecisionPublicKeyByKeyId must be a Map
+trustedGovernanceRootPublicKeyByKeyId must be a Map
+trustedPublicKeyByKeyId must be a Map
+unknown attestation signerKeyId
+unknown verification report signerKeyId
+unsupported acceptance criteria schemaVersion
+unsupported artifactType
+unsupported attestation schemaVersion
+unsupported bundle kind
+unsupported bundle type
+unsupported documentKind
+unsupported evidence index schemaVersion
+unsupported governance policy schemaVersion
+unsupported invoice claim schemaVersion
+unsupported keys schemaVersion
+unsupported manifest schemaVersion
+unsupported metering schemaVersion
+unsupported pricing matrix signatures schemaVersion
+unsupported pricing schemaVersion
+unsupported revocation list schemaVersion
+unsupported settlement decision report schemaVersion
+unsupported sla definition schemaVersion
+unsupported timestampProof kind
+unsupported timestampProof schemaVersion
+unsupported verification report profile
+unsupported verification report schemaVersion
+verification report bundleHeadAttestation.attestationHash mismatch
+verification report bundleHeadAttestation.attestationHash missing
+verification report invalid
+verification report missing bundleHeadAttestation
+verification report missing reportHash
+verification report missing signature
+verification report reportHash mismatch
+verification report signature invalid
+verification report signer key missing validFrom
+verification report signer key not valid
+verification report signer must be an object
+verification report signer not authorized
+verification report signer.keyId mismatch
+verification report signer.keyId missing
+verification report signer.scope invalid
+verification report signerKeyId not found in month keys
+verification report subject.manifestHash mismatch
+verification report subject.type mismatch
+warning must be an object
+warnings must be an array

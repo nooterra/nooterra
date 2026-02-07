@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "ReleaseTrust.v2",
+  "policy": {
+    "minSignatures": 2,
+    "requiredKeyIds": ["key_example_a"]
+  },
+  "keys": [
+    {
+      "keyId": "key_example_a",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=\n-----END PUBLIC KEY-----\n",
+      "notBeforeEpochSeconds": 0,
+      "comment": "example root A"
+    },
+    {
+      "keyId": "key_example_b",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb=\n-----END PUBLIC KEY-----\n",
+      "notBeforeEpochSeconds": 0,
+      "comment": "example root B"
+    }
+  ]
+}
+
