@@ -152,6 +152,18 @@ function operationRequestHash(normalizedInput) {
   return canonicalJsonStringify(normalized);
 }
 
+function operationStoreKey({ tenantId, operationId }) {
+  return canonicalJsonStringify(
+    normalizeForCanonicalJson(
+      {
+        tenantId,
+        operationId
+      },
+      { path: "$" }
+    )
+  );
+}
+
 function buildPostingsForOperation({ input }) {
   const payerAvailable = walletAvailableAccountId({ tenantId: input.tenantId, walletId: input.payerWalletId });
   const payerEscrow = walletEscrowAccountId({ tenantId: input.tenantId, walletId: input.payerWalletId });
@@ -266,7 +278,8 @@ export function applyEscrowOperation({ state, input }) {
 
   const normalizedInput = normalizeOperationInput(input, { now: state.now, currency: state.currency });
   const requestHash = operationRequestHash(normalizedInput);
-  const existing = state.operations.get(normalizedInput.operationId) ?? null;
+  const opStoreKey = operationStoreKey({ tenantId: normalizedInput.tenantId, operationId: normalizedInput.operationId });
+  const existing = state.operations.get(opStoreKey) ?? null;
   if (existing) {
     if (existing.requestHash !== requestHash) {
       throw conflictError("ESCROW_OPERATION_CONFLICT", "operationId was already used with a different request");
@@ -282,7 +295,7 @@ export function applyEscrowOperation({ state, input }) {
   const postingPlan = buildPostingsForOperation({ input: normalizedInput });
   ensureSufficientBalance({ state, input: normalizedInput, fromAccountId: postingPlan.fromAccountId });
 
-  const entryId = `escrow_${normalizedInput.operationId}`;
+  const entryId = `escrow:${normalizedInput.tenantId}:${normalizedInput.operationId}`;
   const entry = createJournalEntry({
     id: entryId,
     at: normalizedInput.at,
@@ -311,6 +324,6 @@ export function applyEscrowOperation({ state, input }) {
     }
   };
 
-  state.operations.set(normalizedInput.operationId, { requestHash, operation });
+  state.operations.set(opStoreKey, { requestHash, operation });
   return { state, operation: clone(operation), applied: true };
 }

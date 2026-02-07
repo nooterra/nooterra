@@ -139,6 +139,182 @@ test("escrow ledger primitives: duplicate operation id is idempotent and conflic
   );
 });
 
+test("escrow ledger primitives: failed hold is atomic and leaves state unchanged", () => {
+  const state = createEscrowLedger({
+    initialWalletBalances: [{ tenantId: "tenant_s0", walletId: "payer_atomic_hold", availableCents: 100 }]
+  });
+  const payerAvailableAccountId = walletAvailableAccountId({ tenantId: "tenant_s0", walletId: "payer_atomic_hold" });
+  const payerEscrowAccountId = walletEscrowAccountId({ tenantId: "tenant_s0", walletId: "payer_atomic_hold" });
+
+  assert.throws(
+    () =>
+      applyEscrowOperation({
+        state,
+        input: {
+          operationId: "esc_op_atomic_hold_fail_1",
+          tenantId: "tenant_s0",
+          type: ESCROW_OPERATION_TYPE.HOLD,
+          payerWalletId: "payer_atomic_hold",
+          amountCents: 101,
+          at: "2026-02-07T00:00:00.000Z"
+        }
+      }),
+    (err) => err?.code === "INSUFFICIENT_WALLET_AVAILABLE"
+  );
+
+  assert.equal(state.ledger.entries.length, 0);
+  assert.equal(state.operations.size, 0);
+  assert.equal(getEscrowLedgerBalance({ state, accountId: payerAvailableAccountId }), 100);
+  assert.equal(getEscrowLedgerBalance({ state, accountId: payerEscrowAccountId }), 0);
+});
+
+test("escrow ledger primitives: failed release is atomic and leaves state unchanged", () => {
+  const state = createEscrowLedger({
+    initialWalletBalances: [
+      { tenantId: "tenant_s0", walletId: "payer_atomic_release", availableCents: 200 },
+      { tenantId: "tenant_s0", walletId: "payee_atomic_release", availableCents: 0 }
+    ]
+  });
+
+  const held = applyEscrowOperation({
+    state,
+    input: {
+      operationId: "esc_op_atomic_release_hold_1",
+      tenantId: "tenant_s0",
+      type: ESCROW_OPERATION_TYPE.HOLD,
+      payerWalletId: "payer_atomic_release",
+      amountCents: 60,
+      at: "2026-02-07T00:00:00.000Z"
+    }
+  });
+  assert.equal(held.applied, true);
+
+  const payerAvailableAccountId = walletAvailableAccountId({ tenantId: "tenant_s0", walletId: "payer_atomic_release" });
+  const payerEscrowAccountId = walletEscrowAccountId({ tenantId: "tenant_s0", walletId: "payer_atomic_release" });
+  const payeeAvailableAccountId = walletAvailableAccountId({ tenantId: "tenant_s0", walletId: "payee_atomic_release" });
+
+  assert.throws(
+    () =>
+      applyEscrowOperation({
+        state,
+        input: {
+          operationId: "esc_op_atomic_release_fail_1",
+          tenantId: "tenant_s0",
+          type: ESCROW_OPERATION_TYPE.RELEASE,
+          payerWalletId: "payer_atomic_release",
+          payeeWalletId: "payee_atomic_release",
+          amountCents: 61,
+          at: "2026-02-07T00:01:00.000Z"
+        }
+      }),
+    (err) => err?.code === "INSUFFICIENT_ESCROW_LOCKED"
+  );
+
+  assert.equal(state.ledger.entries.length, 1);
+  assert.equal(state.operations.size, 1);
+  assert.equal(getEscrowLedgerBalance({ state, accountId: payerAvailableAccountId }), 140);
+  assert.equal(getEscrowLedgerBalance({ state, accountId: payerEscrowAccountId }), 60);
+  assert.equal(getEscrowLedgerBalance({ state, accountId: payeeAvailableAccountId }), 0);
+});
+
+test("escrow ledger primitives: operation ids are tenant scoped", () => {
+  const state = createEscrowLedger({
+    initialWalletBalances: [
+      { tenantId: "tenant_a", walletId: "payer_shared", availableCents: 100 },
+      { tenantId: "tenant_b", walletId: "payer_shared", availableCents: 100 }
+    ]
+  });
+
+  const opA = applyEscrowOperation({
+    state,
+    input: {
+      operationId: "esc_op_shared_1",
+      tenantId: "tenant_a",
+      type: ESCROW_OPERATION_TYPE.HOLD,
+      payerWalletId: "payer_shared",
+      amountCents: 40,
+      at: "2026-02-07T00:00:00.000Z"
+    }
+  });
+  const opB = applyEscrowOperation({
+    state,
+    input: {
+      operationId: "esc_op_shared_1",
+      tenantId: "tenant_b",
+      type: ESCROW_OPERATION_TYPE.HOLD,
+      payerWalletId: "payer_shared",
+      amountCents: 25,
+      at: "2026-02-07T00:00:00.000Z"
+    }
+  });
+
+  assert.equal(opA.applied, true);
+  assert.equal(opB.applied, true);
+  assert.equal(state.operations.size, 2);
+  assert.equal(state.ledger.entries.length, 2);
+  assert.equal(
+    getEscrowLedgerBalance({ state, accountId: walletAvailableAccountId({ tenantId: "tenant_a", walletId: "payer_shared" }) }),
+    60
+  );
+  assert.equal(
+    getEscrowLedgerBalance({ state, accountId: walletEscrowAccountId({ tenantId: "tenant_a", walletId: "payer_shared" }) }),
+    40
+  );
+  assert.equal(
+    getEscrowLedgerBalance({ state, accountId: walletAvailableAccountId({ tenantId: "tenant_b", walletId: "payer_shared" }) }),
+    75
+  );
+  assert.equal(
+    getEscrowLedgerBalance({ state, accountId: walletEscrowAccountId({ tenantId: "tenant_b", walletId: "payer_shared" }) }),
+    25
+  );
+});
+
+test("escrow ledger primitives: idempotent replay tolerates at/memo drift without new postings", () => {
+  const state = createEscrowLedger({
+    initialWalletBalances: [{ tenantId: "tenant_s0", walletId: "payer_idem_drift", availableCents: 500 }]
+  });
+
+  const first = applyEscrowOperation({
+    state,
+    input: {
+      operationId: "esc_op_idem_drift_1",
+      tenantId: "tenant_s0",
+      type: ESCROW_OPERATION_TYPE.HOLD,
+      payerWalletId: "payer_idem_drift",
+      amountCents: 200,
+      memo: "initial",
+      at: "2026-02-07T00:00:00.000Z"
+    }
+  });
+  const replay = applyEscrowOperation({
+    state,
+    input: {
+      operationId: "esc_op_idem_drift_1",
+      tenantId: "tenant_s0",
+      type: ESCROW_OPERATION_TYPE.HOLD,
+      payerWalletId: "payer_idem_drift",
+      amountCents: 200,
+      memo: "replayed_with_different_memo",
+      at: "2026-02-07T00:05:00.000Z"
+    }
+  });
+
+  assert.equal(first.applied, true);
+  assert.equal(replay.applied, false);
+  assert.deepEqual(replay.operation, first.operation);
+  assert.equal(state.ledger.entries.length, 1);
+  assert.equal(state.operations.size, 1);
+  assert.equal(
+    getEscrowLedgerBalance({ state, accountId: walletAvailableAccountId({ tenantId: "tenant_s0", walletId: "payer_idem_drift" }) }),
+    300
+  );
+  assert.equal(
+    getEscrowLedgerBalance({ state, accountId: walletEscrowAccountId({ tenantId: "tenant_s0", walletId: "payer_idem_drift" }) }),
+    200
+  );
+});
+
 test("escrow ledger primitives: wallet balance projection can be synchronized from snapshots", () => {
   const state = createEscrowLedger({ currency: "USD" });
 
