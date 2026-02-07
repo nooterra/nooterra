@@ -149,6 +149,7 @@ import {
   walletEscrowAccountId
 } from "../core/escrow-ledger.js";
 import {
+  MONEY_RAIL_OPERATION_STATE,
   MONEY_RAIL_PROVIDER_EVENT_TYPE,
   createInMemoryMoneyRailAdapter,
   createMoneyRailAdapterRegistry
@@ -1651,6 +1652,24 @@ export function createApi({
     if (mappedEventType) return mappedEventType;
     if (normalizedProviderStatus) throw new TypeError(`unmapped providerStatus: ${normalizedProviderStatus}`);
     throw new TypeError("eventType or providerStatus is required");
+  }
+
+  function extractPayoutKeyFromMoneyRailOperation(operation) {
+    if (!operation || typeof operation !== "object") return null;
+    const metadataPayoutKey =
+      typeof operation?.metadata?.payoutKey === "string" && operation.metadata.payoutKey.trim() !== ""
+        ? operation.metadata.payoutKey.trim()
+        : null;
+    if (metadataPayoutKey) return metadataPayoutKey;
+    if (typeof operation?.idempotencyKey === "string" && operation.idempotencyKey.trim() !== "") return operation.idempotencyKey.trim();
+    if (typeof operation?.operationId === "string" && operation.operationId.startsWith("mop_")) return operation.operationId.slice(4);
+    return null;
+  }
+
+  function payoutKeyMatchesPeriod({ payoutKey, period }) {
+    if (typeof payoutKey !== "string" || payoutKey.trim() === "") return false;
+    if (typeof period !== "string" || period.trim() === "") return false;
+    return payoutKey.includes(`:period:${period}:`);
   }
 
   function syncEscrowLedgerWalletSnapshot({ ledgerState, tenantId, wallet }) {
@@ -11055,6 +11074,205 @@ export function createApi({
               ]);
             }
             return sendJson(res, 200, responseBody);
+          }
+
+          if (parts[1] === "finance" && parts[2] === "money-rails" && parts[3] === "reconcile" && parts.length === 4 && req.method === "GET") {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            if (typeof store.listArtifacts !== "function") return sendError(res, 501, "artifacts not supported for this store");
+
+            const period = url.searchParams.get("period") ?? url.searchParams.get("month");
+            if (!period) return sendError(res, 400, "period is required");
+
+            const providerIdQuery =
+              typeof url.searchParams.get("providerId") === "string" && url.searchParams.get("providerId").trim() !== ""
+                ? url.searchParams.get("providerId").trim()
+                : defaultMoneyRailProviderId;
+            const adapter = getMoneyRailAdapter(providerIdQuery);
+            if (!adapter) return sendError(res, 404, "money rail provider not found");
+            if (typeof adapter.listOperations !== "function") {
+              return sendError(res, 409, "money rail provider does not support reconciliation listing");
+            }
+
+            const artifacts = await store.listArtifacts({ tenantId });
+            const payoutInstructions = artifacts
+              .filter((artifact) => artifact?.artifactType === ARTIFACT_TYPE.PAYOUT_INSTRUCTION_V1 && String(artifact?.period ?? "") === String(period))
+              .map((artifact) => {
+                const payoutKey = typeof artifact?.payoutKey === "string" && artifact.payoutKey.trim() !== "" ? artifact.payoutKey.trim() : null;
+                const amountCents = Number.isSafeInteger(artifact?.payout?.amountCents) ? artifact.payout.amountCents : null;
+                const currency =
+                  typeof artifact?.payout?.currency === "string" && artifact.payout.currency.trim() !== ""
+                    ? artifact.payout.currency.trim().toUpperCase()
+                    : "USD";
+                return {
+                  artifactId: artifact?.artifactId ?? null,
+                  artifactHash: artifact?.artifactHash ?? null,
+                  payoutKey,
+                  operationId: payoutKey ? `mop_${payoutKey}` : null,
+                  amountCents,
+                  currency,
+                  partyId: typeof artifact?.partyId === "string" ? artifact.partyId : null,
+                  partyRole: typeof artifact?.partyRole === "string" ? artifact.partyRole : null
+                };
+              })
+              .filter((row) => row.payoutKey && row.operationId && Number.isSafeInteger(row.amountCents))
+              .sort(
+                (a, b) =>
+                  String(a.operationId).localeCompare(String(b.operationId)) ||
+                  String(a.artifactId ?? "").localeCompare(String(b.artifactId ?? ""))
+              );
+
+            const expectedByOperationId = new Map();
+            const duplicateExpected = [];
+            for (const row of payoutInstructions) {
+              if (!expectedByOperationId.has(row.operationId)) {
+                expectedByOperationId.set(row.operationId, row);
+                continue;
+              }
+              const first = expectedByOperationId.get(row.operationId);
+              duplicateExpected.push({
+                operationId: row.operationId,
+                payoutKey: row.payoutKey,
+                primaryArtifactId: first?.artifactId ?? null,
+                duplicateArtifactId: row.artifactId ?? null
+              });
+            }
+
+            const listedOperationsRaw = await adapter.listOperations({ tenantId });
+            const listedOperations = (Array.isArray(listedOperationsRaw) ? listedOperationsRaw : [])
+              .filter((operation) => {
+                if (!operation || typeof operation !== "object") return false;
+                if (String(operation?.direction ?? "").toLowerCase() !== "payout") return false;
+                const payoutKey = extractPayoutKeyFromMoneyRailOperation(operation);
+                return payoutKeyMatchesPeriod({ payoutKey, period });
+              })
+              .sort((a, b) => String(a?.operationId ?? "").localeCompare(String(b?.operationId ?? "")));
+
+            const operationById = new Map();
+            const operationStateCounts = Object.fromEntries(Object.values(MONEY_RAIL_OPERATION_STATE).map((state) => [state, 0]));
+            for (const operation of listedOperations) {
+              const operationId = typeof operation?.operationId === "string" ? operation.operationId : null;
+              if (!operationId || operationById.has(operationId)) continue;
+              operationById.set(operationId, operation);
+              const state = String(operation?.state ?? "").toLowerCase();
+              if (state in operationStateCounts) operationStateCounts[state] += 1;
+            }
+
+            const missingOperations = [];
+            const amountMismatches = [];
+            const currencyMismatches = [];
+            const terminalFailures = [];
+            const unexpectedOperations = [];
+            let expectedPayoutAmountCents = 0;
+            let matchedCount = 0;
+            let settledCount = 0;
+            let inFlightCount = 0;
+            let cancelledCount = 0;
+            for (const expected of expectedByOperationId.values()) {
+              expectedPayoutAmountCents += expected.amountCents;
+              const operation = operationById.get(expected.operationId) ?? null;
+              if (!operation) {
+                missingOperations.push({
+                  operationId: expected.operationId,
+                  payoutKey: expected.payoutKey,
+                  amountCents: expected.amountCents,
+                  currency: expected.currency,
+                  partyId: expected.partyId,
+                  artifactId: expected.artifactId
+                });
+                continue;
+              }
+
+              const actualAmountCents = Number.isSafeInteger(operation?.amountCents) ? operation.amountCents : null;
+              if (actualAmountCents !== expected.amountCents) {
+                amountMismatches.push({
+                  operationId: expected.operationId,
+                  payoutKey: expected.payoutKey,
+                  expectedAmountCents: expected.amountCents,
+                  actualAmountCents
+                });
+              }
+
+              const actualCurrency =
+                typeof operation?.currency === "string" && operation.currency.trim() !== "" ? operation.currency.trim().toUpperCase() : null;
+              if (actualCurrency !== expected.currency) {
+                currencyMismatches.push({
+                  operationId: expected.operationId,
+                  payoutKey: expected.payoutKey,
+                  expectedCurrency: expected.currency,
+                  actualCurrency
+                });
+              }
+
+              const state = String(operation?.state ?? "").toLowerCase();
+              if (state === MONEY_RAIL_OPERATION_STATE.FAILED || state === MONEY_RAIL_OPERATION_STATE.REVERSED) {
+                terminalFailures.push({
+                  operationId: expected.operationId,
+                  payoutKey: expected.payoutKey,
+                  state,
+                  reasonCode: operation?.reasonCode ?? null
+                });
+              } else if (state === MONEY_RAIL_OPERATION_STATE.CONFIRMED) {
+                settledCount += 1;
+              } else if (state === MONEY_RAIL_OPERATION_STATE.CANCELLED) {
+                cancelledCount += 1;
+              } else {
+                inFlightCount += 1;
+              }
+
+              matchedCount += 1;
+            }
+
+            for (const operation of operationById.values()) {
+              const operationId = String(operation?.operationId ?? "");
+              if (expectedByOperationId.has(operationId)) continue;
+              unexpectedOperations.push({
+                operationId,
+                payoutKey: extractPayoutKeyFromMoneyRailOperation(operation),
+                amountCents: Number.isSafeInteger(operation?.amountCents) ? operation.amountCents : null,
+                currency: operation?.currency ?? null,
+                state: operation?.state ?? null,
+                reasonCode: operation?.reasonCode ?? null
+              });
+            }
+            unexpectedOperations.sort((a, b) => String(a.operationId).localeCompare(String(b.operationId)));
+
+            const criticalMismatchCount =
+              missingOperations.length +
+              amountMismatches.length +
+              currencyMismatches.length +
+              terminalFailures.length +
+              unexpectedOperations.length +
+              duplicateExpected.length;
+            const status = criticalMismatchCount === 0 ? "pass" : "fail";
+
+            return sendJson(res, 200, {
+              ok: true,
+              tenantId,
+              period,
+              providerId: providerIdQuery,
+              status,
+              summary: {
+                expectedPayoutCount: expectedByOperationId.size,
+                expectedPayoutAmountCents,
+                operationCount: operationById.size,
+                matchedCount,
+                settledCount,
+                inFlightCount,
+                cancelledCount,
+                criticalMismatchCount,
+                operationStateCounts
+              },
+              mismatches: {
+                missingOperations,
+                amountMismatches,
+                currencyMismatches,
+                terminalFailures,
+                unexpectedOperations,
+                duplicateExpected
+              }
+            });
           }
 
           // Finance Pack v1: tenant-scoped account map + GLBatch CSV export.

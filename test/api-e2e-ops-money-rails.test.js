@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
 import { sha256Hex } from "../src/core/crypto.js";
+import { computeArtifactHash } from "../src/core/artifacts.js";
 import { request } from "./api-test-harness.js";
 
 test("API e2e: payout enqueue creates money rail operation and cancel is idempotent", async () => {
@@ -323,4 +324,156 @@ test("API e2e: production provider event mapping ingests statuses deterministica
   });
   assert.equal(mismatch.statusCode, 400);
   assert.match(String(mismatch.json?.error ?? ""), /invalid provider event/i);
+});
+
+test("API e2e: finance money rail reconciliation reports deterministic critical mismatches", async () => {
+  const api = createApi({
+    opsTokens: ["tok_finw:finance_write", "tok_fin:finance_read"].join(";")
+  });
+
+  const month = "2026-01";
+  const financeWriteHeaders = { "x-proxy-ops-token": "tok_finw" };
+  const financeReadHeaders = { "x-proxy-ops-token": "tok_fin" };
+  const tenantId = "tenant_default";
+  const partyId = "pty_money_ops_recon_1";
+  const partyRole = "operator";
+
+  const monthCloseRequested = await request(api, {
+    method: "POST",
+    path: "/ops/month-close",
+    headers: financeWriteHeaders,
+    body: { month }
+  });
+  assert.equal(monthCloseRequested.statusCode, 202);
+  await api.tickMonthClose({ maxMessages: 50 });
+
+  const statement = {
+    type: "PartyStatementBody.v1",
+    v: 1,
+    currency: "USD",
+    tenantId,
+    partyId,
+    partyRole,
+    period: month,
+    basis: "settledAt",
+    payoutCents: 2750
+  };
+  const statementHash = sha256Hex(JSON.stringify(statement));
+  const partyArtifact = {
+    artifactId: `pstmt_${tenantId}_${partyId}_${month}_${statementHash}`,
+    artifactType: "PartyStatement.v1",
+    partyId,
+    partyRole,
+    period: month,
+    statement,
+    artifactHash: statementHash
+  };
+  await api.store.putArtifact({ tenantId, artifact: partyArtifact });
+  await api.store.putPartyStatement({
+    tenantId,
+    statement: {
+      partyId,
+      period: month,
+      basis: "settledAt",
+      status: "CLOSED",
+      statementHash,
+      artifactId: partyArtifact.artifactId,
+      artifactHash: partyArtifact.artifactHash,
+      closedAt: new Date("2026-02-01T00:00:00.000Z").toISOString()
+    }
+  });
+
+  const enqueue = await request(api, {
+    method: "POST",
+    path: `/ops/payouts/${encodeURIComponent(partyId)}/${encodeURIComponent(month)}/enqueue`,
+    headers: {
+      ...financeWriteHeaders,
+      "x-idempotency-key": "ops_money_rail_recon_enqueue_1"
+    },
+    body: {
+      counterpartyRef: "bank:acct_recon_1"
+    }
+  });
+  assert.equal(enqueue.statusCode, 201);
+  const providerId = String(enqueue.json?.moneyRailOperation?.providerId ?? "");
+  const operationId = String(enqueue.json?.moneyRailOperation?.operationId ?? "");
+  assert.equal(providerId, "stub_default");
+  assert.ok(operationId);
+
+  const firstRecon = await request(api, {
+    method: "GET",
+    path: `/ops/finance/money-rails/reconcile?period=${encodeURIComponent(month)}&providerId=${encodeURIComponent(providerId)}`,
+    headers: financeReadHeaders
+  });
+  assert.equal(firstRecon.statusCode, 200);
+  assert.equal(firstRecon.json?.status, "pass");
+  assert.equal(firstRecon.json?.summary?.expectedPayoutCount, 1);
+  assert.equal(firstRecon.json?.summary?.operationCount, 1);
+  assert.equal(firstRecon.json?.summary?.criticalMismatchCount, 0);
+
+  const failed = await request(api, {
+    method: "POST",
+    path: `/ops/money-rails/${encodeURIComponent(providerId)}/events/ingest`,
+    headers: {
+      ...financeWriteHeaders,
+      "x-idempotency-key": "ops_money_rail_recon_ingest_failed_1"
+    },
+    body: {
+      operationId,
+      eventType: "failed",
+      eventId: "evt_recon_failed_1",
+      reasonCode: "insufficient_liquidity",
+      at: "2026-02-07T00:01:00.000Z"
+    }
+  });
+  assert.equal(failed.statusCode, 200);
+  assert.equal(failed.json?.operation?.state, "failed");
+
+  const missingPayoutKey = `${tenantId}:party:pty_missing:period:${month}:statement:sha_missing`;
+  const missingArtifactCore = {
+    schemaVersion: "PayoutInstruction.v1",
+    artifactType: "PayoutInstruction.v1",
+    artifactId: `payout_${tenantId}_pty_missing_${month}_sha_missing`,
+    generatedAt: "2026-02-02T00:00:00.000Z",
+    tenantId,
+    partyId: "pty_missing",
+    partyRole: "operator",
+    period: month,
+    statementHash: "sha_missing",
+    payoutKey: missingPayoutKey,
+    payout: {
+      currency: "USD",
+      amountCents: 900,
+      destinationRef: null
+    },
+    eventProof: {
+      lastChainHash: "hash_missing",
+      eventCount: 0,
+      signatures: { signedEventCount: 0, signerKeyIds: [] }
+    }
+  };
+  await api.store.putArtifact({
+    tenantId,
+    artifact: { ...missingArtifactCore, artifactHash: computeArtifactHash(missingArtifactCore) }
+  });
+
+  const secondRecon = await request(api, {
+    method: "GET",
+    path: `/ops/finance/money-rails/reconcile?period=${encodeURIComponent(month)}&providerId=${encodeURIComponent(providerId)}`,
+    headers: financeReadHeaders
+  });
+  assert.equal(secondRecon.statusCode, 200);
+  assert.equal(secondRecon.json?.status, "fail");
+  assert.equal(secondRecon.json?.summary?.criticalMismatchCount, 2);
+  assert.equal(secondRecon.json?.mismatches?.terminalFailures?.length, 1);
+  assert.equal(secondRecon.json?.mismatches?.missingOperations?.length, 1);
+  assert.equal(secondRecon.json?.mismatches?.missingOperations?.[0]?.operationId, `mop_${missingPayoutKey}`);
+
+  const replayRecon = await request(api, {
+    method: "GET",
+    path: `/ops/finance/money-rails/reconcile?period=${encodeURIComponent(month)}&providerId=${encodeURIComponent(providerId)}`,
+    headers: financeReadHeaders
+  });
+  assert.equal(replayRecon.statusCode, 200);
+  assert.deepEqual(replayRecon.json, secondRecon.json);
 });

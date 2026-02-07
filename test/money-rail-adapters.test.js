@@ -170,3 +170,47 @@ test("money rail adapter: invalid provider event transition is rejected", async 
     (err) => err?.code === "MONEY_RAIL_INVALID_TRANSITION"
   );
 });
+
+test("money rail adapter: listOperations returns tenant-scoped deterministic ordering", async () => {
+  const adapter = createInMemoryMoneyRailAdapter({ now: () => "2026-02-07T00:00:00.000Z" });
+
+  await adapter.create({
+    tenantId: "tenant_a",
+    operationId: "op_0003",
+    direction: "payout",
+    idempotencyKey: "idem_0003",
+    amountCents: 100,
+    currency: "USD",
+    counterpartyRef: "acct_003"
+  });
+  await adapter.create({
+    tenantId: "tenant_a",
+    operationId: "op_0001",
+    direction: "collection",
+    idempotencyKey: "idem_0001",
+    amountCents: 200,
+    currency: "USD",
+    counterpartyRef: "acct_001"
+  });
+  await adapter.create({
+    tenantId: "tenant_b",
+    operationId: "op_0002",
+    direction: "payout",
+    idempotencyKey: "idem_0002",
+    amountCents: 300,
+    currency: "USD",
+    counterpartyRef: "acct_002"
+  });
+
+  const tenantA = await adapter.listOperations({ tenantId: "tenant_a" });
+  assert.deepEqual(
+    tenantA.map((row) => row.operationId),
+    ["op_0001", "op_0003"]
+  );
+
+  const tenantB = await adapter.listOperations({ tenantId: "tenant_b" });
+  assert.deepEqual(
+    tenantB.map((row) => row.operationId),
+    ["op_0002"]
+  );
+});

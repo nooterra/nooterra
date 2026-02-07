@@ -231,6 +231,9 @@ export function assertMoneyRailAdapter(adapter, { name = "adapter" } = {}) {
   if (typeof adapter.create !== "function") throw new TypeError(`${name}.create must be a function`);
   if (typeof adapter.status !== "function") throw new TypeError(`${name}.status must be a function`);
   if (typeof adapter.cancel !== "function") throw new TypeError(`${name}.cancel must be a function`);
+  if ("listOperations" in adapter && typeof adapter.listOperations !== "function") {
+    throw new TypeError(`${name}.listOperations must be a function when provided`);
+  }
   if ("ingestProviderEvent" in adapter && typeof adapter.ingestProviderEvent !== "function") {
     throw new TypeError(`${name}.ingestProviderEvent must be a function when provided`);
   }
@@ -296,6 +299,19 @@ export function createInMemoryMoneyRailAdapter({ providerId = "stub_memory", now
     assertNonEmptyString(operationId, "operationId");
     const op = operationsByKey.get(operationStoreKey({ tenantId: tenantId.trim(), operationId: operationId.trim() })) ?? null;
     return op ? clone(op) : null;
+  }
+
+  async function listOperations({ tenantId } = {}) {
+    assertNonEmptyString(tenantId, "tenantId");
+    const normalizedTenantId = tenantId.trim();
+    const rows = [];
+    for (const op of operationsByKey.values()) {
+      if (!op || typeof op !== "object") continue;
+      if (String(op.tenantId ?? "") !== normalizedTenantId) continue;
+      rows.push(clone(op));
+    }
+    rows.sort((a, b) => String(a.operationId ?? "").localeCompare(String(b.operationId ?? "")));
+    return rows;
   }
 
   async function cancel({ tenantId, operationId, reasonCode = "cancelled_by_caller", at = now() } = {}) {
@@ -416,6 +432,7 @@ export function createInMemoryMoneyRailAdapter({ providerId = "stub_memory", now
     providerId,
     create,
     status,
+    listOperations,
     cancel,
     transition,
     ingestProviderEvent

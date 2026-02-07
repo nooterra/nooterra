@@ -25,3 +25,4 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ### Added
 - Money rail provider event ingestion endpoint: `POST /ops/money-rails/{providerId}/events/ingest`, including deterministic provider-status to canonical-state mapping and idempotent event replay semantics.
+- Money rail reconciliation endpoint: `GET /ops/finance/money-rails/reconcile` to deterministically compare period payout instructions against provider operations and surface critical mismatches (`missing`, `amount/currency drift`, `terminal failures`, `unexpected operations`).

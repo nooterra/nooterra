@@ -3797,6 +3797,26 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
+      "/ops/finance/money-rails/reconcile": {
+        get: {
+          summary: "Reconcile payout instructions against money rail operations for a period",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "period", in: "query", required: true, schema: { type: "string", example: "2026-02" } },
+            { name: "providerId", in: "query", required: false, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["finance_read", "finance_write"],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
       "/exports/ack": {
         post: {
           summary: "ACK a delivery (destination-signed)",
