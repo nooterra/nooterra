@@ -1,0 +1,178 @@
+{
+  "schemaVersion": "SettldSprintBoard.v1",
+  "generatedAt": "2026-02-07",
+  "sourceBacklog": "planning/jira/self-serve-icp-v1-backlog.json",
+  "boardId": "SELF_SERVE_ICP_V1_SPRINT0",
+  "northStar": "MVSV (Monthly Verified Settled Value)",
+  "objective": "Ship self-serve billing and trust ops surfaces that convert verified usage into paid revenue without enterprise sales cycles.",
+  "exitCriteria": [
+    "20 self-serve signups",
+    "8 teams reach first live settlement",
+    "3 paying customers",
+    "<20 min median time-to-first-settlement",
+    "<24h median arbitration resolution (v1)"
+  ],
+  "tracks": [
+    {
+      "track": "Core Billing + Metering",
+      "owner": "Backend",
+      "tickets": [
+        {
+          "Ticket Key": "STLD-T183",
+          "Summary": "Persist money rail operations in Postgres",
+          "Owner": "Backend",
+          "Estimate": "4d",
+          "Priority": "Highest",
+          "Sprint": "W1",
+          "Status": "done",
+          "Dependencies": "STLD-T171",
+          "Acceptance Criteria": "Money rail operations and provider events survive API restart and reconcile identically across repeated reads"
+        },
+        {
+          "Ticket Key": "STLD-T184",
+          "Summary": "Wire API to durable money rail adapter",
+          "Owner": "Backend",
+          "Estimate": "3d",
+          "Priority": "Highest",
+          "Sprint": "W1",
+          "Status": "done",
+          "Dependencies": "STLD-T183",
+          "Acceptance Criteria": "All ops money-rail endpoints operate on durable state and existing e2e money-rail tests pass"
+        },
+        {
+          "Ticket Key": "STLD-T185",
+          "Summary": "Ship billable usage event ledger",
+          "Owner": "Backend",
+          "Estimate": "3d",
+          "Priority": "Highest",
+          "Sprint": "W1",
+          "Status": "done",
+          "Dependencies": "STLD-T142,STLD-T179",
+          "Acceptance Criteria": "Usage event stream is queryable by tenant and period and matches deterministic replay under repeated inputs"
+        },
+        {
+          "Ticket Key": "STLD-T186",
+          "Summary": "Build billing pipeline ingestion worker",
+          "Owner": "Backend",
+          "Estimate": "4d",
+          "Priority": "High",
+          "Sprint": "W2",
+          "Status": "ready",
+          "Dependencies": "STLD-T185,STLD-T143",
+          "Acceptance Criteria": "Invoice line-item artifacts are generated deterministically and reconcile to source usage events with zero drift"
+        },
+        {
+          "Ticket Key": "STLD-T189",
+          "Summary": "Enforce plan quotas in API gateway",
+          "Owner": "Backend",
+          "Estimate": "3d",
+          "Priority": "Highest",
+          "Sprint": "W2",
+          "Status": "in_progress",
+          "Dependencies": "STLD-T142,STLD-T188",
+          "Acceptance Criteria": "Requests above plan limits are blocked with stable quota error responses and quota counters remain consistent under retries"
+        },
+        {
+          "Ticket Key": "STLD-T190",
+          "Summary": "Implement overage billing and threshold alerts",
+          "Owner": "Backend + DevOps",
+          "Estimate": "3d",
+          "Priority": "High",
+          "Sprint": "W2",
+          "Status": "ready",
+          "Dependencies": "STLD-T186,STLD-T189",
+          "Acceptance Criteria": "Overage line items appear in invoice artifacts and alert events fire once per threshold crossing per period"
+        }
+      ]
+    },
+    {
+      "track": "Commercial Surface + Activation",
+      "owner": "Frontend + PM + DevEx",
+      "tickets": [
+        {
+          "Ticket Key": "STLD-T187",
+          "Summary": "Publish self-serve pricing page",
+          "Owner": "Frontend + PM",
+          "Estimate": "2d",
+          "Priority": "High",
+          "Sprint": "W2",
+          "Status": "ready",
+          "Dependencies": "STLD-T141",
+          "Acceptance Criteria": "Pricing page renders current plan terms and passes copy review with no contradictions to billing policy docs"
+        },
+        {
+          "Ticket Key": "STLD-T188",
+          "Summary": "Enable Stripe self-serve checkout by plan",
+          "Owner": "Backend",
+          "Estimate": "3d",
+          "Priority": "Highest",
+          "Sprint": "W2",
+          "Status": "ready",
+          "Dependencies": "STLD-T144,STLD-T187",
+          "Acceptance Criteria": "Tenants can upgrade from free to paid via checkout and billing state updates automatically on webhook confirmation"
+        },
+        {
+          "Ticket Key": "STLD-T195",
+          "Summary": "Publish 10-minute first-settlement quickstart",
+          "Owner": "SDK/DevEx",
+          "Estimate": "2d",
+          "Priority": "Highest",
+          "Sprint": "W4",
+          "Status": "ready",
+          "Dependencies": "STLD-T188,STLD-T189",
+          "Acceptance Criteria": "New tenant can complete first live settlement by following documented steps and smoke script passes in CI"
+        },
+        {
+          "Ticket Key": "STLD-T196",
+          "Summary": "Ship three reference integrations for tool providers",
+          "Owner": "SDK/DevEx",
+          "Estimate": "4d",
+          "Priority": "High",
+          "Sprint": "W4",
+          "Status": "ready",
+          "Dependencies": "STLD-T195",
+          "Acceptance Criteria": "Three reference integrations run end-to-end in CI and each emits a verified settlement artifact"
+        }
+      ]
+    },
+    {
+      "track": "Trust Ops + Launch Governance",
+      "owner": "Frontend + Backend + PM",
+      "tickets": [
+        {
+          "Ticket Key": "STLD-T191",
+          "Summary": "Launch arbitration queue ops UI",
+          "Owner": "Frontend",
+          "Estimate": "3d",
+          "Priority": "High",
+          "Sprint": "W3",
+          "Status": "ready",
+          "Dependencies": "STLD-T173",
+          "Acceptance Criteria": "Operators can list assign and triage arbitration cases from UI with state changes reflected in API within one refresh interval"
+        },
+        {
+          "Ticket Key": "STLD-T192",
+          "Summary": "Add arbitration evidence and ruling workspace",
+          "Owner": "Frontend + Backend",
+          "Estimate": "4d",
+          "Priority": "High",
+          "Sprint": "W3",
+          "Status": "ready",
+          "Dependencies": "STLD-T191,STLD-T173",
+          "Acceptance Criteria": "Rulings submitted from UI generate valid verdict artifacts linked to dispute evidence and pass verification checks"
+        },
+        {
+          "Ticket Key": "STLD-T199",
+          "Summary": "Stand up MVSV command dashboard and launch gate",
+          "Owner": "PM + Backend + DevOps",
+          "Estimate": "3d",
+          "Priority": "Highest",
+          "Sprint": "W4",
+          "Status": "ready",
+          "Dependencies": "STLD-T185,STLD-T190,STLD-T197",
+          "Acceptance Criteria": "Dashboard reports MVSV funnel and launch KPIs daily and go/no-go gate auto-evaluates defined thresholds"
+        }
+      ]
+    }
+  ]
+}

@@ -16,6 +16,7 @@ import { MONTH_CLOSE_HOLD_POLICY, normalizeMonthCloseHoldPolicy } from "../core/
 import { clampQuota } from "../core/quotas.js";
 import { computeFinanceAccountMapHash, validateFinanceAccountMapV1 } from "../core/finance-account-map.js";
 import { appendChainedEvent, createChainedEvent } from "../core/event-chain.js";
+import { normalizeBillingPlanId } from "../core/billing-plans.js";
 
 function loadOrCreateServerSigner({ persistenceDir }) {
   if (!persistenceDir) {
@@ -134,6 +135,11 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
   const maxEvidenceRefsPerJob = parseNonNegativeIntEnv("PROXY_QUOTA_MAX_EVIDENCE_REFS_PER_JOB", 0);
   const maxArtifactsPerJobType = parseNonNegativeIntEnv("PROXY_QUOTA_MAX_ARTIFACTS_PER_JOB_TYPE", 0);
   const platformMaxPendingDeliveries = parseNonNegativeIntEnv("PROXY_QUOTA_PLATFORM_MAX_PENDING_DELIVERIES", 0);
+  const defaultBillingPlan = (() => {
+    const raw = typeof process !== "undefined" ? process.env.PROXY_BILLING_DEFAULT_PLAN : null;
+    if (raw === null || raw === undefined || String(raw).trim() === "") return "free";
+    return normalizeBillingPlanId(raw, { allowNull: false, defaultPlan: "free" });
+  })();
 
   function createTenantLedger() {
     const ledger = createLedger();
@@ -189,6 +195,11 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     finance: {
       accountMap: null,
       monthCloseHoldPolicy: defaultMonthCloseHoldPolicy
+    },
+    billing: {
+      plan: defaultBillingPlan,
+      planOverrides: null,
+      hardLimitEnforced: true
     }
   });
 

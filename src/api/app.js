@@ -206,6 +206,14 @@ import { createSecretsProvider } from "../core/secrets.js";
 import { checkUrlSafety, checkUrlSafetySync } from "../core/url-safety.js";
 import { clampRetentionDays, computeExpiresAtIso } from "../core/retention.js";
 import { clampQuota, isQuotaExceeded } from "../core/quotas.js";
+import {
+  BILLING_PLAN_ID,
+  computeBillingEstimate,
+  getBillingPlanCatalog,
+  normalizeBillingPlanId,
+  normalizeBillingPlanOverrides,
+  resolveBillingPlan
+} from "../core/billing-plans.js";
 import { buildOpenApiSpec } from "./openapi.js";
 import { RETENTION_CLEANUP_ADVISORY_LOCK_KEY } from "../core/maintenance-locks.js";
 import { compareProtocolVersions, parseProtocolVersion, resolveProtocolPolicy } from "../core/protocol.js";
@@ -5893,6 +5901,176 @@ export function createApi({
     return String(normalized.slice(0, 7));
   }
 
+  function normalizeBillingPeriodInput(value, { defaultToNow = true } = {}) {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      return defaultToNow ? deriveBillablePeriod(nowIso()) : null;
+    }
+    const normalized = String(value).trim();
+    if (!/^\d{4}-\d{2}$/.test(normalized)) {
+      throw new TypeError("period must match YYYY-MM");
+    }
+    return normalized;
+  }
+
+  function resolveTenantBillingPlan({ tenantId }) {
+    const cfg = getTenantConfig(tenantId) ?? {};
+    const billingCfg = cfg?.billing && typeof cfg.billing === "object" && !Array.isArray(cfg.billing) ? cfg.billing : {};
+    const planId = normalizeBillingPlanId(billingCfg.plan ?? BILLING_PLAN_ID.FREE, {
+      allowNull: false,
+      defaultPlan: BILLING_PLAN_ID.FREE
+    });
+    const overrides = normalizeBillingPlanOverrides(billingCfg.planOverrides ?? null, { allowNull: true });
+    const hardLimitEnforced = billingCfg.hardLimitEnforced !== false;
+    return resolveBillingPlan({
+      planId,
+      overrides,
+      hardLimitEnforced
+    });
+  }
+
+  async function listBillableUsageEventsAll({
+    tenantId,
+    period = null,
+    eventType = null,
+    pageSize = 1000
+  } = {}) {
+    if (typeof store.listBillableUsageEvents !== "function") return [];
+    const normalizedPageSize =
+      Number.isSafeInteger(pageSize) && pageSize > 0 ? Math.min(1000, pageSize) : 1000;
+    const all = [];
+    let offset = 0;
+    while (true) {
+      const chunk = await store.listBillableUsageEvents({
+        tenantId,
+        period,
+        eventType,
+        limit: normalizedPageSize,
+        offset
+      });
+      const rows = Array.isArray(chunk) ? chunk : [];
+      if (!rows.length) break;
+      all.push(...rows);
+      if (rows.length < normalizedPageSize) break;
+      offset += normalizedPageSize;
+    }
+    return all;
+  }
+
+  function summarizeBillableUsageEvents(events) {
+    const rows = Array.isArray(events) ? events : [];
+    const eventTypeCounts = {
+      [BILLABLE_USAGE_EVENT_TYPE.VERIFIED_RUN]: 0,
+      [BILLABLE_USAGE_EVENT_TYPE.SETTLED_VOLUME]: 0,
+      [BILLABLE_USAGE_EVENT_TYPE.ARBITRATION_USAGE]: 0
+    };
+    let verifiedRuns = 0;
+    let settledVolumeCents = 0;
+    let arbitrationCases = 0;
+    for (const row of rows) {
+      if (!row || typeof row !== "object") continue;
+      const eventType = String(row.eventType ?? "").toLowerCase();
+      const quantityRaw = Number(row.quantity ?? 0);
+      const quantity = Number.isSafeInteger(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+      if (eventType in eventTypeCounts) {
+        eventTypeCounts[eventType] += quantity;
+      }
+      if (eventType === BILLABLE_USAGE_EVENT_TYPE.VERIFIED_RUN) {
+        verifiedRuns += quantity;
+      } else if (eventType === BILLABLE_USAGE_EVENT_TYPE.SETTLED_VOLUME) {
+        const amountRaw = Number(row.amountCents ?? 0);
+        const amount = Number.isSafeInteger(amountRaw) && amountRaw > 0 ? amountRaw : 0;
+        settledVolumeCents += amount;
+      } else if (eventType === BILLABLE_USAGE_EVENT_TYPE.ARBITRATION_USAGE) {
+        arbitrationCases += quantity;
+      }
+    }
+    return {
+      eventCount: rows.length,
+      eventTypeCounts,
+      verifiedRuns,
+      settledVolumeCents,
+      arbitrationCases
+    };
+  }
+
+  async function computeTenantBillingPeriodSummary({
+    tenantId,
+    period
+  } = {}) {
+    const normalizedPeriod = normalizeBillingPeriodInput(period, { defaultToNow: true });
+    const billingPlan = resolveTenantBillingPlan({ tenantId });
+    const events = await listBillableUsageEventsAll({
+      tenantId,
+      period: normalizedPeriod,
+      eventType: null
+    });
+    const usage = summarizeBillableUsageEvents(events);
+    const estimate = computeBillingEstimate({
+      plan: billingPlan,
+      usage
+    });
+    const hardLimit = Number.isSafeInteger(billingPlan.hardLimitVerifiedRunsPerMonth)
+      ? billingPlan.hardLimitVerifiedRunsPerMonth
+      : 0;
+    const hardLimitRemaining =
+      hardLimit > 0 ? Math.max(0, hardLimit - usage.verifiedRuns) : null;
+    return {
+      tenantId: normalizeTenant(tenantId),
+      period: normalizedPeriod,
+      plan: {
+        ...billingPlan
+      },
+      usage,
+      estimate,
+      enforcement: {
+        hardLimitVerifiedRunsPerMonth: hardLimit,
+        hardLimitEnforced: billingPlan.hardLimitEnforced === true,
+        hardLimitRemainingVerifiedRuns: hardLimitRemaining,
+        wouldBlockNextVerifiedRun:
+          billingPlan.hardLimitEnforced === true &&
+          hardLimit > 0 &&
+          usage.verifiedRuns >= hardLimit
+      }
+    };
+  }
+
+  async function assertTenantVerifiedRunAllowance({
+    tenantId,
+    occurredAt = nowIso(),
+    quantity = 1
+  } = {}) {
+    const normalizedQuantityRaw = Number(quantity);
+    const normalizedQuantity =
+      Number.isSafeInteger(normalizedQuantityRaw) && normalizedQuantityRaw > 0
+        ? normalizedQuantityRaw
+        : 1;
+    const billingPlan = resolveTenantBillingPlan({ tenantId });
+    const hardLimit = Number.isSafeInteger(billingPlan.hardLimitVerifiedRunsPerMonth)
+      ? billingPlan.hardLimitVerifiedRunsPerMonth
+      : 0;
+    if (billingPlan.hardLimitEnforced !== true || hardLimit <= 0) return;
+    const period = deriveBillablePeriod(occurredAt);
+    const events = await listBillableUsageEventsAll({
+      tenantId,
+      period,
+      eventType: BILLABLE_USAGE_EVENT_TYPE.VERIFIED_RUN
+    });
+    const usage = summarizeBillableUsageEvents(events);
+    const projected = usage.verifiedRuns + normalizedQuantity;
+    if (projected <= hardLimit) return;
+    const err = new Error("verified run hard limit reached for billing plan");
+    err.code = "BILLING_PLAN_LIMIT_EXCEEDED";
+    err.detail = {
+      period,
+      plan: billingPlan.planId,
+      hardLimitVerifiedRunsPerMonth: hardLimit,
+      usedVerifiedRuns: usage.verifiedRuns,
+      attemptedQuantity: normalizedQuantity,
+      projectedVerifiedRuns: projected
+    };
+    throw err;
+  }
+
   async function emitBillableUsageEvent({
     tenantId,
     eventKey,
@@ -11515,10 +11693,19 @@ export function createApi({
         if (parts[1] === "config" && parts.length === 2 && req.method === "GET") {
           if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
           const cfg = getTenantConfig(tenantId) ?? {};
+          const billingCfg = cfg?.billing && typeof cfg.billing === "object" && !Array.isArray(cfg.billing) ? cfg.billing : {};
           return sendJson(res, 200, {
             tenantId,
             config: {
-              evidenceRetentionMaxDays: Number.isSafeInteger(cfg.evidenceRetentionMaxDays) ? cfg.evidenceRetentionMaxDays : 365
+              evidenceRetentionMaxDays: Number.isSafeInteger(cfg.evidenceRetentionMaxDays) ? cfg.evidenceRetentionMaxDays : 365,
+              billing: {
+                plan: normalizeBillingPlanId(billingCfg.plan ?? BILLING_PLAN_ID.FREE, {
+                  allowNull: false,
+                  defaultPlan: BILLING_PLAN_ID.FREE
+                }),
+                planOverrides: normalizeBillingPlanOverrides(billingCfg.planOverrides ?? null, { allowNull: true }),
+                hardLimitEnforced: billingCfg.hardLimitEnforced !== false
+              }
             }
           });
         }
@@ -12355,6 +12542,99 @@ export function createApi({
                 duplicateExpected
               }
             });
+          }
+
+          if (parts[1] === "finance" && parts[2] === "billing" && parts[3] === "catalog" && parts.length === 4 && req.method === "GET") {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            return sendJson(res, 200, {
+              schemaVersion: "BillingPlanCatalog.v1",
+              plans: getBillingPlanCatalog()
+            });
+          }
+
+          if (parts[1] === "finance" && parts[2] === "billing" && parts[3] === "plan" && parts.length === 4 && req.method === "GET") {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            const cfg = getTenantConfig(tenantId) ?? {};
+            const billingCfg = cfg?.billing && typeof cfg.billing === "object" && !Array.isArray(cfg.billing) ? cfg.billing : {};
+            const resolvedPlan = resolveTenantBillingPlan({ tenantId });
+            return sendJson(res, 200, {
+              tenantId,
+              billing: {
+                plan: normalizeBillingPlanId(billingCfg.plan ?? BILLING_PLAN_ID.FREE, { allowNull: false, defaultPlan: BILLING_PLAN_ID.FREE }),
+                planOverrides: normalizeBillingPlanOverrides(billingCfg.planOverrides ?? null, { allowNull: true }),
+                hardLimitEnforced: billingCfg.hardLimitEnforced !== false
+              },
+              resolvedPlan
+            });
+          }
+
+          if (parts[1] === "finance" && parts[2] === "billing" && parts[3] === "plan" && parts.length === 4 && req.method === "PUT") {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            const body = (await readJsonBody(req)) ?? {};
+            let plan = null;
+            let planOverrides = undefined;
+            try {
+              plan = normalizeBillingPlanId(body?.plan ?? BILLING_PLAN_ID.FREE, { allowNull: false, defaultPlan: BILLING_PLAN_ID.FREE });
+              planOverrides = normalizeBillingPlanOverrides(body?.planOverrides, { allowNull: true });
+            } catch (err) {
+              return sendError(res, 400, "invalid billing plan payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const hardLimitEnforced =
+              body?.hardLimitEnforced === undefined || body?.hardLimitEnforced === null
+                ? true
+                : body.hardLimitEnforced === true;
+            const cfg = getTenantConfig(tenantId);
+            if (!cfg || typeof cfg !== "object") return sendError(res, 500, "tenant config unavailable");
+            const nextBilling = {
+              plan,
+              planOverrides: planOverrides === undefined ? null : planOverrides,
+              hardLimitEnforced
+            };
+            cfg.billing = nextBilling;
+            if (typeof store.appendOpsAudit === "function") {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "BILLING_PLAN_UPSERT",
+                  targetType: "billing_plan",
+                  targetId: plan,
+                  details: {
+                    plan,
+                    hardLimitEnforced,
+                    hasPlanOverrides: planOverrides !== undefined && planOverrides !== null
+                  }
+                })
+              });
+            }
+            return sendJson(res, 200, {
+              tenantId,
+              billing: nextBilling,
+              resolvedPlan: resolveTenantBillingPlan({ tenantId })
+            });
+          }
+
+          if (parts[1] === "finance" && parts[2] === "billing" && parts[3] === "summary" && parts.length === 4 && req.method === "GET") {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            if (typeof store.listBillableUsageEvents !== "function") {
+              return sendError(res, 501, "billable usage events not supported for this store");
+            }
+            let period = null;
+            try {
+              period = normalizeBillingPeriodInput(url.searchParams.get("period"), { defaultToNow: true });
+            } catch (err) {
+              return sendError(res, 400, "invalid period", { message: err?.message });
+            }
+            const summary = await computeTenantBillingPeriodSummary({
+              tenantId,
+              period
+            });
+            return sendJson(res, 200, summary);
           }
 
           if (parts[1] === "finance" && parts[2] === "billable-events" && parts.length === 3 && req.method === "GET") {
@@ -18021,6 +18301,18 @@ export function createApi({
         } catch (err) {
           return sendError(res, 409, "agreement cancellation run update failed", { message: err?.message });
         }
+        try {
+          await assertTenantVerifiedRunAllowance({
+            tenantId,
+            occurredAt: runFailedEvent?.at ?? settledAt,
+            quantity: 1
+          });
+        } catch (err) {
+          if (err?.code === "BILLING_PLAN_LIMIT_EXCEEDED") {
+            return sendError(res, 402, "billing plan verified-run limit exceeded", err?.detail ?? null, { code: err.code });
+          }
+          throw err;
+        }
 
         const cancellationDetails = normalizeForCanonicalJson(
           {
@@ -20437,6 +20729,21 @@ export function createApi({
                 } catch (err) {
                   return sendError(res, 409, "run settlement failed", { message: err?.message, code: err?.code ?? null });
                 }
+              }
+            }
+
+            if (run.status === "completed" || run.status === "failed") {
+              try {
+                await assertTenantVerifiedRunAllowance({
+                  tenantId,
+                  occurredAt: event?.at ?? nowIso(),
+                  quantity: 1
+                });
+              } catch (err) {
+                if (err?.code === "BILLING_PLAN_LIMIT_EXCEEDED") {
+                  return sendError(res, 402, "billing plan verified-run limit exceeded", err?.detail ?? null, { code: err.code });
+                }
+                throw err;
               }
             }
 

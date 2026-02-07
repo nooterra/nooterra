@@ -24,9 +24,16 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - Money rail provider handling now supports explicit production-mode configuration (`moneyRailMode`, `moneyRailProviderConfigs`, `moneyRailDefaultProviderId`) with fail-fast guards against implicit stub usage in production.
 - Money rail operations/provider events are now persisted through store-backed adapters (memory + Postgres), so operation state survives API/adapter restarts.
 - Run-level settlement creation now preserves `settlement.disputeWindowDays`, enabling deterministic post-settlement dispute-open behavior for direct run flows.
+- Added plan-aware verified-run hard-limit enforcement in run terminal paths; when exceeded, terminal run events are rejected with `402 BILLING_PLAN_LIMIT_EXCEEDED`.
 
 ### Added
 - Money rail provider event ingestion endpoint: `POST /ops/money-rails/{providerId}/events/ingest`, including deterministic provider-status to canonical-state mapping and idempotent event replay semantics.
 - Money rail reconciliation endpoint: `GET /ops/finance/money-rails/reconcile` to deterministically compare period payout instructions against provider operations and surface critical mismatches (`missing`, `amount/currency drift`, `terminal failures`, `unexpected operations`).
 - Escrow net-close endpoints: `GET /ops/finance/net-close` for deterministic snapshot/reconciliation and `POST /ops/finance/net-close/execute` for gated execution when invariants pass, both with optional persisted `EscrowNetClose.v1` artifacts.
 - Billable usage event pipeline primitives: durable store support, `GET /ops/finance/billable-events` query endpoint, and deterministic emissions for verified runs, settled volume, and arbitration usage paths.
+- Self-serve billing control-plane endpoints:
+  - `GET /ops/finance/billing/catalog`
+  - `GET /ops/finance/billing/plan`
+  - `PUT /ops/finance/billing/plan`
+  - `GET /ops/finance/billing/summary`
+- Billing plan catalog + estimation primitives (`src/core/billing-plans.js`) and tenant billing defaults in API store config.
