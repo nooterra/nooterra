@@ -15,3 +15,5 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - Ops runbook (`docs/RUNBOOK.md`)
 - Deprecation policy (`docs/DEPRECATION.md`)
 - Ops command-center API: `GET /ops/network/command-center` with reliability, determinism, settlement/dispute, trust, and fee-estimate summaries, plus end-to-end coverage in `test/api-e2e-ops-command-center.test.js`.
+- Ops command-center alerting controls: threshold query params + optional alert artifact persistence/delivery (`CommandCenterAlert.v1`) when `persistAlerts=true` (`ops_write` required).
+- Ops finance reconciliation API: `GET /ops/finance/reconcile` with deterministic report hash + optional persisted relay artifact (`ReconcileReport.v1`) when `persist=true` (`finance_write` required), plus end-to-end coverage in `test/api-e2e-ops-finance-reconcile.test.js`.

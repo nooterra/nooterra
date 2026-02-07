@@ -1774,6 +1774,198 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const CommandCenterReasonCount = {
+    type: "object",
+    additionalProperties: false,
+    required: ["reason", "count"],
+    properties: {
+      reason: { type: "string" },
+      count: { type: "integer", minimum: 0 }
+    }
+  };
+
+  const CommandCenterDestinationCount = {
+    type: "object",
+    additionalProperties: false,
+    required: ["destinationId", "count"],
+    properties: {
+      destinationId: { type: "string" },
+      count: { type: "integer", minimum: 0 }
+    }
+  };
+
+  const OpsNetworkCommandCenterSummary = {
+    type: "object",
+    additionalProperties: false,
+    required: ["generatedAt", "freshness", "reliability", "determinism", "settlement", "disputes", "revenue", "trust"],
+    properties: {
+      generatedAt: { type: "string", format: "date-time" },
+      freshness: {
+        type: "object",
+        additionalProperties: false,
+        required: ["maxAgeSeconds", "generatedWithinSla"],
+        properties: {
+          maxAgeSeconds: { type: "integer", minimum: 0 },
+          generatedWithinSla: { type: "boolean" }
+        }
+      },
+      reliability: {
+        type: "object",
+        additionalProperties: false,
+        required: ["httpRequestsTotal", "http4xxTotal", "http5xxTotal", "httpClientErrorRatePct", "httpServerErrorRatePct", "backlog"],
+        properties: {
+          httpRequestsTotal: { type: "integer", minimum: 0 },
+          http4xxTotal: { type: "integer", minimum: 0 },
+          http5xxTotal: { type: "integer", minimum: 0 },
+          httpClientErrorRatePct: { type: "number", minimum: 0 },
+          httpServerErrorRatePct: { type: "number", minimum: 0 },
+          backlog: {
+            type: "object",
+            additionalProperties: false,
+            required: ["deliveriesPending", "deliveriesFailed", "ingestRejected", "deliveryDlqTopDestinations"],
+            properties: {
+              outboxByKind: {
+                type: "object",
+                nullable: true,
+                additionalProperties: { type: "integer", minimum: 0 }
+              },
+              deliveriesPending: { type: "integer", minimum: 0 },
+              deliveriesFailed: { type: "integer", minimum: 0 },
+              ingestRejected: { type: "integer", minimum: 0 },
+              deliveryDlqTopDestinations: { type: "array", items: CommandCenterDestinationCount }
+            }
+          }
+        }
+      },
+      determinism: {
+        type: "object",
+        additionalProperties: false,
+        required: ["appendRejectedTopReasons", "ingestRejectedTopReasons", "determinismSensitiveRejects"],
+        properties: {
+          appendRejectedTopReasons: { type: "array", items: CommandCenterReasonCount },
+          ingestRejectedTopReasons: { type: "array", items: CommandCenterReasonCount },
+          determinismSensitiveRejects: { type: "integer", minimum: 0 }
+        }
+      },
+      settlement: {
+        type: "object",
+        additionalProperties: false,
+        required: ["windowHours", "resolvedCount", "lockedCount", "settlementAmountCents", "releasedAmountCents", "refundedAmountCents"],
+        properties: {
+          windowHours: { type: "integer", minimum: 1 },
+          resolvedCount: { type: "integer", minimum: 0 },
+          lockedCount: { type: "integer", minimum: 0 },
+          settlementAmountCents: { type: "integer", minimum: 0 },
+          releasedAmountCents: { type: "integer", minimum: 0 },
+          refundedAmountCents: { type: "integer", minimum: 0 }
+        }
+      },
+      disputes: {
+        type: "object",
+        additionalProperties: false,
+        required: ["openCount", "openedCountInWindow", "closedCountInWindow", "oldestOpenAgeSeconds", "overSlaCount", "expiredWindowOpenCount"],
+        properties: {
+          openCount: { type: "integer", minimum: 0 },
+          openedCountInWindow: { type: "integer", minimum: 0 },
+          closedCountInWindow: { type: "integer", minimum: 0 },
+          oldestOpenAgeSeconds: { type: "integer", minimum: 0 },
+          overSlaCount: { type: "integer", minimum: 0 },
+          expiredWindowOpenCount: { type: "integer", minimum: 0 }
+        }
+      },
+      revenue: {
+        type: "object",
+        additionalProperties: false,
+        required: ["transactionFeeBps", "estimatedTransactionFeesCentsInWindow"],
+        properties: {
+          transactionFeeBps: { type: "integer", minimum: 0, maximum: 5000 },
+          estimatedTransactionFeesCentsInWindow: { type: "integer", minimum: 0 },
+          currentPlatformRevenueCents: { type: "integer", nullable: true }
+        }
+      },
+      trust: {
+        type: "object",
+        additionalProperties: false,
+        required: ["totalAgents", "activeAgents", "sampledAgents", "averageTrustScore"],
+        properties: {
+          totalAgents: { type: "integer", minimum: 0 },
+          activeAgents: { type: "integer", minimum: 0 },
+          sampledAgents: { type: "integer", minimum: 0 },
+          averageTrustScore: { type: "number", minimum: 0, maximum: 100, nullable: true }
+        }
+      }
+    }
+  };
+
+  const OpsNetworkCommandCenterResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "commandCenter"],
+    properties: {
+      ok: { type: "boolean" },
+      tenantId: { type: "string" },
+      commandCenter: OpsNetworkCommandCenterSummary,
+      alerts: {
+        type: "object",
+        nullable: true,
+        additionalProperties: false,
+        properties: {
+          evaluatedCount: { type: "integer", minimum: 0 },
+          breachCount: { type: "integer", minimum: 0 },
+          emittedCount: { type: "integer", minimum: 0 },
+          emitted: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                alertType: { type: "string" },
+                severity: { type: "string" },
+                artifactId: { type: "string" },
+                artifactHash: { type: "string" },
+                deliveriesCreated: { type: "integer", minimum: 0 }
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+
+  const OpsFinanceReconcileResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "period", "reportHash", "reconcile", "inputs"],
+    properties: {
+      ok: { type: "boolean" },
+      tenantId: { type: "string" },
+      period: { type: "string", example: "2026-01" },
+      reportHash: { type: "string" },
+      reconcile: { type: "object", additionalProperties: true },
+      inputs: {
+        type: "object",
+        additionalProperties: false,
+        required: ["glBatchArtifactId", "glBatchArtifactHash", "partyStatementArtifactIds", "partyStatementArtifactHashes"],
+        properties: {
+          glBatchArtifactId: { type: "string" },
+          glBatchArtifactHash: { type: "string" },
+          partyStatementArtifactIds: { type: "array", items: { type: "string" } },
+          partyStatementArtifactHashes: { type: "array", items: { type: "string" } }
+        }
+      },
+      artifact: {
+        type: "object",
+        nullable: true,
+        additionalProperties: false,
+        properties: {
+          artifactId: { type: "string" },
+          artifactHash: { type: "string" },
+          deliveriesCreated: { type: "integer", minimum: 0 }
+        }
+      }
+    }
+  };
+
   const MagicLinkAnalyticsReportResponse = {
     type: "object",
     additionalProperties: false,
@@ -1926,6 +2118,11 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         ArtifactVerificationSummary,
         OpsJobListItem,
         OpsJobsListResponse,
+        CommandCenterReasonCount,
+        CommandCenterDestinationCount,
+        OpsNetworkCommandCenterSummary,
+        OpsNetworkCommandCenterResponse,
+        OpsFinanceReconcileResponse,
         MagicLinkAnalyticsReportResponse,
         MagicLinkTrustGraphResponse,
         MagicLinkTrustGraphSnapshotCreateRequest,
@@ -3228,6 +3425,32 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
+      "/ops/network/command-center": {
+        get: {
+          summary: "Network command-center summary",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "transactionFeeBps", in: "query", required: false, schema: { type: "integer", minimum: 0, maximum: 5000, default: 100 } },
+            { name: "windowHours", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 8760, default: 24 } },
+            { name: "disputeSlaHours", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 8760, default: 24 } },
+            { name: "emitAlerts", in: "query", required: false, schema: { type: "boolean", default: false } },
+            { name: "persistAlerts", in: "query", required: false, schema: { type: "boolean", default: false } },
+            { name: "httpClientErrorRateThresholdPct", in: "query", required: false, schema: { type: "number", minimum: 0 } },
+            { name: "httpServerErrorRateThresholdPct", in: "query", required: false, schema: { type: "number", minimum: 0 } },
+            { name: "deliveryDlqThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } },
+            { name: "disputeOverSlaThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } },
+            { name: "determinismRejectThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_read"],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: OpsNetworkCommandCenterResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
       "/ops/sla-templates": {
         get: {
           summary: "List built-in SLA policy templates",
@@ -3510,6 +3733,25 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           responses: {
             200: { description: "OK", content: { "text/csv": { schema: { type: "string" } } } },
             409: { description: "Not ready", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/finance/reconcile": {
+        get: {
+          summary: "Compute deterministic reconciliation report for a period",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "period", in: "query", required: true, schema: { type: "string", example: "2026-02" } },
+            { name: "persist", in: "query", required: false, schema: { type: "boolean", default: false } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["finance_read", "finance_write"],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: OpsFinanceReconcileResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not found", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },

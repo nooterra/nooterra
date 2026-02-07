@@ -760,6 +760,229 @@ export function createApi({
     };
   }
 
+  const COMMAND_CENTER_ALERT_ARTIFACT_TYPE = "CommandCenterAlert.v1";
+  const RECONCILE_REPORT_ARTIFACT_TYPE = "ReconcileReport.v1";
+  const COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS = Object.freeze({
+    httpClientErrorRateThresholdPct: 1,
+    httpServerErrorRateThresholdPct: 1,
+    deliveryDlqThreshold: 1,
+    disputeOverSlaThreshold: 1,
+    determinismRejectThreshold: 1
+  });
+
+  function parseBooleanQueryValue(raw, { defaultValue = false, name = "query parameter" } = {}) {
+    if (raw === null || raw === undefined || String(raw).trim() === "") return Boolean(defaultValue);
+    const value = String(raw).trim().toLowerCase();
+    if (value === "1" || value === "true" || value === "yes") return true;
+    if (value === "0" || value === "false" || value === "no") return false;
+    throw new TypeError(`${name} must be boolean`);
+  }
+
+  function parseThresholdIntegerQueryValue(raw, { defaultValue = 0, min = 0, max = null, name = "query parameter" } = {}) {
+    if (raw === null || raw === undefined || String(raw).trim() === "") return Number(defaultValue);
+    const value = Number(raw);
+    if (!Number.isSafeInteger(value)) throw new TypeError(`${name} must be an integer`);
+    if (value < min) throw new TypeError(`${name} must be >= ${min}`);
+    if (Number.isFinite(max) && value > max) throw new TypeError(`${name} must be <= ${max}`);
+    return value;
+  }
+
+  function parseThresholdNumberQueryValue(raw, { defaultValue = 0, min = 0, max = null, name = "query parameter" } = {}) {
+    if (raw === null || raw === undefined || String(raw).trim() === "") return Number(defaultValue);
+    const value = Number(raw);
+    if (!Number.isFinite(value)) throw new TypeError(`${name} must be numeric`);
+    if (value < min) throw new TypeError(`${name} must be >= ${min}`);
+    if (Number.isFinite(max) && value > max) throw new TypeError(`${name} must be <= ${max}`);
+    return value;
+  }
+
+  function evaluateNetworkCommandCenterAlerts({ commandCenter, thresholds } = {}) {
+    const summary =
+      commandCenter && typeof commandCenter === "object" && !Array.isArray(commandCenter) ? commandCenter : {};
+    const effectiveThresholds =
+      thresholds && typeof thresholds === "object" && !Array.isArray(thresholds)
+        ? thresholds
+        : COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS;
+    const alerts = [];
+
+    const pushAlert = ({ alertType, severity, metric, currentValue, threshold, comparator = ">=" }) => {
+      alerts.push(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: COMMAND_CENTER_ALERT_ARTIFACT_TYPE,
+            alertType: String(alertType),
+            severity: String(severity),
+            metric: String(metric),
+            comparator: String(comparator),
+            currentValue: Number(currentValue),
+            threshold: Number(threshold),
+            message: `${metric} ${comparator} ${threshold}`
+          },
+          { path: "$" }
+        )
+      );
+    };
+
+    const httpClientErrorRatePct = Number(summary?.reliability?.httpClientErrorRatePct ?? 0);
+    const httpServerErrorRatePct = Number(summary?.reliability?.httpServerErrorRatePct ?? 0);
+    const deliveriesFailed = Number(summary?.reliability?.backlog?.deliveriesFailed ?? 0);
+    const disputeOverSlaCount = Number(summary?.disputes?.overSlaCount ?? 0);
+    const determinismSensitiveRejects = Number(summary?.determinism?.determinismSensitiveRejects ?? 0);
+
+    if (httpClientErrorRatePct >= Number(effectiveThresholds.httpClientErrorRateThresholdPct)) {
+      pushAlert({
+        alertType: "http_client_error_rate_high",
+        severity: "high",
+        metric: "reliability.httpClientErrorRatePct",
+        currentValue: httpClientErrorRatePct,
+        threshold: Number(effectiveThresholds.httpClientErrorRateThresholdPct)
+      });
+    }
+    if (httpServerErrorRatePct >= Number(effectiveThresholds.httpServerErrorRateThresholdPct)) {
+      pushAlert({
+        alertType: "http_server_error_rate_high",
+        severity: "critical",
+        metric: "reliability.httpServerErrorRatePct",
+        currentValue: httpServerErrorRatePct,
+        threshold: Number(effectiveThresholds.httpServerErrorRateThresholdPct)
+      });
+    }
+    if (deliveriesFailed >= Number(effectiveThresholds.deliveryDlqThreshold)) {
+      pushAlert({
+        alertType: "delivery_dlq_backlog_high",
+        severity: "high",
+        metric: "reliability.backlog.deliveriesFailed",
+        currentValue: deliveriesFailed,
+        threshold: Number(effectiveThresholds.deliveryDlqThreshold)
+      });
+    }
+    if (disputeOverSlaCount >= Number(effectiveThresholds.disputeOverSlaThreshold)) {
+      pushAlert({
+        alertType: "disputes_over_sla_high",
+        severity: "high",
+        metric: "disputes.overSlaCount",
+        currentValue: disputeOverSlaCount,
+        threshold: Number(effectiveThresholds.disputeOverSlaThreshold)
+      });
+    }
+    if (determinismSensitiveRejects >= Number(effectiveThresholds.determinismRejectThreshold)) {
+      pushAlert({
+        alertType: "determinism_sensitive_rejects_high",
+        severity: "critical",
+        metric: "determinism.determinismSensitiveRejects",
+        currentValue: determinismSensitiveRejects,
+        threshold: Number(effectiveThresholds.determinismRejectThreshold)
+      });
+    }
+
+    return alerts;
+  }
+
+  async function emitCommandCenterAlertArtifacts({ tenantId, commandCenter, thresholds, alerts } = {}) {
+    if (!Array.isArray(alerts) || alerts.length === 0) return [];
+    if (typeof store.putArtifact !== "function" || typeof store.createDelivery !== "function") return [];
+
+    const t = normalizeTenant(tenantId);
+    const generatedAt =
+      commandCenter && typeof commandCenter.generatedAt === "string" && Number.isFinite(Date.parse(commandCenter.generatedAt))
+        ? commandCenter.generatedAt
+        : nowIso();
+    const generatedAtMs = Date.parse(generatedAt);
+    const bucketMs = Number.isFinite(generatedAtMs) ? Math.floor(generatedAtMs / (15 * 60 * 1000)) * (15 * 60 * 1000) : Date.now();
+    const bucketStartAt = new Date(bucketMs).toISOString();
+
+    const destinations = listDestinationsForTenant(t).filter((destination) => {
+      const allowed = Array.isArray(destination?.artifactTypes) && destination.artifactTypes.length ? destination.artifactTypes : null;
+      return !allowed || allowed.includes(COMMAND_CENTER_ALERT_ARTIFACT_TYPE);
+    });
+
+    const emitted = [];
+    for (const alert of alerts) {
+      const identityHash = sha256Hex(
+        canonicalJsonStringify(
+          normalizeForCanonicalJson(
+            {
+              tenantId: t,
+              alertType: alert?.alertType ?? null,
+              severity: alert?.severity ?? null,
+              metric: alert?.metric ?? null,
+              threshold: alert?.threshold ?? null,
+              currentValue: alert?.currentValue ?? null,
+              bucketStartAt
+            },
+            { path: "$" }
+          )
+        )
+      );
+      const artifactId = `cc_alert_${String(alert?.alertType ?? "alert").replaceAll(/[^a-zA-Z0-9_-]/g, "_")}_${identityHash.slice(0, 24)}`;
+      const artifactBody = normalizeForCanonicalJson(
+        {
+          schemaVersion: COMMAND_CENTER_ALERT_ARTIFACT_TYPE,
+          artifactType: COMMAND_CENTER_ALERT_ARTIFACT_TYPE,
+          artifactId,
+          tenantId: t,
+          generatedAt,
+          bucketStartAt,
+          thresholds: thresholds ?? COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS,
+          alert: alert ?? null,
+          commandCenter: commandCenter ?? null
+        },
+        { path: "$" }
+      );
+      const artifactHash = computeArtifactHash(artifactBody);
+      const artifact = { ...artifactBody, artifactHash };
+      let storedArtifact = artifact;
+      try {
+        await store.putArtifact({ tenantId: t, artifact });
+      } catch (err) {
+        if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+        if (typeof store.getArtifact !== "function") throw err;
+        const existing = await store.getArtifact({ tenantId: t, artifactId });
+        if (!existing || typeof existing?.artifactHash !== "string" || existing.artifactHash.trim() === "") throw err;
+        storedArtifact = existing;
+      }
+
+      let deliveriesCreated = 0;
+      for (const destination of destinations) {
+        const resolvedArtifactHash = String(storedArtifact.artifactHash);
+        const dedupeKey = `${t}:${destination.destinationId}:${COMMAND_CENTER_ALERT_ARTIFACT_TYPE}:${artifactId}:${resolvedArtifactHash}`;
+        const scopeKey = `command_center_alert:${String(alert?.alertType ?? "alert")}`;
+        const orderSeq = bucketMs;
+        const priority = 95;
+        const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
+        try {
+          await store.createDelivery({
+            tenantId: t,
+            delivery: {
+              destinationId: destination.destinationId,
+              artifactType: COMMAND_CENTER_ALERT_ARTIFACT_TYPE,
+              artifactId,
+              artifactHash: resolvedArtifactHash,
+              dedupeKey,
+              scopeKey,
+              orderSeq,
+              priority,
+              orderKey
+            }
+          });
+          deliveriesCreated += 1;
+        } catch (err) {
+          if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+          throw err;
+        }
+      }
+
+      emitted.push({
+        alertType: String(alert?.alertType ?? "alert"),
+        severity: String(alert?.severity ?? "high"),
+        artifactId,
+        artifactHash: String(storedArtifact.artifactHash),
+        deliveriesCreated
+      });
+    }
+    return emitted;
+  }
+
   function readMetricLabelValue(metricKey, label) {
     if (typeof metricKey !== "string" || typeof label !== "string" || !label) return null;
     const prefix = `${label}=`;
@@ -947,7 +1170,10 @@ export function createApi({
     try {
       if (store?.ledger?.balances instanceof Map) {
         const raw = Number(store.ledger.balances.get("acct_platform_revenue"));
-        if (Number.isFinite(raw)) currentPlatformRevenueCents = Math.round(-raw);
+        if (Number.isFinite(raw)) {
+          const rounded = Math.round(-raw);
+          currentPlatformRevenueCents = Object.is(rounded, -0) ? 0 : rounded;
+        }
       }
     } catch {
       // best-effort for non-ledger stores.
@@ -10621,6 +10847,142 @@ export function createApi({
             return res.end(csv);
           }
 
+          if (parts[1] === "finance" && parts[2] === "reconcile" && parts.length === 3 && req.method === "GET") {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            if (typeof store.listArtifacts !== "function") return sendError(res, 501, "artifacts not supported for this store");
+
+            const period = url.searchParams.get("period") ?? url.searchParams.get("month");
+            if (!period) return sendError(res, 400, "period is required");
+
+            let persist = false;
+            try {
+              persist = parseBooleanQueryValue(url.searchParams.get("persist"), { defaultValue: false, name: "persist" });
+            } catch (err) {
+              return sendError(res, 400, err?.message ?? "persist must be boolean");
+            }
+            if (persist && !requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+
+            const artifacts = await store.listArtifacts({ tenantId });
+            const glCandidates = artifacts.filter((a) => a?.artifactType === ARTIFACT_TYPE.GL_BATCH_V1 && String(a?.period ?? "") === String(period));
+            if (!glCandidates.length) return sendError(res, 404, "GL batch not found");
+            glCandidates.sort((a, b) => String(a?.generatedAt ?? a?.artifactId ?? "").localeCompare(String(b?.generatedAt ?? b?.artifactId ?? "")));
+            const glBatch = glCandidates[glCandidates.length - 1];
+
+            const partyStatements = artifacts
+              .filter((a) => a?.artifactType === ARTIFACT_TYPE.PARTY_STATEMENT_V1 && String(a?.period ?? "") === String(period))
+              .sort((a, b) => String(a?.artifactId ?? "").localeCompare(String(b?.artifactId ?? "")));
+            if (!partyStatements.length) return sendError(res, 404, "party statements not found");
+
+            const reconcile = reconcileGlBatchAgainstPartyStatements({ glBatch, partyStatements });
+            const reconcileBytes = new TextEncoder().encode(`${canonicalJsonStringify(reconcile)}\n`);
+            const reportHash = sha256HexBytes(reconcileBytes);
+
+            let artifactSummary = null;
+            if (persist) {
+              if (typeof store.putArtifact !== "function") return sendError(res, 501, "artifact persistence not supported for this store");
+
+              const artifactId = `reconcile_${String(period).replaceAll(/[^0-9a-zA-Z_-]/g, "_")}_${reportHash.slice(0, 24)}`;
+              const generatedAtMsCandidates = [
+                glBatch?.generatedAt ? Date.parse(String(glBatch.generatedAt)) : Number.NaN,
+                ...partyStatements.map((statement) => (statement?.generatedAt ? Date.parse(String(statement.generatedAt)) : Number.NaN))
+              ].filter((ms) => Number.isFinite(ms));
+              const generatedAtMs = generatedAtMsCandidates.length ? Math.max(...generatedAtMsCandidates) : Date.parse(`${String(period)}-01T00:00:00.000Z`);
+              const generatedAt = Number.isFinite(generatedAtMs) ? new Date(generatedAtMs).toISOString() : nowIso();
+              const artifactBody = normalizeForCanonicalJson(
+                {
+                  schemaVersion: RECONCILE_REPORT_ARTIFACT_TYPE,
+                  artifactType: RECONCILE_REPORT_ARTIFACT_TYPE,
+                  artifactId,
+                  tenantId,
+                  period,
+                  generatedAt,
+                  reportHash,
+                  inputs: {
+                    glBatchArtifactId: glBatch?.artifactId ?? null,
+                    glBatchArtifactHash: glBatch?.artifactHash ?? null,
+                    partyStatementArtifactIds: partyStatements.map((a) => a?.artifactId).filter((id) => typeof id === "string" && id.trim() !== ""),
+                    partyStatementArtifactHashes: partyStatements
+                      .map((a) => a?.artifactHash)
+                      .filter((hash) => typeof hash === "string" && hash.trim() !== "")
+                  },
+                  reconcile
+                },
+                { path: "$" }
+              );
+              const artifactHash = computeArtifactHash(artifactBody);
+              const artifact = { ...artifactBody, artifactHash };
+              let storedArtifact = artifact;
+              try {
+                await store.putArtifact({ tenantId, artifact });
+              } catch (err) {
+                if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+                if (typeof store.getArtifact !== "function") throw err;
+                const existing = await store.getArtifact({ tenantId, artifactId });
+                if (!existing || typeof existing?.artifactHash !== "string" || existing.artifactHash.trim() === "") throw err;
+                storedArtifact = existing;
+              }
+
+              let deliveriesCreated = 0;
+              if (typeof store.createDelivery === "function") {
+                const destinations = listDestinationsForTenant(tenantId).filter((d) => {
+                  const allowed = Array.isArray(d?.artifactTypes) && d.artifactTypes.length ? d.artifactTypes : null;
+                  return !allowed || allowed.includes(RECONCILE_REPORT_ARTIFACT_TYPE);
+                });
+                for (const dest of destinations) {
+                  const resolvedArtifactHash = String(storedArtifact.artifactHash);
+                  const dedupeKey = `${tenantId}:${dest.destinationId}:${RECONCILE_REPORT_ARTIFACT_TYPE}:${artifactId}:${resolvedArtifactHash}`;
+                  const scopeKey = `finance_reconcile:period:${period}`;
+                  const orderSeq = Date.parse(generatedAt);
+                  const priority = 96;
+                  const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
+                  try {
+                    await store.createDelivery({
+                      tenantId,
+                      delivery: {
+                        destinationId: dest.destinationId,
+                        artifactType: RECONCILE_REPORT_ARTIFACT_TYPE,
+                        artifactId,
+                        artifactHash: resolvedArtifactHash,
+                        dedupeKey,
+                        scopeKey,
+                        orderSeq,
+                        priority,
+                        orderKey
+                      }
+                    });
+                    deliveriesCreated += 1;
+                  } catch (err) {
+                    if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+                    throw err;
+                  }
+                }
+              }
+
+              artifactSummary = {
+                artifactId,
+                artifactHash: String(storedArtifact.artifactHash),
+                deliveriesCreated
+              };
+            }
+
+            return sendJson(res, 200, {
+              ok: true,
+              tenantId,
+              period,
+              reportHash,
+              reconcile,
+              inputs: {
+                glBatchArtifactId: glBatch?.artifactId ?? null,
+                glBatchArtifactHash: glBatch?.artifactHash ?? null,
+                partyStatementArtifactIds: partyStatements.map((a) => a?.artifactId).filter((id) => typeof id === "string" && id.trim() !== ""),
+                partyStatementArtifactHashes: partyStatements.map((a) => a?.artifactHash).filter((hash) => typeof hash === "string" && hash.trim() !== "")
+              },
+              artifact: artifactSummary
+            });
+          }
+
 	        if (parts[1] === "status" && parts.length === 2 && req.method === "GET") {
 	          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
 
@@ -10702,10 +11064,76 @@ export function createApi({
             windowHours,
             disputeSlaHours
           });
+          const emitAlertsRaw = url.searchParams.get("emitAlerts");
+          const persistAlertsRaw = url.searchParams.get("persistAlerts");
+
+          let emitAlerts;
+          let persistAlerts;
+          try {
+            emitAlerts = parseBooleanQueryValue(emitAlertsRaw, { defaultValue: false, name: "emitAlerts" });
+            persistAlerts = parseBooleanQueryValue(persistAlertsRaw, { defaultValue: false, name: "persistAlerts" });
+          } catch (err) {
+            return sendError(res, 400, err?.message ?? "invalid alert query parameters");
+          }
+          if (persistAlerts && !requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE)) return sendError(res, 403, "forbidden");
+
+          let alertsSummary = null;
+          if (emitAlerts || persistAlerts) {
+            let thresholds;
+            try {
+              thresholds = {
+                httpClientErrorRateThresholdPct: parseThresholdNumberQueryValue(url.searchParams.get("httpClientErrorRateThresholdPct"), {
+                  defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.httpClientErrorRateThresholdPct,
+                  min: 0,
+                  name: "httpClientErrorRateThresholdPct"
+                }),
+                httpServerErrorRateThresholdPct: parseThresholdNumberQueryValue(url.searchParams.get("httpServerErrorRateThresholdPct"), {
+                  defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.httpServerErrorRateThresholdPct,
+                  min: 0,
+                  name: "httpServerErrorRateThresholdPct"
+                }),
+                deliveryDlqThreshold: parseThresholdIntegerQueryValue(url.searchParams.get("deliveryDlqThreshold"), {
+                  defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.deliveryDlqThreshold,
+                  min: 0,
+                  name: "deliveryDlqThreshold"
+                }),
+                disputeOverSlaThreshold: parseThresholdIntegerQueryValue(url.searchParams.get("disputeOverSlaThreshold"), {
+                  defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.disputeOverSlaThreshold,
+                  min: 0,
+                  name: "disputeOverSlaThreshold"
+                }),
+                determinismRejectThreshold: parseThresholdIntegerQueryValue(url.searchParams.get("determinismRejectThreshold"), {
+                  defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.determinismRejectThreshold,
+                  min: 0,
+                  name: "determinismRejectThreshold"
+                })
+              };
+            } catch (err) {
+              return sendError(res, 400, err?.message ?? "invalid alert thresholds");
+            }
+
+            const alerts = evaluateNetworkCommandCenterAlerts({ commandCenter, thresholds });
+            const emitted = persistAlerts
+              ? await emitCommandCenterAlertArtifacts({
+                  tenantId,
+                  commandCenter,
+                  thresholds,
+                  alerts
+                })
+              : [];
+            alertsSummary = {
+              evaluatedCount: Object.keys(COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS).length,
+              breachCount: alerts.length,
+              emittedCount: emitted.length,
+              emitted
+            };
+          }
+
           return sendJson(res, 200, {
             ok: true,
             tenantId,
-            commandCenter
+            commandCenter,
+            alerts: alertsSummary
           });
         }
 

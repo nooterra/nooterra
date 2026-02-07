@@ -24,7 +24,17 @@ async function registerAgent(api, agentId) {
 
 test("API e2e: /ops/network/command-center summarizes reliability, settlement, dispute, and revenue signals", async () => {
   const api = createApi({
-    opsTokens: ["tok_opsr:ops_read", "tok_opsw:ops_write"].join(";")
+    opsTokens: ["tok_opsr:ops_read", "tok_opsw:ops_write"].join(";"),
+    exportDestinations: {
+      tenant_default: [
+        {
+          destinationId: "dest_cc_alerts",
+          url: "https://example.invalid/command-center-alerts",
+          secret: "sek_cc_alerts",
+          artifactTypes: ["CommandCenterAlert.v1"]
+        }
+      ]
+    }
   });
 
   await registerAgent(api, "agt_cc_poster");
@@ -151,4 +161,27 @@ test("API e2e: /ops/network/command-center summarizes reliability, settlement, d
   assert.ok(commandCenter.json?.commandCenter?.disputes?.openCount >= 1);
   assert.ok(commandCenter.json?.commandCenter?.revenue?.estimatedTransactionFeesCentsInWindow >= 20);
   assert.ok(commandCenter.json?.commandCenter?.trust?.totalAgents >= 3);
+
+  const alerts = await request(api, {
+    method: "GET",
+    path: "/ops/network/command-center?windowHours=24&disputeSlaHours=1&transactionFeeBps=100&emitAlerts=true&persistAlerts=true&httpServerErrorRateThresholdPct=0&deliveryDlqThreshold=0&disputeOverSlaThreshold=0&determinismRejectThreshold=0",
+    headers: { "x-proxy-ops-token": "tok_opsw" }
+  });
+  assert.equal(alerts.statusCode, 200);
+  assert.equal(alerts.json?.ok, true);
+  assert.equal(typeof alerts.json?.alerts?.evaluatedCount, "number");
+  assert.ok(alerts.json?.alerts?.evaluatedCount >= 1);
+  assert.ok(alerts.json?.alerts?.breachCount >= 1);
+  assert.ok(alerts.json?.alerts?.emittedCount >= 1);
+  assert.equal(alerts.json?.alerts?.emittedCount, (alerts.json?.alerts?.emitted ?? []).length);
+
+  const emittedArtifacts = (await api.store.listArtifacts({ tenantId: "tenant_default" })).filter(
+    (a) => a?.artifactType === "CommandCenterAlert.v1"
+  );
+  assert.ok(emittedArtifacts.length >= alerts.json?.alerts?.emittedCount);
+
+  const deliveries = (await api.store.listDeliveries({ tenantId: "tenant_default" })).filter(
+    (d) => d?.artifactType === "CommandCenterAlert.v1"
+  );
+  assert.ok(deliveries.length >= alerts.json?.alerts?.emittedCount);
 });
