@@ -1693,6 +1693,34 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const ArbitrationVerdictSignedRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["caseId", "verdictId", "arbiterAgentId", "outcome", "releaseRatePct", "rationale", "evidenceRefs", "signerKeyId", "signature"],
+    properties: {
+      caseId: { type: "string" },
+      verdictId: { type: "string" },
+      arbiterAgentId: { type: "string" },
+      outcome: { type: "string", enum: ["accepted", "rejected", "partial"] },
+      releaseRatePct: { type: "integer", minimum: 0, maximum: 100 },
+      rationale: { type: "string" },
+      evidenceRefs: { type: "array", items: { type: "string" } },
+      issuedAt: { type: "string", format: "date-time" },
+      appealRef: {
+        type: "object",
+        additionalProperties: false,
+        nullable: true,
+        properties: {
+          appealCaseId: { type: "string" },
+          parentVerdictId: { type: "string" },
+          reason: { type: "string", nullable: true }
+        }
+      },
+      signerKeyId: { type: "string" },
+      signature: { type: "string" }
+    }
+  };
+
   const RunSettlementPolicyReplayResponse = {
     type: "object",
     additionalProperties: false,
@@ -2112,6 +2140,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         RunAgreementCancelRequest,
         RunAgreementCancelResponse,
         DisputeVerdictSignedRequest,
+        ArbitrationVerdictSignedRequest,
         RunSettlementPolicyReplayResponse,
         MonthCloseRequest,
         AckRequest,
@@ -2531,7 +2560,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                       disputeEvidence: { type: "object", additionalProperties: true, nullable: true },
                       disputeEscalation: { type: "object", additionalProperties: true, nullable: true },
                       verdict: { type: "object", additionalProperties: true, nullable: true },
-                      verdictArtifact: { type: "object", additionalProperties: true, nullable: true }
+                      verdictArtifact: { type: "object", additionalProperties: true, nullable: true },
+                      arbitrationVerdict: { type: "object", additionalProperties: true, nullable: true },
+                      arbitrationCaseArtifact: { type: "object", additionalProperties: true, nullable: true },
+                      arbitrationVerdictArtifact: { type: "object", additionalProperties: true, nullable: true }
                     }
                   }
                 }
@@ -2580,7 +2612,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                     resolutionSummary: { type: "string" },
                     closedByAgentId: { type: "string" },
                     resolutionEvidenceRefs: { type: "array", items: { type: "string" } },
-                    verdict: DisputeVerdictSignedRequest
+                    verdict: DisputeVerdictSignedRequest,
+                    arbitrationVerdict: ArbitrationVerdictSignedRequest
                   }
                 }
               }
@@ -2607,7 +2640,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                         type: "object",
                         additionalProperties: true,
                         nullable: true
-                      }
+                      },
+                      arbitrationVerdict: { type: "object", additionalProperties: true, nullable: true },
+                      arbitrationCaseArtifact: { type: "object", additionalProperties: true, nullable: true },
+                      arbitrationVerdictArtifact: { type: "object", additionalProperties: true, nullable: true }
                     }
                   }
                 }
@@ -2660,7 +2696,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                       disputeEvidence: { type: "object", additionalProperties: true, nullable: true },
                       disputeEscalation: { type: "object", additionalProperties: true, nullable: true },
                       verdict: { type: "object", additionalProperties: true, nullable: true },
-                      verdictArtifact: { type: "object", additionalProperties: true, nullable: true }
+                      verdictArtifact: { type: "object", additionalProperties: true, nullable: true },
+                      arbitrationVerdict: { type: "object", additionalProperties: true, nullable: true },
+                      arbitrationCaseArtifact: { type: "object", additionalProperties: true, nullable: true },
+                      arbitrationVerdictArtifact: { type: "object", additionalProperties: true, nullable: true }
                     }
                   }
                 }
@@ -2714,7 +2753,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                       disputeEvidence: { type: "object", additionalProperties: true, nullable: true },
                       disputeEscalation: { type: "object", additionalProperties: true, nullable: true },
                       verdict: { type: "object", additionalProperties: true, nullable: true },
-                      verdictArtifact: { type: "object", additionalProperties: true, nullable: true }
+                      verdictArtifact: { type: "object", additionalProperties: true, nullable: true },
+                      arbitrationVerdict: { type: "object", additionalProperties: true, nullable: true },
+                      arbitrationCaseArtifact: { type: "object", additionalProperties: true, nullable: true },
+                      arbitrationVerdictArtifact: { type: "object", additionalProperties: true, nullable: true }
                     }
                   }
                 }

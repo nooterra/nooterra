@@ -9534,6 +9534,81 @@
           }
         }
       },
+      "ArbitrationVerdictSignedRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "caseId",
+          "verdictId",
+          "arbiterAgentId",
+          "outcome",
+          "releaseRatePct",
+          "rationale",
+          "evidenceRefs",
+          "signerKeyId",
+          "signature"
+        ],
+        "properties": {
+          "caseId": {
+            "type": "string"
+          },
+          "verdictId": {
+            "type": "string"
+          },
+          "arbiterAgentId": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected",
+              "partial"
+            ]
+          },
+          "releaseRatePct": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "evidenceRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "issuedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "appealRef": {
+            "type": "object",
+            "additionalProperties": false,
+            "nullable": true,
+            "properties": {
+              "appealCaseId": {
+                "type": "string"
+              },
+              "parentVerdictId": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "signerKeyId": {
+            "type": "string"
+          },
+          "signature": {
+            "type": "string"
+          }
+        }
+      },
       "RunSettlementPolicyReplayResponse": {
         "type": "object",
         "additionalProperties": false,
@@ -20675,6 +20750,21 @@
                       "type": "object",
                       "additionalProperties": true,
                       "nullable": true
+                    },
+                    "arbitrationVerdict": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    },
+                    "arbitrationCaseArtifact": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    },
+                    "arbitrationVerdictArtifact": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
                     }
                   }
                 }
@@ -20904,6 +20994,81 @@
                       "issuedAt": {
                         "type": "string",
                         "format": "date-time"
+                      },
+                      "signerKeyId": {
+                        "type": "string"
+                      },
+                      "signature": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "arbitrationVerdict": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "caseId",
+                      "verdictId",
+                      "arbiterAgentId",
+                      "outcome",
+                      "releaseRatePct",
+                      "rationale",
+                      "evidenceRefs",
+                      "signerKeyId",
+                      "signature"
+                    ],
+                    "properties": {
+                      "caseId": {
+                        "type": "string"
+                      },
+                      "verdictId": {
+                        "type": "string"
+                      },
+                      "arbiterAgentId": {
+                        "type": "string"
+                      },
+                      "outcome": {
+                        "type": "string",
+                        "enum": [
+                          "accepted",
+                          "rejected",
+                          "partial"
+                        ]
+                      },
+                      "releaseRatePct": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100
+                      },
+                      "rationale": {
+                        "type": "string"
+                      },
+                      "evidenceRefs": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "issuedAt": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "appealRef": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "nullable": true,
+                        "properties": {
+                          "appealCaseId": {
+                            "type": "string"
+                          },
+                          "parentVerdictId": {
+                            "type": "string"
+                          },
+                          "reason": {
+                            "type": "string",
+                            "nullable": true
+                          }
+                        }
                       },
                       "signerKeyId": {
                         "type": "string"
@@ -21234,6 +21399,21 @@
                       "nullable": true
                     },
                     "verdictArtifact": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    },
+                    "arbitrationVerdict": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    },
+                    "arbitrationCaseArtifact": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    },
+                    "arbitrationVerdictArtifact": {
                       "type": "object",
                       "additionalProperties": true,
                       "nullable": true
@@ -21689,6 +21869,21 @@
                       "nullable": true
                     },
                     "verdictArtifact": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    },
+                    "arbitrationVerdict": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    },
+                    "arbitrationCaseArtifact": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    },
+                    "arbitrationVerdictArtifact": {
                       "type": "object",
                       "additionalProperties": true,
                       "nullable": true
@@ -22158,6 +22353,21 @@
                       "nullable": true
                     },
                     "verdictArtifact": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    },
+                    "arbitrationVerdict": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    },
+                    "arbitrationCaseArtifact": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    },
+                    "arbitrationVerdictArtifact": {
                       "type": "object",
                       "additionalProperties": true,
                       "nullable": true

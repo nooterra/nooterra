@@ -6783,6 +6783,176 @@ export function createApi({
     };
   }
 
+  function normalizeUniqueNonEmptyStringArray(value, { fieldName }) {
+    if (!Array.isArray(value)) throw new TypeError(`${fieldName} must be an array`);
+    const out = [];
+    const seen = new Set();
+    for (let index = 0; index < value.length; index += 1) {
+      const item = value[index];
+      if (typeof item !== "string" || item.trim() === "") {
+        throw new TypeError(`${fieldName}[${index}] must be a non-empty string`);
+      }
+      const normalized = item.trim();
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      out.push(normalized);
+    }
+    return out;
+  }
+
+  async function parseSignedArbitrationVerdict({
+    tenantId,
+    runId,
+    settlement,
+    disputeId,
+    arbitrationVerdictInput
+  } = {}) {
+    if (!arbitrationVerdictInput || typeof arbitrationVerdictInput !== "object" || Array.isArray(arbitrationVerdictInput)) {
+      throw new TypeError("arbitrationVerdict must be an object");
+    }
+    const normalizedDisputeId = typeof disputeId === "string" && disputeId.trim() !== "" ? disputeId.trim() : null;
+    if (!normalizedDisputeId) throw new TypeError("disputeId is required for arbitrationVerdict signing");
+
+    const caseIdRaw = arbitrationVerdictInput.caseId ?? `arb_case_${normalizedDisputeId}`;
+    const caseId = typeof caseIdRaw === "string" && caseIdRaw.trim() !== "" ? caseIdRaw.trim() : null;
+    if (!caseId) throw new TypeError("arbitrationVerdict.caseId must be a non-empty string");
+    const verdictIdRaw = arbitrationVerdictInput.verdictId ?? createId("avd");
+    const verdictId = typeof verdictIdRaw === "string" && verdictIdRaw.trim() !== "" ? verdictIdRaw.trim() : null;
+    if (!verdictId) throw new TypeError("arbitrationVerdict.verdictId must be a non-empty string");
+
+    const arbiterAgentId =
+      typeof arbitrationVerdictInput.arbiterAgentId === "string" && arbitrationVerdictInput.arbiterAgentId.trim() !== ""
+        ? arbitrationVerdictInput.arbiterAgentId.trim()
+        : null;
+    if (!arbiterAgentId) throw new TypeError("arbitrationVerdict.arbiterAgentId is required");
+    const arbiterIdentity = await getAgentIdentityRecord({ tenantId, agentId: arbiterAgentId });
+    if (!arbiterIdentity) throw new TypeError("arbitrationVerdict.arbiterAgentId not found");
+
+    const outcome = typeof arbitrationVerdictInput.outcome === "string" ? arbitrationVerdictInput.outcome.trim().toLowerCase() : "";
+    if (outcome !== "accepted" && outcome !== "rejected" && outcome !== "partial") {
+      throw new TypeError("arbitrationVerdict.outcome must be accepted|rejected|partial");
+    }
+    const releaseRatePct = Number(arbitrationVerdictInput.releaseRatePct);
+    if (!Number.isSafeInteger(releaseRatePct) || releaseRatePct < 0 || releaseRatePct > 100) {
+      throw new TypeError("arbitrationVerdict.releaseRatePct must be an integer within 0..100");
+    }
+    const rationale =
+      typeof arbitrationVerdictInput.rationale === "string" && arbitrationVerdictInput.rationale.trim() !== ""
+        ? arbitrationVerdictInput.rationale.trim()
+        : null;
+    if (!rationale) throw new TypeError("arbitrationVerdict.rationale is required");
+    const evidenceRefs = normalizeUniqueNonEmptyStringArray(arbitrationVerdictInput.evidenceRefs, {
+      fieldName: "arbitrationVerdict.evidenceRefs"
+    });
+    const issuedAt =
+      typeof arbitrationVerdictInput.issuedAt === "string" && arbitrationVerdictInput.issuedAt.trim() !== ""
+        ? arbitrationVerdictInput.issuedAt.trim()
+        : nowIso();
+    if (!Number.isFinite(Date.parse(issuedAt))) throw new TypeError("arbitrationVerdict.issuedAt must be an ISO date-time");
+
+    let appealRef = null;
+    if (arbitrationVerdictInput.appealRef !== undefined && arbitrationVerdictInput.appealRef !== null) {
+      if (typeof arbitrationVerdictInput.appealRef !== "object" || Array.isArray(arbitrationVerdictInput.appealRef)) {
+        throw new TypeError("arbitrationVerdict.appealRef must be an object");
+      }
+      const appealCaseId =
+        typeof arbitrationVerdictInput.appealRef.appealCaseId === "string" && arbitrationVerdictInput.appealRef.appealCaseId.trim() !== ""
+          ? arbitrationVerdictInput.appealRef.appealCaseId.trim()
+          : null;
+      const parentVerdictId =
+        typeof arbitrationVerdictInput.appealRef.parentVerdictId === "string" &&
+        arbitrationVerdictInput.appealRef.parentVerdictId.trim() !== ""
+          ? arbitrationVerdictInput.appealRef.parentVerdictId.trim()
+          : null;
+      if (!appealCaseId || !parentVerdictId) {
+        throw new TypeError("arbitrationVerdict.appealRef.appealCaseId and arbitrationVerdict.appealRef.parentVerdictId are required");
+      }
+      const appealReason =
+        arbitrationVerdictInput.appealRef.reason === undefined || arbitrationVerdictInput.appealRef.reason === null
+          ? null
+          : typeof arbitrationVerdictInput.appealRef.reason === "string" && arbitrationVerdictInput.appealRef.reason.trim() !== ""
+            ? arbitrationVerdictInput.appealRef.reason.trim()
+            : null;
+      if (arbitrationVerdictInput.appealRef.reason !== undefined && arbitrationVerdictInput.appealRef.reason !== null && !appealReason) {
+        throw new TypeError("arbitrationVerdict.appealRef.reason must be a non-empty string when provided");
+      }
+      appealRef = {
+        appealCaseId,
+        parentVerdictId,
+        reason: appealReason
+      };
+    }
+
+    const signerKeyId =
+      typeof arbitrationVerdictInput.signerKeyId === "string" && arbitrationVerdictInput.signerKeyId.trim() !== ""
+        ? arbitrationVerdictInput.signerKeyId.trim()
+        : null;
+    const signature =
+      typeof arbitrationVerdictInput.signature === "string" && arbitrationVerdictInput.signature.trim() !== ""
+        ? arbitrationVerdictInput.signature.trim()
+        : null;
+    if (!signerKeyId || !signature) {
+      throw new TypeError("arbitrationVerdict.signerKeyId and arbitrationVerdict.signature are required");
+    }
+    const expectedAgentKeyId = String(arbiterIdentity?.keys?.keyId ?? "");
+    if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
+      throw new TypeError("arbitrationVerdict.signerKeyId does not match arbiter agent key");
+    }
+
+    const core = normalizeForCanonicalJson(
+      {
+        schemaVersion: "ArbitrationVerdict.v1",
+        verdictId,
+        caseId,
+        tenantId: normalizeTenant(tenantId),
+        runId: String(runId),
+        settlementId: String(settlement?.settlementId ?? ""),
+        disputeId: normalizedDisputeId,
+        arbiterAgentId,
+        outcome,
+        releaseRatePct,
+        rationale,
+        evidenceRefs,
+        issuedAt,
+        appealRef
+      },
+      { path: "$" }
+    );
+    const verdictHash = sha256Hex(canonicalJsonStringify(core));
+    const publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+    const isValid = verifyHashHexEd25519({
+      hashHex: verdictHash,
+      signatureBase64: signature,
+      publicKeyPem
+    });
+    if (!isValid) throw new TypeError("invalid arbitrationVerdict signature");
+    return {
+      ...core,
+      signerKeyId,
+      signature,
+      verdictHash,
+      signatureEnvelope: {
+        algorithm: "ed25519",
+        signerKeyId,
+        verdictHash,
+        signature
+      }
+    };
+  }
+
+  function assertArbitrationVerdictEvidenceBoundToDisputeContext({ settlement, arbitrationVerdict } = {}) {
+    if (!arbitrationVerdict || typeof arbitrationVerdict !== "object" || Array.isArray(arbitrationVerdict)) return;
+    const disputeContextEvidenceRefs = Array.isArray(settlement?.disputeContext?.evidenceRefs) ? settlement.disputeContext.evidenceRefs : [];
+    const allowedEvidenceRefs = new Set(disputeContextEvidenceRefs.map((value) => String(value)));
+    const verdictEvidenceRefs = Array.isArray(arbitrationVerdict.evidenceRefs) ? arbitrationVerdict.evidenceRefs : [];
+    for (let index = 0; index < verdictEvidenceRefs.length; index += 1) {
+      const evidenceRef = String(verdictEvidenceRefs[index]);
+      if (!allowedEvidenceRefs.has(evidenceRef)) {
+        throw new TypeError("arbitrationVerdict.evidenceRefs must be a subset of settlement.disputeContext.evidenceRefs");
+      }
+    }
+  }
+
   function settlementDisputeWindowEndsAtMs(settlement) {
     const windowDays = Number(settlement?.disputeWindowDays ?? 0);
     if (!Number.isSafeInteger(windowDays) || windowDays <= 0) return Number.NaN;
@@ -8246,6 +8416,200 @@ export function createApi({
       }
     }
     return { artifactId, artifactHash, deliveriesCreated, verdictHash: verdict.verdictHash ?? null };
+  }
+
+  async function emitArbitrationCaseArtifact({
+    tenantId,
+    runId,
+    settlement,
+    arbitrationVerdict,
+    at = nowIso()
+  } = {}) {
+    if (!arbitrationVerdict || typeof arbitrationVerdict !== "object" || Array.isArray(arbitrationVerdict)) return null;
+    if (typeof store.putArtifact !== "function" || typeof store.createDelivery !== "function") return null;
+    const artifactType = "ArbitrationCase.v1";
+    const caseId = typeof arbitrationVerdict.caseId === "string" && arbitrationVerdict.caseId.trim() !== ""
+      ? arbitrationVerdict.caseId.trim()
+      : null;
+    if (!caseId) return null;
+    const artifactId = `arbitration_case_${caseId}`;
+    const openedAt = settlement?.disputeOpenedAt ?? at;
+    const closedAt = settlement?.disputeClosedAt ?? at;
+    const createdAt = openedAt;
+    const updatedAt = closedAt;
+    const evidenceRefs = Array.isArray(settlement?.disputeContext?.evidenceRefs)
+      ? settlement.disputeContext.evidenceRefs
+      : Array.isArray(arbitrationVerdict.evidenceRefs)
+        ? arbitrationVerdict.evidenceRefs
+        : [];
+    const appealRef =
+      arbitrationVerdict?.appealRef && typeof arbitrationVerdict.appealRef === "object" && !Array.isArray(arbitrationVerdict.appealRef)
+        ? {
+            parentCaseId: arbitrationVerdict.appealRef.appealCaseId ?? null,
+            parentVerdictId: arbitrationVerdict.appealRef.parentVerdictId ?? null,
+            reason: arbitrationVerdict.appealRef.reason ?? null
+          }
+        : null;
+    const body = normalizeForCanonicalJson(
+      {
+        schemaVersion: artifactType,
+        artifactType,
+        artifactId,
+        caseId,
+        tenantId: normalizeTenant(tenantId),
+        runId: String(runId),
+        settlementId: String(settlement?.settlementId ?? ""),
+        disputeId: String(settlement?.disputeId ?? arbitrationVerdict?.disputeId ?? ""),
+        claimantAgentId: String(settlement?.payerAgentId ?? settlement?.disputeContext?.openedByAgentId ?? ""),
+        respondentAgentId: String(settlement?.agentId ?? ""),
+        arbiterAgentId: arbitrationVerdict.arbiterAgentId ?? null,
+        status: "closed",
+        openedAt,
+        closedAt,
+        summary: settlement?.disputeResolution?.summary ?? arbitrationVerdict?.rationale ?? null,
+        evidenceRefs,
+        verdictId: arbitrationVerdict.verdictId ?? null,
+        verdictHash: arbitrationVerdict.verdictHash ?? null,
+        appealRef: appealRef?.parentCaseId ? appealRef : null,
+        revision: 1,
+        createdAt,
+        updatedAt
+      },
+      { path: "$" }
+    );
+    const artifactHash = computeArtifactHash(body);
+    const artifact = { ...body, artifactHash };
+    try {
+      await store.putArtifact({ tenantId, artifact });
+    } catch (err) {
+      if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+    }
+    const destinations = listDestinationsForTenant(tenantId).filter((destination) => {
+      const allowed = Array.isArray(destination?.artifactTypes) && destination.artifactTypes.length ? destination.artifactTypes : null;
+      return !allowed || allowed.includes(artifactType);
+    });
+    let deliveriesCreated = 0;
+    for (const destination of destinations) {
+      const dedupeKey = `${tenantId}:${destination.destinationId}:${artifactType}:${artifactId}:${artifactHash}`;
+      const scopeKey = String(runId ?? settlement?.settlementId ?? caseId ?? artifactId);
+      const orderSeq = Date.parse(updatedAt) || 0;
+      const priority = 75;
+      const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
+      try {
+        await store.createDelivery({
+          tenantId,
+          delivery: {
+            destinationId: destination.destinationId,
+            artifactType,
+            artifactId,
+            artifactHash,
+            dedupeKey,
+            scopeKey,
+            orderSeq,
+            priority,
+            orderKey
+          }
+        });
+        deliveriesCreated += 1;
+      } catch (err) {
+        if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+        throw err;
+      }
+    }
+    return { artifactId, artifactHash, deliveriesCreated, caseId };
+  }
+
+  async function emitArbitrationVerdictArtifact({
+    tenantId,
+    runId,
+    settlement,
+    arbitrationVerdict
+  } = {}) {
+    if (!arbitrationVerdict || typeof arbitrationVerdict !== "object" || Array.isArray(arbitrationVerdict)) return null;
+    if (typeof store.putArtifact !== "function" || typeof store.createDelivery !== "function") return null;
+    const artifactType = "ArbitrationVerdict.v1";
+    const verdictId = typeof arbitrationVerdict.verdictId === "string" && arbitrationVerdict.verdictId.trim() !== ""
+      ? arbitrationVerdict.verdictId.trim()
+      : null;
+    if (!verdictId) return null;
+    const artifactId = `arbitration_verdict_${verdictId}`;
+    const issuedAt = arbitrationVerdict.issuedAt ?? nowIso();
+    const signatureEnvelope =
+      arbitrationVerdict?.signatureEnvelope && typeof arbitrationVerdict.signatureEnvelope === "object"
+        ? arbitrationVerdict.signatureEnvelope
+        : null;
+    const body = normalizeForCanonicalJson(
+      {
+        schemaVersion: artifactType,
+        artifactType,
+        artifactId,
+        verdictId,
+        caseId: arbitrationVerdict.caseId ?? null,
+        tenantId: normalizeTenant(tenantId),
+        runId: String(runId),
+        settlementId: String(settlement?.settlementId ?? arbitrationVerdict.settlementId ?? ""),
+        disputeId: String(settlement?.disputeId ?? arbitrationVerdict.disputeId ?? ""),
+        arbiterAgentId: arbitrationVerdict.arbiterAgentId ?? null,
+        outcome: arbitrationVerdict.outcome ?? null,
+        releaseRatePct: arbitrationVerdict.releaseRatePct ?? null,
+        rationale: arbitrationVerdict.rationale ?? null,
+        evidenceRefs: Array.isArray(arbitrationVerdict.evidenceRefs) ? arbitrationVerdict.evidenceRefs : [],
+        issuedAt,
+        appealRef: arbitrationVerdict.appealRef ?? null,
+        signature:
+          signatureEnvelope ??
+          {
+            algorithm: "ed25519",
+            signerKeyId: arbitrationVerdict.signerKeyId ?? null,
+            verdictHash: arbitrationVerdict.verdictHash ?? null,
+            signature: arbitrationVerdict.signature ?? null
+          },
+        revision: 1,
+        createdAt: issuedAt,
+        updatedAt: issuedAt
+      },
+      { path: "$" }
+    );
+    const artifactHash = computeArtifactHash(body);
+    const artifact = { ...body, artifactHash };
+    try {
+      await store.putArtifact({ tenantId, artifact });
+    } catch (err) {
+      if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+    }
+    const destinations = listDestinationsForTenant(tenantId).filter((destination) => {
+      const allowed = Array.isArray(destination?.artifactTypes) && destination.artifactTypes.length ? destination.artifactTypes : null;
+      return !allowed || allowed.includes(artifactType);
+    });
+    let deliveriesCreated = 0;
+    for (const destination of destinations) {
+      const dedupeKey = `${tenantId}:${destination.destinationId}:${artifactType}:${artifactId}:${artifactHash}`;
+      const scopeKey = String(runId ?? settlement?.settlementId ?? verdictId ?? artifactId);
+      const orderSeq = Date.parse(issuedAt) || 0;
+      const priority = 74;
+      const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
+      try {
+        await store.createDelivery({
+          tenantId,
+          delivery: {
+            destinationId: destination.destinationId,
+            artifactType,
+            artifactId,
+            artifactHash,
+            dedupeKey,
+            scopeKey,
+            orderSeq,
+            priority,
+            orderKey
+          }
+        });
+        deliveriesCreated += 1;
+      } catch (err) {
+        if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+        throw err;
+      }
+    }
+    return { artifactId, artifactHash, deliveriesCreated, verdictHash: arbitrationVerdict.verdictHash ?? null };
   }
 
   function getMonthEvents(tenantId, monthId) {
@@ -17525,6 +17889,7 @@ export function createApi({
         }
 
         let signedVerdict = null;
+        let signedArbitrationVerdict = null;
         if (action === "close" && body?.verdict !== undefined && body?.verdict !== null) {
           try {
             signedVerdict = await parseSignedDisputeVerdict({
@@ -17536,6 +17901,23 @@ export function createApi({
             });
           } catch (err) {
             return sendError(res, 400, "invalid dispute verdict", { message: err?.message });
+          }
+        }
+        if (action === "close" && body?.arbitrationVerdict !== undefined && body?.arbitrationVerdict !== null) {
+          try {
+            signedArbitrationVerdict = await parseSignedArbitrationVerdict({
+              tenantId,
+              runId,
+              settlement,
+              disputeId: body?.disputeId ?? settlement?.disputeId ?? null,
+              arbitrationVerdictInput: body?.arbitrationVerdict
+            });
+            assertArbitrationVerdictEvidenceBoundToDisputeContext({
+              settlement,
+              arbitrationVerdict: signedArbitrationVerdict
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid arbitration verdict", { message: err?.message });
           }
         }
 
@@ -17567,31 +17949,57 @@ export function createApi({
           if (body?.resolutionEvidenceRefs !== undefined) mergedResolution.evidenceRefs = body.resolutionEvidenceRefs;
           resolutionInput = mergedResolution;
         }
-        if (action === "close" && signedVerdict) {
+        if (action === "close" && (signedVerdict || signedArbitrationVerdict)) {
           const nowMs = Date.parse(nowAt);
           const endsAtMs = settlementDisputeWindowEndsAtMs(settlement);
           const verdictIssuedAtMs =
             signedVerdict?.issuedAt && Number.isFinite(Date.parse(String(signedVerdict.issuedAt)))
               ? Date.parse(String(signedVerdict.issuedAt))
               : Number.NaN;
+          const arbitrationVerdictIssuedAtMs =
+            signedArbitrationVerdict?.issuedAt && Number.isFinite(Date.parse(String(signedArbitrationVerdict.issuedAt)))
+              ? Date.parse(String(signedArbitrationVerdict.issuedAt))
+              : Number.NaN;
           if (
             !Number.isFinite(endsAtMs) ||
             !Number.isFinite(nowMs) ||
             nowMs > endsAtMs ||
-            !Number.isFinite(verdictIssuedAtMs) ||
-            verdictIssuedAtMs > endsAtMs
+            (signedVerdict && (!Number.isFinite(verdictIssuedAtMs) || verdictIssuedAtMs > endsAtMs)) ||
+            (signedArbitrationVerdict &&
+              (!Number.isFinite(arbitrationVerdictIssuedAtMs) || arbitrationVerdictIssuedAtMs > endsAtMs))
           ) {
             return sendError(res, 409, "appeal window has closed");
           }
           if (!resolutionInput || typeof resolutionInput !== "object" || Array.isArray(resolutionInput)) resolutionInput = {};
-          if (resolutionInput.outcome === undefined || resolutionInput.outcome === null || String(resolutionInput.outcome).trim() === "") {
+          if (
+            (resolutionInput.outcome === undefined || resolutionInput.outcome === null || String(resolutionInput.outcome).trim() === "") &&
+            signedVerdict
+          ) {
             resolutionInput.outcome = signedVerdict.outcome;
           }
-          if (resolutionInput.summary === undefined || resolutionInput.summary === null || String(resolutionInput.summary).trim() === "") {
+          if (
+            (resolutionInput.outcome === undefined || resolutionInput.outcome === null || String(resolutionInput.outcome).trim() === "") &&
+            signedArbitrationVerdict
+          ) {
+            resolutionInput.outcome = signedArbitrationVerdict.outcome;
+          }
+          if (
+            (resolutionInput.summary === undefined || resolutionInput.summary === null || String(resolutionInput.summary).trim() === "") &&
+            signedVerdict
+          ) {
             resolutionInput.summary = signedVerdict.rationale ?? null;
           }
-          if (resolutionInput.closedByAgentId === undefined || resolutionInput.closedByAgentId === null) {
+          if (
+            (resolutionInput.summary === undefined || resolutionInput.summary === null || String(resolutionInput.summary).trim() === "") &&
+            signedArbitrationVerdict
+          ) {
+            resolutionInput.summary = signedArbitrationVerdict.rationale ?? null;
+          }
+          if ((resolutionInput.closedByAgentId === undefined || resolutionInput.closedByAgentId === null) && signedVerdict) {
             resolutionInput.closedByAgentId = signedVerdict.arbiterAgentId ?? null;
+          }
+          if ((resolutionInput.closedByAgentId === undefined || resolutionInput.closedByAgentId === null) && signedArbitrationVerdict) {
+            resolutionInput.closedByAgentId = signedArbitrationVerdict.arbiterAgentId ?? null;
           }
         }
 
@@ -17738,13 +18146,22 @@ export function createApi({
           disputeEvidence: disputeEvidence ?? null,
           disputeEscalation: disputeEscalation ?? null
         };
-        const finalResponseBody = { ...responseBody, verdict: signedVerdict, verdictArtifact: null };
+        const finalResponseBody = {
+          ...responseBody,
+          verdict: signedVerdict,
+          verdictArtifact: null,
+          arbitrationVerdict: signedArbitrationVerdict,
+          arbitrationCaseArtifact: null,
+          arbitrationVerdictArtifact: null
+        };
         const ops = [{ kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement }];
         if (idemStoreKey) {
           ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: finalResponseBody } });
         }
         await commitTx(ops);
         let verdictArtifact = null;
+        let arbitrationCaseArtifact = null;
+        let arbitrationVerdictArtifact = null;
         if (action === "close" && signedVerdict) {
           try {
             verdictArtifact = await emitDisputeVerdictArtifact({
@@ -17755,6 +18172,29 @@ export function createApi({
             });
           } catch {
             verdictArtifact = null;
+          }
+        }
+        if (action === "close" && signedArbitrationVerdict) {
+          try {
+            arbitrationCaseArtifact = await emitArbitrationCaseArtifact({
+              tenantId,
+              runId,
+              settlement,
+              arbitrationVerdict: signedArbitrationVerdict,
+              at: nowAt
+            });
+          } catch {
+            arbitrationCaseArtifact = null;
+          }
+          try {
+            arbitrationVerdictArtifact = await emitArbitrationVerdictArtifact({
+              tenantId,
+              runId,
+              settlement,
+              arbitrationVerdict: signedArbitrationVerdict
+            });
+          } catch {
+            arbitrationVerdictArtifact = null;
           }
         }
         try {
@@ -17779,7 +18219,10 @@ export function createApi({
                 ? {
                     resolution: settlement?.disputeResolution ?? null,
                     verdict: signedVerdict ?? null,
-                    verdictArtifact: verdictArtifact ?? null
+                    verdictArtifact: verdictArtifact ?? null,
+                    arbitrationVerdict: signedArbitrationVerdict ?? null,
+                    arbitrationCaseArtifact: arbitrationCaseArtifact ?? null,
+                    arbitrationVerdictArtifact: arbitrationVerdictArtifact ?? null
                   }
                 : action === "evidence"
                   ? { context: settlement?.disputeContext ?? null, evidence: disputeEvidence ?? null }
@@ -17790,7 +18233,7 @@ export function createApi({
         } catch {
           // Best-effort lifecycle delivery.
         }
-        return sendJson(res, 200, { ...finalResponseBody, verdictArtifact });
+        return sendJson(res, 200, { ...finalResponseBody, verdictArtifact, arbitrationCaseArtifact, arbitrationVerdictArtifact });
       }
 
       if (parts[0] === "agents" && parts[1] && parts[1] !== "register") {

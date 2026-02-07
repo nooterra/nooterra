@@ -461,6 +461,27 @@ test("API e2e: marketplace settlement supports dispute open/close within window"
   );
   const verdictHash = sha256Hex(canonicalJsonStringify(verdictCore));
   const verdictSignature = signHashHexEd25519(verdictHash, arbiterKeypair.privateKeyPem);
+  const arbitrationVerdictCore = normalizeForCanonicalJson(
+    {
+      schemaVersion: "ArbitrationVerdict.v1",
+      verdictId: "arb_vrd_market_1",
+      caseId: "arb_case_market_1",
+      tenantId: "tenant_default",
+      runId,
+      settlementId: complete.json?.settlement?.settlementId,
+      disputeId: "dsp_market_1",
+      arbiterAgentId: "agt_market_dispute_operator",
+      outcome: "accepted",
+      releaseRatePct: 100,
+      rationale: "manual review complete",
+      evidenceRefs: [`evidence://${runId}/output.json`],
+      issuedAt: verdictIssuedAt,
+      appealRef: null
+    },
+    { path: "$" }
+  );
+  const arbitrationVerdictHash = sha256Hex(canonicalJsonStringify(arbitrationVerdictCore));
+  const arbitrationVerdictSignature = signHashHexEd25519(arbitrationVerdictHash, arbiterKeypair.privateKeyPem);
 
   const closeDispute = await request(api, {
     method: "POST",
@@ -484,6 +505,18 @@ test("API e2e: marketplace settlement supports dispute open/close within window"
         issuedAt: verdictIssuedAt,
         signerKeyId: arbiterRegistration.keyId,
         signature: verdictSignature
+      },
+      arbitrationVerdict: {
+        caseId: "arb_case_market_1",
+        verdictId: "arb_vrd_market_1",
+        arbiterAgentId: "agt_market_dispute_operator",
+        outcome: "accepted",
+        releaseRatePct: 100,
+        rationale: "manual review complete",
+        evidenceRefs: [`evidence://${runId}/output.json`],
+        issuedAt: verdictIssuedAt,
+        signerKeyId: arbiterRegistration.keyId,
+        signature: arbitrationVerdictSignature
       }
     }
   });
@@ -498,6 +531,11 @@ test("API e2e: marketplace settlement supports dispute open/close within window"
   assert.equal(closeDispute.json?.settlement?.disputeVerdictHash, verdictHash);
   assert.equal(closeDispute.json?.verdict?.verdictHash, verdictHash);
   assert.equal(closeDispute.json?.verdictArtifact?.artifactId, "dispute_verdict_vrd_market_1");
+  assert.equal(closeDispute.json?.arbitrationVerdict?.caseId, "arb_case_market_1");
+  assert.equal(closeDispute.json?.arbitrationVerdict?.verdictId, "arb_vrd_market_1");
+  assert.equal(closeDispute.json?.arbitrationVerdict?.verdictHash, arbitrationVerdictHash);
+  assert.equal(closeDispute.json?.arbitrationCaseArtifact?.artifactId, "arbitration_case_arb_case_market_1");
+  assert.equal(closeDispute.json?.arbitrationVerdictArtifact?.artifactId, "arbitration_verdict_arb_vrd_market_1");
 });
 
 test("API e2e: dispute evidence submissions and escalation transitions are persisted", async () => {
@@ -650,6 +688,149 @@ test("API e2e: dispute evidence submissions and escalation transitions are persi
   assert.equal(closeDispute.json?.settlement?.disputeResolution?.outcome, "partial");
   assert.equal(closeDispute.json?.settlement?.disputeResolution?.escalationLevel, "l2_arbiter");
   assert.equal(closeDispute.json?.settlement?.disputeResolution?.closedByAgentId, "agt_market_dispute_ctx_operator");
+});
+
+test("API e2e: dispute close rejects arbitration verdict evidence outside dispute context", async () => {
+  const api = createApi();
+  const arbiterKeypair = createEd25519Keypair();
+  const arbiterRegistration = await registerAgent(api, "agt_market_arb_bind_operator", {
+    publicKeyPem: arbiterKeypair.publicKeyPem
+  });
+  await registerAgent(api, "agt_market_arb_bind_poster");
+  await registerAgent(api, "agt_market_arb_bind_bidder");
+  await creditWallet(api, {
+    agentId: "agt_market_arb_bind_poster",
+    amountCents: 5000,
+    idempotencyKey: "wallet_credit_market_arb_bind_poster_1"
+  });
+
+  const createTask = await request(api, {
+    method: "POST",
+    path: "/marketplace/tasks",
+    headers: { "x-idempotency-key": "market_arb_bind_task_create_1" },
+    body: {
+      taskId: "task_arb_bind_1",
+      title: "Arbitration evidence binding task",
+      capability: "translate",
+      posterAgentId: "agt_market_arb_bind_poster",
+      budgetCents: 2100,
+      currency: "USD"
+    }
+  });
+  assert.equal(createTask.statusCode, 201);
+
+  const bid = await request(api, {
+    method: "POST",
+    path: "/marketplace/tasks/task_arb_bind_1/bids",
+    headers: { "x-idempotency-key": "market_arb_bind_bid_create_1" },
+    body: {
+      bidId: "bid_arb_bind_1",
+      bidderAgentId: "agt_market_arb_bind_bidder",
+      amountCents: 1750,
+      currency: "USD",
+      etaSeconds: 600
+    }
+  });
+  assert.equal(bid.statusCode, 201);
+
+  const accept = await request(api, {
+    method: "POST",
+    path: "/marketplace/tasks/task_arb_bind_1/accept",
+    headers: { "x-idempotency-key": "market_arb_bind_accept_1" },
+    body: {
+      bidId: "bid_arb_bind_1",
+      acceptedByAgentId: "agt_market_arb_bind_operator",
+      disputeWindowDays: 2
+    }
+  });
+  assert.equal(accept.statusCode, 200);
+  const runId = accept.json?.run?.runId;
+  assert.ok(typeof runId === "string" && runId.length > 0);
+
+  const complete = await request(api, {
+    method: "POST",
+    path: `/agents/agt_market_arb_bind_bidder/runs/${encodeURIComponent(runId)}/events`,
+    headers: {
+      "x-proxy-expected-prev-chain-hash": accept.json?.run?.lastChainHash,
+      "x-idempotency-key": "market_arb_bind_complete_1"
+    },
+    body: {
+      type: "RUN_COMPLETED",
+      payload: {
+        outputRef: `evidence://${runId}/output.json`,
+        metrics: { settlementReleaseRatePct: 100 }
+      }
+    }
+  });
+  assert.equal(complete.statusCode, 201);
+
+  const openDispute = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/dispute/open`,
+    headers: { "x-idempotency-key": "market_arb_bind_open_1" },
+    body: {
+      disputeId: "dsp_arb_bind_1",
+      disputeType: "quality",
+      disputePriority: "high",
+      disputeChannel: "counterparty",
+      escalationLevel: "l1_counterparty",
+      openedByAgentId: "agt_market_arb_bind_operator",
+      reason: "quality mismatch",
+      evidenceRefs: [`evidence://${runId}/output.json`]
+    }
+  });
+  assert.equal(openDispute.statusCode, 200);
+
+  const verdictIssuedAt = "2026-02-06T00:00:00.000Z";
+  const arbitrationVerdictCore = normalizeForCanonicalJson(
+    {
+      schemaVersion: "ArbitrationVerdict.v1",
+      verdictId: "arb_vrd_bind_1",
+      caseId: "arb_case_bind_1",
+      tenantId: "tenant_default",
+      runId,
+      settlementId: complete.json?.settlement?.settlementId,
+      disputeId: "dsp_arb_bind_1",
+      arbiterAgentId: "agt_market_arb_bind_operator",
+      outcome: "accepted",
+      releaseRatePct: 100,
+      rationale: "bound evidence check",
+      evidenceRefs: [`evidence://${runId}/not-in-context.json`],
+      issuedAt: verdictIssuedAt,
+      appealRef: null
+    },
+    { path: "$" }
+  );
+  const arbitrationVerdictHash = sha256Hex(canonicalJsonStringify(arbitrationVerdictCore));
+  const arbitrationVerdictSignature = signHashHexEd25519(arbitrationVerdictHash, arbiterKeypair.privateKeyPem);
+
+  const closeDispute = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/dispute/close`,
+    headers: { "x-idempotency-key": "market_arb_bind_close_1" },
+    body: {
+      disputeId: "dsp_arb_bind_1",
+      resolutionOutcome: "accepted",
+      resolutionEscalationLevel: "l2_arbiter",
+      resolutionSummary: "should be rejected by evidence binding",
+      closedByAgentId: "agt_market_arb_bind_operator",
+      arbitrationVerdict: {
+        caseId: "arb_case_bind_1",
+        verdictId: "arb_vrd_bind_1",
+        arbiterAgentId: "agt_market_arb_bind_operator",
+        outcome: "accepted",
+        releaseRatePct: 100,
+        rationale: "bound evidence check",
+        evidenceRefs: [`evidence://${runId}/not-in-context.json`],
+        issuedAt: verdictIssuedAt,
+        signerKeyId: arbiterRegistration.keyId,
+        signature: arbitrationVerdictSignature
+      }
+    }
+  });
+  assert.equal(closeDispute.statusCode, 400);
+  assert.equal(closeDispute.json?.error, "invalid arbitration verdict");
+  assert.match(String(closeDispute.json?.details?.message ?? ""), /subset of settlement\.disputeContext\.evidenceRefs/i);
 });
 
 test("API e2e: dispute close rejects verdicts with invalid arbiter signature", async () => {
