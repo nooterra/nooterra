@@ -30,6 +30,13 @@ source scripts/dev/env.sh
 npm run dev:sdk:first-run
 ```
 
+Run the full billing + dispute + arbitration doctor flow:
+
+```sh
+source scripts/dev/env.sh
+npm run dev:billing:doctor
+```
+
 ## 1) Start the API with a local ops token
 
 ```sh
