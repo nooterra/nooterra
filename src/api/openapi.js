@@ -3837,6 +3837,36 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
+      "/ops/finance/net-close/execute": {
+        post: {
+          summary: "Execute escrow net-close when deterministic preconditions pass",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["finance_write"],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["period"],
+                  properties: {
+                    period: { type: "string", example: "2026-02" },
+                    dryRun: { type: "boolean", default: false }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Preconditions failed", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
       "/exports/ack": {
         post: {
           summary: "ACK a delivery (destination-signed)",

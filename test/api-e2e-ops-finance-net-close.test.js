@@ -51,6 +51,27 @@ test("API e2e: /ops/finance/net-close is deterministic and detects held-rollforw
   assert.equal(typeof persisted.json?.artifact?.artifactId, "string");
   assert.equal(typeof persisted.json?.artifact?.artifactHash, "string");
 
+  const executeDryRun = await request(api, {
+    method: "POST",
+    path: "/ops/finance/net-close/execute",
+    headers: financeWriteHeaders,
+    body: { period, dryRun: true }
+  });
+  assert.equal(executeDryRun.statusCode, 200);
+  assert.equal(executeDryRun.json?.executed, false);
+  assert.equal(executeDryRun.json?.dryRun, true);
+
+  const execute = await request(api, {
+    method: "POST",
+    path: "/ops/finance/net-close/execute",
+    headers: financeWriteHeaders,
+    body: { period }
+  });
+  assert.equal(execute.statusCode, 200);
+  assert.equal(execute.json?.executed, true);
+  assert.equal(typeof execute.json?.artifact?.artifactId, "string");
+  assert.equal(typeof execute.json?.artifact?.artifactHash, "string");
+
   const tamperedHeldRollforwardCore = {
     schemaVersion: "HeldExposureRollforward.v1",
     artifactType: "HeldExposureRollforward.v1",
@@ -105,6 +126,16 @@ test("API e2e: /ops/finance/net-close is deterministic and detects held-rollforw
   assert.ok(Array.isArray(drift.json?.mismatchCodes));
   assert.ok(drift.json.mismatchCodes.includes("HELD_ROLLFORWARD_LEDGER_MISMATCH"));
 
+  const executeBlocked = await request(api, {
+    method: "POST",
+    path: "/ops/finance/net-close/execute",
+    headers: financeWriteHeaders,
+    body: { period }
+  });
+  assert.equal(executeBlocked.statusCode, 409);
+  assert.ok(Array.isArray(executeBlocked.json?.details?.mismatchCodes));
+  assert.ok(executeBlocked.json.details.mismatchCodes.includes("HELD_ROLLFORWARD_LEDGER_MISMATCH"));
+
   const driftReplay = await request(api, {
     method: "GET",
     path: `/ops/finance/net-close?period=${encodeURIComponent(period)}`,
@@ -113,4 +144,3 @@ test("API e2e: /ops/finance/net-close is deterministic and detects held-rollforw
   assert.equal(driftReplay.statusCode, 200);
   assert.deepEqual(driftReplay.json, drift.json);
 });
-
