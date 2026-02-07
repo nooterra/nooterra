@@ -8,6 +8,28 @@ Goal: run one end-to-end agent transaction (register identities, append run even
 npm ci
 ```
 
+## Fast Path (recommended)
+
+Use the helper scripts to avoid manual export churn across shells:
+
+```sh
+npm run dev:env:init
+# edit .env.dev with your DATABASE_URL once
+```
+
+Start API:
+
+```sh
+npm run dev:start
+```
+
+In another shell:
+
+```sh
+source scripts/dev/env.sh
+npm run dev:sdk:first-run
+```
+
 ## 1) Start the API with a local ops token
 
 ```sh

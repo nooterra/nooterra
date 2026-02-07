@@ -32,6 +32,14 @@ Start the API:
 npm run dev:api
 ```
 
+Developer helper flow (recommended for local Neon/PG usage):
+
+```sh
+npm run dev:env:init
+# edit .env.dev once (DATABASE_URL, etc.)
+npm run dev:start
+```
+
 Optional: start local Postgres + MinIO (for `STORE=pg` and S3-style evidence storage):
 
 ```sh
