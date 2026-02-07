@@ -179,6 +179,124 @@ test("API e2e: billing catalog + summary reflects billable event usage and estim
   assert.equal(summary.json?.estimate?.totalEstimatedCents, 10111);
 });
 
+test("API e2e: billing stripe provider session endpoints + period-close artifact export", async () => {
+  const api = createApi({
+    now: () => "2026-02-07T00:00:00.000Z",
+    opsTokens: ["tok_finr:finance_read", "tok_finw:finance_write"].join(";"),
+    billingStripeCheckoutBaseUrl: "https://billing.stripe.test/checkout",
+    billingStripePortalBaseUrl: "https://billing.stripe.test/portal"
+  });
+
+  const tenantId = "tenant_billing_period_close";
+  const payerAgentId = "agt_billing_close_payer";
+  const payeeAgentId = "agt_billing_close_payee";
+
+  await registerAgent(api, { tenantId, agentId: payerAgentId });
+  await registerAgent(api, { tenantId, agentId: payeeAgentId });
+
+  const credit = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(payerAgentId)}/wallet/credit`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": "billing_close_credit_1"
+    },
+    body: {
+      amountCents: 5000,
+      currency: "USD"
+    }
+  });
+  assert.equal(credit.statusCode, 201);
+
+  const checkout = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billing/providers/stripe/checkout",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "billing_close_checkout_1"
+    },
+    body: {
+      plan: "growth",
+      customerId: "cus_test_period_close_1",
+      successUrl: "https://example.test/success",
+      cancelUrl: "https://example.test/cancel"
+    }
+  });
+  assert.equal(checkout.statusCode, 201);
+  assert.equal(checkout.json?.checkoutSession?.schemaVersion, "BillingStripeCheckoutSession.v1");
+  assert.equal(checkout.json?.checkoutSession?.provider, "stripe");
+  assert.equal(checkout.json?.checkoutSession?.plan, "growth");
+  assert.match(String(checkout.json?.checkoutSession?.sessionUrl ?? ""), /^https:\/\/billing\.stripe\.test\/checkout\?/);
+  const checkoutUrl = new URL(String(checkout.json?.checkoutSession?.sessionUrl ?? ""));
+  assert.equal(checkoutUrl.searchParams.get("tenant"), tenantId);
+  assert.equal(checkoutUrl.searchParams.get("plan"), "growth");
+
+  const portal = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billing/providers/stripe/portal",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "billing_close_portal_1"
+    },
+    body: {
+      customerId: "cus_test_period_close_1",
+      returnUrl: "https://example.test/billing"
+    }
+  });
+  assert.equal(portal.statusCode, 201);
+  assert.equal(portal.json?.portalSession?.schemaVersion, "BillingStripePortalSession.v1");
+  assert.equal(portal.json?.portalSession?.provider, "stripe");
+  assert.match(String(portal.json?.portalSession?.sessionUrl ?? ""), /^https:\/\/billing\.stripe\.test\/portal\?/);
+
+  const completed = await createAndCompleteRun(api, {
+    tenantId,
+    payerAgentId,
+    payeeAgentId,
+    runId: "run_billing_period_close_1",
+    amountCents: 1250,
+    idempotencyPrefix: "billing_close_run_1"
+  });
+  assert.equal(completed.statusCode, 201);
+
+  const periodClose = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billing/period-close",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "billing_close_export_1"
+    },
+    body: {
+      period: "2026-02"
+    }
+  });
+  assert.equal(periodClose.statusCode, 200);
+  assert.equal(periodClose.json?.ok, true);
+  assert.equal(periodClose.json?.period, "2026-02");
+  assert.equal(periodClose.json?.usage?.verifiedRuns, 1);
+  assert.equal(periodClose.json?.usage?.settledVolumeCents, 1250);
+  assert.equal(typeof periodClose.json?.eventsDigest, "string");
+  assert.equal(periodClose.json?.eventsDigest?.length, 64);
+  assert.ok(periodClose.json?.artifact?.artifactId);
+  assert.ok(periodClose.json?.artifact?.artifactHash);
+
+  const periodCloseList = await request(api, {
+    method: "GET",
+    path: "/ops/finance/billing/period-close?period=2026-02&limit=20",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(periodCloseList.statusCode, 200);
+  assert.equal(periodCloseList.json?.period, "2026-02");
+  assert.equal(periodCloseList.json?.count, 1);
+  assert.equal(periodCloseList.json?.latest?.artifactId, periodClose.json?.artifact?.artifactId);
+  assert.equal(periodCloseList.json?.latest?.artifactType, "BillingPeriodClose.v1");
+});
+
 test("API e2e: billing hard limit blocks additional verified runs", async () => {
   const api = createApi({
     now: () => "2026-02-07T00:00:00.000Z",

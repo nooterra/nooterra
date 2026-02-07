@@ -247,7 +247,9 @@ export function createApi({
   moneyRailProviderConfigs = null,
   moneyRailDefaultProviderId = null,
   billingStripeWebhookSecret = null,
-  billingStripeWebhookToleranceSeconds = null
+  billingStripeWebhookToleranceSeconds = null,
+  billingStripeCheckoutBaseUrl = null,
+  billingStripePortalBaseUrl = null
 } = {}) {
   const apiStartedAtMs = Date.now();
   const apiStartedAtIso = new Date(apiStartedAtMs).toISOString();
@@ -544,6 +546,18 @@ export function createApi({
     billingStripeWebhookToleranceSeconds !== null && billingStripeWebhookToleranceSeconds !== undefined
       ? Number(billingStripeWebhookToleranceSeconds)
       : parseNonNegativeIntEnv("PROXY_BILLING_STRIPE_WEBHOOK_TOLERANCE_SECONDS", 300);
+  const effectiveBillingStripeCheckoutBaseUrl =
+    billingStripeCheckoutBaseUrl !== null && billingStripeCheckoutBaseUrl !== undefined
+      ? String(billingStripeCheckoutBaseUrl).trim()
+      : typeof process !== "undefined" && typeof process.env.PROXY_BILLING_STRIPE_CHECKOUT_BASE_URL === "string" && process.env.PROXY_BILLING_STRIPE_CHECKOUT_BASE_URL.trim() !== ""
+        ? process.env.PROXY_BILLING_STRIPE_CHECKOUT_BASE_URL.trim()
+        : "https://billing.stripe.local/checkout";
+  const effectiveBillingStripePortalBaseUrl =
+    billingStripePortalBaseUrl !== null && billingStripePortalBaseUrl !== undefined
+      ? String(billingStripePortalBaseUrl).trim()
+      : typeof process !== "undefined" && typeof process.env.PROXY_BILLING_STRIPE_PORTAL_BASE_URL === "string" && process.env.PROXY_BILLING_STRIPE_PORTAL_BASE_URL.trim() !== ""
+        ? process.env.PROXY_BILLING_STRIPE_PORTAL_BASE_URL.trim()
+        : "https://billing.stripe.local/portal";
 
   function parseOpsTokens(raw) {
     if (raw === null || raw === undefined) return new Map();
@@ -925,6 +939,9 @@ export function createApi({
 
   const COMMAND_CENTER_ALERT_ARTIFACT_TYPE = "CommandCenterAlert.v1";
   const RECONCILE_REPORT_ARTIFACT_TYPE = "ReconcileReport.v1";
+  const BILLING_PERIOD_CLOSE_ARTIFACT_TYPE = "BillingPeriodClose.v1";
+  const BILLING_STRIPE_CHECKOUT_SESSION_SCHEMA = "BillingStripeCheckoutSession.v1";
+  const BILLING_STRIPE_PORTAL_SESSION_SCHEMA = "BillingStripePortalSession.v1";
   const COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS = Object.freeze({
     httpClientErrorRateThresholdPct: 1,
     httpServerErrorRateThresholdPct: 1,
@@ -5932,6 +5949,35 @@ export function createApi({
     return rows.slice(safeOffset, safeOffset + safeLimit);
   }
 
+  async function listArbitrationCaseRecordsAll({
+    tenantId,
+    runId = null,
+    disputeId = null,
+    status = null,
+    pageSize = 1000
+  } = {}) {
+    const normalizedPageSize =
+      Number.isSafeInteger(pageSize) && pageSize > 0 ? Math.min(1000, pageSize) : 1000;
+    const all = [];
+    let offset = 0;
+    while (true) {
+      const chunk = await listArbitrationCaseRecords({
+        tenantId,
+        runId,
+        disputeId,
+        status,
+        limit: normalizedPageSize,
+        offset
+      });
+      const rows = Array.isArray(chunk) ? chunk : [];
+      if (!rows.length) break;
+      all.push(...rows);
+      if (rows.length < normalizedPageSize) break;
+      offset += normalizedPageSize;
+    }
+    return all;
+  }
+
   const BILLABLE_USAGE_EVENT_SCHEMA_VERSION = "BillableUsageEvent.v1";
   const BILLABLE_USAGE_EVENT_TYPE = Object.freeze({
     VERIFIED_RUN: "verified_run",
@@ -6144,6 +6190,71 @@ export function createApi({
       deduped.push(text);
     }
     return deduped;
+  }
+
+  function normalizeOptionalAbsoluteUrl(input, { fieldName = "url" } = {}) {
+    if (input === null || input === undefined || String(input).trim() === "") return null;
+    let parsed;
+    try {
+      parsed = new URL(String(input));
+    } catch {
+      throw new TypeError(`${fieldName} must be an absolute URL`);
+    }
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      throw new TypeError(`${fieldName} must use http or https`);
+    }
+    return parsed.toString();
+  }
+
+  function buildStripeBillingHostedSessionUrl({
+    baseUrl,
+    tenantId,
+    sessionId,
+    context = {}
+  } = {}) {
+    const base = normalizeOptionalAbsoluteUrl(baseUrl, { fieldName: "baseUrl" });
+    if (!base) throw new TypeError("baseUrl must be configured");
+    const u = new URL(base);
+    u.searchParams.set("session_id", String(sessionId));
+    u.searchParams.set("tenant", normalizeTenant(tenantId));
+    for (const [key, rawValue] of Object.entries(context ?? {})) {
+      if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") continue;
+      u.searchParams.set(String(key), String(rawValue));
+    }
+    return u.toString();
+  }
+
+  function computeBillableUsageEventDigestRows(events) {
+    const rows = [];
+    for (const row of Array.isArray(events) ? events : []) {
+      if (!row || typeof row !== "object") continue;
+      rows.push({
+        eventKey: typeof row.eventKey === "string" ? row.eventKey : "",
+        eventType: typeof row.eventType === "string" ? row.eventType : "",
+        quantity: Number.isSafeInteger(Number(row.quantity)) ? Number(row.quantity) : 0,
+        amountCents: Number.isSafeInteger(Number(row.amountCents)) ? Number(row.amountCents) : 0,
+        currency: typeof row.currency === "string" && row.currency.trim() !== "" ? row.currency : null,
+        occurredAt: typeof row.occurredAt === "string" ? row.occurredAt : null,
+        sourceType: typeof row.sourceType === "string" ? row.sourceType : null,
+        sourceId: typeof row.sourceId === "string" ? row.sourceId : null,
+        eventHash: typeof row.eventHash === "string" ? row.eventHash : null
+      });
+    }
+    rows.sort((left, right) => {
+      const byKey = String(left.eventKey).localeCompare(String(right.eventKey));
+      if (byKey !== 0) return byKey;
+      const byType = String(left.eventType).localeCompare(String(right.eventType));
+      if (byType !== 0) return byType;
+      const byOccurredAt = String(left.occurredAt ?? "").localeCompare(String(right.occurredAt ?? ""));
+      if (byOccurredAt !== 0) return byOccurredAt;
+      return String(left.eventHash ?? "").localeCompare(String(right.eventHash ?? ""));
+    });
+    return rows;
+  }
+
+  function defaultBillingPeriodCutoffAt(period) {
+    const bounds = parseYearMonth(period);
+    return bounds.endAt;
   }
 
   function parseStripeSignatureHeader(value) {
@@ -6409,6 +6520,31 @@ export function createApi({
           usage.verifiedRuns >= hardLimit
       }
     };
+  }
+
+  async function listBillingPeriodCloseArtifacts({
+    tenantId,
+    period,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    if (typeof store.listArtifacts !== "function") return [];
+    const rows = await store.listArtifacts({
+      tenantId,
+      artifactType: BILLING_PERIOD_CLOSE_ARTIFACT_TYPE,
+      limit: Math.min(1000, Math.max(1, Number(limit) || 200)),
+      offset: Math.max(0, Number(offset) || 0)
+    });
+    const filtered = (Array.isArray(rows) ? rows : []).filter(
+      (artifact) => String(artifact?.period ?? "") === String(period)
+    );
+    filtered.sort((left, right) => {
+      const leftAt = Date.parse(String(left?.generatedAt ?? ""));
+      const rightAt = Date.parse(String(right?.generatedAt ?? ""));
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(right?.artifactId ?? "").localeCompare(String(left?.artifactId ?? ""));
+    });
+    return filtered;
   }
 
   async function assertTenantVerifiedRunAllowance({
@@ -13111,6 +13247,393 @@ export function createApi({
             parts[2] === "billing" &&
             parts[3] === "providers" &&
             parts[4] === "stripe" &&
+            parts[5] === "checkout" &&
+            parts.length === 6 &&
+            req.method === "POST"
+          ) {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            const body = (await readJsonBody(req)) ?? {};
+
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            const existingBilling = await getTenantBillingConfig(tenantId);
+            const existingSubscription = normalizeBillingSubscriptionRecord(existingBilling.subscription ?? null, { allowNull: true, strictPlan: false });
+            let selectedPlan = null;
+            let successUrl = null;
+            let cancelUrl = null;
+            try {
+              selectedPlan = normalizeBillingPlanId(
+                body?.plan ?? existingSubscription?.plan ?? existingBilling?.plan ?? BILLING_PLAN_ID.FREE,
+                { allowNull: false, defaultPlan: BILLING_PLAN_ID.FREE }
+              );
+              successUrl = normalizeOptionalAbsoluteUrl(body?.successUrl ?? null, { fieldName: "successUrl" });
+              cancelUrl = normalizeOptionalAbsoluteUrl(body?.cancelUrl ?? null, { fieldName: "cancelUrl" });
+            } catch (err) {
+              return sendError(res, 400, "invalid stripe checkout payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+
+            const customerId =
+              typeof body?.customerId === "string" && body.customerId.trim() !== ""
+                ? body.customerId.trim()
+                : existingSubscription?.customerId ?? null;
+            const sessionCreatedAt = nowIso();
+            const sessionExpiresAt = new Date(Date.parse(sessionCreatedAt) + 30 * 60 * 1000).toISOString();
+            const sessionId = `cs_test_${createId("stripe_checkout").replace(/^stripe_checkout_/, "")}`;
+            const checkoutSession = {
+              schemaVersion: BILLING_STRIPE_CHECKOUT_SESSION_SCHEMA,
+              provider: "stripe",
+              mode: "stub",
+              sessionId,
+              sessionUrl: buildStripeBillingHostedSessionUrl({
+                baseUrl: effectiveBillingStripeCheckoutBaseUrl,
+                tenantId,
+                sessionId,
+                context: {
+                  mode: "stub",
+                  plan: selectedPlan,
+                  customer_id: customerId ?? null,
+                  success_url: successUrl ?? null,
+                  cancel_url: cancelUrl ?? null
+                }
+              }),
+              plan: selectedPlan,
+              customerId,
+              subscriptionId: existingSubscription?.subscriptionId ?? null,
+              createdAt: sessionCreatedAt,
+              expiresAt: sessionExpiresAt
+            };
+            const responseBody = {
+              tenantId,
+              checkoutSession,
+              resolvedPlan: resolveTenantBillingPlan({ tenantId })
+            };
+            if (typeof store.appendOpsAudit === "function") {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "BILLING_PROVIDER_CHECKOUT_SESSION_CREATED",
+                  targetType: "billing_provider_session",
+                  targetId: sessionId,
+                  details: {
+                    provider: "stripe",
+                    plan: selectedPlan,
+                    customerId
+                  }
+                })
+              });
+            }
+            if (idemStoreKey) {
+              await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } }]);
+            }
+            return sendJson(res, 201, responseBody);
+          }
+
+          if (
+            parts[1] === "finance" &&
+            parts[2] === "billing" &&
+            parts[3] === "providers" &&
+            parts[4] === "stripe" &&
+            parts[5] === "portal" &&
+            parts.length === 6 &&
+            req.method === "POST"
+          ) {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            const body = (await readJsonBody(req)) ?? {};
+
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            const existingBilling = await getTenantBillingConfig(tenantId);
+            const existingSubscription = normalizeBillingSubscriptionRecord(existingBilling.subscription ?? null, { allowNull: true, strictPlan: false });
+            const customerId =
+              typeof body?.customerId === "string" && body.customerId.trim() !== ""
+                ? body.customerId.trim()
+                : existingSubscription?.customerId ?? null;
+            if (!customerId) return sendError(res, 400, "customerId is required");
+            let returnUrl = null;
+            try {
+              returnUrl = normalizeOptionalAbsoluteUrl(body?.returnUrl ?? null, { fieldName: "returnUrl" });
+            } catch (err) {
+              return sendError(res, 400, "invalid stripe portal payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+
+            const sessionCreatedAt = nowIso();
+            const sessionExpiresAt = new Date(Date.parse(sessionCreatedAt) + 30 * 60 * 1000).toISOString();
+            const sessionId = `bps_test_${createId("stripe_portal").replace(/^stripe_portal_/, "")}`;
+            const portalSession = {
+              schemaVersion: BILLING_STRIPE_PORTAL_SESSION_SCHEMA,
+              provider: "stripe",
+              mode: "stub",
+              sessionId,
+              sessionUrl: buildStripeBillingHostedSessionUrl({
+                baseUrl: effectiveBillingStripePortalBaseUrl,
+                tenantId,
+                sessionId,
+                context: {
+                  mode: "stub",
+                  customer_id: customerId,
+                  return_url: returnUrl ?? null
+                }
+              }),
+              customerId,
+              createdAt: sessionCreatedAt,
+              expiresAt: sessionExpiresAt
+            };
+            const responseBody = {
+              tenantId,
+              portalSession,
+              subscription: existingSubscription
+            };
+            if (typeof store.appendOpsAudit === "function") {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "BILLING_PROVIDER_PORTAL_SESSION_CREATED",
+                  targetType: "billing_provider_session",
+                  targetId: sessionId,
+                  details: {
+                    provider: "stripe",
+                    customerId
+                  }
+                })
+              });
+            }
+            if (idemStoreKey) {
+              await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } }]);
+            }
+            return sendJson(res, 201, responseBody);
+          }
+
+          if (parts[1] === "finance" && parts[2] === "billing" && parts[3] === "period-close" && parts.length === 4 && req.method === "GET") {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            if (typeof store.listArtifacts !== "function") return sendError(res, 501, "artifacts not supported for this store");
+            let period = null;
+            try {
+              period = normalizeBillingPeriodInput(url.searchParams.get("period"), { defaultToNow: true });
+            } catch (err) {
+              return sendError(res, 400, "invalid period", { message: err?.message });
+            }
+            const { limit, offset } = parsePagination({
+              limitRaw: url.searchParams.get("limit"),
+              offsetRaw: url.searchParams.get("offset"),
+              defaultLimit: 50,
+              maxLimit: 500
+            });
+            const artifacts = await listBillingPeriodCloseArtifacts({ tenantId, period, limit, offset });
+            return sendJson(res, 200, {
+              tenantId,
+              period,
+              count: artifacts.length,
+              limit,
+              offset,
+              latest: artifacts[0] ?? null,
+              artifacts
+            });
+          }
+
+          if (parts[1] === "finance" && parts[2] === "billing" && parts[3] === "period-close" && parts.length === 4 && req.method === "POST") {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            if (typeof store.listBillableUsageEvents !== "function") {
+              return sendError(res, 501, "billable usage events not supported for this store");
+            }
+            if (typeof store.putArtifact !== "function") return sendError(res, 501, "artifact persistence not supported for this store");
+            const body = (await readJsonBody(req)) ?? {};
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            let period = null;
+            let dryRun = false;
+            let cutoffAt = null;
+            try {
+              const periodInput = body?.period ?? body?.month ?? null;
+              period = normalizeBillingPeriodInput(periodInput, { defaultToNow: true });
+              dryRun = body?.dryRun === true;
+              const hasCutoffAt = Object.prototype.hasOwnProperty.call(body, "cutoffAt");
+              if (hasCutoffAt) {
+                cutoffAt = normalizeBillingTimestampInput(body?.cutoffAt);
+                if (!cutoffAt) throw new TypeError("cutoffAt must be an ISO date-time");
+              }
+            } catch (err) {
+              return sendError(res, 400, "invalid billing period-close payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+
+            const summary = await computeTenantBillingPeriodSummary({ tenantId, period });
+            const events = await listBillableUsageEventsAll({ tenantId, period, eventType: null });
+            const digestRows = computeBillableUsageEventDigestRows(events);
+            const eventsDigest = sha256Hex(canonicalJsonStringify(normalizeForCanonicalJson(digestRows, { path: "$" })));
+            const occurredAtRows = digestRows
+              .map((row) => row?.occurredAt)
+              .filter((value) => typeof value === "string" && Number.isFinite(Date.parse(value)))
+              .sort();
+            const firstOccurredAt = occurredAtRows[0] ?? null;
+            const lastOccurredAt = occurredAtRows.length ? occurredAtRows[occurredAtRows.length - 1] : null;
+            const resolvedCutoffAt = cutoffAt ?? lastOccurredAt ?? defaultBillingPeriodCutoffAt(period);
+            const generatedAt = resolvedCutoffAt;
+            const artifactId = `billing_close_${String(period).replaceAll(/[^0-9a-zA-Z_-]/g, "_")}_${eventsDigest.slice(0, 24)}`;
+            const artifactBody = normalizeForCanonicalJson(
+              {
+                schemaVersion: BILLING_PERIOD_CLOSE_ARTIFACT_TYPE,
+                artifactType: BILLING_PERIOD_CLOSE_ARTIFACT_TYPE,
+                artifactId,
+                tenantId,
+                period,
+                cutoffAt: resolvedCutoffAt,
+                generatedAt,
+                inputs: {
+                  eventCount: digestRows.length,
+                  firstOccurredAt,
+                  lastOccurredAt,
+                  eventsDigest
+                },
+                plan: summary.plan,
+                usage: summary.usage,
+                estimate: summary.estimate,
+                enforcement: summary.enforcement
+              },
+              { path: "$" }
+            );
+            const artifactHash = computeArtifactHash(artifactBody);
+            const artifact = { ...artifactBody, artifactHash };
+
+            let artifactSummary = null;
+            if (!dryRun) {
+              let storedArtifact = artifact;
+              try {
+                await store.putArtifact({ tenantId, artifact });
+              } catch (err) {
+                if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+                if (typeof store.getArtifact !== "function") throw err;
+                const existing = await store.getArtifact({ tenantId, artifactId });
+                if (!existing || typeof existing?.artifactHash !== "string" || existing.artifactHash.trim() === "") throw err;
+                storedArtifact = existing;
+              }
+
+              let deliveriesCreated = 0;
+              if (typeof store.createDelivery === "function") {
+                const destinations = listDestinationsForTenant(tenantId).filter((destination) => {
+                  const allowed = Array.isArray(destination?.artifactTypes) && destination.artifactTypes.length ? destination.artifactTypes : null;
+                  return !allowed || allowed.includes(BILLING_PERIOD_CLOSE_ARTIFACT_TYPE);
+                });
+                const orderSeq = Number.isFinite(Date.parse(generatedAt)) ? Date.parse(generatedAt) : Date.now();
+                const priority = 96;
+                const scopeKey = `billing_period_close:period:${period}`;
+                for (const destination of destinations) {
+                  const dedupeKey = `${tenantId}:${destination.destinationId}:${BILLING_PERIOD_CLOSE_ARTIFACT_TYPE}:${artifactId}:${String(storedArtifact.artifactHash)}`;
+                  const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
+                  try {
+                    await store.createDelivery({
+                      tenantId,
+                      delivery: {
+                        destinationId: destination.destinationId,
+                        artifactType: BILLING_PERIOD_CLOSE_ARTIFACT_TYPE,
+                        artifactId,
+                        artifactHash: String(storedArtifact.artifactHash),
+                        dedupeKey,
+                        scopeKey,
+                        orderSeq,
+                        priority,
+                        orderKey
+                      }
+                    });
+                    deliveriesCreated += 1;
+                  } catch (err) {
+                    if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+                    throw err;
+                  }
+                }
+              }
+              artifactSummary = {
+                artifactId,
+                artifactHash: String(storedArtifact.artifactHash),
+                deliveriesCreated
+              };
+            }
+
+            const responseBody = {
+              ok: true,
+              tenantId,
+              period,
+              dryRun,
+              cutoffAt: resolvedCutoffAt,
+              eventsDigest,
+              usage: summary.usage,
+              estimate: summary.estimate,
+              enforcement: summary.enforcement,
+              artifact: artifactSummary
+            };
+            if (typeof store.appendOpsAudit === "function") {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "BILLING_PERIOD_CLOSE",
+                  targetType: "billing_period_close",
+                  targetId: artifactId,
+                  details: {
+                    period,
+                    dryRun,
+                    eventCount: digestRows.length,
+                    eventsDigest,
+                    artifactHash: artifactHash
+                  }
+                })
+              });
+            }
+            if (idemStoreKey) {
+              await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+            }
+            return sendJson(res, 200, responseBody);
+          }
+
+          if (
+            parts[1] === "finance" &&
+            parts[2] === "billing" &&
+            parts[3] === "providers" &&
+            parts[4] === "stripe" &&
             parts[5] === "webhook" &&
             parts.length === 6 &&
             req.method === "POST"
@@ -14507,6 +15030,149 @@ export function createApi({
           }
           items.sort((a, b) => String(a.jobId).localeCompare(String(b.jobId)));
           return sendJson(res, 200, { queue: items });
+        }
+
+        if (parts[1] === "arbitration" && parts[2] === "queue" && parts.length === 3 && req.method === "GET") {
+          const hasScope =
+            requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) ||
+            requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE) ||
+            requireScope(auth.scopes, OPS_SCOPES.OPS_READ);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+
+          let statusFilter = null;
+          let openedSince = null;
+          let runIdFilter = null;
+          let caseIdFilter = null;
+          let assignedArbiterFilter = null;
+          let slaHours = 24;
+          try {
+            const statusRaw = url.searchParams.get("status");
+            statusFilter = statusRaw && statusRaw.trim() !== "" ? statusRaw.trim().toLowerCase() : null;
+            const openedSinceRaw = url.searchParams.get("openedSince");
+            if (openedSinceRaw !== null && openedSinceRaw !== undefined && String(openedSinceRaw).trim() !== "") {
+              const parsedOpenedSince = normalizeBillingTimestampInput(openedSinceRaw);
+              if (!parsedOpenedSince) throw new TypeError("openedSince must be an ISO date-time");
+              openedSince = parsedOpenedSince;
+            }
+            const runIdRaw = url.searchParams.get("runId");
+            runIdFilter = runIdRaw && runIdRaw.trim() !== "" ? runIdRaw.trim() : null;
+            const caseIdRaw = url.searchParams.get("caseId");
+            caseIdFilter = caseIdRaw && caseIdRaw.trim() !== "" ? caseIdRaw.trim() : null;
+            if (url.searchParams.has("assignedArbiter")) {
+              assignedArbiterFilter = parseBooleanQueryValue(url.searchParams.get("assignedArbiter"), {
+                name: "assignedArbiter"
+              });
+            }
+            const slaHoursRaw = url.searchParams.get("slaHours");
+            if (slaHoursRaw !== null && slaHoursRaw !== undefined && String(slaHoursRaw).trim() !== "") {
+              const parsedSlaHours = Number(slaHoursRaw);
+              if (!Number.isFinite(parsedSlaHours) || parsedSlaHours <= 0 || parsedSlaHours > 24 * 365) {
+                throw new TypeError("slaHours must be a positive number <= 8760");
+              }
+              slaHours = parsedSlaHours;
+            }
+          } catch (err) {
+            return sendError(res, 400, "invalid arbitration queue query", { message: err?.message });
+          }
+
+          let allCases = [];
+          try {
+            allCases = await listArbitrationCaseRecordsAll({
+              tenantId,
+              runId: runIdFilter,
+              status: statusFilter,
+              pageSize: 500
+            });
+          } catch (err) {
+            return sendError(res, 501, "arbitration cases not supported for this store", { message: err?.message });
+          }
+
+          const openedSinceMs = openedSince ? Date.parse(openedSince) : Number.NaN;
+          const nowMs = Date.parse(nowIso());
+          const filtered = [];
+          const statusCounts = new Map();
+          let overSlaCount = 0;
+
+          for (const arbitrationCase of allCases) {
+            if (!arbitrationCase || typeof arbitrationCase !== "object") continue;
+            if (caseIdFilter && String(arbitrationCase.caseId ?? "") !== caseIdFilter) continue;
+            if (runIdFilter && String(arbitrationCase.runId ?? "") !== runIdFilter) continue;
+            if (statusFilter && String(arbitrationCase.status ?? "").toLowerCase() !== statusFilter) continue;
+            const disputeId = typeof arbitrationCase.disputeId === "string" && arbitrationCase.disputeId.trim() !== "" ? arbitrationCase.disputeId.trim() : null;
+            const arbiterAgentId =
+              typeof arbitrationCase.arbiterAgentId === "string" && arbitrationCase.arbiterAgentId.trim() !== ""
+                ? arbitrationCase.arbiterAgentId.trim()
+                : null;
+            if (assignedArbiterFilter === true && !arbiterAgentId) continue;
+            if (assignedArbiterFilter === false && arbiterAgentId) continue;
+
+            const openedAt = typeof arbitrationCase.openedAt === "string" && arbitrationCase.openedAt.trim() !== "" ? arbitrationCase.openedAt : null;
+            const openedAtMs = openedAt && Number.isFinite(Date.parse(openedAt)) ? Date.parse(openedAt) : Number.NaN;
+            if (Number.isFinite(openedSinceMs) && (!Number.isFinite(openedAtMs) || openedAtMs < openedSinceMs)) continue;
+            const ageSeconds = Number.isFinite(openedAtMs) ? Math.max(0, Math.floor((nowMs - openedAtMs) / 1000)) : null;
+            const ageHours = ageSeconds === null ? null : Number((ageSeconds / 3600).toFixed(2));
+            const dueAtMs = Number.isFinite(openedAtMs) ? openedAtMs + Math.round(slaHours * 3600 * 1000) : Number.NaN;
+            const dueAt = Number.isFinite(dueAtMs) ? new Date(dueAtMs).toISOString() : null;
+            const statusValue = String(arbitrationCase.status ?? "").toLowerCase();
+            const overSla = statusValue !== ARBITRATION_CASE_STATUS.CLOSED && Number.isFinite(dueAtMs) && nowMs > dueAtMs;
+            if (overSla) overSlaCount += 1;
+            statusCounts.set(statusValue || "unknown", (statusCounts.get(statusValue || "unknown") ?? 0) + 1);
+
+            filtered.push({
+              caseId: arbitrationCase.caseId ?? null,
+              runId: arbitrationCase.runId ?? null,
+              disputeId,
+              settlementId: arbitrationCase.settlementId ?? null,
+              status: arbitrationCase.status ?? null,
+              arbiterAgentId,
+              openedAt,
+              closedAt: arbitrationCase.closedAt ?? null,
+              ageSeconds,
+              ageHours,
+              slaHours,
+              dueAt,
+              overSla,
+              summary: arbitrationCase.summary ?? null,
+              evidenceCount: Array.isArray(arbitrationCase.evidenceRefs) ? arbitrationCase.evidenceRefs.length : 0,
+              appealRef: arbitrationCase.appealRef ?? null,
+              revision: arbitrationCase.revision ?? null,
+              updatedAt: arbitrationCase.updatedAt ?? null
+            });
+          }
+
+          filtered.sort((left, right) => {
+            if (left.overSla !== right.overSla) return left.overSla ? -1 : 1;
+            const leftOpenedMs = left.openedAt && Number.isFinite(Date.parse(left.openedAt)) ? Date.parse(left.openedAt) : Number.POSITIVE_INFINITY;
+            const rightOpenedMs = right.openedAt && Number.isFinite(Date.parse(right.openedAt)) ? Date.parse(right.openedAt) : Number.POSITIVE_INFINITY;
+            if (leftOpenedMs !== rightOpenedMs) return leftOpenedMs - rightOpenedMs;
+            return String(left.caseId ?? "").localeCompare(String(right.caseId ?? ""));
+          });
+
+          const { limit, offset } = parsePagination({
+            limitRaw: url.searchParams.get("limit"),
+            offsetRaw: url.searchParams.get("offset"),
+            defaultLimit: 50,
+            maxLimit: 500
+          });
+          const page = filtered.slice(offset, offset + limit);
+
+          return sendJson(res, 200, {
+            tenantId,
+            filters: {
+              status: statusFilter,
+              openedSince,
+              runId: runIdFilter,
+              caseId: caseIdFilter,
+              assignedArbiter: assignedArbiterFilter,
+              slaHours
+            },
+            count: filtered.length,
+            limit,
+            offset,
+            overSlaCount,
+            statusCounts: Object.fromEntries([...statusCounts.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])))),
+            queue: page
+          });
         }
 
         if (parts[1] === "notifications" && parts.length === 2 && req.method === "GET") {
