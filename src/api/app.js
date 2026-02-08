@@ -11906,10 +11906,26 @@ export function createApi({
           });
         }
 
-        async function appendBillingProviderIngestAudit(applied) {
+        function normalizeAuditDetailsObject(value) {
+          return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+        }
+
+        function cloneJsonLike(value) {
+          if (value === null || value === undefined) return null;
+          try {
+            return JSON.parse(JSON.stringify(value));
+          } catch {
+            return null;
+          }
+        }
+
+        async function appendBillingProviderIngestAudit(
+          applied,
+          { source = "webhook", replayed = false, replayAuditId = null, captureDuplicate = false } = {}
+        ) {
           if (typeof store.appendOpsAudit !== "function") return;
           if (!applied || typeof applied !== "object") return;
-          if (applied.duplicate === true) return;
+          if (applied.duplicate === true && captureDuplicate !== true) return;
           await store.appendOpsAudit({
             tenantId,
             audit: makeOpsAudit({
@@ -11918,8 +11934,12 @@ export function createApi({
               targetId: applied.eventId ?? null,
               details: {
                 provider: applied.provider ?? "stripe",
+                eventId: applied.eventId ?? null,
                 eventType: applied.eventType ?? null,
-                duplicate: false,
+                source: typeof source === "string" && source.trim() !== "" ? source.trim() : "webhook",
+                replayed: replayed === true,
+                replayAuditId: replayAuditId ?? null,
+                duplicate: applied.duplicate === true,
                 ignored: applied.ignored === true,
                 planChanged: applied?.applied?.planChanged === true,
                 previousPlan: applied?.applied?.previousPlan ?? null,
@@ -11938,9 +11958,12 @@ export function createApi({
           eventType = null,
           reason = null,
           message = null,
+          source = "webhook",
+          event = null,
           details = null
         } = {}) {
           if (typeof store.appendOpsAudit !== "function") return;
+          const replayEvent = event && typeof event === "object" && !Array.isArray(event) ? cloneJsonLike(event) : null;
           await store.appendOpsAudit({
             tenantId,
             audit: makeOpsAudit({
@@ -11949,9 +11972,13 @@ export function createApi({
               targetId: eventId ?? null,
               details: {
                 provider: provider ?? "stripe",
+                eventId: eventId ?? null,
                 eventType: eventType ?? null,
                 reason: reason ?? null,
                 message: message ?? null,
+                source: typeof source === "string" && source.trim() !== "" ? source.trim() : "webhook",
+                replayable: Boolean(replayEvent),
+                event: replayEvent,
                 ...(details && typeof details === "object" && !Array.isArray(details) ? details : {})
               }
             })
@@ -14453,7 +14480,11 @@ export function createApi({
                 await appendBillingProviderRejectedAudit({
                   provider: "stripe",
                   reason: "invalid_json",
-                  message: "invalid JSON body"
+                  message: "invalid JSON body",
+                  source: "webhook",
+                  details: {
+                    rawBodyPreview: rawText.slice(0, 1024)
+                  }
                 });
                 return sendError(res, 400, "invalid stripe event", { message: "invalid JSON body" }, { code: "SCHEMA_INVALID" });
               }
@@ -14464,7 +14495,9 @@ export function createApi({
                 eventId: body?.id ?? null,
                 eventType: body?.type ?? null,
                 reason: "schema_invalid",
-                message: "stripe event payload must be an object"
+                message: "stripe event payload must be an object",
+                source: "webhook",
+                event: body
               });
               return sendError(res, 400, "invalid stripe event", { message: "stripe event payload must be an object" }, { code: "SCHEMA_INVALID" });
             }
@@ -14484,7 +14517,9 @@ export function createApi({
                   eventId: body?.id ?? null,
                   eventType: body?.type ?? null,
                   reason: "signature_verification_failed",
-                  message: err?.message ?? null
+                  message: err?.message ?? null,
+                  source: "webhook",
+                  event: body
                 });
                 return sendError(res, 400, "invalid stripe signature", { message: err?.message ?? null }, { code: "SCHEMA_INVALID" });
               }
@@ -14492,7 +14527,7 @@ export function createApi({
 
             try {
               const applied = await applyStripeBillingProviderEvent({ tenantId, body });
-              await appendBillingProviderIngestAudit(applied);
+              await appendBillingProviderIngestAudit(applied, { source: "webhook", captureDuplicate: false });
               return sendJson(res, 200, applied);
             } catch (err) {
               await appendBillingProviderRejectedAudit({
@@ -14500,7 +14535,9 @@ export function createApi({
                 eventId: body?.id ?? null,
                 eventType: body?.type ?? null,
                 reason: "apply_failed",
-                message: err?.message ?? null
+                message: err?.message ?? null,
+                source: "webhook",
+                event: body
               });
               return sendError(res, 400, "invalid stripe event", { message: err?.message }, { code: "SCHEMA_INVALID" });
             }
@@ -14527,7 +14564,7 @@ export function createApi({
                 // eslint-disable-next-line no-await-in-loop
                 const applied = await applyStripeBillingProviderEvent({ tenantId, body: event });
                 // eslint-disable-next-line no-await-in-loop
-                await appendBillingProviderIngestAudit(applied);
+                await appendBillingProviderIngestAudit(applied, { source: "reconcile", captureDuplicate: true });
                 results.push({
                   ok: true,
                   eventId: applied?.eventId ?? null,
@@ -14542,7 +14579,9 @@ export function createApi({
                   eventId: event?.id ?? null,
                   eventType: event?.type ?? null,
                   reason: "reconcile_apply_failed",
-                  message: err?.message ?? "unknown error"
+                  message: err?.message ?? "unknown error",
+                  source: "reconcile",
+                  event
                 });
                 results.push({
                   ok: false,
@@ -14596,10 +14635,17 @@ export function createApi({
             const rows = (Array.isArray(audits) ? audits : []).filter((row) => {
               const action = String(row?.action ?? "");
               return action === "BILLING_PROVIDER_EVENT_INGEST" || action === "BILLING_PROVIDER_EVENT_REJECTED";
-            });
+            }).filter((row) => (normalizeAuditDetailsObject(row?.details).provider ?? "stripe") === "stripe");
             const counts = {
               ingested: rows.filter((row) => String(row?.action ?? "") === "BILLING_PROVIDER_EVENT_INGEST").length,
               rejected: rows.filter((row) => String(row?.action ?? "") === "BILLING_PROVIDER_EVENT_REJECTED").length
+            };
+            const ingestedRows = rows.filter((row) => String(row?.action ?? "") === "BILLING_PROVIDER_EVENT_INGEST");
+            const rejectedRows = rows.filter((row) => String(row?.action ?? "") === "BILLING_PROVIDER_EVENT_REJECTED");
+            const ingestBreakdown = {
+              duplicate: ingestedRows.filter((row) => normalizeAuditDetailsObject(row?.details).duplicate === true).length,
+              ignored: ingestedRows.filter((row) => normalizeAuditDetailsObject(row?.details).ignored === true).length,
+              replayed: ingestedRows.filter((row) => normalizeAuditDetailsObject(row?.details).replayed === true).length
             };
             const rejectedReasonCounts = rows
               .filter((row) => String(row?.action ?? "") === "BILLING_PROVIDER_EVENT_REJECTED")
@@ -14612,6 +14658,13 @@ export function createApi({
                 acc[key] = (acc[key] ?? 0) + 1;
                 return acc;
               }, {});
+            const sourceCounts = rows.reduce((acc, row) => {
+              const details = normalizeAuditDetailsObject(row?.details);
+              const source = typeof details.source === "string" && details.source.trim() !== "" ? details.source.trim() : "unknown";
+              acc[source] = (acc[source] ?? 0) + 1;
+              return acc;
+            }, {});
+            const replayableRejectedCount = rejectedRows.filter((row) => normalizeAuditDetailsObject(row?.details).replayable === true).length;
             const billingCfg = await getTenantBillingConfig(tenantId);
             const subscription = normalizeBillingSubscriptionRecord(billingCfg?.subscription ?? null, { allowNull: true, strictPlan: false });
             const dedupCount = normalizeBillingProviderEventDedupList(billingCfg?.providerEventDedupKeys ?? []).length;
@@ -14619,10 +14672,180 @@ export function createApi({
               tenantId,
               provider: "stripe",
               counts,
+              ingestBreakdown,
               rejectedReasonCounts,
+              sourceCounts,
+              replayableRejectedCount,
               dedupeKeyCount: dedupCount,
               subscription,
               recent: rows
+            });
+          }
+
+          if (
+            parts[1] === "finance" &&
+            parts[2] === "billing" &&
+            parts[3] === "providers" &&
+            parts[4] === "stripe" &&
+            parts[5] === "dead-letter" &&
+            parts.length === 6 &&
+            req.method === "GET"
+          ) {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            if (typeof store.listOpsAudit !== "function") {
+              return sendError(res, 501, "ops audit not supported for this store");
+            }
+            const { limit, offset } = parsePagination({
+              limitRaw: url.searchParams.get("limit"),
+              offsetRaw: url.searchParams.get("offset"),
+              defaultLimit: 200,
+              maxLimit: 1000
+            });
+            const reasonFilter = typeof url.searchParams.get("reason") === "string" ? String(url.searchParams.get("reason")).trim() : "";
+            const eventTypeFilter = typeof url.searchParams.get("eventType") === "string" ? String(url.searchParams.get("eventType")).trim() : "";
+            const audits = await store.listOpsAudit({ tenantId, limit, offset });
+            const deadLetters = (Array.isArray(audits) ? audits : [])
+              .filter((row) => String(row?.action ?? "") === "BILLING_PROVIDER_EVENT_REJECTED")
+              .map((row) => ({
+                row,
+                details: normalizeAuditDetailsObject(row?.details)
+              }))
+              .filter(({ details }) => (details.provider ?? "stripe") === "stripe")
+              .filter(({ details }) => details.replayable === true && details.event && typeof details.event === "object" && !Array.isArray(details.event))
+              .filter(({ details }) => (reasonFilter ? String(details.reason ?? "") === reasonFilter : true))
+              .filter(({ details }) => (eventTypeFilter ? String(details.eventType ?? "") === eventTypeFilter : true))
+              .map(({ row, details }) => ({
+                auditId: row?.id ?? null,
+                at: row?.at ?? null,
+                requestId: row?.requestId ?? null,
+                eventId: details.eventId ?? row?.targetId ?? null,
+                eventType: details.eventType ?? null,
+                reason: details.reason ?? null,
+                message: details.message ?? null,
+                source: details.source ?? null,
+                replayable: details.replayable === true,
+                event: details.event
+              }));
+            return sendJson(res, 200, {
+              tenantId,
+              provider: "stripe",
+              count: deadLetters.length,
+              limit,
+              offset,
+              events: deadLetters
+            });
+          }
+
+          if (
+            parts[1] === "finance" &&
+            parts[2] === "billing" &&
+            parts[3] === "providers" &&
+            parts[4] === "stripe" &&
+            parts[5] === "dead-letter" &&
+            parts[6] === "replay" &&
+            parts.length === 7 &&
+            req.method === "POST"
+          ) {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            if (typeof store.listOpsAudit !== "function") {
+              return sendError(res, 501, "ops audit not supported for this store");
+            }
+            const body = (await readJsonBody(req)) ?? {};
+            const reasonFilter = typeof body.reason === "string" ? body.reason.trim() : "";
+            const eventTypeFilter = typeof body.eventType === "string" ? body.eventType.trim() : "";
+            const idFilter = Array.isArray(body.auditIds)
+              ? new Set(body.auditIds.map((value) => Number(value)).filter((value) => Number.isSafeInteger(value) && value > 0))
+              : null;
+            const limitRaw = body.limit ?? 200;
+            const offsetRaw = body.offset ?? 0;
+            const { limit, offset } = parsePagination({
+              limitRaw,
+              offsetRaw,
+              defaultLimit: 200,
+              maxLimit: 1000
+            });
+            const dryRun = body.dryRun === true;
+            const audits = await store.listOpsAudit({ tenantId, limit, offset });
+            const candidates = (Array.isArray(audits) ? audits : [])
+              .filter((row) => String(row?.action ?? "") === "BILLING_PROVIDER_EVENT_REJECTED")
+              .map((row) => ({ row, details: normalizeAuditDetailsObject(row?.details) }))
+              .filter(({ details }) => (details.provider ?? "stripe") === "stripe")
+              .filter(({ details }) => details.replayable === true && details.event && typeof details.event === "object" && !Array.isArray(details.event))
+              .filter(({ details }) => (reasonFilter ? String(details.reason ?? "") === reasonFilter : true))
+              .filter(({ details }) => (eventTypeFilter ? String(details.eventType ?? "") === eventTypeFilter : true))
+              .filter(({ row }) => (idFilter && idFilter.size ? idFilter.has(Number(row?.id)) : true));
+
+            const results = [];
+            for (const candidate of candidates) {
+              const replayEvent = candidate.details.event;
+              if (dryRun) {
+                results.push({
+                  ok: true,
+                  dryRun: true,
+                  auditId: candidate.row?.id ?? null,
+                  eventId: replayEvent?.id ?? candidate.row?.targetId ?? null,
+                  eventType: replayEvent?.type ?? candidate.details.eventType ?? null
+                });
+                continue;
+              }
+              try {
+                // eslint-disable-next-line no-await-in-loop
+                const applied = await applyStripeBillingProviderEvent({ tenantId, body: replayEvent });
+                // eslint-disable-next-line no-await-in-loop
+                await appendBillingProviderIngestAudit(applied, {
+                  source: "dead_letter_replay",
+                  replayed: true,
+                  replayAuditId: candidate.row?.id ?? null,
+                  captureDuplicate: true
+                });
+                results.push({
+                  ok: true,
+                  auditId: candidate.row?.id ?? null,
+                  eventId: applied?.eventId ?? replayEvent?.id ?? null,
+                  eventType: applied?.eventType ?? replayEvent?.type ?? null,
+                  duplicate: applied?.duplicate === true,
+                  ignored: applied?.ignored === true
+                });
+              } catch (err) {
+                // eslint-disable-next-line no-await-in-loop
+                await appendBillingProviderRejectedAudit({
+                  provider: "stripe",
+                  eventId: replayEvent?.id ?? candidate.row?.targetId ?? null,
+                  eventType: replayEvent?.type ?? candidate.details.eventType ?? null,
+                  reason: "dead_letter_replay_apply_failed",
+                  message: err?.message ?? "unknown error",
+                  source: "dead_letter_replay",
+                  event: replayEvent,
+                  details: {
+                    replayAuditId: candidate.row?.id ?? null,
+                    originalReason: candidate.details.reason ?? null
+                  }
+                });
+                results.push({
+                  ok: false,
+                  auditId: candidate.row?.id ?? null,
+                  eventId: replayEvent?.id ?? candidate.row?.targetId ?? null,
+                  eventType: replayEvent?.type ?? candidate.details.eventType ?? null,
+                  error: err?.message ?? "unknown error"
+                });
+              }
+            }
+            const summary = {
+              total: results.length,
+              applied: results.filter((row) => row.ok === true && row.dryRun !== true && row.duplicate !== true && row.ignored !== true).length,
+              duplicate: results.filter((row) => row.ok === true && row.duplicate === true).length,
+              ignored: results.filter((row) => row.ok === true && row.ignored === true).length,
+              failed: results.filter((row) => row.ok !== true).length,
+              dryRun: results.filter((row) => row.ok === true && row.dryRun === true).length
+            };
+            return sendJson(res, 200, {
+              tenantId,
+              provider: "stripe",
+              dryRun,
+              summary,
+              results
             });
           }
 

@@ -411,4 +411,91 @@ test("API e2e: stripe billing reconcile replay returns summary and report", asyn
   assert.ok(Number(report.json?.counts?.ingested ?? 0) >= 2);
   assert.ok(Number(report.json?.rejectedReasonCounts?.reconcile_apply_failed ?? 0) >= 1);
   assert.equal(report.json?.subscription?.subscriptionId, "sub_reconcile_001");
+  assert.ok(typeof report.json?.ingestBreakdown === "object");
+  assert.ok(typeof report.json?.sourceCounts === "object");
+  assert.ok(Number(report.json?.replayableRejectedCount ?? 0) >= 1);
+});
+
+test("API e2e: stripe dead-letter listing + replay applies recoverable rejected events", async () => {
+  const webhookSecret = "whsec_dead_letter_001";
+  const api = createApi({
+    now: () => "2026-02-07T00:00:00.000Z",
+    opsTokens: "tok_finr:finance_read;tok_finw:finance_write",
+    billingStripeWebhookSecret: webhookSecret,
+    billingStripeWebhookToleranceSeconds: 300
+  });
+
+  const tenantId = "tenant_billing_dead_letter_replay";
+  const payload = makeStripeSubscriptionUpdatedEvent({
+    eventId: "evt_dead_letter_001",
+    subscriptionId: "sub_dead_letter_001",
+    customerId: "cus_dead_letter_001",
+    priceId: "price_growth_dead_letter"
+  });
+
+  const rejected = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billing/providers/stripe/webhook",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw"
+    },
+    body: payload
+  });
+  assert.equal(rejected.statusCode, 400);
+  assert.equal(rejected.json?.error, "invalid stripe signature");
+
+  const deadLetter = await request(api, {
+    method: "GET",
+    path: "/ops/finance/billing/providers/stripe/dead-letter?limit=20",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(deadLetter.statusCode, 200);
+  assert.equal(deadLetter.json?.provider, "stripe");
+  assert.ok(Number(deadLetter.json?.count ?? 0) >= 1);
+  assert.equal(deadLetter.json?.events?.[0]?.eventId, "evt_dead_letter_001");
+  assert.equal(deadLetter.json?.events?.[0]?.replayable, true);
+
+  const replay = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billing/providers/stripe/dead-letter/replay",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw"
+    },
+    body: {
+      limit: 20,
+      reason: "signature_verification_failed"
+    }
+  });
+  assert.equal(replay.statusCode, 200);
+  assert.equal(replay.json?.provider, "stripe");
+  assert.ok(Number(replay.json?.summary?.applied ?? 0) >= 1);
+  assert.ok(Number(replay.json?.summary?.failed ?? 0) === 0);
+
+  const getPlan = await request(api, {
+    method: "GET",
+    path: "/ops/finance/billing/plan",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(getPlan.statusCode, 200);
+  assert.equal(getPlan.json?.billing?.plan, "growth");
+
+  const report = await request(api, {
+    method: "GET",
+    path: "/ops/finance/billing/providers/stripe/reconcile/report?limit=50",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(report.statusCode, 200);
+  assert.ok(Number(report.json?.ingestBreakdown?.replayed ?? 0) >= 1);
+  assert.ok(Number(report.json?.sourceCounts?.dead_letter_replay ?? 0) >= 1);
 });
