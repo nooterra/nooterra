@@ -79,7 +79,19 @@ api_post_json() {
 }
 
 echo "[1/5] Health check..."
-HEALTH_JSON="$(curl -sS "$SETTLD_BASE_URL/healthz")"
+HEALTH_RAW="$(curl -sS "$SETTLD_BASE_URL/healthz" || true)"
+if ! echo "$HEALTH_RAW" | jq -e . >/dev/null 2>&1; then
+  echo "Health endpoint did not return JSON."
+  echo "This usually means SETTLD_BASE_URL points to the frontend (for example Vercel) instead of the API service."
+  echo
+  echo "First 240 chars returned:"
+  echo "$HEALTH_RAW" | head -c 240
+  echo
+  echo
+  echo "Expected something like: {\"ok\":true,\"dbOk\":true,...}"
+  exit 1
+fi
+HEALTH_JSON="$HEALTH_RAW"
 echo "$HEALTH_JSON" | jq '{ok,dbOk,dbLatencyMs}'
 if [[ "$(echo "$HEALTH_JSON" | jq -r '.ok // false')" != "true" ]]; then
   echo "Health check failed."
