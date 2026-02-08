@@ -23,21 +23,59 @@ if [[ -z "${SETTLD_TENANT_ID:-}" ]]; then
 fi
 export SETTLD_TENANT_ID
 
+if [[ "$SETTLD_BASE_URL" == "http://127.0.0.1:3000" || "$SETTLD_BASE_URL" == "http://localhost:3000" ]]; then
+  cat <<EOF
+This is the production smoke script, but SETTLD_BASE_URL is still local ($SETTLD_BASE_URL).
+Set your deployed API URL once:
+  echo 'SETTLD_BASE_URL=https://api.settld.work' >> .env.dev.runtime
+EOF
+  exit 1
+fi
+
+if [[ "$PROXY_OPS_TOKEN" == "dev_ops_token" ]]; then
+  cat <<EOF
+PROXY_OPS_TOKEN is still the local default (dev_ops_token), which will fail in production.
+Set your real prod token once:
+  echo 'PROXY_OPS_TOKEN=<your_prod_ops_token>' >> .env.dev.runtime
+EOF
+  exit 1
+fi
+
 api_get() {
   local path="$1"
-  curl -sS "$SETTLD_BASE_URL$path" \
+  local response body status
+  response="$(curl -sS "$SETTLD_BASE_URL$path" \
     -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
-    -H "x-proxy-tenant-id: $SETTLD_TENANT_ID"
+    -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
+    -w $'\n%{http_code}')"
+  body="$(printf "%s" "$response" | sed '$d')"
+  status="$(printf "%s" "$response" | tail -n1)"
+  if [[ ! "$status" =~ ^2 ]]; then
+    echo "GET $path failed (HTTP $status)"
+    echo "$body" | jq . 2>/dev/null || echo "$body"
+    exit 1
+  fi
+  printf "%s" "$body"
 }
 
 api_post_json() {
   local path="$1"
   local payload="$2"
-  curl -sS -X POST "$SETTLD_BASE_URL$path" \
+  local response body status
+  response="$(curl -sS -X POST "$SETTLD_BASE_URL$path" \
     -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
     -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
     -H "content-type: application/json" \
-    -d "$payload"
+    -d "$payload" \
+    -w $'\n%{http_code}')"
+  body="$(printf "%s" "$response" | sed '$d')"
+  status="$(printf "%s" "$response" | tail -n1)"
+  if [[ ! "$status" =~ ^2 ]]; then
+    echo "POST $path failed (HTTP $status)"
+    echo "$body" | jq . 2>/dev/null || echo "$body"
+    exit 1
+  fi
+  printf "%s" "$body"
 }
 
 echo "[1/5] Health check..."
