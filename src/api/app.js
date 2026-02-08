@@ -277,6 +277,13 @@ export function createApi({
     GOVERNANCE_GLOBAL_WRITE: "governance_global_write"
   });
   const ALL_OPS_SCOPES = new Set(Object.values(OPS_SCOPES));
+  const DEFAULT_TENANT_BOOTSTRAP_API_KEY_SCOPES = Object.freeze([
+    OPS_SCOPES.OPS_READ,
+    OPS_SCOPES.OPS_WRITE,
+    OPS_SCOPES.FINANCE_READ,
+    OPS_SCOPES.FINANCE_WRITE,
+    OPS_SCOPES.AUDIT_READ
+  ]);
 
   const opsTokensRaw = opsTokens ?? (typeof process !== "undefined" ? (process.env.PROXY_OPS_TOKENS ?? null) : null);
   const legacyOpsTokenRaw = opsToken ?? (typeof process !== "undefined" ? (process.env.PROXY_OPS_TOKEN ?? null) : null);
@@ -6277,6 +6284,21 @@ export function createApi({
       throw new TypeError(`${fieldName} must use http or https`);
     }
     return parsed.toString();
+  }
+
+  function deriveRequestBaseUrl(req) {
+    const forwardedProtoRaw = req?.headers?.["x-forwarded-proto"] ?? null;
+    const forwardedHostRaw = req?.headers?.["x-forwarded-host"] ?? req?.headers?.host ?? null;
+    const proto = String(Array.isArray(forwardedProtoRaw) ? forwardedProtoRaw[0] : forwardedProtoRaw ?? "")
+      .split(",")[0]
+      .trim()
+      .toLowerCase();
+    const host = String(Array.isArray(forwardedHostRaw) ? forwardedHostRaw[0] : forwardedHostRaw ?? "")
+      .split(",")[0]
+      .trim();
+    if (!host) return null;
+    const scheme = proto === "http" || proto === "https" ? proto : "https";
+    return `${scheme}://${host}`;
   }
 
   function buildStripeBillingHostedSessionUrl({
@@ -12410,6 +12432,160 @@ export function createApi({
                 }),
                 planOverrides: normalizeBillingPlanOverrides(billingCfg.planOverrides ?? null, { allowNull: true }),
                 hardLimitEnforced: billingCfg.hardLimitEnforced !== false
+              }
+            }
+          });
+        }
+
+        if (parts[1] === "tenants" && parts[2] === "bootstrap" && parts.length === 3 && req.method === "POST") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE)) return sendError(res, 403, "forbidden");
+
+          const body = (await readJsonBody(req)) ?? {};
+
+          const apiKeyCreateRequested = body?.apiKey?.create !== false && body?.createApiKey !== false;
+          if (apiKeyCreateRequested && typeof store.putAuthKey !== "function") return sendError(res, 501, "auth keys not supported for this store");
+          let apiKeyInput = null;
+          let billingPlan = null;
+          let hardLimitEnforced = null;
+          try {
+            if (apiKeyCreateRequested) {
+              const scopesInput = body?.apiKey?.scopes ?? body?.scopes ?? DEFAULT_TENANT_BOOTSTRAP_API_KEY_SCOPES;
+              const scopes = normalizeScopes(scopesInput);
+              if (scopes.length === 0) throw new TypeError("apiKey.scopes[] is required");
+              for (const s of scopes) {
+                if (!ALL_OPS_SCOPES.has(s)) throw new TypeError(`unknown scope: ${s}`);
+              }
+              const keyIdInput = body?.apiKey?.keyId ?? body?.keyId ?? null;
+              const keyId = keyIdInput === null || keyIdInput === undefined ? authKeyId() : String(keyIdInput);
+              if (keyId.includes(".") || keyId.includes(" ") || keyId.includes("\n") || keyId.includes("\r")) {
+                throw new TypeError("apiKey.keyId is invalid");
+              }
+              apiKeyInput = {
+                keyId,
+                scopes,
+                expiresAt: body?.apiKey?.expiresAt ?? body?.expiresAt ?? null,
+                description: body?.apiKey?.description ?? body?.description ?? "tenant bootstrap"
+              };
+            }
+
+            const billingInput =
+              body?.billing && typeof body.billing === "object" && !Array.isArray(body.billing) ? body.billing : body;
+            if (Object.prototype.hasOwnProperty.call(billingInput, "plan")) {
+              billingPlan = normalizeBillingPlanId(billingInput.plan, { allowNull: false, defaultPlan: BILLING_PLAN_ID.FREE });
+            }
+            if (Object.prototype.hasOwnProperty.call(billingInput, "hardLimitEnforced")) {
+              hardLimitEnforced = billingInput.hardLimitEnforced === true;
+            }
+          } catch (err) {
+            return sendError(res, 400, "invalid tenant bootstrap payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          if (typeof store.ensureTenant === "function") store.ensureTenant(tenantId);
+
+          const existingBilling = await getTenantBillingConfig(tenantId);
+          const nextBilling = {
+            ...(existingBilling && typeof existingBilling === "object" && !Array.isArray(existingBilling) ? existingBilling : {})
+          };
+          let billingChanged = false;
+          if (billingPlan !== null) {
+            nextBilling.plan = billingPlan;
+            billingChanged = true;
+          }
+          if (hardLimitEnforced !== null) {
+            nextBilling.hardLimitEnforced = hardLimitEnforced;
+            billingChanged = true;
+          }
+          if (billingChanged) {
+            await putTenantBillingConfig(tenantId, nextBilling);
+          }
+          const finalBillingCfg = await getTenantBillingConfig(tenantId);
+          const resolvedPlan = resolveTenantBillingPlan({ tenantId });
+
+          let createdApiKey = null;
+          if (apiKeyInput) {
+            const secret = authKeySecret();
+            const secretHash = hashAuthKeySecret(secret);
+            const at = nowIso();
+            await store.putAuthKey({
+              tenantId,
+              authKey: {
+                keyId: apiKeyInput.keyId,
+                secretHash,
+                scopes: apiKeyInput.scopes,
+                status: "active",
+                expiresAt: apiKeyInput.expiresAt,
+                description: apiKeyInput.description,
+                createdAt: at
+              },
+              audit: makeOpsAudit({
+                action: "API_KEY_CREATE",
+                targetType: "auth_key",
+                targetId: apiKeyInput.keyId,
+                details: {
+                  scopes: apiKeyInput.scopes,
+                  expiresAt: apiKeyInput.expiresAt,
+                  description: apiKeyInput.description,
+                  source: "tenant_bootstrap"
+                }
+              })
+            });
+            createdApiKey = {
+              keyId: apiKeyInput.keyId,
+              secret,
+              token: `${apiKeyInput.keyId}.${secret}`,
+              scopes: apiKeyInput.scopes,
+              expiresAt: apiKeyInput.expiresAt,
+              description: apiKeyInput.description
+            };
+          }
+
+          if (typeof store.appendOpsAudit === "function") {
+            await store.appendOpsAudit({
+              tenantId,
+              audit: makeOpsAudit({
+                action: "TENANT_BOOTSTRAP",
+                targetType: "tenant",
+                targetId: tenantId,
+                details: {
+                  billingChanged,
+                  plan: resolvedPlan.planId,
+                  hardLimitEnforced: billingChanged ? nextBilling.hardLimitEnforced !== false : null,
+                  apiKeyCreated: Boolean(createdApiKey),
+                  apiKeyId: createdApiKey?.keyId ?? null
+                }
+              })
+            });
+          }
+
+          const requestBaseUrl = deriveRequestBaseUrl(req);
+          const env = {
+            SETTLD_TENANT_ID: tenantId
+          };
+          if (requestBaseUrl) env.SETTLD_BASE_URL = requestBaseUrl;
+          if (createdApiKey?.token) env.SETTLD_API_KEY = createdApiKey.token;
+          const exportCommands = Object.entries(env)
+            .map(([name, value]) => `export ${name}=${JSON.stringify(String(value))}`)
+            .join("\n");
+
+          return sendJson(res, 201, {
+            tenantId,
+            bootstrap: {
+              tenantId,
+              apiBaseUrl: requestBaseUrl,
+              apiKey: createdApiKey,
+              billing: {
+                plan: resolvedPlan.planId,
+                hardLimitEnforced:
+                  finalBillingCfg && typeof finalBillingCfg === "object" && !Array.isArray(finalBillingCfg)
+                    ? finalBillingCfg.hardLimitEnforced !== false
+                    : true,
+                resolvedPlan
+              },
+              env,
+              exportCommands,
+              next: {
+                healthcheckCurl: requestBaseUrl ? `curl -sS ${requestBaseUrl}/healthz | jq` : null,
+                sdkFirstRunCommand: "npm run dev:sdk:first-run"
               }
             }
           });
