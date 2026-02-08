@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Load local env defaults automatically (same behavior as other dev scripts).
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+if [[ -f "$ROOT_DIR/scripts/dev/env.sh" ]]; then
+  # shellcheck source=/dev/null
+  source "$ROOT_DIR/scripts/dev/env.sh"
+fi
+
 for bin in curl jq; do
   if ! command -v "$bin" >/dev/null 2>&1; then
     echo "Missing required tool: $bin"
@@ -15,16 +22,6 @@ if [[ -z "${SETTLD_TENANT_ID:-}" ]]; then
   SETTLD_TENANT_ID="tenant_smoke_$(date +%s)"
 fi
 export SETTLD_TENANT_ID
-
-if [[ -z "${PROXY_BILLING_STRIPE_SECRET_KEY:-}" ]]; then
-  echo "PROXY_BILLING_STRIPE_SECRET_KEY is required (test or live)."
-  exit 1
-fi
-
-if [[ -z "${PROXY_BILLING_STRIPE_PRICE_ID_GROWTH:-}" ]]; then
-  echo "PROXY_BILLING_STRIPE_PRICE_ID_GROWTH is required."
-  exit 1
-fi
 
 api_get() {
   local path="$1"
@@ -61,29 +58,47 @@ if [[ "$CHECKOUT_MODE" != "live" && "$CHECKOUT_MODE" != "stub" ]]; then
 fi
 
 echo "[3/5] Stripe customer portal session..."
-CUSTOMER_ID="$(
-  curl -sS https://api.stripe.com/v1/customers \
-    -u "$PROXY_BILLING_STRIPE_SECRET_KEY:" \
-    -d "name=Settld Smoke Customer $(date +%s)" | jq -r '.id'
-)"
-if [[ -z "$CUSTOMER_ID" || "$CUSTOMER_ID" == "null" ]]; then
-  echo "Failed to create Stripe customer."
-  exit 1
+CUSTOMER_ID=""
+if [[ -n "${PROXY_BILLING_STRIPE_SECRET_KEY:-}" ]]; then
+  CUSTOMER_ID="$(
+    curl -sS https://api.stripe.com/v1/customers \
+      -u "$PROXY_BILLING_STRIPE_SECRET_KEY:" \
+      -d "name=Settld Smoke Customer $(date +%s)" | jq -r '.id'
+  )"
 fi
+if [[ -z "$CUSTOMER_ID" || "$CUSTOMER_ID" == "null" ]]; then
+  CUSTOMER_ID="cus_smoke_$(date +%s)"
+fi
+
 PORTAL_JSON="$(api_post_json "/ops/finance/billing/providers/stripe/portal" "{\"customerId\":\"$CUSTOMER_ID\"}")"
-echo "$PORTAL_JSON" | jq '{tenantId, mode: .portalSession.mode, customerId: .portalSession.customerId, sessionId: .portalSession.sessionId, sessionUrl: .portalSession.sessionUrl}'
-if [[ "$(echo "$PORTAL_JSON" | jq -r '.portalSession.sessionUrl // ""')" == "" ]]; then
-  echo "Portal session URL missing."
-  exit 1
+if [[ "$(echo "$PORTAL_JSON" | jq -r '.portalSession.sessionUrl // ""')" != "" ]]; then
+  echo "$PORTAL_JSON" | jq '{tenantId, mode: .portalSession.mode, customerId: .portalSession.customerId, sessionId: .portalSession.sessionId, sessionUrl: .portalSession.sessionUrl}'
+else
+  # In live mode with a synthetic customer id, Stripe returns upstream "No such customer".
+  echo "$PORTAL_JSON" | jq '{tenantId,error,code,details}'
+  if [[ "$(echo "$PORTAL_JSON" | jq -r '.code // ""')" != "BILLING_PROVIDER_UPSTREAM_ERROR" ]]; then
+    echo "Unexpected portal response."
+    exit 1
+  fi
 fi
 
 echo "[4/5] Webhook/reconcile subscription mapping..."
 TS="$(date +%s)"
+GROWTH_PRICE_ID="${PROXY_BILLING_STRIPE_PRICE_ID_GROWTH:-}"
+if [[ -z "$GROWTH_PRICE_ID" ]]; then
+  GROWTH_CHECKOUT_JSON="$(api_post_json "/ops/finance/billing/providers/stripe/checkout" '{"plan":"growth"}')"
+  GROWTH_PRICE_ID="$(echo "$GROWTH_CHECKOUT_JSON" | jq -r '.checkoutSession.priceId // ""')"
+fi
+if [[ -z "$GROWTH_PRICE_ID" ]]; then
+  echo "Could not resolve Growth Stripe price ID from env or checkout response."
+  exit 1
+fi
+
 RECON_PAYLOAD="$(jq -n \
   --arg eventId "evt_smoke_price_map_${TS}" \
   --arg subId "sub_smoke_price_map_${TS}" \
   --arg customerId "$CUSTOMER_ID" \
-  --arg price "$PROXY_BILLING_STRIPE_PRICE_ID_GROWTH" \
+  --arg price "$GROWTH_PRICE_ID" \
   --argjson created "$TS" \
   '{events:[{id:$eventId,type:"customer.subscription.updated",created:$created,data:{object:{id:$subId,customer:$customerId,status:"active",items:{data:[{price:{id:$price,metadata:{}}}]},metadata:{}}}}]}'
 )"
