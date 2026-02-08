@@ -257,7 +257,13 @@ export function createApi({
   billingStripePriceIdEnterprise = null,
   billingStripeCheckoutSuccessUrl = null,
   billingStripeCheckoutCancelUrl = null,
-  billingStripePortalReturnUrl = null
+  billingStripePortalReturnUrl = null,
+  billingStripeRetryMaxAttempts = null,
+  billingStripeRetryBaseMs = null,
+  billingStripeRetryMaxMs = null,
+  billingStripeCircuitFailureThreshold = null,
+  billingStripeCircuitOpenMs = null,
+  billingStripeFetchFn = null
 } = {}) {
   const apiStartedAtMs = Date.now();
   const apiStartedAtIso = new Date(apiStartedAtMs).toISOString();
@@ -621,6 +627,42 @@ export function createApi({
       : typeof process !== "undefined" && typeof process.env.PROXY_BILLING_STRIPE_PORTAL_RETURN_URL === "string" && process.env.PROXY_BILLING_STRIPE_PORTAL_RETURN_URL.trim() !== ""
         ? process.env.PROXY_BILLING_STRIPE_PORTAL_RETURN_URL.trim()
         : "";
+  const effectiveBillingStripeRetryMaxAttempts =
+    billingStripeRetryMaxAttempts !== null && billingStripeRetryMaxAttempts !== undefined
+      ? Number(billingStripeRetryMaxAttempts)
+      : parseNonNegativeIntEnv("PROXY_BILLING_STRIPE_RETRY_MAX_ATTEMPTS", 3);
+  if (!Number.isSafeInteger(effectiveBillingStripeRetryMaxAttempts) || effectiveBillingStripeRetryMaxAttempts <= 0) {
+    throw new TypeError("PROXY_BILLING_STRIPE_RETRY_MAX_ATTEMPTS must be a positive safe integer");
+  }
+  const effectiveBillingStripeRetryBaseMs =
+    billingStripeRetryBaseMs !== null && billingStripeRetryBaseMs !== undefined
+      ? Number(billingStripeRetryBaseMs)
+      : parseNonNegativeIntEnv("PROXY_BILLING_STRIPE_RETRY_BASE_MS", 200);
+  if (!Number.isSafeInteger(effectiveBillingStripeRetryBaseMs) || effectiveBillingStripeRetryBaseMs < 0) {
+    throw new TypeError("PROXY_BILLING_STRIPE_RETRY_BASE_MS must be a non-negative safe integer");
+  }
+  const effectiveBillingStripeRetryMaxMs =
+    billingStripeRetryMaxMs !== null && billingStripeRetryMaxMs !== undefined
+      ? Number(billingStripeRetryMaxMs)
+      : parseNonNegativeIntEnv("PROXY_BILLING_STRIPE_RETRY_MAX_MS", 2000);
+  if (!Number.isSafeInteger(effectiveBillingStripeRetryMaxMs) || effectiveBillingStripeRetryMaxMs <= 0) {
+    throw new TypeError("PROXY_BILLING_STRIPE_RETRY_MAX_MS must be a positive safe integer");
+  }
+  const effectiveBillingStripeCircuitFailureThreshold =
+    billingStripeCircuitFailureThreshold !== null && billingStripeCircuitFailureThreshold !== undefined
+      ? Number(billingStripeCircuitFailureThreshold)
+      : parseNonNegativeIntEnv("PROXY_BILLING_STRIPE_CIRCUIT_FAILURE_THRESHOLD", 3);
+  if (!Number.isSafeInteger(effectiveBillingStripeCircuitFailureThreshold) || effectiveBillingStripeCircuitFailureThreshold <= 0) {
+    throw new TypeError("PROXY_BILLING_STRIPE_CIRCUIT_FAILURE_THRESHOLD must be a positive safe integer");
+  }
+  const effectiveBillingStripeCircuitOpenMs =
+    billingStripeCircuitOpenMs !== null && billingStripeCircuitOpenMs !== undefined
+      ? Number(billingStripeCircuitOpenMs)
+      : parseNonNegativeIntEnv("PROXY_BILLING_STRIPE_CIRCUIT_OPEN_MS", 30_000);
+  if (!Number.isSafeInteger(effectiveBillingStripeCircuitOpenMs) || effectiveBillingStripeCircuitOpenMs <= 0) {
+    throw new TypeError("PROXY_BILLING_STRIPE_CIRCUIT_OPEN_MS must be a positive safe integer");
+  }
+  const effectiveBillingStripeFetchFn = typeof billingStripeFetchFn === "function" ? billingStripeFetchFn : null;
 
   function parseOpsTokens(raw) {
     if (raw === null || raw === undefined) return new Map();
@@ -6385,33 +6427,253 @@ export function createApi({
     return normalized.replace(/\/+$/, "");
   }
 
+  const stripeCircuitState = {
+    consecutiveFailures: 0,
+    openedUntilMs: 0
+  };
+
+  function sleep(ms) {
+    const delayMs = Number(ms);
+    if (!Number.isFinite(delayMs) || delayMs <= 0) return Promise.resolve();
+    return new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  function computeStripeRetryDelayMs({ attempt }) {
+    const base = Math.max(0, effectiveBillingStripeRetryBaseMs);
+    const max = Math.max(1, effectiveBillingStripeRetryMaxMs);
+    const exponent = Math.max(0, Number(attempt) - 1);
+    const withoutJitter = Math.min(max, base * Math.pow(2, exponent));
+    if (withoutJitter <= 0) return 0;
+    const jitter = 0.8 + deliveryRandom() * 0.4; // 0.8x..1.2x
+    return Math.max(0, Math.min(max, Math.round(withoutJitter * jitter)));
+  }
+
+  function normalizeStripeErrorFromResponseBody(json) {
+    const stripeError = json && typeof json === "object" && !Array.isArray(json) && json.error && typeof json.error === "object" ? json.error : null;
+    if (!stripeError) return null;
+    return {
+      message: typeof stripeError.message === "string" && stripeError.message.trim() !== "" ? stripeError.message.trim() : null,
+      type: typeof stripeError.type === "string" && stripeError.type.trim() !== "" ? stripeError.type.trim() : null,
+      code: typeof stripeError.code === "string" && stripeError.code.trim() !== "" ? stripeError.code.trim() : null
+    };
+  }
+
+  function isStripeFailureRetryable({ httpStatus = null, isNetworkError = false } = {}) {
+    if (isNetworkError) return true;
+    if (!Number.isFinite(httpStatus)) return false;
+    if (httpStatus === 408 || httpStatus === 409 || httpStatus === 425 || httpStatus === 429) return true;
+    if (httpStatus >= 500) return true;
+    return false;
+  }
+
+  function stripeErrorCategory({ httpStatus = null, isNetworkError = false, circuitOpen = false } = {}) {
+    if (circuitOpen) return "circuit_open";
+    if (isNetworkError) return "network_error";
+    if (!Number.isFinite(httpStatus)) return "unknown";
+    if (httpStatus === 429) return "rate_limited";
+    if (httpStatus >= 500) return "upstream_unavailable";
+    if (httpStatus >= 400) return "upstream_rejected";
+    return "unknown";
+  }
+
+  function createStripeProviderError({
+    message,
+    endpoint,
+    attempt = 1,
+    maxAttempts = 1,
+    httpStatus = null,
+    providerCode = null,
+    providerType = null,
+    providerRequestId = null,
+    retryable = false,
+    code = "BILLING_PROVIDER_UPSTREAM_ERROR",
+    circuitOpenUntil = null,
+    isNetworkError = false
+  } = {}) {
+    const err = new Error(message || "stripe request failed");
+    err.code = code;
+    err.provider = "stripe";
+    err.endpoint = endpoint;
+    err.attempt = attempt;
+    err.maxAttempts = maxAttempts;
+    err.httpStatus = Number.isFinite(Number(httpStatus)) ? Number(httpStatus) : null;
+    err.providerCode = providerCode ?? null;
+    err.providerType = providerType ?? null;
+    err.providerRequestId = providerRequestId ?? null;
+    err.retryable = retryable === true;
+    err.circuitOpenUntil = circuitOpenUntil ?? null;
+    err.category = stripeErrorCategory({
+      httpStatus: err.httpStatus,
+      isNetworkError,
+      circuitOpen: code === "BILLING_PROVIDER_CIRCUIT_OPEN"
+    });
+    return err;
+  }
+
+  function serializeStripeProviderError(err) {
+    if (!err || typeof err !== "object") return { message: null };
+    return {
+      message: typeof err.message === "string" ? err.message : null,
+      provider: "stripe",
+      category: typeof err.category === "string" ? err.category : null,
+      retryable: err.retryable === true,
+      httpStatus: Number.isFinite(Number(err.httpStatus)) ? Number(err.httpStatus) : null,
+      providerCode: typeof err.providerCode === "string" ? err.providerCode : null,
+      providerType: typeof err.providerType === "string" ? err.providerType : null,
+      providerRequestId: typeof err.providerRequestId === "string" ? err.providerRequestId : null,
+      endpoint: typeof err.endpoint === "string" ? err.endpoint : null,
+      attempt: Number.isFinite(Number(err.attempt)) ? Number(err.attempt) : null,
+      maxAttempts: Number.isFinite(Number(err.maxAttempts)) ? Number(err.maxAttempts) : null,
+      circuitOpenUntil: typeof err.circuitOpenUntil === "string" ? err.circuitOpenUntil : null
+    };
+  }
+
+  function stripeProviderErrorStatusCode(err, fallback = 502) {
+    if (err?.code === "BILLING_PROVIDER_CIRCUIT_OPEN") return 503;
+    return fallback;
+  }
+
+  function shouldContributeStripeCircuitFailure(err) {
+    if (!err || typeof err !== "object") return false;
+    if (err.code === "BILLING_PROVIDER_CIRCUIT_OPEN") return false;
+    if (err.retryable === true) return true;
+    const httpStatus = Number(err.httpStatus);
+    if (Number.isFinite(httpStatus) && (httpStatus >= 500 || httpStatus === 429)) return true;
+    return false;
+  }
+
+  function resetStripeCircuit() {
+    stripeCircuitState.consecutiveFailures = 0;
+    stripeCircuitState.openedUntilMs = 0;
+  }
+
+  function recordStripeCircuitFailure(err) {
+    if (!shouldContributeStripeCircuitFailure(err)) {
+      resetStripeCircuit();
+      return;
+    }
+    stripeCircuitState.consecutiveFailures += 1;
+    if (stripeCircuitState.consecutiveFailures < effectiveBillingStripeCircuitFailureThreshold) return;
+    stripeCircuitState.openedUntilMs = Date.now() + effectiveBillingStripeCircuitOpenMs;
+    stripeCircuitState.consecutiveFailures = 0;
+  }
+
   async function stripeApiPostJson({ endpoint, formData }) {
     if (!effectiveBillingStripeSecretKey) throw new Error("stripe secret key is not configured");
-    const fetchImpl = typeof fetch === "function" ? fetch : null;
+    const fetchImpl = effectiveBillingStripeFetchFn ?? (typeof fetch === "function" ? fetch : null);
     if (!fetchImpl) throw new Error("global fetch is not available");
+    if (stripeCircuitState.openedUntilMs > Date.now()) {
+      throw createStripeProviderError({
+        message: "stripe circuit is open; request temporarily blocked",
+        endpoint: String(endpoint),
+        retryable: true,
+        code: "BILLING_PROVIDER_CIRCUIT_OPEN",
+        circuitOpenUntil: new Date(stripeCircuitState.openedUntilMs).toISOString()
+      });
+    }
     const target = `${normalizeStripeApiBaseUrl(effectiveBillingStripeApiBaseUrl)}${String(endpoint)}`;
-    const body = new URLSearchParams(formData ?? {});
-    const resp = await fetchImpl(target, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${effectiveBillingStripeSecretKey}`,
-        "content-type": "application/x-www-form-urlencoded"
-      },
-      body
+    const maxAttempts = Math.max(1, effectiveBillingStripeRetryMaxAttempts);
+    let lastError = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      const body = new URLSearchParams(formData ?? {});
+      try {
+        const resp = await fetchImpl(target, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${effectiveBillingStripeSecretKey}`,
+            "content-type": "application/x-www-form-urlencoded"
+          },
+          body
+        });
+        const text = await resp.text();
+        let json = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = null;
+        }
+        if (!resp.ok) {
+          const stripeError = normalizeStripeErrorFromResponseBody(json);
+          const retryable = isStripeFailureRetryable({
+            httpStatus: resp.status,
+            isNetworkError: false
+          });
+          const canRetryAttempt = retryable && attempt < maxAttempts;
+          const err = createStripeProviderError({
+            message: stripeError?.message ?? text ?? `stripe API request failed (${resp.status})`,
+            endpoint: String(endpoint),
+            attempt,
+            maxAttempts,
+            httpStatus: resp.status,
+            providerCode: stripeError?.code ?? null,
+            providerType: stripeError?.type ?? null,
+            providerRequestId: resp?.headers?.get?.("request-id") ?? null,
+            retryable
+          });
+          if (canRetryAttempt) {
+            lastError = err;
+            await sleep(computeStripeRetryDelayMs({ attempt }));
+            continue;
+          }
+          recordStripeCircuitFailure(err);
+          throw err;
+        }
+        if (!json || typeof json !== "object" || Array.isArray(json)) {
+          const err = createStripeProviderError({
+            message: "stripe API returned invalid JSON",
+            endpoint: String(endpoint),
+            attempt,
+            maxAttempts,
+            retryable: false,
+            code: "BILLING_PROVIDER_INVALID_RESPONSE"
+          });
+          recordStripeCircuitFailure(err);
+          throw err;
+        }
+        resetStripeCircuit();
+        return json;
+      } catch (err) {
+        if (err && typeof err === "object" && (err.code === "BILLING_PROVIDER_UPSTREAM_ERROR" || err.code === "BILLING_PROVIDER_INVALID_RESPONSE" || err.code === "BILLING_PROVIDER_CIRCUIT_OPEN")) {
+          if (err.code !== "BILLING_PROVIDER_UPSTREAM_ERROR" || err.retryable !== true || attempt >= maxAttempts) {
+            throw err;
+          }
+          lastError = err;
+          await sleep(computeStripeRetryDelayMs({ attempt }));
+          continue;
+        }
+        const retryable = isStripeFailureRetryable({
+          httpStatus: null,
+          isNetworkError: true
+        });
+        const canRetryAttempt = retryable && attempt < maxAttempts;
+        const wrapped = createStripeProviderError({
+          message: err?.message ?? "network error while calling stripe",
+          endpoint: String(endpoint),
+          attempt,
+          maxAttempts,
+          retryable,
+          isNetworkError: true
+        });
+        if (canRetryAttempt) {
+          lastError = wrapped;
+          await sleep(computeStripeRetryDelayMs({ attempt }));
+          continue;
+        }
+        recordStripeCircuitFailure(wrapped);
+        throw wrapped;
+      }
+    }
+    if (lastError) {
+      recordStripeCircuitFailure(lastError);
+      throw lastError;
+    }
+    throw createStripeProviderError({
+      message: "stripe request failed after retries",
+      endpoint: String(endpoint),
+      attempt: maxAttempts,
+      maxAttempts,
+      retryable: false
     });
-    const text = await resp.text();
-    let json = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = null;
-    }
-    if (!resp.ok) {
-      const msg = (json && typeof json.error?.message === "string" && json.error.message) || text || `stripe API request failed (${resp.status})`;
-      throw new Error(msg);
-    }
-    if (!json || typeof json !== "object" || Array.isArray(json)) throw new Error("stripe API returned invalid JSON");
-    return json;
   }
 
   function isStripeNoSuchCustomerError(err) {
@@ -13747,19 +14009,19 @@ export function createApi({
                   } catch (retryErr) {
                     return sendError(
                       res,
-                      502,
+                      stripeProviderErrorStatusCode(retryErr, 502),
                       "stripe checkout session creation failed",
-                      { message: retryErr?.message ?? null },
-                      { code: "BILLING_PROVIDER_UPSTREAM_ERROR" }
+                      serializeStripeProviderError(retryErr),
+                      { code: retryErr?.code ?? "BILLING_PROVIDER_UPSTREAM_ERROR" }
                     );
                   }
                 } else {
                   return sendError(
                     res,
-                    502,
+                    stripeProviderErrorStatusCode(err, 502),
                     "stripe checkout session creation failed",
-                    { message: err?.message ?? null },
-                    { code: "BILLING_PROVIDER_UPSTREAM_ERROR" }
+                    serializeStripeProviderError(err),
+                    { code: err?.code ?? "BILLING_PROVIDER_UPSTREAM_ERROR" }
                   );
                 }
               }
@@ -13776,7 +14038,7 @@ export function createApi({
                   res,
                   502,
                   "stripe checkout response missing id or url",
-                  null,
+                  { provider: "stripe", category: "invalid_response", retryable: false, endpoint: "/v1/checkout/sessions" },
                   { code: "BILLING_PROVIDER_INVALID_RESPONSE" }
                 );
               }
@@ -13912,10 +14174,10 @@ export function createApi({
               } catch (err) {
                 return sendError(
                   res,
-                  502,
+                  stripeProviderErrorStatusCode(err, 502),
                   "stripe portal session creation failed",
-                  { message: err?.message ?? null },
-                  { code: "BILLING_PROVIDER_UPSTREAM_ERROR" }
+                  serializeStripeProviderError(err),
+                  { code: err?.code ?? "BILLING_PROVIDER_UPSTREAM_ERROR" }
                 );
               }
               const returnedSessionId =
@@ -13931,7 +14193,7 @@ export function createApi({
                   res,
                   502,
                   "stripe portal response missing id or url",
-                  null,
+                  { provider: "stripe", category: "invalid_response", retryable: false, endpoint: "/v1/billing_portal/sessions" },
                   { code: "BILLING_PROVIDER_INVALID_RESPONSE" }
                 );
               }
