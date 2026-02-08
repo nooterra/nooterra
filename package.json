@@ -40,6 +40,7 @@
     "dev:sdk:key": "bash scripts/dev/new-sdk-key.sh",
     "dev:sdk:first-run": "bash scripts/dev/sdk-first-run.sh",
     "dev:billing:doctor": "bash scripts/dev/billing-doctor.sh",
+    "dev:billing:smoke:prod": "bash scripts/dev/billing-smoke-prod.sh",
     "test": "node --test",
     "magic-link:migrate-runs-db": "node scripts/magic-link/migrate-run-records-to-db.mjs",
     "release:artifacts": "node scripts/release/build-artifacts.mjs",
