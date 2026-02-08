@@ -418,6 +418,84 @@ test("API e2e: billing stripe provider live mode posts to Stripe API", async () 
   }
 });
 
+test("API e2e: billing stripe checkout retries without stale customer id in live mode", async () => {
+  const checkoutCalls = [];
+  const mockStripeServer = createServer((req, res) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => {
+      const formData = new URLSearchParams(body);
+      if (req.method === "POST" && req.url === "/v1/checkout/sessions") {
+        checkoutCalls.push(formData);
+        const customerId = formData.get("customer");
+        if (customerId === "cus_stale_123") {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: { message: "No such customer: 'cus_stale_123'" } }));
+          return;
+        }
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            id: "cs_live_retry_123",
+            url: "https://checkout.stripe.com/c/pay/cs_live_retry_123",
+            subscription: null
+          })
+        );
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: { message: "not found" } }));
+    });
+  });
+  await new Promise((resolve) => mockStripeServer.listen(0, "127.0.0.1", resolve));
+  const stripeAddress = mockStripeServer.address();
+  assert.ok(stripeAddress && typeof stripeAddress === "object" && stripeAddress.port > 0);
+  const stripeBaseUrl = `http://127.0.0.1:${stripeAddress.port}`;
+
+  try {
+    const api = createApi({
+      now: () => "2026-02-07T00:00:00.000Z",
+      opsTokens: "tok_finw:finance_write",
+      billingStripeApiBaseUrl: stripeBaseUrl,
+      billingStripeSecretKey: "sk_test_live_123",
+      billingStripePriceIdBuilder: "price_builder_live_123",
+      billingStripePriceIdGrowth: "price_growth_live_123",
+      billingStripePriceIdEnterprise: "price_enterprise_live_123",
+      billingStripeCheckoutSuccessUrl: "https://example.test/default-success",
+      billingStripeCheckoutCancelUrl: "https://example.test/default-cancel"
+    });
+
+    const checkout = await request(api, {
+      method: "POST",
+      path: "/ops/finance/billing/providers/stripe/checkout",
+      headers: {
+        "x-proxy-tenant-id": "tenant_billing_live_stale_customer_retry",
+        "x-proxy-ops-token": "tok_finw",
+        "x-idempotency-key": "billing_live_checkout_retry_1"
+      },
+      body: {
+        plan: "growth",
+        customerId: "cus_stale_123"
+      }
+    });
+    assert.equal(checkout.statusCode, 201);
+    assert.equal(checkout.json?.checkoutSession?.mode, "live");
+    assert.equal(checkout.json?.checkoutSession?.sessionId, "cs_live_retry_123");
+    assert.equal(checkout.json?.checkoutSession?.sessionUrl, "https://checkout.stripe.com/c/pay/cs_live_retry_123");
+    assert.equal(checkout.json?.checkoutSession?.customerId, null);
+
+    assert.equal(checkoutCalls.length, 2);
+    assert.equal(checkoutCalls[0].get("customer"), "cus_stale_123");
+    assert.equal(checkoutCalls[1].get("customer"), null);
+    assert.equal(checkoutCalls[1].get("line_items[0][price]"), "price_growth_live_123");
+  } finally {
+    await new Promise((resolve) => mockStripeServer.close(resolve));
+  }
+});
+
 test("API e2e: billing hard limit blocks additional verified runs", async () => {
   const api = createApi({
     now: () => "2026-02-07T00:00:00.000Z",

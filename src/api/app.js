@@ -6340,6 +6340,11 @@ export function createApi({
     return json;
   }
 
+  function isStripeNoSuchCustomerError(err) {
+    const message = err && typeof err.message === "string" ? err.message : "";
+    return /\bno such customer\b/i.test(message);
+  }
+
   function computeBillableUsageEventDigestRows(events) {
     const rows = [];
     for (const row of Array.isArray(events) ? events : []) {
@@ -13410,7 +13415,7 @@ export function createApi({
               return sendError(res, 400, "invalid stripe checkout payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
             }
 
-            const customerId =
+            let customerId =
               typeof body?.customerId === "string" && body.customerId.trim() !== ""
                 ? body.customerId.trim()
                 : existingSubscription?.customerId ?? null;
@@ -13457,30 +13462,50 @@ export function createApi({
                   { code: "SCHEMA_INVALID" }
                 );
               }
+              const buildCheckoutFormData = (resolvedCustomerId) => ({
+                mode: "subscription",
+                success_url: successUrl,
+                cancel_url: cancelUrl,
+                client_reference_id: tenantId,
+                "line_items[0][price]": livePriceId,
+                "line_items[0][quantity]": "1",
+                "metadata[tenantId]": tenantId,
+                "metadata[settldPlan]": selectedPlan,
+                ...(resolvedCustomerId ? { customer: resolvedCustomerId } : {})
+              });
+
               let checkoutResponse;
               try {
                 checkoutResponse = await stripeApiPostJson({
                   endpoint: "/v1/checkout/sessions",
-                  formData: {
-                    mode: "subscription",
-                    success_url: successUrl,
-                    cancel_url: cancelUrl,
-                    client_reference_id: tenantId,
-                    "line_items[0][price]": livePriceId,
-                    "line_items[0][quantity]": "1",
-                    "metadata[tenantId]": tenantId,
-                    "metadata[settldPlan]": selectedPlan,
-                    ...(customerId ? { customer: customerId } : {})
-                  }
+                  formData: buildCheckoutFormData(customerId)
                 });
               } catch (err) {
-                return sendError(
-                  res,
-                  502,
-                  "stripe checkout session creation failed",
-                  { message: err?.message ?? null },
-                  { code: "BILLING_PROVIDER_UPSTREAM_ERROR" }
-                );
+                if (customerId && isStripeNoSuchCustomerError(err)) {
+                  try {
+                    checkoutResponse = await stripeApiPostJson({
+                      endpoint: "/v1/checkout/sessions",
+                      formData: buildCheckoutFormData(null)
+                    });
+                    customerId = null;
+                  } catch (retryErr) {
+                    return sendError(
+                      res,
+                      502,
+                      "stripe checkout session creation failed",
+                      { message: retryErr?.message ?? null },
+                      { code: "BILLING_PROVIDER_UPSTREAM_ERROR" }
+                    );
+                  }
+                } else {
+                  return sendError(
+                    res,
+                    502,
+                    "stripe checkout session creation failed",
+                    { message: err?.message ?? null },
+                    { code: "BILLING_PROVIDER_UPSTREAM_ERROR" }
+                  );
+                }
               }
               const returnedSessionId =
                 typeof checkoutResponse?.id === "string" && checkoutResponse.id.trim() !== ""
