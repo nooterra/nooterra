@@ -170,6 +170,51 @@ test("API e2e: stripe billing webhook is idempotent and syncs growth plan", asyn
   assert.equal(getSubscription.json?.subscription?.status, "active");
 });
 
+test("API e2e: stripe webhook maps configured price IDs to billing plan when metadata is absent", async () => {
+  const api = createApi({
+    now: () => "2026-02-07T00:00:00.000Z",
+    opsTokens: "tok_finr:finance_read;tok_finw:finance_write",
+    billingStripePriceIdBuilder: "price_builder_cfg_001",
+    billingStripePriceIdGrowth: "price_growth_cfg_001",
+    billingStripePriceIdEnterprise: "price_enterprise_cfg_001"
+  });
+
+  const tenantId = "tenant_billing_webhook_price_map";
+  const payload = makeStripeSubscriptionUpdatedEvent({
+    eventId: "evt_sub_price_map_001",
+    subscriptionId: "sub_price_map_001",
+    customerId: "cus_price_map_001",
+    priceId: "price_builder_cfg_001"
+  });
+  // Simulate real Stripe subscription events that do not include settldPlan metadata.
+  payload.data.object.items.data[0].price.metadata = {};
+
+  const ingested = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billing/providers/stripe/webhook",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw"
+    },
+    body: payload
+  });
+  assert.equal(ingested.statusCode, 200);
+  assert.equal(ingested.json?.duplicate, false);
+  assert.equal(ingested.json?.applied?.nextPlan, "builder");
+  assert.equal(ingested.json?.subscription?.plan, "builder");
+
+  const getPlan = await request(api, {
+    method: "GET",
+    path: "/ops/finance/billing/plan",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(getPlan.statusCode, 200);
+  assert.equal(getPlan.json?.billing?.plan, "builder");
+});
+
 test("API e2e: stripe billing webhook enforces signature when secret is configured", async () => {
   const webhookSecret = "whsec_test_001";
   const api = createApi({

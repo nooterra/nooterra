@@ -6180,12 +6180,29 @@ export function createApi({
     return null;
   }
 
+  function resolveStripePlanIdFromConfiguredPrice(priceId) {
+    const normalizedPriceId = typeof priceId === "string" ? priceId.trim() : "";
+    if (!normalizedPriceId) return null;
+    if (effectiveBillingStripePriceIdBuilder && normalizedPriceId === effectiveBillingStripePriceIdBuilder) {
+      return BILLING_PLAN_ID.BUILDER;
+    }
+    if (effectiveBillingStripePriceIdGrowth && normalizedPriceId === effectiveBillingStripePriceIdGrowth) {
+      return BILLING_PLAN_ID.GROWTH;
+    }
+    if (effectiveBillingStripePriceIdEnterprise && normalizedPriceId === effectiveBillingStripePriceIdEnterprise) {
+      return BILLING_PLAN_ID.ENTERPRISE;
+    }
+    return null;
+  }
+
   function resolveStripeSubscriptionPlanId(subscriptionObject) {
     const directCandidate = readMetadataPlanCandidate(subscriptionObject?.metadata ?? null);
     if (directCandidate) return directCandidate;
     const price = extractStripeSubscriptionPrice(subscriptionObject);
     const fromPriceMetadata = readMetadataPlanCandidate(price?.metadata ?? null);
     if (fromPriceMetadata) return fromPriceMetadata;
+    const fromConfiguredPrice = resolveStripePlanIdFromConfiguredPrice(price?.id ?? null);
+    if (fromConfiguredPrice) return fromConfiguredPrice;
     return null;
   }
 
