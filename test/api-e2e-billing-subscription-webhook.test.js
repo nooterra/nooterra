@@ -145,7 +145,8 @@ test("API e2e: resolved billing plan follows active subscription plan even if st
     }
   });
   assert.equal(getPlan.statusCode, 200);
-  assert.equal(getPlan.json?.billing?.plan, "free");
+  // The service self-heals stale top-level plan config from active subscription state.
+  assert.equal(getPlan.json?.billing?.plan, "builder");
   assert.equal(getPlan.json?.resolvedPlan?.planId, "builder");
 
   const getSummary = await request(api, {

@@ -2146,10 +2146,41 @@ export function createApi({
   async function getTenantBillingConfig(tenantId) {
     const cfg = getTenantConfig(tenantId) ?? {};
     const fallback = cfg?.billing && typeof cfg.billing === "object" && !Array.isArray(cfg.billing) ? cfg.billing : {};
-    if (typeof store.getTenantBillingConfig !== "function") return fallback;
+    if (typeof store.getTenantBillingConfig !== "function") {
+      const subscriptionPlanId = resolveActiveSubscriptionPlanId(fallback);
+      if (subscriptionPlanId) {
+        const configuredPlanId = normalizeBillingPlanId(fallback.plan ?? BILLING_PLAN_ID.FREE, {
+          allowNull: false,
+          defaultPlan: BILLING_PLAN_ID.FREE
+        });
+        if (configuredPlanId !== subscriptionPlanId) {
+          const synced = { ...fallback, plan: subscriptionPlanId };
+          cfg.billing = synced;
+          return synced;
+        }
+      }
+      return fallback;
+    }
     try {
       const persisted = await store.getTenantBillingConfig({ tenantId: normalizeTenant(tenantId) });
       if (persisted && typeof persisted === "object" && !Array.isArray(persisted)) {
+        const subscriptionPlanId = resolveActiveSubscriptionPlanId(persisted);
+        if (subscriptionPlanId) {
+          const configuredPlanId = normalizeBillingPlanId(persisted.plan ?? BILLING_PLAN_ID.FREE, {
+            allowNull: false,
+            defaultPlan: BILLING_PLAN_ID.FREE
+          });
+          if (configuredPlanId !== subscriptionPlanId) {
+            const synced = { ...persisted, plan: subscriptionPlanId };
+            cfg.billing = synced;
+            try {
+              await store.putTenantBillingConfig({ tenantId: normalizeTenant(tenantId), billing: synced });
+            } catch {
+              // Keep serving effective config even if persistence is temporarily unavailable.
+            }
+            return synced;
+          }
+        }
         cfg.billing = persisted;
         return persisted;
       }
@@ -6064,14 +6095,8 @@ export function createApi({
     return normalized;
   }
 
-  function resolveTenantBillingPlan({ tenantId }) {
-    const cfg = getTenantConfig(tenantId) ?? {};
-    const billingCfg = cfg?.billing && typeof cfg.billing === "object" && !Array.isArray(cfg.billing) ? cfg.billing : {};
-    const configuredPlanId = normalizeBillingPlanId(billingCfg.plan ?? BILLING_PLAN_ID.FREE, {
-      allowNull: false,
-      defaultPlan: BILLING_PLAN_ID.FREE
-    });
-    const subscription = normalizeBillingSubscriptionRecord(billingCfg.subscription ?? null, {
+  function resolveActiveSubscriptionPlanId(billingCfg) {
+    const subscription = normalizeBillingSubscriptionRecord(billingCfg?.subscription ?? null, {
       allowNull: true,
       strictPlan: false
     });
@@ -6087,7 +6112,17 @@ export function createApi({
       subscriptionStatus !== "incomplete_expired" &&
       subscriptionStatus !== "ended" &&
       subscriptionStatus !== "terminated";
-    const planId = subscriptionPlanEligible ? subscriptionPlanId : configuredPlanId;
+    return subscriptionPlanEligible ? subscriptionPlanId : null;
+  }
+
+  function resolveTenantBillingPlan({ tenantId }) {
+    const cfg = getTenantConfig(tenantId) ?? {};
+    const billingCfg = cfg?.billing && typeof cfg.billing === "object" && !Array.isArray(cfg.billing) ? cfg.billing : {};
+    const configuredPlanId = normalizeBillingPlanId(billingCfg.plan ?? BILLING_PLAN_ID.FREE, {
+      allowNull: false,
+      defaultPlan: BILLING_PLAN_ID.FREE
+    });
+    const planId = resolveActiveSubscriptionPlanId(billingCfg) ?? configuredPlanId;
     const overrides = normalizeBillingPlanOverrides(billingCfg.planOverrides ?? null, { allowNull: true });
     const hardLimitEnforced = billingCfg.hardLimitEnforced !== false;
     return resolveBillingPlan({
