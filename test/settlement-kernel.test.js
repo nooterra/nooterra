@@ -39,6 +39,8 @@ test("settlement kernel: signed objects verify and fail on tamper", () => {
     payeeAgentId: "agt_payee_0001",
     amountCents: 250,
     currency: "USD",
+    callId: "call_test_0001",
+    input: { text: "hello", to: "es" },
     createdAt: "2026-02-01T00:00:00.000Z",
     signer: payerSigner
   });
@@ -51,7 +53,9 @@ test("settlement kernel: signed objects verify and fail on tamper", () => {
     toolManifestHash,
     agreementId: agreement.artifactId,
     agreementHash: agreement.agreementHash,
+    callId: agreement.callId,
     input: { text: "hello", to: "es" },
+    inputHash: agreement.inputHash,
     output: { text: "hola", lang: "es" },
     startedAt: "2026-02-01T00:00:01.000Z",
     completedAt: "2026-02-01T00:00:02.000Z",
@@ -67,9 +71,11 @@ test("settlement kernel: signed objects verify and fail on tamper", () => {
     evidenceId: evidence.artifactId,
     evidenceHash: evidence.evidenceHash,
     decision: "approved",
-    modality: "deterministic",
-    verifier: { verifierId: "settld-test", version: "0.0.0" },
-    policy: null,
+    modality: "cryptographic",
+    verifierRef: { verifierId: "settld-test", version: "0.0.0" },
+    policyRef: null,
+    reasonCodes: ["cryptographic_binding_ok"],
+    evaluationSummary: { signatures: true, bindings: true, authority: true, inputCommitment: true },
     decidedAt: "2026-02-01T00:00:03.000Z",
     signer: verifierSigner
   });
@@ -78,6 +84,8 @@ test("settlement kernel: signed objects verify and fail on tamper", () => {
   const receipt = buildSettlementReceiptV1({
     tenantId,
     artifactId: "sr_test_0001",
+    agreementId: agreement.artifactId,
+    agreementHash: agreement.agreementHash,
     decisionId: decision.artifactId,
     decisionHash: decision.recordHash,
     payerAgentId: agreement.payerAgentId,
@@ -97,4 +105,3 @@ test("settlement kernel: signed objects verify and fail on tamper", () => {
     });
   });
 });
-

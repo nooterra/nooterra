@@ -498,6 +498,8 @@ async function main() {
     payeeAgentId: "agt_vectors_payee",
     amountCents: 123,
     currency: "USD",
+    callId: "call_det_0001",
+    input: { text: "hello", to: "es" },
     createdAt: generatedAt,
     signer
   });
@@ -510,7 +512,9 @@ async function main() {
     toolManifestHash: toolManifest.manifestHash,
     agreementId: toolCallAgreement.artifactId,
     agreementHash: toolCallAgreement.agreementHash,
+    callId: toolCallAgreement.callId,
     input: { text: "hello", to: "es" },
+    inputHash: toolCallAgreement.inputHash,
     output: { text: "hola", lang: "es" },
     startedAt: "2026-02-01T00:00:10.000Z",
     completedAt: "2026-02-01T00:00:11.000Z",
@@ -526,9 +530,11 @@ async function main() {
     evidenceId: toolCallEvidence.artifactId,
     evidenceHash: toolCallEvidence.evidenceHash,
     decision: "approved",
-    modality: "deterministic",
-    verifier: { verifierId: "settld-vectors", version: "0.0.0-vectors" },
-    policy: null,
+    modality: "cryptographic",
+    verifierRef: { verifierId: "settld-vectors", version: "0.0.0-vectors" },
+    policyRef: null,
+    reasonCodes: ["cryptographic_binding_ok"],
+    evaluationSummary: { signatures: true, bindings: true, authority: true, inputCommitment: true },
     decidedAt: generatedAt,
     signer
   });
@@ -537,6 +543,8 @@ async function main() {
   const settlementReceipt = buildSettlementReceiptV1({
     tenantId,
     artifactId: "sr_det_0001",
+    agreementId: toolCallAgreement.artifactId,
+    agreementHash: toolCallAgreement.agreementHash,
     decisionId: settlementDecisionRecord.artifactId,
     decisionHash: settlementDecisionRecord.recordHash,
     payerAgentId: toolCallAgreement.payerAgentId,

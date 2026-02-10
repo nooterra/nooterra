@@ -23,8 +23,10 @@
     "call": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["input", "output", "startedAt", "completedAt"],
+      "required": ["callId", "inputHash", "input", "output", "startedAt", "completedAt"],
       "properties": {
+        "callId": { "type": "string", "minLength": 1 },
+        "inputHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "input": {},
         "output": {},
         "startedAt": { "type": "string", "minLength": 1 },
@@ -45,4 +47,3 @@
     "artifactHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
   }
 }
-

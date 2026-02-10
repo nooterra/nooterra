@@ -3,7 +3,20 @@
   "title": "SettlementDecisionRecord.v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "artifactType", "artifactId", "tenantId", "agreement", "evidence", "decision", "modality", "decidedAt", "recordHash", "signature"],
+  "required": [
+    "schemaVersion",
+    "artifactType",
+    "artifactId",
+    "tenantId",
+    "agreement",
+    "evidence",
+    "decision",
+    "modality",
+    "reasonCodes",
+    "decidedAt",
+    "recordHash",
+    "signature"
+  ],
   "properties": {
     "schemaVersion": { "const": "SettlementDecisionRecord.v1" },
     "artifactType": { "const": "SettlementDecisionRecord.v1" },
@@ -28,9 +41,11 @@
       }
     },
     "decision": { "type": "string", "enum": ["approved", "held", "rejected"] },
-    "modality": { "type": "string", "enum": ["deterministic", "attestation", "manual"] },
-    "verifier": { "type": ["object", "null"], "additionalProperties": true },
-    "policy": { "type": ["object", "null"], "additionalProperties": true },
+    "modality": { "type": "string", "enum": ["cryptographic", "deterministic", "attested", "manual"] },
+    "verifierRef": { "type": ["object", "null"], "additionalProperties": true },
+    "policyRef": { "type": ["object", "null"], "additionalProperties": true },
+    "reasonCodes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "evaluationSummary": { "type": ["object", "null"], "additionalProperties": true },
     "decidedAt": { "type": "string", "minLength": 1 },
     "recordHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "signature": {
@@ -46,4 +61,3 @@
     "artifactHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
   }
 }
-

@@ -6,6 +6,12 @@ export const TOOL_CALL_EVIDENCE_SCHEMA_VERSION = "ToolCallEvidence.v1";
 export const SETTLEMENT_DECISION_RECORD_SCHEMA_VERSION = "SettlementDecisionRecord.v1";
 export const SETTLEMENT_RECEIPT_SCHEMA_VERSION = "SettlementReceipt.v1";
 
+export function computeToolCallInputHashV1(input) {
+  // Canonicalize input to make payer/provider/verifier hashing stable across languages.
+  const normalized = normalizeForCanonicalJson(input ?? null, { path: "$" });
+  return sha256Hex(canonicalJsonStringify(normalized));
+}
+
 function assertPlainObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
   if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
@@ -104,10 +110,18 @@ export function buildToolCallAgreementV1({
   amountCents,
   currency,
   createdAt,
+  callId,
+  input,
+  inputHash,
   signer
 } = {}) {
   const at = createdAt ?? new Date().toISOString();
   assertIsoDate(at, "createdAt");
+  const normalizedCallId = normalizeId(callId, "callId", { min: 3, max: 128 });
+  const effectiveInputHash =
+    typeof inputHash === "string" && inputHash.trim() !== ""
+      ? normalizeHexHash(inputHash, "inputHash")
+      : computeToolCallInputHashV1(input);
 
   const normalized = normalizeForCanonicalJson(
     {
@@ -123,6 +137,8 @@ export function buildToolCallAgreementV1({
       payeeAgentId: normalizeActorId(payeeAgentId, "payeeAgentId"),
       amountCents: assertNonNegativeSafeInt(amountCents, "amountCents"),
       currency: normalizeCurrency(currency, "currency"),
+      callId: normalizedCallId,
+      inputHash: effectiveInputHash,
       createdAt: at
     },
     { path: "$" }
@@ -150,6 +166,8 @@ export function validateToolCallAgreementV1(agreement) {
   normalizeActorId(agreement.payeeAgentId, "agreement.payeeAgentId");
   assertNonNegativeSafeInt(agreement.amountCents, "agreement.amountCents");
   normalizeCurrency(agreement.currency, "agreement.currency");
+  normalizeId(agreement.callId, "agreement.callId", { min: 3, max: 128 });
+  normalizeHexHash(agreement.inputHash, "agreement.inputHash");
   assertIsoDate(agreement.createdAt, "agreement.createdAt");
   const hash = normalizeHexHash(agreement.agreementHash, "agreement.agreementHash");
   assertPlainObject(agreement.signature, "agreement.signature");
@@ -179,7 +197,9 @@ export function buildToolCallEvidenceV1({
   toolManifestHash,
   agreementId,
   agreementHash,
+  callId,
   input,
+  inputHash,
   output,
   startedAt,
   completedAt,
@@ -189,6 +209,11 @@ export function buildToolCallEvidenceV1({
   const end = completedAt ?? start;
   assertIsoDate(start, "startedAt");
   assertIsoDate(end, "completedAt");
+  const normalizedCallId = normalizeId(callId, "callId", { min: 3, max: 128 });
+  const effectiveInputHash =
+    typeof inputHash === "string" && inputHash.trim() !== ""
+      ? normalizeHexHash(inputHash, "inputHash")
+      : computeToolCallInputHashV1(input);
 
   const normalized = normalizeForCanonicalJson(
     {
@@ -203,6 +228,8 @@ export function buildToolCallEvidenceV1({
         agreementHash: normalizeHexHash(agreementHash, "agreementHash")
       },
       call: {
+        callId: normalizedCallId,
+        inputHash: effectiveInputHash,
         input: input ?? null,
         output: output ?? null,
         startedAt: start,
@@ -231,6 +258,8 @@ export function validateToolCallEvidenceV1(evidence) {
   normalizeId(evidence.agreement.artifactId, "evidence.agreement.artifactId", { min: 3, max: 128 });
   normalizeHexHash(evidence.agreement.agreementHash, "evidence.agreement.agreementHash");
   assertPlainObject(evidence.call, "evidence.call");
+  normalizeId(evidence.call.callId, "evidence.call.callId", { min: 3, max: 128 });
+  normalizeHexHash(evidence.call.inputHash, "evidence.call.inputHash");
   assertIsoDate(evidence.call.startedAt, "evidence.call.startedAt");
   assertIsoDate(evidence.call.completedAt, "evidence.call.completedAt");
   const hash = normalizeHexHash(evidence.evidenceHash, "evidence.evidenceHash");
@@ -262,9 +291,11 @@ export function buildSettlementDecisionRecordV1({
   evidenceId,
   evidenceHash,
   decision,
-  modality = "deterministic",
-  verifier = null,
-  policy = null,
+  modality = "cryptographic",
+  verifierRef = null,
+  policyRef = null,
+  reasonCodes = [],
+  evaluationSummary = null,
   decidedAt,
   signer
 } = {}) {
@@ -275,8 +306,15 @@ export function buildSettlementDecisionRecordV1({
     throw new TypeError("decision must be approved|held|rejected");
   }
   const normalizedModality = typeof modality === "string" ? modality.trim().toLowerCase() : "";
-  if (!["deterministic", "attestation", "manual"].includes(normalizedModality)) {
-    throw new TypeError("modality must be deterministic|attestation|manual");
+  if (!["cryptographic", "deterministic", "attested", "manual"].includes(normalizedModality)) {
+    throw new TypeError("modality must be cryptographic|deterministic|attested|manual");
+  }
+  if (!Array.isArray(reasonCodes)) throw new TypeError("reasonCodes must be an array");
+  const normalizedReasonCodes = [];
+  for (const code of reasonCodes) {
+    if (typeof code !== "string" || code.trim() === "") throw new TypeError("reasonCodes[] must be non-empty strings");
+    if (code.length > 128) throw new TypeError("reasonCodes[] must be <= 128 chars");
+    normalizedReasonCodes.push(code);
   }
 
   const normalized = normalizeForCanonicalJson(
@@ -295,8 +333,10 @@ export function buildSettlementDecisionRecordV1({
       },
       decision: normalizedDecision,
       modality: normalizedModality,
-      verifier: verifier && typeof verifier === "object" && !Array.isArray(verifier) ? verifier : null,
-      policy: policy && typeof policy === "object" && !Array.isArray(policy) ? policy : null,
+      verifierRef: verifierRef && typeof verifierRef === "object" && !Array.isArray(verifierRef) ? verifierRef : null,
+      policyRef: policyRef && typeof policyRef === "object" && !Array.isArray(policyRef) ? policyRef : null,
+      reasonCodes: normalizedReasonCodes,
+      evaluationSummary: evaluationSummary && typeof evaluationSummary === "object" && !Array.isArray(evaluationSummary) ? evaluationSummary : null,
       decidedAt: at
     },
     { path: "$" }
@@ -324,7 +364,13 @@ export function validateSettlementDecisionRecordV1(record) {
   const decision = typeof record.decision === "string" ? record.decision.trim().toLowerCase() : "";
   if (!["approved", "held", "rejected"].includes(decision)) throw new TypeError("record.decision must be approved|held|rejected");
   const modality = typeof record.modality === "string" ? record.modality.trim().toLowerCase() : "";
-  if (!["deterministic", "attestation", "manual"].includes(modality)) throw new TypeError("record.modality must be deterministic|attestation|manual");
+  if (!["cryptographic", "deterministic", "attested", "manual"].includes(modality)) {
+    throw new TypeError("record.modality must be cryptographic|deterministic|attested|manual");
+  }
+  if (!Array.isArray(record.reasonCodes)) throw new TypeError("record.reasonCodes must be an array");
+  for (const code of record.reasonCodes) {
+    if (typeof code !== "string" || code.trim() === "") throw new TypeError("record.reasonCodes[] must be non-empty strings");
+  }
   assertIsoDate(record.decidedAt, "record.decidedAt");
   const hash = normalizeHexHash(record.recordHash, "record.recordHash");
   assertPlainObject(record.signature, "record.signature");
@@ -350,6 +396,8 @@ export function computeSettlementReceiptHashV1(receiptCore) {
 export function buildSettlementReceiptV1({
   tenantId,
   artifactId,
+  agreementId,
+  agreementHash,
   decisionId,
   decisionHash,
   payerAgentId,
@@ -369,6 +417,10 @@ export function buildSettlementReceiptV1({
       artifactType: SETTLEMENT_RECEIPT_SCHEMA_VERSION,
       artifactId: normalizeId(artifactId, "artifactId", { min: 3, max: 128 }),
       tenantId: normalizeId(tenantId, "tenantId", { min: 1, max: 128 }),
+      agreement: {
+        artifactId: normalizeId(agreementId, "agreementId", { min: 3, max: 128 }),
+        agreementHash: normalizeHexHash(agreementHash, "agreementHash")
+      },
       decision: {
         artifactId: normalizeId(decisionId, "decisionId", { min: 3, max: 128 }),
         recordHash: normalizeHexHash(decisionHash, "decisionHash")
@@ -398,6 +450,9 @@ export function validateSettlementReceiptV1(receipt) {
   }
   normalizeId(receipt.artifactId, "receipt.artifactId", { min: 3, max: 128 });
   normalizeId(receipt.tenantId, "receipt.tenantId", { min: 1, max: 128 });
+  assertPlainObject(receipt.agreement, "receipt.agreement");
+  normalizeId(receipt.agreement.artifactId, "receipt.agreement.artifactId", { min: 3, max: 128 });
+  normalizeHexHash(receipt.agreement.agreementHash, "receipt.agreement.agreementHash");
   assertPlainObject(receipt.decision, "receipt.decision");
   normalizeId(receipt.decision.artifactId, "receipt.decision.artifactId", { min: 3, max: 128 });
   normalizeHexHash(receipt.decision.recordHash, "receipt.decision.recordHash");
@@ -423,4 +478,3 @@ export function verifySettlementReceiptV1({ receipt, publicKeyPem } = {}) {
   verifyObjectSignature({ hashHex: receipt.receiptHash, signature: receipt.signature, publicKeyPem });
   return true;
 }
-

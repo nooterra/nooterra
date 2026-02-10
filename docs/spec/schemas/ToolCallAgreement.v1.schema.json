@@ -16,6 +16,8 @@
     "payeeAgentId",
     "amountCents",
     "currency",
+    "callId",
+    "inputHash",
     "createdAt",
     "agreementHash",
     "signature"
@@ -33,6 +35,8 @@
     "payeeAgentId": { "type": "string", "minLength": 1 },
     "amountCents": { "type": "integer", "minimum": 0 },
     "currency": { "type": "string", "minLength": 1 },
+    "callId": { "type": "string", "minLength": 1 },
+    "inputHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "createdAt": { "type": "string", "minLength": 1 },
     "agreementHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "signature": {
@@ -48,4 +52,3 @@
     "artifactHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
   }
 }
-

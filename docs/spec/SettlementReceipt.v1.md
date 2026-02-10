@@ -10,6 +10,9 @@ It binds the transfer to a specific decision record (and therefore to the agreem
 - `artifactType = "SettlementReceipt.v1"`
 - `artifactId`
 - `tenantId`
+- `agreement`:
+  - `artifactId`
+  - `agreementHash`
 - `decision`:
   - `artifactId`
   - `recordHash`
@@ -27,4 +30,3 @@ It binds the transfer to a specific decision record (and therefore to the agreem
 - `signature` is an Ed25519 signature over `receiptHash`.
 
 The signer is expected to be the settlement service key.
-

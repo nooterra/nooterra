@@ -200,6 +200,7 @@ import { assertAuthorityGrantAllows, verifyAuthorityGrantV1 } from "../core/auth
 import {
   buildSettlementDecisionRecordV1,
   buildSettlementReceiptV1,
+  computeToolCallInputHashV1,
   verifyToolCallAgreementV1,
   verifyToolCallEvidenceV1
 } from "../core/settlement-kernel.js";
@@ -19106,6 +19107,33 @@ export function createApi({
             return sendError(res, 400, "invalid toolCallAgreement", { message: err?.message });
           }
 
+          // Uniqueness: one settlement receipt per agreementHash. This is checked before any wallet mutation.
+          const agreementHash = String(agreementIn.agreementHash ?? "");
+          const decisionArtifactId = `sdr_agmt_${agreementHash}`;
+          const receiptArtifactId = `rcp_agmt_${agreementHash}`;
+          try {
+            const existingReceipt = await store.getArtifact({ tenantId, artifactId: receiptArtifactId });
+            if (existingReceipt) {
+              const existingDecision = await store.getArtifact({ tenantId, artifactId: existingReceipt?.decision?.artifactId ?? "" });
+              const existingAgreement = await store.getArtifact({ tenantId, artifactId: existingReceipt?.agreement?.artifactId ?? "" });
+              const existingEvidence = existingDecision
+                ? await store.getArtifact({ tenantId, artifactId: existingDecision?.evidence?.artifactId ?? "" })
+                : null;
+              const payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId: existingReceipt?.transfer?.payerAgentId ?? "" });
+              const payeeWalletExisting = await getAgentWalletRecord({ tenantId, agentId: existingReceipt?.transfer?.payeeAgentId ?? "" });
+              return sendJson(res, 200, {
+                toolId: existingAgreement?.toolId ?? toolId,
+                agreement: existingAgreement ?? null,
+                evidence: existingEvidence ?? null,
+                decision: existingDecision ?? null,
+                receipt: existingReceipt,
+                wallets: { payerWallet: payerWalletExisting ?? null, payeeWallet: payeeWalletExisting ?? null }
+              });
+            }
+          } catch (err) {
+            return sendError(res, 400, "artifact lookup failed", { message: err?.message });
+          }
+
           try {
             const publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId: evidenceIn?.signature?.signerKeyId });
             verifyToolCallEvidenceV1({ evidence: evidenceIn, publicKeyPem });
@@ -19133,6 +19161,22 @@ export function createApi({
           }
           if (String(evidenceIn.agreement?.agreementHash ?? "") !== String(agreementIn.agreementHash ?? "")) {
             return sendError(res, 400, "toolCallEvidence.agreement.agreementHash must match toolCallAgreement.agreementHash");
+          }
+          if (String(evidenceIn.call?.callId ?? "") !== String(agreementIn.callId ?? "")) {
+            return sendError(res, 400, "toolCallEvidence.call.callId must match toolCallAgreement.callId");
+          }
+          if (String(evidenceIn.call?.inputHash ?? "") !== String(agreementIn.inputHash ?? "")) {
+            return sendError(res, 400, "toolCallEvidence.call.inputHash must match toolCallAgreement.inputHash");
+          }
+          if (evidenceIn.call?.input !== null && evidenceIn.call?.input !== undefined) {
+            try {
+              const computedInputHash = computeToolCallInputHashV1(evidenceIn.call.input);
+              if (String(computedInputHash) !== String(evidenceIn.call?.inputHash ?? "")) {
+                return sendError(res, 400, "toolCallEvidence.call.inputHash must match hash(call.input)");
+              }
+            } catch (err) {
+              return sendError(res, 400, "invalid toolCallEvidence.call.input", { message: err?.message });
+            }
           }
 
           const payerAgentId = String(agreementIn.payerAgentId ?? "");
@@ -19189,22 +19233,26 @@ export function createApi({
           const serverSigner = store.serverSigner;
           const decisionRecord = buildSettlementDecisionRecordV1({
             tenantId,
-            artifactId: createId("sdr"),
+            artifactId: decisionArtifactId,
             agreementId: agreementIn.artifactId,
             agreementHash: agreementIn.agreementHash,
             evidenceId: evidenceIn.artifactId,
             evidenceHash: evidenceIn.evidenceHash,
             decision: "approved",
-            modality: "deterministic",
-            verifier: { verifierId: "settld-api", version: "dev" },
-            policy: null,
+            modality: "cryptographic",
+            verifierRef: { verifierId: "settld-api", version: "dev" },
+            policyRef: null,
+            reasonCodes: ["cryptographic_binding_ok"],
+            evaluationSummary: { signatures: true, bindings: true, authority: true, inputCommitment: true },
             decidedAt: nowAt,
             signer: { keyId: serverSigner.keyId, privateKeyPem: serverSigner.privateKeyPem }
           });
 
           const receipt = buildSettlementReceiptV1({
             tenantId,
-            artifactId: createId("rcp"),
+            artifactId: receiptArtifactId,
+            agreementId: agreementIn.artifactId,
+            agreementHash: agreementIn.agreementHash,
             decisionId: decisionRecord.artifactId,
             decisionHash: decisionRecord.recordHash,
             payerAgentId,

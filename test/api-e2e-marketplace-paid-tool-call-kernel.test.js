@@ -120,6 +120,8 @@ test("API e2e: paid tool call kernel settles once (idempotent) and emits artifac
     payeeAgentId: "agt_paid_provider",
     amountCents: 2500,
     currency: "USD",
+    callId: "call_paid_0001",
+    input: { text: "hello", to: "es" },
     createdAt: "2026-02-01T00:00:01.000Z",
     signer: { keyId: payerKeyId, privateKeyPem: payerKeys.privateKeyPem }
   });
@@ -131,7 +133,9 @@ test("API e2e: paid tool call kernel settles once (idempotent) and emits artifac
     toolManifestHash: toolManifest.manifestHash,
     agreementId: toolCallAgreement.artifactId,
     agreementHash: toolCallAgreement.agreementHash,
+    callId: toolCallAgreement.callId,
     input: { text: "hello", to: "es" },
+    inputHash: toolCallAgreement.inputHash,
     output: { text: "hola", lang: "es" },
     startedAt: "2026-02-01T00:00:02.000Z",
     completedAt: "2026-02-01T00:00:03.000Z",
@@ -178,5 +182,15 @@ test("API e2e: paid tool call kernel settles once (idempotent) and emits artifac
   });
   assert.equal(receiptStatus.statusCode, 200);
   assert.equal(receiptStatus.json?.artifactType, "SettlementReceipt.v1");
-});
 
+  // Settlement uniqueness: even with a new idempotency key, the same agreement cannot settle twice.
+  const settleAgain = await request(api, {
+    method: "POST",
+    path: `/marketplace/tools/${encodeURIComponent(toolManifest.toolId)}/settle`,
+    headers: { "x-idempotency-key": "paid_tool_settle_2" },
+    body: { toolManifest, authorityGrant, toolCallAgreement, toolCallEvidence }
+  });
+  assert.equal(settleAgain.statusCode, 200);
+  assert.equal(settleAgain.json?.receipt?.artifactId, `rcp_agmt_${toolCallAgreement.agreementHash}`);
+  assert.deepEqual(settleAgain.json?.receipt, settle.json?.receipt);
+});

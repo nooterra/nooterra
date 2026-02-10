@@ -17,9 +17,11 @@ It answers: **why was this paid (or held/rejected)?**
   - `artifactId`
   - `evidenceHash`
 - `decision`: `approved|held|rejected`
-- `modality`: `deterministic|attestation|manual`
-- `verifier` (optional): verifier identity/version metadata (implementation-defined)
-- `policy` (optional): effective policy snapshot/reference (implementation-defined)
+- `modality`: `cryptographic|deterministic|attested|manual`
+- `verifierRef` (optional): verifier identity/version reference metadata (implementation-defined)
+- `policyRef` (optional): effective policy reference metadata (implementation-defined)
+- `reasonCodes`: stable reason code set for the decision (implementation-defined)
+- `evaluationSummary` (optional): structured summary sufficient to explain the decision (implementation-defined)
 - `decidedAt`
 
 ## recordHash + signature
@@ -28,4 +30,3 @@ It answers: **why was this paid (or held/rejected)?**
 - `signature` is an Ed25519 signature over `recordHash`.
 
 The signer is expected to be the verifier/settlement service key.
-

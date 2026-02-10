@@ -7,6 +7,7 @@ It binds:
 - payer + payee
 - tool identity (`toolId`) + pinned `ToolManifest.v1.manifestHash`
 - authority delegation (`AuthorityGrant.v1` reference)
+- the intended call input (via `inputHash`)
 - price (`amountCents` + `currency`)
 
 ## Core fields
@@ -23,6 +24,8 @@ It binds:
 - `payeeAgentId`
 - `amountCents`
 - `currency`
+- `callId`: payer-chosen unique identifier for the call (used to bind evidence to intent)
+- `inputHash`: sha256 of canonicalized tool-call input JSON
 - `createdAt`
 
 ## agreementHash + signature
@@ -31,4 +34,3 @@ It binds:
 - `signature` is an Ed25519 signature over `agreementHash` (hex digest bytes).
 
 The signer is expected to be the payer agent key (`signature.signerKeyId`).
-

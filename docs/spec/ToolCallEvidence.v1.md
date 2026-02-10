@@ -16,6 +16,8 @@ It binds evidence to a specific agreement, tool manifest hash, and timing window
   - `artifactId`
   - `agreementHash`
 - `call`:
+-  - `callId`
+-  - `inputHash`
   - `input` (any JSON)
   - `output` (any JSON)
   - `startedAt`
@@ -27,4 +29,3 @@ It binds evidence to a specific agreement, tool manifest hash, and timing window
 - `signature` is an Ed25519 signature over `evidenceHash`.
 
 The signer is expected to be the provider/tool signer key (`signature.signerKeyId`), typically the same key that signs `ToolManifest.v1`.
-
