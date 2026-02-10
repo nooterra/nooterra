@@ -122,6 +122,7 @@ test("API e2e: paid tool call kernel settles once (idempotent) and emits artifac
     currency: "USD",
     callId: "call_paid_0001",
     input: { text: "hello", to: "es" },
+    acceptanceCriteria: { maxLatencyMs: 5_000, requireOutput: true, maxOutputBytes: 10_000 },
     createdAt: "2026-02-01T00:00:01.000Z",
     signer: { keyId: payerKeyId, privateKeyPem: payerKeys.privateKeyPem }
   });
@@ -193,4 +194,92 @@ test("API e2e: paid tool call kernel settles once (idempotent) and emits artifac
   assert.equal(settleAgain.statusCode, 200);
   assert.equal(settleAgain.json?.receipt?.artifactId, `rcp_agmt_${toolCallAgreement.agreementHash}`);
   assert.deepEqual(settleAgain.json?.receipt, settle.json?.receipt);
+});
+
+test("API e2e: acceptance criteria rejects on latency and does not transfer", async () => {
+  const api = createApi();
+  const tenantId = "tenant_default";
+
+  const payerKeys = createEd25519Keypair();
+  const providerKeys = createEd25519Keypair();
+  const payerKeyId = keyIdFromPublicKeyPem(payerKeys.publicKeyPem);
+  const providerKeyId = keyIdFromPublicKeyPem(providerKeys.publicKeyPem);
+
+  await registerAgent(api, "agt_paid_payer2", { publicKeyPem: payerKeys.publicKeyPem });
+  await registerAgent(api, "agt_paid_provider2", { publicKeyPem: providerKeys.publicKeyPem });
+  await creditWallet(api, { agentId: "agt_paid_payer2", amountCents: 10_000, idempotencyKey: "wallet_credit_paid_2" });
+
+  const toolManifest = buildToolManifestV1({
+    tenantId,
+    toolId: "tool_paid_latency_v1",
+    name: "Latency (Paid)",
+    description: "Paid MCP tool for latency rejection",
+    tool: { name: "latency", description: "Returns output", inputSchema: { type: "object" } },
+    transport: { kind: "mcp", url: "https://tools.settld.local/mcp" },
+    metadata: { payeeAgentId: "agt_paid_provider2" },
+    signer: { keyId: providerKeyId, privateKeyPem: providerKeys.privateKeyPem },
+    at: "2026-02-01T00:00:00.000Z"
+  });
+
+  const authorityGrant = buildAuthorityGrantV1({
+    tenantId,
+    grantId: "auth_paid_latency_0001",
+    grantedBy: { actorType: "human", actorId: "user_paid_0002" },
+    grantedTo: { actorType: "agent", actorId: "agt_paid_payer2" },
+    limits: {
+      currency: "USD",
+      maxPerTransactionCents: 5000,
+      toolIds: [toolManifest.toolId],
+      pinnedManifests: { [toolManifest.toolId]: toolManifest.manifestHash },
+      expiresAt: "2026-03-01T00:00:00.000Z"
+    },
+    signer: { keyId: payerKeyId, privateKeyPem: payerKeys.privateKeyPem },
+    at: "2026-02-01T00:00:00.000Z"
+  });
+
+  const toolCallAgreement = buildToolCallAgreementV1({
+    tenantId,
+    artifactId: "tca_paid_lat_0001",
+    toolId: toolManifest.toolId,
+    toolManifestHash: toolManifest.manifestHash,
+    authorityGrantId: authorityGrant.grantId,
+    authorityGrantHash: authorityGrant.grantHash,
+    payerAgentId: "agt_paid_payer2",
+    payeeAgentId: "agt_paid_provider2",
+    amountCents: 2500,
+    currency: "USD",
+    callId: "call_paid_lat_0001",
+    input: { text: "hello" },
+    acceptanceCriteria: { maxLatencyMs: 1, requireOutput: true },
+    createdAt: "2026-02-01T00:00:01.000Z",
+    signer: { keyId: payerKeyId, privateKeyPem: payerKeys.privateKeyPem }
+  });
+
+  const toolCallEvidence = buildToolCallEvidenceV1({
+    tenantId,
+    artifactId: "tce_paid_lat_0001",
+    toolId: toolManifest.toolId,
+    toolManifestHash: toolManifest.manifestHash,
+    agreementId: toolCallAgreement.artifactId,
+    agreementHash: toolCallAgreement.agreementHash,
+    callId: toolCallAgreement.callId,
+    input: { text: "hello" },
+    inputHash: toolCallAgreement.inputHash,
+    output: { ok: true },
+    startedAt: "2026-02-01T00:00:02.000Z",
+    completedAt: "2026-02-01T00:00:10.000Z",
+    signer: { keyId: providerKeyId, privateKeyPem: providerKeys.privateKeyPem }
+  });
+
+  const settle = await request(api, {
+    method: "POST",
+    path: `/marketplace/tools/${encodeURIComponent(toolManifest.toolId)}/settle`,
+    headers: { "x-idempotency-key": "paid_tool_settle_lat_1" },
+    body: { toolManifest, authorityGrant, toolCallAgreement, toolCallEvidence }
+  });
+  assert.equal(settle.statusCode, 201);
+  assert.equal(settle.json?.decision?.decision, "rejected");
+  assert.equal(settle.json?.receipt?.transfer?.amountCents, 0);
+  assert.equal(settle.json?.wallets?.payerWallet?.availableCents, 10_000);
+  assert.equal(settle.json?.wallets?.payeeWallet?.availableCents ?? 0, 0);
 });

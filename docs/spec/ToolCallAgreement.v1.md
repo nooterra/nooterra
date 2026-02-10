@@ -26,6 +26,7 @@ It binds:
 - `currency`
 - `callId`: payer-chosen unique identifier for the call (used to bind evidence to intent)
 - `inputHash`: sha256 of canonicalized tool-call input JSON
+- `acceptanceCriteria` (optional): deterministic acceptance checks for this call (latency/output constraints and optional deterministic verifier selection)
 - `createdAt`
 
 ## agreementHash + signature

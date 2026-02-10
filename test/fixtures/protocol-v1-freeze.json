@@ -1,7 +1,7 @@
 {
   "schemaVersion": "ProtocolV1Freeze.v1",
   "files": {
-    "test/fixtures/protocol-vectors/v1.json": "8b041e3a53a0b1a3908bf853f5c14760ae0160ff18ffa5d28edc9c002ab8b996",
+    "test/fixtures/protocol-vectors/v1.json": "ea578a90f8f4f2dd1ded28c42d35738b0c9b82f8c7f7297b5ada2f841039fa73",
     "docs/spec/schemas/BundleHeadAttestation.v1.schema.json": "101345071099e8bc0daebe4d39f09e68c1c439f20d5f9d5ef817b1e8ef32555d",
     "docs/spec/schemas/FinancePackBundleManifest.v1.schema.json": "05ec300543ae87b231462906b9df8253b1cbdec9170df4e962451b5d0580aeea",
     "docs/spec/schemas/GovernancePolicy.v1.schema.json": "457769d80327ec6ea77cce1335d182f2f3e27619f4665eab12f13aa584aebd8f",
@@ -11,7 +11,7 @@
     "docs/spec/schemas/SettlementDecisionRecord.v1.schema.json": "d668aab4174b24a2d5a36a169233937b07699966ab29abab595c3daae78ba5c0",
     "docs/spec/schemas/SettlementReceipt.v1.schema.json": "de5e991821d7975afc20df08df6710790c2b3f37a95a95fa8a8366717ec316de",
     "docs/spec/schemas/TimestampProof.v1.schema.json": "8eeefd57e961d85b0e8157e1c43bea6f71c6005582beed035fa12bd88cbbc75a",
-    "docs/spec/schemas/ToolCallAgreement.v1.schema.json": "74c2b6ed4b3f362ea3b7afcc32783691b0da424484ceb5db93eea4eb07d122ec",
+    "docs/spec/schemas/ToolCallAgreement.v1.schema.json": "433157a9dfdaf237b2ddc9387c190748322a73003c9c7616a749417f5155f15f",
     "docs/spec/schemas/ToolCallEvidence.v1.schema.json": "220e8787eb8a3c504ce2c5d86081b4bf137d11c38975d21e656b9a9cea727326",
     "docs/spec/schemas/VerificationReport.v1.schema.json": "b6f83cadf1c1c2001da201143e27f9a2abef0d410360cb91c7c02dd23b177aa6",
     "docs/spec/schemas/VerifyAboutOutput.v1.schema.json": "198bdc2a795cf1416068649ff506f06f8f0c5292359dc100d95ad83623509e79",

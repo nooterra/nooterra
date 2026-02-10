@@ -201,6 +201,7 @@ import {
   buildSettlementDecisionRecordV1,
   buildSettlementReceiptV1,
   computeToolCallInputHashV1,
+  evaluateToolCallAcceptanceV1,
   verifyToolCallAgreementV1,
   verifyToolCallEvidenceV1
 } from "../core/settlement-kernel.js";
@@ -19213,21 +19214,35 @@ export function createApi({
           const amountCents = Number(agreementIn.amountCents ?? 0);
           if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return sendError(res, 400, "toolCallAgreement.amountCents must be a positive safe integer");
 
+          let acceptance = null;
+          try {
+            acceptance = evaluateToolCallAcceptanceV1({ agreement: agreementIn, evidence: evidenceIn });
+          } catch (err) {
+            return sendError(res, 400, "acceptance evaluation failed", { message: err?.message });
+          }
+
+          const decisionValue = acceptance.ok ? "approved" : "rejected";
+
           let payerWallet = null;
           let payeeWallet = null;
-          try {
-            const payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId: payerAgentId });
-            const basePayerWallet = ensureAgentWallet({ wallet: payerWalletExisting, tenantId, agentId: payerAgentId, currency, at: nowAt });
-            const locked = lockAgentWalletEscrow({ wallet: basePayerWallet, amountCents, at: nowAt });
+          if (decisionValue === "approved") {
+            try {
+              const payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId: payerAgentId });
+              const basePayerWallet = ensureAgentWallet({ wallet: payerWalletExisting, tenantId, agentId: payerAgentId, currency, at: nowAt });
+              const locked = lockAgentWalletEscrow({ wallet: basePayerWallet, amountCents, at: nowAt });
 
-            const payeeWalletExisting = await getAgentWalletRecord({ tenantId, agentId: payeeAgentId });
-            const basePayeeWallet = ensureAgentWallet({ wallet: payeeWalletExisting, tenantId, agentId: payeeAgentId, currency, at: nowAt });
+              const payeeWalletExisting = await getAgentWalletRecord({ tenantId, agentId: payeeAgentId });
+              const basePayeeWallet = ensureAgentWallet({ wallet: payeeWalletExisting, tenantId, agentId: payeeAgentId, currency, at: nowAt });
 
-            const released = releaseAgentWalletEscrowToPayee({ payerWallet: locked, payeeWallet: basePayeeWallet, amountCents, at: nowAt });
-            payerWallet = released.payerWallet;
-            payeeWallet = released.payeeWallet;
-          } catch (err) {
-            return sendError(res, 400, "wallet settlement rejected", { message: err?.message, code: err?.code ?? null });
+              const released = releaseAgentWalletEscrowToPayee({ payerWallet: locked, payeeWallet: basePayeeWallet, amountCents, at: nowAt });
+              payerWallet = released.payerWallet;
+              payeeWallet = released.payeeWallet;
+            } catch (err) {
+              return sendError(res, 400, "wallet settlement rejected", { message: err?.message, code: err?.code ?? null });
+            }
+          } else {
+            payerWallet = await getAgentWalletRecord({ tenantId, agentId: payerAgentId });
+            payeeWallet = await getAgentWalletRecord({ tenantId, agentId: payeeAgentId });
           }
 
           const serverSigner = store.serverSigner;
@@ -19238,12 +19253,12 @@ export function createApi({
             agreementHash: agreementIn.agreementHash,
             evidenceId: evidenceIn.artifactId,
             evidenceHash: evidenceIn.evidenceHash,
-            decision: "approved",
-            modality: "cryptographic",
+            decision: decisionValue,
+            modality: acceptance.modality,
             verifierRef: { verifierId: "settld-api", version: "dev" },
             policyRef: null,
-            reasonCodes: ["cryptographic_binding_ok"],
-            evaluationSummary: { signatures: true, bindings: true, authority: true, inputCommitment: true },
+            reasonCodes: acceptance.reasonCodes,
+            evaluationSummary: acceptance.evaluationSummary,
             decidedAt: nowAt,
             signer: { keyId: serverSigner.keyId, privateKeyPem: serverSigner.privateKeyPem }
           });
@@ -19257,10 +19272,10 @@ export function createApi({
             decisionHash: decisionRecord.recordHash,
             payerAgentId,
             payeeAgentId,
-            amountCents,
+            amountCents: decisionValue === "approved" ? amountCents : 0,
             currency,
             settledAt: nowAt,
-            ledger: { kind: "agent_wallet", op: "escrow_release" },
+            ledger: { kind: "agent_wallet", op: decisionValue === "approved" ? "escrow_release" : "no_transfer", txId: `tx_agmt_${agreementHash}` },
             signer: { keyId: serverSigner.keyId, privateKeyPem: serverSigner.privateKeyPem }
           });
 
@@ -19284,15 +19299,45 @@ export function createApi({
           };
 
           const ops = [
-            { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
-            { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payeeWallet },
+            // Put receipt first to make concurrency races fail-closed in DB-backed mode.
+            { kind: "ARTIFACT_PUT", tenantId, artifact: settlementReceipt },
+            { kind: "ARTIFACT_PUT", tenantId, artifact: decision },
             { kind: "ARTIFACT_PUT", tenantId, artifact: agreement },
             { kind: "ARTIFACT_PUT", tenantId, artifact: evidence },
-            { kind: "ARTIFACT_PUT", tenantId, artifact: decision },
-            { kind: "ARTIFACT_PUT", tenantId, artifact: settlementReceipt },
+            ...(decisionValue === "approved"
+              ? [
+                  { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
+                  { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payeeWallet }
+                ]
+              : []),
             { kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } }
           ];
-          await commitTx(ops);
+          try {
+            await commitTx(ops);
+          } catch (err) {
+            // Concurrency-safe: if a receipt already exists for this agreement, return the existing finalized artifacts.
+            if (err?.code === "SETTLEMENT_RECEIPT_ALREADY_EXISTS") {
+              const existingReceipt = await store.getArtifact({ tenantId, artifactId: receiptArtifactId });
+              if (existingReceipt) {
+                const existingDecision = await store.getArtifact({ tenantId, artifactId: existingReceipt?.decision?.artifactId ?? "" });
+                const existingAgreement = await store.getArtifact({ tenantId, artifactId: existingReceipt?.agreement?.artifactId ?? "" });
+                const existingEvidence = existingDecision
+                  ? await store.getArtifact({ tenantId, artifactId: existingDecision?.evidence?.artifactId ?? "" })
+                  : null;
+                const payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId: existingReceipt?.transfer?.payerAgentId ?? "" });
+                const payeeWalletExisting = await getAgentWalletRecord({ tenantId, agentId: existingReceipt?.transfer?.payeeAgentId ?? "" });
+                return sendJson(res, 200, {
+                  toolId: existingAgreement?.toolId ?? toolId,
+                  agreement: existingAgreement ?? null,
+                  evidence: existingEvidence ?? null,
+                  decision: existingDecision ?? null,
+                  receipt: existingReceipt,
+                  wallets: { payerWallet: payerWalletExisting ?? null, payeeWallet: payeeWalletExisting ?? null }
+                });
+              }
+            }
+            throw err;
+          }
           return sendJson(res, 201, responseBody);
         }
 

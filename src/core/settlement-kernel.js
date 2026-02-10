@@ -12,6 +12,11 @@ export function computeToolCallInputHashV1(input) {
   return sha256Hex(canonicalJsonStringify(normalized));
 }
 
+export function computeToolCallOutputHashV1(output) {
+  const normalized = normalizeForCanonicalJson(output ?? null, { path: "$" });
+  return sha256Hex(canonicalJsonStringify(normalized));
+}
+
 function assertPlainObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
   if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) {
@@ -58,6 +63,97 @@ function assertNonNegativeSafeInt(value, name) {
   const n = Number(value);
   if (!Number.isSafeInteger(n) || n < 0) throw new TypeError(`${name} must be a non-negative safe integer`);
   return n;
+}
+
+function normalizeAcceptanceCriteria(value) {
+  if (value === null || value === undefined) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError("acceptanceCriteria must be an object or null");
+  const raw = value;
+  const maxLatencyMs = raw.maxLatencyMs === undefined || raw.maxLatencyMs === null ? null : assertNonNegativeSafeInt(raw.maxLatencyMs, "acceptanceCriteria.maxLatencyMs");
+  const requireOutput = raw.requireOutput === undefined || raw.requireOutput === null ? null : raw.requireOutput === true;
+  const maxOutputBytes =
+    raw.maxOutputBytes === undefined || raw.maxOutputBytes === null ? null : assertNonNegativeSafeInt(raw.maxOutputBytes, "acceptanceCriteria.maxOutputBytes");
+
+  let verifier = null;
+  if (raw.verifier !== undefined && raw.verifier !== null) {
+    if (!raw.verifier || typeof raw.verifier !== "object" || Array.isArray(raw.verifier)) throw new TypeError("acceptanceCriteria.verifier must be an object or null");
+    const kind = String(raw.verifier.kind ?? "").trim().toLowerCase();
+    if (kind !== "builtin") throw new TypeError("acceptanceCriteria.verifier.kind must be builtin");
+    const verifierId = normalizeId(raw.verifier.verifierId, "acceptanceCriteria.verifier.verifierId", { min: 3, max: 128 });
+    verifier = { kind, verifierId };
+  }
+
+  return normalizeForCanonicalJson(
+    {
+      maxLatencyMs,
+      requireOutput,
+      maxOutputBytes,
+      verifier
+    },
+    { path: "$" }
+  );
+}
+
+function utf8ByteLength(text) {
+  return new TextEncoder().encode(text).length;
+}
+
+export function evaluateToolCallAcceptanceV1({ agreement, evidence }) {
+  // Deterministic evaluation over the evidence. No network calls.
+  validateToolCallAgreementV1(agreement);
+  validateToolCallEvidenceV1(evidence);
+
+  const reasons = [];
+  const summary = {};
+
+  const criteria = normalizeAcceptanceCriteria(agreement.acceptanceCriteria ?? null);
+  summary.acceptanceCriteria = criteria;
+
+  const startedMs = Date.parse(evidence?.call?.startedAt);
+  const completedMs = Date.parse(evidence?.call?.completedAt);
+  const latencyMs = Number.isFinite(startedMs) && Number.isFinite(completedMs) ? Math.max(0, completedMs - startedMs) : null;
+  summary.latencyMs = latencyMs;
+
+  if (criteria?.maxLatencyMs !== null && criteria?.maxLatencyMs !== undefined && latencyMs !== null) {
+    if (latencyMs > criteria.maxLatencyMs) reasons.push("latency_exceeded");
+  }
+
+  const output = evidence?.call?.output ?? null;
+  summary.hasOutput = output !== null && output !== undefined;
+  if (criteria?.requireOutput === true) {
+    if (output === null || output === undefined) reasons.push("output_missing");
+  }
+
+  const outputCanonical = canonicalJsonStringify(normalizeForCanonicalJson(output ?? null, { path: "$" }));
+  const outputBytes = utf8ByteLength(outputCanonical);
+  summary.outputBytes = outputBytes;
+  if (criteria?.maxOutputBytes !== null && criteria?.maxOutputBytes !== undefined) {
+    if (outputBytes > criteria.maxOutputBytes) reasons.push("output_too_large");
+  }
+
+  let modality = "cryptographic";
+  if (criteria?.verifier?.kind === "builtin") {
+    const verifierId = String(criteria.verifier.verifierId);
+    summary.deterministicVerifierId = verifierId;
+    // Minimal builtin deterministic verifier: uppercase_v1.
+    if (verifierId === "uppercase_v1") {
+      modality = "deterministic";
+      const input = evidence?.call?.input ?? null;
+      const inputText = input && typeof input === "object" && !Array.isArray(input) ? input.text : null;
+      const outText = output && typeof output === "object" && !Array.isArray(output) ? output.text : null;
+      if (typeof inputText !== "string") reasons.push("deterministic_input_invalid");
+      else if (typeof outText !== "string") reasons.push("deterministic_output_invalid");
+      else if (outText !== inputText.toUpperCase()) reasons.push("deterministic_mismatch");
+    } else {
+      reasons.push("unknown_verifier");
+    }
+  }
+
+  if (reasons.length === 0) reasons.push("acceptance_ok");
+  const ok = !reasons.some((c) => c !== "acceptance_ok");
+  summary.ok = ok;
+
+  return { ok, modality, reasonCodes: reasons, evaluationSummary: summary };
 }
 
 function computeSignedObjectHash({ obj, hashField, signatureField } = {}) {
@@ -113,6 +209,7 @@ export function buildToolCallAgreementV1({
   callId,
   input,
   inputHash,
+  acceptanceCriteria,
   signer
 } = {}) {
   const at = createdAt ?? new Date().toISOString();
@@ -139,6 +236,7 @@ export function buildToolCallAgreementV1({
       currency: normalizeCurrency(currency, "currency"),
       callId: normalizedCallId,
       inputHash: effectiveInputHash,
+      acceptanceCriteria: normalizeAcceptanceCriteria(acceptanceCriteria),
       createdAt: at
     },
     { path: "$" }
@@ -168,6 +266,9 @@ export function validateToolCallAgreementV1(agreement) {
   normalizeCurrency(agreement.currency, "agreement.currency");
   normalizeId(agreement.callId, "agreement.callId", { min: 3, max: 128 });
   normalizeHexHash(agreement.inputHash, "agreement.inputHash");
+  if (agreement.acceptanceCriteria !== null && agreement.acceptanceCriteria !== undefined) {
+    normalizeAcceptanceCriteria(agreement.acceptanceCriteria);
+  }
   assertIsoDate(agreement.createdAt, "agreement.createdAt");
   const hash = normalizeHexHash(agreement.agreementHash, "agreement.agreementHash");
   assertPlainObject(agreement.signature, "agreement.signature");

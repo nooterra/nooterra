@@ -37,6 +37,7 @@
     "currency": { "type": "string", "minLength": 1 },
     "callId": { "type": "string", "minLength": 1 },
     "inputHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "acceptanceCriteria": { "type": ["object", "null"], "additionalProperties": true },
     "createdAt": { "type": "string", "minLength": 1 },
     "agreementHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "signature": {
