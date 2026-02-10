@@ -79,7 +79,7 @@ runs:
             echo "trust_file not found: $TRUST_FILE" >&2
             exit 2
           fi
-          node -e '
+          node --input-type=module -e '
             import fs from "node:fs";
             const p = process.env.TRUST_FILE;
             const t = JSON.parse(fs.readFileSync(p, "utf8"));
@@ -92,7 +92,7 @@ runs:
           ' >> "$GITHUB_ENV"
         fi
 
-        KIND_FLAG="$(node -e '
+        KIND_FLAG="$(node --input-type=module -e '
           import fs from "node:fs";
           import path from "node:path";
           const dir = process.env.BUNDLE_PATH;
