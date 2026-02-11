@@ -144,7 +144,16 @@ async function main() {
     if (!conformanceListing.includes(must)) throw new Error(`conformance-v1.tar.gz missing expected entry: ${must}`);
   }
   const auditListing = sh("unzip", ["-l", "settld-audit-packet-v1.zip"], { cwd: dir });
-  for (const must of ["docs/spec/THREAT_MODEL.md", "conformance/v1/cases.json"]) {
+  const auditExpectedEntries = [
+    // Current audit packet layout (scripts/audit/build-audit-packet.mjs)
+    "spec/THREAT_MODEL.md",
+    "conformance/conformance-v1.tar.gz",
+    "conformance/conformance-v1-SHA256SUMS",
+    "protocol-vectors/v1.json",
+    "tool.json",
+    "SHA256SUMS"
+  ];
+  for (const must of auditExpectedEntries) {
     if (!auditListing.includes(must)) throw new Error(`settld-audit-packet-v1.zip missing expected entry: ${must}`);
   }
 
