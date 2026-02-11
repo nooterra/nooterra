@@ -355,12 +355,14 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ steps.v.outputs.version }}"
+          SMOKE_DIR="$(mktemp -d)"
+          trap 'rm -rf "$SMOKE_DIR"' EXIT
 
           wait_for_cmd() {
             local cmd="$1"
             local attempts=36
             for i in $(seq 1 "$attempts"); do
-              if bash -lc "$cmd"; then
+              if (cd "$SMOKE_DIR" && bash -lc "$cmd"); then
                 return 0
               fi
               if [ "$i" -eq "$attempts" ]; then
@@ -380,12 +382,12 @@ jobs:
           wait_for_cmd "npm exec --yes --package settld@${VERSION} -- settld conformance kernel:list > /tmp/settld-kernel-cases.txt"
           test -s /tmp/settld-kernel-cases.txt
 
-          npm exec --yes --package settld@${VERSION} -- settld closepack verify --help >/tmp/settld-closepack-help.txt
+          (cd "$SMOKE_DIR" && npm exec --yes --package settld@${VERSION} -- settld closepack verify --help >/tmp/settld-closepack-help.txt)
           test -s /tmp/settld-closepack-help.txt
 
           STARTER_DIR="/tmp/settld-registry-starter"
           rm -rf "$STARTER_DIR"
-          npm exec --yes --package settld@${VERSION} -- settld init capability smoke-cap --out "$STARTER_DIR"
+          (cd "$SMOKE_DIR" && npm exec --yes --package settld@${VERSION} -- settld init capability smoke-cap --out "$STARTER_DIR")
           test -f "$STARTER_DIR/manifest.json"
           test -f "$STARTER_DIR/manifest.sig.json"
           test -f "$STARTER_DIR/scripts/kernel-prove.mjs"
