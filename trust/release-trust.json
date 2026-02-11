@@ -5,10 +5,14 @@
   },
   "keys": [
     {
+      "keyId": "key_098626e0d45c7c3211eee82c",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAQKK6+Zt1+qeTuEnGWBmoILLovZ4B+uqKQ5u0mhMSrXE=\n-----END PUBLIC KEY-----\n",
+      "comment": "release signing key generated 2026-02-11 for CI tag releases"
+    },
+    {
       "keyId": "key_1b8a321d958a68bc9e0922c0",
       "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAGzTuNVNG1MOQprj3b5hL5AKZrygUndqa9HOs3i/Lv5I=\n-----END PUBLIC KEY-----\n",
       "comment": "release signing root (set the matching private key in CI secret SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM)"
     }
   ]
 }
-
