@@ -356,9 +356,9 @@ jobs:
           set -euo pipefail
           VERSION="${{ steps.v.outputs.version }}"
 
-          wait_for_npx() {
+          wait_for_cmd() {
             local cmd="$1"
-            local attempts=18
+            local attempts=36
             for i in $(seq 1 "$attempts"); do
               if bash -lc "$cmd"; then
                 return 0
@@ -371,18 +371,21 @@ jobs:
             done
           }
 
-          wait_for_npx "npx --yes settld@${VERSION} --version > /tmp/settld-npx-version.txt"
-          test \"$(tr -d '\r\n' < /tmp/settld-npx-version.txt)\" = "${VERSION}"
+          wait_for_cmd "npm view settld@${VERSION} version > /tmp/settld-npm-view-version.txt"
+          test \"$(tr -d '\r\n' < /tmp/settld-npm-view-version.txt)\" = "${VERSION}"
 
-          wait_for_npx "npx --yes settld@${VERSION} conformance kernel:list > /tmp/settld-kernel-cases.txt"
+          wait_for_cmd "npm exec --yes --package settld@${VERSION} -- settld --version > /tmp/settld-npx-version.txt"
+          test -s /tmp/settld-npx-version.txt
+
+          wait_for_cmd "npm exec --yes --package settld@${VERSION} -- settld conformance kernel:list > /tmp/settld-kernel-cases.txt"
           test -s /tmp/settld-kernel-cases.txt
 
-          npx --yes settld@${VERSION} closepack verify --help >/tmp/settld-closepack-help.txt
+          npm exec --yes --package settld@${VERSION} -- settld closepack verify --help >/tmp/settld-closepack-help.txt
           test -s /tmp/settld-closepack-help.txt
 
           STARTER_DIR="/tmp/settld-registry-starter"
           rm -rf "$STARTER_DIR"
-          npx --yes settld@${VERSION} init capability smoke-cap --out "$STARTER_DIR"
+          npm exec --yes --package settld@${VERSION} -- settld init capability smoke-cap --out "$STARTER_DIR"
           test -f "$STARTER_DIR/manifest.json"
           test -f "$STARTER_DIR/manifest.sig.json"
           test -f "$STARTER_DIR/scripts/kernel-prove.mjs"
@@ -396,10 +399,11 @@ jobs:
               version: process.env.VERSION || null,
               checkedAt: new Date().toISOString(),
               commands: [
-                { cmd: "npx --yes settld@<version> --version", ok: true },
-                { cmd: "npx --yes settld@<version> conformance kernel:list", ok: true },
-                { cmd: "npx --yes settld@<version> closepack verify --help", ok: true },
-                { cmd: "npx --yes settld@<version> init capability smoke-cap --out /tmp/settld-registry-starter", ok: true }
+                { cmd: "npm view settld@<version> version", ok: true },
+                { cmd: "npm exec --yes --package settld@<version> -- settld --version", ok: true },
+                { cmd: "npm exec --yes --package settld@<version> -- settld conformance kernel:list", ok: true },
+                { cmd: "npm exec --yes --package settld@<version> -- settld closepack verify --help", ok: true },
+                { cmd: "npm exec --yes --package settld@<version> -- settld init capability smoke-cap --out /tmp/settld-registry-starter", ok: true }
               ]
             };
             fs.writeFileSync("/tmp/npm-postpublish-smoke.json", JSON.stringify(payload, null, 2));
@@ -413,6 +417,7 @@ jobs:
         with:
           name: npm-postpublish-smoke-${{ steps.v.outputs.version }}
           path: |
+            /tmp/settld-npm-view-version.txt
             /tmp/settld-npx-version.txt
             /tmp/settld-kernel-cases.txt
             /tmp/settld-closepack-help.txt
@@ -626,7 +631,7 @@ jobs:
   github_release:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [docker_image, helm_chart, npm_packages, python_publish, conformance_pack, audit_packet]
+    needs: [docker_image, helm_chart, npm_packages, npm_publish, python_publish, conformance_pack, audit_packet]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -646,9 +651,41 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/download-artifact@v4
+      - name: Download npm artifacts
+        uses: actions/download-artifact@v4
         with:
-          path: /tmp/release-artifacts
+          name: npm-artifacts-${{ steps.v.outputs.version }}
+          path: /tmp/release-artifacts/npm-artifacts
+
+      - name: Download Python artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: python-artifacts-${{ steps.v.outputs.version }}
+          path: /tmp/release-artifacts/python-artifacts
+
+      - name: Download conformance pack
+        uses: actions/download-artifact@v4
+        with:
+          name: conformance-pack-${{ steps.v.outputs.version }}
+          path: /tmp/release-artifacts/conformance-pack
+
+      - name: Download audit packet
+        uses: actions/download-artifact@v4
+        with:
+          name: audit-packet-${{ steps.v.outputs.version }}
+          path: /tmp/release-artifacts/audit-packet
+
+      - name: Download Helm chart
+        uses: actions/download-artifact@v4
+        with:
+          name: helm-chart-${{ steps.v.outputs.version }}
+          path: /tmp/release-artifacts/helm-chart
+
+      - name: Download SBOM artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-${{ steps.v.outputs.version }}
+          path: /tmp/release-artifacts/sbom
 
       - name: Prepare asset directory
         run: |
