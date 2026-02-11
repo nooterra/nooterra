@@ -2,6 +2,9 @@
   "name": "settld",
   "private": true,
   "type": "module",
+  "bin": {
+    "settld": "bin/settld.js"
+  },
   "scripts": {
     "dev:api": "node src/api/server.js",
     "dev:maintenance": "node src/api/maintenance.js",

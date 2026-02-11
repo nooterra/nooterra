@@ -12,6 +12,10 @@ It binds run execution outcomes to deterministic money movement:
 - `released`: run completed and escrow released to the run agent.
 - `refunded`: run failed and escrow refunded to payer.
 
+Related decision/finality artifacts:
+
+- `SettlementDecisionRecord.v1|v2` and `SettlementReceipt.v1` bind decision provenance and finality receipts to one settlement.
+
 ## Schema
 
 See `schemas/AgentRunSettlement.v1.schema.json`.

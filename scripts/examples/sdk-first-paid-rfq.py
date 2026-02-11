@@ -43,25 +43,25 @@ def main() -> int:
         api_key=api_key,
     )
 
-    result = client.first_paid_task(
+    result = client.first_paid_rfq(
         {
             "poster_agent": {
                 "agentId": f"agt_py_poster_{suffix}",
                 "displayName": "Python SDK Poster",
-                "owner": {"ownerType": "service", "ownerId": "svc_sdk_py_paid_task"},
+                "owner": {"ownerType": "service", "ownerId": "svc_sdk_py_paid_rfq"},
                 "capabilities": ["request"],
                 "publicKeyPem": poster_key,
             },
             "bidder_agent": {
                 "agentId": f"agt_py_bidder_{suffix}",
                 "displayName": "Python SDK Bidder",
-                "owner": {"ownerType": "service", "ownerId": "svc_sdk_py_paid_task"},
+                "owner": {"ownerType": "service", "ownerId": "svc_sdk_py_paid_rfq"},
                 "capabilities": ["translate", "summarize"],
                 "publicKeyPem": bidder_key,
             },
             "payer_credit": {"amountCents": 2500, "currency": "USD"},
-            "task": {
-                "taskId": f"task_py_{suffix}",
+            "rfq": {
+                "rfqId": f"rfq_py_{suffix}",
                 "title": "Translate launch note",
                 "capability": "translate",
                 "budgetCents": 1200,
@@ -90,7 +90,7 @@ def main() -> int:
     settlement_status = settlement_body.get("settlement", {}).get("status") if isinstance(settlement_body, dict) else None
 
     summary = {
-        "taskId": result.get("ids", {}).get("task_id"),
+        "rfqId": result.get("ids", {}).get("rfq_id"),
         "runId": result.get("ids", {}).get("run_id"),
         "posterAgentId": result.get("ids", {}).get("poster_agent_id"),
         "bidderAgentId": result.get("ids", {}).get("bidder_agent_id"),

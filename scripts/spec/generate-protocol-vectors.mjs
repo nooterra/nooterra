@@ -14,6 +14,8 @@ import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
 import { sha256Hex } from "../../src/core/crypto.js";
 import { computeAgentReputation, computeAgentReputationV2 } from "../../src/core/agent-reputation.js";
 import { buildInteractionDirectionMatrixV1 } from "../../src/core/interaction-directions.js";
+import { buildSettlementDecisionRecordV1, buildSettlementDecisionRecordV2, buildSettlementReceipt } from "../../src/core/settlement-kernel.js";
+import { buildMarketplaceOffer, buildMarketplaceAcceptance } from "../../src/core/marketplace-kernel.js";
 
 function bytes(text) {
   return new TextEncoder().encode(text);
@@ -366,6 +368,149 @@ async function main() {
   };
   const agentRunSettlementCanonical = canonicalJsonStringify(agentRunSettlement);
 
+  const settlementDecisionRecord = buildSettlementDecisionRecordV1({
+    decisionId: "dec_run_vectors_0001_auto",
+    tenantId,
+    runId: agentRun.runId,
+    settlementId: agentRunSettlement.settlementId,
+    agreementId: "agr_vectors_0001",
+    decisionStatus: "auto_resolved",
+    decisionMode: "automatic",
+    decisionReason: null,
+    verificationStatus: "green",
+    policyRef: {
+      policyHash: "3".repeat(64),
+      verificationMethodHash: "4".repeat(64)
+    },
+    verifierRef: {
+      verifierId: "settld.policy-engine",
+      verifierVersion: "v1",
+      verifierHash: "5".repeat(64),
+      modality: "deterministic"
+    },
+    runStatus: "completed",
+    runLastEventId: "ev_run_vectors_0003",
+    runLastChainHash: "ch_run_vectors_0003",
+    resolutionEventId: "ev_run_vectors_0003",
+    decidedAt: "2026-02-01T00:02:00.000Z"
+  });
+  const settlementDecisionRecordCanonical = canonicalJsonStringify(settlementDecisionRecord);
+
+  const settlementDecisionRecordV2 = buildSettlementDecisionRecordV2({
+    decisionId: "dec_run_vectors_0001_auto_v2",
+    tenantId,
+    runId: agentRun.runId,
+    settlementId: agentRunSettlement.settlementId,
+    agreementId: "agr_vectors_0001",
+    decisionStatus: "auto_resolved",
+    decisionMode: "automatic",
+    decisionReason: null,
+    verificationStatus: "green",
+    policyHashUsed: "3".repeat(64),
+    verificationMethodHashUsed: "4".repeat(64),
+    policyRef: {
+      policyHash: "3".repeat(64),
+      verificationMethodHash: "4".repeat(64)
+    },
+    verifierRef: {
+      verifierId: "settld.policy-engine",
+      verifierVersion: "v1",
+      verifierHash: "5".repeat(64),
+      modality: "deterministic"
+    },
+    runStatus: "completed",
+    runLastEventId: "ev_run_vectors_0003",
+    runLastChainHash: "ch_run_vectors_0003",
+    resolutionEventId: "ev_run_vectors_0003",
+    decidedAt: "2026-02-01T00:02:00.000Z"
+  });
+  const settlementDecisionRecordV2Canonical = canonicalJsonStringify(settlementDecisionRecordV2);
+
+  const settlementReceipt = buildSettlementReceipt({
+    receiptId: "rcpt_run_vectors_0001_auto",
+    tenantId,
+    runId: agentRun.runId,
+    settlementId: agentRunSettlement.settlementId,
+    decisionRecord: settlementDecisionRecord,
+    status: "released",
+    amountCents: 1250,
+    releasedAmountCents: 1250,
+    refundedAmountCents: 0,
+    releaseRatePct: 100,
+    currency: "USD",
+    runStatus: "completed",
+    resolutionEventId: "ev_run_vectors_0003",
+    settledAt: "2026-02-01T00:02:00.000Z",
+    createdAt: "2026-02-01T00:02:00.000Z"
+  });
+  const settlementReceiptCanonical = canonicalJsonStringify(settlementReceipt);
+
+  const marketplaceOffer = buildMarketplaceOffer({
+    tenantId,
+    rfqId: "rfq_vectors_0001",
+    runId: agentRun.runId,
+    bidId: "bid_vectors_0001",
+    proposal: {
+      schemaVersion: "MarketplaceBidProposal.v1",
+      proposalId: "ofr_bid_vectors_0001_2",
+      bidId: "bid_vectors_0001",
+      revision: 2,
+      proposerAgentId: agentIdentity.agentId,
+      amountCents: 1250,
+      currency: "USD",
+      etaSeconds: 900,
+      note: "vector offer",
+      verificationMethod: { schemaVersion: "VerificationMethod.v1", mode: "deterministic" },
+      policy: {
+        schemaVersion: "SettlementPolicy.v1",
+        policyVersion: 1,
+        mode: "automatic",
+        rules: {
+          requireDeterministicVerification: true,
+          autoReleaseOnGreen: true,
+          autoReleaseOnAmber: false,
+          autoReleaseOnRed: false
+        },
+        policyHash: "6".repeat(64)
+      },
+      policyRef: {
+        schemaVersion: "MarketplaceSettlementPolicyRef.v1",
+        source: "inline",
+        policyId: null,
+        policyVersion: 1,
+        policyHash: "6".repeat(64),
+        verificationMethodHash: "7".repeat(64)
+      },
+      policyRefHash: "8".repeat(64),
+      prevProposalHash: "9".repeat(64),
+      proposalHash: "a".repeat(64),
+      metadata: { stage: "vectors" },
+      proposedAt: "2026-02-01T00:01:30.000Z"
+    },
+    offerChainHash: "b".repeat(64),
+    proposalCount: 2,
+    createdAt: "2026-02-01T00:02:00.000Z"
+  });
+  const marketplaceOfferCanonical = canonicalJsonStringify(marketplaceOffer);
+
+  const marketplaceAcceptance = buildMarketplaceAcceptance({
+    tenantId,
+    rfqId: "rfq_vectors_0001",
+    runId: agentRun.runId,
+    bidId: "bid_vectors_0001",
+    agreementId: "agr_rfq_vectors_0001_bid_vectors_0001",
+    acceptedAt: "2026-02-01T00:02:00.000Z",
+    acceptedByAgentId: "agt_vectors_operator_0001",
+    acceptedProposalId: marketplaceOffer.proposalId,
+    acceptedRevision: marketplaceOffer.revision,
+    acceptedProposalHash: marketplaceOffer.proposalHash,
+    offerChainHash: marketplaceOffer.offerChainHash,
+    proposalCount: marketplaceOffer.proposalCount,
+    offer: marketplaceOffer,
+    createdAt: "2026-02-01T00:02:00.000Z"
+  });
+  const marketplaceAcceptanceCanonical = canonicalJsonStringify(marketplaceAcceptance);
+
   const agentRunFailed = {
     schemaVersion: "AgentRun.v1",
     runId: "run_vectors_0002",
@@ -495,6 +640,45 @@ async function main() {
       status: agentRunSettlement.status,
       canonicalJson: agentRunSettlementCanonical,
       sha256: sha256Hex(agentRunSettlementCanonical)
+    },
+    settlementDecisionRecord: {
+      schemaVersion: settlementDecisionRecord.schemaVersion,
+      decisionId: settlementDecisionRecord.decisionId,
+      decisionStatus: settlementDecisionRecord.decisionStatus,
+      canonicalJson: settlementDecisionRecordCanonical,
+      sha256: sha256Hex(settlementDecisionRecordCanonical)
+    },
+    settlementDecisionRecordV2: {
+      schemaVersion: settlementDecisionRecordV2.schemaVersion,
+      decisionId: settlementDecisionRecordV2.decisionId,
+      decisionStatus: settlementDecisionRecordV2.decisionStatus,
+      canonicalJson: settlementDecisionRecordV2Canonical,
+      sha256: sha256Hex(settlementDecisionRecordV2Canonical)
+    },
+    settlementReceipt: {
+      schemaVersion: settlementReceipt.schemaVersion,
+      receiptId: settlementReceipt.receiptId,
+      status: settlementReceipt.status,
+      finalityProvider: settlementReceipt.finalityProvider,
+      finalityState: settlementReceipt.finalityState,
+      canonicalJson: settlementReceiptCanonical,
+      sha256: sha256Hex(settlementReceiptCanonical)
+    },
+    marketplaceOffer: {
+      schemaVersion: marketplaceOffer.schemaVersion,
+      offerId: marketplaceOffer.offerId,
+      proposalId: marketplaceOffer.proposalId,
+      revision: marketplaceOffer.revision,
+      canonicalJson: marketplaceOfferCanonical,
+      sha256: sha256Hex(marketplaceOfferCanonical)
+    },
+    marketplaceAcceptance: {
+      schemaVersion: marketplaceAcceptance.schemaVersion,
+      acceptanceId: marketplaceAcceptance.acceptanceId,
+      acceptedProposalId: marketplaceAcceptance.acceptedProposalId,
+      acceptedRevision: marketplaceAcceptance.acceptedRevision,
+      canonicalJson: marketplaceAcceptanceCanonical,
+      sha256: sha256Hex(marketplaceAcceptanceCanonical)
     },
     agentReputation: {
       schemaVersion: "AgentReputation.v1",

@@ -4,7 +4,7 @@ Settld is a **trust fabric + runtime + ledger** for autonomous work.
 
 ## Layers (logical)
 
-1. **Marketplace**: task templates, quotes, booking, payments, scheduling.
+1. **Marketplace**: RFQs, quotes, booking, payments, scheduling.
 2. **Operations**: runtime health, dispatch, control loops, human/operator assist.
 3. **Skills**: packaging, certification, licensing, execution orchestration.
 4. **Trust**: telemetry black box, incident detection, claims, audits.

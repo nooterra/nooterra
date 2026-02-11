@@ -192,6 +192,20 @@ Cleanup execution (PG mode):
 
 - `PROXY_RETENTION_CLEANUP_DRY_RUN` (`1` prints would-delete counts; no deletes)
 
+Finance reconciliation scheduling:
+
+- `PROXY_FINANCE_RECONCILE_ENABLED` (default: `1`)  
+  Enables periodic finance reconciliation maintenance ticks.
+
+- `PROXY_FINANCE_RECONCILE_INTERVAL_SECONDS` (default: `300`)  
+  Minimum interval between automatic reconciliation runs.
+
+- `PROXY_FINANCE_RECONCILE_MAX_TENANTS` (default: `50`)  
+  Max tenants scanned per automatic run.
+
+- `PROXY_FINANCE_RECONCILE_MAX_PERIODS_PER_TENANT` (default: `2`)  
+  Max GL periods reconciled per tenant in one run.
+
 Maintenance runner (recommended in prod):
 
 - `PROXY_MAINTENANCE_INTERVAL_SECONDS` (default: `300`)  

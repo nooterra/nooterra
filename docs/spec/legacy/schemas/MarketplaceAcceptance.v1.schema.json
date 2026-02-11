@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/MarketplaceAcceptance.v1.schema.json",
+  "title": "MarketplaceAcceptance.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "acceptanceId",
+    "tenantId",
+    "taskId",
+    "runId",
+    "bidId",
+    "agreementId",
+    "acceptedAt",
+    "acceptedByAgentId",
+    "acceptedProposalId",
+    "acceptedRevision",
+    "acceptedProposalHash",
+    "offerChainHash",
+    "proposalCount",
+    "offerRef",
+    "createdAt",
+    "acceptanceHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "MarketplaceAcceptance.v1" },
+    "acceptanceId": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "tenantId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "taskId": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "bidId": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "agreementId": { "type": ["string", "null"], "minLength": 1, "maxLength": 300 },
+    "acceptedAt": { "type": ["string", "null"], "format": "date-time" },
+    "acceptedByAgentId": { "type": ["string", "null"], "minLength": 1, "maxLength": 300 },
+    "acceptedProposalId": { "type": ["string", "null"], "minLength": 1, "maxLength": 300 },
+    "acceptedRevision": { "type": ["integer", "null"], "minimum": 1 },
+    "acceptedProposalHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "offerChainHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "proposalCount": { "type": ["integer", "null"], "minimum": 1 },
+    "offerRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["offerId", "offerHash"],
+      "properties": {
+        "offerId": { "type": ["string", "null"], "minLength": 1, "maxLength": 300 },
+        "offerHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "acceptanceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

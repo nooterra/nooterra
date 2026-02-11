@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "LighthouseProductionTracker.v1",
+  "updatedAt": "2026-02-09T17:23:15.093Z",
+  "requiredActiveAccounts": 3,
+  "accounts": [
+    {
+      "accountId": "lh_001",
+      "companyName": "Settld Internal Pilot A",
+      "owner": "founder@settld.work",
+      "status": "paid_production_settlement_confirmed",
+      "signedAt": "2026-02-06T18:00:00.000Z",
+      "goLiveAt": "2026-02-08T17:30:00.000Z",
+      "productionSettlementRef": "settle_run_lh001_prod_20260208",
+      "notes": "Internal pilot: first paid production settlement confirmed."
+    },
+    {
+      "accountId": "lh_002",
+      "companyName": "Settld Internal Pilot B",
+      "owner": "founder@settld.work",
+      "status": "production_active",
+      "signedAt": "2026-02-07T19:00:00.000Z",
+      "goLiveAt": "2026-02-09T14:20:00.000Z",
+      "productionSettlementRef": "settle_run_lh002_prod_20260209",
+      "notes": "Internal pilot: active production account."
+    },
+    {
+      "accountId": "lh_003",
+      "companyName": "Settld Internal Pilot C",
+      "owner": "founder@settld.work",
+      "status": "paid_production_settlement_confirmed",
+      "signedAt": "2026-02-08T12:30:00.000Z",
+      "goLiveAt": "2026-02-09T15:10:00.000Z",
+      "productionSettlementRef": "settle_run_lh003_prod_20260209",
+      "notes": "Internal pilot: first paid production settlement confirmed."
+    }
+  ]
+}

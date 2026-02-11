@@ -46,10 +46,10 @@ test("API e2e: settlement resolve and dispute endpoints are idempotent", async (
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "idmp_task_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "idmp_rfq_1" },
     body: {
-      taskId: "task_idmp_1",
+      rfqId: "rfq_idmp_1",
       title: "Idempotency task",
       capability: "translate",
       posterAgentId: "agt_idmp_poster",
@@ -61,7 +61,7 @@ test("API e2e: settlement resolve and dispute endpoints are idempotent", async (
 
   const createBid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_idmp_1/bids",
+    path: "/marketplace/rfqs/rfq_idmp_1/bids",
     headers: { "x-idempotency-key": "idmp_bid_1" },
     body: {
       bidId: "bid_idmp_1",
@@ -95,7 +95,7 @@ test("API e2e: settlement resolve and dispute endpoints are idempotent", async (
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_idmp_1/accept",
+    path: "/marketplace/rfqs/rfq_idmp_1/accept",
     headers: { "x-idempotency-key": "idmp_accept_1" },
     body: {
       bidId: "bid_idmp_1",
@@ -316,4 +316,135 @@ test("API e2e: settlement resolve and dispute endpoints are idempotent", async (
     }
   });
   assert.equal(closeConflict.statusCode, 409);
+});
+
+test("API e2e: manual settlement resolve is blocked when settlement kernel bindings are tampered", async () => {
+  const api = createApi();
+
+  await registerAgent(api, { agentId: "agt_idmp_guard_poster" });
+  await registerAgent(api, { agentId: "agt_idmp_guard_bidder" });
+  await registerAgent(api, { agentId: "agt_idmp_guard_operator" });
+
+  await creditWallet(api, {
+    agentId: "agt_idmp_guard_poster",
+    amountCents: 5000,
+    key: "idmp_guard_credit_1"
+  });
+
+  const createTask = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "idmp_guard_rfq_1" },
+    body: {
+      rfqId: "rfq_idmp_guard_1",
+      title: "Kernel guard task",
+      capability: "translate",
+      posterAgentId: "agt_idmp_guard_poster",
+      budgetCents: 2200,
+      currency: "USD"
+    }
+  });
+  assert.equal(createTask.statusCode, 201);
+
+  const createBid = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_idmp_guard_1/bids",
+    headers: { "x-idempotency-key": "idmp_guard_bid_1" },
+    body: {
+      bidId: "bid_idmp_guard_1",
+      bidderAgentId: "agt_idmp_guard_bidder",
+      amountCents: 2200,
+      currency: "USD",
+      verificationMethod: {
+        schemaVersion: "VerificationMethod.v1",
+        mode: "attested",
+        source: "vendor_attestor"
+      },
+      policy: {
+        schemaVersion: "SettlementPolicy.v1",
+        policyVersion: 1,
+        mode: "automatic",
+        rules: {
+          requireDeterministicVerification: true,
+          autoReleaseOnGreen: true,
+          autoReleaseOnAmber: true,
+          autoReleaseOnRed: false,
+          greenReleaseRatePct: 100,
+          amberReleaseRatePct: 100,
+          redReleaseRatePct: 0,
+          maxAutoReleaseAmountCents: null,
+          manualReason: null
+        }
+      }
+    }
+  });
+  assert.equal(createBid.statusCode, 201);
+
+  const accept = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_idmp_guard_1/accept",
+    headers: { "x-idempotency-key": "idmp_guard_accept_1" },
+    body: {
+      bidId: "bid_idmp_guard_1",
+      acceptedByAgentId: "agt_idmp_guard_operator",
+      disputeWindowDays: 2
+    }
+  });
+  assert.equal(accept.statusCode, 200);
+  const runId = String(accept.json?.run?.runId ?? "");
+  assert.ok(runId);
+
+  const complete = await request(api, {
+    method: "POST",
+    path: `/agents/agt_idmp_guard_bidder/runs/${encodeURIComponent(runId)}/events`,
+    headers: {
+      "x-proxy-expected-prev-chain-hash": accept.json?.run?.lastChainHash,
+      "x-idempotency-key": "idmp_guard_complete_1"
+    },
+    body: {
+      type: "RUN_COMPLETED",
+      payload: {
+        outputRef: `evidence://${runId}/output.json`,
+        metrics: { settlementReleaseRatePct: 100 }
+      }
+    }
+  });
+  assert.equal(complete.statusCode, 201);
+  assert.equal(complete.json?.settlement?.status, "locked");
+
+  const settlementStoreKey = `tenant_default\n${runId}`;
+  const storedSettlement = api.store.agentRunSettlements.get(settlementStoreKey);
+  assert.ok(storedSettlement);
+  assert.ok(storedSettlement?.decisionTrace?.decisionRecord);
+  assert.ok(storedSettlement?.decisionTrace?.settlementReceipt);
+
+  api.store.agentRunSettlements.set(settlementStoreKey, {
+    ...storedSettlement,
+    decisionTrace: {
+      ...storedSettlement.decisionTrace,
+      settlementReceipt: {
+        ...storedSettlement.decisionTrace.settlementReceipt,
+        decisionRef: {
+          ...storedSettlement.decisionTrace.settlementReceipt.decisionRef,
+          decisionHash: "f".repeat(64)
+        }
+      }
+    }
+  });
+
+  const resolve = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/settlement/resolve`,
+    headers: { "x-idempotency-key": "idmp_guard_resolve_1" },
+    body: {
+      status: "released",
+      releaseRatePct: 100,
+      resolvedByAgentId: "agt_idmp_guard_operator",
+      reason: "manual approval"
+    }
+  });
+  assert.equal(resolve.statusCode, 409);
+  assert.equal(resolve.json?.error, "invalid settlement kernel artifacts");
+  assert.equal(resolve.json?.code, "SETTLEMENT_KERNEL_BINDING_INVALID");
+  assert.equal(resolve.json?.details?.code, "SETTLEMENT_KERNEL_BINDING_INVALID");
 });

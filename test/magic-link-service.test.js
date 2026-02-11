@@ -7,6 +7,7 @@ import path from "node:path";
 import os from "node:os";
 import { Readable } from "node:stream";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 import { buildDeterministicZipStore } from "../src/core/deterministic-zip.js";
 import { keyIdFromPublicKeyPem } from "../src/core/crypto.js";
@@ -15,8 +16,13 @@ import { safeTruncate } from "../services/magic-link/src/redaction.js";
 import { MAGIC_LINK_RENDER_MODEL_ALLOWLIST_V1, buildPublicInvoiceClaimFromClaimJson } from "../services/magic-link/src/render-model.js";
 import { garbageCollectTenantByRetention } from "../services/magic-link/src/retention-gc.js";
 import { loadTenantSettings } from "../services/magic-link/src/tenant-settings.js";
+import { listenOnEphemeralLoopback } from "./lib/listen.js";
 
-const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-magic-link-test-"));
+let dataDir = null;
+let magicLinkHandler = null;
+let oauthMockBaseUrl = null;
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 const oauthMockServer = http.createServer((req, res) => {
   const chunks = [];
@@ -69,10 +75,6 @@ const oauthMockServer = http.createServer((req, res) => {
     res.end(JSON.stringify({ ok: false, error: "not_found" }));
   });
 });
-await new Promise((resolve) => oauthMockServer.listen(0, "127.0.0.1", resolve));
-const oauthMockAddress = oauthMockServer.address();
-const oauthMockPort = typeof oauthMockAddress === "object" && oauthMockAddress ? oauthMockAddress.port : 0;
-const oauthMockBaseUrl = `http://127.0.0.1:${oauthMockPort}`;
 
 const stripeMockServer = http.createServer((req, res) => {
   const chunks = [];
@@ -126,68 +128,22 @@ const stripeMockServer = http.createServer((req, res) => {
     res.end(JSON.stringify({ error: { message: "not_found" } }));
   });
 });
-await new Promise((resolve) => stripeMockServer.listen(0, "127.0.0.1", resolve));
-const stripeMockAddress = stripeMockServer.address();
-const stripeMockPort = typeof stripeMockAddress === "object" && stripeMockAddress ? stripeMockAddress.port : 0;
-const stripeMockBaseUrl = `http://127.0.0.1:${stripeMockPort}`;
-
-process.env.MAGIC_LINK_DISABLE_LISTEN = "1";
-process.env.MAGIC_LINK_PORT = "0";
-process.env.MAGIC_LINK_HOST = "127.0.0.1";
-process.env.MAGIC_LINK_API_KEY = "test_key";
-process.env.MAGIC_LINK_DATA_DIR = dataDir;
-process.env.MAGIC_LINK_VERIFY_TIMEOUT_MS = "60000";
-process.env.MAGIC_LINK_RATE_LIMIT_UPLOADS_PER_MINUTE = "120";
-process.env.MAGIC_LINK_MAX_UPLOAD_BYTES = String(50 * 1024 * 1024);
-process.env.MAGIC_LINK_WEBHOOK_DELIVERY_MODE = "record";
-process.env.MAGIC_LINK_WEBHOOK_TIMEOUT_MS = "1000";
-process.env.MAGIC_LINK_WEBHOOK_MAX_ATTEMPTS = "3";
-process.env.MAGIC_LINK_WEBHOOK_RETRY_BACKOFF_MS = "5";
-process.env.MAGIC_LINK_WEBHOOK_RETRY_INTERVAL_MS = "600000";
-process.env.MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_THRESHOLD = "1";
-process.env.MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_TARGETS = "internal";
-process.env.MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_WEBHOOK_URL = "https://ops-alerts.example.com/hooks/settld";
-process.env.MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_WEBHOOK_SECRET = "whsec_ops_alerts";
-process.env.MAGIC_LINK_DEFAULT_EVENT_RELAY_URL = "https://example.invalid/default-relay";
-process.env.MAGIC_LINK_DEFAULT_EVENT_RELAY_SECRET = "whsec_default_relay";
-process.env.MAGIC_LINK_SLACK_OAUTH_CLIENT_ID = "slack_client_id";
-process.env.MAGIC_LINK_SLACK_OAUTH_CLIENT_SECRET = "slack_client_secret";
-process.env.MAGIC_LINK_SLACK_OAUTH_AUTHORIZE_URL = `${oauthMockBaseUrl}/slack/authorize`;
-process.env.MAGIC_LINK_SLACK_OAUTH_TOKEN_URL = `${oauthMockBaseUrl}/slack/token`;
-process.env.MAGIC_LINK_ZAPIER_OAUTH_CLIENT_ID = "zapier_client_id";
-process.env.MAGIC_LINK_ZAPIER_OAUTH_CLIENT_SECRET = "zapier_client_secret";
-process.env.MAGIC_LINK_ZAPIER_OAUTH_AUTHORIZE_URL = `${oauthMockBaseUrl}/zapier/authorize`;
-process.env.MAGIC_LINK_ZAPIER_OAUTH_TOKEN_URL = `${oauthMockBaseUrl}/zapier/token`;
-process.env.MAGIC_LINK_ZAPIER_OAUTH_WEBHOOK_FIELD = "webhookUrl";
-process.env.MAGIC_LINK_SETTINGS_KEY_HEX = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
-process.env.MAGIC_LINK_BILLING_CURRENCY = "USD";
-process.env.MAGIC_LINK_BILLING_SUBSCRIPTION_CENTS = "10000";
-process.env.MAGIC_LINK_BILLING_PRICE_PER_VERIFICATION_CENTS = "25";
-process.env.MAGIC_LINK_BILLING_PROVIDER = "stripe";
-process.env.MAGIC_LINK_BILLING_STRIPE_API_BASE_URL = stripeMockBaseUrl;
-process.env.MAGIC_LINK_BILLING_STRIPE_SECRET_KEY = "sk_test_mock";
-process.env.MAGIC_LINK_BILLING_STRIPE_WEBHOOK_SECRET = "whsec_test_mock";
-process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_GROWTH = "price_growth";
-process.env.MAGIC_LINK_BILLING_STRIPE_PRICE_ID_SCALE = "price_scale";
-process.env.MAGIC_LINK_BILLING_CHECKOUT_SUCCESS_URL = "https://example.test/billing/success";
-process.env.MAGIC_LINK_BILLING_CHECKOUT_CANCEL_URL = "https://example.test/billing/cancel";
-process.env.MAGIC_LINK_BILLING_PORTAL_RETURN_URL = "https://example.test/billing";
-process.env.MAGIC_LINK_BUYER_OTP_DELIVERY_MODE = "record";
-process.env.MAGIC_LINK_ONBOARDING_EMAIL_SEQUENCE_ENABLED = "1";
-process.env.MAGIC_LINK_ONBOARDING_EMAIL_DELIVERY_MODE = "record";
-process.env.MAGIC_LINK_MIGRATE_ON_STARTUP = "1";
-process.env.MAGIC_LINK_PAYMENT_TRIGGER_RETRY_INTERVAL_MS = "600000";
-process.env.MAGIC_LINK_PAYMENT_TRIGGER_MAX_ATTEMPTS = "2";
-process.env.MAGIC_LINK_PAYMENT_TRIGGER_RETRY_BACKOFF_MS = "0";
-
-const { magicLinkHandler } = await import("../services/magic-link/src/server.js");
-
-// Storage format marker should be initialized on startup (or migration).
-{
-  const raw = await fs.readFile(path.join(dataDir, "format.json"), "utf8");
-  const j = JSON.parse(raw);
-  assert.equal(j?.schemaVersion, "MagicLinkDataFormat.v1");
-  assert.equal(j?.version, 1);
+function applyEnv(envPatch) {
+  const prev = {};
+  for (const [key, value] of Object.entries(envPatch ?? {})) {
+    prev[key] = Object.prototype.hasOwnProperty.call(process.env, key) ? process.env[key] : undefined;
+    if (value === null || value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = String(value);
+    }
+  }
+  return () => {
+    for (const [key, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
 }
 
 async function listFilesRecursive(dir) {
@@ -246,6 +202,7 @@ function makeMockRes() {
 }
 
 async function runReq({ method, url, headers, bodyChunks }) {
+  assert.equal(typeof magicLinkHandler, "function", "magicLinkHandler not initialized");
   const req = Readable.from(bodyChunks ?? []);
   req.method = method;
   req.url = url;
@@ -663,11 +620,133 @@ async function getTrustGraphDiff({ tenantId, baseMonth = null, compareMonth = nu
 }
 
 test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", async (t) => {
-  await t.after(async () => {
-    await new Promise((resolve) => oauthMockServer.close(() => resolve()));
-    await new Promise((resolve) => stripeMockServer.close(() => resolve()));
-    await fs.rm(dataDir, { recursive: true, force: true });
+  dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-magic-link-service-test-"));
+
+  const defaultRelayServer = http.createServer((_req, res) => {
+    res.statusCode = 204;
+    res.end("");
   });
+  const deadLetterAlertServer = http.createServer((_req, res) => {
+    res.statusCode = 204;
+    res.end("");
+  });
+
+  let oauthPort = null;
+  let stripePort = null;
+  let relayPort = null;
+  let alertPort = null;
+  try {
+    ({ port: oauthPort } = await listenOnEphemeralLoopback(oauthMockServer, { hosts: ["127.0.0.1"] }));
+    ({ port: stripePort } = await listenOnEphemeralLoopback(stripeMockServer, { hosts: ["127.0.0.1"] }));
+    ({ port: relayPort } = await listenOnEphemeralLoopback(defaultRelayServer, { hosts: ["127.0.0.1"] }));
+    ({ port: alertPort } = await listenOnEphemeralLoopback(deadLetterAlertServer, { hosts: ["127.0.0.1"] }));
+  } catch (err) {
+    const cause = err?.cause ?? err;
+    if (cause?.code === "EPERM" || cause?.code === "EACCES") {
+      t.skip(`loopback listen not permitted (${cause.code})`);
+      const closeIfListening = async (server) => {
+        if (!server?.listening) return;
+        await new Promise((resolve) => server.close(() => resolve()));
+      };
+      try {
+        await closeIfListening(oauthMockServer);
+        await closeIfListening(stripeMockServer);
+        await closeIfListening(defaultRelayServer);
+        await closeIfListening(deadLetterAlertServer);
+      } catch {
+        // ignore
+      }
+      try {
+        await fs.rm(dataDir, { recursive: true, force: true });
+      } catch {
+        // ignore
+      }
+      dataDir = null;
+      return;
+    }
+    throw err;
+  }
+  oauthMockBaseUrl = `http://127.0.0.1:${oauthPort}`;
+
+  const restoreEnv = applyEnv({
+    MAGIC_LINK_DISABLE_LISTEN: "1",
+    MAGIC_LINK_PORT: "0",
+    MAGIC_LINK_HOST: "127.0.0.1",
+    MAGIC_LINK_API_KEY: "test_key",
+    MAGIC_LINK_DATA_DIR: dataDir,
+    MAGIC_LINK_VERIFY_TIMEOUT_MS: "60000",
+    MAGIC_LINK_RATE_LIMIT_UPLOADS_PER_MINUTE: "120",
+    MAGIC_LINK_MAX_UPLOAD_BYTES: String(50 * 1024 * 1024),
+
+    MAGIC_LINK_SETTINGS_KEY_HEX: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+
+    // Avoid real network calls in integration tests (Slack/Zapier URLs are https://hooks.slack.com/...).
+    MAGIC_LINK_WEBHOOK_DELIVERY_MODE: "record",
+    MAGIC_LINK_WEBHOOK_TIMEOUT_MS: "1000",
+    MAGIC_LINK_WEBHOOK_RETRY_INTERVAL_MS: "600000",
+    MAGIC_LINK_WEBHOOK_RETRY_BACKOFF_MS: "0",
+
+    // Workers should not race deterministic tests; we drive run-once ops explicitly in-test.
+    MAGIC_LINK_PAYMENT_TRIGGER_RETRY_INTERVAL_MS: "600000",
+    MAGIC_LINK_PAYMENT_TRIGGER_RETRY_BACKOFF_MS: "0",
+    MAGIC_LINK_PAYMENT_TRIGGER_MAX_ATTEMPTS: "2",
+    MAGIC_LINK_ARCHIVE_EXPORT_ENABLED: "0",
+
+    MAGIC_LINK_DEFAULT_EVENT_RELAY_URL: `http://127.0.0.1:${relayPort}/event-relay`,
+    MAGIC_LINK_DEFAULT_EVENT_RELAY_SECRET: "relay_secret",
+
+    // Internal dead-letter alerts are delivered over HTTP in tests.
+    MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_THRESHOLD: "1",
+    MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_TARGETS: "internal",
+    MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_WEBHOOK_URL: `http://127.0.0.1:${alertPort}/dead-letter-alert`,
+    MAGIC_LINK_WEBHOOK_DEAD_LETTER_ALERT_WEBHOOK_SECRET: "alert_secret",
+
+    // OAuth mocks for integrations UI.
+    MAGIC_LINK_SLACK_OAUTH_CLIENT_ID: "slack_client_id",
+    MAGIC_LINK_SLACK_OAUTH_CLIENT_SECRET: "slack_client_secret",
+    MAGIC_LINK_SLACK_OAUTH_AUTHORIZE_URL: `http://127.0.0.1:${oauthPort}/slack/authorize`,
+    MAGIC_LINK_SLACK_OAUTH_TOKEN_URL: `http://127.0.0.1:${oauthPort}/slack/token`,
+
+    MAGIC_LINK_ZAPIER_OAUTH_CLIENT_ID: "zapier_client_id",
+    MAGIC_LINK_ZAPIER_OAUTH_CLIENT_SECRET: "zapier_client_secret",
+    MAGIC_LINK_ZAPIER_OAUTH_AUTHORIZE_URL: `http://127.0.0.1:${oauthPort}/zapier/authorize`,
+    MAGIC_LINK_ZAPIER_OAUTH_TOKEN_URL: `http://127.0.0.1:${oauthPort}/zapier/token`,
+
+    // Stripe billing mocks.
+    MAGIC_LINK_BILLING_PROVIDER: "stripe",
+    MAGIC_LINK_BILLING_STRIPE_API_BASE_URL: `http://127.0.0.1:${stripePort}`,
+    MAGIC_LINK_BILLING_STRIPE_SECRET_KEY: "sk_test_mock",
+    MAGIC_LINK_BILLING_STRIPE_WEBHOOK_SECRET: "whsec_mock",
+    MAGIC_LINK_BILLING_STRIPE_PRICE_ID_GROWTH: "price_growth_mock",
+    MAGIC_LINK_BILLING_STRIPE_PRICE_ID_SCALE: "price_scale_mock"
+  });
+
+  await t.after(async () => {
+    restoreEnv();
+    const closeIfListening = async (server) => {
+      if (!server?.listening) return;
+      await new Promise((resolve) => server.close(() => resolve()));
+    };
+    await closeIfListening(oauthMockServer);
+    await closeIfListening(stripeMockServer);
+    await closeIfListening(defaultRelayServer);
+    await closeIfListening(deadLetterAlertServer);
+    await fs.rm(dataDir, { recursive: true, force: true });
+    dataDir = null;
+    magicLinkHandler = null;
+    oauthMockBaseUrl = null;
+  });
+
+  // Import after env is configured; bust ESM cache to avoid cross-test contamination.
+  ({ magicLinkHandler } = await import(`../services/magic-link/src/server.js?magic-link-service-test=${Date.now()}`));
+
+  // Storage format marker should be initialized on startup (or migration).
+  {
+    const raw = await fs.readFile(path.join(dataDir, "format.json"), "utf8");
+    const j = JSON.parse(raw);
+    assert.equal(j?.schemaVersion, "MagicLinkDataFormat.v1");
+    assert.equal(j?.version, 1);
+  }
 
   {
     const res = await runReq({ method: "GET", url: "/healthz", headers: {}, bodyChunks: [] });
@@ -1589,14 +1668,14 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(mismatchJson.code, "RECEIPT_HASH_MISMATCH");
   });
 
-  const trust = JSON.parse(await fs.readFile(path.resolve(process.cwd(), "test/fixtures/bundles/v1/trust.json"), "utf8"));
-  const buyerSigner = JSON.parse(await fs.readFile(path.resolve(process.cwd(), "test/fixtures/keys/ed25519_test_keypair.json"), "utf8"));
+  const trust = JSON.parse(await fs.readFile(path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "trust.json"), "utf8"));
+  const buyerSigner = JSON.parse(await fs.readFile(path.join(REPO_ROOT, "test", "fixtures", "keys", "ed25519_test_keypair.json"), "utf8"));
   const buyerDecisionKeyId = keyIdFromPublicKeyPem(buyerSigner.publicKeyPem);
-  const fxDir = path.resolve(process.cwd(), "test/fixtures/bundles/v1/invoicebundle/strict-pass");
+  const fxDir = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "invoicebundle", "strict-pass");
   const zip = await zipDir(fxDir);
-  const fxCloseDir = path.resolve(process.cwd(), "test/fixtures/bundles/v1/closepack/strict-pass");
+  const fxCloseDir = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "closepack", "strict-pass");
   const zipClose = await zipDir(fxCloseDir);
-  const fxCloseFailDir = path.resolve(process.cwd(), "test/fixtures/bundles/v1/closepack/strict-fail-evidence-index-mismatch");
+  const fxCloseFailDir = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "closepack", "strict-fail-evidence-index-mismatch");
   const zipCloseFail = await zipDir(fxCloseFailDir);
 
   await t.test("tenant onboarding self-service: signup, sample flow, activation metrics", async () => {
@@ -1997,9 +2076,9 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
     await putTenantSettings({ tenantId, patch: { maxVerificationsPerMonth: 5 } });
 
-    const fxInvoiceFailA = path.resolve(process.cwd(), "test/fixtures/bundles/v1/invoicebundle/strict-fail-evidence-sha-mismatch");
-    const fxInvoiceFailB = path.resolve(process.cwd(), "test/fixtures/bundles/v1/invoicebundle/strict-fail-invalid-pricing-matrix-signature");
-    const fxInvoiceFailC = path.resolve(process.cwd(), "test/fixtures/bundles/v1/invoicebundle/strict-fail-pricing-altered");
+    const fxInvoiceFailA = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "invoicebundle", "strict-fail-evidence-sha-mismatch");
+    const fxInvoiceFailB = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "invoicebundle", "strict-fail-invalid-pricing-matrix-signature");
+    const fxInvoiceFailC = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "invoicebundle", "strict-fail-pricing-altered");
     const zipInvoiceFailA = await zipDir(fxInvoiceFailA);
     const zipInvoiceFailB = await zipDir(fxInvoiceFailB);
     const zipInvoiceFailC = await zipDir(fxInvoiceFailC);
@@ -2184,7 +2263,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     await putTenantSettings({ tenantId, patch: { maxVerificationsPerMonth: 1 } });
 
     const ok1 = await uploadZip({ zipBuf: zip, mode: "strict", tenantId });
-    const fx2 = path.resolve(process.cwd(), "test/fixtures/bundles/v1/invoicebundle/strict-fail-invoice-total-mismatch");
+    const fx2 = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "invoicebundle", "strict-fail-invoice-total-mismatch");
     const zip2 = await zipDir(fx2);
     const bad = await uploadZipRaw({ zipBuf: zip2, mode: "strict", tenantId });
     assert.equal(bad.statusCode, 429);
@@ -2203,7 +2282,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     await putTenantSettings({ tenantId, patch: { maxStoredBundles: 1 } });
 
     const ok1 = await uploadZip({ zipBuf: zip, mode: "strict", tenantId });
-    const fx2 = path.resolve(process.cwd(), "test/fixtures/bundles/v1/invoicebundle/strict-fail-pricing-code-unknown");
+    const fx2 = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "invoicebundle", "strict-fail-pricing-code-unknown");
     const zip2 = await zipDir(fx2);
     const bad = await uploadZipRaw({ zipBuf: zip2, mode: "strict", tenantId });
     assert.equal(bad.statusCode, 429);
@@ -2222,7 +2301,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const tenantUpload = "tenant_rate_limit_upload";
     await putTenantSettings({ tenantId: tenantUpload, patch: { rateLimits: { uploadsPerHour: 1 } } });
     await uploadZip({ zipBuf: zip, mode: "strict", tenantId: tenantUpload });
-    const fx2 = path.resolve(process.cwd(), "test/fixtures/bundles/v1/invoicebundle/strict-fail-pricing-code-unknown");
+    const fx2 = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "invoicebundle", "strict-fail-pricing-code-unknown");
     const zip2 = await zipDir(fx2);
     const blockedUpload = await uploadZipRaw({ zipBuf: zip2, mode: "strict", tenantId: tenantUpload });
     assert.equal(blockedUpload.statusCode, 429);
@@ -2344,7 +2423,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const afterRerun = await listFilesRecursive(path.join(dataDir, "buyer-notification-outbox")).catch(() => []);
     assert.equal(afterRerun.length, after.length, "rerun upload must not enqueue a second notification for an already-sent token");
 
-    const fxRunDup = path.resolve(process.cwd(), "test/fixtures/bundles/v1/invoicebundle/strict-fail-invoice-total-mismatch");
+    const fxRunDup = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "invoicebundle", "strict-fail-invoice-total-mismatch");
     const zipRunDup = await zipDir(fxRunDup);
     const upRunDup = await uploadZip({ zipBuf: zipRunDup, mode: "strict", tenantId, runId });
     assert.notEqual(upRunDup.token, up.token);
@@ -2464,7 +2543,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const keysPath = path.join(dataDir, `offline_${up.token}_buyer_keys.json`);
     await fs.writeFile(keysPath, JSON.stringify({ [buyerDecisionKeyId]: buyerSigner.publicKeyPem }, null, 2) + "\n", "utf8");
 
-    const nodeBin = path.resolve(process.cwd(), "packages/artifact-verify/bin/settld-verify.js");
+    const nodeBin = path.join(REPO_ROOT, "packages", "artifact-verify", "bin", "settld-verify.js");
     const run = spawnSync(process.execPath, [nodeBin, "--format", "json", "--invoice-bundle", bundleZipPath, "--settlement-decision", decisionPath, "--trusted-buyer-keys", keysPath], {
       encoding: "utf8",
       env: { ...process.env, LANG: "C", LC_ALL: "C" }
@@ -2721,12 +2800,10 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
       res.statusCode = 204;
       res.end("");
     });
-    await new Promise((resolve) => deliveryServer.listen(0, "127.0.0.1", resolve));
+    const { port } = await listenOnEphemeralLoopback(deliveryServer);
     await t.after(async () => {
       await new Promise((resolve) => deliveryServer.close(() => resolve()));
     });
-    const addr = deliveryServer.address();
-    const port = typeof addr === "object" && addr ? addr.port : 0;
     await putTenantSettings({
       tenantId,
       patch: {
@@ -2798,12 +2875,10 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
       res.statusCode = 204;
       res.end("");
     });
-    await new Promise((resolve) => deliveryServer.listen(0, "127.0.0.1", resolve));
+    const { port } = await listenOnEphemeralLoopback(deliveryServer);
     await t.after(async () => {
       await new Promise((resolve) => deliveryServer.close(() => resolve()));
     });
-    const addr = deliveryServer.address();
-    const port = typeof addr === "object" && addr ? addr.port : 0;
     const webhookUrl = `http://127.0.0.1:${port}/hook`;
 
     await putTenantSettings({
@@ -3440,7 +3515,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = "";
     process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = "";
 
-    const fxWarn = path.resolve(process.cwd(), "test/fixtures/bundles/v1/invoicebundle/nonstrict-pass-missing-verification-report");
+    const fxWarn = path.join(REPO_ROOT, "test", "fixtures", "bundles", "v1", "invoicebundle", "nonstrict-pass-missing-verification-report");
     const zipWarn = await zipDir(fxWarn);
 
     const key = await createIngestKey({ tenantId, vendorId: "vendor_warn", vendorName: "Vendor Warn" });

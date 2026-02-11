@@ -256,9 +256,9 @@ export type AgentReputationV2 = {
 
 export type AgentReputation = AgentReputationV1 | AgentReputationV2;
 
-export type MarketplaceTaskV1 = {
-  schemaVersion: "MarketplaceTask.v1";
-  taskId: string;
+export type MarketplaceRfqV1 = {
+  schemaVersion: "MarketplaceRfq.v1";
+  rfqId: string;
   tenantId: string;
   title: string;
   description?: string | null;
@@ -439,11 +439,11 @@ export type AgentActingOnBehalfOfV1 = {
   chainHash?: string | null;
 };
 
-export type MarketplaceAgreementAcceptanceSignatureV1 = {
-  schemaVersion: "MarketplaceAgreementAcceptanceSignature.v1";
+export type MarketplaceAgreementAcceptanceSignatureV2 = {
+  schemaVersion: "MarketplaceAgreementAcceptanceSignature.v2";
   agreementId: string;
   tenantId: string;
-  taskId: string;
+  rfqId: string;
   runId: string;
   bidId: string;
   acceptedByAgentId: string;
@@ -471,12 +471,12 @@ export type MarketplaceAgreementAcceptanceSignatureInput = {
   signature: string;
 };
 
-export type MarketplaceAgreementChangeOrderAcceptanceSignatureV1 = {
-  schemaVersion: "MarketplaceAgreementChangeOrderAcceptanceSignature.v1";
+export type MarketplaceAgreementChangeOrderAcceptanceSignatureV2 = {
+  schemaVersion: "MarketplaceAgreementChangeOrderAcceptanceSignature.v2";
   tenantId: string;
   runId: string;
   agreementId: string;
-  taskId: string;
+  rfqId: string;
   bidId: string;
   changeOrderId: string;
   requestedByAgentId: string;
@@ -497,12 +497,12 @@ export type MarketplaceAgreementChangeOrderAcceptanceSignatureV1 = {
   signature: string;
 };
 
-export type MarketplaceAgreementCancellationAcceptanceSignatureV1 = {
-  schemaVersion: "MarketplaceAgreementCancellationAcceptanceSignature.v1";
+export type MarketplaceAgreementCancellationAcceptanceSignatureV2 = {
+  schemaVersion: "MarketplaceAgreementCancellationAcceptanceSignature.v2";
   tenantId: string;
   runId: string;
   agreementId: string;
-  taskId: string;
+  rfqId: string;
   bidId: string;
   cancellationId: string;
   cancelledByAgentId: string;
@@ -522,11 +522,11 @@ export type MarketplaceAgreementCancellationAcceptanceSignatureV1 = {
   signature: string;
 };
 
-export type MarketplaceAgreementPolicyBindingV1 = {
-  schemaVersion: "MarketplaceAgreementPolicyBinding.v1";
+export type MarketplaceAgreementPolicyBindingV2 = {
+  schemaVersion: "MarketplaceAgreementPolicyBinding.v2";
   agreementId: string;
   tenantId: string;
-  taskId: string;
+  rfqId: string;
   runId: string;
   bidId: string;
   acceptedAt?: string | null;
@@ -592,11 +592,11 @@ export type MarketplaceAgreementNegotiationV1 = {
   proposalCount: number;
 };
 
-export type MarketplaceTaskAgreementV1 = {
-  schemaVersion: "MarketplaceTaskAgreement.v1";
+export type MarketplaceTaskAgreementV2 = {
+  schemaVersion: "MarketplaceTaskAgreement.v2";
   agreementId: string;
   tenantId: string;
-  taskId: string;
+  rfqId: string;
   runId: string;
   bidId: string;
   payerAgentId: string;
@@ -616,12 +616,12 @@ export type MarketplaceTaskAgreementV1 = {
   acceptedProposalHash?: string | null;
   negotiation?: MarketplaceAgreementNegotiationV1 | null;
   acceptance?: MarketplaceAgreementAcceptanceV1 | null;
-  acceptanceSignature?: MarketplaceAgreementAcceptanceSignatureV1 | null;
+  acceptanceSignature?: MarketplaceAgreementAcceptanceSignatureV2 | null;
   termsHash: string;
   verificationMethodHash: string;
   policyHash: string;
   policyRef: MarketplaceSettlementPolicyRefV1;
-  policyBinding?: MarketplaceAgreementPolicyBindingV1 | null;
+  policyBinding?: MarketplaceAgreementPolicyBindingV2 | null;
   verificationMethod?: VerificationMethodV1;
   policy?: SettlementPolicyV1;
   terms?: MarketplaceAgreementTermsV1;
@@ -630,7 +630,7 @@ export type MarketplaceTaskAgreementV1 = {
 export type MarketplaceBidV1 = {
   schemaVersion: "MarketplaceBid.v1";
   bidId: string;
-  taskId: string;
+  rfqId: string;
   tenantId: string;
   fromType?: InteractionEntityType;
   toType?: InteractionEntityType;
@@ -651,6 +651,8 @@ export type MarketplaceBidV1 = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type MarketplaceRfqBidV1 = MarketplaceBidV1;
 
 export type AgentRegistrationInput = {
   publicKeyPem: string;
@@ -835,9 +837,9 @@ export class SettldClient {
     policyVersion: number,
     opts?: RequestOptions
   ): Promise<SettldResponse<{ policy: TenantSettlementPolicyV1 }>>;
-  createMarketplaceTask(
+  createMarketplaceRfq(
     body: {
-      taskId?: string;
+      rfqId?: string;
       title?: string;
       description?: string;
       capability?: string;
@@ -856,8 +858,8 @@ export class SettldClient {
       metadata?: Record<string, unknown>;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ task: MarketplaceTaskV1 }>>;
-  listMarketplaceTasks(
+  ): Promise<SettldResponse<{ rfq: MarketplaceRfqV1 }>>;
+  listMarketplaceRfqs(
     params?: {
       status?: "open" | "assigned" | "cancelled" | "closed" | "all";
       capability?: string;
@@ -866,9 +868,9 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ tasks: MarketplaceTaskV1[]; total: number; limit: number; offset: number }>>;
+  ): Promise<SettldResponse<{ rfqs: MarketplaceRfqV1[]; total: number; limit: number; offset: number }>>;
   submitMarketplaceBid(
-    taskId: string,
+    rfqId: string,
     body: {
       bidId?: string;
       proposalId?: string;
@@ -912,9 +914,9 @@ export class SettldClient {
       metadata?: Record<string, unknown>;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ task: MarketplaceTaskV1; bid: MarketplaceBidV1 }>>;
+  ): Promise<SettldResponse<{ rfq: MarketplaceRfqV1; bid: MarketplaceRfqBidV1 }>>;
   listMarketplaceBids(
-    taskId: string,
+    rfqId: string,
     params?: {
       status?: "pending" | "accepted" | "rejected" | "all";
       bidderAgentId?: string;
@@ -922,9 +924,9 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ taskId: string; bids: MarketplaceBidV1[]; total: number; limit: number; offset: number }>>;
+  ): Promise<SettldResponse<{ rfqId: string; bids: MarketplaceRfqBidV1[]; total: number; limit: number; offset: number }>>;
   applyMarketplaceBidCounterOffer(
-    taskId: string,
+    rfqId: string,
     bidId: string,
     body: {
       proposalId?: string;
@@ -968,14 +970,14 @@ export class SettldClient {
     opts?: RequestOptions
   ): Promise<
     SettldResponse<{
-      task: MarketplaceTaskV1;
-      bid: MarketplaceBidV1;
+      rfq: MarketplaceRfqV1;
+      bid: MarketplaceRfqBidV1;
       negotiation: MarketplaceBidNegotiationV1;
       proposal: MarketplaceBidNegotiationProposalV1;
     }>
   >;
   acceptMarketplaceBid(
-    taskId: string,
+    rfqId: string,
     body: {
       bidId: string;
       acceptedByAgentId?: string;
@@ -1061,11 +1063,11 @@ export class SettldClient {
     opts?: RequestOptions
   ): Promise<
     SettldResponse<{
-      task: MarketplaceTaskV1;
-      acceptedBid: MarketplaceBidV1 | null;
+      rfq: MarketplaceRfqV1;
+      acceptedBid: MarketplaceRfqBidV1 | null;
       run: AgentRunV1;
       settlement: AgentRunSettlementV1;
-      agreement: MarketplaceTaskAgreementV1;
+      agreement: MarketplaceTaskAgreementV2;
     }>
   >;
   getAgentWallet(agentId: string, opts?: RequestOptions): Promise<SettldResponse<{ wallet: AgentWalletV1 }>>;
@@ -1114,9 +1116,9 @@ export class SettldClient {
   ): Promise<
     SettldResponse<{
       runId: string;
-      taskId?: string | null;
+      rfqId?: string | null;
       agreementId?: string | null;
-      agreement: MarketplaceTaskAgreementV1;
+      agreement: MarketplaceTaskAgreementV2;
       policyRef?: MarketplaceSettlementPolicyRefV1 | null;
       policyHash?: string | null;
       verificationMethodHash?: string | null;
@@ -1140,8 +1142,8 @@ export class SettldClient {
   ): Promise<
     SettldResponse<{
       runId: string;
-      task: MarketplaceTaskV1;
-      agreement: MarketplaceTaskAgreementV1;
+      rfq: MarketplaceRfqV1;
+      agreement: MarketplaceTaskAgreementV2;
       changeOrder: Record<string, unknown>;
       acceptanceSignatureVerification: Record<string, unknown>;
     }>
@@ -1160,10 +1162,10 @@ export class SettldClient {
   ): Promise<
     SettldResponse<{
       runId: string;
-      task: MarketplaceTaskV1;
+      rfq: MarketplaceRfqV1;
       run: AgentRunV1;
       settlement: AgentRunSettlementV1;
-      agreement: MarketplaceTaskAgreementV1 | null;
+      agreement: MarketplaceTaskAgreementV2 | null;
       cancellation: Record<string, unknown>;
       acceptanceSignatureVerification: Record<string, unknown>;
     }>
@@ -1179,7 +1181,7 @@ export class SettldClient {
       policyHash?: string | null;
       verificationMethodHash?: string | null;
       policyRef?: MarketplaceSettlementPolicyRefV1 | null;
-      policyBinding?: MarketplaceAgreementPolicyBindingV1 | null;
+      policyBinding?: MarketplaceAgreementPolicyBindingV2 | null;
       policyBindingVerification: Record<string, unknown>;
       acceptanceSignatureVerification: Record<string, unknown>;
       runStatus?: string | null;
@@ -1202,6 +1204,42 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<SettldResponse<{ settlement: AgentRunSettlementV1 }>>;
+
+  opsLockToolCallHold(body: Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<{ hold: Record<string, unknown> }>>;
+  opsListToolCallHolds(
+    params?: { agreementHash?: string; status?: string; limit?: number; offset?: number },
+    opts?: RequestOptions
+  ): Promise<
+    SettldResponse<{
+      ok: boolean;
+      tenantId: string;
+      agreementHash: string | null;
+      status: string | null;
+      limit: number;
+      offset: number;
+      holds: Array<Record<string, unknown>>;
+    }>
+  >;
+  opsGetToolCallHold(holdHash: string, opts?: RequestOptions): Promise<SettldResponse<{ ok: boolean; tenantId: string; hold: Record<string, unknown> }>>;
+  opsRunToolCallHoldbackMaintenance(
+    body?: { dryRun?: boolean; limit?: number; maxHolds?: number } & Record<string, unknown>,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<Record<string, unknown>>>;
+  toolCallListArbitrationCases(
+    params?: { agreementHash?: string; status?: string },
+    opts?: RequestOptions
+  ): Promise<
+    SettldResponse<{
+      agreementHash: string;
+      runId: string;
+      cases: Array<Record<string, unknown>>;
+    }>
+  >;
+  toolCallGetArbitrationCase(caseId: string, opts?: RequestOptions): Promise<SettldResponse<{ caseId: string; arbitrationCase: Record<string, unknown> }>>;
+  toolCallOpenArbitration(body: Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  toolCallSubmitArbitrationVerdict(body: Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  opsGetSettlementAdjustment(adjustmentId: string, opts?: RequestOptions): Promise<SettldResponse<{ ok: boolean; tenantId: string; adjustment: Record<string, unknown> }>>;
+
   openRunDispute(
     runId: string,
     body?: {

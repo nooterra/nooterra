@@ -411,24 +411,55 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
-    if (kind === "MARKETPLACE_TASK_UPSERT") {
+    if (kind === "TOOL_CALL_HOLD_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
-      const task = op.task ?? null;
-      if (!task || typeof task !== "object" || Array.isArray(task)) throw new TypeError("MARKETPLACE_TASK_UPSERT requires task");
-      const taskId = task.taskId ?? null;
-      if (!taskId) throw new TypeError("MARKETPLACE_TASK_UPSERT requires task.taskId");
+      const hold = op.hold ?? null;
+      if (!hold || typeof hold !== "object" || Array.isArray(hold)) throw new TypeError("TOOL_CALL_HOLD_UPSERT requires hold");
+      const holdHash = hold.holdHash ?? op.holdHash ?? null;
+      if (!holdHash) throw new TypeError("TOOL_CALL_HOLD_UPSERT requires hold.holdHash");
+      if (!(store.toolCallHolds instanceof Map)) store.toolCallHolds = new Map();
+      const key = makeScopedKey({ tenantId, id: String(holdHash) });
+      store.toolCallHolds.set(key, { ...hold, tenantId, holdHash: String(holdHash) });
+      continue;
+    }
+
+    if (kind === "SETTLEMENT_ADJUSTMENT_PUT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const adjustment = op.adjustment ?? null;
+      if (!adjustment || typeof adjustment !== "object" || Array.isArray(adjustment)) {
+        throw new TypeError("SETTLEMENT_ADJUSTMENT_PUT requires adjustment");
+      }
+      const adjustmentId = adjustment.adjustmentId ?? op.adjustmentId ?? null;
+      if (!adjustmentId) throw new TypeError("SETTLEMENT_ADJUSTMENT_PUT requires adjustment.adjustmentId");
+      if (!(store.settlementAdjustments instanceof Map)) store.settlementAdjustments = new Map();
+      const key = makeScopedKey({ tenantId, id: String(adjustmentId) });
+      if (store.settlementAdjustments.has(key)) {
+        const err = new Error("settlement adjustment already exists");
+        err.code = "ADJUSTMENT_ALREADY_EXISTS";
+        throw err;
+      }
+      store.settlementAdjustments.set(key, { ...adjustment, tenantId, adjustmentId: String(adjustmentId) });
+      continue;
+    }
+
+    if (kind === "MARKETPLACE_RFQ_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const rfq = op.rfq ?? null;
+      if (!rfq || typeof rfq !== "object" || Array.isArray(rfq)) throw new TypeError("MARKETPLACE_RFQ_UPSERT requires rfq");
+      const rfqId = rfq.rfqId ?? null;
+      if (!rfqId) throw new TypeError("MARKETPLACE_RFQ_UPSERT requires rfq.rfqId");
       const direction = normalizeMarketplaceDirectionForReplay({
-        fromType: task.fromType,
-        toType: task.toType
+        fromType: rfq.fromType,
+        toType: rfq.toType
       });
-      if (!(store.marketplaceTasks instanceof Map)) store.marketplaceTasks = new Map();
-      const key = makeScopedKey({ tenantId, id: String(taskId) });
-      store.marketplaceTasks.set(
+      if (!(store.marketplaceRfqs instanceof Map)) store.marketplaceRfqs = new Map();
+      const key = makeScopedKey({ tenantId, id: String(rfqId) });
+      store.marketplaceRfqs.set(
         key,
         {
-          ...task,
+          ...rfq,
           tenantId,
-          taskId: String(taskId),
+          rfqId: String(rfqId),
           fromType: direction.fromType,
           toType: direction.toType
         }
@@ -436,15 +467,15 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
-    if (kind === "MARKETPLACE_TASK_BIDS_SET") {
+    if (kind === "MARKETPLACE_RFQ_BIDS_SET") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
-      const taskId = op.taskId ?? null;
+      const rfqId = op.rfqId ?? null;
       const bids = op.bids ?? null;
-      if (!taskId) throw new TypeError("MARKETPLACE_TASK_BIDS_SET requires taskId");
-      if (!Array.isArray(bids)) throw new TypeError("MARKETPLACE_TASK_BIDS_SET requires bids[]");
-      if (!(store.marketplaceTaskBids instanceof Map)) store.marketplaceTaskBids = new Map();
-      const key = makeScopedKey({ tenantId, id: String(taskId) });
-      store.marketplaceTaskBids.set(
+      if (!rfqId) throw new TypeError("MARKETPLACE_RFQ_BIDS_SET requires rfqId");
+      if (!Array.isArray(bids)) throw new TypeError("MARKETPLACE_RFQ_BIDS_SET requires bids[]");
+      if (!(store.marketplaceRfqBids instanceof Map)) store.marketplaceRfqBids = new Map();
+      const key = makeScopedKey({ tenantId, id: String(rfqId) });
+      store.marketplaceRfqBids.set(
         key,
         bids.map((bid) => {
           if (!bid || typeof bid !== "object" || Array.isArray(bid)) return bid;
@@ -455,7 +486,7 @@ export function applyTxRecord(store, record) {
           return {
             ...bid,
             tenantId,
-            taskId: String(taskId),
+            rfqId: String(rfqId),
             fromType: direction.fromType,
             toType: direction.toType
           };
@@ -483,6 +514,23 @@ export function applyTxRecord(store, record) {
         tenantId,
         policyId,
         policyVersion
+      });
+      continue;
+    }
+
+    if (kind === "TENANT_SETTLEMENT_POLICY_ROLLOUT_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const rollout = op.rollout ?? null;
+      if (!rollout || typeof rollout !== "object" || Array.isArray(rollout)) {
+        throw new TypeError("TENANT_SETTLEMENT_POLICY_ROLLOUT_UPSERT requires rollout");
+      }
+      if (!(store.tenantSettlementPolicyRollouts instanceof Map)) {
+        store.tenantSettlementPolicyRollouts = new Map();
+      }
+      const key = makeScopedKey({ tenantId, id: "rollout" });
+      store.tenantSettlementPolicyRollouts.set(key, {
+        ...rollout,
+        tenantId
       });
       continue;
     }

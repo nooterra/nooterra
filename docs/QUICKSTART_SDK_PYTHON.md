@@ -74,18 +74,18 @@ result = client.first_verified_run(
 )
 ```
 
-## 5) Run a paid marketplace task flow
+## 5) Run a paid marketplace RFQ flow
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python3 scripts/examples/sdk-first-paid-task.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/examples/sdk-first-paid-rfq.py
 ```
 
 Expected output:
 
 ```json
 {
-  "taskId": "task_py_...",
-  "runId": "run_task_py_...",
+  "rfqId": "rfq_py_...",
+  "runId": "run_rfq_py_...",
   "posterAgentId": "agt_py_poster_...",
   "bidderAgentId": "agt_py_bidder_...",
   "verificationStatus": "green",

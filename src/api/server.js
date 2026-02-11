@@ -57,6 +57,9 @@ async function runAutotickOnce() {
     if (typeof api.tickBillingStripeSync === "function") {
       await api.tickBillingStripeSync({ maxRows: autotickMaxMessages });
     }
+    if (typeof api.tickFinanceReconciliation === "function") {
+      await api.tickFinanceReconciliation({ maxTenants: autotickMaxMessages, maxPeriodsPerTenant: 1 });
+    }
     autotickLastSuccessAt = new Date().toISOString();
     try {
       store.__autotickLastSuccessAt = autotickLastSuccessAt;

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/SettlementReceipt.v1.schema.json",
+  "title": "SettlementReceipt.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "receiptId",
+    "tenantId",
+    "runId",
+    "settlementId",
+    "decisionRef",
+    "status",
+    "amountCents",
+    "releasedAmountCents",
+    "refundedAmountCents",
+    "releaseRatePct",
+    "currency",
+    "runStatus",
+    "resolutionEventId",
+    "finalityProvider",
+    "finalityState",
+    "settledAt",
+    "createdAt",
+    "receiptHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "SettlementReceipt.v1" },
+    "receiptId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "tenantId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "settlementId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "decisionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["decisionId", "decisionHash"],
+      "properties": {
+        "decisionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "decisionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "status": { "type": "string", "enum": ["locked", "released", "refunded"] },
+    "amountCents": { "type": "integer", "minimum": 1 },
+    "releasedAmountCents": { "type": "integer", "minimum": 0 },
+    "refundedAmountCents": { "type": "integer", "minimum": 0 },
+    "releaseRatePct": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "currency": { "type": "string", "minLength": 3, "maxLength": 12, "pattern": "^[A-Z][A-Z0-9_]{2,11}$" },
+    "runStatus": { "type": ["string", "null"], "maxLength": 64 },
+    "resolutionEventId": { "type": ["string", "null"], "maxLength": 200 },
+    "finalityProvider": { "type": "string", "enum": ["internal_ledger"] },
+    "finalityState": { "type": "string", "enum": ["pending", "final"] },
+    "settledAt": { "type": ["string", "null"], "format": "date-time" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "receiptHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

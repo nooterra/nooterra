@@ -27,6 +27,7 @@ See `docs/RELEASE_CHECKLIST.md` for the definitive artifact completeness require
    - `git push origin vX.Y.Z`
 
 On tag push, GitHub Actions builds and publishes release artifacts (Docker image, Helm chart, npm pack tarballs, Python wheel/sdist artifacts, SHA256SUMS).
+The `release_gate` job also runs a staging billing smoke (`dev:billing:smoke:prod`) and uploads `billing-smoke-prod.log` + `billing-smoke-status.json` as gate artifacts.
 
 Python package publishing uses PyPI Trusted Publishing (OIDC) via either:
 

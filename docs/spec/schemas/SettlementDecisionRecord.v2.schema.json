@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/SettlementDecisionRecord.v2.schema.json",
+  "title": "SettlementDecisionRecord.v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "decisionId",
+    "tenantId",
+    "runId",
+    "settlementId",
+    "decisionStatus",
+    "decisionMode",
+    "policyRef",
+    "policyHashUsed",
+    "verifierRef",
+    "workRef",
+    "decidedAt",
+    "decisionHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "SettlementDecisionRecord.v2" },
+    "decisionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "tenantId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "settlementId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "agreementId": { "type": ["string", "null"], "maxLength": 200 },
+    "decisionStatus": { "type": "string", "enum": ["pending", "auto_resolved", "manual_review_required", "manual_resolved"] },
+    "decisionMode": { "type": "string", "enum": ["automatic", "manual-review"] },
+    "decisionReason": { "type": ["string", "null"], "maxLength": 2000 },
+    "verificationStatus": { "type": ["string", "null"], "enum": ["green", "amber", "red", null] },
+    "policyNormalizationVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "policyRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policyHash", "verificationMethodHash"],
+      "properties": {
+        "policyHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "verificationMethodHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "policyHashUsed": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "verificationMethodHashUsed": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "verifierRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["verifierId", "verifierVersion", "verifierHash", "modality"],
+      "properties": {
+        "verifierId": { "type": ["string", "null"], "maxLength": 200 },
+        "verifierVersion": { "type": ["string", "null"], "maxLength": 100 },
+        "verifierHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+        "modality": { "type": ["string", "null"], "enum": ["deterministic", "attested", "discretionary", null] }
+      }
+    },
+    "workRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runStatus", "runLastEventId", "runLastChainHash", "resolutionEventId"],
+      "properties": {
+        "runStatus": { "type": ["string", "null"], "maxLength": 64 },
+        "runLastEventId": { "type": ["string", "null"], "maxLength": 200 },
+        "runLastChainHash": { "type": ["string", "null"], "maxLength": 200 },
+        "resolutionEventId": { "type": ["string", "null"], "maxLength": 200 }
+      }
+    },
+    "decidedAt": { "type": "string", "format": "date-time" },
+    "decisionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

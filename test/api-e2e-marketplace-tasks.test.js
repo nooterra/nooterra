@@ -114,7 +114,7 @@ function buildActingOnBehalfOf({ principalAgentId, delegateAgentId, delegationCh
   );
 }
 
-test("API e2e: marketplace task -> bids -> accept flow", async () => {
+test("API e2e: marketplace rfq -> bids -> accept flow", async () => {
   const api = createApi();
 
   await registerAgent(api, "agt_market_poster");
@@ -129,10 +129,10 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_rfq_create_1" },
     body: {
-      taskId: "task_translate_1",
+      rfqId: "rfq_translate_1",
       title: "Translate release notes",
       capability: "translate",
       posterAgentId: "agt_market_poster",
@@ -141,17 +141,17 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
     }
   });
   assert.equal(createTask.statusCode, 201);
-  assert.equal(createTask.json?.task?.taskId, "task_translate_1");
-  assert.equal(createTask.json?.task?.status, "open");
-  assert.equal(createTask.json?.task?.fromType, "agent");
-  assert.equal(createTask.json?.task?.toType, "agent");
+  assert.equal(createTask.json?.rfq?.rfqId, "rfq_translate_1");
+  assert.equal(createTask.json?.rfq?.status, "open");
+  assert.equal(createTask.json?.rfq?.fromType, "agent");
+  assert.equal(createTask.json?.rfq?.toType, "agent");
 
   const replayTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_rfq_create_1" },
     body: {
-      taskId: "task_translate_1",
+      rfqId: "rfq_translate_1",
       title: "Translate release notes",
       capability: "translate",
       posterAgentId: "agt_market_poster",
@@ -160,11 +160,11 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
     }
   });
   assert.equal(replayTask.statusCode, 201);
-  assert.equal(replayTask.json?.task?.taskId, "task_translate_1");
+  assert.equal(replayTask.json?.rfq?.rfqId, "rfq_translate_1");
 
   const bidA = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_translate_1/bids",
+    path: "/marketplace/rfqs/rfq_translate_1/bids",
     headers: { "x-idempotency-key": "market_bid_create_a" },
     body: {
       bidId: "bid_translate_a",
@@ -181,7 +181,7 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
 
   const bidB = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_translate_1/bids",
+    path: "/marketplace/rfqs/rfq_translate_1/bids",
     headers: { "x-idempotency-key": "market_bid_create_b" },
     body: {
       bidId: "bid_translate_b",
@@ -198,15 +198,15 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
 
   const listTasks = await request(api, {
     method: "GET",
-    path: "/marketplace/tasks?status=open&capability=translate&posterAgentId=agt_market_poster&limit=10&offset=0"
+    path: "/marketplace/rfqs?status=open&capability=translate&posterAgentId=agt_market_poster&limit=10&offset=0"
   });
   assert.equal(listTasks.statusCode, 200);
   assert.equal(listTasks.json?.total, 1);
-  assert.equal(listTasks.json?.tasks?.[0]?.taskId, "task_translate_1");
+  assert.equal(listTasks.json?.rfqs?.[0]?.rfqId, "rfq_translate_1");
 
   const listBids = await request(api, {
     method: "GET",
-    path: "/marketplace/tasks/task_translate_1/bids?status=all&limit=10&offset=0"
+    path: "/marketplace/rfqs/rfq_translate_1/bids?status=all&limit=10&offset=0"
   });
   assert.equal(listBids.statusCode, 200);
   assert.equal(listBids.json?.total, 2);
@@ -214,7 +214,7 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
 
   const acceptBid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_translate_1/accept",
+    path: "/marketplace/rfqs/rfq_translate_1/accept",
     headers: { "x-idempotency-key": "market_accept_1" },
     body: {
       bidId: "bid_translate_b",
@@ -222,8 +222,8 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
     }
   });
   assert.equal(acceptBid.statusCode, 200);
-  assert.equal(acceptBid.json?.task?.status, "assigned");
-  assert.equal(acceptBid.json?.task?.acceptedBidId, "bid_translate_b");
+  assert.equal(acceptBid.json?.rfq?.status, "assigned");
+  assert.equal(acceptBid.json?.rfq?.acceptedBidId, "bid_translate_b");
   assert.equal(acceptBid.json?.acceptedBid?.status, "accepted");
   assert.equal(acceptBid.json?.run?.status, "created");
   assert.equal(acceptBid.json?.run?.agentId, "agt_market_bidder_b");
@@ -233,7 +233,7 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
   assert.equal(acceptBid.json?.agreement?.payerAgentId, "agt_market_poster");
   assert.equal(acceptBid.json?.agreement?.fromType, "agent");
   assert.equal(acceptBid.json?.agreement?.toType, "agent");
-  assert.equal(acceptBid.json?.task?.runId, acceptBid.json?.run?.runId);
+  assert.equal(acceptBid.json?.rfq?.runId, acceptBid.json?.run?.runId);
 
   const settlement = await request(api, {
     method: "GET",
@@ -252,7 +252,7 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
 
   const listAccepted = await request(api, {
     method: "GET",
-    path: "/marketplace/tasks/task_translate_1/bids?status=accepted"
+    path: "/marketplace/rfqs/rfq_translate_1/bids?status=accepted"
   });
   assert.equal(listAccepted.statusCode, 200);
   assert.equal(listAccepted.json?.total, 1);
@@ -260,7 +260,7 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
 
   const listRejected = await request(api, {
     method: "GET",
-    path: "/marketplace/tasks/task_translate_1/bids?status=rejected"
+    path: "/marketplace/rfqs/rfq_translate_1/bids?status=rejected"
   });
   assert.equal(listRejected.statusCode, 200);
   assert.equal(listRejected.json?.total, 1);
@@ -268,7 +268,7 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
 
   const bidAfterAccept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_translate_1/bids",
+    path: "/marketplace/rfqs/rfq_translate_1/bids",
     body: {
       bidderAgentId: "agt_market_bidder_a",
       amountCents: 1700,
@@ -278,13 +278,29 @@ test("API e2e: marketplace task -> bids -> accept flow", async () => {
   assert.equal(bidAfterAccept.statusCode, 409);
 });
 
-test("API e2e: marketplace task/bid validation rejects unknown agents", async () => {
+test("API e2e: marketplace rfq create rejects legacy taskId field", async () => {
+  const api = createApi();
+  const response = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_rfq_reject_legacy_task_id" },
+    body: {
+      taskId: "task_legacy_1",
+      title: "Legacy payload",
+      capability: "translate"
+    }
+  });
+  assert.equal(response.statusCode, 400);
+  assert.equal(response.json?.error, "unsupported identifier field; use rfqId");
+});
+
+test("API e2e: marketplace rfq/bid validation rejects unknown agents", async () => {
   const api = createApi();
   await registerAgent(api, "agt_market_known");
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
+    path: "/marketplace/rfqs",
     body: {
       title: "Needs poster",
       capability: "translate",
@@ -295,9 +311,9 @@ test("API e2e: marketplace task/bid validation rejects unknown agents", async ()
 
   const createTaskKnown = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
+    path: "/marketplace/rfqs",
     body: {
-      taskId: "task_known_1",
+      rfqId: "rfq_known_1",
       title: "Known poster",
       capability: "translate",
       posterAgentId: "agt_market_known"
@@ -307,7 +323,7 @@ test("API e2e: marketplace task/bid validation rejects unknown agents", async ()
 
   const bidUnknown = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_known_1/bids",
+    path: "/marketplace/rfqs/rfq_known_1/bids",
     body: {
       bidderAgentId: "agt_missing_bidder",
       amountCents: 1000
@@ -317,7 +333,7 @@ test("API e2e: marketplace task/bid validation rejects unknown agents", async ()
 
   const invalidDirection = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
+    path: "/marketplace/rfqs",
     body: {
       title: "Invalid direction task",
       capability: "translate",
@@ -330,7 +346,7 @@ test("API e2e: marketplace task/bid validation rejects unknown agents", async ()
 
   const mismatchDirectionBid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_known_1/bids",
+    path: "/marketplace/rfqs/rfq_known_1/bids",
     body: {
       bidderAgentId: "agt_market_known",
       amountCents: 1000,
@@ -342,7 +358,7 @@ test("API e2e: marketplace task/bid validation rejects unknown agents", async ()
 
   const validBid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_known_1/bids",
+    path: "/marketplace/rfqs/rfq_known_1/bids",
     body: {
       bidId: "bid_known_1",
       bidderAgentId: "agt_market_known",
@@ -353,7 +369,7 @@ test("API e2e: marketplace task/bid validation rejects unknown agents", async ()
 
   const mismatchDirectionAccept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_known_1/accept",
+    path: "/marketplace/rfqs/rfq_known_1/accept",
     body: {
       bidId: "bid_known_1",
       fromType: "robot",
@@ -377,10 +393,10 @@ test("API e2e: marketplace settlement supports dispute open/close within window"
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_dispute_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_dispute_rfq_create_1" },
     body: {
-      taskId: "task_dispute_1",
+      rfqId: "rfq_dispute_1",
       title: "Dispute-capable task",
       capability: "translate",
       posterAgentId: "agt_market_dispute_poster",
@@ -392,7 +408,7 @@ test("API e2e: marketplace settlement supports dispute open/close within window"
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_dispute_1/bids",
+    path: "/marketplace/rfqs/rfq_dispute_1/bids",
     headers: { "x-idempotency-key": "market_dispute_bid_create_1" },
     body: {
       bidId: "bid_dispute_1",
@@ -406,7 +422,7 @@ test("API e2e: marketplace settlement supports dispute open/close within window"
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_dispute_1/accept",
+    path: "/marketplace/rfqs/rfq_dispute_1/accept",
     headers: { "x-idempotency-key": "market_dispute_accept_1" },
     body: {
       bidId: "bid_dispute_1",
@@ -570,10 +586,10 @@ test("API e2e: dispute evidence submissions and escalation transitions are persi
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_dispute_ctx_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_dispute_ctx_rfq_create_1" },
     body: {
-      taskId: "task_dispute_ctx_1",
+      rfqId: "rfq_dispute_ctx_1",
       title: "Dispute context task",
       capability: "translate",
       posterAgentId: "agt_market_dispute_ctx_poster",
@@ -585,7 +601,7 @@ test("API e2e: dispute evidence submissions and escalation transitions are persi
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_dispute_ctx_1/bids",
+    path: "/marketplace/rfqs/rfq_dispute_ctx_1/bids",
     headers: { "x-idempotency-key": "market_dispute_ctx_bid_create_1" },
     body: {
       bidId: "bid_dispute_ctx_1",
@@ -599,7 +615,7 @@ test("API e2e: dispute evidence submissions and escalation transitions are persi
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_dispute_ctx_1/accept",
+    path: "/marketplace/rfqs/rfq_dispute_ctx_1/accept",
     headers: { "x-idempotency-key": "market_dispute_ctx_accept_1" },
     body: {
       bidId: "bid_dispute_ctx_1",
@@ -725,10 +741,10 @@ test("API e2e: dispute close rejects arbitration verdict evidence outside disput
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_arb_bind_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_arb_bind_rfq_create_1" },
     body: {
-      taskId: "task_arb_bind_1",
+      rfqId: "rfq_arb_bind_1",
       title: "Arbitration evidence binding task",
       capability: "translate",
       posterAgentId: "agt_market_arb_bind_poster",
@@ -740,7 +756,7 @@ test("API e2e: dispute close rejects arbitration verdict evidence outside disput
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_arb_bind_1/bids",
+    path: "/marketplace/rfqs/rfq_arb_bind_1/bids",
     headers: { "x-idempotency-key": "market_arb_bind_bid_create_1" },
     body: {
       bidId: "bid_arb_bind_1",
@@ -754,7 +770,7 @@ test("API e2e: dispute close rejects arbitration verdict evidence outside disput
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_arb_bind_1/accept",
+    path: "/marketplace/rfqs/rfq_arb_bind_1/accept",
     headers: { "x-idempotency-key": "market_arb_bind_accept_1" },
     body: {
       bidId: "bid_arb_bind_1",
@@ -870,10 +886,10 @@ test("API e2e: dispute close rejects verdicts with invalid arbiter signature", a
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_dispute_sig_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_dispute_sig_rfq_create_1" },
     body: {
-      taskId: "task_dispute_sig_1",
+      rfqId: "rfq_dispute_sig_1",
       title: "Dispute signature task",
       capability: "translate",
       posterAgentId: "agt_market_dispute_sig_poster",
@@ -885,7 +901,7 @@ test("API e2e: dispute close rejects verdicts with invalid arbiter signature", a
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_dispute_sig_1/bids",
+    path: "/marketplace/rfqs/rfq_dispute_sig_1/bids",
     headers: { "x-idempotency-key": "market_dispute_sig_bid_create_1" },
     body: {
       bidId: "bid_dispute_sig_1",
@@ -899,7 +915,7 @@ test("API e2e: dispute close rejects verdicts with invalid arbiter signature", a
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_dispute_sig_1/accept",
+    path: "/marketplace/rfqs/rfq_dispute_sig_1/accept",
     headers: { "x-idempotency-key": "market_dispute_sig_accept_1" },
     body: {
       bidId: "bid_dispute_sig_1",
@@ -1012,10 +1028,10 @@ test("API e2e: appeal window enforcement rejects late signed verdicts but allows
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_dispute_window_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_dispute_window_rfq_create_1" },
     body: {
-      taskId: "task_dispute_window_1",
+      rfqId: "rfq_dispute_window_1",
       title: "Appeal window task",
       capability: "translate",
       posterAgentId: "agt_market_dispute_window_poster",
@@ -1027,7 +1043,7 @@ test("API e2e: appeal window enforcement rejects late signed verdicts but allows
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_dispute_window_1/bids",
+    path: "/marketplace/rfqs/rfq_dispute_window_1/bids",
     headers: { "x-idempotency-key": "market_dispute_window_bid_create_1" },
     body: {
       bidId: "bid_dispute_window_1",
@@ -1041,7 +1057,7 @@ test("API e2e: appeal window enforcement rejects late signed verdicts but allows
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_dispute_window_1/accept",
+    path: "/marketplace/rfqs/rfq_dispute_window_1/accept",
     headers: { "x-idempotency-key": "market_dispute_window_accept_1" },
     body: {
       bidId: "bid_dispute_window_1",
@@ -1170,10 +1186,10 @@ test("API e2e: arbitration case lifecycle supports deterministic assignment, sig
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_arb_lifecycle_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_arb_lifecycle_rfq_create_1" },
     body: {
-      taskId: "task_arb_lifecycle_1",
+      rfqId: "rfq_arb_lifecycle_1",
       title: "Arbitration lifecycle task",
       capability: "translate",
       posterAgentId: "agt_market_arb_lifecycle_poster",
@@ -1185,7 +1201,7 @@ test("API e2e: arbitration case lifecycle supports deterministic assignment, sig
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_arb_lifecycle_1/bids",
+    path: "/marketplace/rfqs/rfq_arb_lifecycle_1/bids",
     headers: { "x-idempotency-key": "market_arb_lifecycle_bid_create_1" },
     body: {
       bidId: "bid_arb_lifecycle_1",
@@ -1199,7 +1215,7 @@ test("API e2e: arbitration case lifecycle supports deterministic assignment, sig
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_arb_lifecycle_1/accept",
+    path: "/marketplace/rfqs/rfq_arb_lifecycle_1/accept",
     headers: { "x-idempotency-key": "market_arb_lifecycle_accept_1" },
     body: {
       bidId: "bid_arb_lifecycle_1",
@@ -1408,16 +1424,16 @@ test("API e2e: marketplace supports all interaction directions", async () => {
 
   for (let index = 0; index < directionPairs.length; index += 1) {
     const pair = directionPairs[index];
-    const taskId = `task_dir_${pair.fromType}_${pair.toType}_${index}`;
+    const rfqId = `rfq_dir_${pair.fromType}_${pair.toType}_${index}`;
     const bidId = `bid_dir_${pair.fromType}_${pair.toType}_${index}`;
     const idBase = `market_dir_${pair.fromType}_${pair.toType}_${index}`;
 
     const createTask = await request(api, {
       method: "POST",
-      path: "/marketplace/tasks",
+      path: "/marketplace/rfqs",
       headers: { "x-idempotency-key": `${idBase}_task` },
       body: {
-        taskId,
+        rfqId,
         title: `${pair.fromType} to ${pair.toType}`,
         capability: "translate",
         posterAgentId: "agt_market_dir_poster",
@@ -1428,12 +1444,12 @@ test("API e2e: marketplace supports all interaction directions", async () => {
       }
     });
     assert.equal(createTask.statusCode, 201);
-    assert.equal(createTask.json?.task?.fromType, pair.fromType);
-    assert.equal(createTask.json?.task?.toType, pair.toType);
+    assert.equal(createTask.json?.rfq?.fromType, pair.fromType);
+    assert.equal(createTask.json?.rfq?.toType, pair.toType);
 
     const bid = await request(api, {
       method: "POST",
-      path: `/marketplace/tasks/${encodeURIComponent(taskId)}/bids`,
+      path: `/marketplace/rfqs/${encodeURIComponent(rfqId)}/bids`,
       headers: { "x-idempotency-key": `${idBase}_bid` },
       body: {
         bidId,
@@ -1450,7 +1466,7 @@ test("API e2e: marketplace supports all interaction directions", async () => {
 
     const accept = await request(api, {
       method: "POST",
-      path: `/marketplace/tasks/${encodeURIComponent(taskId)}/accept`,
+      path: `/marketplace/rfqs/${encodeURIComponent(rfqId)}/accept`,
       headers: { "x-idempotency-key": `${idBase}_accept` },
       body: {
         bidId,
@@ -1478,10 +1494,10 @@ test("API e2e: policy can require manual settlement review and resolve", async (
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_policy_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_policy_rfq_create_1" },
     body: {
-      taskId: "task_policy_1",
+      rfqId: "rfq_policy_1",
       title: "Policy-gated settlement task",
       capability: "translate",
       posterAgentId: "agt_market_policy_poster",
@@ -1493,7 +1509,7 @@ test("API e2e: policy can require manual settlement review and resolve", async (
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_policy_1/bids",
+    path: "/marketplace/rfqs/rfq_policy_1/bids",
     headers: { "x-idempotency-key": "market_policy_bid_create_1" },
     body: {
       bidId: "bid_policy_1",
@@ -1516,7 +1532,7 @@ test("API e2e: policy can require manual settlement review and resolve", async (
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_policy_1/accept",
+    path: "/marketplace/rfqs/rfq_policy_1/accept",
     headers: { "x-idempotency-key": "market_policy_accept_1" },
     body: {
       bidId: "bid_policy_1",
@@ -1608,10 +1624,10 @@ test("API e2e: policy can require manual settlement review and resolve", async (
 
   const taskListClosed = await request(api, {
     method: "GET",
-    path: "/marketplace/tasks?status=closed"
+    path: "/marketplace/rfqs?status=closed"
   });
   assert.equal(taskListClosed.statusCode, 200);
-  const closedTask = (taskListClosed.json?.tasks ?? []).find((task) => task?.taskId === "task_policy_1") ?? null;
+  const closedTask = (taskListClosed.json?.rfqs ?? []).find((task) => task?.rfqId === "rfq_policy_1") ?? null;
   assert.ok(closedTask);
   assert.equal(closedTask?.settlementDecisionStatus, "manual_resolved");
   assert.equal(closedTask?.settlementDecisionReason, "manual policy override");
@@ -1630,10 +1646,10 @@ test("API e2e: manual-review settlement preserves dispute window for post-resolv
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_policy_window_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_policy_window_rfq_create_1" },
     body: {
-      taskId: "task_policy_window_1",
+      rfqId: "rfq_policy_window_1",
       title: "Manual review dispute-window regression",
       capability: "translate",
       posterAgentId: "agt_market_policy_window_poster",
@@ -1645,7 +1661,7 @@ test("API e2e: manual-review settlement preserves dispute window for post-resolv
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_policy_window_1/bids",
+    path: "/marketplace/rfqs/rfq_policy_window_1/bids",
     headers: { "x-idempotency-key": "market_policy_window_bid_create_1" },
     body: {
       bidId: "bid_policy_window_1",
@@ -1668,7 +1684,7 @@ test("API e2e: manual-review settlement preserves dispute window for post-resolv
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_policy_window_1/accept",
+    path: "/marketplace/rfqs/rfq_policy_window_1/accept",
     headers: { "x-idempotency-key": "market_policy_window_accept_1" },
     body: {
       bidId: "bid_policy_window_1",
@@ -1752,10 +1768,10 @@ test("API e2e: manual-review settlement rejects dispute open when dispute window
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_policy_nowindow_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_policy_nowindow_rfq_create_1" },
     body: {
-      taskId: "task_policy_nowindow_1",
+      rfqId: "rfq_policy_nowindow_1",
       title: "Manual review dispute-window disabled",
       capability: "translate",
       posterAgentId: "agt_market_policy_nowindow_poster",
@@ -1767,7 +1783,7 @@ test("API e2e: manual-review settlement rejects dispute open when dispute window
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_policy_nowindow_1/bids",
+    path: "/marketplace/rfqs/rfq_policy_nowindow_1/bids",
     headers: { "x-idempotency-key": "market_policy_nowindow_bid_create_1" },
     body: {
       bidId: "bid_policy_nowindow_1",
@@ -1790,7 +1806,7 @@ test("API e2e: manual-review settlement rejects dispute open when dispute window
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_policy_nowindow_1/accept",
+    path: "/marketplace/rfqs/rfq_policy_nowindow_1/accept",
     headers: { "x-idempotency-key": "market_policy_nowindow_accept_1" },
     body: {
       bidId: "bid_policy_nowindow_1",
@@ -1867,10 +1883,10 @@ test("API e2e: marketplace bid rejects mismatched policy and verification method
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_hash_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_hash_rfq_create_1" },
     body: {
-      taskId: "task_hash_1",
+      rfqId: "rfq_hash_1",
       title: "Hash pinned bid task",
       capability: "translate",
       posterAgentId: "agt_market_hash_poster",
@@ -1898,7 +1914,7 @@ test("API e2e: marketplace bid rejects mismatched policy and verification method
 
   const badMethodHashBid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_hash_1/bids",
+    path: "/marketplace/rfqs/rfq_hash_1/bids",
     headers: { "x-idempotency-key": "market_hash_bid_bad_method_1" },
     body: {
       bidId: "bid_hash_bad_method_1",
@@ -1921,7 +1937,7 @@ test("API e2e: marketplace bid rejects mismatched policy and verification method
 
   const badPolicyHashBid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_hash_1/bids",
+    path: "/marketplace/rfqs/rfq_hash_1/bids",
     headers: { "x-idempotency-key": "market_hash_bid_bad_policy_1" },
     body: {
       bidId: "bid_hash_bad_policy_1",
@@ -1944,7 +1960,7 @@ test("API e2e: marketplace bid rejects mismatched policy and verification method
 
   const goodBid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_hash_1/bids",
+    path: "/marketplace/rfqs/rfq_hash_1/bids",
     headers: { "x-idempotency-key": "market_hash_bid_ok_1" },
     body: {
       bidId: "bid_hash_ok_1",
@@ -2018,10 +2034,10 @@ test("API e2e: tenant settlement policy registry powers bid/accept policyRef flo
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_ref_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_ref_rfq_create_1" },
     body: {
-      taskId: "task_ref_1",
+      rfqId: "rfq_ref_1",
       title: "Policy ref task",
       capability: "translate",
       posterAgentId: "agt_market_ref_poster",
@@ -2033,7 +2049,7 @@ test("API e2e: tenant settlement policy registry powers bid/accept policyRef flo
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_ref_1/bids",
+    path: "/marketplace/rfqs/rfq_ref_1/bids",
     headers: { "x-idempotency-key": "market_ref_bid_1" },
     body: {
       bidId: "bid_ref_1",
@@ -2055,7 +2071,7 @@ test("API e2e: tenant settlement policy registry powers bid/accept policyRef flo
 
   const badRefMismatch = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_ref_1/bids",
+    path: "/marketplace/rfqs/rfq_ref_1/bids",
     headers: { "x-idempotency-key": "market_ref_bid_bad_ref_1" },
     body: {
       bidId: "bid_ref_bad_1",
@@ -2076,7 +2092,7 @@ test("API e2e: tenant settlement policy registry powers bid/accept policyRef flo
 
   const missingRef = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_ref_1/bids",
+    path: "/marketplace/rfqs/rfq_ref_1/bids",
     headers: { "x-idempotency-key": "market_ref_bid_missing_ref_1" },
     body: {
       bidId: "bid_ref_missing_1",
@@ -2093,7 +2109,7 @@ test("API e2e: tenant settlement policy registry powers bid/accept policyRef flo
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_ref_1/accept",
+    path: "/marketplace/rfqs/rfq_ref_1/accept",
     headers: { "x-idempotency-key": "market_ref_accept_1" },
     body: {
       bidId: "bid_ref_1",
@@ -2124,6 +2140,10 @@ test("API e2e: tenant settlement policy registry powers bid/accept policyRef flo
   assert.equal(agreementRead.statusCode, 200);
   assert.equal(agreementRead.json?.agreement?.agreementId, accept.json?.agreement?.agreementId);
   assert.equal(agreementRead.json?.policyBindingVerification?.valid, true);
+  assert.equal(agreementRead.json?.settlement?.runId, runId);
+  assert.equal(agreementRead.json?.kernelVerification?.valid, true);
+  assert.equal(agreementRead.json?.decisionRecord?.runId, runId);
+  assert.equal(agreementRead.json?.settlementReceipt?.runId, runId);
 });
 
 test("API e2e: agreement milestones + change order drive partial deterministic settlement", async () => {
@@ -2139,10 +2159,10 @@ test("API e2e: agreement milestones + change order drive partial deterministic s
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_terms_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_terms_rfq_create_1" },
     body: {
-      taskId: "task_terms_1",
+      rfqId: "rfq_terms_1",
       title: "Milestone terms task",
       capability: "translate",
       posterAgentId: "agt_market_terms_poster",
@@ -2154,7 +2174,7 @@ test("API e2e: agreement milestones + change order drive partial deterministic s
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_terms_1/bids",
+    path: "/marketplace/rfqs/rfq_terms_1/bids",
     headers: { "x-idempotency-key": "market_terms_bid_create_1" },
     body: {
       bidId: "bid_terms_1",
@@ -2168,7 +2188,7 @@ test("API e2e: agreement milestones + change order drive partial deterministic s
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_terms_1/accept",
+    path: "/marketplace/rfqs/rfq_terms_1/accept",
     headers: { "x-idempotency-key": "market_terms_accept_1" },
     body: {
       bidId: "bid_terms_1",
@@ -2299,10 +2319,10 @@ test("API e2e: agreement change order accepts optional counterparty signature", 
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_chg_sig_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_chg_sig_rfq_create_1" },
     body: {
-      taskId: "task_chg_sig_1",
+      rfqId: "rfq_chg_sig_1",
       title: "Signed change-order task",
       capability: "translate",
       posterAgentId: "agt_market_chg_sig_poster",
@@ -2314,7 +2334,7 @@ test("API e2e: agreement change order accepts optional counterparty signature", 
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_chg_sig_1/bids",
+    path: "/marketplace/rfqs/rfq_chg_sig_1/bids",
     headers: { "x-idempotency-key": "market_chg_sig_bid_create_1" },
     body: {
       bidId: "bid_chg_sig_1",
@@ -2327,7 +2347,7 @@ test("API e2e: agreement change order accepts optional counterparty signature", 
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_chg_sig_1/accept",
+    path: "/marketplace/rfqs/rfq_chg_sig_1/accept",
     headers: { "x-idempotency-key": "market_chg_sig_accept_1" },
     body: {
       bidId: "bid_chg_sig_1",
@@ -2373,11 +2393,11 @@ test("API e2e: agreement change order accepts optional counterparty signature", 
   };
   const changeOrderCore = normalizeForCanonicalJson(
     {
-      schemaVersion: "MarketplaceAgreementChangeOrderAcceptanceSignature.v1",
+      schemaVersion: "MarketplaceAgreementChangeOrderAcceptanceSignature.v2",
       tenantId: accept.json?.agreement?.tenantId,
       runId,
       agreementId: accept.json?.agreement?.agreementId,
-      taskId: accept.json?.agreement?.taskId,
+      rfqId: accept.json?.agreement?.rfqId,
       bidId: accept.json?.agreement?.bidId,
       changeOrderId: "change_sig_1",
       requestedByAgentId: "agt_market_chg_sig_poster",
@@ -2449,7 +2469,7 @@ test("API e2e: agreement change order accepts optional counterparty signature", 
   assert.equal(changeOrder.json?.acceptanceSignatureVerification?.valid, true);
   assert.equal(
     changeOrder.json?.changeOrder?.acceptanceSignature?.schemaVersion,
-    "MarketplaceAgreementChangeOrderAcceptanceSignature.v1"
+    "MarketplaceAgreementChangeOrderAcceptanceSignature.v2"
   );
   assert.equal(changeOrder.json?.changeOrder?.acceptanceSignature?.acceptanceHash, changeOrderHash);
   assert.equal(changeOrder.json?.changeOrder?.acceptanceSignature?.signerAgentId, "agt_market_chg_sig_bidder");
@@ -2468,10 +2488,10 @@ test("API e2e: marketplace bid counter-offer chain is accepted into agreement", 
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_offer_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_offer_rfq_create_1" },
     body: {
-      taskId: "task_offer_1",
+      rfqId: "rfq_offer_1",
       title: "Counter-offer task",
       capability: "translate",
       posterAgentId: "agt_market_offer_poster",
@@ -2483,7 +2503,7 @@ test("API e2e: marketplace bid counter-offer chain is accepted into agreement", 
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_offer_1/bids",
+    path: "/marketplace/rfqs/rfq_offer_1/bids",
     headers: { "x-idempotency-key": "market_offer_bid_create_1" },
     body: {
       bidId: "bid_offer_1",
@@ -2498,7 +2518,7 @@ test("API e2e: marketplace bid counter-offer chain is accepted into agreement", 
 
   const counterOne = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_offer_1/bids/bid_offer_1/counter-offer",
+    path: "/marketplace/rfqs/rfq_offer_1/bids/bid_offer_1/counter-offer",
     headers: { "x-idempotency-key": "market_offer_counter_1" },
     body: {
       proposerAgentId: "agt_market_offer_poster",
@@ -2515,7 +2535,7 @@ test("API e2e: marketplace bid counter-offer chain is accepted into agreement", 
 
   const counterTwo = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_offer_1/bids/bid_offer_1/counter-offer",
+    path: "/marketplace/rfqs/rfq_offer_1/bids/bid_offer_1/counter-offer",
     headers: { "x-idempotency-key": "market_offer_counter_2" },
     body: {
       proposerAgentId: "agt_market_offer_bidder",
@@ -2534,7 +2554,7 @@ test("API e2e: marketplace bid counter-offer chain is accepted into agreement", 
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_offer_1/accept",
+    path: "/marketplace/rfqs/rfq_offer_1/accept",
     headers: { "x-idempotency-key": "market_offer_accept_1" },
     body: {
       bidId: "bid_offer_1",
@@ -2561,10 +2581,10 @@ test("API e2e: marketplace bid counter-offer chain is accepted into agreement", 
     artifactType: "MarketplaceLifecycle.v1"
   });
   const submitted = lifecycleArtifacts.filter(
-    (row) => row?.taskId === "task_offer_1" && row?.eventType === "proposal.submitted"
+    (row) => row?.rfqId === "rfq_offer_1" && row?.eventType === "proposal.submitted"
   );
   const accepted = lifecycleArtifacts.filter(
-    (row) => row?.taskId === "task_offer_1" && row?.eventType === "proposal.accepted"
+    (row) => row?.rfqId === "rfq_offer_1" && row?.eventType === "proposal.accepted"
   );
   assert.equal(submitted.length, 3);
   assert.equal(accepted.length, 1);
@@ -2587,10 +2607,10 @@ test("API e2e: signed marketplace agreement acceptance is verified on read + rep
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_sig_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_sig_rfq_create_1" },
     body: {
-      taskId: "task_sig_1",
+      rfqId: "rfq_sig_1",
       title: "Signed acceptance task",
       capability: "translate",
       posterAgentId: "agt_market_sig_poster",
@@ -2602,7 +2622,7 @@ test("API e2e: signed marketplace agreement acceptance is verified on read + rep
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_sig_1/bids",
+    path: "/marketplace/rfqs/rfq_sig_1/bids",
     headers: { "x-idempotency-key": "market_sig_bid_create_1" },
     body: {
       bidId: "bid_sig_1",
@@ -2620,10 +2640,10 @@ test("API e2e: signed marketplace agreement acceptance is verified on read + rep
   const runId = "run_market_sig_1";
   const acceptanceCore = normalizeForCanonicalJson(
     {
-      schemaVersion: "MarketplaceAgreementAcceptanceSignature.v1",
-      agreementId: "agr_task_sig_1_bid_sig_1",
-      tenantId: createTask.json?.task?.tenantId,
-      taskId: "task_sig_1",
+      schemaVersion: "MarketplaceAgreementAcceptanceSignature.v2",
+      agreementId: "agr_rfq_sig_1_bid_sig_1",
+      tenantId: createTask.json?.rfq?.tenantId,
+      rfqId: "rfq_sig_1",
       runId,
       bidId: "bid_sig_1",
       acceptedByAgentId: "agt_market_sig_operator",
@@ -2644,7 +2664,7 @@ test("API e2e: signed marketplace agreement acceptance is verified on read + rep
 
   const invalidAccept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_sig_1/accept",
+    path: "/marketplace/rfqs/rfq_sig_1/accept",
     headers: { "x-idempotency-key": "market_sig_accept_invalid_1" },
     body: {
       bidId: "bid_sig_1",
@@ -2663,7 +2683,7 @@ test("API e2e: signed marketplace agreement acceptance is verified on read + rep
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_sig_1/accept",
+    path: "/marketplace/rfqs/rfq_sig_1/accept",
     headers: { "x-idempotency-key": "market_sig_accept_valid_1" },
     body: {
       bidId: "bid_sig_1",
@@ -2678,7 +2698,7 @@ test("API e2e: signed marketplace agreement acceptance is verified on read + rep
     }
   });
   assert.equal(accept.statusCode, 200);
-  assert.equal(accept.json?.agreement?.acceptanceSignature?.schemaVersion, "MarketplaceAgreementAcceptanceSignature.v1");
+  assert.equal(accept.json?.agreement?.acceptanceSignature?.schemaVersion, "MarketplaceAgreementAcceptanceSignature.v2");
   assert.equal(accept.json?.agreement?.acceptanceSignature?.acceptanceHash, acceptanceHash);
   assert.equal(accept.json?.agreement?.acceptanceSignature?.signerAgentId, "agt_market_sig_operator");
   assert.equal(accept.json?.agreement?.acceptanceSignature?.signerKeyId, operatorRegistration.keyId);
@@ -2720,10 +2740,10 @@ test("API e2e: signed marketplace agreement acceptance supports delegation chain
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_sig_del_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_sig_del_rfq_create_1" },
     body: {
-      taskId: "task_sig_del_1",
+      rfqId: "rfq_sig_del_1",
       title: "Delegated signed acceptance task",
       capability: "translate",
       posterAgentId: "agt_market_sig_del_poster",
@@ -2735,7 +2755,7 @@ test("API e2e: signed marketplace agreement acceptance supports delegation chain
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_sig_del_1/bids",
+    path: "/marketplace/rfqs/rfq_sig_del_1/bids",
     headers: { "x-idempotency-key": "market_sig_del_bid_create_1" },
     body: {
       bidId: "bid_sig_del_1",
@@ -2752,7 +2772,7 @@ test("API e2e: signed marketplace agreement acceptance supports delegation chain
   const runId = "run_market_sig_del_1";
   const signedAt = "2026-03-02T12:00:00.000Z";
   const delegationLink = buildDelegationLink({
-    tenantId: createTask.json?.task?.tenantId,
+    tenantId: createTask.json?.rfq?.tenantId,
     delegationId: "dlg_sig_del_1",
     principalAgentId: "agt_market_sig_del_operator",
     delegateAgentId: "agt_market_sig_del_delegate",
@@ -2770,10 +2790,10 @@ test("API e2e: signed marketplace agreement acceptance supports delegation chain
 
   const acceptanceCore = normalizeForCanonicalJson(
     {
-      schemaVersion: "MarketplaceAgreementAcceptanceSignature.v1",
-      agreementId: "agr_task_sig_del_1_bid_sig_del_1",
-      tenantId: createTask.json?.task?.tenantId,
-      taskId: "task_sig_del_1",
+      schemaVersion: "MarketplaceAgreementAcceptanceSignature.v2",
+      agreementId: "agr_rfq_sig_del_1_bid_sig_del_1",
+      tenantId: createTask.json?.rfq?.tenantId,
+      rfqId: "rfq_sig_del_1",
       runId,
       bidId: "bid_sig_del_1",
       acceptedByAgentId: "agt_market_sig_del_operator",
@@ -2793,7 +2813,7 @@ test("API e2e: signed marketplace agreement acceptance supports delegation chain
 
   const rejectWithoutDelegation = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_sig_del_1/accept",
+    path: "/marketplace/rfqs/rfq_sig_del_1/accept",
     headers: { "x-idempotency-key": "market_sig_del_accept_invalid_1" },
     body: {
       bidId: "bid_sig_del_1",
@@ -2812,7 +2832,7 @@ test("API e2e: signed marketplace agreement acceptance supports delegation chain
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_sig_del_1/accept",
+    path: "/marketplace/rfqs/rfq_sig_del_1/accept",
     headers: { "x-idempotency-key": "market_sig_del_accept_valid_1" },
     body: {
       bidId: "bid_sig_del_1",
@@ -2879,10 +2899,10 @@ test("API e2e: ops delegation traces and emergency revoke disable delegated acce
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_ops_del_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_ops_del_rfq_create_1" },
     body: {
-      taskId: "task_ops_del_1",
+      rfqId: "rfq_ops_del_1",
       title: "Delegation trace task",
       capability: "translate",
       posterAgentId: "agt_market_ops_del_poster",
@@ -2894,7 +2914,7 @@ test("API e2e: ops delegation traces and emergency revoke disable delegated acce
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_ops_del_1/bids",
+    path: "/marketplace/rfqs/rfq_ops_del_1/bids",
     headers: { "x-idempotency-key": "market_ops_del_bid_create_1" },
     body: {
       bidId: "bid_ops_del_1",
@@ -2911,7 +2931,7 @@ test("API e2e: ops delegation traces and emergency revoke disable delegated acce
   const runId = "run_market_ops_del_1";
   const signedAt = "2026-03-03T12:00:00.000Z";
   const delegationLink = buildDelegationLink({
-    tenantId: createTask.json?.task?.tenantId,
+    tenantId: createTask.json?.rfq?.tenantId,
     delegationId: "dlg_ops_del_1",
     principalAgentId: "agt_market_ops_del_operator",
     delegateAgentId: "agt_market_ops_del_delegate",
@@ -2928,10 +2948,10 @@ test("API e2e: ops delegation traces and emergency revoke disable delegated acce
   });
   const acceptanceCore = normalizeForCanonicalJson(
     {
-      schemaVersion: "MarketplaceAgreementAcceptanceSignature.v1",
-      agreementId: "agr_task_ops_del_1_bid_ops_del_1",
-      tenantId: createTask.json?.task?.tenantId,
-      taskId: "task_ops_del_1",
+      schemaVersion: "MarketplaceAgreementAcceptanceSignature.v2",
+      agreementId: "agr_rfq_ops_del_1_bid_ops_del_1",
+      tenantId: createTask.json?.rfq?.tenantId,
+      rfqId: "rfq_ops_del_1",
       runId,
       bidId: "bid_ops_del_1",
       acceptedByAgentId: "agt_market_ops_del_operator",
@@ -2951,7 +2971,7 @@ test("API e2e: ops delegation traces and emergency revoke disable delegated acce
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_ops_del_1/accept",
+    path: "/marketplace/rfqs/rfq_ops_del_1/accept",
     headers: { "x-idempotency-key": "market_ops_del_accept_valid_1" },
     body: {
       bidId: "bid_ops_del_1",
@@ -3013,10 +3033,10 @@ test("API e2e: ops delegation traces and emergency revoke disable delegated acce
 
   const createTask2 = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_ops_del_task_create_2" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_ops_del_rfq_create_2" },
     body: {
-      taskId: "task_ops_del_2",
+      rfqId: "rfq_ops_del_2",
       title: "Delegation blocked after revoke",
       capability: "translate",
       posterAgentId: "agt_market_ops_del_poster",
@@ -3028,7 +3048,7 @@ test("API e2e: ops delegation traces and emergency revoke disable delegated acce
 
   const bid2 = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_ops_del_2/bids",
+    path: "/marketplace/rfqs/rfq_ops_del_2/bids",
     headers: { "x-idempotency-key": "market_ops_del_bid_create_2" },
     body: {
       bidId: "bid_ops_del_2",
@@ -3045,10 +3065,10 @@ test("API e2e: ops delegation traces and emergency revoke disable delegated acce
   const runId2 = "run_market_ops_del_2";
   const acceptanceCore2 = normalizeForCanonicalJson(
     {
-      schemaVersion: "MarketplaceAgreementAcceptanceSignature.v1",
-      agreementId: "agr_task_ops_del_2_bid_ops_del_2",
-      tenantId: createTask2.json?.task?.tenantId,
-      taskId: "task_ops_del_2",
+      schemaVersion: "MarketplaceAgreementAcceptanceSignature.v2",
+      agreementId: "agr_rfq_ops_del_2_bid_ops_del_2",
+      tenantId: createTask2.json?.rfq?.tenantId,
+      rfqId: "rfq_ops_del_2",
       runId: runId2,
       bidId: "bid_ops_del_2",
       acceptedByAgentId: "agt_market_ops_del_operator",
@@ -3068,7 +3088,7 @@ test("API e2e: ops delegation traces and emergency revoke disable delegated acce
 
   const blocked = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_ops_del_2/accept",
+    path: "/marketplace/rfqs/rfq_ops_del_2/accept",
     headers: { "x-idempotency-key": "market_ops_del_accept_blocked_2" },
     body: {
       bidId: "bid_ops_del_2",
@@ -3110,10 +3130,10 @@ test("API e2e: counterOfferPolicy enforces proposer role, max revisions, and tim
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_policy_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_policy_rfq_create_1" },
     body: {
-      taskId: "task_policy_1",
+      rfqId: "rfq_policy_1",
       title: "Policy constrained task",
       capability: "translate",
       posterAgentId: "agt_market_policy_poster",
@@ -3128,14 +3148,14 @@ test("API e2e: counterOfferPolicy enforces proposer role, max revisions, and tim
     }
   });
   assert.equal(createTask.statusCode, 201);
-  assert.equal(createTask.json?.task?.counterOfferPolicy?.allowPosterCounterOffers, false);
-  assert.equal(createTask.json?.task?.counterOfferPolicy?.allowBidderCounterOffers, true);
-  assert.equal(createTask.json?.task?.counterOfferPolicy?.maxRevisions, 2);
-  assert.equal(createTask.json?.task?.counterOfferPolicy?.timeoutSeconds, 1);
+  assert.equal(createTask.json?.rfq?.counterOfferPolicy?.allowPosterCounterOffers, false);
+  assert.equal(createTask.json?.rfq?.counterOfferPolicy?.allowBidderCounterOffers, true);
+  assert.equal(createTask.json?.rfq?.counterOfferPolicy?.maxRevisions, 2);
+  assert.equal(createTask.json?.rfq?.counterOfferPolicy?.timeoutSeconds, 1);
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_policy_1/bids",
+    path: "/marketplace/rfqs/rfq_policy_1/bids",
     headers: { "x-idempotency-key": "market_policy_bid_1" },
     body: {
       bidId: "bid_policy_1",
@@ -3151,7 +3171,7 @@ test("API e2e: counterOfferPolicy enforces proposer role, max revisions, and tim
 
   const blockedPosterCounter = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_policy_1/bids/bid_policy_1/counter-offer",
+    path: "/marketplace/rfqs/rfq_policy_1/bids/bid_policy_1/counter-offer",
     headers: { "x-idempotency-key": "market_policy_counter_blocked_1" },
     body: {
       proposerAgentId: "agt_market_policy_poster",
@@ -3162,7 +3182,7 @@ test("API e2e: counterOfferPolicy enforces proposer role, max revisions, and tim
 
   const bidderCounter = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_policy_1/bids/bid_policy_1/counter-offer",
+    path: "/marketplace/rfqs/rfq_policy_1/bids/bid_policy_1/counter-offer",
     headers: { "x-idempotency-key": "market_policy_counter_bidder_1" },
     body: {
       proposerAgentId: "agt_market_policy_bidder",
@@ -3176,7 +3196,7 @@ test("API e2e: counterOfferPolicy enforces proposer role, max revisions, and tim
 
   const overRevisionCounter = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_policy_1/bids/bid_policy_1/counter-offer",
+    path: "/marketplace/rfqs/rfq_policy_1/bids/bid_policy_1/counter-offer",
     headers: { "x-idempotency-key": "market_policy_counter_bidder_2" },
     body: {
       proposerAgentId: "agt_market_policy_bidder",
@@ -3189,7 +3209,7 @@ test("API e2e: counterOfferPolicy enforces proposer role, max revisions, and tim
 
   const acceptAfterTimeout = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_policy_1/accept",
+    path: "/marketplace/rfqs/rfq_policy_1/accept",
     headers: { "x-idempotency-key": "market_policy_accept_1" },
     body: {
       bidId: "bid_policy_1",
@@ -3201,7 +3221,7 @@ test("API e2e: counterOfferPolicy enforces proposer role, max revisions, and tim
 
   const bidsAfterTimeout = await request(api, {
     method: "GET",
-    path: "/marketplace/tasks/task_policy_1/bids?status=all"
+    path: "/marketplace/rfqs/rfq_policy_1/bids?status=all"
   });
   assert.equal(bidsAfterTimeout.statusCode, 200);
   assert.equal(bidsAfterTimeout.json?.bids?.[0]?.negotiation?.state, "expired");
@@ -3231,10 +3251,10 @@ test("API e2e: agreement cancellation before run start enforces evidence and app
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_cancel_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_cancel_rfq_create_1" },
     body: {
-      taskId: "task_cancel_1",
+      rfqId: "rfq_cancel_1",
       title: "Cancelable task",
       capability: "translate",
       posterAgentId: "agt_market_cancel_poster",
@@ -3246,7 +3266,7 @@ test("API e2e: agreement cancellation before run start enforces evidence and app
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_cancel_1/bids",
+    path: "/marketplace/rfqs/rfq_cancel_1/bids",
     headers: { "x-idempotency-key": "market_cancel_bid_create_1" },
     body: {
       bidId: "bid_cancel_1",
@@ -3260,7 +3280,7 @@ test("API e2e: agreement cancellation before run start enforces evidence and app
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_cancel_1/accept",
+    path: "/marketplace/rfqs/rfq_cancel_1/accept",
     headers: { "x-idempotency-key": "market_cancel_accept_1" },
     body: {
       bidId: "bid_cancel_1",
@@ -3284,7 +3304,7 @@ test("API e2e: agreement cancellation before run start enforces evidence and app
     path: `/runs/${encodeURIComponent(runId)}/agreement/cancel`,
     headers: { "x-idempotency-key": "market_cancel_before_start_0" },
     body: {
-      cancellationId: "cancel_task_1_missing",
+      cancellationId: "cancel_rfq_1_missing",
       cancelledByAgentId: "agt_market_cancel_poster",
       reason: "customer cancelled before dispatch"
     }
@@ -3297,14 +3317,14 @@ test("API e2e: agreement cancellation before run start enforces evidence and app
     path: `/runs/${encodeURIComponent(runId)}/agreement/cancel`,
     headers: { "x-idempotency-key": "market_cancel_before_start_1" },
     body: {
-      cancellationId: "cancel_task_1",
+      cancellationId: "cancel_rfq_1",
       cancelledByAgentId: "agt_market_cancel_poster",
       reason: "customer cancelled before dispatch",
       evidenceRef: `evidence://${runId}/cancel_note.txt`
     }
   });
   assert.equal(cancel.statusCode, 200);
-  assert.equal(cancel.json?.task?.status, "cancelled");
+  assert.equal(cancel.json?.rfq?.status, "cancelled");
   assert.equal(cancel.json?.run?.status, "failed");
   assert.equal(cancel.json?.settlement?.status, "released");
   assert.equal(cancel.json?.settlement?.releaseRatePct, 15);
@@ -3312,11 +3332,11 @@ test("API e2e: agreement cancellation before run start enforces evidence and app
   assert.equal(cancel.json?.settlement?.refundedAmountCents, 1700);
   assert.equal(cancel.json?.settlement?.decisionStatus, "manual_resolved");
   assert.equal(cancel.json?.settlement?.decisionMode, "manual-review");
-  assert.equal(cancel.json?.cancellation?.cancellationId, "cancel_task_1");
+  assert.equal(cancel.json?.cancellation?.cancellationId, "cancel_rfq_1");
   assert.equal(cancel.json?.cancellation?.killFeeRatePct, 15);
   assert.equal(cancel.json?.cancellation?.releasedAmountCents, 300);
   assert.equal(cancel.json?.cancellation?.refundedAmountCents, 1700);
-  assert.equal(cancel.json?.task?.metadata?.cancellation?.cancellationId, "cancel_task_1");
+  assert.equal(cancel.json?.rfq?.metadata?.cancellation?.cancellationId, "cancel_rfq_1");
 
   const posterWallet = await request(api, {
     method: "GET",
@@ -3353,13 +3373,13 @@ test("API e2e: agreement cancellation before run start enforces evidence and app
 
   const lifecycleArtifacts = await api.store.listArtifacts({
     tenantId: "tenant_default",
-    taskId: "task_cancel_1",
+    rfqId: "rfq_cancel_1",
     artifactType: "MarketplaceLifecycle.v1"
   });
   const agreementCancelled = lifecycleArtifacts.filter((row) => row?.eventType === "marketplace.agreement.cancelled");
   const proposalCancelled = lifecycleArtifacts.filter((row) => row?.eventType === "proposal.cancelled");
   assert.equal(agreementCancelled.length, 1);
-  assert.equal(agreementCancelled[0]?.sourceEventId, "cancel_task_1");
+  assert.equal(agreementCancelled[0]?.sourceEventId, "cancel_rfq_1");
   assert.equal(proposalCancelled.length, 1);
   assert.equal(proposalCancelled[0]?.sourceEventId, accept.json?.agreement?.acceptedProposalId);
 });
@@ -3377,10 +3397,10 @@ test("API e2e: agreement cancellation enforces counterparty signoff and dispute-
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_cancel_guard_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_cancel_guard_rfq_create_1" },
     body: {
-      taskId: "task_cancel_guard_1",
+      rfqId: "rfq_cancel_guard_1",
       title: "Cancelable with signoff",
       capability: "translate",
       posterAgentId: "agt_market_cancel_guard_poster",
@@ -3392,7 +3412,7 @@ test("API e2e: agreement cancellation enforces counterparty signoff and dispute-
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_cancel_guard_1/bids",
+    path: "/marketplace/rfqs/rfq_cancel_guard_1/bids",
     headers: { "x-idempotency-key": "market_cancel_guard_bid_create_1" },
     body: {
       bidId: "bid_cancel_guard_1",
@@ -3405,7 +3425,7 @@ test("API e2e: agreement cancellation enforces counterparty signoff and dispute-
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_cancel_guard_1/accept",
+    path: "/marketplace/rfqs/rfq_cancel_guard_1/accept",
     headers: { "x-idempotency-key": "market_cancel_guard_accept_1" },
     body: {
       bidId: "bid_cancel_guard_1",
@@ -3461,7 +3481,7 @@ test("API e2e: agreement cancellation enforces counterparty signoff and dispute-
     body: {
       type: "RUN_STARTED",
       payload: {
-        taskRef: `marketplace://tasks/task_cancel_guard_1`
+        taskRef: `marketplace://rfqs/rfq_cancel_guard_1`
       }
     }
   });
@@ -3501,10 +3521,10 @@ test("API e2e: agreement cancellation accepts optional counterparty signature", 
 
   const createTask = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "market_cancel_sig_task_create_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_cancel_sig_rfq_create_1" },
     body: {
-      taskId: "task_cancel_sig_1",
+      rfqId: "rfq_cancel_sig_1",
       title: "Signed cancellation task",
       capability: "translate",
       posterAgentId: "agt_market_cancel_sig_poster",
@@ -3516,7 +3536,7 @@ test("API e2e: agreement cancellation accepts optional counterparty signature", 
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_cancel_sig_1/bids",
+    path: "/marketplace/rfqs/rfq_cancel_sig_1/bids",
     headers: { "x-idempotency-key": "market_cancel_sig_bid_create_1" },
     body: {
       bidId: "bid_cancel_sig_1",
@@ -3529,7 +3549,7 @@ test("API e2e: agreement cancellation accepts optional counterparty signature", 
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_cancel_sig_1/accept",
+    path: "/marketplace/rfqs/rfq_cancel_sig_1/accept",
     headers: { "x-idempotency-key": "market_cancel_sig_accept_1" },
     body: {
       bidId: "bid_cancel_sig_1",
@@ -3549,11 +3569,11 @@ test("API e2e: agreement cancellation accepts optional counterparty signature", 
 
   const cancellationCore = normalizeForCanonicalJson(
     {
-      schemaVersion: "MarketplaceAgreementCancellationAcceptanceSignature.v1",
+      schemaVersion: "MarketplaceAgreementCancellationAcceptanceSignature.v2",
       tenantId: accept.json?.agreement?.tenantId,
       runId,
       agreementId: accept.json?.agreement?.agreementId,
-      taskId: accept.json?.agreement?.taskId,
+      rfqId: accept.json?.agreement?.rfqId,
       bidId: accept.json?.agreement?.bidId,
       cancellationId: "cancel_sig_1",
       cancelledByAgentId: "agt_market_cancel_sig_poster",
@@ -3616,7 +3636,7 @@ test("API e2e: agreement cancellation accepts optional counterparty signature", 
   assert.equal(cancellation.json?.acceptanceSignatureVerification?.valid, true);
   assert.equal(
     cancellation.json?.cancellation?.acceptanceSignature?.schemaVersion,
-    "MarketplaceAgreementCancellationAcceptanceSignature.v1"
+    "MarketplaceAgreementCancellationAcceptanceSignature.v2"
   );
   assert.equal(cancellation.json?.cancellation?.acceptanceSignature?.acceptanceHash, cancellationHash);
   assert.equal(cancellation.json?.cancellation?.acceptanceSignature?.signerAgentId, "agt_market_cancel_sig_bidder");

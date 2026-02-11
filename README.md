@@ -98,6 +98,22 @@ Run tests:
 npm test
 ```
 
+Run conformance (bundle verification oracle):
+
+```sh
+./bin/settld.js conformance test
+```
+
+Run conformance (kernel control plane, disputes + holdback):
+
+```sh
+./bin/settld.js conformance kernel --ops-token tok_ops
+```
+
+Ops workspaces (HTML):
+
+- Kernel Explorer: `GET /ops/kernel/workspace` (requires ops token)
+
 ## Docs
 
 - `docs/PRD.md`

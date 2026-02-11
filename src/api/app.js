@@ -79,6 +79,7 @@ import {
 } from "../core/agent-runs.js";
 import {
   AGENT_RUN_SETTLEMENT_DISPUTE_STATUS,
+  AGENT_RUN_SETTLEMENT_DISPUTE_PRIORITY,
   AGENT_RUN_SETTLEMENT_DISPUTE_CHANNEL,
   AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL,
   AGENT_RUN_SETTLEMENT_DECISION_MODE,
@@ -97,6 +98,8 @@ import {
   updateAgentRunSettlementDispute,
   validateAgentRunSettlementRequest
 } from "../core/agent-wallets.js";
+import { buildFundingHoldV1, FUNDING_HOLD_STATUS, resolveFundingHoldV1, validateFundingHoldV1 } from "../core/funding-hold.js";
+import { buildSettlementAdjustmentV1, SETTLEMENT_ADJUSTMENT_KIND, validateSettlementAdjustmentV1 } from "../core/settlement-adjustment.js";
 import {
   AGENT_REPUTATION_WINDOW,
   computeAgentReputation,
@@ -195,6 +198,18 @@ import {
   normalizeSettlementPolicy,
   normalizeVerificationMethod
 } from "../core/settlement-policy.js";
+import {
+  SETTLEMENT_FINALITY_STATE,
+  SETTLEMENT_KERNEL_VERIFICATION_CODE,
+  buildSettlementDecisionRecord,
+  buildSettlementReceipt,
+  extractSettlementKernelArtifacts,
+  verifySettlementKernelArtifacts
+} from "../core/settlement-kernel.js";
+import {
+  buildMarketplaceOffer,
+  buildMarketplaceAcceptance
+} from "../core/marketplace-kernel.js";
 import { createArtifactWorker, deriveArtifactEnqueuesFromJobEvents } from "./workers/artifacts.js";
 import { createDeliveryWorker } from "./workers/deliveries.js";
 import { createProofWorker, deriveProofEvalEnqueuesFromJobEvents } from "./workers/proof.js";
@@ -217,7 +232,7 @@ import {
   resolveBillingPlan
 } from "../core/billing-plans.js";
 import { buildOpenApiSpec } from "./openapi.js";
-import { RETENTION_CLEANUP_ADVISORY_LOCK_KEY } from "../core/maintenance-locks.js";
+import { FINANCE_RECONCILE_ADVISORY_LOCK_KEY, RETENTION_CLEANUP_ADVISORY_LOCK_KEY } from "../core/maintenance-locks.js";
 import { compareProtocolVersions, parseProtocolVersion, resolveProtocolPolicy } from "../core/protocol.js";
 import {
   CONTRACT_DOCUMENT_TYPE_V1,
@@ -271,7 +286,11 @@ export function createApi({
   billingStripeSyncMaxReplayAttempts = null,
   billingStripeSyncMinRetrySeconds = null,
   billingStripeSyncMaxRetrySeconds = null,
-  billingStripeSyncReplayReasons = null
+  billingStripeSyncReplayReasons = null,
+  financeReconcileEnabled = null,
+  financeReconcileIntervalSeconds = null,
+  financeReconcileMaxTenants = null,
+  financeReconcileMaxPeriodsPerTenant = null
 } = {}) {
   const apiStartedAtMs = Date.now();
   const apiStartedAtIso = new Date(apiStartedAtMs).toISOString();
@@ -743,7 +762,41 @@ export function createApi({
     }
     return set;
   })();
+  const effectiveFinanceReconcileEnabled =
+    financeReconcileEnabled !== null && financeReconcileEnabled !== undefined
+      ? financeReconcileEnabled === true
+      : typeof process !== "undefined" && typeof process.env.PROXY_FINANCE_RECONCILE_ENABLED === "string"
+        ? process.env.PROXY_FINANCE_RECONCILE_ENABLED !== "0"
+        : true;
+  const effectiveFinanceReconcileIntervalSeconds =
+    financeReconcileIntervalSeconds !== null && financeReconcileIntervalSeconds !== undefined
+      ? Number(financeReconcileIntervalSeconds)
+      : parseNonNegativeIntEnv("PROXY_FINANCE_RECONCILE_INTERVAL_SECONDS", 300);
+  if (!Number.isSafeInteger(effectiveFinanceReconcileIntervalSeconds) || effectiveFinanceReconcileIntervalSeconds < 0) {
+    throw new TypeError("PROXY_FINANCE_RECONCILE_INTERVAL_SECONDS must be a non-negative safe integer");
+  }
+  const effectiveFinanceReconcileMaxTenants =
+    financeReconcileMaxTenants !== null && financeReconcileMaxTenants !== undefined
+      ? Number(financeReconcileMaxTenants)
+      : parseNonNegativeIntEnv("PROXY_FINANCE_RECONCILE_MAX_TENANTS", 50);
+  if (!Number.isSafeInteger(effectiveFinanceReconcileMaxTenants) || effectiveFinanceReconcileMaxTenants <= 0) {
+    throw new TypeError("PROXY_FINANCE_RECONCILE_MAX_TENANTS must be a positive safe integer");
+  }
+  const effectiveFinanceReconcileMaxPeriodsPerTenant =
+    financeReconcileMaxPeriodsPerTenant !== null && financeReconcileMaxPeriodsPerTenant !== undefined
+      ? Number(financeReconcileMaxPeriodsPerTenant)
+      : parseNonNegativeIntEnv("PROXY_FINANCE_RECONCILE_MAX_PERIODS_PER_TENANT", 2);
+  if (!Number.isSafeInteger(effectiveFinanceReconcileMaxPeriodsPerTenant) || effectiveFinanceReconcileMaxPeriodsPerTenant <= 0) {
+    throw new TypeError("PROXY_FINANCE_RECONCILE_MAX_PERIODS_PER_TENANT must be a positive safe integer");
+  }
   const billingStripeSyncState = {
+    inFlight: false,
+    lastRunAt: null,
+    lastSuccessAt: null,
+    lastResult: null,
+    nextEligibleAtMs: 0
+  };
+  const financeReconcileState = {
     inFlight: false,
     lastRunAt: null,
     lastSuccessAt: null,
@@ -1139,7 +1192,8 @@ export function createApi({
     httpServerErrorRateThresholdPct: 1,
     deliveryDlqThreshold: 1,
     disputeOverSlaThreshold: 1,
-    determinismRejectThreshold: 1
+    determinismRejectThreshold: 1,
+    kernelVerificationErrorThreshold: 1
   });
 
   function parseBooleanQueryValue(raw, { defaultValue = false, name = "query parameter" } = {}) {
@@ -1177,29 +1231,36 @@ export function createApi({
         : COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS;
     const alerts = [];
 
-    const pushAlert = ({ alertType, severity, metric, currentValue, threshold, comparator = ">=" }) => {
-      alerts.push(
-        normalizeForCanonicalJson(
-          {
-            schemaVersion: COMMAND_CENTER_ALERT_ARTIFACT_TYPE,
-            alertType: String(alertType),
-            severity: String(severity),
-            metric: String(metric),
-            comparator: String(comparator),
-            currentValue: Number(currentValue),
-            threshold: Number(threshold),
-            message: `${metric} ${comparator} ${threshold}`
-          },
-          { path: "$" }
-        )
-      );
+    const pushAlert = ({ alertType, severity, metric, currentValue, threshold, comparator = ">=", message = null, dimensions = null }) => {
+      const normalizedDimensions =
+        dimensions && typeof dimensions === "object" && !Array.isArray(dimensions)
+          ? normalizeForCanonicalJson(dimensions, { path: "$.dimensions" })
+          : null;
+      const payload = {
+        schemaVersion: COMMAND_CENTER_ALERT_ARTIFACT_TYPE,
+        alertType: String(alertType),
+        severity: String(severity),
+        metric: String(metric),
+        comparator: String(comparator),
+        currentValue: Number(currentValue),
+        threshold: Number(threshold),
+        message: typeof message === "string" && message.trim() !== "" ? message.trim() : `${metric} ${comparator} ${threshold}`
+      };
+      if (normalizedDimensions) payload.dimensions = normalizedDimensions;
+      alerts.push(normalizeForCanonicalJson(payload, { path: "$" }));
     };
 
     const httpClientErrorRatePct = Number(summary?.reliability?.httpClientErrorRatePct ?? 0);
     const httpServerErrorRatePct = Number(summary?.reliability?.httpServerErrorRatePct ?? 0);
     const deliveriesFailed = Number(summary?.reliability?.backlog?.deliveriesFailed ?? 0);
     const disputeOverSlaCount = Number(summary?.disputes?.overSlaCount ?? 0);
+    const disputeSlaHours = Number(summary?.disputes?.slaHours ?? 24);
+    const overSlaCases = Array.isArray(summary?.disputes?.overSlaCases) ? summary.disputes.overSlaCases : [];
     const determinismSensitiveRejects = Number(summary?.determinism?.determinismSensitiveRejects ?? 0);
+    const kernelVerificationErrorCount = Number(summary?.settlement?.kernelVerificationErrorCount ?? 0);
+    const kernelVerificationErrorCountsByCode = Array.isArray(summary?.settlement?.kernelVerificationErrorCountsByCode)
+      ? summary.settlement.kernelVerificationErrorCountsByCode
+      : [];
 
     if (httpClientErrorRatePct >= Number(effectiveThresholds.httpClientErrorRateThresholdPct)) {
       pushAlert({
@@ -1237,6 +1298,30 @@ export function createApi({
         threshold: Number(effectiveThresholds.disputeOverSlaThreshold)
       });
     }
+    const disputeSlaSeconds =
+      Number.isFinite(disputeSlaHours) && disputeSlaHours > 0 ? Math.round(disputeSlaHours * 60 * 60) : 24 * 60 * 60;
+    for (const overSlaCase of overSlaCases.slice(0, 25)) {
+      const caseId = typeof overSlaCase?.caseId === "string" && overSlaCase.caseId.trim() !== "" ? overSlaCase.caseId.trim() : null;
+      if (!caseId) continue;
+      const ageSecondsRaw = Number(overSlaCase?.ageSeconds);
+      const ageSeconds = Number.isFinite(ageSecondsRaw) && ageSecondsRaw >= 0 ? Math.round(ageSecondsRaw) : disputeSlaSeconds + 1;
+      pushAlert({
+        alertType: "dispute_case_over_sla",
+        severity: "high",
+        metric: "disputes.overSlaCase.ageSeconds",
+        comparator: ">",
+        currentValue: ageSeconds,
+        threshold: disputeSlaSeconds,
+        message: `dispute case ${caseId} over SLA`,
+        dimensions: {
+          caseId,
+          runId: overSlaCase?.runId ?? null,
+          disputeId: overSlaCase?.disputeId ?? null,
+          priority: overSlaCase?.priority ?? null,
+          status: overSlaCase?.status ?? null
+        }
+      });
+    }
     if (determinismSensitiveRejects >= Number(effectiveThresholds.determinismRejectThreshold)) {
       pushAlert({
         alertType: "determinism_sensitive_rejects_high",
@@ -1244,6 +1329,30 @@ export function createApi({
         metric: "determinism.determinismSensitiveRejects",
         currentValue: determinismSensitiveRejects,
         threshold: Number(effectiveThresholds.determinismRejectThreshold)
+      });
+    }
+    if (kernelVerificationErrorCount >= Number(effectiveThresholds.kernelVerificationErrorThreshold)) {
+      pushAlert({
+        alertType: "settlement_kernel_verification_errors_high",
+        severity: "critical",
+        metric: "settlement.kernelVerificationErrorCount",
+        currentValue: kernelVerificationErrorCount,
+        threshold: Number(effectiveThresholds.kernelVerificationErrorThreshold)
+      });
+    }
+    for (const codeRow of kernelVerificationErrorCountsByCode.slice(0, 25)) {
+      const code = typeof codeRow?.code === "string" && codeRow.code.trim() !== "" ? codeRow.code.trim() : null;
+      if (!code) continue;
+      const count = Number(codeRow?.count ?? 0);
+      if (!Number.isFinite(count) || count < Number(effectiveThresholds.kernelVerificationErrorThreshold)) continue;
+      pushAlert({
+        alertType: "settlement_kernel_verification_error_code",
+        severity: "critical",
+        metric: `settlement.kernelVerificationErrorCountsByCode.${code}`,
+        currentValue: Math.round(count),
+        threshold: Number(effectiveThresholds.kernelVerificationErrorThreshold),
+        message: `settlement kernel verification errors for code ${code}`,
+        dimensions: { code }
       });
     }
 
@@ -1280,6 +1389,7 @@ export function createApi({
               metric: alert?.metric ?? null,
               threshold: alert?.threshold ?? null,
               currentValue: alert?.currentValue ?? null,
+              dimensions: alert?.dimensions ?? null,
               bucketStartAt
             },
             { path: "$" }
@@ -1461,9 +1571,22 @@ export function createApi({
     let disputeOverSlaCount = 0;
     let disputeExpiredWindowOpenCount = 0;
     let estimatedTransactionFeesCentsInWindow = 0;
+    let kernelVerificationErrorCount = 0;
+    const kernelVerificationErrorCounts = new Map();
+    const settlementPriorityByRunId = new Map();
 
     for (const settlement of settlements) {
       if (!settlement || typeof settlement !== "object") continue;
+      const settlementRunId = typeof settlement?.runId === "string" && settlement.runId.trim() !== "" ? settlement.runId.trim() : null;
+      if (settlementRunId && !settlementPriorityByRunId.has(settlementRunId)) {
+        settlementPriorityByRunId.set(
+          settlementRunId,
+          normalizeArbitrationCasePriority(settlement?.disputeContext?.priority, {
+            fieldName: "settlement.disputeContext.priority",
+            allowNull: true
+          })
+        );
+      }
       const status = String(settlement.status ?? "").toLowerCase();
       if (status === AGENT_RUN_SETTLEMENT_STATUS.LOCKED) lockedCount += 1;
 
@@ -1503,6 +1626,84 @@ export function createApi({
       if (Number.isFinite(windowStartMs) && Number.isFinite(disputeClosedAtMs) && disputeClosedAtMs >= windowStartMs && disputeClosedAtMs <= nowMs) {
         disputeClosedInWindow += 1;
       }
+
+      const kernelVerification = verifySettlementKernelArtifacts({
+        settlement,
+        runId: settlementRunId ?? null
+      });
+      if (!kernelVerification?.valid) {
+        const codes = Array.isArray(kernelVerification?.errors) ? kernelVerification.errors : [];
+        for (const codeRaw of codes) {
+          if (typeof codeRaw !== "string" || codeRaw.trim() === "") continue;
+          const code = codeRaw.trim();
+          kernelVerificationErrorCount += 1;
+          kernelVerificationErrorCounts.set(code, (kernelVerificationErrorCounts.get(code) ?? 0) + 1);
+        }
+      }
+    }
+
+    const kernelVerificationErrorCountsByCode = Array.from(kernelVerificationErrorCounts.entries())
+      .map(([code, count]) => ({
+        code,
+        count
+      }))
+      .sort((left, right) => {
+        if (right.count !== left.count) return right.count - left.count;
+        return String(left.code ?? "").localeCompare(String(right.code ?? ""));
+      });
+
+    const arbitrationOverSlaCases = [];
+    try {
+      const arbitrationCases = await listArbitrationCaseRecordsAll({ tenantId: t, pageSize: 1000 });
+      for (const arbitrationCase of arbitrationCases) {
+        if (!arbitrationCase || typeof arbitrationCase !== "object" || Array.isArray(arbitrationCase)) continue;
+        try {
+          const caseStatus = normalizeArbitrationCaseStatus(arbitrationCase.status ?? ARBITRATION_CASE_STATUS.OPEN, {
+            fieldName: "arbitrationCase.status"
+          });
+          if (caseStatus === ARBITRATION_CASE_STATUS.CLOSED) continue;
+          const openedAt = typeof arbitrationCase?.openedAt === "string" && arbitrationCase.openedAt.trim() !== ""
+            ? arbitrationCase.openedAt.trim()
+            : null;
+          const openedAtMs = openedAt && Number.isFinite(Date.parse(openedAt)) ? Date.parse(openedAt) : Number.NaN;
+          if (!Number.isFinite(openedAtMs) || !Number.isFinite(nowMs)) continue;
+          const dueAtMs = openedAtMs + safeDisputeSlaHours * 60 * 60 * 1000;
+          if (nowMs <= dueAtMs) continue;
+
+          const runId = typeof arbitrationCase?.runId === "string" && arbitrationCase.runId.trim() !== "" ? arbitrationCase.runId.trim() : null;
+          const disputePriority =
+            normalizeArbitrationCasePriority(arbitrationCase?.priority, {
+              fieldName: "arbitrationCase.priority",
+              allowNull: true
+            }) ??
+            (runId && settlementPriorityByRunId.has(runId)
+              ? settlementPriorityByRunId.get(runId) ?? null
+              : null);
+
+          arbitrationOverSlaCases.push({
+            caseId: arbitrationCase.caseId ?? null,
+            runId,
+            disputeId: arbitrationCase.disputeId ?? null,
+            status: caseStatus,
+            arbiterAgentId: arbitrationCase.arbiterAgentId ?? null,
+            openedAt,
+            dueAt: new Date(dueAtMs).toISOString(),
+            ageSeconds: Math.max(0, Math.floor((nowMs - openedAtMs) / 1000)),
+            ageHours: Number(((nowMs - openedAtMs) / (60 * 60 * 1000)).toFixed(2)),
+            priority: disputePriority
+          });
+        } catch {
+          continue;
+        }
+      }
+      arbitrationOverSlaCases.sort((left, right) => {
+        const leftAge = Number(left?.ageSeconds ?? 0);
+        const rightAge = Number(right?.ageSeconds ?? 0);
+        if (leftAge !== rightAge) return rightAge - leftAge;
+        return String(left?.caseId ?? "").localeCompare(String(right?.caseId ?? ""));
+      });
+    } catch {
+      // Arbitration case SLA detail is best-effort.
     }
 
     let totalAgents = 0;
@@ -1576,15 +1777,20 @@ export function createApi({
         lockedCount,
         settlementAmountCents: settlementAmountCentsInWindow,
         releasedAmountCents: releasedAmountCentsInWindow,
-        refundedAmountCents: refundedAmountCentsInWindow
+        refundedAmountCents: refundedAmountCentsInWindow,
+        kernelVerificationErrorCount: Math.round(kernelVerificationErrorCount),
+        kernelVerificationErrorCountsByCode
       },
       disputes: {
+        slaHours: safeDisputeSlaHours,
         openCount: disputeOpenCount,
         openedCountInWindow: disputeOpenedInWindow,
         closedCountInWindow: disputeClosedInWindow,
         oldestOpenAgeSeconds: disputeOldestOpenAgeSeconds,
         overSlaCount: disputeOverSlaCount,
-        expiredWindowOpenCount: disputeExpiredWindowOpenCount
+        expiredWindowOpenCount: disputeExpiredWindowOpenCount,
+        arbitrationOverSlaCount: arbitrationOverSlaCases.length,
+        overSlaCases: arbitrationOverSlaCases.slice(0, 50)
       },
       revenue: {
         transactionFeeBps: safeTransactionFeeBps,
@@ -1609,6 +1815,26 @@ export function createApi({
       for (const r of records ?? []) {
         if (!r || typeof r !== "object") continue;
         if (r.action !== "MAINTENANCE_RETENTION_RUN") continue;
+        if (!last) last = r;
+        const outcome = r?.details?.outcome ?? null;
+        if (!lastOk && outcome === "ok") lastOk = r;
+        if (last && lastOk) break;
+      }
+      return { last, lastOk };
+    } catch {
+      return { last: null, lastOk: null };
+    }
+  }
+
+  async function fetchMaintenanceFinanceReconcileRunInfo({ tenantId }) {
+    if (typeof store.listOpsAudit !== "function") return { last: null, lastOk: null };
+    try {
+      const records = await store.listOpsAudit({ tenantId, limit: 200, offset: 0 });
+      let last = null;
+      let lastOk = null;
+      for (const r of records ?? []) {
+        if (!r || typeof r !== "object") continue;
+        if (r.action !== "MAINTENANCE_FINANCE_RECONCILE_RUN") continue;
         if (!last) last = r;
         const outcome = r?.details?.outcome ?? null;
         if (!lastOk && outcome === "ok") lastOk = r;
@@ -1655,6 +1881,28 @@ export function createApi({
 
 	    const outcome = last?.details?.outcome ?? null;
 	    metricGauge("maintenance_last_run_ok_gauge", { kind: "retention_cleanup" }, outcome === "ok" ? 1 : 0);
+
+    const financeReconcileInfo = await fetchMaintenanceFinanceReconcileRunInfo({ tenantId });
+    const lastFinance = financeReconcileInfo?.last ?? null;
+    const lastFinanceOk = financeReconcileInfo?.lastOk ?? null;
+    const financeLastRunAt = store?.__financeReconcileLastRunAt ?? lastFinance?.at ?? null;
+    const financeLastSuccessAt = store?.__financeReconcileLastSuccessAt ?? lastFinanceOk?.at ?? null;
+    const financeLastRunAtMs = financeLastRunAt ? Date.parse(String(financeLastRunAt)) : Number.NaN;
+    const financeLastOkAtMs = financeLastSuccessAt ? Date.parse(String(financeLastSuccessAt)) : Number.NaN;
+    metricGauge("maintenance_last_run_unixtime", { kind: "finance_reconcile" }, Number.isFinite(financeLastRunAtMs) ? Math.floor(financeLastRunAtMs / 1000) : 0);
+    metricGauge(
+      "maintenance_last_success_unixtime",
+      { kind: "finance_reconcile" },
+      Number.isFinite(financeLastOkAtMs) ? Math.floor(financeLastOkAtMs / 1000) : 0
+    );
+    const financeOutcome =
+      lastFinance?.details?.outcome ??
+      (store?.__financeReconcileLastResult && typeof store.__financeReconcileLastResult === "object"
+        ? store.__financeReconcileLastResult.ok === true
+          ? "ok"
+          : "error"
+        : null);
+    metricGauge("maintenance_last_run_ok_gauge", { kind: "finance_reconcile" }, financeOutcome === "ok" ? 1 : 0);
 
 	    // Settlement holds: finance-operability gauges (count + aging distribution).
 	    try {
@@ -1844,8 +2092,12 @@ export function createApi({
     return makeScopedKey({ tenantId: normalizeTenant(tenantId), id: runId });
   }
 
-  function taskStoreKey(tenantId, taskId) {
-    return makeScopedKey({ tenantId: normalizeTenant(tenantId), id: taskId });
+  function rfqStoreKey(tenantId, rfqId) {
+    return makeScopedKey({ tenantId: normalizeTenant(tenantId), id: rfqId });
+  }
+
+  function capabilityListingStoreKey(tenantId, listingId) {
+    return makeScopedKey({ tenantId: normalizeTenant(tenantId), id: listingId });
   }
 
   function monthStoreKey(tenantId, monthId) {
@@ -5365,7 +5617,7 @@ export function createApi({
     };
   }
 
-  function parseMarketplaceTaskStatus(rawValue, { allowAll = true, defaultStatus = "all" } = {}) {
+  function parseMarketplaceRfqStatus(rawValue, { allowAll = true, defaultStatus = "all" } = {}) {
     if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultStatus;
     const value = String(rawValue).trim().toLowerCase();
     if (value === "open" || value === "assigned" || value === "cancelled" || value === "closed") return value;
@@ -5379,6 +5631,14 @@ export function createApi({
     if (value === "pending" || value === "accepted" || value === "rejected") return value;
     if (allowAll && value === "all") return value;
     throw new TypeError("status must be pending|accepted|rejected|all");
+  }
+
+  function parseMarketplaceCapabilityListingStatus(rawValue, { allowAll = true, defaultStatus = "all" } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultStatus;
+    const value = String(rawValue).trim().toLowerCase();
+    if (value === "active" || value === "paused" || value === "retired") return value;
+    if (allowAll && value === "all") return value;
+    throw new TypeError("status must be active|paused|retired|all");
   }
 
   function parseInteractionDirection({
@@ -5397,14 +5657,22 @@ export function createApi({
 
   const MARKETPLACE_POLICY_REF_SCHEMA_VERSION = "MarketplaceSettlementPolicyRef.v1";
   const TENANT_SETTLEMENT_POLICY_SCHEMA_VERSION = "TenantSettlementPolicy.v1";
+  const TENANT_SETTLEMENT_POLICY_ROLLOUT_SCHEMA_VERSION = "TenantSettlementPolicyRollout.v1";
+  const TENANT_SETTLEMENT_POLICY_DIFF_SCHEMA_VERSION = "TenantSettlementPolicyDiff.v1";
+  const SETTLEMENT_POLICY_ROLLOUT_HISTORY_LIMIT = 200;
+  const SETTLEMENT_POLICY_ROLLOUT_STAGE = Object.freeze({
+    DRAFT: "draft",
+    CANARY: "canary",
+    ACTIVE: "active"
+  });
   const MARKETPLACE_BID_ACCEPTANCE_SCHEMA_VERSION = "MarketplaceBidAcceptance.v1";
   const MARKETPLACE_AGREEMENT_ACCEPTANCE_SCHEMA_VERSION = "MarketplaceAgreementAcceptance.v1";
-  const MARKETPLACE_AGREEMENT_ACCEPTANCE_SIGNATURE_SCHEMA_VERSION = "MarketplaceAgreementAcceptanceSignature.v1";
+  const MARKETPLACE_AGREEMENT_ACCEPTANCE_SIGNATURE_SCHEMA_VERSION = "MarketplaceAgreementAcceptanceSignature.v2";
   const MARKETPLACE_AGREEMENT_CHANGE_ORDER_ACCEPTANCE_SIGNATURE_SCHEMA_VERSION =
-    "MarketplaceAgreementChangeOrderAcceptanceSignature.v1";
+    "MarketplaceAgreementChangeOrderAcceptanceSignature.v2";
   const MARKETPLACE_AGREEMENT_CANCELLATION_ACCEPTANCE_SIGNATURE_SCHEMA_VERSION =
-    "MarketplaceAgreementCancellationAcceptanceSignature.v1";
-  const MARKETPLACE_AGREEMENT_POLICY_BINDING_SCHEMA_VERSION = "MarketplaceAgreementPolicyBinding.v1";
+    "MarketplaceAgreementCancellationAcceptanceSignature.v2";
+  const MARKETPLACE_AGREEMENT_POLICY_BINDING_SCHEMA_VERSION = "MarketplaceAgreementPolicyBinding.v2";
   const AGENT_DELEGATION_LINK_SCHEMA_VERSION = "AgentDelegationLink.v1";
   const AGENT_ACTING_ON_BEHALF_OF_SCHEMA_VERSION = "AgentActingOnBehalfOf.v1";
   const MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_ACCEPT = "marketplace.agreement.accept";
@@ -5528,6 +5796,378 @@ export function createApi({
   function getTenantSettlementPolicyRecord({ tenantId, policyId, policyVersion }) {
     if (!(store.tenantSettlementPolicies instanceof Map)) return null;
     return store.tenantSettlementPolicies.get(tenantSettlementPolicyStoreKey({ tenantId, policyId, policyVersion })) ?? null;
+  }
+
+  function tenantSettlementPolicyRolloutStoreKey({ tenantId }) {
+    return makeScopedKey({ tenantId: normalizeTenant(tenantId), id: "rollout" });
+  }
+
+  function parseTenantSettlementPolicyRefInput(input, { fieldPath = "policyRef", allowNull = false } = {}) {
+    if (input === null || input === undefined || input === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    if (typeof input !== "object" || Array.isArray(input)) {
+      throw new TypeError(`${fieldPath} must be an object`);
+    }
+    const policyId = parseSettlementPolicyRegistryId(input.policyId, { fieldPath: `${fieldPath}.policyId` });
+    const policyVersion = parseSettlementPolicyVersion(input.policyVersion, { fieldPath: `${fieldPath}.policyVersion` });
+    return { policyId, policyVersion };
+  }
+
+  function cloneTenantSettlementPolicyRef(ref) {
+    if (!ref || typeof ref !== "object" || Array.isArray(ref)) return null;
+    const parsed = parseTenantSettlementPolicyRefInput(ref, { allowNull: true });
+    if (!parsed) return null;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: MARKETPLACE_POLICY_REF_SCHEMA_VERSION,
+        source: "tenant_registry",
+        policyId: parsed.policyId,
+        policyVersion: parsed.policyVersion,
+        policyHash:
+          typeof ref.policyHash === "string" && ref.policyHash.trim() !== ""
+            ? String(ref.policyHash).trim().toLowerCase()
+            : null,
+        verificationMethodHash:
+          typeof ref.verificationMethodHash === "string" && ref.verificationMethodHash.trim() !== ""
+            ? String(ref.verificationMethodHash).trim().toLowerCase()
+            : null
+      },
+      { path: "$" }
+    );
+  }
+
+  function normalizeTenantSettlementPolicyRef(record) {
+    if (!record || typeof record !== "object" || Array.isArray(record)) return null;
+    const policyId = parseSettlementPolicyRegistryId(record.policyId, { fieldPath: "policyId" });
+    const policyVersion = parseSettlementPolicyVersion(record.policyVersion, { fieldPath: "policyVersion" });
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: MARKETPLACE_POLICY_REF_SCHEMA_VERSION,
+        source: "tenant_registry",
+        policyId,
+        policyVersion,
+        policyHash: normalizeOptionalHashInput(record.policyHash, "policyHash"),
+        verificationMethodHash: normalizeOptionalHashInput(record.verificationMethodHash, "verificationMethodHash")
+      },
+      { path: "$" }
+    );
+  }
+
+  function settlementPolicyRefEquals(a, b) {
+    const left = cloneTenantSettlementPolicyRef(a);
+    const right = cloneTenantSettlementPolicyRef(b);
+    if (!left && !right) return true;
+    if (!left || !right) return false;
+    return String(left.policyId) === String(right.policyId) && Number(left.policyVersion) === Number(right.policyVersion);
+  }
+
+  function parseSettlementPolicyRolloutStage(rawValue, { fieldPath = "stage", allowNull = false } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const value = String(rawValue).trim().toLowerCase();
+    if (
+      value !== SETTLEMENT_POLICY_ROLLOUT_STAGE.DRAFT &&
+      value !== SETTLEMENT_POLICY_ROLLOUT_STAGE.CANARY &&
+      value !== SETTLEMENT_POLICY_ROLLOUT_STAGE.ACTIVE
+    ) {
+      throw new TypeError(`${fieldPath} must be draft|canary|active`);
+    }
+    return value;
+  }
+
+  function parseSettlementPolicyRolloutPercent(rawValue, { fieldPath = "rolloutPercent", allowNull = false } = {}) {
+    if (rawValue === null || rawValue === undefined || rawValue === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const value = Number(rawValue);
+    if (!Number.isSafeInteger(value) || value < 1 || value > 100) {
+      throw new TypeError(`${fieldPath} must be an integer in range 1..100`);
+    }
+    return value;
+  }
+
+  function normalizeSettlementPolicyRolloutNote(rawValue) {
+    if (rawValue === null || rawValue === undefined) return null;
+    const value = String(rawValue).trim();
+    if (!value) return null;
+    return value.slice(0, 500);
+  }
+
+  function flattenSettlementPolicyDiffObject(value, { pathPrefix = "", out = new Map() } = {}) {
+    if (value === null || value === undefined) {
+      out.set(pathPrefix || "$", null);
+      return out;
+    }
+    if (Array.isArray(value)) {
+      out.set(pathPrefix || "$", value);
+      return out;
+    }
+    if (typeof value !== "object") {
+      out.set(pathPrefix || "$", value);
+      return out;
+    }
+    const keys = Object.keys(value).sort((a, b) => String(a).localeCompare(String(b)));
+    if (!keys.length) {
+      out.set(pathPrefix || "$", {});
+      return out;
+    }
+    for (const key of keys) {
+      const nextPath = pathPrefix ? `${pathPrefix}.${key}` : key;
+      flattenSettlementPolicyDiffObject(value[key], { pathPrefix: nextPath, out });
+    }
+    return out;
+  }
+
+  function buildTenantSettlementPolicyDiff({ fromPolicy, toPolicy, includeUnchanged = false, limit = 200 } = {}) {
+    const left = fromPolicy && typeof fromPolicy === "object" && !Array.isArray(fromPolicy) ? fromPolicy : {};
+    const right = toPolicy && typeof toPolicy === "object" && !Array.isArray(toPolicy) ? toPolicy : {};
+    const leftMap = flattenSettlementPolicyDiffObject(left);
+    const rightMap = flattenSettlementPolicyDiffObject(right);
+    const paths = [...new Set([...leftMap.keys(), ...rightMap.keys()])].sort((a, b) => String(a).localeCompare(String(b)));
+    const changes = [];
+    let changed = 0;
+    let added = 0;
+    let removed = 0;
+    let unchanged = 0;
+
+    for (const pathName of paths) {
+      const hasBefore = leftMap.has(pathName);
+      const hasAfter = rightMap.has(pathName);
+      const fromValue = hasBefore ? leftMap.get(pathName) : null;
+      const toValue = hasAfter ? rightMap.get(pathName) : null;
+      const equal = hasBefore === hasAfter && JSON.stringify(fromValue) === JSON.stringify(toValue);
+      if (equal) {
+        unchanged += 1;
+        if (!includeUnchanged) continue;
+        changes.push({ path: pathName, kind: "unchanged", fromValue, toValue });
+        continue;
+      }
+      if (!hasBefore && hasAfter) {
+        added += 1;
+        changes.push({ path: pathName, kind: "added", fromValue: null, toValue });
+        continue;
+      }
+      if (hasBefore && !hasAfter) {
+        removed += 1;
+        changes.push({ path: pathName, kind: "removed", fromValue, toValue: null });
+        continue;
+      }
+      changed += 1;
+      changes.push({ path: pathName, kind: "changed", fromValue, toValue });
+    }
+
+    const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(2000, limit) : 200;
+    return {
+      summary: {
+        totalPaths: paths.length,
+        changed,
+        added,
+        removed,
+        unchanged,
+        includeUnchanged: Boolean(includeUnchanged)
+      },
+      changes: changes.slice(0, safeLimit),
+      limited: changes.length > safeLimit
+    };
+  }
+
+  function deriveTenantSettlementPolicyActiveFallbackRef({ tenantId }) {
+    const policies = listTenantSettlementPolicyRecords({ tenantId });
+    if (!policies.length) return null;
+    return normalizeTenantSettlementPolicyRef(policies[0]);
+  }
+
+  function getTenantSettlementPolicyRolloutRecord({ tenantId }) {
+    if (!(store.tenantSettlementPolicyRollouts instanceof Map)) return null;
+    return store.tenantSettlementPolicyRollouts.get(tenantSettlementPolicyRolloutStoreKey({ tenantId })) ?? null;
+  }
+
+  function defaultTenantSettlementPolicyRollout({ activePolicyRef = null } = {}) {
+    return {
+      schemaVersion: TENANT_SETTLEMENT_POLICY_ROLLOUT_SCHEMA_VERSION,
+      stages: {
+        draft: null,
+        canary: { policyRef: null, rolloutPercent: 0 },
+        active: cloneTenantSettlementPolicyRef(activePolicyRef)
+      },
+      history: []
+    };
+  }
+
+  function normalizeTenantSettlementPolicyRollout({ tenantId, rollout, activeFallbackRef = null } = {}) {
+    const fallbackRef = cloneTenantSettlementPolicyRef(activeFallbackRef ?? deriveTenantSettlementPolicyActiveFallbackRef({ tenantId }));
+    const out = defaultTenantSettlementPolicyRollout({ activePolicyRef: fallbackRef });
+    const source = rollout && typeof rollout === "object" && !Array.isArray(rollout) ? rollout : {};
+    const stages = source.stages && typeof source.stages === "object" && !Array.isArray(source.stages) ? source.stages : {};
+
+    const resolveRef = (ref) => {
+      const parsed = parseTenantSettlementPolicyRefInput(ref, { allowNull: true });
+      if (!parsed) return null;
+      const row = getTenantSettlementPolicyRecord({
+        tenantId,
+        policyId: parsed.policyId,
+        policyVersion: parsed.policyVersion
+      });
+      return row ? normalizeTenantSettlementPolicyRef(row) : null;
+    };
+
+    out.stages.draft = resolveRef(stages.draft);
+    const canarySource = stages.canary && typeof stages.canary === "object" && !Array.isArray(stages.canary) ? stages.canary : {};
+    const canaryRef = resolveRef(canarySource.policyRef ?? null);
+    let canaryPercent = 0;
+    try {
+      canaryPercent = parseSettlementPolicyRolloutPercent(canarySource.rolloutPercent, { allowNull: true }) ?? 0;
+    } catch {
+      canaryPercent = 0;
+    }
+    out.stages.canary = {
+      policyRef: canaryRef,
+      rolloutPercent: canaryRef ? Math.max(1, canaryPercent || 10) : 0
+    };
+
+    out.stages.active = resolveRef(stages.active ?? fallbackRef);
+    if (!out.stages.active && fallbackRef) {
+      out.stages.active = resolveRef(fallbackRef);
+    }
+
+    const rows = Array.isArray(source.history) ? source.history : [];
+    const normalizedHistory = [];
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      let stage = null;
+      try {
+        stage = parseSettlementPolicyRolloutStage(row.stage, { allowNull: true });
+      } catch {
+        stage = null;
+      }
+      let rolloutPercent = null;
+      try {
+        rolloutPercent = parseSettlementPolicyRolloutPercent(row.rolloutPercent, { allowNull: true });
+      } catch {
+        rolloutPercent = null;
+      }
+      const at = typeof row.at === "string" && Number.isFinite(Date.parse(row.at)) ? row.at : nowIso();
+      const action = typeof row.action === "string" && row.action.trim() !== "" ? row.action.trim().slice(0, 80) : "update";
+      const note = normalizeSettlementPolicyRolloutNote(row.note);
+      const actorPrincipalId =
+        typeof row.actorPrincipalId === "string" && row.actorPrincipalId.trim() !== ""
+          ? row.actorPrincipalId.trim().slice(0, 160)
+          : null;
+      normalizedHistory.push({
+        at,
+        action,
+        stage,
+        fromPolicyRef: cloneTenantSettlementPolicyRef(row.fromPolicyRef ?? null),
+        toPolicyRef: cloneTenantSettlementPolicyRef(row.toPolicyRef ?? null),
+        rolloutPercent,
+        note,
+        actorPrincipalId
+      });
+    }
+    out.history = normalizedHistory.slice(-SETTLEMENT_POLICY_ROLLOUT_HISTORY_LIMIT);
+    return out;
+  }
+
+  function appendTenantSettlementPolicyRolloutHistory({ rollout, entry }) {
+    if (!rollout || typeof rollout !== "object" || Array.isArray(rollout)) return;
+    if (!Array.isArray(rollout.history)) rollout.history = [];
+    let stage = null;
+    try {
+      stage = parseSettlementPolicyRolloutStage(entry?.stage ?? null, { allowNull: true });
+    } catch {
+      stage = null;
+    }
+    let rolloutPercent = null;
+    try {
+      rolloutPercent = parseSettlementPolicyRolloutPercent(entry?.rolloutPercent ?? null, { allowNull: true });
+    } catch {
+      rolloutPercent = null;
+    }
+    rollout.history.push({
+      at: typeof entry?.at === "string" && Number.isFinite(Date.parse(entry.at)) ? entry.at : nowIso(),
+      action:
+        typeof entry?.action === "string" && entry.action.trim() !== ""
+          ? entry.action.trim().slice(0, 80)
+          : "update",
+      stage,
+      fromPolicyRef: cloneTenantSettlementPolicyRef(entry?.fromPolicyRef ?? null),
+      toPolicyRef: cloneTenantSettlementPolicyRef(entry?.toPolicyRef ?? null),
+      rolloutPercent,
+      note: normalizeSettlementPolicyRolloutNote(entry?.note),
+      actorPrincipalId:
+        typeof entry?.actorPrincipalId === "string" && entry.actorPrincipalId.trim() !== ""
+          ? entry.actorPrincipalId.trim().slice(0, 160)
+          : null
+    });
+    if (rollout.history.length > SETTLEMENT_POLICY_ROLLOUT_HISTORY_LIMIT) {
+      rollout.history = rollout.history.slice(-SETTLEMENT_POLICY_ROLLOUT_HISTORY_LIMIT);
+    }
+  }
+
+  function findTenantSettlementPolicyRollbackTargetRef({ rollout, currentActiveRef }) {
+    const rows = Array.isArray(rollout?.history) ? [...rollout.history] : [];
+    for (let idx = rows.length - 1; idx >= 0; idx -= 1) {
+      const row = rows[idx];
+      if (!row || row.stage !== SETTLEMENT_POLICY_ROLLOUT_STAGE.ACTIVE) continue;
+      const fromRef = cloneTenantSettlementPolicyRef(row.fromPolicyRef ?? null);
+      if (!fromRef) continue;
+      if (settlementPolicyRefEquals(fromRef, currentActiveRef)) continue;
+      return fromRef;
+    }
+    return null;
+  }
+
+  function selectTenantSettlementPolicyControlPlaneState({ tenantId, policyId = null } = {}) {
+    const policies = listTenantSettlementPolicyRecords({ tenantId, policyId });
+    const allPolicies = listTenantSettlementPolicyRecords({ tenantId });
+    const policyIds = [...new Set(allPolicies.map((row) => String(row.policyId ?? "")))]
+      .filter(Boolean)
+      .sort((a, b) => String(a).localeCompare(String(b)));
+    const fallbackRef = deriveTenantSettlementPolicyActiveFallbackRef({ tenantId });
+    const rollout = normalizeTenantSettlementPolicyRollout({
+      tenantId,
+      rollout: getTenantSettlementPolicyRolloutRecord({ tenantId }),
+      activeFallbackRef: fallbackRef
+    });
+    const activePolicy = rollout.stages.active
+      ? getTenantSettlementPolicyRecord({
+          tenantId,
+          policyId: rollout.stages.active.policyId,
+          policyVersion: rollout.stages.active.policyVersion
+        })
+      : null;
+    const draftPolicy = rollout.stages.draft
+      ? getTenantSettlementPolicyRecord({
+          tenantId,
+          policyId: rollout.stages.draft.policyId,
+          policyVersion: rollout.stages.draft.policyVersion
+        })
+      : null;
+    const canaryPolicy = rollout.stages.canary?.policyRef
+      ? getTenantSettlementPolicyRecord({
+          tenantId,
+          policyId: rollout.stages.canary.policyRef.policyId,
+          policyVersion: rollout.stages.canary.policyRef.policyVersion
+        })
+      : null;
+    return {
+      tenantId,
+      policyIds,
+      policies,
+      rollout,
+      defaultPolicyRef: rollout.stages.active ?? fallbackRef ?? null,
+      rolloutStagePolicies: {
+        draft: draftPolicy ?? null,
+        canary: canaryPolicy ?? null,
+        active: activePolicy ?? null
+      },
+      rolloutHistory: Array.isArray(rollout.history) ? rollout.history.slice(-50).reverse() : []
+    };
   }
 
   function resolveMarketplaceSettlementPolicySelection({
@@ -5708,20 +6348,140 @@ export function createApi({
     return { limit: safeLimit, offset: safeOffset };
   }
 
-  function listMarketplaceTasks({
+  function parseMarketplaceCapabilityListingId(rawValue, { fieldPath = "listingId", allowNull = false } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const value = String(rawValue).trim();
+    if (value.length > 128) throw new TypeError(`${fieldPath} must be <= 128 chars`);
+    if (!/^[A-Za-z0-9._:-]+$/.test(value)) throw new TypeError(`${fieldPath} must match [A-Za-z0-9._:-]+`);
+    return value;
+  }
+
+  function normalizeMarketplaceCapabilityTagsInput(rawValue, { fieldPath = "tags" } = {}) {
+    if (rawValue === undefined || rawValue === null) return [];
+    if (!Array.isArray(rawValue)) throw new TypeError(`${fieldPath} must be an array`);
+    const out = [];
+    for (const row of rawValue) {
+      const value = String(row ?? "").trim();
+      if (!value) continue;
+      if (value.length > 64) throw new TypeError(`${fieldPath} entries must be <= 64 chars`);
+      if (!out.includes(value)) out.push(value);
+    }
+    return out;
+  }
+
+  function normalizeMarketplaceCapabilityPriceModelInput(rawValue, { fieldPath = "priceModel" } = {}) {
+    if (rawValue === undefined || rawValue === null) return null;
+    if (typeof rawValue !== "object" || Array.isArray(rawValue)) throw new TypeError(`${fieldPath} must be an object`);
+    const modeRaw = String(rawValue.mode ?? "fixed").trim().toLowerCase();
+    const mode = modeRaw === "fixed" || modeRaw === "hourly" || modeRaw === "per_unit" || modeRaw === "quote" ? modeRaw : null;
+    if (!mode) throw new TypeError(`${fieldPath}.mode must be fixed|hourly|per_unit|quote`);
+    const amountRaw = rawValue.amountCents;
+    let amountCents = null;
+    if (amountRaw !== undefined && amountRaw !== null && String(amountRaw).trim() !== "") {
+      const parsed = Number(amountRaw);
+      if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new TypeError(`${fieldPath}.amountCents must be a positive safe integer`);
+      amountCents = parsed;
+    }
+    let minAmountCents = null;
+    if (rawValue.minAmountCents !== undefined && rawValue.minAmountCents !== null && String(rawValue.minAmountCents).trim() !== "") {
+      const parsed = Number(rawValue.minAmountCents);
+      if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new TypeError(`${fieldPath}.minAmountCents must be a positive safe integer`);
+      minAmountCents = parsed;
+    }
+    let maxAmountCents = null;
+    if (rawValue.maxAmountCents !== undefined && rawValue.maxAmountCents !== null && String(rawValue.maxAmountCents).trim() !== "") {
+      const parsed = Number(rawValue.maxAmountCents);
+      if (!Number.isSafeInteger(parsed) || parsed <= 0) throw new TypeError(`${fieldPath}.maxAmountCents must be a positive safe integer`);
+      maxAmountCents = parsed;
+    }
+    if (minAmountCents !== null && maxAmountCents !== null && maxAmountCents < minAmountCents) {
+      throw new TypeError(`${fieldPath}.maxAmountCents must be >= minAmountCents`);
+    }
+    const currency = rawValue.currency === undefined || rawValue.currency === null ? "USD" : String(rawValue.currency).trim().toUpperCase();
+    if (!currency) throw new TypeError(`${fieldPath}.currency must be a non-empty string`);
+    const unit = rawValue.unit === undefined || rawValue.unit === null ? null : String(rawValue.unit).trim() || null;
+    if (unit && unit.length > 64) throw new TypeError(`${fieldPath}.unit must be <= 64 chars`);
+    return {
+      schemaVersion: "MarketplaceCapabilityPriceModel.v1",
+      mode,
+      amountCents,
+      minAmountCents,
+      maxAmountCents,
+      currency,
+      unit
+    };
+  }
+
+  function getMarketplaceCapabilityListing({ tenantId, listingId } = {}) {
+    if (!(store.marketplaceCapabilityListings instanceof Map)) return null;
+    const id = String(listingId ?? "").trim();
+    if (!id) return null;
+    return store.marketplaceCapabilityListings.get(capabilityListingStoreKey(tenantId, id)) ?? null;
+  }
+
+  function listMarketplaceCapabilityListings({
+    tenantId,
+    status = "all",
+    capability = null,
+    sellerAgentId = null,
+    search = null
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    const statusFilter = parseMarketplaceCapabilityListingStatus(status, { allowAll: true, defaultStatus: "all" });
+    const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const sellerFilter = sellerAgentId && String(sellerAgentId).trim() !== "" ? String(sellerAgentId).trim() : null;
+    const searchFilter = search && String(search).trim() !== "" ? String(search).trim().toLowerCase() : null;
+    if (!(store.marketplaceCapabilityListings instanceof Map)) return [];
+
+    const rows = [];
+    for (const row of store.marketplaceCapabilityListings.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
+      const rowStatus = String(row.status ?? "active").toLowerCase();
+      if (statusFilter !== "all" && rowStatus !== statusFilter) continue;
+      if (capabilityFilter && String(row.capability ?? "") !== capabilityFilter) continue;
+      if (sellerFilter && String(row.sellerAgentId ?? "") !== sellerFilter) continue;
+      if (searchFilter) {
+        const haystack = [
+          row.listingId,
+          row.capability,
+          row.title,
+          row.description,
+          row.category,
+          ...(Array.isArray(row.tags) ? row.tags : [])
+        ]
+          .map((value) => String(value ?? "").toLowerCase())
+          .join(" ");
+        if (!haystack.includes(searchFilter)) continue;
+      }
+      rows.push(row);
+    }
+    rows.sort((left, right) => {
+      const leftAt = Date.parse(String(left.updatedAt ?? left.createdAt ?? ""));
+      const rightAt = Date.parse(String(right.updatedAt ?? right.createdAt ?? ""));
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left.listingId ?? "").localeCompare(String(right.listingId ?? ""));
+    });
+    return rows;
+  }
+
+  function listMarketplaceRfqs({
     tenantId,
     status = "all",
     capability = null,
     posterAgentId = null
   } = {}) {
     const t = normalizeTenant(tenantId);
-    const statusFilter = parseMarketplaceTaskStatus(status, { allowAll: true, defaultStatus: "all" });
+    const statusFilter = parseMarketplaceRfqStatus(status, { allowAll: true, defaultStatus: "all" });
     const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
     const posterFilter = posterAgentId && String(posterAgentId).trim() !== "" ? String(posterAgentId).trim() : null;
 
     const rows = [];
-    if (!(store.marketplaceTasks instanceof Map)) return rows;
-    for (const row of store.marketplaceTasks.values()) {
+    if (!(store.marketplaceRfqs instanceof Map)) return rows;
+    for (const row of store.marketplaceRfqs.values()) {
       if (!row || typeof row !== "object") continue;
       const rowTenant = normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID);
       if (rowTenant !== t) continue;
@@ -5736,31 +6496,48 @@ export function createApi({
       const leftAt = Date.parse(String(left.createdAt ?? ""));
       const rightAt = Date.parse(String(right.createdAt ?? ""));
       if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
-      return String(left.taskId ?? "").localeCompare(String(right.taskId ?? ""));
+      return String(left.rfqId ?? "").localeCompare(String(right.rfqId ?? ""));
     });
     return rows;
   }
 
-  function getMarketplaceTask({ tenantId, taskId }) {
-    if (!(store.marketplaceTasks instanceof Map)) return null;
-    return store.marketplaceTasks.get(taskStoreKey(tenantId, taskId)) ?? null;
+  function toMarketplaceRfqResponse(rfq) {
+    if (!rfq || typeof rfq !== "object" || Array.isArray(rfq)) return null;
+    return {
+      ...rfq,
+      schemaVersion: "MarketplaceRfq.v1",
+      rfqId: typeof rfq.rfqId === "string" && rfq.rfqId.trim() !== "" ? rfq.rfqId : null
+    };
   }
 
-  function findMarketplaceTaskByRunId({ tenantId, runId }) {
-    if (!(store.marketplaceTasks instanceof Map)) return null;
+  function toMarketplaceBidResponse(bid) {
+    if (!bid || typeof bid !== "object" || Array.isArray(bid)) return null;
+    return {
+      ...bid,
+      rfqId: typeof bid.rfqId === "string" && bid.rfqId.trim() !== "" ? bid.rfqId : null
+    };
+  }
+
+  function getMarketplaceRfq({ tenantId, rfqId }) {
+    if (!(store.marketplaceRfqs instanceof Map)) return null;
+    return store.marketplaceRfqs.get(rfqStoreKey(tenantId, rfqId)) ?? null;
+  }
+
+  function findMarketplaceRfqByRunId({ tenantId, runId }) {
+    if (!(store.marketplaceRfqs instanceof Map)) return null;
     const t = normalizeTenant(tenantId);
-    for (const task of store.marketplaceTasks.values()) {
-      if (!task || typeof task !== "object") continue;
-      if (normalizeTenant(task.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
-      if (String(task.runId ?? "") !== String(runId)) continue;
-      return task;
+    for (const rfq of store.marketplaceRfqs.values()) {
+      if (!rfq || typeof rfq !== "object") continue;
+      if (normalizeTenant(rfq.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
+      if (String(rfq.runId ?? "") !== String(runId)) continue;
+      return rfq;
     }
     return null;
   }
 
   function buildDelegationTraceRecord({
     tenantId,
-    task,
+    rfq,
     agreement,
     contextType,
     contextId = null,
@@ -5782,16 +6559,16 @@ export function createApi({
       typeof actingOnBehalfOf.chainHash === "string" && actingOnBehalfOf.chainHash.trim() !== ""
         ? actingOnBehalfOf.chainHash.trim()
         : sha256Hex(canonicalJsonStringify(delegationChain));
-    const runId = String(task?.runId ?? agreement?.runId ?? "");
-    const taskId = String(task?.taskId ?? "");
+    const runId = String(rfq?.runId ?? agreement?.runId ?? "");
+    const rfqId = String(rfq?.rfqId ?? "");
     const agreementId = String(agreement?.agreementId ?? "");
-    if (!runId || !taskId || !agreementId) return null;
+    if (!runId || !rfqId || !agreementId) return null;
     return normalizeForCanonicalJson(
       {
         chainHash,
         tenantId: normalizeTenant(tenantId),
         runId,
-        taskId,
+        rfqId,
         agreementId,
         contextType,
         contextId,
@@ -5823,15 +6600,15 @@ export function createApi({
     );
   }
 
-  function collectDelegationTracesFromTask({ tenantId, task } = {}) {
+  function collectDelegationTracesFromRfq({ tenantId, rfq } = {}) {
     const traces = [];
-    if (!task || typeof task !== "object" || Array.isArray(task)) return traces;
-    const agreement = task?.agreement && typeof task.agreement === "object" && !Array.isArray(task.agreement) ? task.agreement : null;
+    if (!rfq || typeof rfq !== "object" || Array.isArray(rfq)) return traces;
+    const agreement = rfq?.agreement && typeof rfq.agreement === "object" && !Array.isArray(rfq.agreement) ? rfq.agreement : null;
     if (!agreement) return traces;
 
     const agreementTrace = buildDelegationTraceRecord({
       tenantId,
-      task,
+      rfq,
       agreement,
       contextType: DELEGATION_TRACE_CONTEXT_TYPE.AGREEMENT_ACCEPTANCE,
       contextId: agreement.agreementId ?? null,
@@ -5845,7 +6622,7 @@ export function createApi({
       if (!changeOrder || typeof changeOrder !== "object" || Array.isArray(changeOrder)) continue;
       const trace = buildDelegationTraceRecord({
         tenantId,
-        task,
+        rfq,
         agreement,
         contextType: DELEGATION_TRACE_CONTEXT_TYPE.CHANGE_ORDER_ACCEPTANCE,
         contextId: changeOrder.changeOrderId ?? null,
@@ -5856,13 +6633,13 @@ export function createApi({
     }
 
     const cancellation =
-      task?.metadata?.cancellation && typeof task.metadata.cancellation === "object" && !Array.isArray(task.metadata.cancellation)
-        ? task.metadata.cancellation
+      rfq?.metadata?.cancellation && typeof rfq.metadata.cancellation === "object" && !Array.isArray(rfq.metadata.cancellation)
+        ? rfq.metadata.cancellation
         : null;
     if (cancellation) {
       const trace = buildDelegationTraceRecord({
         tenantId,
-        task,
+        rfq,
         agreement,
         contextType: DELEGATION_TRACE_CONTEXT_TYPE.CANCELLATION_ACCEPTANCE,
         contextId: cancellation.cancellationId ?? null,
@@ -5896,10 +6673,10 @@ export function createApi({
       typeof signerAgentId === "string" && signerAgentId.trim() !== "" ? signerAgentId.trim() : null;
 
     const traces = [];
-    const tasks = listMarketplaceTasks({ tenantId, status: "all" });
-    for (const task of tasks) {
-      const perTask = collectDelegationTracesFromTask({ tenantId, task });
-      for (const trace of perTask) {
+    const rfqs = listMarketplaceRfqs({ tenantId, status: "all" });
+    for (const rfq of rfqs) {
+      const perRfq = collectDelegationTracesFromRfq({ tenantId, rfq });
+      for (const trace of perRfq) {
         if (normalizedRunId && String(trace.runId ?? "") !== normalizedRunId) continue;
         if (normalizedChainHash && String(trace.chainHash ?? "").toLowerCase() !== normalizedChainHash) continue;
         if (normalizedSignerKeyId && String(trace.signerKeyId ?? "") !== normalizedSignerKeyId) continue;
@@ -5919,7 +6696,7 @@ export function createApi({
       const rightMs = Date.parse(String(right.signedAt ?? ""));
       if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && rightMs !== leftMs) return rightMs - leftMs;
       if (String(left.runId ?? "") !== String(right.runId ?? "")) return String(left.runId ?? "").localeCompare(String(right.runId ?? ""));
-      if (String(left.taskId ?? "") !== String(right.taskId ?? "")) return String(left.taskId ?? "").localeCompare(String(right.taskId ?? ""));
+      if (String(left.rfqId ?? "") !== String(right.rfqId ?? "")) return String(left.rfqId ?? "").localeCompare(String(right.rfqId ?? ""));
       if (String(left.contextType ?? "") !== String(right.contextType ?? "")) {
         return String(left.contextType ?? "").localeCompare(String(right.contextType ?? ""));
       }
@@ -5936,17 +6713,17 @@ export function createApi({
     };
   }
 
-  function listMarketplaceTaskBids({
+  function listMarketplaceRfqBids({
     tenantId,
-    taskId,
+    rfqId,
     status = "all",
     bidderAgentId = null
   } = {}) {
     const statusFilter = parseMarketplaceBidStatus(status, { allowAll: true, defaultStatus: "all" });
     const bidderFilter = bidderAgentId && String(bidderAgentId).trim() !== "" ? String(bidderAgentId).trim() : null;
 
-    if (!(store.marketplaceTaskBids instanceof Map)) return [];
-    const rows = store.marketplaceTaskBids.get(taskStoreKey(tenantId, taskId));
+    if (!(store.marketplaceRfqBids instanceof Map)) return [];
+    const rows = store.marketplaceRfqBids.get(rfqStoreKey(tenantId, rfqId));
     const all = Array.isArray(rows) ? rows : [];
     const filtered = [];
     for (const row of all) {
@@ -6145,6 +6922,178 @@ export function createApi({
     throw new TypeError("agent run settlements not supported for this store");
   }
 
+  function buildSettlementKernelRefs({
+    settlement,
+    run = null,
+    agreementId = null,
+    decisionStatus,
+    decisionMode,
+    decisionReason = null,
+    verificationStatus = null,
+    policyHash = null,
+    verificationMethodHash = null,
+    verificationMethodMode = null,
+    verifierId = "settld.policy-engine",
+    verifierVersion = "v1",
+    verifierHash = null,
+    resolutionEventId = null,
+    status = null,
+    releasedAmountCents = null,
+    refundedAmountCents = null,
+    releaseRatePct = null,
+    finalityState = SETTLEMENT_FINALITY_STATE.PENDING,
+    settledAt = null,
+    createdAt
+	  }) {
+	    if (!settlement || typeof settlement !== "object") return { decisionRecord: null, settlementReceipt: null };
+	    const at = createdAt ?? nowIso();
+
+	    // v2 decision records require replay-critical policy pinning. For non-marketplace runs, callers may not pass
+	    // explicit policy hashes; fall back to the policy/method actually present in the settlement trace, otherwise
+	    // the system defaults (which are what evaluation uses when nothing is specified).
+	    const lowerHexOrNull = (value) => {
+	      if (typeof value !== "string") return null;
+	      const trimmed = value.trim().toLowerCase();
+	      if (!trimmed) return null;
+	      return trimmed;
+	    };
+	    let effectivePolicyHash = lowerHexOrNull(policyHash);
+	    let effectiveVerificationMethodHash = lowerHexOrNull(verificationMethodHash);
+	    try {
+	      if (!effectivePolicyHash || !/^[0-9a-f]{64}$/.test(effectivePolicyHash)) {
+	        const tracePolicy =
+	          settlement?.decisionTrace?.policy && typeof settlement.decisionTrace.policy === "object" && !Array.isArray(settlement.decisionTrace.policy)
+	            ? settlement.decisionTrace.policy
+	            : null;
+	        effectivePolicyHash = tracePolicy ? parseSettlementPolicyInput(tracePolicy).policyHash : null;
+	      }
+	    } catch {
+	      effectivePolicyHash = null;
+	    }
+	    try {
+	      if (!effectiveVerificationMethodHash || !/^[0-9a-f]{64}$/.test(effectiveVerificationMethodHash)) {
+	        const traceMethod =
+	          settlement?.decisionTrace?.verificationMethod &&
+	          typeof settlement.decisionTrace.verificationMethod === "object" &&
+	          !Array.isArray(settlement.decisionTrace.verificationMethod)
+	            ? settlement.decisionTrace.verificationMethod
+	            : null;
+	        effectiveVerificationMethodHash = traceMethod ? computeVerificationMethodHash(parseVerificationMethodInput(traceMethod)) : null;
+	      }
+	    } catch {
+	      effectiveVerificationMethodHash = null;
+	    }
+	    if (!effectivePolicyHash) {
+	      // Default policy hash must always exist; if this fails, something is badly wrong with policy normalization.
+	      effectivePolicyHash = parseSettlementPolicyInput(null).policyHash;
+	    }
+	    if (!effectiveVerificationMethodHash) {
+	      effectiveVerificationMethodHash = computeVerificationMethodHash(parseVerificationMethodInput(null));
+	    }
+		    const decisionRecord = buildSettlementDecisionRecord({
+		      schemaVersion: "SettlementDecisionRecord.v2",
+		      decisionId: `dec_${createId("setl")}`,
+		      tenantId: settlement.tenantId,
+		      runId: settlement.runId,
+		      settlementId: settlement.settlementId,
+		      agreementId,
+		      decisionStatus,
+		      decisionMode,
+		      decisionReason,
+		      verificationStatus,
+		      policyHashUsed: effectivePolicyHash,
+		      verificationMethodHashUsed: effectiveVerificationMethodHash ?? undefined,
+		      policyRef: { policyHash: effectivePolicyHash, verificationMethodHash: effectiveVerificationMethodHash },
+		      verifierRef: {
+		        verifierId,
+		        verifierVersion,
+		        verifierHash,
+		        modality: verificationMethodMode ?? null
+	      },
+      runStatus: run?.status ?? settlement.runStatus ?? null,
+      runLastEventId: run?.lastEventId ?? null,
+      runLastChainHash: run?.lastChainHash ?? null,
+      resolutionEventId,
+      decidedAt: at
+    });
+    const receiptStatus = status ?? settlement.status;
+    const receiptReleaseRatePct =
+      Number.isSafeInteger(Number(releaseRatePct))
+        ? Number(releaseRatePct)
+        : Number.isSafeInteger(Number(settlement.releaseRatePct))
+          ? Number(settlement.releaseRatePct)
+          : receiptStatus === AGENT_RUN_SETTLEMENT_STATUS.RELEASED
+            ? 100
+            : 0;
+    const receipt = buildSettlementReceipt({
+      receiptId: `rcpt_${createId("setl")}`,
+      tenantId: settlement.tenantId,
+      runId: settlement.runId,
+      settlementId: settlement.settlementId,
+      decisionRecord,
+      status: receiptStatus,
+      amountCents: settlement.amountCents,
+      releasedAmountCents:
+        Number.isSafeInteger(Number(releasedAmountCents))
+          ? Number(releasedAmountCents)
+          : Number.isSafeInteger(Number(settlement.releasedAmountCents))
+            ? Number(settlement.releasedAmountCents)
+            : 0,
+      refundedAmountCents:
+        Number.isSafeInteger(Number(refundedAmountCents))
+          ? Number(refundedAmountCents)
+          : Number.isSafeInteger(Number(settlement.refundedAmountCents))
+            ? Number(settlement.refundedAmountCents)
+            : 0,
+      releaseRatePct: receiptReleaseRatePct,
+      currency: settlement.currency,
+      runStatus: run?.status ?? settlement.runStatus ?? null,
+      resolutionEventId: resolutionEventId ?? settlement.resolutionEventId ?? null,
+      finalityState,
+      settledAt: settledAt ?? settlement.resolvedAt ?? null,
+      createdAt: at
+    });
+    return { decisionRecord, settlementReceipt: receipt };
+  }
+
+  function buildSettlementResponseBody(settlement) {
+    const { decisionRecord, settlementReceipt } = extractSettlementKernelArtifacts(settlement);
+    const kernelVerification = verifySettlementKernelArtifacts({ settlement });
+    return {
+      settlement,
+      decisionRecord,
+      settlementReceipt,
+      kernelVerification
+    };
+  }
+
+  function assertSettlementKernelBindingsForResolution({
+    settlement,
+    runId,
+    phase,
+    allowMissingArtifacts = false
+  }) {
+    const verification = verifySettlementKernelArtifacts({ settlement, runId });
+    if (verification.valid) return verification;
+    if (allowMissingArtifacts) {
+      const nonMissingErrors = (verification.errors ?? []).filter(
+        (code) =>
+          code !== SETTLEMENT_KERNEL_VERIFICATION_CODE.DECISION_RECORD_MISSING &&
+          code !== SETTLEMENT_KERNEL_VERIFICATION_CODE.SETTLEMENT_RECEIPT_MISSING
+      );
+      if (!nonMissingErrors.length) return verification;
+    }
+    const err = new Error(`settlement kernel binding invalid (${phase})`);
+    err.code = "SETTLEMENT_KERNEL_BINDING_INVALID";
+    err.detail = {
+      phase,
+      runId: String(runId ?? settlement?.runId ?? ""),
+      settlementId: settlement?.settlementId ?? null,
+      errors: verification.errors
+    };
+    throw err;
+  }
+
   async function getArbitrationCaseRecord({ tenantId, caseId }) {
     if (typeof store.getArbitrationCase === "function") return store.getArbitrationCase({ tenantId, caseId });
     if (store.arbitrationCases instanceof Map) return store.arbitrationCases.get(makeScopedKey({ tenantId, id: String(caseId) })) ?? null;
@@ -6201,11 +7150,383 @@ export function createApi({
     return all;
   }
 
+  async function getToolCallHoldRecord({ tenantId, holdHash }) {
+    if (typeof store.getToolCallHold === "function") return store.getToolCallHold({ tenantId, holdHash });
+    if (store.toolCallHolds instanceof Map) return store.toolCallHolds.get(makeScopedKey({ tenantId, id: String(holdHash) })) ?? null;
+    throw new TypeError("tool call holds not supported for this store");
+  }
+
+  async function listToolCallHoldRecords({ tenantId, agreementHash = null, status = null, limit = 200, offset = 0 } = {}) {
+    if (typeof store.listToolCallHolds === "function") {
+      return store.listToolCallHolds({ tenantId, agreementHash, status, limit, offset });
+    }
+    if (!(store.toolCallHolds instanceof Map)) throw new TypeError("tool call holds not supported for this store");
+    const statusFilter = typeof status === "string" && status.trim() !== "" ? status.trim().toLowerCase() : null;
+    const agreementFilter = typeof agreementHash === "string" && agreementHash.trim() !== "" ? agreementHash.trim().toLowerCase() : null;
+    const rows = [];
+    for (const row of store.toolCallHolds.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID)) continue;
+      if (agreementFilter && String(row.agreementHash ?? "").toLowerCase() !== agreementFilter) continue;
+      if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      rows.push(row);
+    }
+    rows.sort((a, b) => String(a.holdHash ?? "").localeCompare(String(b.holdHash ?? "")));
+    const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+    const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+    return rows.slice(safeOffset, safeOffset + safeLimit);
+  }
+
+  async function getSettlementAdjustmentRecord({ tenantId, adjustmentId }) {
+    if (typeof store.getSettlementAdjustment === "function") return store.getSettlementAdjustment({ tenantId, adjustmentId });
+    if (store.settlementAdjustments instanceof Map) {
+      return store.settlementAdjustments.get(makeScopedKey({ tenantId, id: String(adjustmentId) })) ?? null;
+    }
+    throw new TypeError("settlement adjustments not supported for this store");
+  }
+
+  const FINANCE_RECONCILIATION_TRIAGE_SOURCE_TYPE = Object.freeze({
+    FINANCE_RECONCILE: "finance_reconcile",
+    MONEY_RAILS_RECONCILE: "money_rails_reconcile"
+  });
+  const FINANCE_RECONCILIATION_TRIAGE_STATUS = Object.freeze({
+    OPEN: "open",
+    ACKNOWLEDGED: "acknowledged",
+    IN_PROGRESS: "in_progress",
+    RESOLVED: "resolved",
+    DISMISSED: "dismissed"
+  });
+  const FINANCE_RECONCILIATION_TRIAGE_SEVERITY = Object.freeze({
+    LOW: "low",
+    MEDIUM: "medium",
+    HIGH: "high",
+    CRITICAL: "critical"
+  });
+  const FINANCE_RECONCILIATION_TRIAGE_STATUS_SET = new Set(Object.values(FINANCE_RECONCILIATION_TRIAGE_STATUS));
+  const FINANCE_RECONCILIATION_TRIAGE_SOURCE_TYPE_SET = new Set(Object.values(FINANCE_RECONCILIATION_TRIAGE_SOURCE_TYPE));
+  const FINANCE_RECONCILIATION_TRIAGE_SEVERITY_SET = new Set(Object.values(FINANCE_RECONCILIATION_TRIAGE_SEVERITY));
+
+  function normalizeFinanceReconciliationTriageSourceType(value, { allowNull = false, fieldName = "sourceType" } = {}) {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (!FINANCE_RECONCILIATION_TRIAGE_SOURCE_TYPE_SET.has(normalized)) {
+      throw new TypeError(`${fieldName} must be one of: ${Array.from(FINANCE_RECONCILIATION_TRIAGE_SOURCE_TYPE_SET).join("|")}`);
+    }
+    return normalized;
+  }
+
+  function normalizeFinanceReconciliationTriageStatus(value, { allowNull = false, fieldName = "status" } = {}) {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (!FINANCE_RECONCILIATION_TRIAGE_STATUS_SET.has(normalized)) {
+      throw new TypeError(`${fieldName} must be one of: ${Array.from(FINANCE_RECONCILIATION_TRIAGE_STATUS_SET).join("|")}`);
+    }
+    return normalized;
+  }
+
+  function normalizeFinanceReconciliationTriageSeverity(value, { allowNull = true, fieldName = "severity" } = {}) {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (!FINANCE_RECONCILIATION_TRIAGE_SEVERITY_SET.has(normalized)) {
+      throw new TypeError(`${fieldName} must be one of: ${Array.from(FINANCE_RECONCILIATION_TRIAGE_SEVERITY_SET).join("|")}`);
+    }
+    return normalized;
+  }
+
+  function normalizeNonEmptyStringOrNull(value) {
+    if (value === null || value === undefined) return null;
+    const text = String(value).trim();
+    return text ? text : null;
+  }
+
+  function normalizeFinanceReconciliationPeriod(value, { fieldName = "period", allowNull = false } = {}) {
+    const normalized = normalizeBillingPeriodInput(value, { defaultToNow: false });
+    if (!normalized) {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    return normalized;
+  }
+
+  function buildFinanceReconciliationTriageKey({ sourceType, period, providerId = null, mismatchType, mismatchKey }) {
+    const normalizedSourceType = normalizeFinanceReconciliationTriageSourceType(sourceType, { allowNull: false, fieldName: "sourceType" });
+    const normalizedPeriod = normalizeFinanceReconciliationPeriod(period, { fieldName: "period", allowNull: false });
+    const normalizedProviderId = normalizeNonEmptyStringOrNull(providerId);
+    const normalizedMismatchType = normalizeNonEmptyStringOrNull(mismatchType);
+    const normalizedMismatchKey = normalizeNonEmptyStringOrNull(mismatchKey);
+    if (!normalizedMismatchType) throw new TypeError("mismatchType is required");
+    if (!normalizedMismatchKey) throw new TypeError("mismatchKey is required");
+    const raw = [
+      normalizedSourceType,
+      normalizedPeriod,
+      normalizedProviderId ?? "none",
+      normalizedMismatchType,
+      normalizedMismatchKey
+    ].join("\n");
+    return `frt_${normalizedPeriod.replaceAll("-", "")}_${sha256Hex(raw).slice(0, 24)}`;
+  }
+
+  function stableMismatchKeyFromObject(value, { prefix }) {
+    const normalized = normalizeForCanonicalJson(value ?? {}, { path: "$" });
+    const hash = sha256Hex(canonicalJsonStringify(normalized)).slice(0, 24);
+    return `${prefix}_${hash}`;
+  }
+
+  function buildFinanceReconcileMismatchQueue({ period, reconcile }) {
+    const normalizedPeriod = normalizeFinanceReconciliationPeriod(period, { fieldName: "period", allowNull: false });
+    const mismatchCodes = Array.isArray(reconcile?.mismatchCodes) ? reconcile.mismatchCodes : [];
+    return mismatchCodes
+      .map((rawCode) => (typeof rawCode === "string" ? rawCode.trim() : ""))
+      .filter(Boolean)
+      .map((code) => ({
+        sourceType: FINANCE_RECONCILIATION_TRIAGE_SOURCE_TYPE.FINANCE_RECONCILE,
+        period: normalizedPeriod,
+        providerId: null,
+        mismatchType: "mismatch_code",
+        mismatchKey: code,
+        mismatchCode: code,
+        severity: FINANCE_RECONCILIATION_TRIAGE_SEVERITY.HIGH,
+        title: code,
+        details: { mismatchCode: code }
+      }));
+  }
+
+  function buildMoneyRailReconcileMismatchQueue({ period, providerId, mismatches }) {
+    const normalizedPeriod = normalizeFinanceReconciliationPeriod(period, { fieldName: "period", allowNull: false });
+    const normalizedProviderId = normalizeNonEmptyStringOrNull(providerId);
+    const mismatchGroups = mismatches && typeof mismatches === "object" && !Array.isArray(mismatches) ? mismatches : {};
+    const specs = [
+      { field: "missingOperations", mismatchType: "missing_operation", severity: FINANCE_RECONCILIATION_TRIAGE_SEVERITY.CRITICAL, code: "MONEY_RAIL_MISSING_OPERATION" },
+      { field: "amountMismatches", mismatchType: "amount_mismatch", severity: FINANCE_RECONCILIATION_TRIAGE_SEVERITY.HIGH, code: "MONEY_RAIL_AMOUNT_MISMATCH" },
+      { field: "currencyMismatches", mismatchType: "currency_mismatch", severity: FINANCE_RECONCILIATION_TRIAGE_SEVERITY.HIGH, code: "MONEY_RAIL_CURRENCY_MISMATCH" },
+      { field: "terminalFailures", mismatchType: "terminal_failure", severity: FINANCE_RECONCILIATION_TRIAGE_SEVERITY.CRITICAL, code: "MONEY_RAIL_TERMINAL_FAILURE" },
+      { field: "unexpectedOperations", mismatchType: "unexpected_operation", severity: FINANCE_RECONCILIATION_TRIAGE_SEVERITY.HIGH, code: "MONEY_RAIL_UNEXPECTED_OPERATION" },
+      { field: "duplicateExpected", mismatchType: "duplicate_expected", severity: FINANCE_RECONCILIATION_TRIAGE_SEVERITY.MEDIUM, code: "MONEY_RAIL_DUPLICATE_EXPECTED" }
+    ];
+    const queue = [];
+    for (const spec of specs) {
+      const rows = Array.isArray(mismatchGroups?.[spec.field]) ? mismatchGroups[spec.field] : [];
+      for (const row of rows) {
+        const operationId = normalizeNonEmptyStringOrNull(row?.operationId);
+        const payoutKey = normalizeNonEmptyStringOrNull(row?.payoutKey);
+        const mismatchKey =
+          operationId ??
+          payoutKey ??
+          stableMismatchKeyFromObject(row, { prefix: spec.mismatchType });
+        queue.push({
+          sourceType: FINANCE_RECONCILIATION_TRIAGE_SOURCE_TYPE.MONEY_RAILS_RECONCILE,
+          period: normalizedPeriod,
+          providerId: normalizedProviderId,
+          mismatchType: spec.mismatchType,
+          mismatchKey,
+          mismatchCode: spec.code,
+          severity: spec.severity,
+          title: operationId ? `${spec.mismatchType}:${operationId}` : `${spec.mismatchType}:${mismatchKey}`,
+          details: row
+        });
+      }
+    }
+    return queue;
+  }
+
+  async function getFinanceReconciliationTriageRecord({ tenantId, triageKey }) {
+    if (typeof store.getFinanceReconciliationTriage === "function") {
+      return store.getFinanceReconciliationTriage({ tenantId, triageKey });
+    }
+    if (store.financeReconciliationTriages instanceof Map) {
+      return store.financeReconciliationTriages.get(makeScopedKey({ tenantId, id: String(triageKey) })) ?? null;
+    }
+    throw new TypeError("finance reconciliation triage not supported for this store");
+  }
+
+  async function putFinanceReconciliationTriageRecord({ tenantId, triage, audit = null }) {
+    if (typeof store.putFinanceReconciliationTriage === "function") {
+      return store.putFinanceReconciliationTriage({ tenantId, triage, audit });
+    }
+    if (store.financeReconciliationTriages instanceof Map) {
+      const key = makeScopedKey({ tenantId, id: String(triage?.triageKey ?? "") });
+      store.financeReconciliationTriages.set(key, triage);
+      if (audit && typeof store.appendOpsAudit === "function") {
+        await store.appendOpsAudit({ tenantId, audit });
+      }
+      return triage;
+    }
+    throw new TypeError("finance reconciliation triage not supported for this store");
+  }
+
+  async function listFinanceReconciliationTriageRecords({
+    tenantId,
+    period = null,
+    status = null,
+    sourceType = null,
+    providerId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    if (typeof store.listFinanceReconciliationTriages === "function") {
+      return store.listFinanceReconciliationTriages({ tenantId, period, status, sourceType, providerId, limit, offset });
+    }
+    if (!(store.financeReconciliationTriages instanceof Map)) {
+      throw new TypeError("finance reconciliation triage not supported for this store");
+    }
+    const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedPeriod = normalizeFinanceReconciliationPeriod(period, { fieldName: "period", allowNull: true });
+    const normalizedStatus = normalizeFinanceReconciliationTriageStatus(status, { fieldName: "status", allowNull: true });
+    const normalizedSourceType = normalizeFinanceReconciliationTriageSourceType(sourceType, { fieldName: "sourceType", allowNull: true });
+    const normalizedProviderId = normalizeNonEmptyStringOrNull(providerId);
+    const rows = [];
+    for (const row of store.financeReconciliationTriages.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== normalizedTenantId) continue;
+      if (normalizedPeriod && String(row.period ?? "") !== normalizedPeriod) continue;
+      if (normalizedStatus && String(row.status ?? "").toLowerCase() !== normalizedStatus) continue;
+      if (normalizedSourceType && String(row.sourceType ?? "").toLowerCase() !== normalizedSourceType) continue;
+      if (normalizedProviderId !== null && String(row.providerId ?? "") !== normalizedProviderId) continue;
+      rows.push(row);
+    }
+    rows.sort((left, right) => {
+      const leftMs = Date.parse(String(left?.updatedAt ?? left?.createdAt ?? ""));
+      const rightMs = Date.parse(String(right?.updatedAt ?? right?.createdAt ?? ""));
+      if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && rightMs !== leftMs) return rightMs - leftMs;
+      return String(left?.triageKey ?? "").localeCompare(String(right?.triageKey ?? ""));
+    });
+    const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+    const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+    return rows.slice(safeOffset, safeOffset + safeLimit);
+  }
+
+  async function listFinanceReconciliationTriageRecordsAll({
+    tenantId,
+    period = null,
+    status = null,
+    sourceType = null,
+    providerId = null,
+    pageSize = 1000
+  } = {}) {
+    const normalizedPageSize = Number.isSafeInteger(pageSize) && pageSize > 0 ? Math.min(1000, pageSize) : 1000;
+    const out = [];
+    let offset = 0;
+    while (true) {
+      const chunk = await listFinanceReconciliationTriageRecords({
+        tenantId,
+        period,
+        status,
+        sourceType,
+        providerId,
+        limit: normalizedPageSize,
+        offset
+      });
+      const rows = Array.isArray(chunk) ? chunk : [];
+      if (!rows.length) break;
+      out.push(...rows);
+      if (rows.length < normalizedPageSize) break;
+      offset += normalizedPageSize;
+    }
+    return out;
+  }
+
+  async function decorateReconciliationMismatchQueueWithTriages({
+    tenantId,
+    period,
+    sourceType,
+    providerId = null,
+    queue
+  } = {}) {
+    const rows = Array.isArray(queue) ? queue : [];
+    if (!rows.length) {
+      return {
+        queue: [],
+        summary: {
+          total: 0,
+          byStatus: {},
+          unresolved: 0,
+          resolved: 0
+        }
+      };
+    }
+    let triages = [];
+    try {
+      triages = await listFinanceReconciliationTriageRecordsAll({
+        tenantId,
+        period,
+        sourceType,
+        providerId,
+        pageSize: 1000
+      });
+    } catch {
+      triages = [];
+    }
+    const byTriageKey = new Map();
+    for (const row of triages) {
+      const triageKey = normalizeNonEmptyStringOrNull(row?.triageKey);
+      if (!triageKey) continue;
+      byTriageKey.set(triageKey, row);
+    }
+    const decorated = rows.map((item) => {
+      const triageKey = buildFinanceReconciliationTriageKey({
+        sourceType: sourceType ?? item?.sourceType,
+        period,
+        providerId,
+        mismatchType: item?.mismatchType,
+        mismatchKey: item?.mismatchKey
+      });
+      const triage = byTriageKey.get(triageKey) ?? null;
+      return {
+        ...item,
+        triageKey,
+        triage: triage
+          ? {
+              status: triage.status ?? null,
+              ownerPrincipalId: triage.ownerPrincipalId ?? null,
+              severity: triage.severity ?? null,
+              notes: triage.notes ?? null,
+              revision: triage.revision ?? null,
+              updatedAt: triage.updatedAt ?? null
+            }
+          : null
+      };
+    });
+    const byStatus = {};
+    let unresolved = 0;
+    let resolved = 0;
+    for (const row of decorated) {
+      const status = normalizeFinanceReconciliationTriageStatus(row?.triage?.status, { allowNull: true }) ?? FINANCE_RECONCILIATION_TRIAGE_STATUS.OPEN;
+      byStatus[status] = (byStatus[status] ?? 0) + 1;
+      if (status === FINANCE_RECONCILIATION_TRIAGE_STATUS.RESOLVED || status === FINANCE_RECONCILIATION_TRIAGE_STATUS.DISMISSED) resolved += 1;
+      else unresolved += 1;
+    }
+    return {
+      queue: decorated,
+      summary: {
+        total: decorated.length,
+        byStatus,
+        unresolved,
+        resolved
+      }
+    };
+  }
+
   const BILLABLE_USAGE_EVENT_SCHEMA_VERSION = "BillableUsageEvent.v1";
   const BILLABLE_USAGE_EVENT_TYPE = Object.freeze({
     VERIFIED_RUN: "verified_run",
     SETTLED_VOLUME: "settled_volume",
     ARBITRATION_USAGE: "arbitration_usage"
+  });
+  const BILLING_INVOICE_DRAFT_SCHEMA_VERSION = "BillingInvoiceDraft.v1";
+  const BILLING_INVOICE_LINE_ITEM_CODE = Object.freeze({
+    SUBSCRIPTION_BASE: "SUBSCRIPTION_BASE",
+    VERIFIED_RUN_OVERAGE: "VERIFIED_RUN_OVERAGE",
+    SETTLED_VOLUME_FEE: "SETTLED_VOLUME_FEE",
+    ARBITRATION_USAGE_FEE: "ARBITRATION_USAGE_FEE"
   });
 
   function deriveBillablePeriod(occurredAt) {
@@ -6222,6 +7543,474 @@ export function createApi({
       throw new TypeError("period must match YYYY-MM");
     }
     return normalized;
+  }
+
+  function makeHttpStatusError(statusCode, message, { code = null } = {}) {
+    const err = new Error(message);
+    err.statusCode = Number.isSafeInteger(statusCode) ? statusCode : 500;
+    if (code) err.code = String(code);
+    return err;
+  }
+
+  function listFinanceReconcileTenantIds({ tenantId = null, maxTenants = effectiveFinanceReconcileMaxTenants } = {}) {
+    if (tenantId !== null && tenantId !== undefined) return [normalizeTenant(tenantId)];
+
+    const safeMaxTenants = Number.isSafeInteger(maxTenants) && maxTenants > 0 ? Math.min(1000, maxTenants) : effectiveFinanceReconcileMaxTenants;
+    const seen = new Set();
+    const discovered = [];
+    const maybePush = (value) => {
+      const normalized = normalizeTenant(value ?? DEFAULT_TENANT_ID);
+      if (seen.has(normalized)) return;
+      seen.add(normalized);
+      discovered.push(normalized);
+    };
+
+    maybePush(DEFAULT_TENANT_ID);
+
+    if (store?.configByTenant instanceof Map) {
+      for (const id of store.configByTenant.keys()) maybePush(id);
+    }
+    if (store?.jobs instanceof Map) {
+      for (const job of store.jobs.values()) maybePush(job?.tenantId ?? DEFAULT_TENANT_ID);
+    }
+    if (store?.artifacts instanceof Map) {
+      for (const artifact of store.artifacts.values()) maybePush(artifact?.tenantId ?? DEFAULT_TENANT_ID);
+    }
+
+    discovered.sort((a, b) => String(a).localeCompare(String(b)));
+    return discovered.slice(0, safeMaxTenants);
+  }
+
+  function listFinanceReconcilePeriodsFromArtifacts({ artifacts, maxPeriodsPerTenant = effectiveFinanceReconcileMaxPeriodsPerTenant } = {}) {
+    const periods = new Set();
+    const rows = Array.isArray(artifacts) ? artifacts : [];
+    for (const artifact of rows) {
+      if (artifact?.artifactType !== ARTIFACT_TYPE.GL_BATCH_V1) continue;
+      const rawPeriod = artifact?.period ?? null;
+      try {
+        const normalized = normalizeFinanceReconciliationPeriod(rawPeriod, { fieldName: "period", allowNull: false });
+        periods.add(normalized);
+      } catch {
+        continue;
+      }
+    }
+    const ordered = Array.from(periods).sort((a, b) => String(b).localeCompare(String(a)));
+    const safeMaxPeriods = Number.isSafeInteger(maxPeriodsPerTenant) && maxPeriodsPerTenant > 0 ? Math.min(24, maxPeriodsPerTenant) : effectiveFinanceReconcileMaxPeriodsPerTenant;
+    return ordered.slice(0, safeMaxPeriods);
+  }
+
+  async function computeFinanceReconcileReport({
+    tenantId,
+    period,
+    persist = false,
+    includeTriages = true
+  } = {}) {
+    const normalizedTenantId = normalizeTenant(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedPeriod = normalizeFinanceReconciliationPeriod(period, { fieldName: "period", allowNull: false });
+
+    if (typeof store.listArtifacts !== "function") throw makeHttpStatusError(501, "artifacts not supported for this store");
+
+    const artifacts = await store.listArtifacts({ tenantId: normalizedTenantId });
+    const glCandidates = artifacts.filter((a) => a?.artifactType === ARTIFACT_TYPE.GL_BATCH_V1 && String(a?.period ?? "") === String(normalizedPeriod));
+    if (!glCandidates.length) throw makeHttpStatusError(404, "GL batch not found");
+    glCandidates.sort((a, b) => String(a?.generatedAt ?? a?.artifactId ?? "").localeCompare(String(b?.generatedAt ?? b?.artifactId ?? "")));
+    const glBatch = glCandidates[glCandidates.length - 1];
+
+    const partyStatements = artifacts
+      .filter((a) => a?.artifactType === ARTIFACT_TYPE.PARTY_STATEMENT_V1 && String(a?.period ?? "") === String(normalizedPeriod))
+      .sort((a, b) => String(a?.artifactId ?? "").localeCompare(String(b?.artifactId ?? "")));
+    if (!partyStatements.length) throw makeHttpStatusError(404, "party statements not found");
+
+    const reconcile = reconcileGlBatchAgainstPartyStatements({ glBatch, partyStatements });
+    const reconcileBytes = new TextEncoder().encode(`${canonicalJsonStringify(reconcile)}\n`);
+    const reportHash = sha256HexBytes(reconcileBytes);
+
+    let artifactSummary = null;
+    if (persist) {
+      if (typeof store.putArtifact !== "function") throw makeHttpStatusError(501, "artifact persistence not supported for this store");
+
+      const artifactId = `reconcile_${String(normalizedPeriod).replaceAll(/[^0-9a-zA-Z_-]/g, "_")}_${reportHash.slice(0, 24)}`;
+      const generatedAtMsCandidates = [
+        glBatch?.generatedAt ? Date.parse(String(glBatch.generatedAt)) : Number.NaN,
+        ...partyStatements.map((statement) => (statement?.generatedAt ? Date.parse(String(statement.generatedAt)) : Number.NaN))
+      ].filter((ms) => Number.isFinite(ms));
+      const generatedAtMs = generatedAtMsCandidates.length ? Math.max(...generatedAtMsCandidates) : Date.parse(`${String(normalizedPeriod)}-01T00:00:00.000Z`);
+      const generatedAt = Number.isFinite(generatedAtMs) ? new Date(generatedAtMs).toISOString() : nowIso();
+      const artifactBody = normalizeForCanonicalJson(
+        {
+          schemaVersion: RECONCILE_REPORT_ARTIFACT_TYPE,
+          artifactType: RECONCILE_REPORT_ARTIFACT_TYPE,
+          artifactId,
+          tenantId: normalizedTenantId,
+          period: normalizedPeriod,
+          generatedAt,
+          reportHash,
+          inputs: {
+            glBatchArtifactId: glBatch?.artifactId ?? null,
+            glBatchArtifactHash: glBatch?.artifactHash ?? null,
+            partyStatementArtifactIds: partyStatements.map((a) => a?.artifactId).filter((id) => typeof id === "string" && id.trim() !== ""),
+            partyStatementArtifactHashes: partyStatements
+              .map((a) => a?.artifactHash)
+              .filter((hash) => typeof hash === "string" && hash.trim() !== "")
+          },
+          reconcile
+        },
+        { path: "$" }
+      );
+      const artifactHash = computeArtifactHash(artifactBody);
+      const artifact = { ...artifactBody, artifactHash };
+      let storedArtifact = artifact;
+      try {
+        await store.putArtifact({ tenantId: normalizedTenantId, artifact });
+      } catch (err) {
+        if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+        if (typeof store.getArtifact !== "function") throw err;
+        const existing = await store.getArtifact({ tenantId: normalizedTenantId, artifactId });
+        if (!existing || typeof existing?.artifactHash !== "string" || existing.artifactHash.trim() === "") throw err;
+        storedArtifact = existing;
+      }
+
+      let deliveriesCreated = 0;
+      if (typeof store.createDelivery === "function") {
+        const destinations = listDestinationsForTenant(normalizedTenantId).filter((d) => {
+          const allowed = Array.isArray(d?.artifactTypes) && d.artifactTypes.length ? d.artifactTypes : null;
+          return !allowed || allowed.includes(RECONCILE_REPORT_ARTIFACT_TYPE);
+        });
+        for (const dest of destinations) {
+          const resolvedArtifactHash = String(storedArtifact.artifactHash);
+          const dedupeKey = `${normalizedTenantId}:${dest.destinationId}:${RECONCILE_REPORT_ARTIFACT_TYPE}:${artifactId}:${resolvedArtifactHash}`;
+          const scopeKey = `finance_reconcile:period:${normalizedPeriod}`;
+          const orderSeq = Date.parse(generatedAt);
+          const priority = 96;
+          const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
+          try {
+            await store.createDelivery({
+              tenantId: normalizedTenantId,
+              delivery: {
+                destinationId: dest.destinationId,
+                artifactType: RECONCILE_REPORT_ARTIFACT_TYPE,
+                artifactId,
+                artifactHash: resolvedArtifactHash,
+                dedupeKey,
+                scopeKey,
+                orderSeq,
+                priority,
+                orderKey
+              }
+            });
+            deliveriesCreated += 1;
+          } catch (err) {
+            if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+            throw err;
+          }
+        }
+      }
+
+      artifactSummary = {
+        artifactId,
+        artifactHash: String(storedArtifact.artifactHash),
+        deliveriesCreated
+      };
+    }
+
+    let triageQueue = null;
+    let triageSummary = null;
+    if (includeTriages) {
+      const mismatchQueue = buildFinanceReconcileMismatchQueue({ period: normalizedPeriod, reconcile });
+      const triageDecorated = await decorateReconciliationMismatchQueueWithTriages({
+        tenantId: normalizedTenantId,
+        period: normalizedPeriod,
+        sourceType: FINANCE_RECONCILIATION_TRIAGE_SOURCE_TYPE.FINANCE_RECONCILE,
+        providerId: null,
+        queue: mismatchQueue
+      });
+      triageQueue = triageDecorated.queue;
+      triageSummary = triageDecorated.summary;
+    }
+
+    return {
+      tenantId: normalizedTenantId,
+      period: normalizedPeriod,
+      reportHash,
+      reconcile,
+      inputs: {
+        glBatchArtifactId: glBatch?.artifactId ?? null,
+        glBatchArtifactHash: glBatch?.artifactHash ?? null,
+        partyStatementArtifactIds: partyStatements.map((a) => a?.artifactId).filter((id) => typeof id === "string" && id.trim() !== ""),
+        partyStatementArtifactHashes: partyStatements.map((a) => a?.artifactHash).filter((hash) => typeof hash === "string" && hash.trim() !== "")
+      },
+      artifact: artifactSummary,
+      triageQueue,
+      triageSummary
+    };
+  }
+
+  async function tickFinanceReconciliation({
+    tenantId = null,
+    period = null,
+    maxTenants = effectiveFinanceReconcileMaxTenants,
+    maxPeriodsPerTenant = effectiveFinanceReconcileMaxPeriodsPerTenant,
+    force = false,
+    requireLock = false
+  } = {}) {
+    const startedAtWallMs = Date.now();
+    const startedAt = nowIso();
+    const startedAtMs = Date.parse(startedAt);
+    const scopedTenantId = tenantId === null || tenantId === undefined ? null : normalizeTenant(tenantId);
+    const scope = scopedTenantId ? "tenant" : "global";
+    const normalizedPeriod = normalizeFinanceReconciliationPeriod(period, { fieldName: "period", allowNull: true });
+    const safeMaxTenants = Number.isSafeInteger(maxTenants) && maxTenants > 0 ? Math.min(1000, maxTenants) : effectiveFinanceReconcileMaxTenants;
+    const safeMaxPeriodsPerTenant =
+      Number.isSafeInteger(maxPeriodsPerTenant) && maxPeriodsPerTenant > 0
+        ? Math.min(24, maxPeriodsPerTenant)
+        : effectiveFinanceReconcileMaxPeriodsPerTenant;
+
+    if (!effectiveFinanceReconcileEnabled) {
+      return {
+        ok: true,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        skipped: true,
+        reason: "disabled"
+      };
+    }
+    if (typeof store.listArtifacts !== "function") {
+      return {
+        ok: false,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        code: "ARTIFACT_STORE_UNSUPPORTED",
+        message: "artifacts not supported for this store"
+      };
+    }
+    if (financeReconcileState.inFlight) {
+      return {
+        ok: false,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        code: "MAINTENANCE_ALREADY_RUNNING",
+        message: "finance reconciliation maintenance is already running"
+      };
+    }
+    if (
+      force !== true &&
+      effectiveFinanceReconcileIntervalSeconds > 0 &&
+      Number.isFinite(financeReconcileState.nextEligibleAtMs) &&
+      financeReconcileState.nextEligibleAtMs > startedAtMs
+    ) {
+      return {
+        ok: true,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        skipped: true,
+        reason: "interval_not_elapsed",
+        nextEligibleAt: new Date(financeReconcileState.nextEligibleAtMs).toISOString()
+      };
+    }
+
+    const lockKey = FINANCE_RECONCILE_ADVISORY_LOCK_KEY;
+    let locked = false;
+    let lockClient = null;
+
+    financeReconcileState.inFlight = true;
+    financeReconcileState.lastRunAt = startedAt;
+    financeReconcileState.nextEligibleAtMs =
+      effectiveFinanceReconcileIntervalSeconds > 0
+        ? startedAtMs + effectiveFinanceReconcileIntervalSeconds * 1000
+        : startedAtMs;
+    try {
+      if (requireLock) {
+        if (store?.kind === "pg" && store?.pg?.pool) {
+          lockClient = await store.pg.pool.connect();
+          const res = await lockClient.query("SELECT pg_try_advisory_lock(hashtext($1)) AS ok", [lockKey]);
+          locked = Boolean(res.rows[0]?.ok);
+          if (!locked) {
+            try {
+              lockClient.release();
+            } catch {}
+            lockClient = null;
+            return {
+              ok: false,
+              code: "MAINTENANCE_ALREADY_RUNNING",
+              scope,
+              tenantId: scopedTenantId,
+              period: normalizedPeriod,
+              maxTenants: safeMaxTenants,
+              maxPeriodsPerTenant: safeMaxPeriodsPerTenant,
+              runtimeMs: Date.now() - startedAtWallMs
+            };
+          }
+        } else {
+          store.__financeReconcileLockHeld = store.__financeReconcileLockHeld === true;
+          if (store.__financeReconcileLockHeld) {
+            return {
+              ok: false,
+              code: "MAINTENANCE_ALREADY_RUNNING",
+              scope,
+              tenantId: scopedTenantId,
+              period: normalizedPeriod,
+              maxTenants: safeMaxTenants,
+              maxPeriodsPerTenant: safeMaxPeriodsPerTenant,
+              runtimeMs: Date.now() - startedAtWallMs
+            };
+          }
+          store.__financeReconcileLockHeld = true;
+          locked = true;
+        }
+      }
+
+      const tenantIds = listFinanceReconcileTenantIds({ tenantId: scopedTenantId, maxTenants: safeMaxTenants });
+      const results = [];
+      let attemptedPeriods = 0;
+      let reconciledPeriods = 0;
+      let passCount = 0;
+      let failCount = 0;
+      let skippedNoInputs = 0;
+      let erroredPeriods = 0;
+      let artifactsPersisted = 0;
+      let deliveriesCreated = 0;
+
+      for (const currentTenantId of tenantIds) {
+        const artifacts = await store.listArtifacts({ tenantId: currentTenantId });
+        const periods = normalizedPeriod ? [normalizedPeriod] : listFinanceReconcilePeriodsFromArtifacts({ artifacts, maxPeriodsPerTenant: safeMaxPeriodsPerTenant });
+        if (!periods.length) {
+          skippedNoInputs += 1;
+          results.push({ tenantId: currentTenantId, period: null, status: "skipped", reason: "no_gl_batch" });
+          continue;
+        }
+
+        for (const currentPeriod of periods) {
+          attemptedPeriods += 1;
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            const report = await computeFinanceReconcileReport({
+              tenantId: currentTenantId,
+              period: currentPeriod,
+              persist: true,
+              includeTriages: false
+            });
+            const status = report?.reconcile?.ok === true ? "pass" : "fail";
+            reconciledPeriods += 1;
+            if (status === "pass") passCount += 1;
+            else failCount += 1;
+            if (report?.artifact) {
+              artifactsPersisted += 1;
+              deliveriesCreated += Number(report.artifact.deliveriesCreated ?? 0);
+            }
+            results.push({
+              tenantId: currentTenantId,
+              period: currentPeriod,
+              status,
+              reportHash: report.reportHash ?? null,
+              artifactId: report?.artifact?.artifactId ?? null
+            });
+          } catch (err) {
+            if (Number(err?.statusCode) === 404) {
+              skippedNoInputs += 1;
+              results.push({
+                tenantId: currentTenantId,
+                period: currentPeriod,
+                status: "skipped",
+                reason: err?.message ?? "inputs_missing"
+              });
+              continue;
+            }
+            erroredPeriods += 1;
+            results.push({
+              tenantId: currentTenantId,
+              period: currentPeriod,
+              status: "error",
+              code: err?.code ?? null,
+              error: err?.message ?? "unknown error"
+            });
+          }
+        }
+      }
+
+      const completedAt = nowIso();
+      const runtimeMs = Date.now() - startedAtWallMs;
+      const ok = erroredPeriods === 0;
+      const summary = {
+        tenantCount: tenantIds.length,
+        attemptedPeriods,
+        reconciledPeriods,
+        passCount,
+        failCount,
+        skippedNoInputs,
+        erroredPeriods,
+        artifactsPersisted,
+        deliveriesCreated
+      };
+      const result = {
+        ok,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        force: force === true,
+        maxTenants: safeMaxTenants,
+        maxPeriodsPerTenant: safeMaxPeriodsPerTenant,
+        startedAt,
+        completedAt,
+        runtimeMs,
+        summary,
+        results
+      };
+
+      if (ok) financeReconcileState.lastSuccessAt = completedAt;
+      financeReconcileState.lastResult = result;
+      try {
+        store.__financeReconcileLastRunAt = startedAt;
+        if (ok) store.__financeReconcileLastSuccessAt = completedAt;
+        store.__financeReconcileLastResult = result;
+      } catch {}
+
+      metricInc("maintenance_runs_total", { kind: "finance_reconcile", result: ok ? "ok" : "error", scope }, 1);
+      metricGauge("maintenance_last_run_ok_gauge", { kind: "finance_reconcile" }, ok ? 1 : 0);
+      if (!ok) metricInc("maintenance_fail_total", { kind: "finance_reconcile", scope }, 1);
+
+      return result;
+    } catch (err) {
+      const completedAt = nowIso();
+      const failure = {
+        ok: false,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        startedAt,
+        completedAt,
+        runtimeMs: Date.now() - startedAtWallMs,
+        error: err?.message ?? "unknown error"
+      };
+      financeReconcileState.lastResult = failure;
+      try {
+        store.__financeReconcileLastRunAt = startedAt;
+        store.__financeReconcileLastResult = failure;
+      } catch {}
+      metricInc("maintenance_runs_total", { kind: "finance_reconcile", result: "error", scope }, 1);
+      metricGauge("maintenance_last_run_ok_gauge", { kind: "finance_reconcile" }, 0);
+      metricInc("maintenance_fail_total", { kind: "finance_reconcile", scope }, 1);
+      return failure;
+    } finally {
+      financeReconcileState.inFlight = false;
+      if (requireLock) {
+        if (lockClient) {
+          try {
+            await lockClient.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]);
+          } catch {}
+          try {
+            lockClient.release();
+          } catch {}
+        } else if (locked && store && typeof store === "object") {
+          try {
+            store.__financeReconcileLockHeld = false;
+          } catch {}
+        }
+      }
+    }
   }
 
   function resolveActiveSubscriptionPlanId(billingCfg) {
@@ -6897,6 +8686,174 @@ export function createApi({
       return String(left.eventHash ?? "").localeCompare(String(right.eventHash ?? ""));
     });
     return rows;
+  }
+
+  function computeBillingLineItemSourceDigest(rows) {
+    const material = (Array.isArray(rows) ? rows : []).map((row) =>
+      normalizeForCanonicalJson(
+        {
+          eventKey: typeof row?.eventKey === "string" ? row.eventKey : "",
+          eventType: typeof row?.eventType === "string" ? row.eventType : "",
+          amountCents: Number.isSafeInteger(Number(row?.amountCents)) ? Number(row.amountCents) : 0,
+          quantity: Number.isSafeInteger(Number(row?.quantity)) ? Number(row.quantity) : 0,
+          occurredAt: typeof row?.occurredAt === "string" ? row.occurredAt : null,
+          eventHash: typeof row?.eventHash === "string" ? row.eventHash : null
+        },
+        { path: "$" }
+      )
+    );
+    material.sort(
+      (left, right) =>
+        String(left.eventKey).localeCompare(String(right.eventKey)) ||
+        String(left.eventType).localeCompare(String(right.eventType)) ||
+        String(left.occurredAt ?? "").localeCompare(String(right.occurredAt ?? "")) ||
+        String(left.eventHash ?? "").localeCompare(String(right.eventHash ?? ""))
+    );
+    return sha256Hex(canonicalJsonStringify(normalizeForCanonicalJson(material, { path: "$" })));
+  }
+
+  function buildBillingPeriodCloseInvoiceDraft({
+    summary,
+    digestRows,
+    period,
+    generatedAt,
+    eventsDigest
+  } = {}) {
+    const safeSummary = summary && typeof summary === "object" ? summary : {};
+    const plan = safeSummary.plan && typeof safeSummary.plan === "object" ? safeSummary.plan : {};
+    const usage = safeSummary.usage && typeof safeSummary.usage === "object" ? safeSummary.usage : {};
+    const estimate = safeSummary.estimate && typeof safeSummary.estimate === "object" ? safeSummary.estimate : {};
+    const rows = Array.isArray(digestRows) ? digestRows : [];
+    const settledRows = rows.filter((row) => String(row?.eventType ?? "").toLowerCase() === BILLABLE_USAGE_EVENT_TYPE.SETTLED_VOLUME);
+    const verifiedRows = rows.filter((row) => String(row?.eventType ?? "").toLowerCase() === BILLABLE_USAGE_EVENT_TYPE.VERIFIED_RUN);
+    const arbitrationRows = rows.filter(
+      (row) => String(row?.eventType ?? "").toLowerCase() === BILLABLE_USAGE_EVENT_TYPE.ARBITRATION_USAGE
+    );
+
+    const subscriptionCentsRaw = Number(estimate.subscriptionCents ?? 0);
+    const subscriptionCents = Number.isSafeInteger(subscriptionCentsRaw) && subscriptionCentsRaw > 0 ? subscriptionCentsRaw : 0;
+    const overageUnitsRaw = Number(estimate.verifiedRunOverageUnits ?? 0);
+    const overageUnits = Number.isSafeInteger(overageUnitsRaw) && overageUnitsRaw > 0 ? overageUnitsRaw : 0;
+    const overageUnitCentsRaw = Number(estimate.verifiedRunOverageCentsPerUnit ?? 0);
+    const overageUnitCents = Number.isSafeInteger(overageUnitCentsRaw) && overageUnitCentsRaw >= 0 ? overageUnitCentsRaw : 0;
+    const overageCentsRaw = Number(estimate.verifiedRunOverageCents ?? 0);
+    const overageCents = Number.isSafeInteger(overageCentsRaw) && overageCentsRaw > 0 ? overageCentsRaw : 0;
+    const settledFeeBpsRaw = Number(plan.settledVolumeFeeBps ?? estimate.settledVolumeFeeBps ?? 0);
+    const settledFeeBps = Number.isSafeInteger(settledFeeBpsRaw) && settledFeeBpsRaw >= 0 ? settledFeeBpsRaw : 0;
+    const settledFeeCentsRaw = Number(estimate.settledVolumeFeeCents ?? 0);
+    const settledFeeCents = Number.isSafeInteger(settledFeeCentsRaw) && settledFeeCentsRaw > 0 ? settledFeeCentsRaw : 0;
+    const arbitrationUnitsRaw = Number(usage.arbitrationCases ?? 0);
+    const arbitrationUnits = Number.isSafeInteger(arbitrationUnitsRaw) && arbitrationUnitsRaw > 0 ? arbitrationUnitsRaw : 0;
+    const arbitrationUnitCentsRaw = Number(plan.arbitrationCaseFeeCents ?? estimate.arbitrationCaseFeeCents ?? 0);
+    const arbitrationUnitCents =
+      Number.isSafeInteger(arbitrationUnitCentsRaw) && arbitrationUnitCentsRaw >= 0 ? arbitrationUnitCentsRaw : 0;
+    const arbitrationFeeCentsRaw = Number(estimate.arbitrationFeeCents ?? 0);
+    const arbitrationFeeCents =
+      Number.isSafeInteger(arbitrationFeeCentsRaw) && arbitrationFeeCentsRaw > 0 ? arbitrationFeeCentsRaw : 0;
+    const settledVolumeCentsRaw = Number(usage.settledVolumeCents ?? 0);
+    const settledVolumeCents = Number.isSafeInteger(settledVolumeCentsRaw) && settledVolumeCentsRaw >= 0 ? settledVolumeCentsRaw : 0;
+
+    const lineItems = [];
+    if (subscriptionCents > 0) {
+      lineItems.push(
+        normalizeForCanonicalJson(
+          {
+            code: BILLING_INVOICE_LINE_ITEM_CODE.SUBSCRIPTION_BASE,
+            description: `Subscription base fee for ${period}`,
+            quantity: 1,
+            unitAmountCents: subscriptionCents,
+            amountCents: subscriptionCents,
+            currency: "USD",
+            sourceEventCount: 0,
+            sourceEventDigest: null,
+            sourceEventKeys: []
+          },
+          { path: "$" }
+        )
+      );
+    }
+    if (overageCents > 0 || overageUnits > 0) {
+      lineItems.push(
+        normalizeForCanonicalJson(
+          {
+            code: BILLING_INVOICE_LINE_ITEM_CODE.VERIFIED_RUN_OVERAGE,
+            description: `Verified run overage (${overageUnits} units)`,
+            quantity: overageUnits,
+            unitAmountCents: overageUnitCents,
+            amountCents: overageCents,
+            currency: "USD",
+            sourceEventCount: verifiedRows.length,
+            sourceEventDigest: computeBillingLineItemSourceDigest(verifiedRows),
+            sourceEventKeys: verifiedRows.map((row) => String(row.eventKey))
+          },
+          { path: "$" }
+        )
+      );
+    }
+    if (settledFeeCents > 0 || settledVolumeCents > 0) {
+      lineItems.push(
+        normalizeForCanonicalJson(
+          {
+            code: BILLING_INVOICE_LINE_ITEM_CODE.SETTLED_VOLUME_FEE,
+            description: `Settlement volume fee (${settledFeeBps} bps)`,
+            quantity: settledVolumeCents,
+            unitAmountBps: settledFeeBps,
+            amountCents: settledFeeCents,
+            currency: "USD",
+            sourceEventCount: settledRows.length,
+            sourceEventDigest: computeBillingLineItemSourceDigest(settledRows),
+            sourceEventKeys: settledRows.map((row) => String(row.eventKey))
+          },
+          { path: "$" }
+        )
+      );
+    }
+    if (arbitrationFeeCents > 0 || arbitrationUnits > 0) {
+      lineItems.push(
+        normalizeForCanonicalJson(
+          {
+            code: BILLING_INVOICE_LINE_ITEM_CODE.ARBITRATION_USAGE_FEE,
+            description: `Arbitration case fee (${arbitrationUnits} cases)`,
+            quantity: arbitrationUnits,
+            unitAmountCents: arbitrationUnitCents,
+            amountCents: arbitrationFeeCents,
+            currency: "USD",
+            sourceEventCount: arbitrationRows.length,
+            sourceEventDigest: computeBillingLineItemSourceDigest(arbitrationRows),
+            sourceEventKeys: arbitrationRows.map((row) => String(row.eventKey))
+          },
+          { path: "$" }
+        )
+      );
+    }
+
+    lineItems.sort(
+      (left, right) =>
+        String(left.code ?? "").localeCompare(String(right.code ?? "")) ||
+        Number(left.amountCents ?? 0) - Number(right.amountCents ?? 0)
+    );
+    const subtotalCents = lineItems.reduce((sum, row) => {
+      const amount = Number(row?.amountCents ?? 0);
+      return sum + (Number.isSafeInteger(amount) ? amount : 0);
+    }, 0);
+    const totalEstimatedCentsRaw = Number(estimate.totalEstimatedCents ?? subtotalCents);
+    const totalEstimatedCents =
+      Number.isSafeInteger(totalEstimatedCentsRaw) && totalEstimatedCentsRaw >= 0 ? totalEstimatedCentsRaw : subtotalCents;
+
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: BILLING_INVOICE_DRAFT_SCHEMA_VERSION,
+        period,
+        generatedAt,
+        currency: "USD",
+        eventCount: rows.length,
+        eventsDigest: typeof eventsDigest === "string" ? eventsDigest : null,
+        lineItems,
+        subtotalCents,
+        totalEstimatedCents
+      },
+      { path: "$" }
+    );
   }
 
   function defaultBillingPeriodCutoffAt(period) {
@@ -7703,21 +9660,21 @@ export function createApi({
     );
   }
 
-  function resolveMarketplaceBidCounterOfferRole({ task, bid, proposerAgentId }) {
+  function resolveMarketplaceBidCounterOfferRole({ rfq, bid, proposerAgentId }) {
     const safeProposerAgentId = typeof proposerAgentId === "string" ? proposerAgentId.trim() : "";
     if (!safeProposerAgentId) return null;
     const bidderAgentId = typeof bid?.bidderAgentId === "string" ? bid.bidderAgentId.trim() : "";
     if (safeProposerAgentId === bidderAgentId) return "bidder";
-    const posterAgentId = typeof task?.posterAgentId === "string" ? task.posterAgentId.trim() : "";
+    const posterAgentId = typeof rfq?.posterAgentId === "string" ? rfq.posterAgentId.trim() : "";
     if (safeProposerAgentId === posterAgentId) return "poster";
     return null;
   }
 
-  function resolveMarketplaceCounterOfferPolicy({ task, bid } = {}) {
+  function resolveMarketplaceCounterOfferPolicy({ rfq, bid } = {}) {
     const candidates = [
       bid?.counterOfferPolicy,
       bid?.negotiation?.counterOfferPolicy,
-      task?.counterOfferPolicy,
+      rfq?.counterOfferPolicy,
       null
     ];
     for (const candidate of candidates) {
@@ -7804,7 +9761,7 @@ export function createApi({
   }
 
   function buildMarketplaceBidNegotiationProposal({
-    task,
+    rfq,
     bidId,
     revision,
     proposerAgentId,
@@ -7834,11 +9791,11 @@ export function createApi({
       throw new TypeError("amountCents must be a positive safe integer");
     }
 
-    const taskCurrency = typeof task?.currency === "string" && task.currency.trim() !== "" ? task.currency.trim().toUpperCase() : null;
-    const safeCurrency = typeof currency === "string" && currency.trim() !== "" ? currency.trim().toUpperCase() : taskCurrency ?? "USD";
+    const rfqCurrency = typeof rfq?.currency === "string" && rfq.currency.trim() !== "" ? rfq.currency.trim().toUpperCase() : null;
+    const safeCurrency = typeof currency === "string" && currency.trim() !== "" ? currency.trim().toUpperCase() : rfqCurrency ?? "USD";
     if (!safeCurrency) throw new TypeError("currency must be a non-empty string");
-    if (taskCurrency && safeCurrency !== taskCurrency) {
-      throw new TypeError("proposal currency must match task currency");
+    if (rfqCurrency && safeCurrency !== rfqCurrency) {
+      throw new TypeError("proposal currency must match rfq currency");
     }
 
     let safeEtaSeconds = null;
@@ -7995,18 +9952,18 @@ export function createApi({
     }
   }
 
-  function bootstrapMarketplaceBidNegotiation({ task, bid, counterOfferPolicy = null, at = nowIso() }) {
+  function bootstrapMarketplaceBidNegotiation({ rfq, bid, counterOfferPolicy = null, at = nowIso() }) {
     const bidId = typeof bid?.bidId === "string" && bid.bidId.trim() !== "" ? bid.bidId.trim() : null;
     if (!bidId) throw new TypeError("bid.bidId is required");
     const proposerAgentId = typeof bid?.bidderAgentId === "string" && bid.bidderAgentId.trim() !== "" ? bid.bidderAgentId.trim() : null;
     if (!proposerAgentId) throw new TypeError("bid.bidderAgentId is required for negotiation bootstrap");
     const proposal = buildMarketplaceBidNegotiationProposal({
-      task,
+      rfq,
       bidId,
       revision: 1,
       proposerAgentId,
       amountCents: bid?.amountCents,
-      currency: bid?.currency ?? task?.currency ?? "USD",
+      currency: bid?.currency ?? rfq?.currency ?? "USD",
       etaSeconds: bid?.etaSeconds ?? null,
       note: bid?.note ?? null,
       verificationMethodInput: bid?.verificationMethod ?? null,
@@ -8019,7 +9976,7 @@ export function createApi({
     return buildMarketplaceBidNegotiation({
       bidId,
       initialProposal: proposal,
-      counterOfferPolicy: counterOfferPolicy ?? bid?.counterOfferPolicy ?? task?.counterOfferPolicy ?? null,
+      counterOfferPolicy: counterOfferPolicy ?? bid?.counterOfferPolicy ?? rfq?.counterOfferPolicy ?? null,
       at
     });
   }
@@ -8109,9 +10066,11 @@ export function createApi({
       return {
         negotiation: null,
         offerChainHash: null,
+        proposalCount: null,
         acceptedProposalId: null,
         acceptedRevision: null,
         acceptedProposalHash: null,
+        acceptedProposal: null,
         acceptance: null
       };
     }
@@ -8122,9 +10081,11 @@ export function createApi({
       return {
         negotiation: null,
         offerChainHash: null,
+        proposalCount: null,
         acceptedProposalId: null,
         acceptedRevision: null,
         acceptedProposalHash: null,
+        acceptedProposal: null,
         acceptance: null
       };
     }
@@ -8184,9 +10145,11 @@ export function createApi({
     return {
       negotiation: summary,
       offerChainHash: acceptance.offerChainHash,
+      proposalCount: proposals.length,
       acceptedProposalId,
       acceptedRevision,
       acceptedProposalHash,
+      acceptedProposal: acceptedProposal ?? null,
       acceptance
     };
   }
@@ -8489,7 +10452,7 @@ export function createApi({
         schemaVersion: MARKETPLACE_AGREEMENT_ACCEPTANCE_SIGNATURE_SCHEMA_VERSION,
         agreementId: String(agreementObj.agreementId ?? ""),
         tenantId: String(agreementObj.tenantId ?? ""),
-        taskId: String(agreementObj.taskId ?? ""),
+        rfqId: String(agreementObj.rfqId ?? ""),
         runId: String(agreementObj.runId ?? ""),
         bidId: String(agreementObj.bidId ?? ""),
         acceptedByAgentId,
@@ -8876,6 +10839,8 @@ export function createApi({
     VERDICT_ISSUED: "verdict_issued",
     CLOSED: "closed"
   });
+  const ARBITRATION_CASE_PRIORITY_VALUES = Object.freeze(Object.values(AGENT_RUN_SETTLEMENT_DISPUTE_PRIORITY));
+  const ARBITRATION_CASE_PRIORITY_SET = new Set(ARBITRATION_CASE_PRIORITY_VALUES);
 
   const ARBITRATION_CASE_STATUS_RANK = new Map([
     [ARBITRATION_CASE_STATUS.OPEN, 1],
@@ -8888,6 +10853,18 @@ export function createApi({
     const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
     if (!ARBITRATION_CASE_STATUS_RANK.has(normalized)) {
       throw new TypeError(`${fieldName} must be one of: ${Array.from(ARBITRATION_CASE_STATUS_RANK.keys()).join("|")}`);
+    }
+    return normalized;
+  }
+
+  function normalizeArbitrationCasePriority(value, { fieldName = "priority", allowNull = false } = {}) {
+    if (value === undefined || value === null || String(value).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} must be one of: ${ARBITRATION_CASE_PRIORITY_VALUES.join("|")}`);
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (!ARBITRATION_CASE_PRIORITY_SET.has(normalized)) {
+      throw new TypeError(`${fieldName} must be one of: ${ARBITRATION_CASE_PRIORITY_VALUES.join("|")}`);
     }
     return normalized;
   }
@@ -9105,7 +11082,7 @@ export function createApi({
   }
 
   function buildMarketplaceAgreementTerms({
-    task,
+    rfq,
     bid,
     agreementTermsInput = null
   }) {
@@ -9114,9 +11091,9 @@ export function createApi({
       : {};
     return normalizeForCanonicalJson(
       {
-        title: task?.title ?? null,
-        capability: task?.capability ?? null,
-        deadlineAt: task?.deadlineAt ?? null,
+        title: rfq?.title ?? null,
+        capability: rfq?.capability ?? null,
+        deadlineAt: rfq?.deadlineAt ?? null,
         etaSeconds: bid?.etaSeconds ?? null,
         milestones: normalizeAgreementMilestonesInput(raw?.milestones),
         cancellation: normalizeAgreementCancellationInput(raw?.cancellation),
@@ -9219,7 +11196,7 @@ export function createApi({
         schemaVersion: MARKETPLACE_AGREEMENT_POLICY_BINDING_SCHEMA_VERSION,
         agreementId: String(agreementObj.agreementId ?? ""),
         tenantId: String(agreementObj.tenantId ?? ""),
-        taskId: String(agreementObj.taskId ?? ""),
+        rfqId: String(agreementObj.rfqId ?? ""),
         runId: String(agreementObj.runId ?? ""),
         bidId: String(agreementObj.bidId ?? ""),
         acceptedAt:
@@ -9620,7 +11597,7 @@ export function createApi({
         tenantId: normalizeTenant(tenantId),
         runId: String(runId ?? ""),
         agreementId: String(agreementObj.agreementId ?? ""),
-        taskId: String(agreementObj.taskId ?? ""),
+        rfqId: String(agreementObj.rfqId ?? ""),
         bidId: String(agreementObj.bidId ?? ""),
         changeOrderId: String(changeOrderObj.changeOrderId ?? ""),
         requestedByAgentId: String(changeOrderObj.requestedByAgentId ?? ""),
@@ -9925,7 +11902,7 @@ export function createApi({
         tenantId: normalizeTenant(tenantId),
         runId: String(runId ?? ""),
         agreementId: String(agreementObj.agreementId ?? ""),
-        taskId: String(agreementObj.taskId ?? ""),
+        rfqId: String(agreementObj.rfqId ?? ""),
         bidId: String(agreementObj.bidId ?? ""),
         cancellationId: String(cancellationObj.cancellationId ?? ""),
         cancelledByAgentId: String(cancellationObj.cancelledByAgentId ?? ""),
@@ -10202,9 +12179,9 @@ export function createApi({
     };
   }
 
-  function buildMarketplaceTaskAgreement({
+  function buildMarketplaceRfqAgreement({
     tenantId,
-    task,
+    rfq,
     bid,
     runId,
     acceptedAt,
@@ -10218,12 +12195,12 @@ export function createApi({
     policyRefInput = null,
     agreementTermsInput = null
   }) {
-    const taskId = String(task?.taskId ?? "");
+    const rfqId = String(rfq?.rfqId ?? "");
     const bidId = String(bid?.bidId ?? "");
-    if (!taskId || !bidId) throw new TypeError("task.taskId and bid.bidId are required");
+    if (!rfqId || !bidId) throw new TypeError("rfqId and bid.bidId are required");
     const agreedCurrency = typeof bid?.currency === "string" && bid.currency.trim() !== ""
       ? String(bid.currency).trim().toUpperCase()
-      : String(task?.currency ?? "USD").trim().toUpperCase();
+      : String(rfq?.currency ?? "USD").trim().toUpperCase();
     const agreedAmountCents = Number(bid?.amountCents);
     if (!Number.isSafeInteger(agreedAmountCents) || agreedAmountCents <= 0) {
       throw new TypeError("bid.amountCents must be a positive safe integer");
@@ -10258,11 +12235,49 @@ export function createApi({
       { path: "$" }
     );
     const negotiationSummary = summarizeMarketplaceBidNegotiationForAgreement(bid?.negotiation ?? null);
-    const agreement = {
-      schemaVersion: "MarketplaceTaskAgreement.v1",
-      agreementId: `agr_${taskId}_${bidId}`,
+    const proposalCount =
+      Number.isSafeInteger(Number(negotiationSummary?.proposalCount)) && Number(negotiationSummary?.proposalCount) > 0
+        ? Number(negotiationSummary.proposalCount)
+        : Number.isSafeInteger(Number(negotiationSummary?.negotiation?.proposalCount)) &&
+            Number(negotiationSummary?.negotiation?.proposalCount) > 0
+          ? Number(negotiationSummary?.negotiation?.proposalCount)
+          : 1;
+    const offer =
+      negotiationSummary.acceptedProposal &&
+      typeof negotiationSummary.acceptedProposal === "object" &&
+      !Array.isArray(negotiationSummary.acceptedProposal)
+        ? buildMarketplaceOffer({
+            tenantId: String(tenantId),
+            rfqId,
+            runId: String(runId),
+            bidId,
+            proposal: negotiationSummary.acceptedProposal,
+            offerChainHash: negotiationSummary.offerChainHash,
+            proposalCount,
+            createdAt: acceptedAt
+          })
+        : null;
+    const offerAcceptance = buildMarketplaceAcceptance({
       tenantId: String(tenantId),
-      taskId,
+      rfqId,
+      runId: String(runId),
+      bidId,
+      agreementId: `agr_${rfqId}_${bidId}`,
+      acceptedAt,
+      acceptedByAgentId: acceptedByAgentId ?? null,
+      acceptedProposalId: negotiationSummary.acceptedProposalId,
+      acceptedRevision: negotiationSummary.acceptedRevision,
+      acceptedProposalHash: negotiationSummary.acceptedProposalHash,
+      offerChainHash: negotiationSummary.offerChainHash,
+      proposalCount,
+      offer,
+      createdAt: acceptedAt
+    });
+    const agreement = {
+      schemaVersion: "MarketplaceTaskAgreement.v2",
+      agreementId: `agr_${rfqId}_${bidId}`,
+      tenantId: String(tenantId),
+      rfqId,
       runId: String(runId),
       bidId,
       payerAgentId: String(payerAgentId),
@@ -10278,6 +12293,10 @@ export function createApi({
       acceptedProposalId: negotiationSummary.acceptedProposalId,
       acceptedRevision: negotiationSummary.acceptedRevision,
       acceptedProposalHash: negotiationSummary.acceptedProposalHash,
+      offer,
+      offerHash: offer?.offerHash ?? null,
+      offerAcceptance,
+      offerAcceptanceHash: offerAcceptance?.acceptanceHash ?? null,
       negotiation: negotiationSummary.negotiation,
       acceptance:
         negotiationSummary.acceptance ??
@@ -10290,11 +12309,7 @@ export function createApi({
             acceptedRevision: negotiationSummary.acceptedRevision,
             acceptedProposalHash: negotiationSummary.acceptedProposalHash,
             offerChainHash: negotiationSummary.offerChainHash,
-            proposalCount:
-              Number.isSafeInteger(Number(negotiationSummary?.negotiation?.proposalCount)) &&
-              Number(negotiationSummary?.negotiation?.proposalCount) > 0
-                ? Number(negotiationSummary?.negotiation?.proposalCount)
-                : 1
+            proposalCount
           },
           { path: "$" }
         ),
@@ -10302,7 +12317,7 @@ export function createApi({
       policy: settlementPolicy,
       policyRef,
       terms: buildMarketplaceAgreementTerms({
-        task,
+        rfq,
         bid,
         agreementTermsInput
       })
@@ -10318,20 +12333,20 @@ export function createApi({
     return agreement;
   }
 
-  function makeLifecycleArtifactId({ eventType, sourceEventId, runId, taskId }) {
+  function makeLifecycleArtifactId({ eventType, sourceEventId, runId, rfqId }) {
     const sanitize = (value) =>
       String(value ?? "")
         .trim()
         .replaceAll(/[^a-zA-Z0-9_-]/g, "_");
     const eventSeg = sanitize(eventType).toLowerCase() || "event";
-    const sourceSeg = sanitize(sourceEventId) || sanitize(runId) || sanitize(taskId) || createId("evt");
+    const sourceSeg = sanitize(sourceEventId) || sanitize(runId) || sanitize(rfqId) || createId("evt");
     return `lifecycle_${eventSeg}_${sourceSeg}`;
   }
 
   async function emitMarketplaceLifecycleArtifact({
     tenantId,
     eventType,
-    taskId = null,
+    rfqId = null,
     runId = null,
     sourceEventId = null,
     actorAgentId = null,
@@ -10342,13 +12357,13 @@ export function createApi({
     if (typeof store.putArtifact !== "function" || typeof store.createDelivery !== "function") return null;
     const artifactType = "MarketplaceLifecycle.v1";
     const generatedAt = nowIso();
-    const artifactId = makeLifecycleArtifactId({ eventType, sourceEventId, runId, taskId });
+    const artifactId = makeLifecycleArtifactId({ eventType, sourceEventId, runId, rfqId });
     const body = {
       schemaVersion: artifactType,
       artifactType,
       artifactId,
       tenantId: normalizeTenant(tenantId),
-      taskId: taskId ?? null,
+      rfqId: rfqId ?? null,
       runId: runId ?? null,
       sourceEventId: sourceEventId ?? null,
       eventType,
@@ -10376,7 +12391,7 @@ export function createApi({
     let deliveriesCreated = 0;
     for (const destination of destinations) {
       const dedupeKey = `${tenantId}:${destination.destinationId}:${artifactType}:${artifactId}:${artifactHash}`;
-      const scopeKey = String(runId ?? taskId ?? sourceEventId ?? eventType);
+      const scopeKey = String(runId ?? rfqId ?? sourceEventId ?? eventType);
       const orderSeq = Date.parse(generatedAt) || 0;
       const priority = 90;
       const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
@@ -12292,6 +14307,22 @@ export function createApi({
       let tenantId = "tenant_default";
       let principalId = "anon";
       try {
+        if (
+          path === "/ops/arbitration/workspace" ||
+          path === "/ops/finance/reconciliation/workspace" ||
+          path === "/ops/kernel/workspace" ||
+          path === "/ops/marketplace/workspace" ||
+          path === "/ops/policy/workspace"
+        ) {
+          const queryTenantId = url.searchParams.get("tenantId");
+          const queryOpsToken = url.searchParams.get("opsToken");
+          if (!req.headers?.["x-proxy-tenant-id"] && typeof queryTenantId === "string" && queryTenantId.trim() !== "") {
+            req.headers["x-proxy-tenant-id"] = queryTenantId.trim();
+          }
+          if (!req.headers?.["x-proxy-ops-token"] && typeof queryOpsToken === "string" && queryOpsToken.trim() !== "") {
+            req.headers["x-proxy-ops-token"] = queryOpsToken.trim();
+          }
+        }
         try {
           tenantId = normalizeTenantId(req.headers?.["x-proxy-tenant-id"]);
         } catch (err) {
@@ -13207,6 +15238,1584 @@ export function createApi({
         if (parts.length === 1 && req.method === "GET") {
           if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
           return sendJson(res, 200, { ok: true });
+        }
+
+        if (parts[1] === "tool-calls" && parts[2] === "holds" && parts[3] === "lock" && parts.length === 4 && req.method === "POST") {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE)) return sendError(res, 403, "forbidden");
+
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+
+          const nowAt = nowIso();
+          let agreementHash = null;
+          let receiptHash = null;
+          try {
+            agreementHash = normalizeSha256HashInput(body?.agreementHash, "agreementHash", { allowNull: false });
+            receiptHash = normalizeSha256HashInput(body?.receiptHash, "receiptHash", { allowNull: false });
+          } catch (err) {
+            return sendError(res, 400, "invalid hold subject hashes", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const payerAgentId = typeof body?.payerAgentId === "string" && body.payerAgentId.trim() !== "" ? body.payerAgentId.trim() : null;
+          const payeeAgentId = typeof body?.payeeAgentId === "string" && body.payeeAgentId.trim() !== "" ? body.payeeAgentId.trim() : null;
+          if (!payerAgentId || !payeeAgentId || payerAgentId === payeeAgentId) {
+            return sendError(res, 400, "payerAgentId and payeeAgentId are required and must differ", null, { code: "SCHEMA_INVALID" });
+          }
+
+          const amountCents = Number(body?.amountCents);
+          if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return sendError(res, 400, "amountCents must be a positive safe integer");
+          const currency = typeof body?.currency === "string" && body.currency.trim() !== "" ? body.currency.trim() : "USD";
+
+          const holdbackBps = Number(body?.holdbackBps ?? 0);
+          if (!Number.isSafeInteger(holdbackBps) || holdbackBps < 0 || holdbackBps > 10_000) {
+            return sendError(res, 400, "holdbackBps must be an integer within 0..10000", null, { code: "SCHEMA_INVALID" });
+          }
+          const challengeWindowMs = Number(body?.challengeWindowMs ?? 0);
+          if (!Number.isSafeInteger(challengeWindowMs) || challengeWindowMs < 0 || challengeWindowMs > 365 * 24 * 60 * 60_000) {
+            return sendError(res, 400, "challengeWindowMs must be an integer within 0..31536000000", null, { code: "SCHEMA_INVALID" });
+          }
+
+          const heldAmountCents = Math.min(amountCents, Math.floor((amountCents * holdbackBps) / 10_000));
+          let payerWalletExisting = null;
+          try {
+            payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId: payerAgentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid payer wallet query", { message: err?.message });
+          }
+          let payerWallet = ensureAgentWallet({ wallet: payerWalletExisting, tenantId, agentId: payerAgentId, currency, at: nowAt });
+          try {
+            if (heldAmountCents > 0) {
+              payerWallet = lockAgentWalletEscrow({ wallet: payerWallet, amountCents: heldAmountCents, at: nowAt });
+              projectEscrowLedgerOperation({
+                tenantId,
+                settlement: { currency, payerAgentId, agentId: payeeAgentId },
+                operationId: `escrow_hold_tc_${agreementHash}_${receiptHash}`,
+                type: ESCROW_OPERATION_TYPE.HOLD,
+                amountCents: heldAmountCents,
+                at: nowAt,
+                payerWalletBefore: payerWalletExisting ?? payerWallet,
+                payerWalletAfter: payerWallet,
+                memo: `tool_call:${agreementHash}:holdback_lock`
+              });
+            }
+          } catch (err) {
+            return sendError(res, 409, "escrow hold rejected", { message: err?.message, code: err?.code ?? null }, { code: err?.code ?? "ESCROW_HOLD_REJECTED" });
+          }
+
+          let hold = null;
+          try {
+            hold = buildFundingHoldV1({
+              tenantId,
+              agreementHash,
+              receiptHash,
+              payerAgentId,
+              payeeAgentId,
+              amountCents,
+              heldAmountCents,
+              currency,
+              holdbackBps,
+              challengeWindowMs,
+              createdAt: typeof body?.createdAt === "string" && body.createdAt.trim() !== "" ? body.createdAt.trim() : nowAt
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid hold", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const responseBody = { hold };
+          const ops = [
+            { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
+            { kind: "TOOL_CALL_HOLD_UPSERT", tenantId, holdHash: hold.holdHash, hold }
+          ];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+          }
+          await commitTx(ops, {
+            audit: makeOpsAudit({
+              action: "TOOL_CALL_HOLD_LOCK",
+              targetType: "tool_call_hold",
+              targetId: hold.holdHash,
+              details: { agreementHash, receiptHash, payerAgentId, payeeAgentId, amountCents, heldAmountCents, currency, holdbackBps, challengeWindowMs }
+            })
+          });
+          return sendJson(res, 201, responseBody);
+        }
+
+        if (parts[1] === "tool-calls" && parts[2] === "holds" && parts.length === 3 && req.method === "GET") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+          let agreementHash = null;
+          let status = null;
+          let limit = 200;
+          let offset = 0;
+          try {
+            agreementHash = normalizeSha256HashInput(url.searchParams.get("agreementHash"), "agreementHash", { allowNull: true });
+          } catch (err) {
+            return sendError(res, 400, "invalid agreementHash", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          if (typeof url.searchParams.get("status") === "string" && String(url.searchParams.get("status")).trim() !== "") {
+            status = String(url.searchParams.get("status")).trim().toLowerCase();
+          }
+          if (url.searchParams.has("limit")) {
+            limit = Number(url.searchParams.get("limit"));
+            if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 2000) {
+              return sendError(res, 400, "limit must be a positive safe integer within 1..2000", null, { code: "SCHEMA_INVALID" });
+            }
+          }
+          if (url.searchParams.has("offset")) {
+            offset = Number(url.searchParams.get("offset"));
+            if (!Number.isSafeInteger(offset) || offset < 0) {
+              return sendError(res, 400, "offset must be a non-negative safe integer", null, { code: "SCHEMA_INVALID" });
+            }
+          }
+          let holds = [];
+          try {
+            holds = await listToolCallHoldRecords({ tenantId, agreementHash, status, limit, offset });
+          } catch (err) {
+            return sendError(res, 501, "tool call holds not supported for this store", { message: err?.message });
+          }
+          return sendJson(res, 200, {
+            ok: true,
+            tenantId,
+            agreementHash,
+            status,
+            limit,
+            offset,
+            holds
+          });
+        }
+
+        if (parts[1] === "tool-calls" && parts[2] === "holds" && parts[3] && parts.length === 4 && req.method === "GET") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+          const holdHash = String(parts[3] ?? "").trim();
+          if (!holdHash) return sendError(res, 400, "holdHash is required", null, { code: "SCHEMA_INVALID" });
+          let hold = null;
+          try {
+            hold = await getToolCallHoldRecord({ tenantId, holdHash });
+          } catch (err) {
+            return sendError(res, 501, "tool call holds not supported for this store", { message: err?.message });
+          }
+          if (!hold) return sendError(res, 404, "tool call hold not found");
+          return sendJson(res, 200, { ok: true, tenantId, hold });
+        }
+
+        if (parts[1] === "settlement-adjustments" && parts[2] && parts.length === 3 && req.method === "GET") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+          const adjustmentId = String(parts[2] ?? "").trim();
+          if (!adjustmentId) return sendError(res, 400, "adjustmentId is required", null, { code: "SCHEMA_INVALID" });
+          let rec = null;
+          try {
+            rec = await getSettlementAdjustmentRecord({ tenantId, adjustmentId });
+          } catch (err) {
+            return sendError(res, 500, "failed to fetch settlement adjustment", { message: err?.message });
+          }
+          if (!rec) return sendError(res, 404, "settlement adjustment not found");
+          return sendJson(res, 200, { ok: true, tenantId, adjustment: rec });
+        }
+
+        if (parts[1] === "maintenance" && parts[2] === "tool-call-holdback" && parts[3] === "run" && parts.length === 4 && req.method === "POST") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE)) return sendError(res, 403, "forbidden");
+          const body = (await readJsonBody(req)) ?? {};
+          const dryRun = body?.dryRun === true;
+          const limitRaw = body?.limit ?? body?.maxHolds ?? null;
+          const limit = limitRaw === null ? 1000 : Number(limitRaw);
+          if (!Number.isSafeInteger(limit) || limit <= 0) return sendError(res, 400, "limit must be a positive safe integer", null, { code: "SCHEMA_INVALID" });
+
+          const nowAt = nowIso();
+          let holds = [];
+          try {
+            holds = await listToolCallHoldRecords({ tenantId, status: FUNDING_HOLD_STATUS.HELD, limit, offset: 0 });
+          } catch (err) {
+            return sendError(res, 501, "tool call holds not supported for this store", { message: err?.message });
+          }
+
+          let attempted = 0;
+          let released = 0;
+          let blocked = 0;
+          let errors = 0;
+          const blockedCases = [];
+
+          for (const hold of holds) {
+            attempted += 1;
+            let parsedHold = hold;
+            try {
+              validateFundingHoldV1(parsedHold);
+            } catch {
+              errors += 1;
+              continue;
+            }
+            const createdAtMs = Date.parse(String(parsedHold.createdAt ?? ""));
+            const windowMs = Number(parsedHold.challengeWindowMs ?? 0);
+            const nowMs = Date.parse(nowAt);
+            if (!Number.isFinite(createdAtMs) || !Number.isFinite(nowMs) || nowMs <= createdAtMs + windowMs) continue;
+
+            const runId = `tc_${String(parsedHold.agreementHash ?? "").toLowerCase()}`;
+            let cases = [];
+            try {
+              cases = await listArbitrationCaseRecords({ tenantId, runId, status: null, limit: 1000, offset: 0 });
+            } catch {
+              cases = [];
+            }
+            const blocking = (cases ?? []).filter((c) => {
+              const meta = c?.metadata && typeof c.metadata === "object" && !Array.isArray(c.metadata) ? c.metadata : null;
+              if (!meta) return false;
+              if (String(meta.caseType ?? "").toLowerCase() !== "tool_call") return false;
+              if (String(c.status ?? "").toLowerCase() === ARBITRATION_CASE_STATUS.CLOSED) return false;
+              if (String(meta.holdHash ?? "").toLowerCase() === String(parsedHold.holdHash ?? "").toLowerCase()) return true;
+              if (String(meta.receiptHash ?? "").toLowerCase() === String(parsedHold.receiptHash ?? "").toLowerCase()) return true;
+              return false;
+            });
+            if (blocking.length) {
+              blocked += 1;
+              blockedCases.push({ holdHash: parsedHold.holdHash, caseId: blocking[0]?.caseId ?? null });
+              metricInc("tool_call_holdback_auto_release_skipped_total", { reason: "arbitration_case_open" }, 1);
+              continue;
+            }
+
+            if (dryRun) continue;
+
+            const heldAmountCents = Number(parsedHold.heldAmountCents ?? 0);
+            const tenantHoldHash = parsedHold.holdHash;
+            if (!Number.isSafeInteger(heldAmountCents) || heldAmountCents < 0) {
+              errors += 1;
+              continue;
+            }
+
+            let payerWalletExisting = null;
+            let payeeWalletExisting = null;
+            try {
+              payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId: parsedHold.payerAgentId });
+              payeeWalletExisting = await getAgentWalletRecord({ tenantId, agentId: parsedHold.payeeAgentId });
+            } catch {
+              errors += 1;
+              continue;
+            }
+            const payerWallet = ensureAgentWallet({
+              wallet: payerWalletExisting,
+              tenantId,
+              agentId: parsedHold.payerAgentId,
+              currency: parsedHold.currency,
+              at: nowAt
+            });
+            const payeeWallet = ensureAgentWallet({
+              wallet: payeeWalletExisting,
+              tenantId,
+              agentId: parsedHold.payeeAgentId,
+              currency: parsedHold.currency,
+              at: nowAt
+            });
+            let releasedWallets = null;
+            try {
+              releasedWallets =
+                heldAmountCents > 0
+                  ? releaseAgentWalletEscrowToPayee({ payerWallet, payeeWallet, amountCents: heldAmountCents, at: nowAt })
+                  : { payerWallet, payeeWallet };
+            } catch (err) {
+              errors += 1;
+              logger.warn("tool_call_holdback.auto_release.error", { err: err?.message, code: err?.code ?? null, holdHash: tenantHoldHash });
+              continue;
+            }
+            try {
+              if (heldAmountCents > 0) {
+                projectEscrowLedgerOperation({
+                  tenantId,
+                  settlement: { currency: parsedHold.currency, payerAgentId: parsedHold.payerAgentId, agentId: parsedHold.payeeAgentId },
+                  operationId: `escrow_release_auto_${tenantHoldHash}`,
+                  type: ESCROW_OPERATION_TYPE.RELEASE,
+                  amountCents: heldAmountCents,
+                  at: nowAt,
+                  payerWalletBefore: payerWallet,
+                  payerWalletAfter: releasedWallets.payerWallet,
+                  payeeWalletBefore: payeeWallet,
+                  payeeWalletAfter: releasedWallets.payeeWallet,
+                  memo: `tool_call:${parsedHold.agreementHash}:auto_release`
+                });
+              }
+            } catch {}
+
+            const resolvedHold = resolveFundingHoldV1({
+              hold: parsedHold,
+              status: FUNDING_HOLD_STATUS.RELEASED,
+              resolvedAt: nowAt,
+              metadata: { autoReleased: true }
+            });
+
+            try {
+              await commitTx(
+                [
+                  { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: releasedWallets.payerWallet },
+                  { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: releasedWallets.payeeWallet },
+                  { kind: "TOOL_CALL_HOLD_UPSERT", tenantId, holdHash: resolvedHold.holdHash, hold: resolvedHold }
+                ],
+                {
+                  audit: makeOpsAudit({
+                    action: "TOOL_CALL_HOLD_AUTO_RELEASE",
+                    targetType: "tool_call_hold",
+                    targetId: resolvedHold.holdHash,
+                    details: { agreementHash: resolvedHold.agreementHash, receiptHash: resolvedHold.receiptHash, heldAmountCents }
+                  })
+                }
+              );
+              released += 1;
+            } catch (err) {
+              errors += 1;
+              logger.warn("tool_call_holdback.auto_release.commit_failed", { err: err?.message, code: err?.code ?? null, holdHash: tenantHoldHash });
+            }
+          }
+
+          return sendJson(res, 200, {
+            ok: true,
+            tenantId,
+            dryRun,
+            attempted,
+            released,
+            blocked,
+            errors,
+            blockedCases
+          });
+        }
+
+        if (parts[1] === "arbitration" && parts[2] === "workspace" && parts.length === 3 && req.method === "GET") {
+          const hasScope =
+            requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) ||
+            requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE) ||
+            requireScope(auth.scopes, OPS_SCOPES.OPS_READ);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          const initialOpsToken = typeof url.searchParams.get("opsToken") === "string" ? url.searchParams.get("opsToken") : "";
+          const initialStatus = typeof url.searchParams.get("status") === "string" ? url.searchParams.get("status") : "under_review";
+          const initialPriority = typeof url.searchParams.get("priority") === "string" ? url.searchParams.get("priority") : "";
+          const initialRunId = typeof url.searchParams.get("runId") === "string" ? url.searchParams.get("runId") : "";
+          const initialCaseId = typeof url.searchParams.get("caseId") === "string" ? url.searchParams.get("caseId") : "";
+          const initialSlaHours = typeof url.searchParams.get("slaHours") === "string" ? url.searchParams.get("slaHours") : "24";
+          const html = [
+            "<!doctype html>",
+            "<html><head><meta charset=\"utf-8\"/>",
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>",
+            "<title>Arbitration Operator Workspace</title>",
+            "<style>",
+            ":root{--bg:#f4f1ea;--card:#fffaf2;--ink:#1f1300;--muted:#5a5145;--line:#e4d8c4;--warn:#b25e00;--good:#0f766e;--bad:#b42318;--brand:#0f5f8c}",
+            "*{box-sizing:border-box} body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:linear-gradient(120deg,#fdf8ef,#f4f1ea 45%,#eef6fb);color:var(--ink)}",
+            ".wrap{max-width:1300px;margin:0 auto;padding:18px} .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}",
+            ".card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 8px 24px rgba(30,20,0,.06)}",
+            "h1{margin:0 0 6px;font-size:26px} h2{margin:0 0 8px;font-size:18px}",
+            ".muted{color:var(--muted)} .status{padding:8px 10px;border-radius:10px;background:#f1e7d7;border:1px solid var(--line)}",
+            ".status.good{background:#d9f3f0;border-color:#9ed9d2;color:#0a4c46} .status.warn{background:#fff3dc;border-color:#f4cc89;color:#7a4300} .status.bad{background:#ffe2df;border-color:#f2b1a8;color:#8f1f15}",
+            ".field{display:flex;flex-direction:column;gap:4px;min-width:160px;flex:1} .field.small{max-width:160px;flex:0 0 160px}",
+            "input,select,textarea,button{font:inherit} input,select,textarea{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #c6b79e;background:white;color:var(--ink)}",
+            "textarea{min-height:150px;resize:vertical} button{padding:8px 12px;border-radius:10px;border:1px solid #b9a37b;background:#f6dfb8;color:#3f2a00;cursor:pointer}",
+            "button.secondary{background:#eef2f7;border-color:#b7c5da;color:#1f3b61} button.warn{background:#ffe8c5;border-color:#efc073;color:#734100} button.danger{background:#ffdeda;border-color:#e8a4a0;color:#7c1f17}",
+            "button:disabled{opacity:.55;cursor:not-allowed} .split{display:grid;grid-template-columns:1.1fr .9fr;gap:12px;margin-top:12px}",
+            "table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:8px;border-bottom:1px solid #eadfcf;vertical-align:top} tbody tr:hover{background:#f8efe2}",
+            ".tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #d8c6a8;background:#f9ebd1;color:#4d3500}",
+            ".tag.good{background:#d9f3f0;border-color:#9ed9d2;color:#0a4c46} .tag.warn{background:#fff3dc;border-color:#f4cc89;color:#7a4300} .tag.bad{background:#ffe2df;border-color:#f2b1a8;color:#8f1f15}",
+            ".list{margin:0;padding-left:18px} .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace} pre{margin:0;background:#fff;border:1px solid #dbcbb2;border-radius:10px;padding:10px;overflow:auto}",
+            "@media (max-width: 980px){.split{grid-template-columns:1fr}}",
+            "</style></head><body><div class=\"wrap\" id=\"arbitrationWorkspaceRoot\">",
+            "<h1>Arbitration Operator Workspace</h1>",
+            "<div class=\"muted\">Queue-first arbitration operations with case detail, evidence timeline, and ruling actions.</div>",
+            "<div class=\"card\" style=\"margin-top:12px\">",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Tenant ID</div><input id=\"tenantIdInput\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Ops token</div><input id=\"opsTokenInput\" type=\"password\" placeholder=\"tok_finr or tok_finw\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Protocol</div><input id=\"protocolInput\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">SLA hours</div><input id=\"slaHoursInput\" type=\"number\" min=\"1\" max=\"8760\"/></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:8px\">",
+            "<div class=\"field small\"><div class=\"muted\">Status</div><select id=\"statusFilter\"><option value=\"\">all</option><option value=\"open\">open</option><option value=\"under_review\">under_review</option><option value=\"verdict_issued\">verdict_issued</option><option value=\"closed\">closed</option></select></div>",
+            "<div class=\"field small\"><div class=\"muted\">Priority</div><select id=\"priorityFilter\"><option value=\"\">all</option><option value=\"high\">high</option><option value=\"normal\">normal</option><option value=\"low\">low</option></select></div>",
+            "<div class=\"field\"><div class=\"muted\">Run ID</div><input id=\"runIdFilter\" placeholder=\"run_...\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Case ID</div><input id=\"caseIdFilter\" placeholder=\"arb_case_...\"/></div>",
+            "<div class=\"field small\"><label><input id=\"assignedArbiterFilter\" type=\"checkbox\"/> assigned only</label></div>",
+            "<div class=\"field small\"><button id=\"refreshQueueBtn\">Refresh queue</button></div>",
+            "</div>",
+            "<div id=\"queueStatus\" class=\"status\" style=\"margin-top:10px\">Loading queue...</div>",
+            "</div>",
+            "<div class=\"split\">",
+            "<section class=\"card\">",
+            "<h2>Queue</h2>",
+            "<div style=\"overflow:auto\"><table id=\"arbitrationQueueTable\"><thead><tr><th>Case</th><th>Status</th><th>Priority</th><th>Age</th><th>Due</th><th>Arbiter</th><th>Actions</th></tr></thead><tbody id=\"arbitrationQueueBody\"></tbody></table></div>",
+            "</section>",
+            "<section class=\"card\" id=\"arbitrationCasePanel\">",
+            "<h2>Case Detail</h2>",
+            "<div id=\"caseStatus\" class=\"status\">Select a case from the queue.</div>",
+            "<div style=\"margin-top:10px\" class=\"row\">",
+            "<button class=\"secondary\" id=\"reloadCaseBtn\">Reload case</button>",
+            "<button class=\"secondary\" id=\"clearCaseBtn\">Clear selection</button>",
+            "</div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Overview</div><pre id=\"caseOverview\" class=\"mono\">{}</pre></div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Settlement snapshot</div><pre id=\"arbitrationSettlement\" class=\"mono\">{}</pre></div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Timeline</div><ul id=\"arbitrationEvidenceTimeline\" class=\"list\"></ul></div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Evidence refs</div><ul id=\"arbitrationEvidenceRefs\" class=\"list\"></ul></div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Related cases</div><ul id=\"arbitrationRelatedCases\" class=\"list\"></ul></div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Appeal chain</div><ul id=\"arbitrationAppealChain\" class=\"list\"></ul></div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Audit and export links</div><ul id=\"arbitrationAuditLinks\" class=\"list\"></ul></div>",
+            "</section>",
+            "</div>",
+            "<div class=\"split\" style=\"margin-top:12px\">",
+            "<section class=\"card\">",
+            "<h2>Ruling Actions</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Assign arbiter</div><input id=\"assignArbiterAgentId\" placeholder=\"agt_arbiter\"/></div>",
+            "<div class=\"field small\"><button id=\"assignArbiterBtn\">Assign</button></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:8px\">",
+            "<div class=\"field\"><div class=\"muted\">Add evidence ref</div><input id=\"evidenceRefInput\" placeholder=\"obj://... or evidence://...\"/></div>",
+            "<div class=\"field small\"><button id=\"addEvidenceBtn\">Add evidence</button></div>",
+            "</div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Issue verdict (paste signed arbitrationVerdict JSON)</div><textarea id=\"verdictJson\" class=\"mono\" placeholder='{\"caseId\":\"...\",\"arbiterAgentId\":\"...\",\"outcome\":\"accepted\",\"releaseRatePct\":100,\"rationale\":\"...\",\"evidenceRefs\":[\"...\"],\"signerKeyId\":\"...\",\"signature\":\"...\"}'></textarea></div>",
+            "<div class=\"row\" style=\"margin-top:8px\"><button class=\"secondary\" id=\"fillVerdictTemplateBtn\">Fill template</button><button class=\"warn\" id=\"submitVerdictBtn\">Submit verdict</button></div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Close summary (optional)</div><input id=\"closeSummaryInput\" placeholder=\"finalized after verdict\"/></div>",
+            "<div class=\"field small\"><button class=\"danger\" id=\"closeCaseBtn\">Close case</button></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Appeal case ID (optional)</div><input id=\"appealCaseIdInput\" placeholder=\"arb_case_appeal_...\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Appeal reason (optional)</div><input id=\"appealReasonInput\" placeholder=\"why this verdict should be re-reviewed\"/></div>",
+            "<div class=\"field small\"><button class=\"warn\" id=\"openAppealBtn\">Open appeal</button></div>",
+            "</div>",
+            "<div id=\"actionStatus\" class=\"status\" style=\"margin-top:10px\">No action yet.</div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<h2>Usage Notes</h2>",
+            "<ul class=\"list\">",
+            "<li>Use a token with `finance_write` or `ops_write` for ruling actions.</li>",
+            "<li>`Submit verdict` requires a fully signed `arbitrationVerdict` payload.</li>",
+            "<li>All write actions include `x-settld-protocol` and unique idempotency keys.</li>",
+            "<li>Queue ordering follows over-SLA first, then oldest opened case.</li>",
+            "<li>`Open appeal` is available after verdict issuance while dispute window remains open.</li>",
+            "</ul>",
+            "</section>",
+            "</div>",
+            "<script>",
+            `const INITIAL = ${JSON.stringify({
+              tenantId,
+              opsToken: initialOpsToken,
+              protocol: protocolPolicy.current,
+              filters: {
+                status: initialStatus,
+                priority: initialPriority,
+                runId: initialRunId,
+                caseId: initialCaseId,
+                slaHours: initialSlaHours
+              }
+            })};`,
+            "const state = { queue: [], selectedCase: null, caseDetail: null, settlement: null, workspace: null };",
+            "function byId(id){ return document.getElementById(id); }",
+            "function setText(id, text){ const el=byId(id); if(el) el.textContent=String(text ?? ''); }",
+            "function setStatus(id, text, kind){ const el=byId(id); if(!el) return; el.className='status'+(kind?(' '+kind):''); el.textContent=String(text ?? ''); }",
+            "function fmt(v){ return (typeof v==='string' && v.trim()) ? v : 'n/a'; }",
+            "function fmtHours(value){ const n = Number(value); return Number.isFinite(n) ? n.toFixed(2) : 'n/a'; }",
+            "function headers({ write=false, json=false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-settld-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type']='application/json'; return h; }",
+            "async function requestJson(path, { method='GET', body=null, write=false, idem=null } = {}){ const h = headers({ write, json: body!==null }); if(idem) h['x-idempotency-key']=idem; const res = await fetch(path, { method, headers:h, body: body===null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ const msg = (j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP '+res.status)); throw new Error(msg); } return j; }",
+            "function queueQuery(){ const q = new URLSearchParams(); const status = String(byId('statusFilter').value || '').trim(); const priority = String(byId('priorityFilter').value || '').trim(); const runId = String(byId('runIdFilter').value || '').trim(); const caseId = String(byId('caseIdFilter').value || '').trim(); const slaHours = String(byId('slaHoursInput').value || '').trim(); const assigned = byId('assignedArbiterFilter').checked; if(status) q.set('status', status); if(priority) q.set('priority', priority); if(runId) q.set('runId', runId); if(caseId) q.set('caseId', caseId); if(assigned) q.set('assignedArbiter', 'true'); if(slaHours) q.set('slaHours', slaHours); return q.toString(); }",
+            "function renderQueue(){ const body = byId('arbitrationQueueBody'); if(!body) return; body.innerHTML=''; if(!state.queue.length){ body.innerHTML='<tr><td colspan=\"7\" class=\"muted\">No arbitration cases for the selected filters.</td></tr>'; return; } for(const item of state.queue){ const tr = document.createElement('tr'); const statusTag = item.overSla ? '<span class=\"tag bad\">over_sla</span>' : '<span class=\"tag good\">within_sla</span>'; tr.innerHTML = `<td><div class=\\\"mono\\\">${item.caseId || 'n/a'}</div><div class=\\\"muted mono\\\">${item.runId || 'n/a'}</div></td><td><span class=\\\"tag\\\">${item.status || 'n/a'}</span> ${statusTag}</td><td>${item.priority || 'n/a'}</td><td>${fmtHours(item.ageHours)}h</td><td class=\\\"mono\\\">${fmt(item.dueAt)}</td><td class=\\\"mono\\\">${fmt(item.arbiterAgentId)}</td><td><button class=\\\"secondary\\\" type=\\\"button\\\">Open</button></td>`; tr.querySelector('button').addEventListener('click', ()=>openCase(item)); body.appendChild(tr); } }",
+            "function roleTag(currentCaseId, currentAppealParentId, row){ const rowCaseId = String(row && row.caseId ? row.caseId : '').trim(); const rowParentCaseId = String(row && row.appealRef && row.appealRef.parentCaseId ? row.appealRef.parentCaseId : '').trim(); if(!rowCaseId) return { label:'related', kind:'' }; if(rowCaseId === currentCaseId) return { label:'current', kind:'good' }; if(currentAppealParentId && rowCaseId === currentAppealParentId) return { label:'parent', kind:'warn' }; if(rowParentCaseId && rowParentCaseId === currentCaseId) return { label:'appeal', kind:'' }; return { label:'related', kind:'' }; }",
+            "function toAuditLinkRows(links){ if(!links || typeof links !== 'object') return []; const specs = [['Run settlement packet', links.runSettlement], ['Settlement policy replay', links.runSettlementPolicyReplay], ['Run arbitration cases', links.runArbitrationCases], ['Selected arbitration case', links.selectedArbitrationCase], ['Ops audit stream', links.opsAudit], ['Monthly settlement export (template)', links.settlementsExportTemplate], ['Arbitration case artifact status', links.arbitrationCaseArtifactStatus], ['Arbitration verdict artifact status', links.arbitrationVerdictArtifactStatus]]; return specs.filter((entry)=>typeof entry[1] === 'string' && entry[1].trim() !== ''); }",
+            "function renderCase(){",
+            "  const ws = state.workspace && typeof state.workspace === 'object' ? state.workspace : null;",
+            "  const c = ws && ws.arbitrationCase ? ws.arbitrationCase : (state.caseDetail && state.caseDetail.arbitrationCase ? state.caseDetail.arbitrationCase : null);",
+            "  const actionability = ws && ws.actionability && typeof ws.actionability === 'object' ? ws.actionability : null;",
+            "  const canWrite = actionability ? actionability.canWrite === true : true;",
+            "  if(!c){",
+            "    setStatus('caseStatus', 'Select a case from the queue.', '');",
+            "    setText('caseOverview', '{}');",
+            "    setText('arbitrationSettlement', '{}');",
+            "    byId('arbitrationEvidenceTimeline').innerHTML='';",
+            "    byId('arbitrationEvidenceRefs').innerHTML='';",
+            "    byId('arbitrationRelatedCases').innerHTML='';",
+            "    byId('arbitrationAppealChain').innerHTML='';",
+            "    byId('arbitrationAuditLinks').innerHTML='';",
+            "    byId('assignArbiterBtn').disabled = true;",
+            "    byId('addEvidenceBtn').disabled = true;",
+            "    byId('submitVerdictBtn').disabled = true;",
+            "    byId('closeCaseBtn').disabled = true;",
+            "    byId('openAppealBtn').disabled = true;",
+            "    return;",
+            "  }",
+            "  const settlementView = ws && ws.settlement ? ws.settlement : (state.settlement || {});",
+            "  setStatus('caseStatus', `Loaded case ${c.caseId} for run ${c.runId}.`, c.status === 'closed' ? 'bad' : (c.status === 'verdict_issued' ? 'warn' : 'good'));",
+            "  setText('caseOverview', JSON.stringify(c, null, 2));",
+            "  setText('arbitrationSettlement', JSON.stringify(settlementView || {}, null, 2));",
+            "  const timeline = byId('arbitrationEvidenceTimeline');",
+            "  const timelineRows = Array.isArray(ws && ws.timeline ? ws.timeline : null) ? ws.timeline : [];",
+            "  if(timelineRows.length){",
+            "    timeline.innerHTML = timelineRows.map((row)=>{ const source = row && row.source ? ` <span class=\\\"tag\\\">${row.source}</span>` : ''; const details = row && row.details && typeof row.details === 'object' ? ` <div class=\\\"mono muted\\\">${JSON.stringify(row.details)}</div>` : ''; return `<li><span class=\\\"mono\\\">${row.eventType || 'event'}</span> <span class=\\\"mono\\\">${fmt(row.at)}</span>${source}${details}</li>`; }).join('');",
+            "  } else {",
+            "    const fallback = [];",
+            "    fallback.push({ eventType:'arbitration.opened', at: c.openedAt });",
+            "    fallback.push({ eventType:'arbitration.updated', at: c.updatedAt });",
+            "    if(c.closedAt) fallback.push({ eventType:'arbitration.closed', at: c.closedAt });",
+            "    if(state.selectedCase && state.selectedCase.dueAt) fallback.push({ eventType:'dispute.window_ends', at: state.selectedCase.dueAt });",
+            "    timeline.innerHTML = fallback.map((row)=>`<li><span class=\\\"mono\\\">${row.eventType}</span> <span class=\\\"mono\\\">${fmt(row.at)}</span></li>`).join('');",
+            "  }",
+            "  const ev = byId('arbitrationEvidenceRefs');",
+            "  const refs = ws && ws.evidenceRefs && Array.isArray(ws.evidenceRefs.all) ? ws.evidenceRefs.all : (Array.isArray(c.evidenceRefs) ? c.evidenceRefs : []);",
+            "  ev.innerHTML = refs.length ? refs.map((ref)=>`<li class=\\\"mono\\\">${ref}</li>`).join('') : '<li class=\"muted\">No evidence refs.</li>';",
+            "  const relatedEl = byId('arbitrationRelatedCases');",
+            "  const relatedCases = Array.isArray(ws && ws.relatedCases ? ws.relatedCases : null) ? ws.relatedCases : [];",
+            "  const currentCaseId = String(c.caseId || '').trim();",
+            "  const currentAppealParentId = String(c && c.appealRef && c.appealRef.parentCaseId ? c.appealRef.parentCaseId : '').trim();",
+            "  if(relatedCases.length){",
+            "    relatedEl.innerHTML = relatedCases.map((row)=>{ const rowCaseId = String(row.caseId || '').trim(); const role = roleTag(currentCaseId, currentAppealParentId, row); const roleClass = role.kind ? ` ${role.kind}` : ''; const disabled = rowCaseId === currentCaseId ? 'disabled' : ''; const label = rowCaseId === currentCaseId ? 'Selected' : 'Open'; return `<li><span class=\\\"tag${roleClass}\\\">${role.label}</span> <span class=\\\"mono\\\">${row.caseId || 'n/a'}</span> <span class=\\\"muted\\\">${row.status || 'n/a'} · due ${fmt(row.dueAt)}</span> <button class=\\\"secondary\\\" type=\\\"button\\\" data-case-id=\\\"${String(row.caseId || '')}\\\" ${disabled}>${label}</button></li>`; }).join('');",
+            "    relatedEl.querySelectorAll('button[data-case-id]').forEach((btn)=>{ btn.addEventListener('click', ()=>{ const targetCaseId = String(btn.getAttribute('data-case-id') || '').trim(); if(!targetCaseId || targetCaseId === currentCaseId) return; const target = relatedCases.find((row)=>String(row.caseId || '') === targetCaseId); if(target) openCase(target); }); });",
+            "  } else {",
+            "    relatedEl.innerHTML = '<li class=\"muted\">No related cases.</li>';",
+            "  }",
+            "  const appealChainEl = byId('arbitrationAppealChain');",
+            "  const appealChain = ws && ws.appealChain && typeof ws.appealChain === 'object' ? ws.appealChain : null;",
+            "  const parentCaseId = String((appealChain && appealChain.parentCaseId) || '').trim();",
+            "  const childCaseIds = appealChain && Array.isArray(appealChain.childCaseIds) ? appealChain.childCaseIds.map((value)=>String(value || '').trim()).filter((value)=>value) : [];",
+            "  const uniqueChildren = [...new Set(childCaseIds.filter((value)=>value !== currentCaseId))];",
+            "  const chainRows = [];",
+            "  if(parentCaseId) chainRows.push(`<li><span class=\\\"tag warn\\\">parent</span> <span class=\\\"mono\\\">${parentCaseId}</span></li>`);",
+            "  chainRows.push(`<li><span class=\\\"tag good\\\">current</span> <span class=\\\"mono\\\">${currentCaseId || 'n/a'}</span></li>`);",
+            "  uniqueChildren.forEach((childCaseId)=>{ chainRows.push(`<li><span class=\\\"tag\\\">appeal</span> <span class=\\\"mono\\\">${childCaseId}</span></li>`); });",
+            "  appealChainEl.innerHTML = chainRows.length ? chainRows.join('') : '<li class=\"muted\">No appeal relations.</li>';",
+            "  const auditLinksEl = byId('arbitrationAuditLinks');",
+            "  const linkRows = toAuditLinkRows(ws && ws.links ? ws.links : null);",
+            "  auditLinksEl.innerHTML = linkRows.length ? linkRows.map(([label, href])=>`<li><a class=\\\"mono\\\" href=\\\"${href}\\\" target=\\\"_blank\\\" rel=\\\"noreferrer\\\">${label}</a></li>`).join('') : '<li class=\"muted\">No audit/export links available.</li>';",
+            "  byId('assignArbiterBtn').disabled = !(canWrite && (!actionability || actionability.canAssignArbiter === true));",
+            "  byId('addEvidenceBtn').disabled = !(canWrite && (!actionability || actionability.canAddEvidence === true));",
+            "  byId('submitVerdictBtn').disabled = !(canWrite && (!actionability || actionability.canSubmitVerdict === true));",
+            "  byId('closeCaseBtn').disabled = !(canWrite && (!actionability || actionability.canCloseCase === true));",
+            "  byId('openAppealBtn').disabled = !(canWrite && (!actionability || actionability.canOpenAppeal === true));",
+            "}",
+            "async function loadQueue(){ setStatus('queueStatus', 'Loading queue...', ''); try { const query = queueQuery(); const out = await requestJson(`/ops/arbitration/queue${query ? ('?'+query) : ''}`); state.queue = Array.isArray(out.queue) ? out.queue : []; renderQueue(); setStatus('queueStatus', `Loaded ${state.queue.length} case(s); overSla=${Number(out.overSlaCount || 0)}.`, Number(out.overSlaCount || 0) > 0 ? 'warn' : 'good'); if(state.selectedCase){ const next = state.queue.find((row)=>String(row.caseId)===String(state.selectedCase.caseId) && String(row.runId)===String(state.selectedCase.runId)); if(next){ await openCase(next, { silent: true }); } } } catch (err){ setStatus('queueStatus', `Queue load failed: ${err.message}`, 'bad'); } }",
+            "async function openCase(item, opts = {}){ state.selectedCase = item || null; if(!item){ state.caseDetail = null; state.settlement = null; state.workspace = null; renderCase(); return; } const caseId = String(item.caseId || '').trim(); if(!caseId){ setStatus('caseStatus', 'Selected row missing caseId.', 'bad'); return; } if(!opts.silent) setStatus('caseStatus', `Loading ${caseId}...`, ''); try { const q = new URLSearchParams(); const slaHours = String(byId('slaHoursInput').value || '').trim(); if(slaHours) q.set('slaHours', slaHours); const ws = await requestJson(`/ops/arbitration/cases/${encodeURIComponent(caseId)}/workspace${q.toString() ? ('?' + q.toString()) : ''}`); state.workspace = ws && typeof ws === 'object' ? ws : null; state.caseDetail = state.workspace && state.workspace.arbitrationCase ? { runId: state.workspace.runId || null, arbitrationCase: state.workspace.arbitrationCase } : null; state.settlement = state.workspace && state.workspace.settlement ? state.workspace.settlement : null; if(state.workspace && state.workspace.queueItem && typeof state.workspace.queueItem === 'object'){ state.selectedCase = state.workspace.queueItem; } renderCase(); } catch (err){ setStatus('caseStatus', `Case load failed: ${err.message}`, 'bad'); } }",
+            "function idem(action){ return `arb_ws_${action}_${Date.now()}_${Math.random().toString(16).slice(2,10)}`; }",
+            "async function runAction(action, payload){ const ws = state.workspace && typeof state.workspace === 'object' ? state.workspace : null; const c = ws && ws.arbitrationCase ? ws.arbitrationCase : (state.caseDetail && state.caseDetail.arbitrationCase ? state.caseDetail.arbitrationCase : null); const actionability = ws && ws.actionability && typeof ws.actionability === 'object' ? ws.actionability : null; if(!c){ setStatus('actionStatus', 'Select a case first.', 'bad'); return; } if(actionability && actionability.canWrite !== true){ setStatus('actionStatus', 'Current token is read-only for arbitration actions.', 'bad'); return; } const required = action === 'assign' ? 'canAssignArbiter' : action === 'evidence' ? 'canAddEvidence' : action === 'verdict' ? 'canSubmitVerdict' : action === 'close' ? 'canCloseCase' : action === 'appeal' ? 'canOpenAppeal' : null; if(required && actionability && actionability[required] !== true){ setStatus('actionStatus', `${action} is not allowed in current case state.`, 'bad'); return; } const runId = String(c.runId || '').trim(); const caseId = String(c.caseId || '').trim(); if(!runId || !caseId){ setStatus('actionStatus', 'Selected case is missing runId/caseId.', 'bad'); return; } const bodyPayload = payload && typeof payload === 'object' ? payload : {}; const body = action === 'appeal' ? { ...bodyPayload } : { caseId, ...bodyPayload }; setStatus('actionStatus', `${action} in progress...`, ''); try { const out = await requestJson(`/runs/${encodeURIComponent(runId)}/arbitration/${encodeURIComponent(action)}`, { method:'POST', body, write:true, idem: idem(action) }); const status = out && out.arbitrationCase && out.arbitrationCase.status ? out.arbitrationCase.status : 'ok'; setStatus('actionStatus', `${action} success (status=${status}).`, 'good'); await loadQueue(); const targetCaseId = action === 'appeal' ? String(out?.arbitrationCase?.caseId || '').trim() : caseId; const refreshed = state.queue.find((row)=>String(row.caseId)===String(targetCaseId)); await openCase(refreshed || { caseId: targetCaseId || caseId, runId }, { silent: true }); } catch (err){ setStatus('actionStatus', `${action} failed: ${err.message}`, 'bad'); } }",
+            "function fillVerdictTemplate(){ const ws = state.workspace && typeof state.workspace === 'object' ? state.workspace : null; const c = ws && ws.arbitrationCase ? ws.arbitrationCase : (state.caseDetail && state.caseDetail.arbitrationCase ? state.caseDetail.arbitrationCase : null); if(!c){ setStatus('actionStatus', 'Select a case before filling verdict template.', 'bad'); return; } const template = { caseId: c.caseId, verdictId: c.verdictId || '', arbiterAgentId: c.arbiterAgentId || '', outcome: 'accepted', releaseRatePct: 100, rationale: c.summary || 'Arbitration decision rationale', evidenceRefs: Array.isArray(c.evidenceRefs) ? c.evidenceRefs : [], signerKeyId: c?.metadata?.verdictSignerKeyId || '', signature: '', issuedAt: new Date().toISOString() }; byId('verdictJson').value = JSON.stringify(template, null, 2); }",
+            "byId('tenantIdInput').value = String(INITIAL.tenantId || 'tenant_default');",
+            "byId('opsTokenInput').value = String(INITIAL.opsToken || '');",
+            "byId('protocolInput').value = String(INITIAL.protocol || '');",
+            "byId('statusFilter').value = String(INITIAL.filters.status || '');",
+            "byId('priorityFilter').value = String(INITIAL.filters.priority || '');",
+            "byId('runIdFilter').value = String(INITIAL.filters.runId || '');",
+            "byId('caseIdFilter').value = String(INITIAL.filters.caseId || '');",
+            "byId('slaHoursInput').value = String(INITIAL.filters.slaHours || '24');",
+            "byId('refreshQueueBtn').addEventListener('click', ()=>loadQueue());",
+            "byId('reloadCaseBtn').addEventListener('click', ()=>openCase(state.selectedCase));",
+            "byId('clearCaseBtn').addEventListener('click', ()=>{ state.selectedCase=null; state.caseDetail=null; state.settlement=null; state.workspace=null; byId('appealCaseIdInput').value=''; byId('appealReasonInput').value=''; renderCase(); });",
+            "byId('assignArbiterBtn').addEventListener('click', ()=>{ const arbiterAgentId = String(byId('assignArbiterAgentId').value || '').trim(); if(!arbiterAgentId){ setStatus('actionStatus','arbiterAgentId is required','bad'); return; } runAction('assign', { arbiterAgentId }); });",
+            "byId('addEvidenceBtn').addEventListener('click', ()=>{ const evidenceRef = String(byId('evidenceRefInput').value || '').trim(); if(!evidenceRef){ setStatus('actionStatus','evidenceRef is required','bad'); return; } runAction('evidence', { evidenceRef }); });",
+            "byId('fillVerdictTemplateBtn').addEventListener('click', ()=>fillVerdictTemplate());",
+            "byId('submitVerdictBtn').addEventListener('click', ()=>{ const raw = String(byId('verdictJson').value || '').trim(); if(!raw){ setStatus('actionStatus','verdict JSON is required','bad'); return; } let verdict = null; try { verdict = JSON.parse(raw); } catch { setStatus('actionStatus','verdict JSON is invalid','bad'); return; } runAction('verdict', { arbitrationVerdict: verdict }); });",
+            "byId('closeCaseBtn').addEventListener('click', ()=>{ const summaryRaw = String(byId('closeSummaryInput').value || '').trim(); const payload = summaryRaw ? { summary: summaryRaw } : {}; runAction('close', payload); });",
+            "byId('openAppealBtn').addEventListener('click', ()=>{ const ws = state.workspace && typeof state.workspace === 'object' ? state.workspace : null; const c = ws && ws.arbitrationCase ? ws.arbitrationCase : (state.caseDetail && state.caseDetail.arbitrationCase ? state.caseDetail.arbitrationCase : null); if(!c || !c.caseId){ setStatus('actionStatus','Select a case before opening appeal','bad'); return; } const caseIdRaw = String(byId('appealCaseIdInput').value || '').trim(); const reasonRaw = String(byId('appealReasonInput').value || '').trim(); const payload = { parentCaseId: c.caseId }; if(caseIdRaw) payload.caseId = caseIdRaw; if(reasonRaw) payload.reason = reasonRaw; runAction('appeal', payload); });",
+            "renderCase();",
+            "loadQueue();",
+            "</script>",
+            "</div></body></html>"
+          ].join("\n");
+          return sendText(res, 200, html, { contentType: "text/html; charset=utf-8" });
+        }
+
+        if (parts[1] === "marketplace" && parts[2] === "workspace" && parts.length === 3 && req.method === "GET") {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          const initialOpsToken = typeof url.searchParams.get("opsToken") === "string" ? url.searchParams.get("opsToken") : "";
+          const initialRfqStatus = typeof url.searchParams.get("rfqStatus") === "string" ? url.searchParams.get("rfqStatus") : "open";
+          const initialCapability = typeof url.searchParams.get("capability") === "string" ? url.searchParams.get("capability") : "";
+          const html = [
+            "<!doctype html>",
+            "<html><head><meta charset=\"utf-8\"/>",
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>",
+            "<title>Marketplace Workspace</title>",
+            "<style>",
+            ":root{--bg:#eef6f6;--card:#ffffff;--ink:#102a34;--muted:#3f5c66;--line:#c9dde2;--accent:#136f8a;--good:#157347;--warn:#9a5a00;--bad:#a92938}",
+            "*{box-sizing:border-box} body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:radial-gradient(1200px 500px at 0% 0%,#dff2f5,transparent),linear-gradient(150deg,#f7fbfc,#edf5f6);color:var(--ink)}",
+            ".wrap{max-width:1450px;margin:0 auto;padding:18px} .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}",
+            ".card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 8px 24px rgba(9,48,61,.06)}",
+            "h1{margin:0 0 6px;font-size:28px} h2{margin:0 0 8px;font-size:18px}",
+            ".muted{color:var(--muted)} .status{padding:8px 10px;border-radius:10px;background:#edf4f6;border:1px solid var(--line)}",
+            ".status.good{background:#ddf3e9;border-color:#9bcdb3;color:#0f5435} .status.warn{background:#fff1de;border-color:#f2c78e;color:#7b4500} .status.bad{background:#ffe2e6;border-color:#efafba;color:#8b1f2c}",
+            ".field{display:flex;flex-direction:column;gap:4px;min-width:160px;flex:1} .field.small{max-width:180px;flex:0 0 180px}",
+            "input,select,textarea,button{font:inherit} input,select,textarea{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #b9ced5;background:#fff;color:var(--ink)} textarea{min-height:120px;resize:vertical}",
+            "button{padding:8px 12px;border-radius:10px;border:1px solid #9ec0ca;background:#e7f3f7;color:#16485b;cursor:pointer} button.secondary{background:#f0f4f6;border-color:#c5d2d8;color:#2a4d59} button.warn{background:#ffe8cc;border-color:#ebb66f;color:#6f4000} button.danger{background:#ffdce1;border-color:#e9a4b0;color:#7b1e2a}",
+            ".split{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px} table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:8px;border-bottom:1px solid #e2edf0;vertical-align:top} tbody tr:hover{background:#f3f9fa}",
+            ".tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #b9d0d8;background:#ebf4f7;color:#24576a}",
+            ".tag.open,.tag.active{background:#ddf3e9;border-color:#9bcdb3;color:#0f5435} .tag.assigned,.tag.paused{background:#fff1de;border-color:#f2c78e;color:#7b4500} .tag.closed,.tag.retired,.tag.cancelled{background:#ffe2e6;border-color:#efafba;color:#8b1f2c}",
+            ".mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace} pre{margin:0;background:#fbfeff;border:1px solid #d7e7eb;border-radius:10px;padding:10px;overflow:auto}",
+            "@media (max-width: 1080px){.split{grid-template-columns:1fr}}",
+            "</style></head><body><div class=\"wrap\" id=\"marketplaceWorkspaceRoot\">",
+            "<h1>Marketplace Operator Workspace</h1>",
+            "<div class=\"muted\">Capability listings, RFQ creation, bidding, and acceptance in one operational flow.</div>",
+            "<div class=\"card\" style=\"margin-top:12px\">",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Tenant ID</div><input id=\"tenantIdInput\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Ops token</div><input id=\"opsTokenInput\" type=\"password\" placeholder=\"tok_opsr or tok_opsw\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Protocol</div><input id=\"protocolInput\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">RFQ status</div><select id=\"rfqStatusFilter\"><option value=\"all\">all</option><option value=\"open\">open</option><option value=\"assigned\">assigned</option><option value=\"closed\">closed</option><option value=\"cancelled\">cancelled</option></select></div>",
+            "<div class=\"field\"><div class=\"muted\">Capability filter</div><input id=\"capabilityFilter\" placeholder=\"translate\"/></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<button id=\"refreshWorkspaceBtn\">Refresh workspace</button>",
+            "<button class=\"secondary\" id=\"refreshListingsBtn\">Refresh listings</button>",
+            "<button class=\"secondary\" id=\"refreshRfqsBtn\">Refresh RFQs</button>",
+            "<button class=\"secondary\" id=\"refreshBidsBtn\">Refresh bids</button>",
+            "</div>",
+            "<div id=\"workspaceStatus\" class=\"status\" style=\"margin-top:10px\">Loading workspace...</div>",
+            "</div>",
+            "<div class=\"split\">",
+            "<section class=\"card\">",
+            "<h2>Capability Listings</h2>",
+            "<div style=\"overflow:auto\"><table id=\"capabilityListingTable\"><thead><tr><th>Listing</th><th>Capability</th><th>Seller</th><th>Status</th><th>Price</th><th>Actions</th></tr></thead><tbody id=\"capabilityListingBody\"></tbody></table></div>",
+            "<div id=\"listingStatus\" class=\"status\" style=\"margin-top:10px\">No listing action yet.</div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<h2>Create Capability Listing</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Listing ID (optional)</div><input id=\"listingIdInput\" placeholder=\"cap.translate.pro\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Capability</div><input id=\"listingCapabilityInput\" value=\"translate\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Title</div><input id=\"listingTitleInput\" value=\"Premium Translation\"/></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:8px\">",
+            "<div class=\"field\"><div class=\"muted\">Seller agent ID (optional)</div><input id=\"listingSellerAgentIdInput\" placeholder=\"agt_supplier_1\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Status</div><select id=\"listingStatusInput\"><option value=\"active\">active</option><option value=\"paused\">paused</option><option value=\"retired\">retired</option></select></div>",
+            "<div class=\"field small\"><div class=\"muted\">Price mode</div><select id=\"listingPriceModeInput\"><option value=\"fixed\">fixed</option><option value=\"hourly\">hourly</option><option value=\"per_unit\">per_unit</option><option value=\"quote\">quote</option></select></div>",
+            "<div class=\"field small\"><div class=\"muted\">Amount cents</div><input id=\"listingAmountCentsInput\" type=\"number\" min=\"1\" value=\"12000\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Currency</div><input id=\"listingCurrencyInput\" value=\"USD\"/></div>",
+            "</div>",
+            "<div style=\"margin-top:8px\"><div class=\"muted\">Description</div><textarea id=\"listingDescriptionInput\" placeholder=\"Coverage, SLAs, and qualification scope\"></textarea></div>",
+            "<div class=\"row\" style=\"margin-top:8px\">",
+            "<button id=\"createCapabilityListingBtn\">Save capability listing</button>",
+            "<button class=\"danger\" id=\"deleteCapabilityListingBtn\">Delete selected listing</button>",
+            "</div>",
+            "</section>",
+            "</div>",
+            "<div class=\"split\" style=\"margin-top:12px\">",
+            "<section class=\"card\">",
+            "<h2>RFQ Queue</h2>",
+            "<div style=\"overflow:auto\"><table id=\"marketplaceRfqTable\"><thead><tr><th>RFQ</th><th>Capability</th><th>Status</th><th>Budget</th><th>Poster</th><th>Actions</th></tr></thead><tbody id=\"rfqQueueBody\"></tbody></table></div>",
+            "<div id=\"rfqStatus\" class=\"status\" style=\"margin-top:10px\">No RFQ action yet.</div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<h2>Create RFQ</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">RFQ ID (optional)</div><input id=\"rfqTaskIdInput\" placeholder=\"rfq_001\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Title</div><input id=\"rfqTitleInput\" value=\"Translate supplier compliance packet\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Capability listing</div><select id=\"rfqCapabilityListingSelect\"></select></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:8px\">",
+            "<div class=\"field\"><div class=\"muted\">Capability override</div><input id=\"rfqCapabilityInput\" placeholder=\"translate\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Poster agent ID</div><input id=\"rfqPosterAgentIdInput\" placeholder=\"agt_buyer_ops\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Budget cents</div><input id=\"rfqBudgetCentsInput\" type=\"number\" min=\"1\" value=\"15000\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Currency</div><input id=\"rfqCurrencyInput\" value=\"USD\"/></div>",
+            "</div>",
+            "<div style=\"margin-top:8px\"><div class=\"muted\">Description</div><textarea id=\"rfqDescriptionInput\" placeholder=\"RFQ scope and acceptance criteria\"></textarea></div>",
+            "<div class=\"row\" style=\"margin-top:8px\"><button id=\"createRfqBtn\">Create RFQ</button></div>",
+            "</section>",
+            "</div>",
+            "<div class=\"split\" style=\"margin-top:12px\">",
+            "<section class=\"card\">",
+            "<h2>Bid Queue</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Selected RFQ</div><input id=\"selectedRfqIdInput\" placeholder=\"rfq_...\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Selected bid</div><input id=\"selectedBidIdInput\" placeholder=\"bid_...\"/></div>",
+            "</div>",
+            "<div style=\"overflow:auto;margin-top:8px\"><table id=\"marketplaceBidTable\"><thead><tr><th>Bid</th><th>Bidder</th><th>Amount</th><th>Status</th><th>ETA</th><th>Actions</th></tr></thead><tbody id=\"bidQueueBody\"></tbody></table></div>",
+            "<div id=\"bidStatus\" class=\"status\" style=\"margin-top:10px\">No bid action yet.</div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<h2>Bid Actions</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Bid ID (optional)</div><input id=\"bidIdInput\" placeholder=\"bid_offer_1\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Bidder agent ID</div><input id=\"bidderAgentIdInput\" placeholder=\"agt_supplier_1\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Amount cents</div><input id=\"bidAmountCentsInput\" type=\"number\" min=\"1\" value=\"12000\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">ETA seconds</div><input id=\"bidEtaSecondsInput\" type=\"number\" min=\"1\" value=\"7200\"/></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:8px\">",
+            "<div class=\"field small\"><div class=\"muted\">Bid currency</div><input id=\"bidCurrencyInput\" value=\"USD\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Bid note</div><input id=\"bidNoteInput\" placeholder=\"Delivery within 2 hours\"/></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:8px\">",
+            "<button id=\"submitBidBtn\">Submit bid</button>",
+            "<button class=\"warn\" id=\"acceptBidBtn\">Accept selected bid</button>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:8px\">",
+            "<div class=\"field\"><div class=\"muted\">Payer agent ID</div><input id=\"acceptPayerAgentIdInput\" placeholder=\"agt_buyer_ops\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Accepted by agent ID (optional)</div><input id=\"acceptByAgentIdInput\" placeholder=\"agt_buyer_ops\"/></div>",
+            "</div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Latest acceptance payload</div><pre id=\"acceptanceDetail\" class=\"mono\">{}</pre></div>",
+            "</section>",
+            "</div>",
+            "<script>",
+            `const INITIAL = ${JSON.stringify({
+              tenantId,
+              opsToken: initialOpsToken,
+              protocol: protocolPolicy.current,
+              rfqStatus: initialRfqStatus,
+              capability: initialCapability
+            })};`,
+            "const state = { listings: [], rfqs: [], bids: [], selectedListingId: '', selectedRfqId: '', selectedBidId: '' };",
+            "function byId(id){ return document.getElementById(id); }",
+            "function setText(id, text){ const el = byId(id); if(el) el.textContent = String(text ?? ''); }",
+            "function setStatus(id, text, kind){ const el = byId(id); if(!el) return; el.className = 'status' + (kind ? (' ' + kind) : ''); el.textContent = String(text ?? ''); }",
+            "function tag(value){ const v = String(value || 'n/a').toLowerCase(); return `<span class=\\\"tag ${v}\\\">${v}</span>`; }",
+            "function headers({ write = false, json = false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-settld-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type'] = 'application/json'; return h; }",
+            "async function requestJson(path, { method='GET', body=null, write=false, idem=null } = {}){ const h = headers({ write, json: body !== null }); if(idem) h['x-idempotency-key'] = idem; const res = await fetch(path, { method, headers: h, body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
+            "function idem(prefix){ return `mkt_ws_${prefix}_${Date.now()}_${Math.random().toString(16).slice(2,10)}`; }",
+            "function selectedRfq(){ const id = String(state.selectedRfqId || '').trim(); return state.rfqs.find((row)=>String(row.rfqId||'')===id) || null; }",
+            "function selectedBid(){ const id = String(state.selectedBidId || '').trim(); return state.bids.find((row)=>String(row.bidId||'')===id) || null; }",
+            "function fillListingSelect(){ const sel = byId('rfqCapabilityListingSelect'); if(!sel) return; sel.innerHTML = ''; const blank = document.createElement('option'); blank.value=''; blank.textContent='(none)'; sel.appendChild(blank); for(const listing of state.listings){ const opt = document.createElement('option'); opt.value = String(listing.listingId || ''); opt.textContent = `${listing.listingId} | ${listing.capability} | ${listing.status}`; sel.appendChild(opt); } if(state.selectedListingId) sel.value = state.selectedListingId; }",
+            "function renderListings(){ const body = byId('capabilityListingBody'); body.innerHTML = ''; if(!state.listings.length){ body.innerHTML = '<tr><td colspan=\"6\" class=\"muted\">No capability listings.</td></tr>'; fillListingSelect(); return; } for(const listing of state.listings){ const tr = document.createElement('tr'); const price = listing.priceModel && typeof listing.priceModel === 'object' ? `${listing.priceModel.mode || 'n/a'}:${listing.priceModel.amountCents || 'n/a'} ${listing.priceModel.currency || ''}` : 'n/a'; tr.innerHTML = `<td><div class=\\\"mono\\\">${listing.listingId}</div><div class=\\\"muted\\\">${listing.title || ''}</div></td><td>${listing.capability || 'n/a'}</td><td class=\\\"mono\\\">${listing.sellerAgentId || 'n/a'}</td><td>${tag(listing.status)}</td><td class=\\\"mono\\\">${price}</td><td><button class=\\\"secondary\\\" type=\\\"button\\\">Select</button></td>`; tr.querySelector('button').addEventListener('click', ()=>{ state.selectedListingId = String(listing.listingId || ''); byId('listingIdInput').value = state.selectedListingId; byId('listingCapabilityInput').value = String(listing.capability || ''); byId('listingTitleInput').value = String(listing.title || ''); byId('listingSellerAgentIdInput').value = String(listing.sellerAgentId || ''); byId('listingStatusInput').value = String(listing.status || 'active'); byId('listingDescriptionInput').value = String(listing.description || ''); fillListingSelect(); }); body.appendChild(tr); } fillListingSelect(); }",
+            "function renderRfqs(){ const body = byId('rfqQueueBody'); body.innerHTML = ''; if(!state.rfqs.length){ body.innerHTML = '<tr><td colspan=\"6\" class=\"muted\">No RFQs for current filter.</td></tr>'; return; } for(const rfq of state.rfqs){ const tr = document.createElement('tr'); tr.innerHTML = `<td><div class=\\\"mono\\\">${rfq.rfqId}</div><div class=\\\"muted\\\">${rfq.title || ''}</div></td><td>${rfq.capability || 'n/a'}</td><td>${tag(rfq.status)}</td><td class=\\\"mono\\\">${rfq.budgetCents || 'n/a'} ${rfq.currency || ''}</td><td class=\\\"mono\\\">${rfq.posterAgentId || 'n/a'}</td><td><button class=\\\"secondary\\\" type=\\\"button\\\">Open bids</button></td>`; tr.querySelector('button').addEventListener('click', async()=>{ state.selectedRfqId = String(rfq.rfqId || ''); byId('selectedRfqIdInput').value = state.selectedRfqId; await loadBids(); }); body.appendChild(tr); } }",
+            "function renderBids(){ const body = byId('bidQueueBody'); body.innerHTML = ''; if(!state.selectedRfqId){ body.innerHTML = '<tr><td colspan=\"6\" class=\"muted\">Select an RFQ first.</td></tr>'; return; } if(!state.bids.length){ body.innerHTML = '<tr><td colspan=\"6\" class=\"muted\">No bids for selected RFQ.</td></tr>'; return; } for(const bid of state.bids){ const tr = document.createElement('tr'); tr.innerHTML = `<td class=\\\"mono\\\">${bid.bidId}</td><td class=\\\"mono\\\">${bid.bidderAgentId || 'n/a'}</td><td class=\\\"mono\\\">${bid.amountCents || 'n/a'} ${bid.currency || ''}</td><td>${tag(bid.status)}</td><td class=\\\"mono\\\">${bid.etaSeconds || 'n/a'}</td><td><button class=\\\"secondary\\\" type=\\\"button\\\">Select</button></td>`; tr.querySelector('button').addEventListener('click', ()=>{ state.selectedBidId = String(bid.bidId || ''); byId('selectedBidIdInput').value = state.selectedBidId; }); body.appendChild(tr); } }",
+            "async function loadListings(){ const capability = String(byId('capabilityFilter').value || '').trim(); const q = new URLSearchParams(); q.set('status', 'all'); if(capability) q.set('capability', capability); q.set('limit', '200'); q.set('offset', '0'); const out = await requestJson(`/marketplace/capability-listings?${q.toString()}`); state.listings = Array.isArray(out.listings) ? out.listings : []; renderListings(); return out; }",
+            "async function loadRfqs(){ const status = String(byId('rfqStatusFilter').value || '').trim() || 'all'; const capability = String(byId('capabilityFilter').value || '').trim(); const q = new URLSearchParams(); q.set('status', status); if(capability) q.set('capability', capability); q.set('limit', '200'); q.set('offset', '0'); const out = await requestJson(`/marketplace/rfqs?${q.toString()}`); state.rfqs = Array.isArray(out.rfqs) ? out.rfqs : []; renderRfqs(); return out; }",
+            "async function loadBids(){ const rfqId = String(state.selectedRfqId || byId('selectedRfqIdInput').value || '').trim(); if(!rfqId){ state.bids = []; renderBids(); return null; } state.selectedRfqId = rfqId; byId('selectedRfqIdInput').value = rfqId; const out = await requestJson(`/marketplace/rfqs/${encodeURIComponent(rfqId)}/bids?status=all&limit=200&offset=0`); state.bids = Array.isArray(out.bids) ? out.bids : []; renderBids(); return out; }",
+            "async function loadWorkspace(){ setStatus('workspaceStatus', 'Loading marketplace workspace...', ''); try { await Promise.all([loadListings(), loadRfqs()]); await loadBids(); setStatus('workspaceStatus', `Loaded listings=${state.listings.length}, rfqs=${state.rfqs.length}, bids=${state.bids.length}.`, 'good'); } catch (err) { setStatus('workspaceStatus', `Load failed: ${err.message}`, 'bad'); } }",
+            "async function createListing(){ const listingId = String(byId('listingIdInput').value || '').trim(); const body = { listingId: listingId || undefined, capability: String(byId('listingCapabilityInput').value || '').trim(), title: String(byId('listingTitleInput').value || '').trim() || undefined, sellerAgentId: String(byId('listingSellerAgentIdInput').value || '').trim() || null, status: String(byId('listingStatusInput').value || 'active').trim(), description: String(byId('listingDescriptionInput').value || '').trim() || null, priceModel: { mode: String(byId('listingPriceModeInput').value || 'fixed').trim(), amountCents: Number(byId('listingAmountCentsInput').value || 0) || null, currency: String(byId('listingCurrencyInput').value || 'USD').trim().toUpperCase() || 'USD' } }; setStatus('listingStatus', 'Saving capability listing...', ''); try { const out = await requestJson('/marketplace/capability-listings', { method:'POST', body, write:true, idem: idem('listing') }); state.selectedListingId = String(out?.listing?.listingId || listingId || ''); setStatus('listingStatus', `Listing saved: ${state.selectedListingId || 'n/a'}.`, 'good'); await loadListings(); } catch (err) { setStatus('listingStatus', `Save failed: ${err.message}`, 'bad'); } }",
+            "async function deleteListing(){ const listingId = String(state.selectedListingId || byId('listingIdInput').value || '').trim(); if(!listingId){ setStatus('listingStatus', 'Select a listing first.', 'bad'); return; } setStatus('listingStatus', `Deleting ${listingId}...`, ''); try { await requestJson(`/marketplace/capability-listings/${encodeURIComponent(listingId)}`, { method:'DELETE', idem: idem('listing_delete') }); state.selectedListingId = ''; byId('listingIdInput').value = ''; setStatus('listingStatus', `Deleted listing ${listingId}.`, 'good'); await loadListings(); } catch (err) { setStatus('listingStatus', `Delete failed: ${err.message}`, 'bad'); } }",
+            "async function createRfq(){ const listingId = String(byId('rfqCapabilityListingSelect').value || '').trim(); const listing = listingId ? state.listings.find((row)=>String(row.listingId||'') === listingId) : null; const capability = String(byId('rfqCapabilityInput').value || '').trim() || String(listing?.capability || '').trim(); const body = { rfqId: String(byId('rfqTaskIdInput').value || '').trim() || undefined, title: String(byId('rfqTitleInput').value || '').trim() || capability, description: String(byId('rfqDescriptionInput').value || '').trim() || null, capability, posterAgentId: String(byId('rfqPosterAgentIdInput').value || '').trim() || null, budgetCents: Number(byId('rfqBudgetCentsInput').value || 0) || null, currency: String(byId('rfqCurrencyInput').value || 'USD').trim().toUpperCase() || 'USD', metadata: listingId ? { capabilityListingId: listingId } : null }; setStatus('rfqStatus', 'Creating RFQ...', ''); try { const out = await requestJson('/marketplace/rfqs', { method:'POST', body, write:true, idem: idem('rfq') }); state.selectedRfqId = String(out?.rfq?.rfqId || ''); byId('selectedRfqIdInput').value = state.selectedRfqId; setStatus('rfqStatus', `RFQ created: ${state.selectedRfqId || 'n/a'}.`, 'good'); await loadRfqs(); await loadBids(); } catch (err) { setStatus('rfqStatus', `RFQ create failed: ${err.message}`, 'bad'); } }",
+            "async function submitBid(){ const rfqId = String(state.selectedRfqId || byId('selectedRfqIdInput').value || '').trim(); if(!rfqId){ setStatus('bidStatus', 'Select an RFQ first.', 'bad'); return; } state.selectedRfqId = rfqId; const body = { bidId: String(byId('bidIdInput').value || '').trim() || undefined, bidderAgentId: String(byId('bidderAgentIdInput').value || '').trim(), amountCents: Number(byId('bidAmountCentsInput').value || 0), currency: String(byId('bidCurrencyInput').value || 'USD').trim().toUpperCase() || 'USD', etaSeconds: Number(byId('bidEtaSecondsInput').value || 0) || null, note: String(byId('bidNoteInput').value || '').trim() || null }; setStatus('bidStatus', `Submitting bid for ${rfqId}...`, ''); try { const out = await requestJson(`/marketplace/rfqs/${encodeURIComponent(rfqId)}/bids`, { method:'POST', body, write:true, idem: idem('bid') }); state.selectedBidId = String(out?.bid?.bidId || ''); byId('selectedBidIdInput').value = state.selectedBidId; setStatus('bidStatus', `Bid submitted: ${state.selectedBidId || 'n/a'}.`, 'good'); await loadBids(); } catch (err) { setStatus('bidStatus', `Bid submit failed: ${err.message}`, 'bad'); } }",
+            "async function acceptBid(){ const rfqId = String(state.selectedRfqId || byId('selectedRfqIdInput').value || '').trim(); const bidId = String(state.selectedBidId || byId('selectedBidIdInput').value || '').trim(); if(!rfqId || !bidId){ setStatus('bidStatus', 'Select both RFQ and bid first.', 'bad'); return; } const payerAgentId = String(byId('acceptPayerAgentIdInput').value || '').trim(); if(!payerAgentId){ setStatus('bidStatus', 'payerAgentId is required for acceptance.', 'bad'); return; } const acceptedByAgentId = String(byId('acceptByAgentIdInput').value || '').trim(); const body = { bidId, payerAgentId, acceptedByAgentId: acceptedByAgentId || null, settlement: { payerAgentId } }; setStatus('bidStatus', `Accepting ${bidId}...`, ''); try { const out = await requestJson(`/marketplace/rfqs/${encodeURIComponent(rfqId)}/accept`, { method:'POST', body, write:true, idem: idem('accept') }); setStatus('bidStatus', `Accepted bid ${bidId}. run=${out?.run?.id || out?.run?.runId || 'n/a'}.`, 'good'); setText('acceptanceDetail', JSON.stringify(out, null, 2)); await loadRfqs(); await loadBids(); } catch (err) { setStatus('bidStatus', `Accept failed: ${err.message}`, 'bad'); } }",
+            "byId('tenantIdInput').value = String(INITIAL.tenantId || 'tenant_default');",
+            "byId('opsTokenInput').value = String(INITIAL.opsToken || '');",
+            "byId('protocolInput').value = String(INITIAL.protocol || '');",
+            "byId('rfqStatusFilter').value = String(INITIAL.rfqStatus || 'open');",
+            "byId('capabilityFilter').value = String(INITIAL.capability || '');",
+            "byId('refreshWorkspaceBtn').addEventListener('click', ()=>loadWorkspace());",
+            "byId('refreshListingsBtn').addEventListener('click', async()=>{ try { await loadListings(); setStatus('workspaceStatus', 'Listings refreshed.', 'good'); } catch (err) { setStatus('workspaceStatus', `Refresh failed: ${err.message}`, 'bad'); } });",
+            "byId('refreshRfqsBtn').addEventListener('click', async()=>{ try { await loadRfqs(); setStatus('workspaceStatus', 'RFQs refreshed.', 'good'); } catch (err) { setStatus('workspaceStatus', `Refresh failed: ${err.message}`, 'bad'); } });",
+            "byId('refreshBidsBtn').addEventListener('click', async()=>{ try { await loadBids(); setStatus('workspaceStatus', 'Bids refreshed.', 'good'); } catch (err) { setStatus('workspaceStatus', `Refresh failed: ${err.message}`, 'bad'); } });",
+            "byId('createCapabilityListingBtn').addEventListener('click', ()=>createListing());",
+            "byId('deleteCapabilityListingBtn').addEventListener('click', ()=>deleteListing());",
+            "byId('createRfqBtn').addEventListener('click', ()=>createRfq());",
+            "byId('submitBidBtn').addEventListener('click', ()=>submitBid());",
+            "byId('acceptBidBtn').addEventListener('click', ()=>acceptBid());",
+            "byId('selectedRfqIdInput').addEventListener('change', async (e)=>{ state.selectedRfqId = String(e.target && e.target.value ? e.target.value : '').trim(); await loadBids(); });",
+            "byId('selectedBidIdInput').addEventListener('change', (e)=>{ state.selectedBidId = String(e.target && e.target.value ? e.target.value : '').trim(); });",
+            "loadWorkspace();",
+            "</script>",
+            "</div></body></html>"
+          ].join("\n");
+          return sendText(res, 200, html, { contentType: "text/html; charset=utf-8" });
+        }
+
+        if (parts[1] === "kernel" && parts[2] === "workspace" && parts.length === 3 && req.method === "GET") {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          const initialOpsToken = typeof url.searchParams.get("opsToken") === "string" ? url.searchParams.get("opsToken") : "";
+          const initialRunId = typeof url.searchParams.get("runId") === "string" ? url.searchParams.get("runId") : "";
+          const initialAgreementHash = typeof url.searchParams.get("agreementHash") === "string" ? url.searchParams.get("agreementHash") : "";
+          const html = [
+            "<!doctype html>",
+            "<html><head><meta charset=\"utf-8\"/>",
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>",
+            "<title>Kernel Explorer</title>",
+            "<style>",
+            ":root{--bg:#f6f3ef;--card:#ffffff;--ink:#1c1a17;--muted:#5f554d;--line:#e2d8cf;--accent:#b24b2a;--good:#157347;--warn:#9a5a00;--bad:#a92938}",
+            "*{box-sizing:border-box} body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:radial-gradient(1000px 480px at 0% 0%,#f7e9df,transparent),linear-gradient(160deg,#fbfaf8,#f4efe9);color:var(--ink)}",
+            ".wrap{max-width:1400px;margin:0 auto;padding:18px} .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}",
+            ".card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 10px 28px rgba(20,10,6,.06)}",
+            "h1{margin:0 0 6px;font-size:28px} h2{margin:0 0 8px;font-size:18px}",
+            ".muted{color:var(--muted)} .status{padding:8px 10px;border-radius:10px;background:#f6f1ec;border:1px solid var(--line)}",
+            ".status.good{background:#ddf3e9;border-color:#9bcdb3;color:#0f5435} .status.warn{background:#fff1de;border-color:#f2c78e;color:#7b4500} .status.bad{background:#ffe2e6;border-color:#efafba;color:#8b1f2c}",
+            ".field{display:flex;flex-direction:column;gap:4px;min-width:170px;flex:1} .field.small{max-width:200px;flex:0 0 200px}",
+            "input,textarea,button{font:inherit} input,textarea{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #d5c7bb;background:#fff;color:var(--ink)} textarea{min-height:80px;resize:vertical}",
+            "button{padding:8px 12px;border-radius:10px;border:1px solid #d1b4a8;background:#f7e9e3;color:#5b2a1b;cursor:pointer} button.secondary{background:#f2f1ef;border-color:#d7d0c8;color:#3b312a}",
+            ".split{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px} pre{margin:0;background:#fffdfb;border:1px solid #eadfd6;border-radius:10px;padding:10px;overflow:auto}",
+            ".mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}",
+            "@media (max-width: 1080px){.split{grid-template-columns:1fr}}",
+            "</style></head><body><div class=\"wrap\">",
+            "<h1>Kernel Explorer</h1>",
+            "<div class=\"muted\">Inspect the artifact chain and replay outcomes. This is an ops workspace, not a public UI.</div>",
+            "<div class=\"card\" style=\"margin-top:12px\">",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Tenant ID</div><input id=\"tenantIdInput\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Ops token</div><input id=\"opsTokenInput\" type=\"password\" placeholder=\"tok_opsr or tok_opsw\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Protocol</div><input id=\"protocolInput\"/></div>",
+            "</div>",
+            "<div id=\"workspaceStatus\" class=\"status\" style=\"margin-top:10px\">Ready.</div>",
+            "</div>",
+            "<div class=\"split\">",
+            "<section class=\"card\">",
+            "<h2>Marketplace Run</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">runId</div><input id=\"runIdInput\" placeholder=\"run_...\"/></div>",
+            "<div class=\"field small\"><button id=\"loadRunBtn\">Load run chain</button></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Agreement</div><pre id=\"runAgreement\" class=\"mono\">{}</pre></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Settlement</div><pre id=\"runSettlement\" class=\"mono\">{}</pre></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Arbitration cases</div><pre id=\"runCases\" class=\"mono\">{}</pre></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Policy replay</div><pre id=\"runReplay\" class=\"mono\">{}</pre></div>",
+            "</div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<h2>Tool Call Agreement</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">agreementHash (sha256 hex)</div><input id=\"agreementHashInput\" placeholder=\"aabbcc...\"/></div>",
+            "<div class=\"field small\"><button id=\"loadToolCallBtn\">Load tool-call chain</button></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Holds</div><pre id=\"toolCallHolds\" class=\"mono\">{}</pre></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Arbitration cases</div><pre id=\"toolCallCases\" class=\"mono\">{}</pre></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Deterministic holdback adjustment (if any)</div><pre id=\"toolCallAdjustment\" class=\"mono\">{}</pre></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Arbitration case artifact</div><pre id=\"toolCallCaseArtifact\" class=\"mono\">{}</pre></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Arbitration verdict artifact</div><pre id=\"toolCallVerdictArtifact\" class=\"mono\">{}</pre></div>",
+            "</div>",
+            "<div class=\"muted\" style=\"margin-top:10px\">Note: tool-call replay is not exposed here yet. Marketplace policy replay is available and must match stored decision output.</div>",
+            "</section>",
+            "</div>",
+            "<script>",
+            `const INITIAL = ${JSON.stringify({ tenantId, opsToken: initialOpsToken, protocol: protocolPolicy.current, runId: initialRunId, agreementHash: initialAgreementHash })};`,
+            "function byId(id){ return document.getElementById(id); }",
+            "function setText(id, text){ const el = byId(id); if(el) el.textContent = String(text ?? ''); }",
+            "function setStatus(id, text, kind){ const el = byId(id); if(!el) return; el.className = 'status' + (kind ? (' ' + kind) : ''); el.textContent = String(text ?? ''); }",
+            "function headers(){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; return h; }",
+            "async function requestJson(path, { method='GET', body=null } = {}){ const res = await fetch(path, { method, headers: { ...headers(), ...(body !== null ? { 'content-type': 'application/json', 'x-settld-protocol': String(byId('protocolInput').value || '').trim() || INITIAL.protocol } : {}) }, body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
+            "async function loadRun(){ const runId = String(byId('runIdInput').value || '').trim(); if(!runId){ setStatus('workspaceStatus','runId is required.','bad'); return; } setStatus('workspaceStatus',`Loading run ${runId}...`,''); try { const [ag, st, cs, rp] = await Promise.all([ requestJson(`/runs/${encodeURIComponent(runId)}/agreement`), requestJson(`/runs/${encodeURIComponent(runId)}/settlement`), requestJson(`/runs/${encodeURIComponent(runId)}/arbitration/cases`), requestJson(`/runs/${encodeURIComponent(runId)}/settlement/policy-replay`) ]); setText('runAgreement', JSON.stringify(ag, null, 2)); setText('runSettlement', JSON.stringify(st, null, 2)); setText('runCases', JSON.stringify(cs, null, 2)); setText('runReplay', JSON.stringify(rp, null, 2)); const match = rp && rp.matchesStoredDecision === true; setStatus('workspaceStatus', `Loaded run. policyReplay.matchesStoredDecision=${match}.`, match ? 'good' : 'warn'); } catch (err){ setStatus('workspaceStatus', `Run load failed: ${err.message}`, 'bad'); } }",
+            "async function loadToolCall(){ const agreementHash = String(byId('agreementHashInput').value || '').trim(); if(!agreementHash){ setStatus('workspaceStatus','agreementHash is required.','bad'); return; } setStatus('workspaceStatus',`Loading tool-call ${agreementHash}...`,''); try { const qs = new URLSearchParams({ agreementHash }); const [holds, cases] = await Promise.all([ requestJson(`/ops/tool-calls/holds?${qs.toString()}`), requestJson(`/tool-calls/arbitration/cases?${qs.toString()}`) ]); setText('toolCallHolds', JSON.stringify(holds, null, 2)); setText('toolCallCases', JSON.stringify(cases, null, 2)); const adjustmentId = `sadj_agmt_${agreementHash}_holdback`; try { const adj = await requestJson(`/ops/settlement-adjustments/${encodeURIComponent(adjustmentId)}`); setText('toolCallAdjustment', JSON.stringify(adj, null, 2)); } catch (err){ setText('toolCallAdjustment', JSON.stringify({ ok:false, message: String(err.message || err) }, null, 2)); } const caseRows = cases && Array.isArray(cases.cases) ? cases.cases : []; const closed = caseRows.find((row)=>String(row && row.status ? row.status : '').toLowerCase()==='closed') || caseRows[0] || null; if(closed && closed.caseId){ const revRaw = Number(closed.revision || 1); const rev = Number.isSafeInteger(revRaw) && revRaw > 1 ? revRaw : 1; const caseArtId = rev > 1 ? `arbitration_case_${closed.caseId}_r${rev}` : `arbitration_case_${closed.caseId}`; try { const art = await requestJson(`/artifacts/${encodeURIComponent(caseArtId)}`); setText('toolCallCaseArtifact', JSON.stringify(art, null, 2)); } catch (err){ setText('toolCallCaseArtifact', JSON.stringify({ ok:false, message: String(err.message || err), artifactId: caseArtId }, null, 2)); } const verdictId = closed.verdictId ? String(closed.verdictId) : ''; if(verdictId){ const verdictArtId = `arbitration_verdict_${verdictId}`; try { const art2 = await requestJson(`/artifacts/${encodeURIComponent(verdictArtId)}`); setText('toolCallVerdictArtifact', JSON.stringify(art2, null, 2)); } catch (err){ setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message: String(err.message || err), artifactId: verdictArtId }, null, 2)); } } else { setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message:'no verdictId on case (open or missing)' }, null, 2)); } } else { setText('toolCallCaseArtifact', JSON.stringify({ ok:false, message:'no cases found' }, null, 2)); setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message:'no cases found' }, null, 2)); } setStatus('workspaceStatus','Loaded tool-call chain.','good'); } catch (err){ setStatus('workspaceStatus', `Tool-call load failed: ${err.message}`, 'bad'); } }",
+            "byId('tenantIdInput').value = String(INITIAL.tenantId || 'tenant_default');",
+            "byId('opsTokenInput').value = String(INITIAL.opsToken || '');",
+            "byId('protocolInput').value = String(INITIAL.protocol || '');",
+            "byId('runIdInput').value = String(INITIAL.runId || '');",
+            "byId('agreementHashInput').value = String(INITIAL.agreementHash || '');",
+            "byId('loadRunBtn').addEventListener('click', ()=>loadRun());",
+            "byId('loadToolCallBtn').addEventListener('click', ()=>loadToolCall());",
+            "</script>",
+            "</div></body></html>"
+          ].join("\n");
+          return sendText(res, 200, html, { contentType: "text/html; charset=utf-8" });
+        }
+
+        if (parts[1] === "finance" && parts[2] === "reconciliation" && parts[3] === "workspace" && parts.length === 4 && req.method === "GET") {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          const initialOpsToken = typeof url.searchParams.get("opsToken") === "string" ? url.searchParams.get("opsToken") : "";
+          const initialPeriod = normalizeBillingPeriodInput(url.searchParams.get("period"), { defaultToNow: true });
+          const initialProviderId = normalizeNonEmptyStringOrNull(url.searchParams.get("providerId")) ?? "stub_default";
+          const html = [
+            "<!doctype html>",
+            "<html><head><meta charset=\"utf-8\"/>",
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>",
+            "<title>Finance Reconciliation Workspace</title>",
+            "<style>",
+            ":root{--bg:#f3f7f3;--card:#ffffff;--ink:#112012;--muted:#49604a;--line:#d1e0d2;--accent:#1d6f42;--warn:#8f5200;--bad:#a61f2d;--good:#0f5f48}",
+            "*{box-sizing:border-box} body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:radial-gradient(1100px 500px at 0% 0%,#e8f7ee,transparent),linear-gradient(160deg,#f6faf6,#eff5f0);color:var(--ink)}",
+            ".wrap{max-width:1400px;margin:0 auto;padding:18px} .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}",
+            ".card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 8px 24px rgba(0,30,8,.05)}",
+            "h1{margin:0 0 6px;font-size:26px} h2{margin:0 0 8px;font-size:18px}",
+            ".muted{color:var(--muted)} .status{padding:8px 10px;border-radius:10px;background:#edf5ed;border:1px solid var(--line)}",
+            ".status.good{background:#d6f3e5;border-color:#9fd3b8;color:#0e5237} .status.warn{background:#fff2df;border-color:#f0cd97;color:#7a4300} .status.bad{background:#ffe1e4;border-color:#f1b3ba;color:#8f1d28}",
+            ".field{display:flex;flex-direction:column;gap:4px;min-width:170px;flex:1} .field.small{max-width:180px;flex:0 0 180px}",
+            "input,select,textarea,button{font:inherit} input,select,textarea{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #bdd0bf;background:#fff;color:var(--ink)} textarea{min-height:130px;resize:vertical}",
+            "button{padding:8px 12px;border-radius:10px;border:1px solid #9bb9a0;background:#e8f4ea;color:#15361d;cursor:pointer} button.secondary{background:#eef2f5;border-color:#bcc9d3;color:#243746} button.warn{background:#ffe7c6;border-color:#efbf79;color:#6a3f00} button.danger{background:#ffdce1;border-color:#eba3ad;color:#7c1b26}",
+            ".split{display:grid;grid-template-columns:1.2fr .8fr;gap:12px;margin-top:12px} table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:8px;border-bottom:1px solid #e3ede4;vertical-align:top} tbody tr:hover{background:#f0f8f1}",
+            ".tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #bed3c0;background:#edf5ef;color:#23442c} .tag.open{background:#fff2df;border-color:#f0cd97;color:#7a4300} .tag.in_progress{background:#e5f3ff;border-color:#b9d7ef;color:#1f4f79} .tag.resolved{background:#d6f3e5;border-color:#9fd3b8;color:#0e5237} .tag.dismissed{background:#f0eef8;border-color:#c8c3dc;color:#4c4568}",
+            ".mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace} pre{margin:0;background:#fbfffc;border:1px solid #dae8dc;border-radius:10px;padding:10px;overflow:auto}",
+            "@media (max-width: 980px){.split{grid-template-columns:1fr}}",
+            "</style></head><body><div class=\"wrap\" id=\"financeReconciliationWorkspaceRoot\">",
+            "<h1>Finance Reconciliation Workspace</h1>",
+            "<div class=\"muted\">Unified mismatch queue, triage ownership, and close/export controls.</div>",
+            "<div class=\"card\" style=\"margin-top:12px\">",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Tenant ID</div><input id=\"tenantIdInput\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Ops token</div><input id=\"opsTokenInput\" type=\"password\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Protocol</div><input id=\"protocolInput\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Period</div><input id=\"periodInput\" placeholder=\"YYYY-MM\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Money rail provider</div><input id=\"providerIdInput\"/></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<button id=\"loadAllBtn\">Load full queue</button>",
+            "<button class=\"secondary\" id=\"loadCoreBtn\">Load core reconcile</button>",
+            "<button class=\"secondary\" id=\"loadMoneyRailBtn\">Load money rail reconcile</button>",
+            "<button class=\"secondary\" id=\"refreshTriageBtn\">Refresh triage states</button>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field small\"><div class=\"muted\">Max tenants</div><input id=\"maintenanceMaxTenantsInput\" type=\"number\" min=\"1\" value=\"25\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Max periods/tenant</div><input id=\"maintenanceMaxPeriodsInput\" type=\"number\" min=\"1\" value=\"2\"/></div>",
+            "<button class=\"secondary\" id=\"refreshMaintenanceBtn\">Refresh scheduler status</button>",
+            "<button class=\"warn\" id=\"runMaintenanceBtn\">Run scheduled reconcile now</button>",
+            "</div>",
+            "<div id=\"workspaceStatus\" class=\"status\" style=\"margin-top:10px\">Loading workspace...</div>",
+            "<div id=\"maintenanceStatus\" class=\"status\" style=\"margin-top:10px\">No maintenance run yet.</div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Maintenance snapshot</div><pre id=\"maintenanceDetail\" class=\"mono\">{}</pre></div>",
+            "</div>",
+            "<div class=\"split\">",
+            "<section class=\"card\">",
+            "<h2>Mismatch Queue</h2>",
+            "<div style=\"overflow:auto\"><table><thead><tr><th>Source</th><th>Mismatch</th><th>Severity</th><th>Status</th><th>Owner</th><th>Actions</th></tr></thead><tbody id=\"mismatchQueueBody\"></tbody></table></div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<h2>Detail</h2>",
+            "<div id=\"detailStatus\" class=\"status\">Select a mismatch from the queue.</div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Selected mismatch</div><pre id=\"mismatchDetail\" class=\"mono\">{}</pre></div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Current triage</div><pre id=\"triageDetail\" class=\"mono\">{}</pre></div>",
+            "</section>",
+            "</div>",
+            "<div class=\"split\" style=\"margin-top:12px\">",
+            "<section class=\"card\">",
+            "<h2>Triage Action</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field small\"><div class=\"muted\">Status</div><select id=\"triageStatus\"><option value=\"open\">open</option><option value=\"acknowledged\">acknowledged</option><option value=\"in_progress\">in_progress</option><option value=\"resolved\">resolved</option><option value=\"dismissed\">dismissed</option></select></div>",
+            "<div class=\"field small\"><div class=\"muted\">Severity</div><select id=\"triageSeverity\"><option value=\"\">inherit</option><option value=\"low\">low</option><option value=\"medium\">medium</option><option value=\"high\">high</option><option value=\"critical\">critical</option></select></div>",
+            "<div class=\"field\"><div class=\"muted\">Owner principal</div><input id=\"triageOwner\" placeholder=\"ops.user@settld\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Action label</div><input id=\"triageAction\" value=\"triage_update\"/></div>",
+            "</div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Notes</div><textarea id=\"triageNotes\" placeholder=\"Describe investigation, owner handoff, or closure rationale\"></textarea></div>",
+            "<div class=\"row\" style=\"margin-top:10px\"><button id=\"applyTriageBtn\">Apply triage update</button></div>",
+            "<div id=\"triageActionStatus\" class=\"status\" style=\"margin-top:10px\">No action yet.</div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<h2>Close and Export</h2>",
+            "<div class=\"row\">",
+            "<button class=\"secondary\" id=\"persistReconcileBtn\">Persist reconcile artifact</button>",
+            "<button class=\"warn\" id=\"dryRunNetCloseBtn\">Dry-run net close</button>",
+            "<button class=\"danger\" id=\"executeNetCloseBtn\">Execute net close</button>",
+            "</div>",
+            "<div id=\"closeOpsStatus\" class=\"status\" style=\"margin-top:10px\">No close/export action yet.</div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Action payload</div><pre id=\"closeOpsDetail\" class=\"mono\">{}</pre></div>",
+            "</section>",
+            "</div>",
+            "<script>",
+            `const INITIAL = ${JSON.stringify({
+              tenantId,
+              opsToken: initialOpsToken,
+              protocol: protocolPolicy.current,
+              period: initialPeriod,
+              providerId: initialProviderId
+            })};`,
+            "const state = { core: null, money: null, triages: [], queue: [], selected: null, maintenance: null };",
+            "function byId(id){ return document.getElementById(id); }",
+            "function setText(id, text){ const el = byId(id); if(el) el.textContent = String(text ?? ''); }",
+            "function setStatus(id, text, kind){ const el = byId(id); if(!el) return; el.className = 'status' + (kind ? (' ' + kind) : ''); el.textContent = String(text ?? ''); }",
+            "function headers({ write=false, json=false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-settld-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type'] = 'application/json'; return h; }",
+            "async function requestJson(path, { method='GET', body=null, write=false, idem=null } = {}){ const h = headers({ write, json: body!==null }); if(idem) h['x-idempotency-key'] = idem; const res = await fetch(path, { method, headers: h, body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
+            "function triageTag(status){ const normalized = String(status || 'open').trim().toLowerCase() || 'open'; return `<span class=\\\"tag ${normalized}\\\">${normalized}</span>`; }",
+            "function idem(prefix){ return `fin_recon_ws_${prefix}_${Date.now()}_${Math.random().toString(16).slice(2,10)}`; }",
+            "function period(){ return String(byId('periodInput').value || '').trim(); }",
+            "function providerId(){ return String(byId('providerIdInput').value || '').trim(); }",
+            "function parsePositiveIntInput(id, fallback){ const raw = String(byId(id).value || '').trim(); if(!raw) return fallback; const parsed = Number(raw); if(!Number.isSafeInteger(parsed) || parsed <= 0) return fallback; return parsed; }",
+            "function triageByKey(){ const map = new Map(); for(const row of (Array.isArray(state.triages) ? state.triages : [])){ const k = String(row && row.triageKey ? row.triageKey : '').trim(); if(!k) continue; map.set(k, row); } return map; }",
+            "function mergeQueue(){ const out = []; const triageMap = triageByKey(); const sources = []; if(state.core && Array.isArray(state.core.triageQueue)) sources.push(...state.core.triageQueue); if(state.money && Array.isArray(state.money.triageQueue)) sources.push(...state.money.triageQueue); for(const item of sources){ const triageKey = String(item && item.triageKey ? item.triageKey : '').trim(); const persisted = triageKey ? (triageMap.get(triageKey) || null) : null; const triage = persisted || item.triage || null; out.push({ ...item, triageKey, triage }); } out.sort((a,b)=>{ const left = String(a?.sourceType || ''); const right = String(b?.sourceType || ''); if(left !== right) return left.localeCompare(right); return String(a?.title || a?.mismatchType || '').localeCompare(String(b?.title || b?.mismatchType || '')); }); state.queue = out; }",
+            "function renderQueue(){ const body = byId('mismatchQueueBody'); body.innerHTML = ''; if(!state.queue.length){ body.innerHTML = '<tr><td colspan=\"6\" class=\"muted\">No mismatches in queue.</td></tr>'; return; } for(const item of state.queue){ const triage = item.triage || null; const tr = document.createElement('tr'); tr.innerHTML = `<td><div class=\\\"mono\\\">${item.sourceType || 'n/a'}</div><div class=\\\"muted mono\\\">${item.period || 'n/a'}</div></td><td><div>${item.title || item.mismatchType || 'n/a'}</div><div class=\\\"muted mono\\\">${item.mismatchKey || 'n/a'}</div></td><td>${item.severity || triage?.severity || 'n/a'}</td><td>${triageTag(triage?.status || 'open')}</td><td class=\\\"mono\\\">${triage?.ownerPrincipalId || 'unassigned'}</td><td><button class=\\\"secondary\\\" type=\\\"button\\\">Open</button></td>`; tr.querySelector('button').addEventListener('click', ()=>selectItem(item)); body.appendChild(tr); } }",
+            "function selectItem(item){ state.selected = item || null; if(!item){ setStatus('detailStatus','Select a mismatch from the queue.',''); setText('mismatchDetail','{}'); setText('triageDetail','{}'); return; } const triage = item.triage || null; setStatus('detailStatus', `Selected ${item.title || item.mismatchType}.`, triage && (triage.status === 'resolved' || triage.status === 'dismissed') ? 'good' : 'warn'); setText('mismatchDetail', JSON.stringify(item, null, 2)); setText('triageDetail', JSON.stringify(triage || {}, null, 2)); byId('triageStatus').value = String(triage?.status || 'open'); byId('triageSeverity').value = String(triage?.severity || item?.severity || ''); byId('triageOwner').value = String(triage?.ownerPrincipalId || ''); byId('triageNotes').value = String(triage?.notes || ''); }",
+            "async function loadCore(){ const p = period(); if(!p){ setStatus('workspaceStatus', 'period is required', 'bad'); return null; } const out = await requestJson(`/ops/finance/reconcile?period=${encodeURIComponent(p)}`); state.core = out; return out; }",
+            "async function loadMoney(){ const p = period(); const provider = providerId(); if(!p){ setStatus('workspaceStatus', 'period is required', 'bad'); return null; } const path = `/ops/finance/money-rails/reconcile?period=${encodeURIComponent(p)}${provider ? ('&providerId=' + encodeURIComponent(provider)) : ''}`; const out = await requestJson(path); state.money = out; return out; }",
+            "async function loadTriages(){ const p = period(); const provider = providerId(); const path = `/ops/finance/reconciliation/triage?period=${encodeURIComponent(p)}${provider ? ('&providerId=' + encodeURIComponent(provider)) : ''}&limit=1000`; const out = await requestJson(path); state.triages = Array.isArray(out.triages) ? out.triages : []; return out; }",
+            "async function loadMaintenance(opts = {}){ const silent = opts && opts.silent === true; try { const out = await requestJson('/ops/status'); const maintenance = out && out.maintenance && out.maintenance.financeReconciliation ? out.maintenance.financeReconciliation : null; state.maintenance = maintenance; if(maintenance && Number.isSafeInteger(Number(maintenance.maxTenants))){ byId('maintenanceMaxTenantsInput').value = String(Number(maintenance.maxTenants)); } if(maintenance && Number.isSafeInteger(Number(maintenance.maxPeriodsPerTenant))){ byId('maintenanceMaxPeriodsInput').value = String(Number(maintenance.maxPeriodsPerTenant)); } const outcome = maintenance && maintenance.outcome ? String(maintenance.outcome) : null; const lastRunAt = maintenance && maintenance.lastRunAt ? String(maintenance.lastRunAt) : 'n/a'; const lastSuccessAt = maintenance && maintenance.lastSuccessAt ? String(maintenance.lastSuccessAt) : 'n/a'; const runtimeMs = maintenance && maintenance.runtimeMs !== undefined && maintenance.runtimeMs !== null ? String(maintenance.runtimeMs) : 'n/a'; const mode = maintenance && maintenance.enabled === true ? 'enabled' : 'disabled'; const kind = outcome === 'ok' ? 'good' : outcome === 'error' ? 'bad' : 'warn'; setStatus('maintenanceStatus', `Scheduler ${mode}; outcome=${outcome || 'n/a'}; lastRun=${lastRunAt}; lastSuccess=${lastSuccessAt}; runtimeMs=${runtimeMs}.`, kind); setText('maintenanceDetail', JSON.stringify(maintenance || {}, null, 2)); return out; } catch (err) { if(!silent){ setStatus('maintenanceStatus', `Scheduler status unavailable: ${err.message}`, 'warn'); setText('maintenanceDetail', '{}'); } return null; } }",
+            "async function loadAll(){ setStatus('workspaceStatus', 'Loading reconciliation queue...', ''); try { await Promise.all([loadCore(), loadMoney(), loadTriages(), loadMaintenance({ silent: true })]); mergeQueue(); renderQueue(); if(state.selected && state.selected.triageKey){ const next = state.queue.find((row)=>String(row.triageKey || '') === String(state.selected.triageKey || '')); if(next) selectItem(next); } const total = state.queue.length; const open = state.queue.filter((row)=>{ const status = String(row?.triage?.status || 'open'); return status !== 'resolved' && status !== 'dismissed'; }).length; setStatus('workspaceStatus', `Loaded ${total} mismatch item(s); unresolved=${open}.`, open > 0 ? 'warn' : 'good'); } catch (err) { setStatus('workspaceStatus', `Load failed: ${err.message}`, 'bad'); } }",
+            "async function applyTriage(){ const item = state.selected; if(!item){ setStatus('triageActionStatus', 'Select a mismatch first.', 'bad'); return; } const status = String(byId('triageStatus').value || '').trim(); const severity = String(byId('triageSeverity').value || '').trim(); const ownerPrincipalId = String(byId('triageOwner').value || '').trim(); const notes = String(byId('triageNotes').value || '').trim(); const action = String(byId('triageAction').value || '').trim() || 'triage_update'; setStatus('triageActionStatus', 'Applying triage update...', ''); try { const payload = { action, sourceType: item.sourceType, period: item.period, providerId: item.providerId || null, mismatchType: item.mismatchType, mismatchKey: item.mismatchKey, mismatchCode: item.mismatchCode || null, status, severity: severity || null, ownerPrincipalId: ownerPrincipalId || null, notes: notes || null }; const out = await requestJson('/ops/finance/reconciliation/triage', { method: 'POST', body: payload, write: true, idem: idem('triage') }); setStatus('triageActionStatus', `Triage saved: ${out.triage?.status || status} (revision=${out.triage?.revision || 'n/a'}).`, 'good'); await loadAll(); } catch (err) { setStatus('triageActionStatus', `Triage update failed: ${err.message}`, 'bad'); } }",
+            "async function persistReconcile(){ const p = period(); if(!p){ setStatus('closeOpsStatus', 'period is required', 'bad'); return; } setStatus('closeOpsStatus', 'Persisting reconcile artifact...', ''); try { const out = await requestJson(`/ops/finance/reconcile?period=${encodeURIComponent(p)}&persist=true`); setStatus('closeOpsStatus', `Persisted reconcile report hash=${out.reportHash}.`, 'good'); setText('closeOpsDetail', JSON.stringify(out, null, 2)); } catch (err) { setStatus('closeOpsStatus', `Persist reconcile failed: ${err.message}`, 'bad'); } }",
+            "async function dryRunNetClose(){ const p = period(); if(!p){ setStatus('closeOpsStatus', 'period is required', 'bad'); return; } setStatus('closeOpsStatus', 'Running net-close dry-run...', ''); try { const out = await requestJson(`/ops/finance/net-close?period=${encodeURIComponent(p)}`); setStatus('closeOpsStatus', `Net-close status=${out.status}.`, out.status === 'pass' ? 'good' : 'warn'); setText('closeOpsDetail', JSON.stringify(out, null, 2)); } catch (err) { setStatus('closeOpsStatus', `Net-close dry-run failed: ${err.message}`, 'bad'); } }",
+            "async function executeNetClose(){ const p = period(); if(!p){ setStatus('closeOpsStatus', 'period is required', 'bad'); return; } setStatus('closeOpsStatus', 'Executing net-close...', ''); try { const out = await requestJson('/ops/finance/net-close/execute', { method:'POST', body: { period: p, dryRun: false }, write: true, idem: idem('net_close') }); setStatus('closeOpsStatus', `Net-close executed=${out.executed === true}. status=${out.status}.`, out.status === 'pass' ? 'good' : 'warn'); setText('closeOpsDetail', JSON.stringify(out, null, 2)); } catch (err) { setStatus('closeOpsStatus', `Net-close execute failed: ${err.message}`, 'bad'); } }",
+            "async function runMaintenance(){ const p = period(); const maxTenants = parsePositiveIntInput('maintenanceMaxTenantsInput', 25); const maxPeriodsPerTenant = parsePositiveIntInput('maintenanceMaxPeriodsInput', 2); const payload = { force: true, maxTenants, maxPeriodsPerTenant }; if(p) payload.period = p; setStatus('maintenanceStatus', 'Running finance reconciliation maintenance...', ''); try { const out = await requestJson('/ops/maintenance/finance-reconcile/run', { method:'POST', body: payload, write:true, idem: idem('maintenance') }); setStatus('maintenanceStatus', `Maintenance run complete: reconciled=${Number(out?.summary?.reconciledPeriods || 0)}, attempted=${Number(out?.summary?.attemptedPeriods || 0)}.`, 'good'); setText('maintenanceDetail', JSON.stringify(out, null, 2)); await loadAll(); } catch (err) { setStatus('maintenanceStatus', `Maintenance run failed: ${err.message}`, 'bad'); } }",
+            "byId('tenantIdInput').value = String(INITIAL.tenantId || 'tenant_default');",
+            "byId('opsTokenInput').value = String(INITIAL.opsToken || '');",
+            "byId('protocolInput').value = String(INITIAL.protocol || '');",
+            "byId('periodInput').value = String(INITIAL.period || '');",
+            "byId('providerIdInput').value = String(INITIAL.providerId || 'stub_default');",
+            "byId('maintenanceMaxTenantsInput').value = '25';",
+            "byId('maintenanceMaxPeriodsInput').value = '2';",
+            "byId('loadAllBtn').addEventListener('click', ()=>loadAll());",
+            "byId('loadCoreBtn').addEventListener('click', async()=>{ try { await loadCore(); await loadTriages(); mergeQueue(); renderQueue(); setStatus('workspaceStatus','Core reconciliation loaded.','good'); } catch(err){ setStatus('workspaceStatus', `Core load failed: ${err.message}`, 'bad'); } });",
+            "byId('loadMoneyRailBtn').addEventListener('click', async()=>{ try { await loadMoney(); await loadTriages(); mergeQueue(); renderQueue(); setStatus('workspaceStatus','Money rail reconciliation loaded.','good'); } catch(err){ setStatus('workspaceStatus', `Money rail load failed: ${err.message}`, 'bad'); } });",
+            "byId('refreshTriageBtn').addEventListener('click', async()=>{ try { await loadTriages(); mergeQueue(); renderQueue(); setStatus('workspaceStatus','Triage state refreshed.','good'); } catch(err){ setStatus('workspaceStatus', `Triage refresh failed: ${err.message}`, 'bad'); } });",
+            "byId('refreshMaintenanceBtn').addEventListener('click', ()=>loadMaintenance());",
+            "byId('runMaintenanceBtn').addEventListener('click', ()=>runMaintenance());",
+            "byId('applyTriageBtn').addEventListener('click', ()=>applyTriage());",
+            "byId('persistReconcileBtn').addEventListener('click', ()=>persistReconcile());",
+            "byId('dryRunNetCloseBtn').addEventListener('click', ()=>dryRunNetClose());",
+            "byId('executeNetCloseBtn').addEventListener('click', ()=>executeNetClose());",
+            "loadAll();",
+            "</script>",
+            "</div></body></html>"
+          ].join("\n");
+          return sendText(res, 200, html, { contentType: "text/html; charset=utf-8" });
+        }
+
+        if (parts[1] === "settlement-policies" && parts[2] === "state" && parts.length === 3 && req.method === "GET") {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          let policyId = null;
+          try {
+            policyId = parseSettlementPolicyRegistryId(url.searchParams.get("policyId"), {
+              fieldPath: "policyId",
+              allowNull: true
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid policy state query", { message: err?.message });
+          }
+          const state = selectTenantSettlementPolicyControlPlaneState({ tenantId, policyId });
+          return sendJson(res, 200, {
+            ok: true,
+            tenantId,
+            schemaVersion: TENANT_SETTLEMENT_POLICY_ROLLOUT_SCHEMA_VERSION,
+            generatedAt: nowIso(),
+            ...state
+          });
+        }
+
+        if (parts[1] === "settlement-policies" && parts[2] === "rollout" && parts.length === 3 && req.method === "POST") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE)) return sendError(res, 403, "forbidden");
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          const body = (await readJsonBody(req)) ?? {};
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          let stage = null;
+          try {
+            stage = parseSettlementPolicyRolloutStage(body.stage, { fieldPath: "stage" });
+          } catch (err) {
+            return sendError(res, 400, "invalid rollout stage", { message: err?.message });
+          }
+          const clear = body?.clear === true;
+          const note = normalizeSettlementPolicyRolloutNote(body?.note);
+          const nowAt = nowIso();
+          const fallbackRef = deriveTenantSettlementPolicyActiveFallbackRef({ tenantId });
+          const rollout = normalizeTenantSettlementPolicyRollout({
+            tenantId,
+            rollout: getTenantSettlementPolicyRolloutRecord({ tenantId }),
+            activeFallbackRef: fallbackRef
+          });
+          let fromPolicyRef = null;
+          let toPolicyRef = null;
+          let action = "rollout_updated";
+          let rolloutPercent = null;
+
+          if (stage === SETTLEMENT_POLICY_ROLLOUT_STAGE.DRAFT) {
+            fromPolicyRef = cloneTenantSettlementPolicyRef(rollout.stages.draft);
+            if (clear) {
+              rollout.stages.draft = null;
+              action = "draft_cleared";
+            } else {
+              let policyRef = null;
+              try {
+                policyRef = parseTenantSettlementPolicyRefInput(
+                  body?.policyRef && typeof body.policyRef === "object" && !Array.isArray(body.policyRef)
+                    ? body.policyRef
+                    : { policyId: body?.policyId, policyVersion: body?.policyVersion },
+                  { fieldPath: "policyRef" }
+                );
+              } catch (err) {
+                return sendError(res, 400, "invalid policy reference", { message: err?.message });
+              }
+              const record = getTenantSettlementPolicyRecord({
+                tenantId,
+                policyId: policyRef.policyId,
+                policyVersion: policyRef.policyVersion
+              });
+              if (!record) return sendError(res, 404, "policy version not found");
+              toPolicyRef = normalizeTenantSettlementPolicyRef(record);
+              rollout.stages.draft = toPolicyRef;
+              action = "draft_selected";
+            }
+          } else if (stage === SETTLEMENT_POLICY_ROLLOUT_STAGE.CANARY) {
+            fromPolicyRef = cloneTenantSettlementPolicyRef(rollout.stages.canary?.policyRef ?? null);
+            if (clear) {
+              rollout.stages.canary = { policyRef: null, rolloutPercent: 0 };
+              action = "canary_cleared";
+              rolloutPercent = 0;
+            } else {
+              let policyRef = null;
+              try {
+                policyRef = parseTenantSettlementPolicyRefInput(
+                  body?.policyRef && typeof body.policyRef === "object" && !Array.isArray(body.policyRef)
+                    ? body.policyRef
+                    : { policyId: body?.policyId, policyVersion: body?.policyVersion },
+                  { fieldPath: "policyRef" }
+                );
+              } catch (err) {
+                return sendError(res, 400, "invalid policy reference", { message: err?.message });
+              }
+              const record = getTenantSettlementPolicyRecord({
+                tenantId,
+                policyId: policyRef.policyId,
+                policyVersion: policyRef.policyVersion
+              });
+              if (!record) return sendError(res, 404, "policy version not found");
+              toPolicyRef = normalizeTenantSettlementPolicyRef(record);
+              try {
+                rolloutPercent = parseSettlementPolicyRolloutPercent(body?.rolloutPercent, { allowNull: true });
+              } catch (err) {
+                return sendError(res, 400, "invalid rolloutPercent", { message: err?.message });
+              }
+              if (rolloutPercent === null) {
+                const existingPercent = Number(rollout.stages.canary?.rolloutPercent ?? 0);
+                rolloutPercent = settlementPolicyRefEquals(fromPolicyRef, toPolicyRef) && existingPercent > 0 ? existingPercent : 10;
+              }
+              rolloutPercent = Math.max(1, Math.min(100, rolloutPercent));
+              rollout.stages.canary = { policyRef: toPolicyRef, rolloutPercent };
+              action = "canary_updated";
+            }
+          } else {
+            let policyRef = null;
+            try {
+              policyRef = parseTenantSettlementPolicyRefInput(
+                body?.policyRef && typeof body.policyRef === "object" && !Array.isArray(body.policyRef)
+                  ? body.policyRef
+                  : { policyId: body?.policyId, policyVersion: body?.policyVersion },
+                { fieldPath: "policyRef" }
+              );
+            } catch (err) {
+              return sendError(res, 400, "invalid policy reference", { message: err?.message });
+            }
+            const record = getTenantSettlementPolicyRecord({
+              tenantId,
+              policyId: policyRef.policyId,
+              policyVersion: policyRef.policyVersion
+            });
+            if (!record) return sendError(res, 404, "policy version not found");
+            fromPolicyRef = cloneTenantSettlementPolicyRef(rollout.stages.active);
+            toPolicyRef = normalizeTenantSettlementPolicyRef(record);
+            rollout.stages.active = toPolicyRef;
+            action = settlementPolicyRefEquals(fromPolicyRef, toPolicyRef) ? "active_confirmed" : "active_promoted";
+          }
+
+          appendTenantSettlementPolicyRolloutHistory({
+            rollout,
+            entry: {
+              at: nowAt,
+              action,
+              stage,
+              fromPolicyRef,
+              toPolicyRef,
+              rolloutPercent,
+              note,
+              actorPrincipalId: principalId
+            }
+          });
+
+          const responseBody = {
+            ok: true,
+            tenantId,
+            stage,
+            action,
+            rollout,
+            defaultPolicyRef: rollout.stages.active ?? null,
+            rolloutHistory: Array.isArray(rollout.history) ? rollout.history.slice(-50).reverse() : []
+          };
+          const ops = [{ kind: "TENANT_SETTLEMENT_POLICY_ROLLOUT_UPSERT", tenantId, rollout }];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await commitTx(ops, {
+            audit: makeOpsAudit({
+              action: "TENANT_SETTLEMENT_POLICY_ROLLOUT_UPDATED",
+              targetType: "tenant_settlement_policy_rollout",
+              targetId: stage,
+              details: { stage, action, fromPolicyRef, toPolicyRef, rolloutPercent, note }
+            })
+          });
+          return sendJson(res, 200, responseBody);
+        }
+
+        if (parts[1] === "settlement-policies" && parts[2] === "rollback" && parts.length === 3 && req.method === "POST") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE)) return sendError(res, 403, "forbidden");
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          const body = (await readJsonBody(req)) ?? {};
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+          const fallbackRef = deriveTenantSettlementPolicyActiveFallbackRef({ tenantId });
+          const rollout = normalizeTenantSettlementPolicyRollout({
+            tenantId,
+            rollout: getTenantSettlementPolicyRolloutRecord({ tenantId }),
+            activeFallbackRef: fallbackRef
+          });
+          const currentActiveRef = cloneTenantSettlementPolicyRef(rollout.stages.active);
+          if (!currentActiveRef) return sendError(res, 409, "active policy is not set");
+          const note = normalizeSettlementPolicyRolloutNote(body?.note);
+
+          let explicitTargetRef = null;
+          try {
+            explicitTargetRef =
+              body?.policyRef || body?.policyId !== undefined || body?.policyVersion !== undefined
+                ? parseTenantSettlementPolicyRefInput(
+                    body?.policyRef && typeof body.policyRef === "object" && !Array.isArray(body.policyRef)
+                      ? body.policyRef
+                      : { policyId: body?.policyId, policyVersion: body?.policyVersion },
+                    { fieldPath: "policyRef" }
+                  )
+                : null;
+          } catch (err) {
+            return sendError(res, 400, "invalid policy reference", { message: err?.message });
+          }
+
+          let targetRef = null;
+          if (explicitTargetRef) {
+            const row = getTenantSettlementPolicyRecord({
+              tenantId,
+              policyId: explicitTargetRef.policyId,
+              policyVersion: explicitTargetRef.policyVersion
+            });
+            if (!row) return sendError(res, 404, "rollback target not found");
+            targetRef = normalizeTenantSettlementPolicyRef(row);
+          } else {
+            const inferred = findTenantSettlementPolicyRollbackTargetRef({ rollout, currentActiveRef });
+            if (inferred) {
+              const row = getTenantSettlementPolicyRecord({
+                tenantId,
+                policyId: inferred.policyId,
+                policyVersion: inferred.policyVersion
+              });
+              if (row) targetRef = normalizeTenantSettlementPolicyRef(row);
+            }
+          }
+
+          if (!targetRef) {
+            return sendError(res, 409, "no previous active policy is available for rollback");
+          }
+
+          if (settlementPolicyRefEquals(currentActiveRef, targetRef)) {
+            const responseBody = {
+              ok: true,
+              tenantId,
+              action: "rollback_noop",
+              rollbackTargetRef: targetRef,
+              rollout,
+              defaultPolicyRef: rollout.stages.active ?? null,
+              rolloutHistory: Array.isArray(rollout.history) ? rollout.history.slice(-50).reverse() : []
+            };
+            if (idemStoreKey) {
+              await commitTx([
+                { kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }
+              ]);
+            }
+            return sendJson(res, 200, responseBody);
+          }
+
+          rollout.stages.active = targetRef;
+          appendTenantSettlementPolicyRolloutHistory({
+            rollout,
+            entry: {
+              at: nowIso(),
+              action: "active_rollback",
+              stage: SETTLEMENT_POLICY_ROLLOUT_STAGE.ACTIVE,
+              fromPolicyRef: currentActiveRef,
+              toPolicyRef: targetRef,
+              note,
+              actorPrincipalId: principalId
+            }
+          });
+          const responseBody = {
+            ok: true,
+            tenantId,
+            action: "active_rollback",
+            rollbackTargetRef: targetRef,
+            rollout,
+            defaultPolicyRef: rollout.stages.active ?? null,
+            rolloutHistory: Array.isArray(rollout.history) ? rollout.history.slice(-50).reverse() : []
+          };
+          const ops = [{ kind: "TENANT_SETTLEMENT_POLICY_ROLLOUT_UPSERT", tenantId, rollout }];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await commitTx(ops, {
+            audit: makeOpsAudit({
+              action: "TENANT_SETTLEMENT_POLICY_ROLLBACK",
+              targetType: "tenant_settlement_policy_rollout",
+              targetId: "active",
+              details: { fromPolicyRef: currentActiveRef, toPolicyRef: targetRef, note }
+            })
+          });
+          return sendJson(res, 200, responseBody);
+        }
+
+        if (parts[1] === "settlement-policies" && parts[2] === "diff" && parts.length === 3 && req.method === "GET") {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          const limitRaw = url.searchParams.get("limit");
+          const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
+          if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+            return sendError(res, 400, "invalid diff query", { message: "limit must be an integer in range 1..2000" });
+          }
+          const includeUnchanged = url.searchParams.get("includeUnchanged") === "1" || url.searchParams.get("includeUnchanged") === "true";
+          const fallbackRef = deriveTenantSettlementPolicyActiveFallbackRef({ tenantId });
+          const rollout = normalizeTenantSettlementPolicyRollout({
+            tenantId,
+            rollout: getTenantSettlementPolicyRolloutRecord({ tenantId }),
+            activeFallbackRef: fallbackRef
+          });
+
+          let fromRef = null;
+          let toRef = null;
+          try {
+            const fromPolicyId = url.searchParams.get("fromPolicyId");
+            const fromPolicyVersion = url.searchParams.get("fromPolicyVersion");
+            const toPolicyId = url.searchParams.get("toPolicyId");
+            const toPolicyVersion = url.searchParams.get("toPolicyVersion");
+            const hasFromInput = (fromPolicyId !== null && fromPolicyId !== "") || (fromPolicyVersion !== null && fromPolicyVersion !== "");
+            const hasToInput = (toPolicyId !== null && toPolicyId !== "") || (toPolicyVersion !== null && toPolicyVersion !== "");
+            fromRef = hasFromInput
+              ? parseTenantSettlementPolicyRefInput({ policyId: fromPolicyId, policyVersion: fromPolicyVersion }, { fieldPath: "fromPolicyRef" })
+              : cloneTenantSettlementPolicyRef(rollout.stages.active ?? fallbackRef ?? null);
+            toRef = hasToInput
+              ? parseTenantSettlementPolicyRefInput({ policyId: toPolicyId, policyVersion: toPolicyVersion }, { fieldPath: "toPolicyRef" })
+              : cloneTenantSettlementPolicyRef(rollout.stages.draft ?? rollout.stages.active ?? fallbackRef ?? null);
+          } catch (err) {
+            return sendError(res, 400, "invalid diff query", { message: err?.message });
+          }
+          if (!fromRef || !toRef) {
+            return sendError(res, 409, "from/to policy references are required");
+          }
+          const fromRecord = getTenantSettlementPolicyRecord({
+            tenantId,
+            policyId: fromRef.policyId,
+            policyVersion: fromRef.policyVersion
+          });
+          if (!fromRecord) return sendError(res, 404, "from policy version not found");
+          const toRecord = getTenantSettlementPolicyRecord({
+            tenantId,
+            policyId: toRef.policyId,
+            policyVersion: toRef.policyVersion
+          });
+          if (!toRecord) return sendError(res, 404, "to policy version not found");
+
+          const fromPayload = {
+            policyId: fromRecord.policyId,
+            policyVersion: fromRecord.policyVersion,
+            description: fromRecord.description ?? null,
+            verificationMethod: fromRecord.verificationMethod ?? null,
+            policy: fromRecord.policy ?? null
+          };
+          const toPayload = {
+            policyId: toRecord.policyId,
+            policyVersion: toRecord.policyVersion,
+            description: toRecord.description ?? null,
+            verificationMethod: toRecord.verificationMethod ?? null,
+            policy: toRecord.policy ?? null
+          };
+          const diff = buildTenantSettlementPolicyDiff({ fromPolicy: fromPayload, toPolicy: toPayload, includeUnchanged, limit });
+          return sendJson(res, 200, {
+            ok: true,
+            tenantId,
+            schemaVersion: TENANT_SETTLEMENT_POLICY_DIFF_SCHEMA_VERSION,
+            generatedAt: nowIso(),
+            fromPolicyRef: normalizeTenantSettlementPolicyRef(fromRecord),
+            toPolicyRef: normalizeTenantSettlementPolicyRef(toRecord),
+            summary: diff.summary,
+            limited: diff.limited,
+            changes: diff.changes
+          });
+        }
+
+        if (parts[1] === "policy" && parts[2] === "workspace" && parts.length === 3 && req.method === "GET") {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          const initialOpsToken = typeof url.searchParams.get("opsToken") === "string" ? url.searchParams.get("opsToken") : "";
+          const initialPolicyId = typeof url.searchParams.get("policyId") === "string" ? url.searchParams.get("policyId") : "";
+          const initialRunId = typeof url.searchParams.get("runId") === "string" ? url.searchParams.get("runId") : "";
+          const html = [
+            "<!doctype html>",
+            "<html><head><meta charset=\"utf-8\"/>",
+            "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"/>",
+            "<title>Settlement Policy Control Plane</title>",
+            "<style>",
+            ":root{--bg:#f6f5f2;--card:#ffffff;--ink:#1f2220;--muted:#56615a;--line:#d2d8d3;--good:#0f6b45;--warn:#915100;--bad:#a42c2c}",
+            "*{box-sizing:border-box} body{margin:0;font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:radial-gradient(1000px 420px at 0% 0%,#e6f0ea,transparent),linear-gradient(155deg,#f9faf7,#f2f5f2);color:var(--ink)}",
+            ".wrap{max-width:1480px;margin:0 auto;padding:18px} .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}",
+            ".card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:0 8px 24px rgba(16,34,20,.06)}",
+            "h1{margin:0 0 6px;font-size:27px} h2{margin:0 0 8px;font-size:18px}",
+            ".muted{color:var(--muted)} .status{padding:8px 10px;border-radius:10px;background:#eef4ef;border:1px solid var(--line)}",
+            ".status.good{background:#daf1e5;border-color:#9dccb2;color:#0f5c3a} .status.warn{background:#fff1dc;border-color:#eec892;color:#764300} .status.bad{background:#ffe2e2;border-color:#efb0b0;color:#8a1f1f}",
+            ".field{display:flex;flex-direction:column;gap:4px;min-width:160px;flex:1} .field.small{max-width:190px;flex:0 0 190px}",
+            "input,select,textarea,button{font:inherit} input,select,textarea{width:100%;padding:8px 10px;border-radius:10px;border:1px solid #bccbc0;background:#fff;color:var(--ink)} textarea{min-height:130px;resize:vertical}",
+            "button{padding:8px 12px;border-radius:10px;border:1px solid #9eb3a4;background:#e8f3eb;color:#19402c;cursor:pointer} button.secondary{background:#eff2f5;border-color:#bec9d2;color:#243644} button.warn{background:#ffe8cb;border-color:#eebb75;color:#6c3f00} button.danger{background:#ffdce0;border-color:#eba6af;color:#7c202a}",
+            ".split{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px} table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:8px;border-bottom:1px solid #e2ebe4;vertical-align:top} tbody tr:hover{background:#f1f6f2}",
+            ".tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #b9ccbe;background:#edf4ef;color:#214531} .tag.active{background:#daf1e5;border-color:#9dccb2;color:#0f5c3a} .tag.draft{background:#e6efff;border-color:#bfd0f1;color:#214a84} .tag.canary{background:#fff1dc;border-color:#eec892;color:#764300}",
+            ".mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace} pre{margin:0;background:#fbfefc;border:1px solid #d7e5da;border-radius:10px;padding:10px;overflow:auto}",
+            "@media (max-width: 1080px){.split{grid-template-columns:1fr}}",
+            "</style></head><body><div class=\"wrap\" id=\"policyControlWorkspaceRoot\">",
+            "<h1>Settlement Policy Control Plane</h1>",
+            "<div class=\"muted\">Versioned policy registry, staged rollout controls, rollback safety, diff review, and run replay hooks.</div>",
+            "<div class=\"card\" style=\"margin-top:12px\">",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Tenant ID</div><input id=\"tenantIdInput\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Ops token</div><input id=\"opsTokenInput\" type=\"password\" placeholder=\"tok_opsr or tok_opsw\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Protocol</div><input id=\"protocolInput\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Policy ID filter</div><input id=\"policyIdFilterInput\" placeholder=\"market.default.auto-v1\"/></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
+            "<button id=\"refreshPolicyStateBtn\">Refresh control plane state</button>",
+            "<button class=\"secondary\" id=\"refreshPolicyDiffBtn\">Refresh diff</button>",
+            "<button class=\"secondary\" id=\"refreshPolicyReplayBtn\">Replay selected run policy</button>",
+            "</div>",
+            "<div id=\"workspaceStatus\" class=\"status\" style=\"margin-top:10px\">Loading policy control plane...</div>",
+            "</div>",
+            "<div class=\"split\">",
+            "<section class=\"card\">",
+            "<h2>Policy Versions</h2>",
+            "<div style=\"overflow:auto\"><table id=\"policyVersionsTable\"><thead><tr><th>Policy</th><th>Description</th><th>Hashes</th><th>Stages</th><th>Actions</th></tr></thead><tbody id=\"policyVersionsBody\"></tbody></table></div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<h2>Rollout History</h2>",
+            "<div style=\"overflow:auto\"><table id=\"policyRolloutHistoryTable\"><thead><tr><th>When</th><th>Action</th><th>From</th><th>To</th><th>Stage</th><th>Note</th></tr></thead><tbody id=\"policyRolloutHistoryBody\"></tbody></table></div>",
+            "</section>",
+            "</div>",
+            "<div class=\"split\" style=\"margin-top:12px\">",
+            "<section class=\"card\">",
+            "<h2>Version Upsert</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Policy ID</div><input id=\"upsertPolicyIdInput\" placeholder=\"market.default.auto-v1\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Policy Version (optional)</div><input id=\"upsertPolicyVersionInput\" type=\"number\" min=\"1\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Description</div><input id=\"upsertPolicyDescriptionInput\" placeholder=\"deterministic default for marketplace\"/></div>",
+            "</div>",
+            "<div style=\"margin-top:8px\"><div class=\"muted\">Policy JSON</div><textarea id=\"upsertPolicyJson\" class=\"mono\"></textarea></div>",
+            "<div style=\"margin-top:8px\"><div class=\"muted\">Verification Method JSON (optional)</div><textarea id=\"upsertVerificationJson\" class=\"mono\"></textarea></div>",
+            "<div class=\"row\" style=\"margin-top:10px\"><button id=\"policyUpsertBtn\">Save policy version</button></div>",
+            "<div id=\"upsertStatus\" class=\"status\" style=\"margin-top:10px\">No upsert yet.</div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<h2>Rollout and Rollback</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field small\"><div class=\"muted\">Stage</div><select id=\"rolloutStageInput\"><option value=\"draft\">draft</option><option value=\"canary\">canary</option><option value=\"active\">active</option></select></div>",
+            "<div class=\"field\"><div class=\"muted\">Policy ID</div><input id=\"rolloutPolicyIdInput\" placeholder=\"market.default.auto-v1\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Policy Version</div><input id=\"rolloutPolicyVersionInput\" type=\"number\" min=\"1\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Canary %</div><input id=\"rolloutPercentInput\" type=\"number\" min=\"1\" max=\"100\" placeholder=\"10\"/></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:8px\">",
+            "<div class=\"field\"><div class=\"muted\">Note</div><input id=\"rolloutNoteInput\" placeholder=\"rollout rationale\"/></div>",
+            "<div class=\"field small\"><label><input id=\"rolloutClearInput\" type=\"checkbox\"/> clear stage</label></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\"><button id=\"policyRolloutBtn\">Apply rollout stage</button></div>",
+            "<hr style=\"border:0;border-top:1px solid #e1e8e2;margin:12px 0\"/>",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Rollback target policy ID (optional)</div><input id=\"rollbackPolicyIdInput\" placeholder=\"leave empty for inferred previous\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">Rollback target version (optional)</div><input id=\"rollbackPolicyVersionInput\" type=\"number\" min=\"1\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Rollback note</div><input id=\"rollbackNoteInput\" placeholder=\"rollback reason\"/></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\"><button class=\"danger\" id=\"policyRollbackBtn\">Rollback active stage</button></div>",
+            "<div id=\"rolloutStatus\" class=\"status\" style=\"margin-top:10px\">No rollout action yet.</div>",
+            "</section>",
+            "</div>",
+            "<div class=\"split\" style=\"margin-top:12px\">",
+            "<section class=\"card\">",
+            "<h2>Policy Diff</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">From policy ID</div><input id=\"diffFromPolicyIdInput\" placeholder=\"active by default\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">From version</div><input id=\"diffFromPolicyVersionInput\" type=\"number\" min=\"1\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">To policy ID</div><input id=\"diffToPolicyIdInput\" placeholder=\"draft by default\"/></div>",
+            "<div class=\"field small\"><div class=\"muted\">To version</div><input id=\"diffToPolicyVersionInput\" type=\"number\" min=\"1\"/></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:8px\">",
+            "<div class=\"field small\"><div class=\"muted\">Diff limit</div><input id=\"diffLimitInput\" type=\"number\" min=\"1\" max=\"2000\" value=\"200\"/></div>",
+            "<div class=\"field small\"><label><input id=\"diffIncludeUnchangedInput\" type=\"checkbox\"/> include unchanged</label></div>",
+            "<div class=\"field small\"><button id=\"policyDiffBtn\">Compute diff</button></div>",
+            "</div>",
+            "<div id=\"diffStatus\" class=\"status\" style=\"margin-top:10px\">No diff yet.</div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Diff detail</div><pre id=\"policyDiffDetail\" class=\"mono\">{}</pre></div>",
+            "</section>",
+            "<section class=\"card\">",
+            "<h2>Run Policy Replay</h2>",
+            "<div class=\"row\">",
+            "<div class=\"field\"><div class=\"muted\">Run ID</div><input id=\"replayRunIdInput\" placeholder=\"run_...\"/></div>",
+            "<div class=\"field small\"><button id=\"policyReplayBtn\">Replay run settlement policy</button></div>",
+            "</div>",
+            "<div id=\"replayStatus\" class=\"status\" style=\"margin-top:10px\">No replay yet.</div>",
+            "<div style=\"margin-top:10px\"><div class=\"muted\">Replay detail</div><pre id=\"policyReplayDetail\" class=\"mono\">{}</pre></div>",
+            "</section>",
+            "</div>",
+            "<div class=\"card\" style=\"margin-top:12px\">",
+            "<h2>Current State Snapshot</h2>",
+            "<pre id=\"policyStateDetail\" class=\"mono\">{}</pre>",
+            "</div>",
+            "<script>",
+            `const INITIAL = ${JSON.stringify({
+              tenantId,
+              opsToken: initialOpsToken,
+              protocol: protocolPolicy.current,
+              policyId: initialPolicyId,
+              runId: initialRunId
+            })};`,
+            "const state = { snapshot: null };",
+            "function byId(id){ return document.getElementById(id); }",
+            "function setText(id, text){ const el = byId(id); if(el) el.textContent = String(text ?? ''); }",
+            "function setStatus(id, text, kind){ const el = byId(id); if(!el) return; el.className = 'status' + (kind ? (' ' + kind) : ''); el.textContent = String(text ?? ''); }",
+            "function headers({ write=false, json=false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-settld-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type'] = 'application/json'; return h; }",
+            "async function requestJson(path, { method='GET', body=null, write=false, idem=null } = {}){ const h = headers({ write, json: body !== null }); if(idem) h['x-idempotency-key'] = idem; const res = await fetch(path, { method, headers: h, body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
+            "function idem(prefix){ return `policy_ws_${prefix}_${Date.now()}_${Math.random().toString(16).slice(2,10)}`; }",
+            "function parseJsonInput(id, allowEmpty = false){ const raw = String(byId(id).value || '').trim(); if(!raw){ if(allowEmpty) return null; throw new Error(`${id} is required`); } try { return JSON.parse(raw); } catch (err){ throw new Error(`${id} must be valid JSON`); } }",
+            "function refMatches(ref, policy){ if(!ref || !policy) return false; return String(ref.policyId||'')===String(policy.policyId||'') && Number(ref.policyVersion||0)===Number(policy.policyVersion||0); }",
+            "function setPolicyRefInputs(policy){ if(!policy) return; byId('rolloutPolicyIdInput').value = String(policy.policyId || ''); byId('rolloutPolicyVersionInput').value = String(policy.policyVersion || ''); byId('rollbackPolicyIdInput').value = String(policy.policyId || ''); byId('rollbackPolicyVersionInput').value = String(policy.policyVersion || ''); byId('diffToPolicyIdInput').value = String(policy.policyId || ''); byId('diffToPolicyVersionInput').value = String(policy.policyVersion || ''); }",
+            "function renderPolicies(){ const body = byId('policyVersionsBody'); body.innerHTML = ''; const rows = Array.isArray(state.snapshot?.policies) ? state.snapshot.policies : []; const rollout = state.snapshot?.rollout || null; const activeRef = rollout?.stages?.active || null; const draftRef = rollout?.stages?.draft || null; const canaryRef = rollout?.stages?.canary?.policyRef || null; if(!rows.length){ body.innerHTML = '<tr><td colspan=\"5\" class=\"muted\">No tenant policy versions yet.</td></tr>'; return; } for(const row of rows){ const stageTags = []; if(refMatches(activeRef,row)) stageTags.push('<span class=\"tag active\">active</span>'); if(refMatches(draftRef,row)) stageTags.push('<span class=\"tag draft\">draft</span>'); if(refMatches(canaryRef,row)) stageTags.push('<span class=\"tag canary\">canary</span>'); const tr = document.createElement('tr'); tr.innerHTML = `<td><div class=\\\"mono\\\">${row.policyId}@${row.policyVersion}</div><div class=\\\"muted mono\\\">updated ${row.updatedAt || 'n/a'}</div></td><td>${row.description || '<span class=\\\"muted\\\">(none)</span>'}</td><td><div class=\\\"mono\\\">policy ${row.policyHash || 'n/a'}</div><div class=\\\"mono\\\">verify ${row.verificationMethodHash || 'n/a'}</div></td><td>${stageTags.join(' ') || '<span class=\\\"muted\\\">-</span>'}</td><td><button class=\\\"secondary\\\" type=\\\"button\\\">Select</button></td>`; tr.querySelector('button').addEventListener('click', ()=>{ setPolicyRefInputs(row); byId('upsertPolicyIdInput').value = String(row.policyId || ''); byId('upsertPolicyVersionInput').value = String(row.policyVersion || ''); byId('upsertPolicyDescriptionInput').value = String(row.description || ''); byId('upsertPolicyJson').value = JSON.stringify(row.policy || {}, null, 2); byId('upsertVerificationJson').value = row.verificationMethod ? JSON.stringify(row.verificationMethod, null, 2) : ''; }); body.appendChild(tr); } }",
+            "function renderHistory(){ const body = byId('policyRolloutHistoryBody'); body.innerHTML = ''; const rows = Array.isArray(state.snapshot?.rolloutHistory) ? state.snapshot.rolloutHistory : []; if(!rows.length){ body.innerHTML = '<tr><td colspan=\"6\" class=\"muted\">No rollout history yet.</td></tr>'; return; } for(const row of rows){ const tr = document.createElement('tr'); const fromRef = row?.fromPolicyRef ? `${row.fromPolicyRef.policyId}@${row.fromPolicyRef.policyVersion}` : '—'; const toRef = row?.toPolicyRef ? `${row.toPolicyRef.policyId}@${row.toPolicyRef.policyVersion}` : '—'; tr.innerHTML = `<td class=\\\"mono\\\">${row.at || 'n/a'}</td><td>${row.action || 'update'}</td><td class=\\\"mono\\\">${fromRef}</td><td class=\\\"mono\\\">${toRef}</td><td>${row.stage || '-'}</td><td>${row.note || '<span class=\\\"muted\\\">-</span>'}</td>`; body.appendChild(tr); } }",
+            "function renderState(){ setText('policyStateDetail', JSON.stringify(state.snapshot || {}, null, 2)); renderPolicies(); renderHistory(); }",
+            "function policyStateQuery(){ const q = new URLSearchParams(); const policyId = String(byId('policyIdFilterInput').value || '').trim(); if(policyId) q.set('policyId', policyId); return q.toString(); }",
+            "async function loadState(){ setStatus('workspaceStatus', 'Loading policy control plane...', ''); try { const q = policyStateQuery(); const out = await requestJson(`/ops/settlement-policies/state${q ? ('?' + q) : ''}`); state.snapshot = out; renderState(); setStatus('workspaceStatus', `Loaded ${Array.isArray(out.policies) ? out.policies.length : 0} policy version(s).`, 'good'); } catch (err){ setStatus('workspaceStatus', `Load failed: ${err.message}`, 'bad'); } }",
+            "async function upsertPolicy(){ let policy = null; let verificationMethod = null; try { policy = parseJsonInput('upsertPolicyJson', false); verificationMethod = parseJsonInput('upsertVerificationJson', true); } catch (err) { setStatus('upsertStatus', err.message, 'bad'); return; } const policyId = String(byId('upsertPolicyIdInput').value || '').trim(); if(!policyId){ setStatus('upsertStatus', 'policyId is required.', 'bad'); return; } const policyVersionRaw = String(byId('upsertPolicyVersionInput').value || '').trim(); const description = String(byId('upsertPolicyDescriptionInput').value || '').trim(); const body = { policyId, policy, description: description || null }; if(policyVersionRaw) body.policyVersion = Number(policyVersionRaw); if(verificationMethod) body.verificationMethod = verificationMethod; setStatus('upsertStatus', 'Saving policy version...', ''); try { const out = await requestJson('/marketplace/settlement-policies', { method:'POST', body, write:true, idem: idem('upsert') }); const saved = out && out.policy ? out.policy : null; setStatus('upsertStatus', `Saved ${saved?.policyId || policyId}@${saved?.policyVersion || policyVersionRaw || 'auto'}.`, 'good'); await loadState(); } catch (err){ setStatus('upsertStatus', `Save failed: ${err.message}`, 'bad'); } }",
+            "async function applyRollout(){ const stage = String(byId('rolloutStageInput').value || '').trim(); const clear = byId('rolloutClearInput').checked; const note = String(byId('rolloutNoteInput').value || '').trim(); const body = { stage, clear }; if(note) body.note = note; if(!clear){ const policyId = String(byId('rolloutPolicyIdInput').value || '').trim(); const policyVersionRaw = String(byId('rolloutPolicyVersionInput').value || '').trim(); if(!policyId || !policyVersionRaw){ setStatus('rolloutStatus', 'policyId and policyVersion are required unless clear is checked.', 'bad'); return; } body.policyRef = { policyId, policyVersion: Number(policyVersionRaw) }; if(stage === 'canary'){ const rolloutPercentRaw = String(byId('rolloutPercentInput').value || '').trim(); if(rolloutPercentRaw) body.rolloutPercent = Number(rolloutPercentRaw); } } setStatus('rolloutStatus', `Applying ${stage} rollout...`, ''); try { const out = await requestJson('/ops/settlement-policies/rollout', { method:'POST', body, write:true, idem: idem('rollout') }); setStatus('rolloutStatus', `${out.action || 'rollout_updated'} succeeded.`, 'good'); await loadState(); } catch (err){ setStatus('rolloutStatus', `Rollout failed: ${err.message}`, 'bad'); } }",
+            "async function rollbackPolicy(){ const policyId = String(byId('rollbackPolicyIdInput').value || '').trim(); const policyVersionRaw = String(byId('rollbackPolicyVersionInput').value || '').trim(); const note = String(byId('rollbackNoteInput').value || '').trim(); const body = {}; if(note) body.note = note; if(policyId || policyVersionRaw){ if(!policyId || !policyVersionRaw){ setStatus('rolloutStatus', 'rollback target requires both policyId and policyVersion.', 'bad'); return; } body.policyRef = { policyId, policyVersion: Number(policyVersionRaw) }; } setStatus('rolloutStatus', 'Applying rollback...', ''); try { const out = await requestJson('/ops/settlement-policies/rollback', { method:'POST', body, write:true, idem: idem('rollback') }); setStatus('rolloutStatus', `${out.action || 'rollback'} completed.`, out.action === 'rollback_noop' ? 'warn' : 'good'); await loadState(); } catch (err){ setStatus('rolloutStatus', `Rollback failed: ${err.message}`, 'bad'); } }",
+            "async function runDiff(){ const q = new URLSearchParams(); const fromPolicyId = String(byId('diffFromPolicyIdInput').value || '').trim(); const fromPolicyVersion = String(byId('diffFromPolicyVersionInput').value || '').trim(); const toPolicyId = String(byId('diffToPolicyIdInput').value || '').trim(); const toPolicyVersion = String(byId('diffToPolicyVersionInput').value || '').trim(); const limit = String(byId('diffLimitInput').value || '200').trim(); const includeUnchanged = byId('diffIncludeUnchangedInput').checked; if(fromPolicyId) q.set('fromPolicyId', fromPolicyId); if(fromPolicyVersion) q.set('fromPolicyVersion', fromPolicyVersion); if(toPolicyId) q.set('toPolicyId', toPolicyId); if(toPolicyVersion) q.set('toPolicyVersion', toPolicyVersion); if(limit) q.set('limit', limit); if(includeUnchanged) q.set('includeUnchanged', 'true'); setStatus('diffStatus', 'Computing diff...', ''); try { const out = await requestJson(`/ops/settlement-policies/diff?${q.toString()}`); setText('policyDiffDetail', JSON.stringify(out, null, 2)); setStatus('diffStatus', `Diff ready: changed=${out.summary?.changed || 0}, added=${out.summary?.added || 0}, removed=${out.summary?.removed || 0}.`, 'good'); } catch (err){ setStatus('diffStatus', `Diff failed: ${err.message}`, 'bad'); setText('policyDiffDetail', '{}'); } }",
+            "async function runReplay(){ const runId = String(byId('replayRunIdInput').value || '').trim(); if(!runId){ setStatus('replayStatus', 'runId is required.', 'bad'); return; } setStatus('replayStatus', `Replaying settlement policy for ${runId}...`, ''); try { const out = await requestJson(`/runs/${encodeURIComponent(runId)}/settlement/policy-replay`); setText('policyReplayDetail', JSON.stringify(out, null, 2)); setStatus('replayStatus', `Replay computed. matchesStoredDecision=${out.matchesStoredDecision === true}.`, out.matchesStoredDecision === true ? 'good' : 'warn'); } catch (err){ setStatus('replayStatus', `Replay failed: ${err.message}`, 'bad'); setText('policyReplayDetail', '{}'); } }",
+            "byId('tenantIdInput').value = String(INITIAL.tenantId || 'tenant_default');",
+            "byId('opsTokenInput').value = String(INITIAL.opsToken || '');",
+            "byId('protocolInput').value = String(INITIAL.protocol || '');",
+            "byId('policyIdFilterInput').value = String(INITIAL.policyId || '');",
+            "byId('replayRunIdInput').value = String(INITIAL.runId || '');",
+            "byId('upsertPolicyIdInput').value = String(INITIAL.policyId || 'market.default.auto-v1');",
+            "byId('upsertPolicyJson').value = JSON.stringify({ mode: 'automatic', rules: { requireDeterministicVerification: true, autoReleaseOnGreen: true, autoReleaseOnAmber: false, autoReleaseOnRed: false, greenReleaseRatePct: 100, amberReleaseRatePct: 25, redReleaseRatePct: 0 } }, null, 2);",
+            "byId('upsertVerificationJson').value = JSON.stringify({ mode: 'deterministic', source: 'verifier://settld-verify' }, null, 2);",
+            "byId('refreshPolicyStateBtn').addEventListener('click', ()=>loadState());",
+            "byId('refreshPolicyDiffBtn').addEventListener('click', ()=>runDiff());",
+            "byId('refreshPolicyReplayBtn').addEventListener('click', ()=>runReplay());",
+            "byId('policyUpsertBtn').addEventListener('click', ()=>upsertPolicy());",
+            "byId('policyRolloutBtn').addEventListener('click', ()=>applyRollout());",
+            "byId('policyRollbackBtn').addEventListener('click', ()=>rollbackPolicy());",
+            "byId('policyDiffBtn').addEventListener('click', ()=>runDiff());",
+            "byId('policyReplayBtn').addEventListener('click', ()=>runReplay());",
+            "loadState();",
+            "</script>",
+            "</div></body></html>"
+          ].join("\n");
+          return sendText(res, 200, html, { contentType: "text/html; charset=utf-8" });
         }
 
         if (parts[1] === "config" && parts.length === 2 && req.method === "GET") {
@@ -14188,6 +17797,26 @@ export function createApi({
               unexpectedOperations.length +
               duplicateExpected.length;
             const status = criticalMismatchCount === 0 ? "pass" : "fail";
+            const mismatchRows = {
+              missingOperations,
+              amountMismatches,
+              currencyMismatches,
+              terminalFailures,
+              unexpectedOperations,
+              duplicateExpected
+            };
+            const mismatchQueue = buildMoneyRailReconcileMismatchQueue({
+              period,
+              providerId: providerIdQuery,
+              mismatches: mismatchRows
+            });
+            const triageDecorated = await decorateReconciliationMismatchQueueWithTriages({
+              tenantId,
+              period,
+              sourceType: FINANCE_RECONCILIATION_TRIAGE_SOURCE_TYPE.MONEY_RAILS_RECONCILE,
+              providerId: providerIdQuery,
+              queue: mismatchQueue
+            });
 
             return sendJson(res, 200, {
               ok: true,
@@ -14206,14 +17835,9 @@ export function createApi({
                 criticalMismatchCount,
                 operationStateCounts
               },
-              mismatches: {
-                missingOperations,
-                amountMismatches,
-                currencyMismatches,
-                terminalFailures,
-                unexpectedOperations,
-                duplicateExpected
-              }
+              mismatches: mismatchRows,
+              triageQueue: triageDecorated.queue,
+              triageSummary: triageDecorated.summary
             });
           }
 
@@ -14794,6 +18418,13 @@ export function createApi({
             const lastOccurredAt = occurredAtRows.length ? occurredAtRows[occurredAtRows.length - 1] : null;
             const resolvedCutoffAt = cutoffAt ?? lastOccurredAt ?? defaultBillingPeriodCutoffAt(period);
             const generatedAt = resolvedCutoffAt;
+            const invoice = buildBillingPeriodCloseInvoiceDraft({
+              summary,
+              digestRows,
+              period,
+              generatedAt,
+              eventsDigest
+            });
             const artifactId = `billing_close_${String(period).replaceAll(/[^0-9a-zA-Z_-]/g, "_")}_${eventsDigest.slice(0, 24)}`;
             const artifactBody = normalizeForCanonicalJson(
               {
@@ -14813,7 +18444,8 @@ export function createApi({
                 plan: summary.plan,
                 usage: summary.usage,
                 estimate: summary.estimate,
-                enforcement: summary.enforcement
+                enforcement: summary.enforcement,
+                invoice
               },
               { path: "$" }
             );
@@ -14884,6 +18516,7 @@ export function createApi({
               usage: summary.usage,
               estimate: summary.estimate,
               enforcement: summary.enforcement,
+              invoice,
               artifact: artifactSummary
             };
             if (typeof store.appendOpsAudit === "function") {
@@ -14898,6 +18531,7 @@ export function createApi({
                     dryRun,
                     eventCount: digestRows.length,
                     eventsDigest,
+                    invoiceTotalEstimatedCents: invoice?.totalEstimatedCents ?? null,
                     artifactHash: artifactHash
                   }
                 })
@@ -15387,6 +19021,251 @@ export function createApi({
             return sendJson(res, 200, { ok: true, mappingHash: result?.mappingHash ?? null });
           }
 
+          if (parts[1] === "finance" && parts[2] === "reconciliation" && parts[3] === "triage" && parts.length === 4 && req.method === "GET") {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            let period = null;
+            let status = null;
+            let sourceType = null;
+            let providerId = null;
+            let limit = 100;
+            let offset = 0;
+            try {
+              period = normalizeFinanceReconciliationPeriod(url.searchParams.get("period") ?? url.searchParams.get("month"), {
+                fieldName: "period",
+                allowNull: true
+              });
+              status = normalizeFinanceReconciliationTriageStatus(url.searchParams.get("status"), { fieldName: "status", allowNull: true });
+              sourceType = normalizeFinanceReconciliationTriageSourceType(url.searchParams.get("sourceType"), {
+                fieldName: "sourceType",
+                allowNull: true
+              });
+              providerId = normalizeNonEmptyStringOrNull(url.searchParams.get("providerId"));
+              ({ limit, offset } = parsePagination({
+                limitRaw: url.searchParams.get("limit"),
+                offsetRaw: url.searchParams.get("offset"),
+                defaultLimit: 100,
+                maxLimit: 1000
+              }));
+            } catch (err) {
+              return sendError(res, 400, "invalid reconciliation triage query", { message: err?.message });
+            }
+            let triages = [];
+            try {
+              triages = await listFinanceReconciliationTriageRecords({
+                tenantId,
+                period,
+                status,
+                sourceType,
+                providerId,
+                limit,
+                offset
+              });
+            } catch (err) {
+              return sendError(res, 501, "finance reconciliation triage not supported for this store", { message: err?.message });
+            }
+            const statusCounts = {};
+            for (const row of triages) {
+              const key = normalizeFinanceReconciliationTriageStatus(row?.status, { allowNull: true }) ?? FINANCE_RECONCILIATION_TRIAGE_STATUS.OPEN;
+              statusCounts[key] = (statusCounts[key] ?? 0) + 1;
+            }
+            return sendJson(res, 200, {
+              tenantId,
+              filters: { period, status, sourceType, providerId },
+              limit,
+              offset,
+              count: triages.length,
+              statusCounts,
+              triages
+            });
+          }
+
+          if (parts[1] === "finance" && parts[2] === "reconciliation" && parts[3] === "triage" && parts.length === 4 && req.method === "POST") {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            const body = (await readJsonBody(req)) ?? {};
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            let existingRecord = null;
+            const triageKeyFromBody = normalizeNonEmptyStringOrNull(body?.triageKey);
+            if (triageKeyFromBody) {
+              try {
+                existingRecord = await getFinanceReconciliationTriageRecord({ tenantId, triageKey: triageKeyFromBody });
+              } catch (err) {
+                return sendError(res, 501, "finance reconciliation triage not supported for this store", { message: err?.message });
+              }
+            }
+
+            let sourceType = null;
+            let period = null;
+            let providerId = null;
+            let mismatchType = null;
+            let mismatchKey = null;
+            let mismatchCode = null;
+            let status = null;
+            let severity = null;
+            let action = null;
+            try {
+              sourceType = normalizeFinanceReconciliationTriageSourceType(body?.sourceType ?? existingRecord?.sourceType, { fieldName: "sourceType" });
+              period = normalizeFinanceReconciliationPeriod(body?.period ?? body?.month ?? existingRecord?.period, { fieldName: "period" });
+              providerId = normalizeNonEmptyStringOrNull(body?.providerId ?? existingRecord?.providerId);
+              mismatchType = normalizeNonEmptyStringOrNull(body?.mismatchType ?? existingRecord?.mismatchType);
+              mismatchKey = normalizeNonEmptyStringOrNull(body?.mismatchKey ?? existingRecord?.mismatchKey);
+              mismatchCode = normalizeNonEmptyStringOrNull(body?.mismatchCode ?? existingRecord?.mismatchCode);
+              if (!mismatchType || !mismatchKey) {
+                return sendError(res, 400, "mismatchType and mismatchKey are required");
+              }
+              status = normalizeFinanceReconciliationTriageStatus(body?.status ?? existingRecord?.status ?? FINANCE_RECONCILIATION_TRIAGE_STATUS.OPEN, {
+                fieldName: "status"
+              });
+              severity = normalizeFinanceReconciliationTriageSeverity(body?.severity ?? existingRecord?.severity, { fieldName: "severity", allowNull: true });
+              action = normalizeNonEmptyStringOrNull(body?.action) ?? "triage_update";
+            } catch (err) {
+              return sendError(res, 400, "invalid reconciliation triage payload", { message: err?.message });
+            }
+            const triageKey =
+              triageKeyFromBody ??
+              buildFinanceReconciliationTriageKey({
+                sourceType,
+                period,
+                providerId,
+                mismatchType,
+                mismatchKey
+              });
+            if (!existingRecord) {
+              try {
+                existingRecord = await getFinanceReconciliationTriageRecord({ tenantId, triageKey });
+              } catch (err) {
+                return sendError(res, 501, "finance reconciliation triage not supported for this store", { message: err?.message });
+              }
+            }
+
+            const ownerPrincipalId = Object.prototype.hasOwnProperty.call(body, "ownerPrincipalId")
+              ? normalizeNonEmptyStringOrNull(body?.ownerPrincipalId)
+              : normalizeNonEmptyStringOrNull(existingRecord?.ownerPrincipalId);
+            const notes = Object.prototype.hasOwnProperty.call(body, "notes")
+              ? normalizeNonEmptyStringOrNull(body?.notes)
+              : normalizeNonEmptyStringOrNull(existingRecord?.notes);
+            const sourceReportHash = Object.prototype.hasOwnProperty.call(body, "sourceReportHash")
+              ? normalizeNonEmptyStringOrNull(body?.sourceReportHash)
+              : normalizeNonEmptyStringOrNull(existingRecord?.sourceReportHash);
+            const metadata =
+              body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+                ? normalizeForCanonicalJson(body.metadata, { path: "$.metadata" })
+                : existingRecord?.metadata && typeof existingRecord.metadata === "object" && !Array.isArray(existingRecord.metadata)
+                  ? existingRecord.metadata
+                  : null;
+            const nowAt = nowIso();
+            const resolvedStatus =
+              status === FINANCE_RECONCILIATION_TRIAGE_STATUS.RESOLVED || status === FINANCE_RECONCILIATION_TRIAGE_STATUS.DISMISSED;
+            const resolvedAt = resolvedStatus
+              ? normalizeNonEmptyStringOrNull(existingRecord?.resolvedAt) ?? nowAt
+              : null;
+            const resolvedByPrincipalId = resolvedStatus
+              ? normalizeNonEmptyStringOrNull(existingRecord?.resolvedByPrincipalId) ?? principalId
+              : null;
+
+            const hasChanges =
+              !existingRecord ||
+              String(existingRecord.status ?? "") !== String(status) ||
+              String(existingRecord.ownerPrincipalId ?? "") !== String(ownerPrincipalId ?? "") ||
+              String(existingRecord.notes ?? "") !== String(notes ?? "") ||
+              String(existingRecord.severity ?? "") !== String(severity ?? "") ||
+              String(existingRecord.sourceReportHash ?? "") !== String(sourceReportHash ?? "");
+            if (!hasChanges) {
+              const responseBody = { ok: true, tenantId, changed: false, triage: existingRecord };
+              if (idemStoreKey) {
+                await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+              }
+              return sendJson(res, 200, responseBody);
+            }
+
+            const actionLogEntry = normalizeForCanonicalJson(
+              {
+                actionId: idemStoreKey ? String(idemStoreKey) : createId("frta"),
+                action,
+                at: nowAt,
+                actorPrincipalId: principalId,
+                prevStatus: existingRecord?.status ?? null,
+                nextStatus: status,
+                ownerPrincipalId,
+                notes
+              },
+              { path: "$" }
+            );
+            const previousActionLog = Array.isArray(existingRecord?.actionLog) ? existingRecord.actionLog : [];
+            const actionLog = [actionLogEntry, ...previousActionLog].slice(0, 50);
+            const nextTriage = normalizeForCanonicalJson(
+              {
+                schemaVersion: "FinanceReconciliationTriage.v1",
+                tenantId,
+                triageKey,
+                sourceType,
+                period,
+                providerId,
+                mismatchType,
+                mismatchKey,
+                mismatchCode,
+                severity,
+                status,
+                ownerPrincipalId,
+                notes,
+                sourceReportHash,
+                metadata,
+                actionLog,
+                revision: Number(existingRecord?.revision ?? 0) + 1,
+                createdAt: existingRecord?.createdAt ?? nowAt,
+                updatedAt: nowAt,
+                resolvedAt,
+                resolvedByPrincipalId
+              },
+              { path: "$" }
+            );
+            let saved = null;
+            try {
+              saved = await putFinanceReconciliationTriageRecord({
+                tenantId,
+                triage: nextTriage,
+                audit: makeOpsAudit({
+                  action: "FINANCE_RECONCILIATION_TRIAGE_UPSERT",
+                  targetType: "finance_reconciliation_triage",
+                  targetId: triageKey,
+                  details: {
+                    sourceType,
+                    period,
+                    providerId,
+                    mismatchType,
+                    mismatchKey,
+                    status,
+                    ownerPrincipalId
+                  }
+                })
+              });
+            } catch (err) {
+              return sendError(res, 501, "finance reconciliation triage not supported for this store", { message: err?.message });
+            }
+            const responseBody = { ok: true, tenantId, changed: true, triage: saved };
+            if (idemStoreKey) {
+              await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+            }
+            return sendJson(res, 200, responseBody);
+          }
+
           if (parts[1] === "finance" && parts[2] === "gl-batch" && parts.length === 3 && req.method === "GET") {
             if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
             if (typeof store.listArtifacts !== "function") return sendError(res, 501, "artifacts not supported for this store");
@@ -15433,10 +19312,14 @@ export function createApi({
             if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
               return sendError(res, 403, "forbidden");
             }
-            if (typeof store.listArtifacts !== "function") return sendError(res, 501, "artifacts not supported for this store");
-
-            const period = url.searchParams.get("period") ?? url.searchParams.get("month");
-            if (!period) return sendError(res, 400, "period is required");
+            const periodRaw = url.searchParams.get("period") ?? url.searchParams.get("month");
+            if (!periodRaw) return sendError(res, 400, "period is required");
+            let period = null;
+            try {
+              period = normalizeFinanceReconciliationPeriod(periodRaw, { fieldName: "period", allowNull: false });
+            } catch (err) {
+              return sendError(res, 400, err?.message ?? "period must match YYYY-MM");
+            }
 
             let persist = false;
             try {
@@ -15446,122 +19329,29 @@ export function createApi({
             }
             if (persist && !requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
 
-            const artifacts = await store.listArtifacts({ tenantId });
-            const glCandidates = artifacts.filter((a) => a?.artifactType === ARTIFACT_TYPE.GL_BATCH_V1 && String(a?.period ?? "") === String(period));
-            if (!glCandidates.length) return sendError(res, 404, "GL batch not found");
-            glCandidates.sort((a, b) => String(a?.generatedAt ?? a?.artifactId ?? "").localeCompare(String(b?.generatedAt ?? b?.artifactId ?? "")));
-            const glBatch = glCandidates[glCandidates.length - 1];
-
-            const partyStatements = artifacts
-              .filter((a) => a?.artifactType === ARTIFACT_TYPE.PARTY_STATEMENT_V1 && String(a?.period ?? "") === String(period))
-              .sort((a, b) => String(a?.artifactId ?? "").localeCompare(String(b?.artifactId ?? "")));
-            if (!partyStatements.length) return sendError(res, 404, "party statements not found");
-
-            const reconcile = reconcileGlBatchAgainstPartyStatements({ glBatch, partyStatements });
-            const reconcileBytes = new TextEncoder().encode(`${canonicalJsonStringify(reconcile)}\n`);
-            const reportHash = sha256HexBytes(reconcileBytes);
-
-            let artifactSummary = null;
-            if (persist) {
-              if (typeof store.putArtifact !== "function") return sendError(res, 501, "artifact persistence not supported for this store");
-
-              const artifactId = `reconcile_${String(period).replaceAll(/[^0-9a-zA-Z_-]/g, "_")}_${reportHash.slice(0, 24)}`;
-              const generatedAtMsCandidates = [
-                glBatch?.generatedAt ? Date.parse(String(glBatch.generatedAt)) : Number.NaN,
-                ...partyStatements.map((statement) => (statement?.generatedAt ? Date.parse(String(statement.generatedAt)) : Number.NaN))
-              ].filter((ms) => Number.isFinite(ms));
-              const generatedAtMs = generatedAtMsCandidates.length ? Math.max(...generatedAtMsCandidates) : Date.parse(`${String(period)}-01T00:00:00.000Z`);
-              const generatedAt = Number.isFinite(generatedAtMs) ? new Date(generatedAtMs).toISOString() : nowIso();
-              const artifactBody = normalizeForCanonicalJson(
-                {
-                  schemaVersion: RECONCILE_REPORT_ARTIFACT_TYPE,
-                  artifactType: RECONCILE_REPORT_ARTIFACT_TYPE,
-                  artifactId,
-                  tenantId,
-                  period,
-                  generatedAt,
-                  reportHash,
-                  inputs: {
-                    glBatchArtifactId: glBatch?.artifactId ?? null,
-                    glBatchArtifactHash: glBatch?.artifactHash ?? null,
-                    partyStatementArtifactIds: partyStatements.map((a) => a?.artifactId).filter((id) => typeof id === "string" && id.trim() !== ""),
-                    partyStatementArtifactHashes: partyStatements
-                      .map((a) => a?.artifactHash)
-                      .filter((hash) => typeof hash === "string" && hash.trim() !== "")
-                  },
-                  reconcile
-                },
-                { path: "$" }
-              );
-              const artifactHash = computeArtifactHash(artifactBody);
-              const artifact = { ...artifactBody, artifactHash };
-              let storedArtifact = artifact;
-              try {
-                await store.putArtifact({ tenantId, artifact });
-              } catch (err) {
-                if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
-                if (typeof store.getArtifact !== "function") throw err;
-                const existing = await store.getArtifact({ tenantId, artifactId });
-                if (!existing || typeof existing?.artifactHash !== "string" || existing.artifactHash.trim() === "") throw err;
-                storedArtifact = existing;
-              }
-
-              let deliveriesCreated = 0;
-              if (typeof store.createDelivery === "function") {
-                const destinations = listDestinationsForTenant(tenantId).filter((d) => {
-                  const allowed = Array.isArray(d?.artifactTypes) && d.artifactTypes.length ? d.artifactTypes : null;
-                  return !allowed || allowed.includes(RECONCILE_REPORT_ARTIFACT_TYPE);
-                });
-                for (const dest of destinations) {
-                  const resolvedArtifactHash = String(storedArtifact.artifactHash);
-                  const dedupeKey = `${tenantId}:${dest.destinationId}:${RECONCILE_REPORT_ARTIFACT_TYPE}:${artifactId}:${resolvedArtifactHash}`;
-                  const scopeKey = `finance_reconcile:period:${period}`;
-                  const orderSeq = Date.parse(generatedAt);
-                  const priority = 96;
-                  const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
-                  try {
-                    await store.createDelivery({
-                      tenantId,
-                      delivery: {
-                        destinationId: dest.destinationId,
-                        artifactType: RECONCILE_REPORT_ARTIFACT_TYPE,
-                        artifactId,
-                        artifactHash: resolvedArtifactHash,
-                        dedupeKey,
-                        scopeKey,
-                        orderSeq,
-                        priority,
-                        orderKey
-                      }
-                    });
-                    deliveriesCreated += 1;
-                  } catch (err) {
-                    if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
-                    throw err;
-                  }
-                }
-              }
-
-              artifactSummary = {
-                artifactId,
-                artifactHash: String(storedArtifact.artifactHash),
-                deliveriesCreated
-              };
+            let report;
+            try {
+              report = await computeFinanceReconcileReport({
+                tenantId,
+                period,
+                persist,
+                includeTriages: true
+              });
+            } catch (err) {
+              const statusCode = Number.isSafeInteger(err?.statusCode) ? err.statusCode : 500;
+              return sendError(res, statusCode, err?.message ?? "finance reconcile failed");
             }
 
             return sendJson(res, 200, {
               ok: true,
-              tenantId,
-              period,
-              reportHash,
-              reconcile,
-              inputs: {
-                glBatchArtifactId: glBatch?.artifactId ?? null,
-                glBatchArtifactHash: glBatch?.artifactHash ?? null,
-                partyStatementArtifactIds: partyStatements.map((a) => a?.artifactId).filter((id) => typeof id === "string" && id.trim() !== ""),
-                partyStatementArtifactHashes: partyStatements.map((a) => a?.artifactHash).filter((hash) => typeof hash === "string" && hash.trim() !== "")
-              },
-              artifact: artifactSummary
+              tenantId: report.tenantId,
+              period: report.period,
+              reportHash: report.reportHash,
+              reconcile: report.reconcile,
+              inputs: report.inputs,
+              artifact: report.artifact,
+              triageQueue: report.triageQueue,
+              triageSummary: report.triageSummary
             });
           }
 
@@ -15677,11 +19467,15 @@ export function createApi({
           }
 
 	        if (parts[1] === "status" && parts.length === 2 && req.method === "GET") {
-	          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+	          const hasStatusScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ);
+	          if (!hasStatusScope) return sendError(res, 403, "forbidden");
 
 	          const backlog = await computeOpsBacklogSummary({ tenantId, includeOutbox: true });
 	          const retentionInfo = await fetchMaintenanceRetentionRunInfo({ tenantId });
+          const financeReconcileInfo = await fetchMaintenanceFinanceReconcileRunInfo({ tenantId });
           const lastRetention = retentionInfo?.last ?? null;
+          const lastFinanceReconcile = financeReconcileInfo?.last ?? null;
+          const lastFinanceReconcileOk = financeReconcileInfo?.lastOk ?? null;
           const snapshot = (() => {
             try {
               return metrics.snapshot();
@@ -15724,6 +19518,30 @@ export function createApi({
                   lastRunAt,
                   lastSuccessAt,
                   lastResult
+                };
+              })(),
+              financeReconciliation: (() => {
+                const stateLastRunAt = store?.__financeReconcileLastRunAt ?? null;
+                const stateLastSuccessAt = store?.__financeReconcileLastSuccessAt ?? null;
+                const stateLastResult = store?.__financeReconcileLastResult ?? null;
+                const auditOutcome = lastFinanceReconcile?.details?.outcome ?? null;
+                const auditAt = lastFinanceReconcile?.at ?? null;
+                const auditSuccessAt = lastFinanceReconcileOk?.at ?? null;
+                const runtimeMs = lastFinanceReconcile?.details?.runtimeMs ?? stateLastResult?.runtimeMs ?? null;
+                const effectiveLastRunAt = stateLastRunAt ?? auditAt;
+                const effectiveLastSuccessAt = stateLastSuccessAt ?? auditSuccessAt;
+                return {
+                  enabled: effectiveFinanceReconcileEnabled,
+                  intervalSeconds: effectiveFinanceReconcileIntervalSeconds,
+                  maxTenants: effectiveFinanceReconcileMaxTenants,
+                  maxPeriodsPerTenant: effectiveFinanceReconcileMaxPeriodsPerTenant,
+                  lastRunAt: effectiveLastRunAt,
+                  lastSuccessAt: effectiveLastSuccessAt,
+                  lastResult: stateLastResult,
+                  outcome: auditOutcome ?? (stateLastResult?.ok === true ? "ok" : stateLastResult ? "error" : null),
+                  runtimeMs,
+                  requestId: lastFinanceReconcile?.requestId ?? null,
+                  auditId: lastFinanceReconcile?.id ?? null
                 };
               })()
             },
@@ -15812,7 +19630,15 @@ export function createApi({
                   defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.determinismRejectThreshold,
                   min: 0,
                   name: "determinismRejectThreshold"
-                })
+                }),
+                kernelVerificationErrorThreshold: parseThresholdIntegerQueryValue(
+                  url.searchParams.get("kernelVerificationErrorThreshold"),
+                  {
+                    defaultValue: COMMAND_CENTER_ALERT_DEFAULT_THRESHOLDS.kernelVerificationErrorThreshold,
+                    min: 0,
+                    name: "kernelVerificationErrorThreshold"
+                  }
+                )
               };
             } catch (err) {
               return sendError(res, 400, err?.message ?? "invalid alert thresholds");
@@ -15840,6 +19666,115 @@ export function createApi({
             tenantId,
             commandCenter,
             alerts: alertsSummary
+          });
+        }
+
+        if (parts[1] === "maintenance" && parts[2] === "finance-reconcile" && parts[3] === "run" && parts.length === 4 && req.method === "POST") {
+          const hasMaintenanceWriteScope =
+            requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
+          if (!hasMaintenanceWriteScope) return sendError(res, 403, "forbidden");
+          if (typeof store.appendOpsAudit !== "function") return sendError(res, 501, "ops audit not supported for this store");
+
+          const body = (await readJsonBody(req)) ?? {};
+          let period = null;
+          if (Object.prototype.hasOwnProperty.call(body, "period") || Object.prototype.hasOwnProperty.call(body, "month")) {
+            try {
+              period = normalizeFinanceReconciliationPeriod(body?.period ?? body?.month ?? null, { fieldName: "period", allowNull: true });
+            } catch (err) {
+              return sendError(res, 400, err?.message ?? "period must match YYYY-MM", null, { code: "SCHEMA_INVALID" });
+            }
+          }
+          const force = body?.force === undefined ? true : body.force === true;
+          const maxTenantsRaw = body?.maxTenants ?? null;
+          const maxTenants = maxTenantsRaw === null ? effectiveFinanceReconcileMaxTenants : Number(maxTenantsRaw);
+          if (!Number.isSafeInteger(maxTenants) || maxTenants <= 0) {
+            return sendError(res, 400, "invalid maxTenants", null, { code: "SCHEMA_INVALID" });
+          }
+          const maxPeriodsRaw = body?.maxPeriodsPerTenant ?? body?.maxPeriods ?? null;
+          const maxPeriodsPerTenant = maxPeriodsRaw === null ? effectiveFinanceReconcileMaxPeriodsPerTenant : Number(maxPeriodsRaw);
+          if (!Number.isSafeInteger(maxPeriodsPerTenant) || maxPeriodsPerTenant <= 0) {
+            return sendError(res, 400, "invalid maxPeriodsPerTenant", null, { code: "SCHEMA_INVALID" });
+          }
+
+          let result;
+          let outcome = "ok";
+          try {
+            result = await tickFinanceReconciliation({
+              tenantId,
+              period,
+              maxTenants,
+              maxPeriodsPerTenant,
+              force,
+              requireLock: true
+            });
+            if (!result?.ok && result?.code === "MAINTENANCE_ALREADY_RUNNING") outcome = "already_running";
+            else if (!result?.ok) outcome = "error";
+          } catch (err) {
+            outcome = "error";
+            result = {
+              ok: false,
+              scope: "tenant",
+              tenantId,
+              period,
+              runtimeMs: null
+            };
+            try {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "MAINTENANCE_FINANCE_RECONCILE_RUN",
+                  targetType: "maintenance",
+                  targetId: "finance_reconcile",
+                  details: {
+                    path: "/ops/maintenance/finance-reconcile/run",
+                    outcome,
+                    period,
+                    force,
+                    maxTenants,
+                    maxPeriodsPerTenant,
+                    error: err?.message ?? String(err)
+                  }
+                })
+              });
+            } catch {}
+            return sendError(res, 500, "maintenance run failed", { message: err?.message });
+          }
+
+          try {
+            await store.appendOpsAudit({
+              tenantId,
+              audit: makeOpsAudit({
+                action: "MAINTENANCE_FINANCE_RECONCILE_RUN",
+                targetType: "maintenance",
+                targetId: "finance_reconcile",
+                details: {
+                  path: "/ops/maintenance/finance-reconcile/run",
+                  outcome,
+                  scope: result?.scope ?? "tenant",
+                  period: result?.period ?? period ?? null,
+                  force,
+                  maxTenants: Number(result?.maxTenants ?? maxTenants),
+                  maxPeriodsPerTenant: Number(result?.maxPeriodsPerTenant ?? maxPeriodsPerTenant),
+                  runtimeMs: result?.runtimeMs ?? null,
+                  summary: result?.summary ?? null,
+                  code: result?.code ?? null
+                }
+              })
+            });
+          } catch (err) {
+            return sendError(res, 500, "failed to write audit record", { message: err?.message }, { code: "AUDIT_LOG_FAILED" });
+          }
+
+          if (!result?.ok && result?.code === "MAINTENANCE_ALREADY_RUNNING") {
+            return sendError(res, 409, "maintenance already running", null, { code: "MAINTENANCE_ALREADY_RUNNING" });
+          }
+
+          return sendJson(res, 200, {
+            ok: result?.ok === true,
+            period: result?.period ?? period ?? null,
+            runtimeMs: result?.runtimeMs ?? null,
+            summary: result?.summary ?? null,
+            results: result?.results ?? []
           });
         }
 
@@ -16563,6 +20498,7 @@ export function createApi({
           let openedSince = null;
           let runIdFilter = null;
           let caseIdFilter = null;
+          let priorityFilter = null;
           let assignedArbiterFilter = null;
           let slaHours = 24;
           try {
@@ -16578,6 +20514,11 @@ export function createApi({
             runIdFilter = runIdRaw && runIdRaw.trim() !== "" ? runIdRaw.trim() : null;
             const caseIdRaw = url.searchParams.get("caseId");
             caseIdFilter = caseIdRaw && caseIdRaw.trim() !== "" ? caseIdRaw.trim() : null;
+            const priorityRaw = url.searchParams.get("priority");
+            priorityFilter = normalizeArbitrationCasePriority(priorityRaw, {
+              fieldName: "priority",
+              allowNull: true
+            });
             if (url.searchParams.has("assignedArbiter")) {
               assignedArbiterFilter = parseBooleanQueryValue(url.searchParams.get("assignedArbiter"), {
                 name: "assignedArbiter"
@@ -16611,6 +20552,7 @@ export function createApi({
           const nowMs = Date.parse(nowIso());
           const filtered = [];
           const statusCounts = new Map();
+          const settlementPriorityByRunId = new Map();
           let overSlaCount = 0;
 
           for (const arbitrationCase of allCases) {
@@ -16618,6 +20560,31 @@ export function createApi({
             if (caseIdFilter && String(arbitrationCase.caseId ?? "") !== caseIdFilter) continue;
             if (runIdFilter && String(arbitrationCase.runId ?? "") !== runIdFilter) continue;
             if (statusFilter && String(arbitrationCase.status ?? "").toLowerCase() !== statusFilter) continue;
+            const runId =
+              typeof arbitrationCase.runId === "string" && arbitrationCase.runId.trim() !== ""
+                ? arbitrationCase.runId.trim()
+                : null;
+            let disputePriority = normalizeArbitrationCasePriority(arbitrationCase?.priority, {
+              fieldName: "arbitrationCase.priority",
+              allowNull: true
+            });
+            if (!disputePriority && runId) {
+              if (!settlementPriorityByRunId.has(runId)) {
+                let priorityFromSettlement = null;
+                try {
+                  const settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+                  priorityFromSettlement = normalizeArbitrationCasePriority(settlement?.disputeContext?.priority, {
+                    fieldName: "settlement.disputeContext.priority",
+                    allowNull: true
+                  });
+                } catch {
+                  priorityFromSettlement = null;
+                }
+                settlementPriorityByRunId.set(runId, priorityFromSettlement);
+              }
+              disputePriority = settlementPriorityByRunId.get(runId) ?? null;
+            }
+            if (priorityFilter && disputePriority !== priorityFilter) continue;
             const disputeId = typeof arbitrationCase.disputeId === "string" && arbitrationCase.disputeId.trim() !== "" ? arbitrationCase.disputeId.trim() : null;
             const arbiterAgentId =
               typeof arbitrationCase.arbiterAgentId === "string" && arbitrationCase.arbiterAgentId.trim() !== ""
@@ -16640,9 +20607,10 @@ export function createApi({
 
             filtered.push({
               caseId: arbitrationCase.caseId ?? null,
-              runId: arbitrationCase.runId ?? null,
+              runId,
               disputeId,
               settlementId: arbitrationCase.settlementId ?? null,
+              priority: disputePriority,
               status: arbitrationCase.status ?? null,
               arbiterAgentId,
               openedAt,
@@ -16683,6 +20651,7 @@ export function createApi({
               openedSince,
               runId: runIdFilter,
               caseId: caseIdFilter,
+              priority: priorityFilter,
               assignedArbiter: assignedArbiterFilter,
               slaHours
             },
@@ -16692,6 +20661,392 @@ export function createApi({
             overSlaCount,
             statusCounts: Object.fromEntries([...statusCounts.entries()].sort((a, b) => String(a[0]).localeCompare(String(b[0])))),
             queue: page
+          });
+        }
+
+        if (parts[1] === "arbitration" && parts[2] === "cases" && parts[3] && parts[4] === "workspace" && parts.length === 5 && req.method === "GET") {
+          const hasReadScope =
+            requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) ||
+            requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE) ||
+            requireScope(auth.scopes, OPS_SCOPES.OPS_READ);
+          if (!hasReadScope) return sendError(res, 403, "forbidden");
+
+          const caseId = String(parts[3] ?? "").trim();
+          if (!caseId) return sendError(res, 400, "caseId is required");
+
+          let slaHours = 24;
+          try {
+            const slaHoursRaw = url.searchParams.get("slaHours");
+            if (slaHoursRaw !== null && slaHoursRaw !== undefined && String(slaHoursRaw).trim() !== "") {
+              const parsedSlaHours = Number(slaHoursRaw);
+              if (!Number.isFinite(parsedSlaHours) || parsedSlaHours <= 0 || parsedSlaHours > 24 * 365) {
+                throw new TypeError("slaHours must be a positive number <= 8760");
+              }
+              slaHours = parsedSlaHours;
+            }
+          } catch (err) {
+            return sendError(res, 400, "invalid arbitration workspace query", { message: err?.message });
+          }
+
+          let arbitrationCase = null;
+          try {
+            arbitrationCase = await getArbitrationCaseRecord({ tenantId, caseId });
+          } catch (err) {
+            return sendError(res, 501, "arbitration cases not supported for this store", { message: err?.message });
+          }
+          if (!arbitrationCase) return sendError(res, 404, "arbitration case not found");
+
+          const runId = typeof arbitrationCase.runId === "string" && arbitrationCase.runId.trim() !== "" ? arbitrationCase.runId.trim() : null;
+          if (!runId) return sendError(res, 409, "arbitration case missing runId");
+
+          let settlement = null;
+          try {
+            settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+          } catch (err) {
+            return sendError(res, 501, "agent run settlements not supported for this store", { message: err?.message });
+          }
+          if (!settlement) return sendError(res, 404, "run settlement not found");
+
+          const hasWriteScope = requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
+          const nowMs = Date.parse(nowIso());
+          const openedAt = typeof arbitrationCase.openedAt === "string" && arbitrationCase.openedAt.trim() !== "" ? arbitrationCase.openedAt : null;
+          const openedAtMs = openedAt && Number.isFinite(Date.parse(openedAt)) ? Date.parse(openedAt) : Number.NaN;
+          const ageSeconds = Number.isFinite(openedAtMs) && Number.isFinite(nowMs) ? Math.max(0, Math.floor((nowMs - openedAtMs) / 1000)) : null;
+          const ageHours = ageSeconds === null ? null : Number((ageSeconds / 3600).toFixed(2));
+          const dueAtMs = Number.isFinite(openedAtMs) ? openedAtMs + Math.round(slaHours * 3600 * 1000) : Number.NaN;
+          const dueAt = Number.isFinite(dueAtMs) ? new Date(dueAtMs).toISOString() : null;
+          const normalizedCaseStatus = normalizeArbitrationCaseStatus(arbitrationCase.status, { fieldName: "arbitrationCase.status" });
+          const overSla = normalizedCaseStatus !== ARBITRATION_CASE_STATUS.CLOSED && Number.isFinite(dueAtMs) && nowMs > dueAtMs;
+          const casePriority =
+            normalizeArbitrationCasePriority(arbitrationCase?.priority, {
+              fieldName: "arbitrationCase.priority",
+              allowNull: true
+            }) ??
+            normalizeArbitrationCasePriority(settlement?.disputeContext?.priority, {
+              fieldName: "settlement.disputeContext.priority",
+              allowNull: true
+            }) ??
+            null;
+
+          let run = null;
+          let runVerification = null;
+          let recentRunEvents = [];
+          try {
+            if (typeof store.getAgentRun === "function") {
+              run = await store.getAgentRun({ tenantId, runId });
+            } else if (store.agentRuns instanceof Map) {
+              run = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+            }
+            let runEvents = [];
+            if (typeof store.getAgentRunEvents === "function") {
+              runEvents = await store.getAgentRunEvents({ tenantId, runId });
+            } else if (store.agentRunEvents instanceof Map) {
+              runEvents = store.agentRunEvents.get(runStoreKey(tenantId, runId)) ?? [];
+            }
+            runEvents = normalizeAgentRunEventRecords(runEvents);
+            if (run) {
+              runVerification = computeAgentRunVerification({ run, events: runEvents });
+            }
+            recentRunEvents = runEvents.slice(-25).map((event) =>
+              normalizeForCanonicalJson(
+                {
+                  id: event?.id ?? null,
+                  type: event?.type ?? null,
+                  at: event?.at ?? null,
+                  actor: event?.actor ?? null
+                },
+                { path: "$" }
+              )
+            );
+          } catch {
+            run = null;
+            runVerification = null;
+            recentRunEvents = [];
+          }
+
+          const caseEvidenceRefs = Array.isArray(arbitrationCase?.evidenceRefs) ? arbitrationCase.evidenceRefs : [];
+          const disputeContextEvidenceRefs = Array.isArray(settlement?.disputeContext?.evidenceRefs) ? settlement.disputeContext.evidenceRefs : [];
+          const disputeResolutionEvidenceRefs = Array.isArray(settlement?.disputeResolution?.evidenceRefs)
+            ? settlement.disputeResolution.evidenceRefs
+            : [];
+          const evidenceRefs = {
+            case: caseEvidenceRefs,
+            disputeContext: disputeContextEvidenceRefs,
+            disputeResolution: disputeResolutionEvidenceRefs,
+            all: mergeUniqueStringArrays(caseEvidenceRefs, disputeContextEvidenceRefs, disputeResolutionEvidenceRefs)
+          };
+
+          const relatedCases = [];
+          try {
+            const listed = await listArbitrationCaseRecords({
+              tenantId,
+              runId,
+              disputeId: arbitrationCase.disputeId ?? null,
+              status: null,
+              limit: 500,
+              offset: 0
+            });
+            for (const row of listed) {
+              if (!row || typeof row !== "object") continue;
+              const rowOpenedAt = typeof row.openedAt === "string" && row.openedAt.trim() !== "" ? row.openedAt : null;
+              const rowOpenedAtMs = rowOpenedAt && Number.isFinite(Date.parse(rowOpenedAt)) ? Date.parse(rowOpenedAt) : Number.NaN;
+              const rowDueAtMs = Number.isFinite(rowOpenedAtMs) ? rowOpenedAtMs + Math.round(slaHours * 3600 * 1000) : Number.NaN;
+              relatedCases.push(
+                normalizeForCanonicalJson(
+                  {
+                    caseId: row.caseId ?? null,
+                    runId: row.runId ?? null,
+                    disputeId: row.disputeId ?? null,
+                    priority:
+                      normalizeArbitrationCasePriority(row?.priority, { fieldName: "arbitrationCase.priority", allowNull: true }) ?? null,
+                    status: row.status ?? null,
+                    arbiterAgentId: row.arbiterAgentId ?? null,
+                    openedAt: rowOpenedAt,
+	                    closedAt: row.closedAt ?? null,
+	                    appealRef: row.appealRef ?? null,
+	                    dueAt: Number.isFinite(rowDueAtMs) ? new Date(rowDueAtMs).toISOString() : null,
+	                    overSla:
+	                      normalizeArbitrationCaseStatus(row.status ?? ARBITRATION_CASE_STATUS.OPEN, {
+                        fieldName: "arbitrationCase.status"
+                      }) !== ARBITRATION_CASE_STATUS.CLOSED &&
+                      Number.isFinite(rowDueAtMs) &&
+                      Number.isFinite(nowMs) &&
+                      nowMs > rowDueAtMs,
+                    revision: Number.isSafeInteger(Number(row.revision)) ? Number(row.revision) : null,
+                    updatedAt: row.updatedAt ?? null
+                  },
+                  { path: "$" }
+                )
+              );
+            }
+            relatedCases.sort((left, right) => {
+              const leftOpenedAtMs =
+                typeof left?.openedAt === "string" && Number.isFinite(Date.parse(left.openedAt))
+                  ? Date.parse(left.openedAt)
+                  : Number.POSITIVE_INFINITY;
+              const rightOpenedAtMs =
+                typeof right?.openedAt === "string" && Number.isFinite(Date.parse(right.openedAt))
+                  ? Date.parse(right.openedAt)
+                  : Number.POSITIVE_INFINITY;
+              if (leftOpenedAtMs !== rightOpenedAtMs) return leftOpenedAtMs - rightOpenedAtMs;
+              return String(left?.caseId ?? "").localeCompare(String(right?.caseId ?? ""));
+            });
+          } catch {
+            // Related case listing is best-effort.
+          }
+
+          const timeline = [];
+          const pushTimeline = (eventType, at, details = null, source = null) => {
+            if (typeof at !== "string" || !Number.isFinite(Date.parse(at))) return;
+            timeline.push(
+              normalizeForCanonicalJson(
+                {
+                  eventType: String(eventType),
+                  at: String(at),
+                  source: source ?? null,
+                  details: details ?? null
+                },
+                { path: "$" }
+              )
+            );
+          };
+          pushTimeline(
+            "dispute.opened",
+            settlement?.disputeOpenedAt ?? null,
+            {
+              disputeId: settlement?.disputeId ?? null,
+              openedByAgentId: settlement?.disputeContext?.openedByAgentId ?? null,
+              priority: settlement?.disputeContext?.priority ?? null,
+              channel: settlement?.disputeContext?.channel ?? null,
+              escalationLevel: settlement?.disputeContext?.escalationLevel ?? null
+            },
+            "settlement"
+          );
+          pushTimeline(
+            "arbitration.opened",
+            arbitrationCase?.openedAt ?? null,
+            {
+              caseId: arbitrationCase?.caseId ?? null,
+              arbiterAgentId: arbitrationCase?.arbiterAgentId ?? null
+            },
+            "arbitration_case"
+          );
+          pushTimeline(
+            "arbitration.verdict_issued",
+            arbitrationCase?.metadata?.verdictIssuedAt ?? null,
+            {
+              verdictId: arbitrationCase?.verdictId ?? null,
+              verdictHash: arbitrationCase?.verdictHash ?? null,
+              outcome: arbitrationCase?.metadata?.verdictOutcome ?? null,
+              releaseRatePct: arbitrationCase?.metadata?.verdictReleaseRatePct ?? null
+            },
+            "arbitration_case"
+          );
+          pushTimeline(
+            "dispute.closed",
+            settlement?.disputeClosedAt ?? null,
+            {
+              outcome: settlement?.disputeResolution?.outcome ?? null,
+              escalationLevel: settlement?.disputeResolution?.escalationLevel ?? null,
+              closedByAgentId: settlement?.disputeResolution?.closedByAgentId ?? null
+            },
+            "settlement"
+          );
+          pushTimeline(
+            "arbitration.closed",
+            arbitrationCase?.closedAt ?? null,
+            {
+              caseId: arbitrationCase?.caseId ?? null
+            },
+            "arbitration_case"
+          );
+          pushTimeline(
+            "settlement.resolved",
+            settlement?.resolvedAt ?? null,
+            {
+              settlementStatus: settlement?.status ?? null,
+              releaseRatePct: settlement?.releaseRatePct ?? null,
+              releasedAmountCents: settlement?.releasedAmountCents ?? null,
+              refundedAmountCents: settlement?.refundedAmountCents ?? null
+            },
+            "settlement"
+          );
+          const disputeWindowEndsAtMs = settlementDisputeWindowEndsAtMs(settlement);
+          if (Number.isFinite(disputeWindowEndsAtMs)) {
+            pushTimeline(
+              "dispute.window_ends",
+              new Date(disputeWindowEndsAtMs).toISOString(),
+              {
+                disputeWindowDays: settlement?.disputeWindowDays ?? null
+              },
+              "settlement"
+            );
+          }
+          timeline.sort((left, right) => {
+            const leftAtMs = Number.isFinite(Date.parse(String(left?.at ?? ""))) ? Date.parse(String(left?.at ?? "")) : Number.POSITIVE_INFINITY;
+            const rightAtMs = Number.isFinite(Date.parse(String(right?.at ?? ""))) ? Date.parse(String(right?.at ?? "")) : Number.POSITIVE_INFINITY;
+            if (leftAtMs !== rightAtMs) return leftAtMs - rightAtMs;
+            return String(left?.eventType ?? "").localeCompare(String(right?.eventType ?? ""));
+          });
+
+          const queueItem = normalizeForCanonicalJson(
+            {
+              caseId: arbitrationCase.caseId ?? null,
+              runId,
+              disputeId: arbitrationCase.disputeId ?? null,
+              settlementId: arbitrationCase.settlementId ?? null,
+              priority: casePriority,
+              status: arbitrationCase.status ?? null,
+              arbiterAgentId: arbitrationCase.arbiterAgentId ?? null,
+              openedAt,
+              closedAt: arbitrationCase.closedAt ?? null,
+              ageSeconds,
+              ageHours,
+              slaHours,
+              dueAt,
+              overSla,
+              summary: arbitrationCase.summary ?? null,
+              evidenceCount: caseEvidenceRefs.length,
+              appealRef: arbitrationCase.appealRef ?? null,
+              revision: arbitrationCase.revision ?? null,
+              updatedAt: arbitrationCase.updatedAt ?? null
+            },
+            { path: "$" }
+          );
+
+          const disputeStatus = String(settlement?.disputeStatus ?? "").toLowerCase();
+          const disputeIsOpen = disputeStatus === AGENT_RUN_SETTLEMENT_DISPUTE_STATUS.OPEN;
+          const disputeWindowOpen = Number.isFinite(disputeWindowEndsAtMs) && Number.isFinite(nowMs) ? nowMs <= disputeWindowEndsAtMs : false;
+          const canAssignArbiter = normalizedCaseStatus === ARBITRATION_CASE_STATUS.OPEN || normalizedCaseStatus === ARBITRATION_CASE_STATUS.UNDER_REVIEW;
+          const canAddEvidence = normalizedCaseStatus === ARBITRATION_CASE_STATUS.OPEN || normalizedCaseStatus === ARBITRATION_CASE_STATUS.UNDER_REVIEW;
+          const canSubmitVerdict =
+            (normalizedCaseStatus === ARBITRATION_CASE_STATUS.OPEN || normalizedCaseStatus === ARBITRATION_CASE_STATUS.UNDER_REVIEW) &&
+            disputeIsOpen &&
+            disputeWindowOpen;
+          const canCloseCase = normalizedCaseStatus === ARBITRATION_CASE_STATUS.VERDICT_ISSUED;
+	          const canOpenAppeal =
+	            (normalizedCaseStatus === ARBITRATION_CASE_STATUS.VERDICT_ISSUED || normalizedCaseStatus === ARBITRATION_CASE_STATUS.CLOSED) &&
+	            disputeWindowOpen;
+	          const normalizedRevision = Number(arbitrationCase?.revision);
+	          const arbitrationCaseArtifactId =
+	            Number.isSafeInteger(normalizedRevision) && normalizedRevision > 1
+	              ? `arbitration_case_${String(caseId)}_r${normalizedRevision}`
+	              : `arbitration_case_${String(caseId)}`;
+	          const verdictId =
+	            typeof arbitrationCase?.verdictId === "string" && arbitrationCase.verdictId.trim() !== ""
+	              ? arbitrationCase.verdictId.trim()
+	              : null;
+	          const arbitrationVerdictArtifactId = verdictId ? `arbitration_verdict_${verdictId}` : null;
+	          const currentMonth = (() => {
+	            const atIso = Number.isFinite(nowMs) ? new Date(nowMs).toISOString() : nowIso();
+	            return typeof atIso === "string" && atIso.length >= 7 ? atIso.slice(0, 7) : null;
+	          })();
+	          const appealParentCaseId =
+	            typeof arbitrationCase?.appealRef?.parentCaseId === "string" && arbitrationCase.appealRef.parentCaseId.trim() !== ""
+	              ? arbitrationCase.appealRef.parentCaseId.trim()
+	              : null;
+	          const appealChildCaseIds = relatedCases
+	            .filter(
+	              (row) =>
+	                row &&
+	                typeof row === "object" &&
+	                typeof row?.appealRef?.parentCaseId === "string" &&
+	                row.appealRef.parentCaseId === caseId &&
+	                typeof row?.caseId === "string" &&
+	                row.caseId !== caseId
+	            )
+	            .map((row) => row.caseId);
+	          const links = normalizeForCanonicalJson(
+	            {
+	              runSettlement: `/runs/${encodeURIComponent(runId)}/settlement`,
+	              runSettlementPolicyReplay: `/runs/${encodeURIComponent(runId)}/settlement/policy-replay`,
+	              runArbitrationCases: `/runs/${encodeURIComponent(runId)}/arbitration/cases`,
+	              selectedArbitrationCase: `/runs/${encodeURIComponent(runId)}/arbitration/cases/${encodeURIComponent(caseId)}`,
+	              opsAudit: "/ops/audit?limit=200",
+	              settlementsExportTemplate: currentMonth ? `/ops/settlements/export?month=${encodeURIComponent(currentMonth)}` : null,
+	              arbitrationCaseArtifactStatus: `/artifacts/${encodeURIComponent(arbitrationCaseArtifactId)}/status`,
+	              arbitrationVerdictArtifactStatus: arbitrationVerdictArtifactId
+	                ? `/artifacts/${encodeURIComponent(arbitrationVerdictArtifactId)}/status`
+	                : null
+	            },
+	            { path: "$" }
+	          );
+	          const appealChain = normalizeForCanonicalJson(
+	            {
+	              parentCaseId: appealParentCaseId,
+	              childCaseIds: [...new Set(appealChildCaseIds)]
+	            },
+	            { path: "$" }
+	          );
+
+	          return sendJson(res, 200, {
+	            tenantId,
+            runId,
+            caseId,
+            slaHours,
+            queueItem,
+            arbitrationCase,
+	            relatedCases,
+	            appealChain,
+	            settlement: buildSettlementResponseBody(settlement),
+	            links,
+	            run: run
+	              ? {
+	                  run,
+                  verification: runVerification ?? null,
+                  recentEvents: recentRunEvents
+                }
+              : null,
+            actionability: {
+              canWrite: hasWriteScope,
+              canAssignArbiter: hasWriteScope && canAssignArbiter,
+              canAddEvidence: hasWriteScope && canAddEvidence,
+              canSubmitVerdict: hasWriteScope && canSubmitVerdict,
+              canCloseCase: hasWriteScope && canCloseCase,
+              canOpenAppeal: hasWriteScope && canOpenAppeal
+            },
+            timeline,
+            evidenceRefs
           });
         }
 
@@ -18898,6 +23253,262 @@ export function createApi({
       }
 
       const marketplaceParts = path.split("/").filter(Boolean);
+      if (marketplaceParts[0] === "marketplace" && marketplaceParts[1] === "capability-listings") {
+        if (!(store.marketplaceCapabilityListings instanceof Map)) store.marketplaceCapabilityListings = new Map();
+
+        if (req.method === "POST" && (marketplaceParts.length === 2 || marketplaceParts.length === 3)) {
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          const pathListingIdRaw = marketplaceParts.length === 3 ? marketplaceParts[2] : null;
+          let pathListingId = null;
+          try {
+            pathListingId = parseMarketplaceCapabilityListingId(pathListingIdRaw, { fieldPath: "listingId", allowNull: true });
+          } catch (err) {
+            return sendError(res, 400, "invalid listing id", { message: err?.message });
+          }
+
+          let requestedListingId = null;
+          try {
+            requestedListingId =
+              pathListingId ??
+              parseMarketplaceCapabilityListingId(body?.listingId, {
+                fieldPath: "listingId",
+                allowNull: true
+              }) ??
+              createId("caplst");
+          } catch (err) {
+            return sendError(res, 400, "invalid listing id", { message: err?.message });
+          }
+
+          if (pathListingId && body?.listingId !== undefined && String(body.listingId).trim() !== pathListingId) {
+            return sendError(res, 409, "listingId in path/body must match");
+          }
+
+          const existingListing = getMarketplaceCapabilityListing({ tenantId, listingId: requestedListingId });
+          if (pathListingId && !existingListing) return sendError(res, 404, "capability listing not found");
+
+          let capability = null;
+          if (body?.capability !== undefined) {
+            capability = String(body.capability ?? "").trim();
+            if (!capability) return sendError(res, 400, "capability is required");
+            if (capability.length > 128) return sendError(res, 400, "capability must be <= 128 chars");
+          } else {
+            capability = String(existingListing?.capability ?? "").trim() || null;
+          }
+          if (!capability) return sendError(res, 400, "capability is required");
+
+          const titleRaw = body?.title !== undefined ? body.title : existingListing?.title ?? capability;
+          const title = String(titleRaw ?? "").trim() || capability;
+          if (title.length > 240) return sendError(res, 400, "title must be <= 240 chars");
+          const description =
+            body?.description === undefined
+              ? existingListing?.description ?? null
+              : body.description === null || String(body.description ?? "").trim() === ""
+                ? null
+                : String(body.description).trim();
+          if (description && description.length > 4000) return sendError(res, 400, "description must be <= 4000 chars");
+          const category =
+            body?.category === undefined
+              ? existingListing?.category ?? null
+              : body.category === null || String(body.category ?? "").trim() === ""
+                ? null
+                : String(body.category).trim();
+          if (category && category.length > 128) return sendError(res, 400, "category must be <= 128 chars");
+
+          let sellerAgentId = null;
+          if (body?.sellerAgentId === undefined) {
+            sellerAgentId = existingListing?.sellerAgentId ?? null;
+          } else {
+            sellerAgentId = body.sellerAgentId === null || String(body.sellerAgentId ?? "").trim() === "" ? null : String(body.sellerAgentId).trim();
+          }
+          if (sellerAgentId) {
+            let sellerIdentity = null;
+            try {
+              sellerIdentity = await getAgentIdentityRecord({ tenantId, agentId: sellerAgentId });
+            } catch (err) {
+              return sendError(res, 400, "invalid sellerAgentId", { message: err?.message });
+            }
+            if (!sellerIdentity) return sendError(res, 404, "seller agent identity not found");
+          }
+
+          let status = null;
+          try {
+            status = parseMarketplaceCapabilityListingStatus(body?.status ?? existingListing?.status ?? "active", {
+              allowAll: false,
+              defaultStatus: "active"
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid capability listing status", { message: err?.message });
+          }
+
+          let tags = null;
+          try {
+            tags =
+              body?.tags === undefined
+                ? normalizeMarketplaceCapabilityTagsInput(existingListing?.tags ?? [])
+                : normalizeMarketplaceCapabilityTagsInput(body.tags);
+          } catch (err) {
+            return sendError(res, 400, "invalid tags", { message: err?.message });
+          }
+
+          let priceModel = null;
+          try {
+            priceModel =
+              body?.priceModel === undefined
+                ? normalizeMarketplaceCapabilityPriceModelInput(existingListing?.priceModel ?? null)
+                : normalizeMarketplaceCapabilityPriceModelInput(body.priceModel);
+          } catch (err) {
+            return sendError(res, 400, "invalid priceModel", { message: err?.message });
+          }
+
+          let availability = null;
+          if (body?.availability === undefined) {
+            availability = existingListing?.availability ?? null;
+          } else if (body.availability === null) {
+            availability = null;
+          } else if (typeof body.availability !== "object" || Array.isArray(body.availability)) {
+            return sendError(res, 400, "availability must be an object or null");
+          } else {
+            const timezone =
+              body.availability.timezone === null || body.availability.timezone === undefined || String(body.availability.timezone).trim() === ""
+                ? null
+                : String(body.availability.timezone).trim();
+            const windows = Array.isArray(body.availability.windows) ? body.availability.windows : [];
+            availability = {
+              schemaVersion: "MarketplaceCapabilityAvailability.v1",
+              timezone,
+              windows
+            };
+          }
+
+          const metadata =
+            body?.metadata === undefined
+              ? existingListing?.metadata ?? null
+              : body.metadata === null
+                ? null
+                : typeof body.metadata === "object" && !Array.isArray(body.metadata)
+                  ? { ...body.metadata }
+                  : null;
+          if (body?.metadata !== undefined && metadata === null && body.metadata !== null) {
+            return sendError(res, 400, "metadata must be an object or null");
+          }
+
+          const nowAt = nowIso();
+          const listing = {
+            schemaVersion: "MarketplaceCapabilityListing.v1",
+            listingId: requestedListingId,
+            tenantId,
+            capability,
+            title,
+            description,
+            category,
+            sellerAgentId,
+            status,
+            tags,
+            priceModel,
+            availability,
+            metadata,
+            createdAt: existingListing?.createdAt ?? nowAt,
+            updatedAt: nowAt
+          };
+          store.marketplaceCapabilityListings.set(capabilityListingStoreKey(tenantId, requestedListingId), listing);
+          const statusCode = existingListing ? 200 : 201;
+          const responseBody = { listing };
+          if (idemStoreKey) {
+            await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode, body: responseBody } }]);
+          }
+          return sendJson(res, statusCode, responseBody);
+        }
+
+        if (req.method === "GET" && marketplaceParts.length === 2) {
+          let status = "all";
+          try {
+            status = parseMarketplaceCapabilityListingStatus(url.searchParams.get("status"), {
+              allowAll: true,
+              defaultStatus: "all"
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid capability listing query", { message: err?.message });
+          }
+          const capability = url.searchParams.get("capability");
+          const sellerAgentId = url.searchParams.get("sellerAgentId");
+          const search = url.searchParams.get("q");
+          const { limit, offset } = parsePagination({
+            limitRaw: url.searchParams.get("limit"),
+            offsetRaw: url.searchParams.get("offset"),
+            defaultLimit: 50,
+            maxLimit: 200
+          });
+          const rows = listMarketplaceCapabilityListings({ tenantId, status, capability, sellerAgentId, search });
+          return sendJson(res, 200, { listings: rows.slice(offset, offset + limit), total: rows.length, limit, offset });
+        }
+
+        if (req.method === "GET" && marketplaceParts.length === 3) {
+          let listingId = null;
+          try {
+            listingId = parseMarketplaceCapabilityListingId(marketplaceParts[2], { fieldPath: "listingId" });
+          } catch (err) {
+            return sendError(res, 400, "invalid listing id", { message: err?.message });
+          }
+          const listing = getMarketplaceCapabilityListing({ tenantId, listingId });
+          if (!listing) return sendError(res, 404, "capability listing not found");
+          return sendJson(res, 200, { listing });
+        }
+
+        if (req.method === "DELETE" && marketplaceParts.length === 3) {
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          const body = {};
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "DELETE", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          let listingId = null;
+          try {
+            listingId = parseMarketplaceCapabilityListingId(marketplaceParts[2], { fieldPath: "listingId" });
+          } catch (err) {
+            return sendError(res, 400, "invalid listing id", { message: err?.message });
+          }
+          const listing = getMarketplaceCapabilityListing({ tenantId, listingId });
+          if (!listing) return sendError(res, 404, "capability listing not found");
+          store.marketplaceCapabilityListings.delete(capabilityListingStoreKey(tenantId, listingId));
+          const responseBody = { ok: true, deleted: true, listingId, listing };
+          if (idemStoreKey) {
+            await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+          }
+          return sendJson(res, 200, responseBody);
+        }
+
+        return sendError(res, 404, "not found");
+      }
+
       if (marketplaceParts[0] === "marketplace" && marketplaceParts[1] === "settlement-policies") {
         if (!(store.tenantSettlementPolicies instanceof Map)) store.tenantSettlementPolicies = new Map();
 
@@ -19040,9 +23651,9 @@ export function createApi({
         return sendError(res, 404, "not found");
       }
 
-      if (marketplaceParts[0] === "marketplace" && marketplaceParts[1] === "tasks") {
-        if (!(store.marketplaceTasks instanceof Map)) store.marketplaceTasks = new Map();
-        if (!(store.marketplaceTaskBids instanceof Map)) store.marketplaceTaskBids = new Map();
+      if (marketplaceParts[0] === "marketplace" && marketplaceParts[1] === "rfqs") {
+        if (!(store.marketplaceRfqs instanceof Map)) store.marketplaceRfqs = new Map();
+        if (!(store.marketplaceRfqBids instanceof Map)) store.marketplaceRfqBids = new Map();
 
         if (req.method === "POST" && marketplaceParts.length === 2) {
           const body = await readJsonBody(req);
@@ -19063,10 +23674,13 @@ export function createApi({
             }
           }
 
-          const taskId = body?.taskId && String(body.taskId).trim() !== "" ? String(body.taskId).trim() : createId("task");
+          if (body?.taskId !== undefined && body?.taskId !== null) {
+            return sendError(res, 400, "unsupported identifier field; use rfqId");
+          }
+          const rfqId = body?.rfqId && String(body.rfqId).trim() !== "" ? String(body.rfqId).trim() : createId("rfq");
           const title = body?.title && String(body.title).trim() !== "" ? String(body.title).trim() : null;
           const capability = body?.capability && String(body.capability).trim() !== "" ? String(body.capability).trim() : null;
-          if (!title && !capability) return sendError(res, 400, "task title or capability is required");
+          if (!title && !capability) return sendError(res, 400, "rfq title or capability is required");
 
           const posterAgentId = body?.posterAgentId && String(body.posterAgentId).trim() !== "" ? String(body.posterAgentId).trim() : null;
           if (posterAgentId) {
@@ -19086,8 +23700,8 @@ export function createApi({
             return sendError(res, 400, "invalid interaction direction", { message: err?.message });
           }
 
-          const existingTask = getMarketplaceTask({ tenantId, taskId });
-          if (existingTask && !idemStoreKey) return sendError(res, 409, "marketplace task already exists");
+          const existingTask = getMarketplaceRfq({ tenantId, rfqId });
+          if (existingTask && !idemStoreKey) return sendError(res, 409, "marketplace rfq already exists");
 
           let budgetCents = null;
           if (body?.budgetCents !== undefined && body?.budgetCents !== null) {
@@ -19123,9 +23737,9 @@ export function createApi({
           }
 
           const nowAt = nowIso();
-          const task = {
-            schemaVersion: "MarketplaceTask.v1",
-            taskId,
+          const rfq = {
+            schemaVersion: "MarketplaceRfq.v1",
+            rfqId,
             tenantId,
             title: title ?? capability,
             description: body?.description && String(body.description).trim() !== "" ? String(body.description).trim() : null,
@@ -19146,12 +23760,12 @@ export function createApi({
             updatedAt: nowAt
           };
 
-          const existingBids = listMarketplaceTaskBids({ tenantId, taskId, status: "all" });
+          const existingBids = listMarketplaceRfqBids({ tenantId, rfqId, status: "all" });
           const ops = [
-            { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task },
-            { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: existingBids }
+            { kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq },
+            { kind: "MARKETPLACE_RFQ_BIDS_SET", tenantId, rfqId, bids: existingBids }
           ];
-          const responseBody = { task };
+          const responseBody = { rfq: toMarketplaceRfqResponse(rfq) };
           if (idemStoreKey) {
             ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
           }
@@ -19162,9 +23776,9 @@ export function createApi({
         if (req.method === "GET" && marketplaceParts.length === 2) {
           let status = "all";
           try {
-            status = parseMarketplaceTaskStatus(url.searchParams.get("status"), { allowAll: true, defaultStatus: "all" });
+            status = parseMarketplaceRfqStatus(url.searchParams.get("status"), { allowAll: true, defaultStatus: "all" });
           } catch (err) {
-            return sendError(res, 400, "invalid marketplace task query", { message: err?.message });
+            return sendError(res, 400, "invalid marketplace rfq query", { message: err?.message });
           }
 
           const capability = url.searchParams.get("capability");
@@ -19176,16 +23790,16 @@ export function createApi({
             maxLimit: 200
           });
 
-          const allTasks = listMarketplaceTasks({ tenantId, status, capability, posterAgentId });
-          const tasks = allTasks.slice(offset, offset + limit);
-          return sendJson(res, 200, { tasks, total: allTasks.length, limit, offset });
+          const allRfqs = listMarketplaceRfqs({ tenantId, status, capability, posterAgentId });
+          const rfqs = allRfqs.slice(offset, offset + limit);
+          return sendJson(res, 200, { rfqs: rfqs.map((rfq) => toMarketplaceRfqResponse(rfq)), total: allRfqs.length, limit, offset });
         }
 
-        const taskId = marketplaceParts[2] ? String(marketplaceParts[2]) : null;
-        if (!taskId) return sendError(res, 404, "not found");
+        const rfqId = marketplaceParts[2] ? String(marketplaceParts[2]) : null;
+        if (!rfqId) return sendError(res, 404, "not found");
 
-        const task = getMarketplaceTask({ tenantId, taskId });
-        if (!task) return sendError(res, 404, "marketplace task not found");
+        const rfq = getMarketplaceRfq({ tenantId, rfqId });
+        if (!rfq) return sendError(res, 404, "marketplace rfq not found");
 
         if (req.method === "GET" && marketplaceParts.length === 4 && marketplaceParts[3] === "bids") {
           let status = "all";
@@ -19203,9 +23817,9 @@ export function createApi({
             maxLimit: 200
           });
 
-          const allBids = listMarketplaceTaskBids({ tenantId, taskId, status, bidderAgentId });
+          const allBids = listMarketplaceRfqBids({ tenantId, rfqId, status, bidderAgentId });
           const bids = allBids.slice(offset, offset + limit);
-          return sendJson(res, 200, { taskId, bids, total: allBids.length, limit, offset });
+          return sendJson(res, 200, { rfqId, bids: bids.map((bid) => toMarketplaceBidResponse(bid)), total: allBids.length, limit, offset });
         }
 
         if (req.method === "POST" && marketplaceParts.length === 4 && marketplaceParts[3] === "bids") {
@@ -19227,7 +23841,7 @@ export function createApi({
             }
           }
 
-          if (String(task.status ?? "open").toLowerCase() !== "open") return sendError(res, 409, "marketplace task is not open for bidding");
+          if (String(rfq.status ?? "open").toLowerCase() !== "open") return sendError(res, 409, "marketplace rfq is not open for bidding");
 
           const bidderAgentId = body?.bidderAgentId && String(body.bidderAgentId).trim() !== "" ? String(body.bidderAgentId).trim() : null;
           if (!bidderAgentId) return sendError(res, 400, "bidderAgentId is required");
@@ -19240,30 +23854,30 @@ export function createApi({
           }
           if (!bidderIdentity) return sendError(res, 404, "bidder agent identity not found");
 
-          let taskDirection = null;
+          let rfqDirection = null;
           let bidDirection = null;
           try {
-            taskDirection = parseInteractionDirection({ fromTypeRaw: task?.fromType, toTypeRaw: task?.toType });
+            rfqDirection = parseInteractionDirection({ fromTypeRaw: rfq?.fromType, toTypeRaw: rfq?.toType });
             bidDirection = parseInteractionDirection({
               fromTypeRaw: body?.fromType,
               toTypeRaw: body?.toType,
-              defaultFromType: taskDirection.fromType,
-              defaultToType: taskDirection.toType
+              defaultFromType: rfqDirection.fromType,
+              defaultToType: rfqDirection.toType
             });
           } catch (err) {
             return sendError(res, 400, "invalid interaction direction", { message: err?.message });
           }
-          if (bidDirection.fromType !== taskDirection.fromType || bidDirection.toType !== taskDirection.toType) {
-            return sendError(res, 409, "bid interaction direction must match task direction");
+          if (bidDirection.fromType !== rfqDirection.fromType || bidDirection.toType !== rfqDirection.toType) {
+            return sendError(res, 409, "bid interaction direction must match rfq direction");
           }
 
           const amountCents = Number(body?.amountCents);
           if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return sendError(res, 400, "amountCents must be a positive safe integer");
 
-          const currency = body?.currency ? String(body.currency).trim().toUpperCase() : String(task.currency ?? "USD").toUpperCase();
+          const currency = body?.currency ? String(body.currency).trim().toUpperCase() : String(rfq.currency ?? "USD").toUpperCase();
           if (!currency) return sendError(res, 400, "currency must be a non-empty string");
-          if (String(task.currency ?? "USD").toUpperCase() !== currency) {
-            return sendError(res, 409, "bid currency must match task currency");
+          if (String(rfq.currency ?? "USD").toUpperCase() !== currency) {
+            return sendError(res, 409, "bid currency must match rfq currency");
           }
 
           let etaSeconds = null;
@@ -19306,14 +23920,14 @@ export function createApi({
           const policyRef = policySelection.policyRef;
 
           const bidId = body?.bidId && String(body.bidId).trim() !== "" ? String(body.bidId).trim() : createId("bid");
-          const allExistingBids = listMarketplaceTaskBids({ tenantId, taskId, status: "all" });
+          const allExistingBids = listMarketplaceRfqBids({ tenantId, rfqId, status: "all" });
           const duplicate = allExistingBids.find((row) => String(row?.bidId ?? "") === bidId);
           if (duplicate && !idemStoreKey) return sendError(res, 409, "marketplace bid already exists");
 
           const nowAt = nowIso();
-          const counterOfferPolicy = resolveMarketplaceCounterOfferPolicy({ task, bid: null });
+          const counterOfferPolicy = resolveMarketplaceCounterOfferPolicy({ rfq: rfq, bid: null });
           const initialProposal = buildMarketplaceBidNegotiationProposal({
-            task,
+            rfq: rfq,
             bidId,
             revision: 1,
             proposerAgentId: bidderAgentId,
@@ -19337,7 +23951,7 @@ export function createApi({
           const bid = {
             schemaVersion: "MarketplaceBid.v1",
             bidId,
-            taskId,
+            rfqId,
             tenantId,
             fromType: bidDirection.fromType,
             toType: bidDirection.toType,
@@ -19359,11 +23973,11 @@ export function createApi({
             updatedAt: nowAt
           };
           const nextBids = [...allExistingBids, bid];
-          const nextTask = { ...task, updatedAt: nowAt };
-          const responseBody = { task: nextTask, bid };
+          const nextRfq = { ...rfq, updatedAt: nowAt };
+          const responseBody = { rfq: toMarketplaceRfqResponse(nextRfq), bid: toMarketplaceBidResponse(bid) };
           const ops = [
-            { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: nextTask },
-            { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: nextBids }
+            { kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: nextRfq },
+            { kind: "MARKETPLACE_RFQ_BIDS_SET", tenantId, rfqId, bids: nextBids }
           ];
           if (idemStoreKey) {
             ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
@@ -19373,7 +23987,7 @@ export function createApi({
             await emitMarketplaceLifecycleArtifact({
               tenantId,
               eventType: "proposal.submitted",
-              taskId,
+              rfqId: rfqId,
               sourceEventId: initialProposal?.proposalId ?? null,
               actorAgentId: bidderAgentId,
               details: {
@@ -19411,7 +24025,7 @@ export function createApi({
             }
           }
 
-          if (String(task.status ?? "open").toLowerCase() !== "open") return sendError(res, 409, "marketplace task is not open for negotiation");
+          if (String(rfq.status ?? "open").toLowerCase() !== "open") return sendError(res, 409, "marketplace rfq is not open for negotiation");
 
           const proposerAgentId = body?.proposerAgentId && String(body.proposerAgentId).trim() !== "" ? String(body.proposerAgentId).trim() : null;
           if (!proposerAgentId) return sendError(res, 400, "proposerAgentId is required");
@@ -19424,7 +24038,7 @@ export function createApi({
           }
           if (!proposerIdentity) return sendError(res, 404, "proposer agent identity not found");
 
-          const allExistingBids = listMarketplaceTaskBids({ tenantId, taskId, status: "all" });
+          const allExistingBids = listMarketplaceRfqBids({ tenantId, rfqId, status: "all" });
           const selectedBid = allExistingBids.find((row) => String(row?.bidId ?? "") === bidId) ?? null;
           if (!selectedBid) return sendError(res, 404, "marketplace bid not found");
           if (String(selectedBid.status ?? "pending").toLowerCase() !== "pending") {
@@ -19432,14 +24046,14 @@ export function createApi({
           }
 
           const proposerRole = resolveMarketplaceBidCounterOfferRole({
-            task,
+            rfq: rfq,
             bid: selectedBid,
             proposerAgentId
           });
           if (!proposerRole) {
-            return sendError(res, 409, "counter-offer proposer must be task poster or bid bidder");
+            return sendError(res, 409, "counter-offer proposer must be rfq poster or bid bidder");
           }
-          let counterOfferPolicy = resolveMarketplaceCounterOfferPolicy({ task, bid: selectedBid });
+          let counterOfferPolicy = resolveMarketplaceCounterOfferPolicy({ rfq: rfq, bid: selectedBid });
           if (proposerRole === "poster" && counterOfferPolicy.allowPosterCounterOffers !== true) {
             return sendError(res, 409, "counter-offer proposer role blocked by counterOfferPolicy");
           }
@@ -19455,7 +24069,7 @@ export function createApi({
           if (!negotiation) {
             try {
               negotiation = bootstrapMarketplaceBidNegotiation({
-                task,
+                rfq: rfq,
                 bid: selectedBid,
                 counterOfferPolicy,
                 at: nowAt
@@ -19485,19 +24099,19 @@ export function createApi({
               if (String(candidate.bidId ?? "") !== bidId) return candidate;
               return expiredBid;
             });
-            const expiredTask = {
-              ...task,
+            const expiredRfq = {
+              ...rfq,
               updatedAt: nowAt
             };
             await commitTx([
-              { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: expiredTask },
-              { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: expiredBids }
+              { kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: expiredRfq },
+              { kind: "MARKETPLACE_RFQ_BIDS_SET", tenantId, rfqId, bids: expiredBids }
             ]);
             try {
               await emitMarketplaceLifecycleArtifact({
                 tenantId,
                 eventType: "proposal.expired",
-                taskId,
+                rfqId: rfqId,
                 sourceEventId: latestExpiredProposal?.proposalId ?? null,
                 actorAgentId: proposerAgentId,
                 details: {
@@ -19573,7 +24187,7 @@ export function createApi({
           let proposal = null;
           try {
             proposal = buildMarketplaceBidNegotiationProposal({
-              task,
+              rfq: rfq,
               bidId,
               revision: nextRevision,
               proposerAgentId,
@@ -19613,15 +24227,20 @@ export function createApi({
             if (String(candidate.bidId ?? "") !== bidId) return candidate;
             return nextBid;
           });
-          const nextTask = {
-            ...task,
+          const nextRfq = {
+            ...rfq,
             updatedAt: nowAt
           };
 
-          const responseBody = { task: nextTask, bid: nextBid, negotiation: nextNegotiation, proposal };
+          const responseBody = {
+            rfq: toMarketplaceRfqResponse(nextRfq),
+            bid: toMarketplaceBidResponse(nextBid),
+            negotiation: nextNegotiation,
+            proposal
+          };
           const ops = [
-            { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: nextTask },
-            { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: nextBids }
+            { kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: nextRfq },
+            { kind: "MARKETPLACE_RFQ_BIDS_SET", tenantId, rfqId, bids: nextBids }
           ];
           if (idemStoreKey) {
             ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
@@ -19631,7 +24250,7 @@ export function createApi({
             await emitMarketplaceLifecycleArtifact({
               tenantId,
               eventType: "proposal.submitted",
-              taskId,
+              rfqId: rfqId,
               sourceEventId: proposal?.proposalId ?? null,
               actorAgentId: proposerAgentId,
               details: {
@@ -19648,7 +24267,7 @@ export function createApi({
             await emitMarketplaceLifecycleArtifact({
               tenantId,
               eventType: "marketplace.bid.counter_offer_applied",
-              taskId,
+              rfqId: rfqId,
               sourceEventId: proposal?.proposalId ?? null,
               actorAgentId: proposerAgentId,
               details: {
@@ -19682,7 +24301,7 @@ export function createApi({
             }
           }
 
-          if (String(task.status ?? "open").toLowerCase() !== "open") return sendError(res, 409, "marketplace task is not open");
+          if (String(rfq.status ?? "open").toLowerCase() !== "open") return sendError(res, 409, "marketplace rfq is not open");
 
           const bidId = body?.bidId && String(body.bidId).trim() !== "" ? String(body.bidId).trim() : null;
           if (!bidId) return sendError(res, 400, "bidId is required");
@@ -19708,26 +24327,26 @@ export function createApi({
             if (!acceptedByIdentity) return sendError(res, 404, "accepting agent identity not found");
           }
 
-          const existingBids = listMarketplaceTaskBids({ tenantId, taskId, status: "all" });
+          const existingBids = listMarketplaceRfqBids({ tenantId, rfqId, status: "all" });
           const selectedBid = existingBids.find((candidate) => String(candidate?.bidId ?? "") === bidId) ?? null;
           if (!selectedBid) return sendError(res, 404, "marketplace bid not found");
           if (String(selectedBid.status ?? "pending").toLowerCase() !== "pending") return sendError(res, 409, "marketplace bid is not pending");
 
-          let taskDirection = null;
+          let rfqDirection = null;
           let bidDirection = null;
           try {
-            taskDirection = parseInteractionDirection({ fromTypeRaw: task?.fromType, toTypeRaw: task?.toType });
+            rfqDirection = parseInteractionDirection({ fromTypeRaw: rfq?.fromType, toTypeRaw: rfq?.toType });
             bidDirection = parseInteractionDirection({
               fromTypeRaw: selectedBid?.fromType,
               toTypeRaw: selectedBid?.toType,
-              defaultFromType: taskDirection.fromType,
-              defaultToType: taskDirection.toType
+              defaultFromType: rfqDirection.fromType,
+              defaultToType: rfqDirection.toType
             });
           } catch (err) {
             return sendError(res, 400, "invalid interaction direction", { message: err?.message });
           }
-          if (bidDirection.fromType !== taskDirection.fromType || bidDirection.toType !== taskDirection.toType) {
-            return sendError(res, 409, "accepted bid interaction direction must match task direction");
+          if (bidDirection.fromType !== rfqDirection.fromType || bidDirection.toType !== rfqDirection.toType) {
+            return sendError(res, 409, "accepted bid interaction direction must match rfq direction");
           }
 
           const payeeAgentId = selectedBid?.bidderAgentId ? String(selectedBid.bidderAgentId) : null;
@@ -19746,25 +24365,25 @@ export function createApi({
             acceptDirection = parseInteractionDirection({
               fromTypeRaw: body?.fromType ?? settlementInput?.fromType,
               toTypeRaw: body?.toType ?? settlementInput?.toType,
-              defaultFromType: taskDirection.fromType,
-              defaultToType: taskDirection.toType
+              defaultFromType: rfqDirection.fromType,
+              defaultToType: rfqDirection.toType
             });
           } catch (err) {
             return sendError(res, 400, "invalid interaction direction", { message: err?.message });
           }
-          if (acceptDirection.fromType !== taskDirection.fromType || acceptDirection.toType !== taskDirection.toType) {
-            return sendError(res, 409, "settlement interaction direction must match task direction");
+          if (acceptDirection.fromType !== rfqDirection.fromType || acceptDirection.toType !== rfqDirection.toType) {
+            return sendError(res, 409, "settlement interaction direction must match rfq direction");
           }
           const payerAgentIdRaw =
             settlementInput.payerAgentId ??
             body?.payerAgentId ??
-            task?.posterAgentId ??
+            rfq?.posterAgentId ??
             null;
           if (typeof payerAgentIdRaw !== "string" || payerAgentIdRaw.trim() === "") {
-            return sendError(res, 400, "payerAgentId is required (task poster or settlement.payerAgentId)");
+            return sendError(res, 400, "payerAgentId is required (rfq poster or settlement.payerAgentId)");
           }
           const acceptedAt = nowIso();
-          let counterOfferPolicy = resolveMarketplaceCounterOfferPolicy({ task, bid: selectedBid });
+          let counterOfferPolicy = resolveMarketplaceCounterOfferPolicy({ rfq: rfq, bid: selectedBid });
           let selectedBidNegotiation =
             selectedBid?.negotiation && typeof selectedBid.negotiation === "object" && !Array.isArray(selectedBid.negotiation)
               ? selectedBid.negotiation
@@ -19772,7 +24391,7 @@ export function createApi({
           if (!selectedBidNegotiation) {
             try {
               selectedBidNegotiation = bootstrapMarketplaceBidNegotiation({
-                task,
+                rfq: rfq,
                 bid: selectedBid,
                 counterOfferPolicy,
                 at: acceptedAt
@@ -19802,19 +24421,19 @@ export function createApi({
               if (String(candidate.bidId ?? "") !== bidId) return candidate;
               return expiredBid;
             });
-            const expiredTask = {
-              ...task,
+            const expiredRfq = {
+              ...rfq,
               updatedAt: acceptedAt
             };
             await commitTx([
-              { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: expiredTask },
-              { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: expiredBids }
+              { kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: expiredRfq },
+              { kind: "MARKETPLACE_RFQ_BIDS_SET", tenantId, rfqId, bids: expiredBids }
             ]);
             try {
               await emitMarketplaceLifecycleArtifact({
                 tenantId,
                 eventType: "proposal.expired",
-                taskId,
+                rfqId: rfqId,
                 sourceEventId: latestExpiredProposal?.proposalId ?? null,
                 actorAgentId: acceptedByAgentId ?? String(payerAgentIdRaw).trim(),
                 details: {
@@ -19871,7 +24490,7 @@ export function createApi({
           const fallbackCurrency =
             typeof selectedBidAccepted?.currency === "string" && selectedBidAccepted.currency.trim() !== ""
               ? selectedBidAccepted.currency
-              : task?.currency ?? "USD";
+              : rfq?.currency ?? "USD";
           let settlementRequest = null;
           try {
             settlementRequest = validateAgentRunSettlementRequest({
@@ -19896,7 +24515,7 @@ export function createApi({
             return sendError(res, 409, "wallet policy blocked settlement", { message: err?.message, code: err?.code ?? null });
           }
 
-          const runId = body?.runId && String(body.runId).trim() !== "" ? String(body.runId).trim() : `run_${taskId}_${bidId}`;
+          const runId = body?.runId && String(body.runId).trim() !== "" ? String(body.runId).trim() : `run_${rfqId}_${bidId}`;
           if (typeof runId !== "string" || runId.trim() === "") return sendError(res, 400, "runId must be a non-empty string");
           let existingRun = null;
           if (typeof store.getAgentRun === "function") {
@@ -19915,11 +24534,11 @@ export function createApi({
             taskType:
               body?.taskType && String(body.taskType).trim() !== ""
                 ? String(body.taskType).trim()
-                : task?.capability ?? task?.title ?? "marketplace-task",
+                : rfq?.capability ?? rfq?.title ?? "marketplace-rfq",
             inputRef:
               body?.inputRef && String(body.inputRef).trim() !== ""
                 ? String(body.inputRef).trim()
-                : `marketplace://tasks/${encodeURIComponent(taskId)}`
+                : `marketplace://rfqs/${encodeURIComponent(rfqId)}`
           };
           try {
             validateRunCreatedPayload(runCreatedPayload);
@@ -20005,9 +24624,9 @@ export function createApi({
           const agreementTermsInput = body?.agreementTerms ?? settlementInput?.agreementTerms ?? null;
           let agreement = null;
           try {
-            agreement = buildMarketplaceTaskAgreement({
+            agreement = buildMarketplaceRfqAgreement({
               tenantId,
-              task,
+              rfq: rfq,
               bid: selectedBidAccepted,
               runId,
               acceptedAt,
@@ -20051,6 +24670,21 @@ export function createApi({
             disputeWindowDays,
             at: acceptedAt
           });
+          const pendingKernelRefs = buildSettlementKernelRefs({
+            settlement,
+            run,
+            agreementId: agreement?.agreementId ?? null,
+            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.PENDING,
+            decisionMode: agreement?.policy?.mode ?? AGENT_RUN_SETTLEMENT_DECISION_MODE.AUTOMATIC,
+            decisionReason: null,
+            verificationStatus: null,
+            policyHash: agreement?.policyHash ?? null,
+            verificationMethodHash: agreement?.verificationMethodHash ?? null,
+            verificationMethodMode: agreement?.verificationMethod?.mode ?? null,
+            finalityState: SETTLEMENT_FINALITY_STATE.PENDING,
+            settledAt: null,
+            createdAt: acceptedAt
+          });
           settlement = updateAgentRunSettlementDecision({
             settlement,
             decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.PENDING,
@@ -20060,14 +24694,16 @@ export function createApi({
             decisionTrace: {
               phase: "agreement.accepted",
               verificationMethod: agreement?.verificationMethod ?? null,
-              policy: agreement?.policy ?? null
+              policy: agreement?.policy ?? null,
+              decisionRecord: pendingKernelRefs.decisionRecord,
+              settlementReceipt: pendingKernelRefs.settlementReceipt
             },
             at: acceptedAt
           });
-          const nextTask = {
-            ...task,
-            fromType: taskDirection.fromType,
-            toType: taskDirection.toType,
+          const nextRfq = {
+            ...rfq,
+            fromType: rfqDirection.fromType,
+            toType: rfqDirection.toType,
             status: "assigned",
             acceptedBidId: bidId,
             acceptedBidderAgentId: selectedBidAccepted.bidderAgentId ?? null,
@@ -20114,10 +24750,20 @@ export function createApi({
           });
 
           const acceptedBid = nextBids.find((candidate) => String(candidate?.bidId ?? "") === bidId) ?? null;
-          const responseBody = { task: nextTask, acceptedBid, run, settlement, agreement };
+          const responseBody = {
+            rfq: toMarketplaceRfqResponse(nextRfq),
+            acceptedBid: toMarketplaceBidResponse(acceptedBid),
+            run,
+            settlement,
+            agreement,
+            offer: agreement?.offer ?? null,
+            offerAcceptance: agreement?.offerAcceptance ?? null,
+            decisionRecord: pendingKernelRefs.decisionRecord,
+            settlementReceipt: pendingKernelRefs.settlementReceipt
+          };
           const ops = [
-            { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: nextTask },
-            { kind: "MARKETPLACE_TASK_BIDS_SET", tenantId, taskId, bids: nextBids },
+            { kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: nextRfq },
+            { kind: "MARKETPLACE_RFQ_BIDS_SET", tenantId, rfqId, bids: nextBids },
             { kind: "AGENT_RUN_EVENTS_APPENDED", tenantId, runId, events: runEvents },
             { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
             { kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement }
@@ -20129,8 +24775,8 @@ export function createApi({
           try {
             await emitMarketplaceLifecycleArtifact({
               tenantId,
-              eventType: "marketplace.task.accepted",
-              taskId,
+              eventType: "marketplace.rfq.accepted",
+              rfqId: rfqId,
               runId,
               sourceEventId: run?.lastEventId ?? null,
               actorAgentId: acceptedByAgentId ?? settlementRequest.payerAgentId,
@@ -20148,7 +24794,7 @@ export function createApi({
             await emitMarketplaceLifecycleArtifact({
               tenantId,
               eventType: "proposal.accepted",
-              taskId,
+              rfqId: rfqId,
               runId,
               sourceEventId: selectedLatestProposal?.proposalId ?? null,
               actorAgentId: acceptedByAgentId ?? settlementRequest.payerAgentId,
@@ -20555,7 +25201,7 @@ export function createApi({
           return sendError(res, 501, "agent run settlements not supported for this store", { message: err?.message });
         }
         if (!settlement) return sendError(res, 404, "run settlement not found");
-        return sendJson(res, 200, { settlement });
+        return sendJson(res, 200, buildSettlementResponseBody(settlement));
       }
 
       if (parts[0] === "runs" && parts[1] && parts[2] === "arbitration" && parts[3] === "cases" && parts.length === 4 && req.method === "GET") {
@@ -20592,10 +25238,536 @@ export function createApi({
         return sendJson(res, 200, { runId, arbitrationCase });
       }
 
+      // Tool-call arbitration cases (holdback disputes).
+      if (parts[0] === "tool-calls" && parts[1] === "arbitration" && parts[2] === "cases" && parts.length === 3 && req.method === "GET") {
+        const agreementHashRaw = url.searchParams.get("agreementHash");
+        let agreementHash = null;
+        try {
+          agreementHash = normalizeSha256HashInput(agreementHashRaw, "agreementHash", { allowNull: false });
+        } catch (err) {
+          return sendError(res, 400, "invalid agreementHash", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        const runId = `tc_${agreementHash}`;
+        const statusFilter = url.searchParams.get("status");
+        let cases = [];
+        try {
+          cases = await listArbitrationCaseRecords({ tenantId, runId, status: statusFilter ?? null, limit: 500, offset: 0 });
+        } catch (err) {
+          return sendError(res, 501, "arbitration cases not supported for this store", { message: err?.message });
+        }
+        const filtered = cases.filter((row) => {
+          const meta = row?.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata) ? row.metadata : null;
+          if (!meta) return false;
+          if (String(meta.caseType ?? "").toLowerCase() !== "tool_call") return false;
+          if (String(meta.agreementHash ?? "").toLowerCase() !== agreementHash) return false;
+          return true;
+        });
+        return sendJson(res, 200, { agreementHash, runId, cases: filtered });
+      }
+
+      if (parts[0] === "tool-calls" && parts[1] === "arbitration" && parts[2] === "cases" && parts[3] && parts.length === 4 && req.method === "GET") {
+        const caseId = parts[3];
+        let arbitrationCase = null;
+        try {
+          arbitrationCase = await getArbitrationCaseRecord({ tenantId, caseId });
+        } catch (err) {
+          return sendError(res, 501, "arbitration cases not supported for this store", { message: err?.message });
+        }
+        const meta = arbitrationCase?.metadata && typeof arbitrationCase.metadata === "object" && !Array.isArray(arbitrationCase.metadata) ? arbitrationCase.metadata : null;
+        if (!arbitrationCase || !meta || String(meta.caseType ?? "").toLowerCase() !== "tool_call") {
+          return sendError(res, 404, "arbitration case not found");
+        }
+        return sendJson(res, 200, { caseId, arbitrationCase });
+      }
+
+      if (parts[0] === "tool-calls" && parts[1] === "arbitration" && parts[2] && parts.length === 3 && req.method === "POST") {
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+        const action = parts[2];
+        if (action !== "open" && action !== "verdict") return sendError(res, 404, "not found");
+
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const nowAt = nowIso();
+
+        if (action === "open") {
+          let agreementHash = null;
+          let receiptHash = null;
+          let holdHash = null;
+          try {
+            agreementHash = normalizeSha256HashInput(body?.agreementHash, "agreementHash", { allowNull: false });
+            receiptHash = normalizeSha256HashInput(body?.receiptHash, "receiptHash", { allowNull: false });
+            holdHash = normalizeSha256HashInput(body?.holdHash, "holdHash", { allowNull: false });
+          } catch (err) {
+            return sendError(res, 400, "invalid arbitration subject", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const override = body?.adminOverride && typeof body.adminOverride === "object" && !Array.isArray(body.adminOverride) ? body.adminOverride : null;
+          const overrideEnabled = override?.enabled === true;
+          const overrideReason =
+            typeof override?.reason === "string" && override.reason.trim() !== "" ? override.reason.trim() : null;
+          if (overrideEnabled) {
+            if (!requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE)) return sendError(res, 403, "forbidden");
+            if (!overrideReason) return sendError(res, 400, "adminOverride.reason is required when override is enabled");
+          }
+
+          let hold = null;
+          try {
+            hold = await getToolCallHoldRecord({ tenantId, holdHash });
+          } catch (err) {
+            return sendError(res, 501, "tool call holds not supported for this store", { message: err?.message });
+          }
+          if (!hold) return sendError(res, 404, "funding hold not found");
+          try {
+            validateFundingHoldV1(hold);
+          } catch (err) {
+            return sendError(res, 409, "invalid funding hold", { message: err?.message }, { code: "HOLD_INVALID" });
+          }
+          if (String(hold.agreementHash ?? "").toLowerCase() !== agreementHash) {
+            return sendError(res, 409, "hold agreementHash mismatch", null, { code: "TOOL_CALL_DISPUTE_BINDING_MISMATCH" });
+          }
+          if (String(hold.receiptHash ?? "").toLowerCase() !== receiptHash) {
+            return sendError(res, 409, "hold receiptHash mismatch", null, { code: "TOOL_CALL_DISPUTE_BINDING_MISMATCH" });
+          }
+          if (String(hold.status ?? "").toLowerCase() !== FUNDING_HOLD_STATUS.HELD) {
+            return sendError(res, 409, "hold is not active", { status: hold.status ?? null }, { code: "HOLD_NOT_ACTIVE" });
+          }
+
+          const createdAtMs = Date.parse(String(hold.createdAt ?? ""));
+          const windowMs = Number(hold.challengeWindowMs ?? 0);
+          const nowMs = Date.parse(nowAt);
+          const withinWindow = Number.isFinite(createdAtMs) && Number.isFinite(nowMs) && nowMs <= createdAtMs + windowMs;
+          if (!overrideEnabled && !withinWindow) {
+            return sendError(res, 409, "challenge window closed", null, { code: "CHALLENGE_WINDOW_CLOSED" });
+          }
+
+          const defaultCaseId = `arb_case_tc_${agreementHash}`;
+          const caseIdRaw = body?.caseId ?? null;
+          const caseId =
+            caseIdRaw === null || caseIdRaw === undefined || caseIdRaw === ""
+              ? defaultCaseId
+              : typeof caseIdRaw === "string" && caseIdRaw.trim() !== ""
+                ? caseIdRaw.trim()
+                : null;
+          if (!caseId) return sendError(res, 400, "invalid caseId");
+          if (caseId !== defaultCaseId) {
+            return sendError(res, 409, "caseId must match deterministic tool-call case id", { expectedCaseId: defaultCaseId }, { code: "CASE_ID_NOT_DETERMINISTIC" });
+          }
+
+          let existingCase = null;
+          try {
+            existingCase = await getArbitrationCaseRecord({ tenantId, caseId });
+          } catch (err) {
+            return sendError(res, 501, "arbitration cases not supported for this store", { message: err?.message });
+          }
+          if (existingCase) {
+            const revisionRaw = Number(existingCase?.revision ?? 1);
+            const revision = Number.isSafeInteger(revisionRaw) && revisionRaw > 0 ? revisionRaw : 1;
+            const caseArtifactId = revision > 1 ? `arbitration_case_${caseId}_r${revision}` : `arbitration_case_${caseId}`;
+            const responseBody = {
+              arbitrationCase: existingCase,
+              arbitrationCaseArtifact: { artifactId: caseArtifactId },
+              alreadyExisted: true
+            };
+            if (idemStoreKey) {
+              await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+            }
+            return sendJson(res, 200, responseBody);
+          }
+
+          const runId = `tc_${agreementHash}`;
+          const disputeId = `disp_tc_${agreementHash}`;
+          const settlementId = `setl_tc_${agreementHash}`;
+
+          const openedByAgentIdRaw =
+            typeof body?.openedByAgentId === "string" && body.openedByAgentId.trim() !== "" ? body.openedByAgentId.trim() : null;
+          const openedByAgentId = openedByAgentIdRaw ?? String(hold.payerAgentId ?? "");
+          if (!openedByAgentId) return sendError(res, 400, "openedByAgentId is required");
+          if (!overrideEnabled && openedByAgentId !== hold.payerAgentId && openedByAgentId !== hold.payeeAgentId) {
+            return sendError(res, 409, "openedByAgentId must be a hold party", null, { code: "NOT_A_PARTY" });
+          }
+          const claimantAgentId = openedByAgentId;
+          const respondentAgentId =
+            openedByAgentId === hold.payerAgentId ? String(hold.payeeAgentId) : String(hold.payerAgentId);
+          if (!respondentAgentId || respondentAgentId === claimantAgentId) {
+            return sendError(res, 409, "invalid hold counterparties");
+          }
+
+          let evidenceRefs = [];
+          try {
+            evidenceRefs = normalizeArbitrationCaseEvidenceRefs(Array.isArray(body?.evidenceRefs) ? body.evidenceRefs : [], { fieldName: "evidenceRefs" });
+          } catch (err) {
+            return sendError(res, 400, "invalid evidenceRefs", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          let assignment = null;
+          let arbiterAgentId = null;
+          try {
+            arbiterAgentId =
+              typeof body?.arbiterAgentId === "string" && body.arbiterAgentId.trim() !== "" ? body.arbiterAgentId.trim() : null;
+          } catch {}
+          if (arbiterAgentId) {
+            const arbiterIdentity = await getAgentIdentityRecord({ tenantId, agentId: arbiterAgentId });
+            if (!arbiterIdentity) return sendError(res, 404, "arbiterAgentId not found");
+          } else if (Array.isArray(body?.panelCandidateAgentIds) && body.panelCandidateAgentIds.length > 0) {
+            try {
+              assignment = await assignDeterministicArbiterAgentId({
+                tenantId,
+                runId,
+                disputeId,
+                panelCandidateAgentIds: body.panelCandidateAgentIds
+              });
+            } catch (err) {
+              return sendError(res, 400, "invalid arbitration panel assignment", { message: err?.message });
+            }
+            arbiterAgentId = assignment.arbiterAgentId;
+          }
+          if (!arbiterAgentId) return sendError(res, 400, "arbiterAgentId or panelCandidateAgentIds is required");
+
+          const summary = typeof body?.summary === "string" && body.summary.trim() !== "" ? body.summary.trim() : null;
+          if (!summary) return sendError(res, 400, "summary is required");
+
+          const arbitrationCase = normalizeForCanonicalJson(
+            {
+              schemaVersion: "ArbitrationCase.v1",
+              caseId,
+              tenantId: normalizeTenant(tenantId),
+              runId,
+              settlementId,
+              disputeId,
+              claimantAgentId,
+              respondentAgentId,
+              arbiterAgentId,
+              priority: AGENT_RUN_SETTLEMENT_DISPUTE_PRIORITY.NORMAL,
+              status: ARBITRATION_CASE_STATUS.UNDER_REVIEW,
+              openedAt: nowAt,
+              closedAt: null,
+              summary,
+              evidenceRefs,
+              appealRef: null,
+              metadata: {
+                caseType: "tool_call",
+                agreementHash,
+                receiptHash,
+                holdHash,
+                override: overrideEnabled ? { enabled: true, reason: overrideReason, openedByPrincipalId: principalId } : { enabled: false },
+                ...(assignment
+                  ? {
+                      assignmentHash: assignment.assignmentHash,
+                      panelCandidateAgentIds: assignment.panelCandidateAgentIds
+                    }
+                  : null)
+              },
+              revision: 1,
+              createdAt: nowAt,
+              updatedAt: nowAt
+            },
+            { path: "$" }
+          );
+
+          const responseBody = { arbitrationCase, arbitrationCaseArtifact: null };
+          const ops = [{ kind: "ARBITRATION_CASE_UPSERT", tenantId, caseId, arbitrationCase }];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+          }
+          await commitTx(ops);
+          let arbitrationCaseArtifact = null;
+          try {
+            arbitrationCaseArtifact = await emitArbitrationCaseArtifact({
+              tenantId,
+              runId,
+              settlement: { settlementId, payerAgentId: hold.payerAgentId, agentId: hold.payeeAgentId, currency: hold.currency, disputeId },
+              arbitrationVerdict: null,
+              arbitrationCase,
+              at: nowAt
+            });
+          } catch {
+            arbitrationCaseArtifact = null;
+          }
+          return sendJson(res, 201, { ...responseBody, arbitrationCaseArtifact });
+        }
+
+        if (action === "verdict") {
+          const caseId = typeof body?.caseId === "string" && body.caseId.trim() !== "" ? body.caseId.trim() : null;
+          if (!caseId) return sendError(res, 400, "caseId is required");
+
+          let arbitrationCase = null;
+          try {
+            arbitrationCase = await getArbitrationCaseRecord({ tenantId, caseId });
+          } catch (err) {
+            return sendError(res, 501, "arbitration cases not supported for this store", { message: err?.message });
+          }
+          const meta = arbitrationCase?.metadata && typeof arbitrationCase.metadata === "object" && !Array.isArray(arbitrationCase.metadata) ? arbitrationCase.metadata : null;
+          if (!arbitrationCase || !meta || String(meta.caseType ?? "").toLowerCase() !== "tool_call") {
+            return sendError(res, 404, "arbitration case not found");
+          }
+
+          const agreementHash = normalizeSha256HashInput(meta.agreementHash, "metadata.agreementHash", { allowNull: false });
+          const receiptHash = normalizeSha256HashInput(meta.receiptHash, "metadata.receiptHash", { allowNull: false });
+          const holdHash = normalizeSha256HashInput(meta.holdHash, "metadata.holdHash", { allowNull: false });
+
+          const adjustmentId = `sadj_agmt_${agreementHash}_holdback`;
+          let existingAdjustment = null;
+          try {
+            existingAdjustment = await getSettlementAdjustmentRecord({ tenantId, adjustmentId });
+          } catch (err) {
+            return sendError(res, 501, "settlement adjustments not supported for this store", { message: err?.message });
+          }
+          if (existingAdjustment) {
+            const revisionRaw = Number(arbitrationCase?.revision ?? 1);
+            const revision = Number.isSafeInteger(revisionRaw) && revisionRaw > 0 ? revisionRaw : 1;
+            const caseArtifactId = revision > 1 ? `arbitration_case_${caseId}_r${revision}` : `arbitration_case_${caseId}`;
+            const verdictId =
+              typeof arbitrationCase?.verdictId === "string" && arbitrationCase.verdictId.trim() !== ""
+                ? arbitrationCase.verdictId.trim()
+                : null;
+            const verdictArtifactId = verdictId ? `arbitration_verdict_${verdictId}` : null;
+            const responseBody = {
+              arbitrationCase,
+              arbitrationVerdict: null,
+              settlementAdjustment: existingAdjustment,
+              arbitrationCaseArtifact: { artifactId: caseArtifactId },
+              arbitrationVerdictArtifact: verdictArtifactId ? { artifactId: verdictArtifactId } : null,
+              alreadyExisted: true
+            };
+            if (idemStoreKey) {
+              await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+            }
+            return sendJson(res, 200, responseBody);
+          }
+
+          let hold = null;
+          try {
+            hold = await getToolCallHoldRecord({ tenantId, holdHash });
+          } catch (err) {
+            return sendError(res, 501, "tool call holds not supported for this store", { message: err?.message });
+          }
+          if (!hold) return sendError(res, 404, "funding hold not found");
+          try {
+            validateFundingHoldV1(hold);
+          } catch (err) {
+            return sendError(res, 409, "invalid funding hold", { message: err?.message }, { code: "HOLD_INVALID" });
+          }
+          if (String(hold.status ?? "").toLowerCase() !== FUNDING_HOLD_STATUS.HELD) {
+            return sendError(res, 409, "hold is not active", { status: hold.status ?? null }, { code: "HOLD_NOT_ACTIVE" });
+          }
+
+          const currentStatus = normalizeArbitrationCaseStatus(arbitrationCase.status);
+          if (currentStatus !== ARBITRATION_CASE_STATUS.OPEN && currentStatus !== ARBITRATION_CASE_STATUS.UNDER_REVIEW) {
+            return sendError(res, 409, "arbitration case cannot accept verdict in current status");
+          }
+
+          let signedArbitrationVerdict = null;
+          try {
+            signedArbitrationVerdict = await parseSignedArbitrationVerdict({
+              tenantId,
+              runId: arbitrationCase.runId,
+              settlement: { settlementId: arbitrationCase.settlementId, payerAgentId: hold.payerAgentId, agentId: hold.payeeAgentId, currency: hold.currency },
+              disputeId: arbitrationCase.disputeId,
+              arbitrationVerdictInput: body?.arbitrationVerdict
+            });
+            if (String(signedArbitrationVerdict.caseId ?? "") !== String(caseId)) {
+              throw new TypeError("arbitrationVerdict.caseId must match caseId");
+            }
+            assertArbitrationVerdictEvidenceBoundToCase({ arbitrationCase, arbitrationVerdict: signedArbitrationVerdict });
+          } catch (err) {
+            return sendError(res, 400, "invalid arbitration verdict", { message: err?.message });
+          }
+          const releaseRatePct = Number(signedArbitrationVerdict.releaseRatePct);
+          if (releaseRatePct !== 0 && releaseRatePct !== 100) {
+            return sendError(res, 409, "tool-call verdict must be binary (releaseRatePct 0 or 100)", null, { code: "TOOL_CALL_VERDICT_NOT_BINARY" });
+          }
+
+          const kind =
+            releaseRatePct === 100 ? SETTLEMENT_ADJUSTMENT_KIND.HOLDBACK_RELEASE : SETTLEMENT_ADJUSTMENT_KIND.HOLDBACK_REFUND;
+          const heldAmountCents = Number(hold.heldAmountCents ?? 0);
+          if (!Number.isSafeInteger(heldAmountCents) || heldAmountCents < 0) {
+            return sendError(res, 409, "invalid hold heldAmountCents", null, { code: "HOLD_INVALID" });
+          }
+
+          const adjustment = buildSettlementAdjustmentV1({
+            adjustmentId,
+            tenantId,
+            agreementHash,
+            receiptHash,
+            holdHash,
+            kind,
+            amountCents: heldAmountCents,
+            currency: hold.currency,
+            createdAt: signedArbitrationVerdict.issuedAt ?? nowAt,
+            verdictRef: { caseId, verdictHash: signedArbitrationVerdict.verdictHash },
+            metadata: { openedByCaseId: caseId }
+          });
+          try {
+            validateSettlementAdjustmentV1(adjustment);
+          } catch (err) {
+            return sendError(res, 409, "invalid settlement adjustment", { message: err?.message }, { code: "ADJUSTMENT_INVALID" });
+          }
+
+          let payerWalletExisting = null;
+          let payeeWalletExisting = null;
+          try {
+            payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId: hold.payerAgentId });
+            payeeWalletExisting = await getAgentWalletRecord({ tenantId, agentId: hold.payeeAgentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid wallet query", { message: err?.message });
+          }
+          const payerWallet = ensureAgentWallet({ wallet: payerWalletExisting, tenantId, agentId: hold.payerAgentId, currency: hold.currency, at: nowAt });
+          const payeeWallet = ensureAgentWallet({ wallet: payeeWalletExisting, tenantId, agentId: hold.payeeAgentId, currency: hold.currency, at: nowAt });
+
+          let nextPayerWallet = payerWallet;
+          let nextPayeeWallet = payeeWallet;
+          try {
+            if (heldAmountCents > 0) {
+              if (kind === SETTLEMENT_ADJUSTMENT_KIND.HOLDBACK_RELEASE) {
+                const released = releaseAgentWalletEscrowToPayee({ payerWallet, payeeWallet, amountCents: heldAmountCents, at: nowAt });
+                nextPayerWallet = released.payerWallet;
+                nextPayeeWallet = released.payeeWallet;
+                projectEscrowLedgerOperation({
+                  tenantId,
+                  settlement: { currency: hold.currency, payerAgentId: hold.payerAgentId, agentId: hold.payeeAgentId },
+                  operationId: `escrow_release_${adjustmentId}`,
+                  type: ESCROW_OPERATION_TYPE.RELEASE,
+                  amountCents: heldAmountCents,
+                  at: nowAt,
+                  payerWalletBefore: payerWallet,
+                  payerWalletAfter: nextPayerWallet,
+                  payeeWalletBefore: payeeWallet,
+                  payeeWalletAfter: nextPayeeWallet,
+                  memo: `tool_call:${agreementHash}:holdback_release`
+                });
+              } else {
+                const refunded = refundAgentWalletEscrow({ wallet: payerWallet, amountCents: heldAmountCents, at: nowAt });
+                nextPayerWallet = refunded;
+                projectEscrowLedgerOperation({
+                  tenantId,
+                  settlement: { currency: hold.currency, payerAgentId: hold.payerAgentId, agentId: hold.payeeAgentId },
+                  operationId: `escrow_forfeit_${adjustmentId}`,
+                  type: ESCROW_OPERATION_TYPE.FORFEIT,
+                  amountCents: heldAmountCents,
+                  at: nowAt,
+                  payerWalletBefore: payerWallet,
+                  payerWalletAfter: nextPayerWallet,
+                  memo: `tool_call:${agreementHash}:holdback_refund`
+                });
+              }
+            }
+          } catch (err) {
+            return sendError(res, 409, "escrow operation rejected", { message: err?.message, code: err?.code ?? null }, { code: err?.code ?? "ESCROW_OPERATION_REJECTED" });
+          }
+
+          const resolvedHold = resolveFundingHoldV1({
+            hold,
+            status: kind === SETTLEMENT_ADJUSTMENT_KIND.HOLDBACK_RELEASE ? FUNDING_HOLD_STATUS.RELEASED : FUNDING_HOLD_STATUS.REFUNDED,
+            resolvedAt: nowAt,
+            metadata: { adjustmentId, verdictHash: signedArbitrationVerdict.verdictHash, caseId }
+          });
+
+          const nextCase = normalizeForCanonicalJson(
+            {
+              ...arbitrationCase,
+              verdictId: signedArbitrationVerdict.verdictId,
+              verdictHash: signedArbitrationVerdict.verdictHash,
+              status: ARBITRATION_CASE_STATUS.CLOSED,
+              closedAt: nowAt,
+              metadata: {
+                ...(meta ?? {}),
+                adjustmentId,
+                verdictHash: signedArbitrationVerdict.verdictHash
+              },
+              revision: Number(arbitrationCase.revision ?? 0) + 1,
+              updatedAt: nowAt
+            },
+            { path: "$" }
+          );
+
+          const ops = [
+            { kind: "SETTLEMENT_ADJUSTMENT_PUT", tenantId, adjustmentId, adjustment },
+            { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: nextPayerWallet },
+            ...(kind === SETTLEMENT_ADJUSTMENT_KIND.HOLDBACK_RELEASE ? [{ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: nextPayeeWallet }] : []),
+            { kind: "TOOL_CALL_HOLD_UPSERT", tenantId, holdHash: resolvedHold.holdHash, hold: resolvedHold },
+            { kind: "ARBITRATION_CASE_UPSERT", tenantId, caseId, arbitrationCase: nextCase }
+          ];
+          const responseBody = {
+            arbitrationCase: nextCase,
+            arbitrationVerdict: signedArbitrationVerdict,
+            settlementAdjustment: adjustment
+          };
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          try {
+            await commitTx(ops);
+          } catch (err) {
+            if (err?.code === "ADJUSTMENT_ALREADY_EXISTS") {
+              const existing = await getSettlementAdjustmentRecord({ tenantId, adjustmentId });
+              const revisionRaw = Number(nextCase?.revision ?? 1);
+              const revision = Number.isSafeInteger(revisionRaw) && revisionRaw > 0 ? revisionRaw : 1;
+              const caseArtifactId = revision > 1 ? `arbitration_case_${caseId}_r${revision}` : `arbitration_case_${caseId}`;
+              const verdictId =
+                typeof signedArbitrationVerdict?.verdictId === "string" && signedArbitrationVerdict.verdictId.trim() !== ""
+                  ? signedArbitrationVerdict.verdictId.trim()
+                  : null;
+              const verdictArtifactId = verdictId ? `arbitration_verdict_${verdictId}` : null;
+              return sendJson(res, 200, {
+                arbitrationCase: nextCase,
+                arbitrationVerdict: signedArbitrationVerdict,
+                settlementAdjustment: existing,
+                arbitrationCaseArtifact: { artifactId: caseArtifactId },
+                arbitrationVerdictArtifact: verdictArtifactId ? { artifactId: verdictArtifactId } : null,
+                alreadyExisted: true
+              });
+            }
+            throw err;
+          }
+          let arbitrationCaseArtifact = null;
+          let arbitrationVerdictArtifact = null;
+          try {
+            arbitrationCaseArtifact = await emitArbitrationCaseArtifact({
+              tenantId,
+              runId: arbitrationCase.runId,
+              settlement: { settlementId: arbitrationCase.settlementId, payerAgentId: hold.payerAgentId, agentId: hold.payeeAgentId, currency: hold.currency, disputeId: arbitrationCase.disputeId },
+              arbitrationVerdict: signedArbitrationVerdict,
+              arbitrationCase: nextCase,
+              at: nowAt
+            });
+          } catch {
+            arbitrationCaseArtifact = null;
+          }
+          try {
+            arbitrationVerdictArtifact = await emitArbitrationVerdictArtifact({
+              tenantId,
+              runId: arbitrationCase.runId,
+              settlement: { settlementId: arbitrationCase.settlementId, payerAgentId: hold.payerAgentId, agentId: hold.payeeAgentId, currency: hold.currency, disputeId: arbitrationCase.disputeId },
+              arbitrationVerdict: signedArbitrationVerdict
+            });
+          } catch {
+            arbitrationVerdictArtifact = null;
+          }
+
+          return sendJson(res, 200, { ...responseBody, arbitrationCaseArtifact, arbitrationVerdictArtifact });
+        }
+      }
+
       if (parts[0] === "runs" && parts[1] && parts[2] === "agreement" && parts.length === 3 && req.method === "GET") {
         const runId = parts[1];
-        const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
-        if (!linkedTask) return sendError(res, 404, "run has no linked marketplace task");
+        const linkedTask = findMarketplaceRfqByRunId({ tenantId, runId });
+        if (!linkedTask) return sendError(res, 404, "run has no linked marketplace rfq");
         const agreement = linkedTask?.agreement ?? null;
         if (!agreement || typeof agreement !== "object" || Array.isArray(agreement)) {
           return sendError(res, 404, "run has no marketplace agreement");
@@ -20603,16 +25775,34 @@ export function createApi({
         const agreementPolicyMaterial = resolveAgreementPolicyMaterial({ tenantId, agreement });
         const policyBindingVerification = await verifyMarketplaceAgreementPolicyBinding({ tenantId, agreement });
         const acceptanceSignatureVerification = await verifyMarketplaceAgreementAcceptanceSignature({ tenantId, agreement });
+        let settlement = null;
+        try {
+          settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+        } catch {
+          settlement = null;
+        }
+        const settlementArtifacts = settlement ? buildSettlementResponseBody(settlement) : {
+          settlement: null,
+          decisionRecord: null,
+          settlementReceipt: null,
+          kernelVerification: null
+        };
         return sendJson(res, 200, {
           runId,
-          taskId: linkedTask?.taskId ?? null,
+          rfqId: linkedTask?.rfqId ?? null,
           agreementId: agreement?.agreementId ?? null,
           agreement,
+          offer: agreement?.offer ?? null,
+          offerAcceptance: agreement?.offerAcceptance ?? null,
           policyRef: agreementPolicyMaterial.policyRef ?? null,
           policyHash: agreementPolicyMaterial.policyHash ?? null,
           verificationMethodHash: agreementPolicyMaterial.verificationMethodHash ?? null,
           policyBindingVerification,
-          acceptanceSignatureVerification
+          acceptanceSignatureVerification,
+          settlement: settlementArtifacts.settlement,
+          decisionRecord: settlementArtifacts.decisionRecord,
+          settlementReceipt: settlementArtifacts.settlementReceipt,
+          kernelVerification: settlementArtifacts.kernelVerification
         });
       }
 
@@ -20638,8 +25828,8 @@ export function createApi({
           }
         }
 
-        const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
-        if (!linkedTask) return sendError(res, 404, "run has no linked marketplace task");
+        const linkedTask = findMarketplaceRfqByRunId({ tenantId, runId });
+        if (!linkedTask) return sendError(res, 404, "run has no linked marketplace rfq");
         const agreement = linkedTask?.agreement ?? null;
         if (!agreement || typeof agreement !== "object" || Array.isArray(agreement)) {
           return sendError(res, 404, "run has no marketplace agreement");
@@ -20834,7 +26024,7 @@ export function createApi({
           signedAt: nowAt,
           signer: serverSigner
         });
-        const nextTask = {
+        const nextRfq = {
           ...linkedTask,
           agreement: nextAgreement,
           updatedAt: nowAt
@@ -20850,12 +26040,12 @@ export function createApi({
         });
         const responseBody = {
           runId,
-          task: nextTask,
+          rfq: toMarketplaceRfqResponse(nextRfq),
           agreement: nextAgreement,
           changeOrder: nextChangeOrder,
           acceptanceSignatureVerification
         };
-        const ops = [{ kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: nextTask }];
+        const ops = [{ kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: nextRfq }];
         if (idemStoreKey) {
           ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
         }
@@ -20864,7 +26054,7 @@ export function createApi({
           await emitMarketplaceLifecycleArtifact({
             tenantId,
             eventType: "marketplace.agreement.change_order_applied",
-            taskId: nextTask?.taskId ?? null,
+            rfqId: nextRfq?.rfqId ?? null,
             runId,
             sourceEventId: changeOrderId,
             actorAgentId: requestedByAgentId,
@@ -20900,8 +26090,8 @@ export function createApi({
           }
         }
 
-        const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
-        if (!linkedTask) return sendError(res, 404, "run has no linked marketplace task");
+        const linkedTask = findMarketplaceRfqByRunId({ tenantId, runId });
+        if (!linkedTask) return sendError(res, 404, "run has no linked marketplace rfq");
         const agreement = linkedTask?.agreement ?? null;
         if (!agreement || typeof agreement !== "object" || Array.isArray(agreement)) {
           return sendError(res, 404, "run has no marketplace agreement");
@@ -20927,6 +26117,20 @@ export function createApi({
         if (!settlement) return sendError(res, 404, "run settlement not found");
         if (settlement.status !== AGENT_RUN_SETTLEMENT_STATUS.LOCKED) {
           return sendError(res, 409, "run settlement is already resolved");
+        }
+        try {
+          assertSettlementKernelBindingsForResolution({
+            settlement,
+            runId,
+            phase: "agreement_cancel.preflight",
+            allowMissingArtifacts: true
+          });
+        } catch (err) {
+          return sendError(res, 409, "invalid settlement kernel artifacts", {
+            message: err?.message,
+            code: err?.code ?? null,
+            errors: err?.detail?.errors ?? null
+          }, { code: "SETTLEMENT_KERNEL_BINDING_INVALID" });
         }
 
         const cancellationPolicy = normalizeAgreementCancellationInput(agreement?.terms?.cancellation);
@@ -21086,6 +26290,31 @@ export function createApi({
           return sendError(res, 409, "agreement cancellation payment adjustments failed", { message: err?.message, code: err?.code ?? null });
         }
 
+        let cancellationKernelRefs = null;
+        try {
+          cancellationKernelRefs = buildSettlementKernelRefs({
+            settlement,
+            run: null,
+            agreementId: agreement?.agreementId ?? null,
+            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED,
+            decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+            decisionReason: reason,
+            verificationStatus: "red",
+            policyHash: agreement?.policyHash ?? settlement.decisionPolicyHash ?? null,
+            verificationMethodHash: agreement?.verificationMethodHash ?? null,
+            verificationMethodMode: agreement?.verificationMethod?.mode ?? null,
+            resolutionEventId: cancellationId,
+            status: releasedAmountCents > 0 ? AGENT_RUN_SETTLEMENT_STATUS.RELEASED : AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
+            releasedAmountCents,
+            refundedAmountCents,
+            releaseRatePct,
+            finalityState: SETTLEMENT_FINALITY_STATE.FINAL,
+            settledAt,
+            createdAt: settledAt
+          });
+        } catch (err) {
+          return sendError(res, 409, "agreement cancellation decision binding failed", { message: err?.message, code: err?.code ?? null });
+        }
         try {
           settlement = resolveAgentRunSettlement({
             settlement,
@@ -21104,12 +26333,26 @@ export function createApi({
               cancellationPolicy,
               cancelledByAgentId,
               acceptedByAgentId: acceptedByAgentId ?? null,
-              evidenceRef: evidenceRef ?? null
+              evidenceRef: evidenceRef ?? null,
+              decisionRecord: cancellationKernelRefs.decisionRecord,
+              settlementReceipt: cancellationKernelRefs.settlementReceipt
             },
             resolutionEventId: cancellationId,
             at: settledAt
           });
+          assertSettlementKernelBindingsForResolution({
+            settlement,
+            runId,
+            phase: "agreement_cancel.resolved"
+          });
         } catch (err) {
+          if (err?.code === "SETTLEMENT_KERNEL_BINDING_INVALID") {
+            return sendError(res, 409, "invalid settlement kernel artifacts", {
+              message: err?.message,
+              code: err?.code ?? null,
+              errors: err?.detail?.errors ?? null
+            }, { code: "SETTLEMENT_KERNEL_BINDING_INVALID" });
+          }
           return sendError(res, 409, "agreement cancellation settlement update failed", { message: err?.message, code: err?.code ?? null });
         }
 
@@ -21199,7 +26442,7 @@ export function createApi({
           linkedTask?.metadata && typeof linkedTask.metadata === "object" && !Array.isArray(linkedTask.metadata)
             ? { ...linkedTask.metadata }
             : {};
-        const nextTask = {
+        const nextRfq = {
           ...linkedTask,
           status: "cancelled",
           settlementStatus: settlement.status,
@@ -21213,10 +26456,10 @@ export function createApi({
 
         const responseBody = {
           runId,
-          task: nextTask,
+          rfq: toMarketplaceRfqResponse(nextRfq),
           run: runAfter,
           settlement,
-          agreement: nextTask.agreement ?? null,
+          agreement: nextRfq.agreement ?? null,
           cancellation: nextCancellationDetails,
           acceptanceSignatureVerification
         };
@@ -21225,7 +26468,7 @@ export function createApi({
           { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
           { kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement },
           { kind: "AGENT_RUN_EVENTS_APPENDED", tenantId, runId, events: [runFailedEvent] },
-          { kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: nextTask }
+          { kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: nextRfq }
         ];
         if (payeeWallet) ops.push({ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payeeWallet });
         if (idemStoreKey) {
@@ -21244,7 +26487,7 @@ export function createApi({
             settlementId: settlement?.settlementId ?? null,
             disputeId: settlement?.disputeId ?? null,
             sourceType: "agreement_cancellation",
-            sourceId: nextTask?.taskId ?? runId,
+            sourceId: nextRfq?.rfqId ?? runId,
             sourceEventId: runFailedEvent?.id ?? cancellationId,
             audit: {
               route: path,
@@ -21274,7 +26517,7 @@ export function createApi({
             settlementId: settlement?.settlementId ?? null,
             disputeId: settlement?.disputeId ?? null,
             sourceType: "agreement_cancellation",
-            sourceId: nextTask?.taskId ?? runId,
+            sourceId: nextRfq?.rfqId ?? runId,
             sourceEventId: settlement?.resolutionEventId ?? cancellationId,
             audit: {
               route: path,
@@ -21289,23 +26532,23 @@ export function createApi({
           await emitMarketplaceLifecycleArtifact({
             tenantId,
             eventType: "marketplace.agreement.cancelled",
-            taskId: nextTask?.taskId ?? null,
+            rfqId: nextRfq?.rfqId ?? null,
             runId,
             sourceEventId: cancellationId,
             actorAgentId: cancelledByAgentId,
-            agreement: nextTask?.agreement ?? null,
+            agreement: nextRfq?.agreement ?? null,
             settlement,
             details: { ...nextCancellationDetails, acceptanceSignatureVerification }
           });
-          if (typeof nextTask?.agreement?.acceptedProposalId === "string" && nextTask.agreement.acceptedProposalId.trim() !== "") {
+          if (typeof nextRfq?.agreement?.acceptedProposalId === "string" && nextRfq.agreement.acceptedProposalId.trim() !== "") {
             await emitMarketplaceLifecycleArtifact({
               tenantId,
               eventType: "proposal.cancelled",
-              taskId: nextTask?.taskId ?? null,
+              rfqId: nextRfq?.rfqId ?? null,
               runId,
-              sourceEventId: nextTask.agreement.acceptedProposalId,
+              sourceEventId: nextRfq.agreement.acceptedProposalId,
               actorAgentId: cancelledByAgentId,
-              agreement: nextTask?.agreement ?? null,
+              agreement: nextRfq?.agreement ?? null,
               settlement,
               details: { ...nextCancellationDetails, acceptanceSignatureVerification }
             });
@@ -21336,7 +26579,7 @@ export function createApi({
 
         const events = await getAgentRunEvents(tenantId, runId);
         const verification = computeAgentRunVerification({ run, events });
-        const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
+        const linkedTask = findMarketplaceRfqByRunId({ tenantId, runId });
         const agreement = linkedTask?.agreement ?? null;
         if (!agreement || typeof agreement !== "object") {
           return sendError(res, 404, "run has no marketplace agreement policy");
@@ -21380,6 +26623,7 @@ export function createApi({
           String(settlement.status ?? "").toLowerCase() === String(expectedSettlementStatus).toLowerCase();
         const policyBindingVerification = await verifyMarketplaceAgreementPolicyBinding({ tenantId, agreement });
         const acceptanceSignatureVerification = await verifyMarketplaceAgreementAcceptanceSignature({ tenantId, agreement });
+        const kernelVerification = verifySettlementKernelArtifacts({ settlement, runId });
 
         return sendJson(res, 200, {
           runId,
@@ -21402,6 +26646,7 @@ export function createApi({
             expectedSettlementStatus
           },
           settlement,
+          kernelVerification,
           matchesStoredDecision
         });
       }
@@ -21448,6 +26693,20 @@ export function createApi({
         if (!run) return sendError(res, 404, "run not found");
         if (run.status !== "completed" && run.status !== "failed") {
           return sendError(res, 409, "run is not in a terminal state");
+        }
+        try {
+          assertSettlementKernelBindingsForResolution({
+            settlement,
+            runId,
+            phase: "manual_settlement_resolve.preflight",
+            allowMissingArtifacts: true
+          });
+        } catch (err) {
+          return sendError(res, 409, "invalid settlement kernel artifacts", {
+            message: err?.message,
+            code: err?.code ?? null,
+            errors: err?.detail?.errors ?? null
+          }, { code: "SETTLEMENT_KERNEL_BINDING_INVALID" });
         }
 
         const statusRaw = String(body?.status ?? "").trim().toLowerCase();
@@ -21565,6 +26824,32 @@ export function createApi({
                 memo: `run:${runId}:manual_refund`
               });
             }
+            const manualResolveKernelRefs = buildSettlementKernelRefs({
+              settlement,
+              run,
+              agreementId: null,
+              decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED,
+              decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+              decisionReason:
+                typeof body?.reason === "string" && body.reason.trim() !== ""
+                  ? body.reason.trim()
+                  : "manual settlement resolution",
+              verificationStatus: run.status === "failed" ? "red" : null,
+              policyHash: settlement.decisionPolicyHash ?? null,
+              verificationMethodHash: null,
+              verificationMethodMode: null,
+              resolutionEventId:
+                typeof body?.resolutionEventId === "string" && body.resolutionEventId.trim() !== ""
+                  ? body.resolutionEventId.trim()
+                  : `manual_${createId("setl")}`,
+              status: statusRaw,
+              releasedAmountCents,
+              refundedAmountCents,
+              releaseRatePct,
+              finalityState: SETTLEMENT_FINALITY_STATE.FINAL,
+              settledAt,
+              createdAt: settledAt
+            });
             settlement = resolveAgentRunSettlement({
               settlement,
               status: statusRaw,
@@ -21591,12 +26876,17 @@ export function createApi({
                   releaseRatePct,
                   releasedAmountCents,
                   refundedAmountCents
-                }
+                },
+                decisionRecord: manualResolveKernelRefs.decisionRecord,
+                settlementReceipt: manualResolveKernelRefs.settlementReceipt
               },
-              resolutionEventId: typeof body?.resolutionEventId === "string" && body.resolutionEventId.trim() !== ""
-                ? body.resolutionEventId.trim()
-                : `manual_${createId("setl")}`,
+              resolutionEventId: manualResolveKernelRefs.decisionRecord?.workRef?.resolutionEventId ?? null,
               at: settledAt
+            });
+            assertSettlementKernelBindingsForResolution({
+              settlement,
+              runId,
+              phase: "manual_settlement_resolve.released"
             });
 
             const ops = [
@@ -21604,12 +26894,12 @@ export function createApi({
               { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: released.payeeWallet },
               { kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement }
             ];
-            const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
+            const linkedTask = findMarketplaceRfqByRunId({ tenantId, runId });
             if (linkedTask && String(linkedTask.status ?? "").toLowerCase() === "assigned") {
               ops.push({
-                kind: "MARKETPLACE_TASK_UPSERT",
+                kind: "MARKETPLACE_RFQ_UPSERT",
                 tenantId,
-                task: {
+                rfq: {
                   ...linkedTask,
                   status: "closed",
                   settlementStatus: settlement.status,
@@ -21633,7 +26923,7 @@ export function createApi({
             const releasedAmountCentsRaw =
               settlement?.releasedAmountCents ??
               (String(settlement?.status ?? "").toLowerCase() === AGENT_RUN_SETTLEMENT_STATUS.RELEASED ? settlement?.amountCents : 0);
-            const releasedAmountCents = Number.isSafeInteger(Number(releasedAmountCentsRaw)) ? Number(releasedAmountCentsRaw) : 0;
+            const settledVolumeAmountCents = Number.isSafeInteger(Number(releasedAmountCentsRaw)) ? Number(releasedAmountCentsRaw) : 0;
             await emitBillableUsageEventBestEffort(
               {
                 tenantId,
@@ -21641,7 +26931,7 @@ export function createApi({
                 eventType: BILLABLE_USAGE_EVENT_TYPE.SETTLED_VOLUME,
                 occurredAt: settlement?.resolvedAt ?? settledAt,
                 quantity: 1,
-                amountCents: Math.max(0, releasedAmountCents),
+                amountCents: Math.max(0, settledVolumeAmountCents),
                 currency: settlement?.currency ?? "USD",
                 runId,
                 settlementId: settlement?.settlementId ?? null,
@@ -21665,7 +26955,7 @@ export function createApi({
               await emitMarketplaceLifecycleArtifact({
                 tenantId,
                 eventType: "marketplace.settlement.manually_resolved",
-                taskId: linkedTask?.taskId ?? null,
+                rfqId: linkedTask?.rfqId ?? null,
                 runId,
                 sourceEventId: settlement.resolutionEventId ?? null,
                 actorAgentId:
@@ -21704,6 +26994,32 @@ export function createApi({
             memo: `run:${runId}:manual_refund`
           });
 
+          const manualRefundKernelRefs = buildSettlementKernelRefs({
+            settlement,
+            run,
+            agreementId: null,
+            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED,
+            decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+            decisionReason:
+              typeof body?.reason === "string" && body.reason.trim() !== ""
+                ? body.reason.trim()
+                : "manual settlement resolution",
+            verificationStatus: run.status === "failed" ? "red" : null,
+            policyHash: settlement.decisionPolicyHash ?? null,
+            verificationMethodHash: null,
+            verificationMethodMode: null,
+            resolutionEventId:
+              typeof body?.resolutionEventId === "string" && body.resolutionEventId.trim() !== ""
+                ? body.resolutionEventId.trim()
+                : `manual_${createId("setl")}`,
+            status: AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
+            releasedAmountCents: 0,
+            refundedAmountCents: settlement.amountCents,
+            releaseRatePct: 0,
+            finalityState: SETTLEMENT_FINALITY_STATE.FINAL,
+            settledAt,
+            createdAt: settledAt
+          });
           settlement = resolveAgentRunSettlement({
             settlement,
             status: AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
@@ -21730,25 +27046,29 @@ export function createApi({
                 releaseRatePct: 0,
                 releasedAmountCents: 0,
                 refundedAmountCents: settlement.amountCents
-              }
+              },
+              decisionRecord: manualRefundKernelRefs.decisionRecord,
+              settlementReceipt: manualRefundKernelRefs.settlementReceipt
             },
-            resolutionEventId:
-              typeof body?.resolutionEventId === "string" && body.resolutionEventId.trim() !== ""
-                ? body.resolutionEventId.trim()
-                : `manual_${createId("setl")}`,
+            resolutionEventId: manualRefundKernelRefs.decisionRecord?.workRef?.resolutionEventId ?? null,
             at: settledAt
+          });
+          assertSettlementKernelBindingsForResolution({
+            settlement,
+            runId,
+            phase: "manual_settlement_resolve.refunded"
           });
 
           const ops = [
             { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
             { kind: "AGENT_RUN_SETTLEMENT_UPSERT", tenantId, runId, settlement }
           ];
-          const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
+          const linkedTask = findMarketplaceRfqByRunId({ tenantId, runId });
           if (linkedTask && String(linkedTask.status ?? "").toLowerCase() === "assigned") {
             ops.push({
-              kind: "MARKETPLACE_TASK_UPSERT",
+              kind: "MARKETPLACE_RFQ_UPSERT",
               tenantId,
-              task: {
+              rfq: {
                 ...linkedTask,
                 status: "closed",
                 settlementStatus: settlement.status,
@@ -21800,7 +27120,7 @@ export function createApi({
             await emitMarketplaceLifecycleArtifact({
               tenantId,
               eventType: "marketplace.settlement.manually_resolved",
-              taskId: linkedTask?.taskId ?? null,
+              rfqId: linkedTask?.rfqId ?? null,
               runId,
               sourceEventId: settlement.resolutionEventId ?? null,
               actorAgentId:
@@ -21820,6 +27140,13 @@ export function createApi({
           }
           return sendJson(res, 200, responseBody);
         } catch (err) {
+          if (err?.code === "SETTLEMENT_KERNEL_BINDING_INVALID") {
+            return sendError(res, 409, "invalid settlement kernel artifacts", {
+              message: err?.message,
+              code: err?.code ?? null,
+              errors: err?.detail?.errors ?? null
+            }, { code: "SETTLEMENT_KERNEL_BINDING_INVALID" });
+          }
           return sendError(res, 409, "manual settlement resolution failed", { message: err?.message, code: err?.code ?? null });
         }
       }
@@ -21963,6 +27290,11 @@ export function createApi({
               claimantAgentId: String(settlement?.payerAgentId ?? settlement?.disputeContext?.openedByAgentId ?? ""),
               respondentAgentId: String(settlement?.agentId ?? ""),
               arbiterAgentId,
+              priority:
+                normalizeArbitrationCasePriority(settlement?.disputeContext?.priority, {
+                  fieldName: "settlement.disputeContext.priority",
+                  allowNull: true
+                }) ?? AGENT_RUN_SETTLEMENT_DISPUTE_PRIORITY.NORMAL,
               status: ARBITRATION_CASE_STATUS.UNDER_REVIEW,
               openedAt: nowAt,
               closedAt: null,
@@ -22459,6 +27791,13 @@ export function createApi({
               claimantAgentId: String(parentCase.claimantAgentId ?? settlement?.payerAgentId ?? ""),
               respondentAgentId: String(parentCase.respondentAgentId ?? settlement?.agentId ?? ""),
               arbiterAgentId,
+              priority:
+                normalizeArbitrationCasePriority(parentCase?.priority, { fieldName: "parentCase.priority", allowNull: true }) ??
+                normalizeArbitrationCasePriority(settlement?.disputeContext?.priority, {
+                  fieldName: "settlement.disputeContext.priority",
+                  allowNull: true
+                }) ??
+                AGENT_RUN_SETTLEMENT_DISPUTE_PRIORITY.NORMAL,
               status: ARBITRATION_CASE_STATUS.UNDER_REVIEW,
               openedAt: nowAt,
               closedAt: null,
@@ -23357,6 +28696,12 @@ export function createApi({
                 const settledAt = event?.at ?? nowIso();
                 const settlementResolutionKey = typeof event?.id === "string" && event.id.trim() !== "" ? event.id : `run_${runId}_${settledAt}`;
                 try {
+                  assertSettlementKernelBindingsForResolution({
+                    settlement,
+                    runId,
+                    phase: "run_terminal_settlement.preflight",
+                    allowMissingArtifacts: true
+                  });
                   const payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId: settlement.payerAgentId });
                   let payerWallet = ensureAgentWallet({
                     wallet: payerWalletExisting,
@@ -23367,7 +28712,7 @@ export function createApi({
                   });
 
                   const verification = computeAgentRunVerification({ run, events: nextEvents });
-                  const linkedTask = findMarketplaceTaskByRunId({ tenantId, runId });
+                  const linkedTask = findMarketplaceRfqByRunId({ tenantId, runId });
                   const linkedDisputeWindowDaysRaw = linkedTask?.agreement?.disputeWindowDays ?? settlement?.disputeWindowDays ?? 0;
                   const linkedDisputeWindowDays =
                     Number.isSafeInteger(Number(linkedDisputeWindowDaysRaw)) && Number(linkedDisputeWindowDaysRaw) >= 0
@@ -23439,6 +28784,22 @@ export function createApi({
                   }
 
                   if (!policyDecision.shouldAutoResolve) {
+                    const manualReviewKernelRefs = buildSettlementKernelRefs({
+                      settlement,
+                      run,
+                      agreementId: linkedTask?.agreement?.agreementId ?? null,
+                      decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_REVIEW_REQUIRED,
+                      decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+                      decisionReason: policyDecision.reasonCodes?.[0] ?? "manual review required by settlement policy",
+                      verificationStatus: policyDecision.verificationStatus ?? null,
+                      policyHash: agreementPolicyMaterial.policyHash ?? null,
+                      verificationMethodHash: agreementPolicyMaterial.verificationMethodHash ?? null,
+                      verificationMethodMode: agreementVerificationMethod?.mode ?? null,
+                      resolutionEventId: null,
+                      finalityState: SETTLEMENT_FINALITY_STATE.PENDING,
+                      settledAt: null,
+                      createdAt: settledAt
+                    });
                     settlement = updateAgentRunSettlementDecision({
                       settlement,
                       decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_REVIEW_REQUIRED,
@@ -23447,7 +28808,9 @@ export function createApi({
                       decisionReason: policyDecision.reasonCodes?.[0] ?? "manual review required by settlement policy",
                       decisionTrace: {
                         phase: "run.terminal.awaiting_manual_resolution",
-                        policyDecision
+                        policyDecision,
+                        decisionRecord: manualReviewKernelRefs.decisionRecord,
+                        settlementReceipt: manualReviewKernelRefs.settlementReceipt
                       },
                       at: settledAt
                     });
@@ -23465,7 +28828,7 @@ export function createApi({
                         settlementDecisionReason: settlement.decisionReason ?? null,
                         updatedAt: settledAt
                       };
-                      ops.push({ kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: awaitingTask });
+                      ops.push({ kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: awaitingTask });
                     }
                   } else {
                     const releaseAmountCents = Number(policyDecision.releaseAmountCents ?? 0);
@@ -23521,6 +28884,26 @@ export function createApi({
                       });
                     }
 
+                    const autoResolvedKernelRefs = buildSettlementKernelRefs({
+                      settlement,
+                      run,
+                      agreementId: linkedTask?.agreement?.agreementId ?? null,
+                      decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.AUTO_RESOLVED,
+                      decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.AUTOMATIC,
+                      decisionReason: policyDecision.reasonCodes?.[0] ?? null,
+                      verificationStatus: policyDecision.verificationStatus ?? null,
+                      policyHash: agreementPolicyMaterial.policyHash ?? null,
+                      verificationMethodHash: agreementPolicyMaterial.verificationMethodHash ?? null,
+                      verificationMethodMode: agreementVerificationMethod?.mode ?? null,
+                      resolutionEventId: event.id,
+                      status: releaseAmountCents > 0 ? AGENT_RUN_SETTLEMENT_STATUS.RELEASED : AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
+                      releasedAmountCents: releaseAmountCents,
+                      refundedAmountCents: refundAmountCents,
+                      releaseRatePct: Number(policyDecision.releaseRatePct ?? 0),
+                      finalityState: SETTLEMENT_FINALITY_STATE.FINAL,
+                      settledAt,
+                      createdAt: settledAt
+                    });
                     settlement = resolveAgentRunSettlement({
                       settlement,
                       status: releaseAmountCents > 0 ? AGENT_RUN_SETTLEMENT_STATUS.RELEASED : AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
@@ -23535,10 +28918,17 @@ export function createApi({
                       decisionReason: policyDecision.reasonCodes?.[0] ?? null,
                       decisionTrace: {
                         phase: "run.terminal.auto_resolved",
-                        policyDecision
+                        policyDecision,
+                        decisionRecord: autoResolvedKernelRefs.decisionRecord,
+                        settlementReceipt: autoResolvedKernelRefs.settlementReceipt
                       },
                       resolutionEventId: event.id,
                       at: settledAt
+                    });
+                    assertSettlementKernelBindingsForResolution({
+                      settlement,
+                      runId,
+                      phase: "run_terminal_settlement.auto_resolved"
                     });
 
                     ops.push({ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet });
@@ -23555,10 +28945,17 @@ export function createApi({
                         settlementDecisionReason: settlement.decisionReason ?? null,
                         updatedAt: settledAt
                       };
-                      ops.push({ kind: "MARKETPLACE_TASK_UPSERT", tenantId, task: closedTask });
+                      ops.push({ kind: "MARKETPLACE_RFQ_UPSERT", tenantId, rfq: closedTask });
                     }
                   }
                 } catch (err) {
+                  if (err?.code === "SETTLEMENT_KERNEL_BINDING_INVALID") {
+                    return sendError(res, 409, "invalid settlement kernel artifacts", {
+                      message: err?.message,
+                      code: err?.code ?? null,
+                      errors: err?.detail?.errors ?? null
+                    }, { code: "SETTLEMENT_KERNEL_BINDING_INVALID" });
+                  }
                   return sendError(res, 409, "run settlement failed", { message: err?.message, code: err?.code ?? null });
                 }
               }
@@ -23579,7 +28976,9 @@ export function createApi({
               }
             }
 
-            const responseBody = { event, run, settlement };
+            const settlementArtifacts = extractSettlementKernelArtifacts(settlement);
+            const kernelVerification = verifySettlementKernelArtifacts({ settlement, runId });
+            const responseBody = { event, run, settlement, ...settlementArtifacts, kernelVerification };
             if (idemStoreKey) {
               ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
             }
@@ -23644,7 +29043,7 @@ export function createApi({
                 await emitMarketplaceLifecycleArtifact({
                   tenantId,
                   eventType: "marketplace.settlement.resolved",
-                  taskId: findMarketplaceTaskByRunId({ tenantId, runId })?.taskId ?? null,
+                  rfqId: findMarketplaceRfqByRunId({ tenantId, runId })?.rfqId ?? null,
                   runId,
                   sourceEventId: event.id,
                   actorAgentId: agentId,
@@ -23662,7 +29061,7 @@ export function createApi({
                 await emitMarketplaceLifecycleArtifact({
                   tenantId,
                   eventType: "marketplace.settlement.manual_review_required",
-                  taskId: findMarketplaceTaskByRunId({ tenantId, runId })?.taskId ?? null,
+                  rfqId: findMarketplaceRfqByRunId({ tenantId, runId })?.rfqId ?? null,
                   runId,
                   sourceEventId: event.id,
                   actorAgentId: agentId,
@@ -24118,6 +29517,30 @@ export function createApi({
           jobId: artifactJobId,
           verification
         });
+      }
+
+      if (parts[0] === "artifacts" && parts[1] && parts.length === 2 && req.method === "GET") {
+        if (
+          !(
+            requireScope(auth.scopes, OPS_SCOPES.OPS_READ) ||
+            requireScope(auth.scopes, OPS_SCOPES.AUDIT_READ) ||
+            requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ)
+          )
+        ) {
+          return sendError(res, 403, "forbidden");
+        }
+        if (typeof store.getArtifact !== "function") return sendError(res, 501, "artifacts not supported for this store");
+
+        const artifactId = String(parts[1]);
+        let artifact = null;
+        try {
+          artifact = await store.getArtifact({ tenantId, artifactId });
+        } catch (err) {
+          return sendError(res, 400, "invalid artifact id", { message: err?.message });
+        }
+        if (!artifact) return sendError(res, 404, "artifact not found");
+
+        return sendJson(res, 200, { artifact });
       }
 
       if (parts[0] === "jobs" && parts[1]) {
@@ -26204,6 +31627,7 @@ export function createApi({
     tickJobAccounting,
     tickEvidenceRetention,
     tickRetentionCleanup,
+    tickFinanceReconciliation,
     tickBillingStripeSync,
     tickProof,
     tickArtifacts,

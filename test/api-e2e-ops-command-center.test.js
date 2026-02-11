@@ -49,12 +49,12 @@ test("API e2e: /ops/network/command-center summarizes reliability, settlement, d
   });
   assert.equal(credit.statusCode, 201);
 
-  const task = await request(api, {
+  const rfq = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks",
-    headers: { "x-idempotency-key": "cc_task_1" },
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "cc_rfq_1" },
     body: {
-      taskId: "task_cc_1",
+      rfqId: "rfq_cc_1",
       title: "Command center test task",
       capability: "translate",
       posterAgentId: "agt_cc_poster",
@@ -62,11 +62,11 @@ test("API e2e: /ops/network/command-center summarizes reliability, settlement, d
       currency: "USD"
     }
   });
-  assert.equal(task.statusCode, 201);
+  assert.equal(rfq.statusCode, 201);
 
   const bid = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_cc_1/bids",
+    path: "/marketplace/rfqs/rfq_cc_1/bids",
     headers: { "x-idempotency-key": "cc_bid_1" },
     body: {
       bidId: "bid_cc_1",
@@ -80,7 +80,7 @@ test("API e2e: /ops/network/command-center summarizes reliability, settlement, d
 
   const accept = await request(api, {
     method: "POST",
-    path: "/marketplace/tasks/task_cc_1/accept",
+    path: "/marketplace/rfqs/rfq_cc_1/accept",
     headers: { "x-idempotency-key": "cc_accept_1" },
     body: {
       bidId: "bid_cc_1",
@@ -158,6 +158,8 @@ test("API e2e: /ops/network/command-center summarizes reliability, settlement, d
   assert.ok(commandCenter.json?.commandCenter?.reliability?.backlog);
   assert.ok(commandCenter.json?.commandCenter?.settlement?.resolvedCount >= 1);
   assert.ok(commandCenter.json?.commandCenter?.settlement?.releasedAmountCents >= 2000);
+  assert.equal(typeof commandCenter.json?.commandCenter?.settlement?.kernelVerificationErrorCount, "number");
+  assert.ok(Array.isArray(commandCenter.json?.commandCenter?.settlement?.kernelVerificationErrorCountsByCode));
   assert.ok(commandCenter.json?.commandCenter?.disputes?.openCount >= 1);
   assert.ok(commandCenter.json?.commandCenter?.revenue?.estimatedTransactionFeesCentsInWindow >= 20);
   assert.ok(commandCenter.json?.commandCenter?.trust?.totalAgents >= 3);
@@ -184,4 +186,285 @@ test("API e2e: /ops/network/command-center summarizes reliability, settlement, d
     (d) => d?.artifactType === "CommandCenterAlert.v1"
   );
   assert.ok(deliveries.length >= alerts.json?.alerts?.emittedCount);
+});
+
+test("API e2e: command-center emits case-level over-SLA arbitration alerts with case identifiers", async () => {
+  let nowAt = "2026-02-07T00:00:00.000Z";
+  const api = createApi({
+    now: () => nowAt,
+    opsTokens: ["tok_opsr:ops_read", "tok_opsw:ops_write"].join(";"),
+    exportDestinations: {
+      tenant_default: [
+        {
+          destinationId: "dest_cc_case_alerts",
+          url: "https://example.invalid/command-center-case-alerts",
+          secret: "sek_cc_case_alerts",
+          artifactTypes: ["CommandCenterAlert.v1"]
+        }
+      ]
+    }
+  });
+
+  await registerAgent(api, "agt_cc_case_poster");
+  await registerAgent(api, "agt_cc_case_bidder");
+  await registerAgent(api, "agt_cc_case_operator");
+  await registerAgent(api, "agt_cc_case_arbiter");
+
+  const credit = await request(api, {
+    method: "POST",
+    path: "/agents/agt_cc_case_poster/wallet/credit",
+    headers: { "x-idempotency-key": "cc_case_credit_1" },
+    body: { amountCents: 5000, currency: "USD" }
+  });
+  assert.equal(credit.statusCode, 201);
+
+  const rfq = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "cc_case_rfq_1" },
+    body: {
+      rfqId: "rfq_cc_case_1",
+      title: "Command center arbitration case alert test task",
+      capability: "translate",
+      posterAgentId: "agt_cc_case_poster",
+      budgetCents: 2500,
+      currency: "USD"
+    }
+  });
+  assert.equal(rfq.statusCode, 201);
+
+  const bid = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_cc_case_1/bids",
+    headers: { "x-idempotency-key": "cc_case_bid_1" },
+    body: {
+      bidId: "bid_cc_case_1",
+      bidderAgentId: "agt_cc_case_bidder",
+      amountCents: 2000,
+      currency: "USD",
+      etaSeconds: 1200
+    }
+  });
+  assert.equal(bid.statusCode, 201);
+
+  const accept = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_cc_case_1/accept",
+    headers: { "x-idempotency-key": "cc_case_accept_1" },
+    body: {
+      bidId: "bid_cc_case_1",
+      acceptedByAgentId: "agt_cc_case_operator"
+    }
+  });
+  assert.equal(accept.statusCode, 200);
+  const runId = String(accept.json?.run?.runId ?? "");
+  assert.ok(runId.length > 0);
+
+  const complete = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent("agt_cc_case_bidder")}/runs/${encodeURIComponent(runId)}/events`,
+    headers: {
+      "x-proxy-expected-prev-chain-hash": accept.json?.run?.lastChainHash,
+      "x-idempotency-key": "cc_case_run_complete_1"
+    },
+    body: {
+      eventId: "ev_cc_case_run_complete_1",
+      type: "RUN_COMPLETED",
+      at: nowAt,
+      payload: {
+        outputRef: `evidence://${runId}/output.json`,
+        metrics: { settlementReleaseRatePct: 100 }
+      }
+    }
+  });
+  assert.equal(complete.statusCode, 201);
+
+  const completionSettlementStatus = String(complete.json?.settlement?.status ?? "");
+  if (completionSettlementStatus === "locked") {
+    const resolve = await request(api, {
+      method: "POST",
+      path: `/runs/${encodeURIComponent(runId)}/settlement/resolve`,
+      headers: { "x-idempotency-key": "cc_case_resolve_1" },
+      body: {
+        status: "released",
+        releaseRatePct: 100,
+        resolvedByAgentId: "agt_cc_case_operator",
+        reason: "manual approval"
+      }
+    });
+    assert.equal(resolve.statusCode, 200);
+    assert.equal(resolve.json?.settlement?.status, "released");
+  } else {
+    assert.equal(completionSettlementStatus, "released");
+  }
+
+  const openDispute = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/dispute/open`,
+    headers: { "x-idempotency-key": "cc_case_dispute_open_1" },
+    body: {
+      disputeId: "dsp_cc_case_1",
+      disputeType: "quality",
+      disputePriority: "high",
+      disputeChannel: "counterparty",
+      escalationLevel: "l1_counterparty",
+      openedByAgentId: "agt_cc_case_operator",
+      reason: "needs arbitration"
+    }
+  });
+  assert.equal(openDispute.statusCode, 200);
+  assert.equal(openDispute.json?.settlement?.disputeStatus, "open");
+
+  const openArbitration = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/arbitration/open`,
+    headers: { "x-idempotency-key": "cc_case_arbitration_open_1" },
+    body: {
+      disputeId: "dsp_cc_case_1",
+      caseId: "arb_case_cc_1",
+      arbiterAgentId: "agt_cc_case_arbiter"
+    }
+  });
+  assert.equal(openArbitration.statusCode, 201);
+  assert.equal(openArbitration.json?.arbitrationCase?.caseId, "arb_case_cc_1");
+
+  nowAt = "2026-02-07T03:30:00.000Z";
+  const alerts = await request(api, {
+    method: "GET",
+    path: "/ops/network/command-center?windowHours=24&disputeSlaHours=1&emitAlerts=true&persistAlerts=true&httpClientErrorRateThresholdPct=999&httpServerErrorRateThresholdPct=999&deliveryDlqThreshold=999&disputeOverSlaThreshold=1&determinismRejectThreshold=999",
+    headers: { "x-proxy-ops-token": "tok_opsw" }
+  });
+  assert.equal(alerts.statusCode, 200);
+  assert.equal(alerts.json?.ok, true);
+  assert.ok((alerts.json?.commandCenter?.disputes?.overSlaCases ?? []).length >= 1);
+
+  const emittedArtifacts = (await api.store.listArtifacts({ tenantId: "tenant_default" }))
+    .filter((a) => a?.artifactType === "CommandCenterAlert.v1");
+  const caseAlert = emittedArtifacts.find((artifact) => {
+    const alert = artifact?.alert;
+    return alert?.alertType === "dispute_case_over_sla" && alert?.dimensions?.caseId === "arb_case_cc_1";
+  });
+  assert.ok(caseAlert);
+  assert.equal(caseAlert?.alert?.dimensions?.runId, runId);
+  assert.equal(caseAlert?.alert?.dimensions?.disputeId, "dsp_cc_case_1");
+  assert.equal(caseAlert?.alert?.dimensions?.priority, "high");
+});
+
+test("API e2e: command-center surfaces settlement kernel verification errors by code and emits code-scoped alerts", async () => {
+  const api = createApi({
+    opsTokens: ["tok_opsr:ops_read", "tok_opsw:ops_write"].join(";"),
+    exportDestinations: {
+      tenant_default: [
+        {
+          destinationId: "dest_cc_kernel_alerts",
+          url: "https://example.invalid/command-center-kernel-alerts",
+          secret: "sek_cc_kernel_alerts",
+          artifactTypes: ["CommandCenterAlert.v1"]
+        }
+      ]
+    }
+  });
+
+  await registerAgent(api, "agt_cc_kernel_poster");
+  await registerAgent(api, "agt_cc_kernel_bidder");
+  await registerAgent(api, "agt_cc_kernel_operator");
+
+  const credit = await request(api, {
+    method: "POST",
+    path: "/agents/agt_cc_kernel_poster/wallet/credit",
+    headers: { "x-idempotency-key": "cc_kernel_credit_1" },
+    body: { amountCents: 5000, currency: "USD" }
+  });
+  assert.equal(credit.statusCode, 201);
+
+  const rfq = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "cc_kernel_rfq_1" },
+    body: {
+      rfqId: "rfq_cc_kernel_1",
+      title: "Command center kernel code counter test RFQ",
+      capability: "translate",
+      posterAgentId: "agt_cc_kernel_poster",
+      budgetCents: 2500,
+      currency: "USD"
+    }
+  });
+  assert.equal(rfq.statusCode, 201);
+
+  const bid = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_cc_kernel_1/bids",
+    headers: { "x-idempotency-key": "cc_kernel_bid_1" },
+    body: {
+      bidId: "bid_cc_kernel_1",
+      bidderAgentId: "agt_cc_kernel_bidder",
+      amountCents: 2000,
+      currency: "USD",
+      etaSeconds: 1200
+    }
+  });
+  assert.equal(bid.statusCode, 201);
+
+  const accept = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_cc_kernel_1/accept",
+    headers: { "x-idempotency-key": "cc_kernel_accept_1" },
+    body: {
+      bidId: "bid_cc_kernel_1",
+      acceptedByAgentId: "agt_cc_kernel_operator"
+    }
+  });
+  assert.equal(accept.statusCode, 200);
+  const runId = String(accept.json?.run?.runId ?? "");
+  assert.ok(runId.length > 0);
+
+  const settlementStoreKey = `tenant_default\n${runId}`;
+  const storedSettlement = api.store.agentRunSettlements.get(settlementStoreKey);
+  assert.ok(storedSettlement);
+  assert.ok(storedSettlement?.decisionTrace?.settlementReceipt);
+
+  api.store.agentRunSettlements.set(settlementStoreKey, {
+    ...storedSettlement,
+    decisionTrace: {
+      ...storedSettlement.decisionTrace,
+      settlementReceipt: {
+        ...storedSettlement.decisionTrace.settlementReceipt,
+        decisionRef: {
+          ...storedSettlement.decisionTrace.settlementReceipt.decisionRef,
+          decisionHash: "f".repeat(64)
+        }
+      }
+    }
+  });
+
+  const alerts = await request(api, {
+    method: "GET",
+    path:
+      "/ops/network/command-center?windowHours=24&disputeSlaHours=24&emitAlerts=true&persistAlerts=true&httpClientErrorRateThresholdPct=999&httpServerErrorRateThresholdPct=999&deliveryDlqThreshold=999&disputeOverSlaThreshold=999&determinismRejectThreshold=999&kernelVerificationErrorThreshold=1",
+    headers: { "x-proxy-ops-token": "tok_opsw" }
+  });
+  assert.equal(alerts.statusCode, 200);
+  assert.equal(alerts.json?.ok, true);
+  assert.ok(Number(alerts.json?.commandCenter?.settlement?.kernelVerificationErrorCount ?? 0) >= 1);
+  const codeCounts = Array.isArray(alerts.json?.commandCenter?.settlement?.kernelVerificationErrorCountsByCode)
+    ? alerts.json.commandCenter.settlement.kernelVerificationErrorCountsByCode
+    : [];
+  const receiptHashMismatch = codeCounts.find((row) => row?.code === "settlement_receipt_hash_mismatch");
+  assert.ok(receiptHashMismatch);
+  assert.ok(Number(receiptHashMismatch?.count ?? 0) >= 1);
+
+  const emitted = Array.isArray(alerts.json?.alerts?.emitted) ? alerts.json.alerts.emitted : [];
+  assert.ok(
+    emitted.some((row) => row?.alertType === "settlement_kernel_verification_error_code"),
+    "expected settlement kernel code alert to be emitted"
+  );
+
+  const emittedArtifacts = (await api.store.listArtifacts({ tenantId: "tenant_default" })).filter(
+    (artifact) =>
+      artifact?.artifactType === "CommandCenterAlert.v1" &&
+      artifact?.alert?.alertType === "settlement_kernel_verification_error_code"
+  );
+  assert.ok(emittedArtifacts.length >= 1);
+  assert.ok(emittedArtifacts.some((artifact) => artifact?.alert?.dimensions?.code === "settlement_receipt_hash_mismatch"));
 });

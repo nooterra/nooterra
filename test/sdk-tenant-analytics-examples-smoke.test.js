@@ -5,6 +5,29 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+import { listenOnEphemeralLoopback } from "./lib/listen.js";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function applyEnv(envPatch) {
+  const prev = {};
+  for (const [key, value] of Object.entries(envPatch ?? {})) {
+    prev[key] = Object.prototype.hasOwnProperty.call(process.env, key) ? process.env[key] : undefined;
+    if (value === null || value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = String(value);
+    }
+  }
+  return () => {
+    for (const [key, value] of Object.entries(prev)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}
 
 function pythonAvailable() {
   const probe = spawnSync("python3", ["--version"], { encoding: "utf8" });
@@ -77,27 +100,45 @@ test("scripts/examples: sdk tenant analytics run end-to-end against magic-link",
   const baseMonth = previousMonthKey(month);
   const tenantId = "tenant_sdk_analytics_example";
 
-  process.env.MAGIC_LINK_DISABLE_LISTEN = "1";
-  process.env.MAGIC_LINK_PORT = "0";
-  process.env.MAGIC_LINK_HOST = "127.0.0.1";
-  process.env.MAGIC_LINK_API_KEY = "test_key";
-  process.env.MAGIC_LINK_DATA_DIR = dataDir;
-  process.env.MAGIC_LINK_VERIFY_TIMEOUT_MS = "60000";
-  process.env.MAGIC_LINK_WEBHOOK_DELIVERY_MODE = "record";
-  process.env.MAGIC_LINK_PAYMENT_TRIGGER_RETRY_INTERVAL_MS = "600000";
-  process.env.MAGIC_LINK_WEBHOOK_RETRY_INTERVAL_MS = "600000";
-  process.env.MAGIC_LINK_ARCHIVE_EXPORT_ENABLED = "0";
+  const restoreEnv = applyEnv({
+    MAGIC_LINK_DISABLE_LISTEN: "1",
+    MAGIC_LINK_PORT: "0",
+    MAGIC_LINK_HOST: "127.0.0.1",
+    MAGIC_LINK_API_KEY: "test_key",
+    MAGIC_LINK_DATA_DIR: dataDir,
+    MAGIC_LINK_VERIFY_TIMEOUT_MS: "60000",
+    MAGIC_LINK_WEBHOOK_DELIVERY_MODE: "record",
+    MAGIC_LINK_PAYMENT_TRIGGER_RETRY_INTERVAL_MS: "600000",
+    MAGIC_LINK_WEBHOOK_RETRY_INTERVAL_MS: "600000",
+    MAGIC_LINK_ARCHIVE_EXPORT_ENABLED: "0"
+  });
 
-  const { magicLinkHandler } = await import("../services/magic-link/src/server.js");
+  // Import with a query to avoid ESM module cache collisions across test files.
+  const { magicLinkHandler } = await import(`../services/magic-link/src/server.js?sdk-tenant-analytics-example-test=${Date.now()}`);
   const server = http.createServer(magicLinkHandler);
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address();
-  const port = address && typeof address === "object" ? address.port : null;
-  assert.ok(Number.isInteger(port) && Number(port) > 0, "magic-link test server should listen on an ephemeral port");
+  let port = null;
+  try {
+    ({ port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] }));
+  } catch (err) {
+    const cause = err?.cause ?? err;
+    if (cause?.code === "EPERM" || cause?.code === "EACCES") {
+      t.skip(`loopback listen not permitted (${cause.code})`);
+      try {
+        if (server.listening) await new Promise((resolve) => server.close(resolve));
+      } catch {
+        // ignore
+      }
+      restoreEnv();
+      await fs.rm(dataDir, { recursive: true, force: true });
+      return;
+    }
+    throw err;
+  }
   const baseUrl = `http://127.0.0.1:${port}`;
 
   t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
+    restoreEnv();
     await fs.rm(dataDir, { recursive: true, force: true });
   });
 
@@ -135,7 +176,7 @@ test("scripts/examples: sdk tenant analytics run end-to-end against magic-link",
   };
 
   await t.test("javascript analytics example script", async () => {
-    const run = await runProcess("node", ["scripts/examples/sdk-tenant-analytics.mjs"], { env: commonEnv });
+    const run = await runProcess("node", [path.join(REPO_ROOT, "scripts", "examples", "sdk-tenant-analytics.mjs")], { env: commonEnv });
     assert.equal(
       run.status,
       0,
@@ -154,7 +195,7 @@ test("scripts/examples: sdk tenant analytics run end-to-end against magic-link",
   });
 
   await t.test("python analytics example script", { skip: !pythonAvailable() }, async () => {
-    const run = await runProcess("python3", ["scripts/examples/sdk-tenant-analytics.py"], {
+    const run = await runProcess("python3", [path.join(REPO_ROOT, "scripts", "examples", "sdk-tenant-analytics.py")], {
       env: { ...commonEnv, PYTHONDONTWRITEBYTECODE: "1" }
     });
     assert.equal(

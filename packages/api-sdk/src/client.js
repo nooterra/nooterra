@@ -183,12 +183,12 @@ export class SettldClient {
     );
   }
 
-  createMarketplaceTask(body, opts) {
+  createMarketplaceRfq(body, opts) {
     if (!body || typeof body !== "object") throw new TypeError("body is required");
-    return this.request("POST", "/marketplace/tasks", { ...opts, body });
+    return this.request("POST", "/marketplace/rfqs", { ...opts, body });
   }
 
-  listMarketplaceTasks(params = {}, opts) {
+  listMarketplaceRfqs(params = {}, opts) {
     const qs = new URLSearchParams();
     if (params.status) qs.set("status", String(params.status));
     if (params.capability) qs.set("capability", String(params.capability));
@@ -196,40 +196,40 @@ export class SettldClient {
     if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
     if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
-    return this.request("GET", `/marketplace/tasks${suffix}`, opts);
+    return this.request("GET", `/marketplace/rfqs${suffix}`, opts);
   }
 
-  submitMarketplaceBid(taskId, body, opts) {
-    assertNonEmptyString(taskId, "taskId");
+  submitMarketplaceBid(rfqId, body, opts) {
+    assertNonEmptyString(rfqId, "rfqId");
     if (!body || typeof body !== "object") throw new TypeError("body is required");
-    return this.request("POST", `/marketplace/tasks/${encodeURIComponent(taskId)}/bids`, { ...opts, body });
+    return this.request("POST", `/marketplace/rfqs/${encodeURIComponent(rfqId)}/bids`, { ...opts, body });
   }
 
-  listMarketplaceBids(taskId, params = {}, opts) {
-    assertNonEmptyString(taskId, "taskId");
+  listMarketplaceBids(rfqId, params = {}, opts) {
+    assertNonEmptyString(rfqId, "rfqId");
     const qs = new URLSearchParams();
     if (params.status) qs.set("status", String(params.status));
     if (params.bidderAgentId) qs.set("bidderAgentId", String(params.bidderAgentId));
     if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
     if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
-    return this.request("GET", `/marketplace/tasks/${encodeURIComponent(taskId)}/bids${suffix}`, opts);
+    return this.request("GET", `/marketplace/rfqs/${encodeURIComponent(rfqId)}/bids${suffix}`, opts);
   }
 
-  applyMarketplaceBidCounterOffer(taskId, bidId, body, opts) {
-    assertNonEmptyString(taskId, "taskId");
+  applyMarketplaceBidCounterOffer(rfqId, bidId, body, opts) {
+    assertNonEmptyString(rfqId, "rfqId");
     assertNonEmptyString(bidId, "bidId");
     if (!body || typeof body !== "object") throw new TypeError("body is required");
-    return this.request("POST", `/marketplace/tasks/${encodeURIComponent(taskId)}/bids/${encodeURIComponent(bidId)}/counter-offer`, {
+    return this.request("POST", `/marketplace/rfqs/${encodeURIComponent(rfqId)}/bids/${encodeURIComponent(bidId)}/counter-offer`, {
       ...opts,
       body
     });
   }
 
-  acceptMarketplaceBid(taskId, body, opts) {
-    assertNonEmptyString(taskId, "taskId");
+  acceptMarketplaceBid(rfqId, body, opts) {
+    assertNonEmptyString(rfqId, "rfqId");
     if (!body || typeof body !== "object") throw new TypeError("body is required");
-    return this.request("POST", `/marketplace/tasks/${encodeURIComponent(taskId)}/accept`, { ...opts, body });
+    return this.request("POST", `/marketplace/rfqs/${encodeURIComponent(rfqId)}/accept`, { ...opts, body });
   }
 
   getAgentWallet(agentId, opts) {
@@ -316,6 +316,58 @@ export class SettldClient {
     assertNonEmptyString(runId, "runId");
     if (!body || typeof body !== "object") throw new TypeError("body is required");
     return this.request("POST", `/runs/${encodeURIComponent(runId)}/settlement/resolve`, { ...opts, body });
+  }
+
+  opsLockToolCallHold(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    return this.request("POST", "/ops/tool-calls/holds/lock", { ...opts, body });
+  }
+
+  opsListToolCallHolds(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.agreementHash) qs.set("agreementHash", String(params.agreementHash));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/ops/tool-calls/holds${suffix}`, opts);
+  }
+
+  opsGetToolCallHold(holdHash, opts) {
+    assertNonEmptyString(holdHash, "holdHash");
+    return this.request("GET", `/ops/tool-calls/holds/${encodeURIComponent(holdHash)}`, opts);
+  }
+
+  opsRunToolCallHoldbackMaintenance(body = {}, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body must be an object");
+    return this.request("POST", "/ops/maintenance/tool-call-holdback/run", { ...opts, body });
+  }
+
+  toolCallListArbitrationCases(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.agreementHash) qs.set("agreementHash", String(params.agreementHash));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/tool-calls/arbitration/cases${suffix}`, opts);
+  }
+
+  toolCallGetArbitrationCase(caseId, opts) {
+    assertNonEmptyString(caseId, "caseId");
+    return this.request("GET", `/tool-calls/arbitration/cases/${encodeURIComponent(caseId)}`, opts);
+  }
+
+  toolCallOpenArbitration(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    return this.request("POST", "/tool-calls/arbitration/open", { ...opts, body });
+  }
+
+  toolCallSubmitArbitrationVerdict(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    return this.request("POST", "/tool-calls/arbitration/verdict", { ...opts, body });
+  }
+
+  opsGetSettlementAdjustment(adjustmentId, opts) {
+    assertNonEmptyString(adjustmentId, "adjustmentId");
+    return this.request("GET", `/ops/settlement-adjustments/${encodeURIComponent(adjustmentId)}`, opts);
   }
 
   openRunDispute(runId, body = {}, opts) {

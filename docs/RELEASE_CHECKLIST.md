@@ -7,6 +7,10 @@ This checklist is the “no surprises” gate for shipping Settld as a product (
 - `npm test` is green on main.
 - `CHANGELOG.md` is updated and accurate.
 - Protocol v1 freeze gate is satisfied (no accidental v1 schema/vector drift).
+- Staging billing smoke secrets are configured for `.github/workflows/release.yml`:
+  - `SETTLD_STAGING_BASE_URL`
+  - `SETTLD_STAGING_OPS_TOKEN`
+  - optional: `SETTLD_STAGING_STRIPE_SECRET_KEY`
 - PyPI Trusted Publisher is configured for `.github/workflows/release.yml` and the `pypi` GitHub environment is allowed.
 - PyPI Trusted Publisher is configured for `.github/workflows/python-pypi.yml` and the `pypi` GitHub environment is allowed (if using the Python-only lane).
 - TestPyPI Trusted Publisher is configured for `.github/workflows/python-testpypi.yml` and the `testpypi` GitHub environment is allowed.
@@ -20,6 +24,14 @@ For a v1 freeze release, the GitHub Release MUST include:
 - `conformance-v1.tar.gz` + `conformance-v1-SHA256SUMS`
 - `settld-audit-packet-v1.zip` + `settld-audit-packet-v1.zip.sha256`
 - `release_index_v1.json` + `release_index_v1.sig` (signed release manifest)
+
+Release-gate evidence should also include:
+
+- `billing-smoke-prod.log`
+- `billing-smoke-status.json`
+- `artifacts/throughput/10x-drill-summary.json`
+- `artifacts/gates/s13-go-live-gate.json`
+- `artifacts/gates/s13-launch-cutover-packet.json`
 
 See `docs/spec/SUPPLY_CHAIN.md` for the release-channel threat model and verification posture.
 
@@ -89,3 +101,24 @@ Recommended Python dry-run before final tag release:
   - publish Python distributions to PyPI (Trusted Publishing/OIDC)
   - attach conformance pack + checksum
   - attach audit packet zip + checksum
+
+## S13 launch gate (pre-cutover)
+
+Before production cutover, run:
+
+```sh
+node scripts/ci/run-go-live-gate.mjs
+```
+
+Required gate reports:
+
+- `artifacts/throughput/10x-drill-summary.json`
+- `artifacts/throughput/10x-incident-rehearsal-summary.json`
+- `artifacts/gates/s13-go-live-gate.json`
+- `artifacts/gates/s13-launch-cutover-packet.json`
+
+Related runbooks:
+
+- `docs/ops/THROUGHPUT_DRILL_10X.md`
+- `docs/ops/GO_LIVE_GATE_S13.md`
+- `docs/ops/LIGHTHOUSE_PRODUCTION_CLOSE.md`

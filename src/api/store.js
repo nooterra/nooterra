@@ -222,12 +222,16 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     agentRunEvents: new Map(), // `${tenantId}\n${runId}` -> AgentEvent.v1[]
     agentRunSettlements: new Map(), // `${tenantId}\n${runId}` -> AgentRunSettlement.v1
     arbitrationCases: new Map(), // `${tenantId}\n${caseId}` -> ArbitrationCase.v1 snapshot
+    toolCallHolds: new Map(), // `${tenantId}\n${holdHash}` -> FundingHold.v1 snapshot
+    settlementAdjustments: new Map(), // `${tenantId}\n${adjustmentId}` -> SettlementAdjustment.v1 snapshot
     moneyRailOperations: new Map(), // `${tenantId}\n${providerId}\n${operationId}` -> MoneyRailOperation.v1
     moneyRailProviderEvents: new Map(), // `${tenantId}\n${providerId}\n${operationId}\n${eventType}\n${eventDedupeKey}` -> MoneyRailProviderEvent.v1
     billableUsageEvents: new Map(), // `${tenantId}\n${eventKey}` -> BillableUsageEvent.v1
-    marketplaceTasks: new Map(), // `${tenantId}\n${taskId}` -> MarketplaceTask.v1
-    marketplaceTaskBids: new Map(), // `${tenantId}\n${taskId}` -> MarketplaceBid.v1[]
+    financeReconciliationTriages: new Map(), // `${tenantId}\n${triageKey}` -> FinanceReconciliationTriage.v1
+    marketplaceRfqs: new Map(), // `${tenantId}\n${rfqId}` -> MarketplaceRfq.v1
+    marketplaceRfqBids: new Map(), // `${tenantId}\n${rfqId}` -> MarketplaceBid.v1[]
     tenantSettlementPolicies: new Map(), // `${tenantId}\n${policyId}\n${policyVersion}` -> TenantSettlementPolicy.v1
+    tenantSettlementPolicyRollouts: new Map(), // `${tenantId}\nrollout` -> TenantSettlementPolicyRollout.v1
 	    contracts: new Map(), // `${tenantId}\n${contractId}` -> contract
 	    idempotency: new Map(),
 	    publicKeyByKeyId,
@@ -840,6 +844,10 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     return `${normalizeTenantId(tenantId)}\n${assertNonEmptyString(eventKey, "eventKey")}`;
   }
 
+  function financeReconciliationTriageStoreKey({ tenantId, triageKey }) {
+    return `${normalizeTenantId(tenantId)}\n${assertNonEmptyString(triageKey, "triageKey")}`;
+  }
+
   store.getMoneyRailOperation = async function getMoneyRailOperation({ tenantId = DEFAULT_TENANT_ID, providerId, operationId } = {}) {
     const key = moneyRailOperationStoreKey({ tenantId, providerId, operationId });
     return store.moneyRailOperations.get(key) ?? null;
@@ -1058,6 +1066,127 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
         String(left.occurredAt ?? "").localeCompare(String(right.occurredAt ?? "")) ||
         String(left.eventKey ?? "").localeCompare(String(right.eventKey ?? ""))
     );
+    return out.slice(offset, offset + Math.min(1000, limit));
+  };
+
+  store.getFinanceReconciliationTriage = async function getFinanceReconciliationTriage({
+    tenantId = DEFAULT_TENANT_ID,
+    triageKey
+  } = {}) {
+    const key = financeReconciliationTriageStoreKey({ tenantId, triageKey });
+    return store.financeReconciliationTriages.get(key) ?? null;
+  };
+
+  store.putFinanceReconciliationTriage = async function putFinanceReconciliationTriage({
+    tenantId = DEFAULT_TENANT_ID,
+    triage,
+    audit = null
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!triage || typeof triage !== "object" || Array.isArray(triage)) throw new TypeError("triage is required");
+    const triageKey = assertNonEmptyString(triage.triageKey ?? null, "triage.triageKey");
+    const sourceType = assertNonEmptyString(triage.sourceType ?? null, "triage.sourceType").toLowerCase();
+    const mismatchType = assertNonEmptyString(triage.mismatchType ?? null, "triage.mismatchType");
+    const mismatchKey = assertNonEmptyString(triage.mismatchKey ?? null, "triage.mismatchKey");
+    const period = assertNonEmptyString(triage.period ?? null, "triage.period");
+    const status = assertNonEmptyString(triage.status ?? null, "triage.status").toLowerCase();
+    if (!/^\d{4}-\d{2}$/.test(period)) throw new TypeError("triage.period must match YYYY-MM");
+    const key = financeReconciliationTriageStoreKey({ tenantId, triageKey });
+    const nowAt = typeof store.nowIso === "function" ? store.nowIso() : new Date().toISOString();
+    const existing = store.financeReconciliationTriages.get(key) ?? null;
+    const normalized = {
+      schemaVersion: triage.schemaVersion ?? "FinanceReconciliationTriage.v1",
+      tenantId,
+      triageKey,
+      sourceType,
+      period,
+      providerId:
+        triage.providerId === null || triage.providerId === undefined || String(triage.providerId).trim() === ""
+          ? null
+          : String(triage.providerId).trim(),
+      mismatchType,
+      mismatchKey,
+      mismatchCode:
+        triage.mismatchCode === null || triage.mismatchCode === undefined || String(triage.mismatchCode).trim() === ""
+          ? null
+          : String(triage.mismatchCode).trim(),
+      severity:
+        triage.severity === null || triage.severity === undefined || String(triage.severity).trim() === ""
+          ? null
+          : String(triage.severity).trim().toLowerCase(),
+      status,
+      ownerPrincipalId:
+        triage.ownerPrincipalId === null || triage.ownerPrincipalId === undefined || String(triage.ownerPrincipalId).trim() === ""
+          ? null
+          : String(triage.ownerPrincipalId).trim(),
+      notes:
+        triage.notes === null || triage.notes === undefined || String(triage.notes).trim() === ""
+          ? null
+          : String(triage.notes).trim(),
+      sourceReportHash:
+        triage.sourceReportHash === null || triage.sourceReportHash === undefined || String(triage.sourceReportHash).trim() === ""
+          ? null
+          : String(triage.sourceReportHash).trim(),
+      metadata:
+        triage.metadata && typeof triage.metadata === "object" && !Array.isArray(triage.metadata)
+          ? { ...triage.metadata }
+          : null,
+      actionLog: Array.isArray(triage.actionLog) ? triage.actionLog.slice(0, 50) : existing?.actionLog ?? [],
+      revision:
+        Number.isSafeInteger(triage.revision) && triage.revision > 0
+          ? Number(triage.revision)
+          : Number(existing?.revision ?? 0) + 1,
+      createdAt: normalizeOptionalIso(triage.createdAt) ?? existing?.createdAt ?? nowAt,
+      updatedAt: normalizeOptionalIso(triage.updatedAt) ?? nowAt,
+      resolvedAt: normalizeOptionalIso(triage.resolvedAt) ?? null,
+      resolvedByPrincipalId:
+        triage.resolvedByPrincipalId === null || triage.resolvedByPrincipalId === undefined || String(triage.resolvedByPrincipalId).trim() === ""
+          ? null
+          : String(triage.resolvedByPrincipalId).trim()
+    };
+    store.financeReconciliationTriages.set(key, normalized);
+    if (audit && typeof store.appendOpsAudit === "function") {
+      await store.appendOpsAudit({ tenantId, audit });
+    }
+    return normalized;
+  };
+
+  store.listFinanceReconciliationTriages = async function listFinanceReconciliationTriages({
+    tenantId = DEFAULT_TENANT_ID,
+    period = null,
+    status = null,
+    sourceType = null,
+    providerId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (period !== null && (typeof period !== "string" || !/^\d{4}-\d{2}$/.test(period.trim()))) {
+      throw new TypeError("period must match YYYY-MM");
+    }
+    if (status !== null) status = assertNonEmptyString(status, "status").toLowerCase();
+    if (sourceType !== null) sourceType = assertNonEmptyString(sourceType, "sourceType").toLowerCase();
+    if (providerId !== null) providerId = assertNonEmptyString(providerId, "providerId");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const out = [];
+    const normalizedPeriod = period ? period.trim() : null;
+    for (const triage of store.financeReconciliationTriages.values()) {
+      if (!triage || typeof triage !== "object") continue;
+      if (normalizeTenantId(triage.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (normalizedPeriod !== null && String(triage.period ?? "") !== normalizedPeriod) continue;
+      if (status !== null && String(triage.status ?? "").toLowerCase() !== status) continue;
+      if (sourceType !== null && String(triage.sourceType ?? "").toLowerCase() !== sourceType) continue;
+      if (providerId !== null && String(triage.providerId ?? "") !== providerId) continue;
+      out.push(triage);
+    }
+    out.sort((left, right) => {
+      const leftMs = Date.parse(String(left?.updatedAt ?? left?.createdAt ?? ""));
+      const rightMs = Date.parse(String(right?.updatedAt ?? right?.createdAt ?? ""));
+      if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && rightMs !== leftMs) return rightMs - leftMs;
+      return String(left?.triageKey ?? "").localeCompare(String(right?.triageKey ?? ""));
+    });
     return out.slice(offset, offset + Math.min(1000, limit));
   };
 

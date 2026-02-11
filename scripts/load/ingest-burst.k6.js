@@ -79,8 +79,8 @@ export function setup() {
   const runId = randomId("run");
   const tenants = [];
 
-  const availStartAt = isoNowPlusMs(-60 * 60_000);
-  const availEndAt = isoNowPlusMs(24 * 60 * 60_000);
+  const availStartAt = isoNowPlusMs(-60 * 60000);
+  const availEndAt = isoNowPlusMs(24 * 60 * 60000);
 
   for (let i = 0; i < TENANTS; i += 1) {
     const tenantId = i === 0 ? "tenant_default" : `tenant_${i}`;
@@ -108,7 +108,8 @@ export function setup() {
         jsonHeaders({ tenantId, token, extra: { "x-idempotency-key": `reg_${robotId}` } })
       );
       check(reg, { "setup: robot registered": (r) => r.status === 201 });
-      const lastChainHash = reg.json()?.robot?.lastChainHash;
+      const regJson = reg.json();
+      const lastChainHash = regJson && regJson.robot ? regJson.robot.lastChainHash : null;
       const avail = http.post(
         `${BASE_URL}/robots/${robotId}/availability`,
         JSON.stringify({ availability: [{ startAt: availStartAt, endAt: availEndAt }] }),
@@ -132,13 +133,13 @@ export function setup() {
 }
 
 export default function (data) {
-  const tenants = data?.tenants || [];
+  const tenants = data && data.tenants ? data.tenants : [];
   const t = tenants[Math.floor(Math.random() * tenants.length)];
   const tenantId = t.tenantId;
   const token = t.token;
 
-  const startAt = isoNowPlusMs(10 * 60_000);
-  const endAt = isoNowPlusMs(70 * 60_000);
+  const startAt = isoNowPlusMs(10 * 60000);
+  const endAt = isoNowPlusMs(70 * 60000);
 
   const created = http.post(
     `${BASE_URL}/jobs`,
@@ -147,8 +148,9 @@ export default function (data) {
   );
   if (!check(created, { "job: created": (r) => r.status === 201 })) return;
 
-  const jobId = created.json()?.job?.id;
-  let prev = created.json()?.job?.lastChainHash;
+  const createdJson = created.json();
+  const jobId = createdJson && createdJson.job ? createdJson.job.id : null;
+  let prev = createdJson && createdJson.job ? createdJson.job.lastChainHash : null;
   if (!jobId || !prev) return;
 
   const quote = http.post(
@@ -161,7 +163,8 @@ export default function (data) {
     })
   );
   if (!check(quote, { "job: quoted": (r) => r.status === 201 })) return;
-  prev = quote.json()?.job?.lastChainHash;
+  const quoteJson = quote.json();
+  prev = quoteJson && quoteJson.job ? quoteJson.job.lastChainHash : null;
 
   const book = http.post(
     `${BASE_URL}/jobs/${jobId}/book`,
@@ -181,7 +184,8 @@ export default function (data) {
     jsonHeaders({ tenantId, token, extra: { "x-idempotency-key": randomId("cancel") } })
   );
   if (!check(cancel, { "job: cancelled": (r) => r.status === 201 })) return;
-  prev = cancel.json()?.job?.lastChainHash;
+  const cancelJson = cancel.json();
+  prev = cancelJson && cancelJson.job ? cancelJson.job.lastChainHash : null;
   if (!prev) return;
 
   // Settle (server-signed, payload not required).
@@ -198,7 +202,7 @@ export default function (data) {
 
   // Inject a small percentage of deterministic ingest rejects (future timestamp or unsupported signer kind).
   if (Math.random() < INJECT_REJECTS_PCT) {
-    const farFuture = isoNowPlusMs(10 * 60 * 60_000); // ~10 hours ahead
+    const farFuture = isoNowPlusMs(10 * 60 * 60000); // ~10 hours ahead
     const externalEventId = randomId("ext");
     const reject = http.post(
       `${BASE_URL}/ingest/proxy`,
@@ -210,16 +214,17 @@ export default function (data) {
       jsonHeaders({ tenantId, token, extra: { "x-idempotency-key": `ing_${externalEventId}` } })
     );
     try {
-      const results = reject.json()?.results ?? [];
-      if (results.length && results[0]?.status === "rejected") ingestRejected.add(1);
-    } catch {}
+      const rejectJson = reject.json();
+      const results = rejectJson && Array.isArray(rejectJson.results) ? rejectJson.results : [];
+      if (results.length && results[0] && results[0].status === "rejected") ingestRejected.add(1);
+    } catch (err) {}
   }
 
   sleep(0.1);
 }
 
 export function opsRead(data) {
-  const tenants = data?.tenants || [];
+  const tenants = data && data.tenants ? data.tenants : [];
   const t = tenants[Math.floor(Math.random() * tenants.length)];
   const tenantId = t.tenantId;
   const token = t.token;

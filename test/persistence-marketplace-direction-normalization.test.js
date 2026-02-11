@@ -5,24 +5,24 @@ import { createStore } from "../src/api/store.js";
 import { TX_LOG_VERSION, applyTxRecord } from "../src/api/persistence.js";
 import { makeScopedKey } from "../src/core/tenancy.js";
 
-test("persistence replay normalizes marketplace task/bid directions", () => {
+test("persistence replay normalizes marketplace rfq/bid directions", () => {
   const store = createStore({ persistenceDir: null });
   const tenantId = "tenant_market_direction_replay";
-  const taskId = "task_legacy_1";
+  const rfqId = "rfq_legacy_1";
   const bidId = "bid_legacy_1";
-  const taskKey = makeScopedKey({ tenantId, id: taskId });
+  const rfqKey = makeScopedKey({ tenantId, id: rfqId });
 
   applyTxRecord(store, {
     v: TX_LOG_VERSION,
     ops: [
       {
-        kind: "MARKETPLACE_TASK_UPSERT",
+        kind: "MARKETPLACE_RFQ_UPSERT",
         tenantId,
-        task: {
-          schemaVersion: "MarketplaceTask.v1",
-          taskId,
+        rfq: {
+          schemaVersion: "MarketplaceRfq.v1",
+          rfqId,
           tenantId,
-          title: "legacy task",
+          title: "legacy rfq",
           status: "open",
           currency: "USD",
           fromType: "vendor",
@@ -34,23 +34,23 @@ test("persistence replay normalizes marketplace task/bid directions", () => {
     ]
   });
 
-  const task = store.marketplaceTasks.get(taskKey);
-  assert.ok(task);
-  assert.equal(task.fromType, "agent");
-  assert.equal(task.toType, "agent");
+  const rfq = store.marketplaceRfqs.get(rfqKey);
+  assert.ok(rfq);
+  assert.equal(rfq.fromType, "agent");
+  assert.equal(rfq.toType, "agent");
 
   applyTxRecord(store, {
     v: TX_LOG_VERSION,
     ops: [
       {
-        kind: "MARKETPLACE_TASK_BIDS_SET",
+        kind: "MARKETPLACE_RFQ_BIDS_SET",
         tenantId,
-        taskId,
+        rfqId,
         bids: [
           {
             schemaVersion: "MarketplaceBid.v1",
             bidId,
-            taskId,
+            rfqId,
             tenantId,
             bidderAgentId: "agt_bidder_legacy",
             amountCents: 1200,
@@ -66,7 +66,7 @@ test("persistence replay normalizes marketplace task/bid directions", () => {
     ]
   });
 
-  const bids = store.marketplaceTaskBids.get(taskKey);
+  const bids = store.marketplaceRfqBids.get(rfqKey);
   assert.ok(Array.isArray(bids));
   assert.equal(bids.length, 1);
   assert.equal(bids[0].bidId, bidId);

@@ -65,7 +65,7 @@ async function createAndCompleteRun(api, { tenantId, payerAgentId, payeeAgentId,
 
 async function openDisputeAndArbitrationCase(
   api,
-  { tenantId, runId, disputeId, caseId, payerAgentId, arbiterAgentId, idempotencyPrefix }
+  { tenantId, runId, disputeId, caseId, payerAgentId, arbiterAgentId, idempotencyPrefix, disputePriority = null }
 ) {
   const openedDispute = await request(api, {
     method: "POST",
@@ -77,7 +77,8 @@ async function openDisputeAndArbitrationCase(
     body: {
       disputeId,
       reason: "arbitration queue coverage",
-      openedByAgentId: payerAgentId
+      openedByAgentId: payerAgentId,
+      ...(disputePriority ? { disputePriority } : null)
     }
   });
   assert.equal(openedDispute.statusCode, 200);
@@ -144,7 +145,8 @@ test("API e2e: ops arbitration queue supports filtering and deterministic SLA or
     caseId: "arb_case_queue_1",
     payerAgentId,
     arbiterAgentId,
-    idempotencyPrefix: "arb_queue_case_1"
+    idempotencyPrefix: "arb_queue_case_1",
+    disputePriority: "high"
   });
 
   nowAt = "2026-02-08T12:00:00.000Z";
@@ -163,7 +165,8 @@ test("API e2e: ops arbitration queue supports filtering and deterministic SLA or
     caseId: "arb_case_queue_2",
     payerAgentId,
     arbiterAgentId,
-    idempotencyPrefix: "arb_queue_case_2"
+    idempotencyPrefix: "arb_queue_case_2",
+    disputePriority: "low"
   });
 
   const queue = await request(api, {
@@ -179,8 +182,10 @@ test("API e2e: ops arbitration queue supports filtering and deterministic SLA or
   assert.equal(queue.json?.overSlaCount, 1);
   assert.equal(queue.json?.queue?.[0]?.caseId, "arb_case_queue_1");
   assert.equal(queue.json?.queue?.[0]?.overSla, true);
+  assert.equal(queue.json?.queue?.[0]?.priority, "high");
   assert.equal(queue.json?.queue?.[1]?.caseId, "arb_case_queue_2");
   assert.equal(queue.json?.queue?.[1]?.overSla, false);
+  assert.equal(queue.json?.queue?.[1]?.priority, "low");
 
   const byRun = await request(api, {
     method: "GET",
@@ -206,4 +211,28 @@ test("API e2e: ops arbitration queue supports filtering and deterministic SLA or
   assert.equal(byCaseId.statusCode, 200);
   assert.equal(byCaseId.json?.count, 1);
   assert.equal(byCaseId.json?.queue?.[0]?.caseId, "arb_case_queue_1");
+
+  const byPriority = await request(api, {
+    method: "GET",
+    path: "/ops/arbitration/queue?priority=high",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(byPriority.statusCode, 200);
+  assert.equal(byPriority.json?.filters?.priority, "high");
+  assert.equal(byPriority.json?.count, 1);
+  assert.equal(byPriority.json?.queue?.[0]?.caseId, "arb_case_queue_1");
+  assert.equal(byPriority.json?.queue?.[0]?.priority, "high");
+
+  const invalidPriority = await request(api, {
+    method: "GET",
+    path: "/ops/arbitration/queue?priority=urgent",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(invalidPriority.statusCode, 400);
 });

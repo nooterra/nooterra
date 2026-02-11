@@ -1,6 +1,5 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
 
 import { createApi } from "../src/api/app.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
@@ -61,6 +60,24 @@ async function createAndCompleteRun(api, { tenantId, payerAgentId, payeeAgentId,
       payload: { outputRef: `evidence://${runId}/output.json` }
     }
   });
+}
+
+function createMockFetchJsonResponse(status, payload, { headers = {} } = {}) {
+  const normalizedHeaders = new Map(
+    Object.entries(headers).map(([key, value]) => [String(key).toLowerCase(), String(value)])
+  );
+  return {
+    ok: Number(status) >= 200 && Number(status) < 300,
+    status: Number(status),
+    headers: {
+      get(name) {
+        return normalizedHeaders.get(String(name).toLowerCase()) ?? null;
+      }
+    },
+    async text() {
+      return JSON.stringify(payload ?? null);
+    }
+  };
 }
 
 test("API e2e: billing catalog + summary reflects billable event usage and estimated charges", async () => {
@@ -278,6 +295,18 @@ test("API e2e: billing stripe provider session endpoints + period-close artifact
   assert.equal(periodClose.json?.period, "2026-02");
   assert.equal(periodClose.json?.usage?.verifiedRuns, 1);
   assert.equal(periodClose.json?.usage?.settledVolumeCents, 1250);
+  assert.equal(periodClose.json?.invoice?.schemaVersion, "BillingInvoiceDraft.v1");
+  assert.equal(periodClose.json?.invoice?.period, "2026-02");
+  assert.equal(periodClose.json?.invoice?.currency, "USD");
+  assert.ok(Array.isArray(periodClose.json?.invoice?.lineItems));
+  const settlementFeeLine = periodClose.json?.invoice?.lineItems?.find((row) => row?.code === "SETTLED_VOLUME_FEE") ?? null;
+  assert.ok(settlementFeeLine);
+  assert.equal(settlementFeeLine?.quantity, 1250);
+  assert.equal(settlementFeeLine?.unitAmountBps, 0);
+  assert.equal(settlementFeeLine?.amountCents, 0);
+  assert.equal(settlementFeeLine?.sourceEventCount, 1);
+  assert.equal(Array.isArray(settlementFeeLine?.sourceEventKeys), true);
+  assert.equal(settlementFeeLine?.sourceEventKeys?.length, 1);
   assert.equal(typeof periodClose.json?.eventsDigest, "string");
   assert.equal(periodClose.json?.eventsDigest?.length, 64);
   assert.ok(periodClose.json?.artifact?.artifactId);
@@ -296,204 +325,253 @@ test("API e2e: billing stripe provider session endpoints + period-close artifact
   assert.equal(periodCloseList.json?.count, 1);
   assert.equal(periodCloseList.json?.latest?.artifactId, periodClose.json?.artifact?.artifactId);
   assert.equal(periodCloseList.json?.latest?.artifactType, "BillingPeriodClose.v1");
+  assert.equal(periodCloseList.json?.latest?.invoice?.schemaVersion, "BillingInvoiceDraft.v1");
+  assert.equal(periodCloseList.json?.latest?.invoice?.lineItems?.find((row) => row?.code === "SETTLED_VOLUME_FEE")?.sourceEventCount, 1);
+});
+
+test("API e2e: billing period-close invoice line items reconcile settled-volume fee sources", async () => {
+  const api = createApi({
+    now: () => "2026-02-07T00:00:00.000Z",
+    opsTokens: ["tok_finr:finance_read", "tok_finw:finance_write"].join(";")
+  });
+
+  const tenantId = "tenant_billing_period_close_fee_lines";
+  const payerAgentId = "agt_billing_fee_line_payer";
+  const payeeAgentId = "agt_billing_fee_line_payee";
+
+  const setPlan = await request(api, {
+    method: "PUT",
+    path: "/ops/finance/billing/plan",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw"
+    },
+    body: {
+      plan: "builder",
+      hardLimitEnforced: true
+    }
+  });
+  assert.equal(setPlan.statusCode, 200);
+  assert.equal(setPlan.json?.billing?.plan, "builder");
+
+  await registerAgent(api, { tenantId, agentId: payerAgentId });
+  await registerAgent(api, { tenantId, agentId: payeeAgentId });
+
+  const credit = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(payerAgentId)}/wallet/credit`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": "billing_fee_line_credit_1"
+    },
+    body: {
+      amountCents: 10000,
+      currency: "USD"
+    }
+  });
+  assert.equal(credit.statusCode, 201);
+
+  const completed = await createAndCompleteRun(api, {
+    tenantId,
+    payerAgentId,
+    payeeAgentId,
+    runId: "run_billing_fee_line_1",
+    amountCents: 2000,
+    idempotencyPrefix: "billing_fee_line_run_1"
+  });
+  assert.equal(completed.statusCode, 201);
+
+  const billableEvents = await request(api, {
+    method: "GET",
+    path: "/ops/finance/billable-events?period=2026-02&eventType=settled_volume&limit=20",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(billableEvents.statusCode, 200);
+  assert.equal(billableEvents.json?.count, 1);
+  const settledEventKey = billableEvents.json?.events?.[0]?.eventKey ?? null;
+  assert.ok(settledEventKey);
+
+  const periodClose = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billing/period-close",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "billing_fee_line_close_1"
+    },
+    body: {
+      period: "2026-02"
+    }
+  });
+  assert.equal(periodClose.statusCode, 200);
+  assert.equal(periodClose.json?.invoice?.schemaVersion, "BillingInvoiceDraft.v1");
+  const feeLine = periodClose.json?.invoice?.lineItems?.find((row) => row?.code === "SETTLED_VOLUME_FEE") ?? null;
+  assert.ok(feeLine);
+  assert.equal(feeLine?.quantity, 2000);
+  assert.equal(feeLine?.unitAmountBps, 75);
+  assert.equal(feeLine?.amountCents, 15);
+  assert.deepEqual(feeLine?.sourceEventKeys, [settledEventKey]);
+  assert.equal(typeof feeLine?.sourceEventDigest, "string");
+  assert.equal(feeLine?.sourceEventDigest?.length, 64);
 });
 
 test("API e2e: billing stripe provider live mode posts to Stripe API", async () => {
   const stripeCalls = [];
-  const mockStripeServer = createServer((req, res) => {
-    let body = "";
-    req.setEncoding("utf8");
-    req.on("data", (chunk) => {
-      body += chunk;
+  const stripeFetchFn = async (url, init = {}) => {
+    const parsed = new URL(String(url));
+    const headers = new Headers(init?.headers ?? {});
+    const formData = new URLSearchParams(String(init?.body ?? ""));
+    stripeCalls.push({
+      method: init?.method ?? "GET",
+      path: parsed.pathname,
+      headers,
+      formData
     });
-    req.on("end", () => {
-      const formData = new URLSearchParams(body);
-      stripeCalls.push({
-        method: req.method,
-        path: req.url,
-        headers: req.headers,
-        formData
+
+    if ((init?.method ?? "GET") !== "POST") {
+      return createMockFetchJsonResponse(405, { error: { message: "method not allowed" } });
+    }
+    if (parsed.pathname === "/v1/checkout/sessions") {
+      return createMockFetchJsonResponse(200, {
+        id: "cs_live_test_123",
+        url: "https://checkout.stripe.com/c/pay/cs_live_test_123",
+        subscription: "sub_live_test_123"
       });
-      if (req.method !== "POST") {
-        res.writeHead(405, { "content-type": "application/json" });
-        res.end(JSON.stringify({ error: { message: "method not allowed" } }));
-        return;
-      }
-      if (req.url === "/v1/checkout/sessions") {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            id: "cs_live_test_123",
-            url: "https://checkout.stripe.com/c/pay/cs_live_test_123",
-            subscription: "sub_live_test_123"
-          })
-        );
-        return;
-      }
-      if (req.url === "/v1/billing_portal/sessions") {
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            id: "bps_live_test_123",
-            url: "https://billing.stripe.com/p/session/bps_live_test_123"
-          })
-        );
-        return;
-      }
-      res.writeHead(404, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: { message: "not found" } }));
-    });
+    }
+    if (parsed.pathname === "/v1/billing_portal/sessions") {
+      return createMockFetchJsonResponse(200, {
+        id: "bps_live_test_123",
+        url: "https://billing.stripe.com/p/session/bps_live_test_123"
+      });
+    }
+    return createMockFetchJsonResponse(404, { error: { message: "not found" } });
+  };
+
+  const api = createApi({
+    now: () => "2026-02-07T00:00:00.000Z",
+    opsTokens: "tok_finw:finance_write",
+    billingStripeApiBaseUrl: "https://stripe.mock.local",
+    billingStripeFetchFn: stripeFetchFn,
+    billingStripeSecretKey: "sk_test_live_123",
+    billingStripePriceIdBuilder: "price_builder_live_123",
+    billingStripePriceIdGrowth: "price_growth_live_123",
+    billingStripePriceIdEnterprise: "price_enterprise_live_123",
+    billingStripeCheckoutSuccessUrl: "https://example.test/default-success",
+    billingStripeCheckoutCancelUrl: "https://example.test/default-cancel",
+    billingStripePortalReturnUrl: "https://example.test/default-return"
   });
-  await new Promise((resolve) => mockStripeServer.listen(0, "127.0.0.1", resolve));
-  const stripeAddress = mockStripeServer.address();
-  assert.ok(stripeAddress && typeof stripeAddress === "object" && stripeAddress.port > 0);
-  const stripeBaseUrl = `http://127.0.0.1:${stripeAddress.port}`;
 
-  try {
-    const api = createApi({
-      now: () => "2026-02-07T00:00:00.000Z",
-      opsTokens: "tok_finw:finance_write",
-      billingStripeApiBaseUrl: stripeBaseUrl,
-      billingStripeSecretKey: "sk_test_live_123",
-      billingStripePriceIdBuilder: "price_builder_live_123",
-      billingStripePriceIdGrowth: "price_growth_live_123",
-      billingStripePriceIdEnterprise: "price_enterprise_live_123",
-      billingStripeCheckoutSuccessUrl: "https://example.test/default-success",
-      billingStripeCheckoutCancelUrl: "https://example.test/default-cancel",
-      billingStripePortalReturnUrl: "https://example.test/default-return"
-    });
+  const tenantId = "tenant_billing_live_sessions";
+  const checkout = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billing/providers/stripe/checkout",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "billing_live_checkout_1"
+    },
+    body: {
+      plan: "growth",
+      customerId: "cus_live_123"
+    }
+  });
+  assert.equal(checkout.statusCode, 201);
+  assert.equal(checkout.json?.checkoutSession?.mode, "live");
+  assert.equal(checkout.json?.checkoutSession?.sessionId, "cs_live_test_123");
+  assert.equal(checkout.json?.checkoutSession?.sessionUrl, "https://checkout.stripe.com/c/pay/cs_live_test_123");
+  assert.equal(checkout.json?.checkoutSession?.priceId, "price_growth_live_123");
+  assert.equal(checkout.json?.checkoutSession?.subscriptionId, "sub_live_test_123");
 
-    const tenantId = "tenant_billing_live_sessions";
-    const checkout = await request(api, {
-      method: "POST",
-      path: "/ops/finance/billing/providers/stripe/checkout",
-      headers: {
-        "x-proxy-tenant-id": tenantId,
-        "x-proxy-ops-token": "tok_finw",
-        "x-idempotency-key": "billing_live_checkout_1"
-      },
-      body: {
-        plan: "growth",
-        customerId: "cus_live_123"
-      }
-    });
-    assert.equal(checkout.statusCode, 201);
-    assert.equal(checkout.json?.checkoutSession?.mode, "live");
-    assert.equal(checkout.json?.checkoutSession?.sessionId, "cs_live_test_123");
-    assert.equal(checkout.json?.checkoutSession?.sessionUrl, "https://checkout.stripe.com/c/pay/cs_live_test_123");
-    assert.equal(checkout.json?.checkoutSession?.priceId, "price_growth_live_123");
-    assert.equal(checkout.json?.checkoutSession?.subscriptionId, "sub_live_test_123");
+  const portal = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billing/providers/stripe/portal",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "billing_live_portal_1"
+    },
+    body: {
+      customerId: "cus_live_123"
+    }
+  });
+  assert.equal(portal.statusCode, 201);
+  assert.equal(portal.json?.portalSession?.mode, "live");
+  assert.equal(portal.json?.portalSession?.sessionId, "bps_live_test_123");
+  assert.equal(portal.json?.portalSession?.sessionUrl, "https://billing.stripe.com/p/session/bps_live_test_123");
 
-    const portal = await request(api, {
-      method: "POST",
-      path: "/ops/finance/billing/providers/stripe/portal",
-      headers: {
-        "x-proxy-tenant-id": tenantId,
-        "x-proxy-ops-token": "tok_finw",
-        "x-idempotency-key": "billing_live_portal_1"
-      },
-      body: {
-        customerId: "cus_live_123"
-      }
-    });
-    assert.equal(portal.statusCode, 201);
-    assert.equal(portal.json?.portalSession?.mode, "live");
-    assert.equal(portal.json?.portalSession?.sessionId, "bps_live_test_123");
-    assert.equal(portal.json?.portalSession?.sessionUrl, "https://billing.stripe.com/p/session/bps_live_test_123");
-
-    assert.equal(stripeCalls.length, 2);
-    const checkoutCall = stripeCalls.find((call) => call.path === "/v1/checkout/sessions");
-    const portalCall = stripeCalls.find((call) => call.path === "/v1/billing_portal/sessions");
-    assert.ok(checkoutCall);
-    assert.ok(portalCall);
-    assert.equal(checkoutCall.headers.authorization, "Bearer sk_test_live_123");
-    assert.equal(checkoutCall.formData.get("line_items[0][price]"), "price_growth_live_123");
-    assert.equal(checkoutCall.formData.get("success_url"), "https://example.test/default-success");
-    assert.equal(checkoutCall.formData.get("cancel_url"), "https://example.test/default-cancel");
-    assert.equal(portalCall.headers.authorization, "Bearer sk_test_live_123");
-    assert.equal(portalCall.formData.get("customer"), "cus_live_123");
-    assert.equal(portalCall.formData.get("return_url"), "https://example.test/default-return");
-  } finally {
-    await new Promise((resolve) => mockStripeServer.close(resolve));
-  }
+  assert.equal(stripeCalls.length, 2);
+  const checkoutCall = stripeCalls.find((call) => call.path === "/v1/checkout/sessions");
+  const portalCall = stripeCalls.find((call) => call.path === "/v1/billing_portal/sessions");
+  assert.ok(checkoutCall);
+  assert.ok(portalCall);
+  assert.equal(checkoutCall.headers.get("authorization"), "Bearer sk_test_live_123");
+  assert.equal(checkoutCall.formData.get("line_items[0][price]"), "price_growth_live_123");
+  assert.equal(checkoutCall.formData.get("success_url"), "https://example.test/default-success");
+  assert.equal(checkoutCall.formData.get("cancel_url"), "https://example.test/default-cancel");
+  assert.equal(portalCall.headers.get("authorization"), "Bearer sk_test_live_123");
+  assert.equal(portalCall.formData.get("customer"), "cus_live_123");
+  assert.equal(portalCall.formData.get("return_url"), "https://example.test/default-return");
 });
 
 test("API e2e: billing stripe checkout retries without stale customer id in live mode", async () => {
   const checkoutCalls = [];
-  const mockStripeServer = createServer((req, res) => {
-    let body = "";
-    req.setEncoding("utf8");
-    req.on("data", (chunk) => {
-      body += chunk;
-    });
-    req.on("end", () => {
-      const formData = new URLSearchParams(body);
-      if (req.method === "POST" && req.url === "/v1/checkout/sessions") {
-        checkoutCalls.push(formData);
-        const customerId = formData.get("customer");
-        if (customerId === "cus_stale_123") {
-          res.writeHead(400, { "content-type": "application/json" });
-          res.end(JSON.stringify({ error: { message: "No such customer: 'cus_stale_123'" } }));
-          return;
-        }
-        res.writeHead(200, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            id: "cs_live_retry_123",
-            url: "https://checkout.stripe.com/c/pay/cs_live_retry_123",
-            subscription: null
-          })
-        );
-        return;
+  const stripeFetchFn = async (url, init = {}) => {
+    const parsed = new URL(String(url));
+    const formData = new URLSearchParams(String(init?.body ?? ""));
+    if ((init?.method ?? "GET") === "POST" && parsed.pathname === "/v1/checkout/sessions") {
+      checkoutCalls.push(formData);
+      const customerId = formData.get("customer");
+      if (customerId === "cus_stale_123") {
+        return createMockFetchJsonResponse(400, { error: { message: "No such customer: 'cus_stale_123'" } });
       }
-      res.writeHead(404, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: { message: "not found" } }));
-    });
+      return createMockFetchJsonResponse(200, {
+        id: "cs_live_retry_123",
+        url: "https://checkout.stripe.com/c/pay/cs_live_retry_123",
+        subscription: null
+      });
+    }
+    return createMockFetchJsonResponse(404, { error: { message: "not found" } });
+  };
+
+  const api = createApi({
+    now: () => "2026-02-07T00:00:00.000Z",
+    opsTokens: "tok_finw:finance_write",
+    billingStripeApiBaseUrl: "https://stripe.mock.local",
+    billingStripeFetchFn: stripeFetchFn,
+    billingStripeSecretKey: "sk_test_live_123",
+    billingStripePriceIdBuilder: "price_builder_live_123",
+    billingStripePriceIdGrowth: "price_growth_live_123",
+    billingStripePriceIdEnterprise: "price_enterprise_live_123",
+    billingStripeCheckoutSuccessUrl: "https://example.test/default-success",
+    billingStripeCheckoutCancelUrl: "https://example.test/default-cancel"
   });
-  await new Promise((resolve) => mockStripeServer.listen(0, "127.0.0.1", resolve));
-  const stripeAddress = mockStripeServer.address();
-  assert.ok(stripeAddress && typeof stripeAddress === "object" && stripeAddress.port > 0);
-  const stripeBaseUrl = `http://127.0.0.1:${stripeAddress.port}`;
 
-  try {
-    const api = createApi({
-      now: () => "2026-02-07T00:00:00.000Z",
-      opsTokens: "tok_finw:finance_write",
-      billingStripeApiBaseUrl: stripeBaseUrl,
-      billingStripeSecretKey: "sk_test_live_123",
-      billingStripePriceIdBuilder: "price_builder_live_123",
-      billingStripePriceIdGrowth: "price_growth_live_123",
-      billingStripePriceIdEnterprise: "price_enterprise_live_123",
-      billingStripeCheckoutSuccessUrl: "https://example.test/default-success",
-      billingStripeCheckoutCancelUrl: "https://example.test/default-cancel"
-    });
+  const checkout = await request(api, {
+    method: "POST",
+    path: "/ops/finance/billing/providers/stripe/checkout",
+    headers: {
+      "x-proxy-tenant-id": "tenant_billing_live_stale_customer_retry",
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "billing_live_checkout_retry_1"
+    },
+    body: {
+      plan: "growth",
+      customerId: "cus_stale_123"
+    }
+  });
+  assert.equal(checkout.statusCode, 201);
+  assert.equal(checkout.json?.checkoutSession?.mode, "live");
+  assert.equal(checkout.json?.checkoutSession?.sessionId, "cs_live_retry_123");
+  assert.equal(checkout.json?.checkoutSession?.sessionUrl, "https://checkout.stripe.com/c/pay/cs_live_retry_123");
+  assert.equal(checkout.json?.checkoutSession?.customerId, null);
 
-    const checkout = await request(api, {
-      method: "POST",
-      path: "/ops/finance/billing/providers/stripe/checkout",
-      headers: {
-        "x-proxy-tenant-id": "tenant_billing_live_stale_customer_retry",
-        "x-proxy-ops-token": "tok_finw",
-        "x-idempotency-key": "billing_live_checkout_retry_1"
-      },
-      body: {
-        plan: "growth",
-        customerId: "cus_stale_123"
-      }
-    });
-    assert.equal(checkout.statusCode, 201);
-    assert.equal(checkout.json?.checkoutSession?.mode, "live");
-    assert.equal(checkout.json?.checkoutSession?.sessionId, "cs_live_retry_123");
-    assert.equal(checkout.json?.checkoutSession?.sessionUrl, "https://checkout.stripe.com/c/pay/cs_live_retry_123");
-    assert.equal(checkout.json?.checkoutSession?.customerId, null);
-
-    assert.equal(checkoutCalls.length, 2);
-    assert.equal(checkoutCalls[0].get("customer"), "cus_stale_123");
-    assert.equal(checkoutCalls[1].get("customer"), null);
-    assert.equal(checkoutCalls[1].get("line_items[0][price]"), "price_growth_live_123");
-  } finally {
-    await new Promise((resolve) => mockStripeServer.close(resolve));
-  }
+  assert.equal(checkoutCalls.length, 2);
+  assert.equal(checkoutCalls[0].get("customer"), "cus_stale_123");
+  assert.equal(checkoutCalls[1].get("customer"), null);
+  assert.equal(checkoutCalls[1].get("line_items[0][price]"), "price_growth_live_123");
 });
 
 test("API e2e: billing hard limit blocks additional verified runs", async () => {

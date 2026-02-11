@@ -40,6 +40,24 @@ Appeal lineage is represented with optional `appealRef`:
 
 This keeps appeal linkage explicit without mutating the parent case.
 
+## Metadata conventions
+
+`metadata` is intentionally schemaless to allow subject-specific conventions.
+
+### Tool-call disputes (Sprint 21)
+
+For tool-call holdback disputes, `metadata` MUST include:
+
+- `caseType`: `"tool_call"`
+- `agreementHash`: sha256 hex (lowercase)
+- `receiptHash`: sha256 hex (lowercase)
+- `holdHash`: sha256 hex (lowercase)
+
+These fields are used to:
+
+- freeze holdback auto-release while the case is not closed, and
+- bind deterministic adjustments to the disputed economic subject.
+
 ## Canonicalization and hashing
 
 When hashed/signed by higher-level protocols:

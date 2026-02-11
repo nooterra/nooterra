@@ -13,35 +13,35 @@ function makeJsonResponse(body, { status = 200, requestId = "req_sdk_market_1" }
   });
 }
 
-test("api-sdk: marketplace task/bid methods call expected endpoints", async () => {
+test("api-sdk: marketplace rfq/bid methods call expected endpoints", async () => {
   const calls = [];
   const fetchStub = async (url, init) => {
     calls.push({ url: String(url), init });
-    if (String(url).endsWith("/marketplace/tasks") && String(init?.method) === "POST") {
-      return makeJsonResponse({ task: { schemaVersion: "MarketplaceTask.v1", taskId: "task_1", status: "open", currency: "USD" } }, { status: 201 });
+    if (String(url).endsWith("/marketplace/rfqs") && String(init?.method) === "POST") {
+      return makeJsonResponse({ rfq: { schemaVersion: "MarketplaceRfq.v1", rfqId: "rfq_1", status: "open", currency: "USD" } }, { status: 201 });
     }
-    if (String(url).includes("/marketplace/tasks?")) {
-      return makeJsonResponse({ tasks: [], total: 0, limit: 10, offset: 0 });
+    if (String(url).includes("/marketplace/rfqs?")) {
+      return makeJsonResponse({ rfqs: [], total: 0, limit: 10, offset: 0 });
     }
-    if (String(url).includes("/marketplace/tasks/task_1/bids?")) {
-      return makeJsonResponse({ taskId: "task_1", bids: [], total: 0, limit: 10, offset: 0 });
+    if (String(url).includes("/marketplace/rfqs/rfq_1/bids?")) {
+      return makeJsonResponse({ rfqId: "rfq_1", bids: [], total: 0, limit: 10, offset: 0 });
     }
-    if (String(url).endsWith("/marketplace/tasks/task_1/bids")) {
+    if (String(url).endsWith("/marketplace/rfqs/rfq_1/bids")) {
       return makeJsonResponse(
         {
-          task: { schemaVersion: "MarketplaceTask.v1", taskId: "task_1", status: "open", currency: "USD" },
-          bid: { schemaVersion: "MarketplaceBid.v1", bidId: "bid_1", taskId: "task_1", status: "pending", amountCents: 1000, currency: "USD" }
+          rfq: { schemaVersion: "MarketplaceRfq.v1", rfqId: "rfq_1", status: "open", currency: "USD" },
+          bid: { schemaVersion: "MarketplaceBid.v1", bidId: "bid_1", rfqId: "rfq_1", status: "pending", amountCents: 1000, currency: "USD" }
         },
         { status: 201 }
       );
     }
-    if (String(url).endsWith("/marketplace/tasks/task_1/bids/bid_1/counter-offer")) {
+    if (String(url).endsWith("/marketplace/rfqs/rfq_1/bids/bid_1/counter-offer")) {
       return makeJsonResponse({
-        task: { schemaVersion: "MarketplaceTask.v1", taskId: "task_1", status: "open", currency: "USD" },
+        rfq: { schemaVersion: "MarketplaceRfq.v1", rfqId: "rfq_1", status: "open", currency: "USD" },
         bid: {
           schemaVersion: "MarketplaceBid.v1",
           bidId: "bid_1",
-          taskId: "task_1",
+          rfqId: "rfq_1",
           status: "pending",
           amountCents: 900,
           currency: "USD"
@@ -61,10 +61,10 @@ test("api-sdk: marketplace task/bid methods call expected endpoints", async () =
         proposal: { schemaVersion: "MarketplaceBidProposal.v1", proposalId: "ofr_bid_1_2", bidId: "bid_1", revision: 2, proposerAgentId: "agt_1", amountCents: 900, currency: "USD", verificationMethod: { schemaVersion: "VerificationMethod.v1", mode: "deterministic" }, policy: { schemaVersion: "SettlementPolicy.v1", policyVersion: 1, mode: "automatic", policyHash: "hash_1", rules: { requireDeterministicVerification: false, autoReleaseOnGreen: true, autoReleaseOnAmber: true, autoReleaseOnRed: false, greenReleaseRatePct: 100, amberReleaseRatePct: 50, redReleaseRatePct: 0 } }, proposedAt: "2026-02-06T00:01:00.000Z" }
       });
     }
-    if (String(url).endsWith("/marketplace/tasks/task_1/accept")) {
+    if (String(url).endsWith("/marketplace/rfqs/rfq_1/accept")) {
       return makeJsonResponse({
-        task: { schemaVersion: "MarketplaceTask.v1", taskId: "task_1", status: "assigned", acceptedBidId: "bid_1", currency: "USD" },
-        acceptedBid: { schemaVersion: "MarketplaceBid.v1", bidId: "bid_1", taskId: "task_1", status: "accepted", amountCents: 1000, currency: "USD" }
+        rfq: { schemaVersion: "MarketplaceRfq.v1", rfqId: "rfq_1", status: "assigned", acceptedBidId: "bid_1", currency: "USD" },
+        acceptedBid: { schemaVersion: "MarketplaceBid.v1", bidId: "bid_1", rfqId: "rfq_1", status: "accepted", amountCents: 1000, currency: "USD" }
       });
     }
     if (String(url).endsWith("/runs/run_1/settlement/policy-replay")) {
@@ -79,12 +79,13 @@ test("api-sdk: marketplace task/bid methods call expected endpoints", async () =
     if (String(url).endsWith("/runs/run_1/agreement")) {
       return makeJsonResponse({
         runId: "run_1",
+        rfqId: "rfq_1",
         agreementId: "agr_1",
         agreement: {
-          schemaVersion: "MarketplaceTaskAgreement.v1",
+          schemaVersion: "MarketplaceTaskAgreement.v2",
           agreementId: "agr_1",
           runId: "run_1",
-          taskId: "task_1",
+          rfqId: "rfq_1",
           bidId: "bid_1",
           tenantId: "tenant_sdk",
           payerAgentId: "agt_1",
@@ -105,18 +106,18 @@ test("api-sdk: marketplace task/bid methods call expected endpoints", async () =
     if (String(url).endsWith("/runs/run_1/agreement/change-order")) {
       return makeJsonResponse({
         runId: "run_1",
-        task: { schemaVersion: "MarketplaceTask.v1", taskId: "task_1", status: "assigned", currency: "USD" },
-        agreement: { schemaVersion: "MarketplaceTaskAgreement.v1", agreementId: "agr_1", runId: "run_1", taskId: "task_1", bidId: "bid_1", tenantId: "tenant_sdk", payerAgentId: "agt_1", payeeAgentId: "agt_2", fromType: "agent", toType: "agent", amountCents: 1000, currency: "USD", acceptedAt: "2026-02-06T00:00:00.000Z", disputeWindowDays: 3, termsHash: "hash_terms", verificationMethodHash: "hash_method", policyHash: "hash_policy" },
+        rfq: { schemaVersion: "MarketplaceRfq.v1", rfqId: "rfq_1", status: "assigned", currency: "USD" },
+        agreement: { schemaVersion: "MarketplaceTaskAgreement.v2", agreementId: "agr_1", runId: "run_1", rfqId: "rfq_1", bidId: "bid_1", tenantId: "tenant_sdk", payerAgentId: "agt_1", payeeAgentId: "agt_2", fromType: "agent", toType: "agent", amountCents: 1000, currency: "USD", acceptedAt: "2026-02-06T00:00:00.000Z", disputeWindowDays: 3, termsHash: "hash_terms", verificationMethodHash: "hash_method", policyHash: "hash_policy" },
         changeOrder: { changeOrderId: "chg_1" }
       });
     }
     if (String(url).endsWith("/runs/run_1/agreement/cancel")) {
       return makeJsonResponse({
         runId: "run_1",
-        task: { schemaVersion: "MarketplaceTask.v1", taskId: "task_1", status: "cancelled", currency: "USD" },
+        rfq: { schemaVersion: "MarketplaceRfq.v1", rfqId: "rfq_1", status: "cancelled", currency: "USD" },
         run: { schemaVersion: "AgentRun.v1", runId: "run_1", agentId: "agt_2", tenantId: "tenant_sdk", status: "failed", createdAt: "2026-02-06T00:00:00.000Z", updatedAt: "2026-02-06T00:01:00.000Z" },
         settlement: { schemaVersion: "AgentRunSettlement.v1", settlementId: "setl_run_1", runId: "run_1", status: "released", amountCents: 1000 },
-        agreement: { schemaVersion: "MarketplaceTaskAgreement.v1", agreementId: "agr_1", runId: "run_1", taskId: "task_1", bidId: "bid_1", tenantId: "tenant_sdk", payerAgentId: "agt_1", payeeAgentId: "agt_2", fromType: "agent", toType: "agent", amountCents: 1000, currency: "USD", acceptedAt: "2026-02-06T00:00:00.000Z", disputeWindowDays: 3, termsHash: "hash_terms", verificationMethodHash: "hash_method", policyHash: "hash_policy" },
+        agreement: { schemaVersion: "MarketplaceTaskAgreement.v2", agreementId: "agr_1", runId: "run_1", rfqId: "rfq_1", bidId: "bid_1", tenantId: "tenant_sdk", payerAgentId: "agt_1", payeeAgentId: "agt_2", fromType: "agent", toType: "agent", amountCents: 1000, currency: "USD", acceptedAt: "2026-02-06T00:00:00.000Z", disputeWindowDays: 3, termsHash: "hash_terms", verificationMethodHash: "hash_method", policyHash: "hash_policy" },
         cancellation: { cancellationId: "cancel_1", reason: "buyer cancelled before start" }
       });
     }
@@ -130,24 +131,24 @@ test("api-sdk: marketplace task/bid methods call expected endpoints", async () =
 
   const client = new SettldClient({ baseUrl: "https://api.settld.local", tenantId: "tenant_sdk", fetch: fetchStub });
 
-  await client.createMarketplaceTask({
-    taskId: "task_1",
+  await client.createMarketplaceRfq({
+    rfqId: "rfq_1",
     title: "Translate docs",
     capability: "translate",
     posterAgentId: "agt_1",
     budgetCents: 2000
   });
-  assert.equal(calls[0].url, "https://api.settld.local/marketplace/tasks");
+  assert.equal(calls[0].url, "https://api.settld.local/marketplace/rfqs");
   assert.equal(calls[0].init?.method, "POST");
 
-  await client.listMarketplaceTasks({ status: "open", capability: "translate", posterAgentId: "agt_1", limit: 10, offset: 0 });
+  await client.listMarketplaceRfqs({ status: "open", capability: "translate", posterAgentId: "agt_1", limit: 10, offset: 0 });
   assert.equal(
     calls[1].url,
-    "https://api.settld.local/marketplace/tasks?status=open&capability=translate&posterAgentId=agt_1&limit=10&offset=0"
+    "https://api.settld.local/marketplace/rfqs?status=open&capability=translate&posterAgentId=agt_1&limit=10&offset=0"
   );
   assert.equal(calls[1].init?.method, "GET");
 
-  await client.submitMarketplaceBid("task_1", {
+  await client.submitMarketplaceBid("rfq_1", {
     bidId: "bid_1",
     bidderAgentId: "agt_2",
     amountCents: 1000,
@@ -162,24 +163,24 @@ test("api-sdk: marketplace task/bid methods call expected endpoints", async () =
       policyHash: "pol_hash_1"
     }
   });
-  assert.equal(calls[2].url, "https://api.settld.local/marketplace/tasks/task_1/bids");
+  assert.equal(calls[2].url, "https://api.settld.local/marketplace/rfqs/rfq_1/bids");
   assert.equal(calls[2].init?.method, "POST");
   const submitBidBody = JSON.parse(String(calls[2].init?.body ?? "{}"));
   assert.equal(submitBidBody?.verificationMethod?.verificationMethodHash, "vm_hash_1");
   assert.equal(submitBidBody?.policy?.policyHash, "pol_hash_1");
 
-  await client.listMarketplaceBids("task_1", { status: "pending", bidderAgentId: "agt_2", limit: 10, offset: 0 });
+  await client.listMarketplaceBids("rfq_1", { status: "pending", bidderAgentId: "agt_2", limit: 10, offset: 0 });
   assert.equal(
     calls[3].url,
-    "https://api.settld.local/marketplace/tasks/task_1/bids?status=pending&bidderAgentId=agt_2&limit=10&offset=0"
+    "https://api.settld.local/marketplace/rfqs/rfq_1/bids?status=pending&bidderAgentId=agt_2&limit=10&offset=0"
   );
   assert.equal(calls[3].init?.method, "GET");
 
-  await client.applyMarketplaceBidCounterOffer("task_1", "bid_1", { proposerAgentId: "agt_1", amountCents: 900 });
-  assert.equal(calls[4].url, "https://api.settld.local/marketplace/tasks/task_1/bids/bid_1/counter-offer");
+  await client.applyMarketplaceBidCounterOffer("rfq_1", "bid_1", { proposerAgentId: "agt_1", amountCents: 900 });
+  assert.equal(calls[4].url, "https://api.settld.local/marketplace/rfqs/rfq_1/bids/bid_1/counter-offer");
   assert.equal(calls[4].init?.method, "POST");
 
-  await client.acceptMarketplaceBid("task_1", {
+  await client.acceptMarketplaceBid("rfq_1", {
     bidId: "bid_1",
     acceptedByAgentId: "agt_1",
     acceptanceSignature: {
@@ -208,7 +209,7 @@ test("api-sdk: marketplace task/bid methods call expected endpoints", async () =
       signature: "sig_accept_1"
     }
   });
-  assert.equal(calls[5].url, "https://api.settld.local/marketplace/tasks/task_1/accept");
+  assert.equal(calls[5].url, "https://api.settld.local/marketplace/rfqs/rfq_1/accept");
   assert.equal(calls[5].init?.method, "POST");
   const acceptBody = JSON.parse(String(calls[5].init?.body ?? "{}"));
   assert.equal(acceptBody?.acceptanceSignature?.actingOnBehalfOf?.principalAgentId, "agt_1");

@@ -421,6 +421,153 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const SettlementDecisionRecordV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "decisionId",
+      "tenantId",
+      "runId",
+      "settlementId",
+      "decisionStatus",
+      "decisionMode",
+      "policyRef",
+      "verifierRef",
+      "workRef",
+      "decidedAt",
+      "decisionHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SettlementDecisionRecord.v1"] },
+      decisionId: { type: "string" },
+      tenantId: { type: "string" },
+      runId: { type: "string" },
+      settlementId: { type: "string" },
+      agreementId: { type: "string", nullable: true },
+      decisionStatus: { type: "string", enum: ["pending", "auto_resolved", "manual_review_required", "manual_resolved"] },
+      decisionMode: { type: "string", enum: ["automatic", "manual-review"] },
+      decisionReason: { type: "string", nullable: true },
+      verificationStatus: { type: "string", enum: ["green", "amber", "red"], nullable: true },
+      policyRef: {
+        type: "object",
+        additionalProperties: false,
+        required: ["policyHash", "verificationMethodHash"],
+        properties: {
+          policyHash: { type: "string", nullable: true },
+          verificationMethodHash: { type: "string", nullable: true }
+        }
+      },
+      verifierRef: {
+        type: "object",
+        additionalProperties: false,
+        required: ["verifierId", "verifierVersion", "verifierHash", "modality"],
+        properties: {
+          verifierId: { type: "string", nullable: true },
+          verifierVersion: { type: "string", nullable: true },
+          verifierHash: { type: "string", nullable: true },
+          modality: { type: "string", enum: ["deterministic", "attested", "discretionary"], nullable: true }
+        }
+      },
+      workRef: {
+        type: "object",
+        additionalProperties: false,
+        required: ["runStatus", "runLastEventId", "runLastChainHash", "resolutionEventId"],
+        properties: {
+          runStatus: { type: "string", nullable: true },
+          runLastEventId: { type: "string", nullable: true },
+          runLastChainHash: { type: "string", nullable: true },
+          resolutionEventId: { type: "string", nullable: true }
+        }
+      },
+      decidedAt: { type: "string", format: "date-time" },
+      decisionHash: { type: "string" }
+    }
+  };
+
+  const SettlementDecisionRecordV2 = {
+    ...SettlementDecisionRecordV1,
+    required: [...SettlementDecisionRecordV1.required, "policyHashUsed"],
+    properties: {
+      ...SettlementDecisionRecordV1.properties,
+      schemaVersion: { type: "string", enum: ["SettlementDecisionRecord.v2"] },
+      policyNormalizationVersion: { type: "string" },
+      policyHashUsed: { type: "string" },
+      verificationMethodHashUsed: { type: "string" }
+    }
+  };
+
+  const SettlementDecisionRecordAny = {
+    oneOf: [SettlementDecisionRecordV1, SettlementDecisionRecordV2]
+  };
+
+  const SettlementReceiptV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "receiptId",
+      "tenantId",
+      "runId",
+      "settlementId",
+      "decisionRef",
+      "status",
+      "amountCents",
+      "releasedAmountCents",
+      "refundedAmountCents",
+      "releaseRatePct",
+      "currency",
+      "runStatus",
+      "resolutionEventId",
+      "finalityProvider",
+      "finalityState",
+      "settledAt",
+      "createdAt",
+      "receiptHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SettlementReceipt.v1"] },
+      receiptId: { type: "string" },
+      tenantId: { type: "string" },
+      runId: { type: "string" },
+      settlementId: { type: "string" },
+      decisionRef: {
+        type: "object",
+        additionalProperties: false,
+        required: ["decisionId", "decisionHash"],
+        properties: {
+          decisionId: { type: "string" },
+          decisionHash: { type: "string" }
+        }
+      },
+      status: { type: "string", enum: ["locked", "released", "refunded"] },
+      amountCents: { type: "integer", minimum: 1 },
+      releasedAmountCents: { type: "integer", minimum: 0 },
+      refundedAmountCents: { type: "integer", minimum: 0 },
+      releaseRatePct: { type: "integer", minimum: 0, maximum: 100 },
+      currency: { type: "string" },
+      runStatus: { type: "string", nullable: true },
+      resolutionEventId: { type: "string", nullable: true },
+      finalityProvider: { type: "string", enum: ["internal_ledger"] },
+      finalityState: { type: "string", enum: ["pending", "final"] },
+      settledAt: { type: "string", format: "date-time", nullable: true },
+      createdAt: { type: "string", format: "date-time" },
+      receiptHash: { type: "string" }
+    }
+  };
+
+  const SettlementKernelVerification = {
+    type: "object",
+    additionalProperties: false,
+    required: ["valid", "errors"],
+    properties: {
+      valid: { type: "boolean" },
+      errors: { type: "array", items: { type: "string" } },
+      decisionRecord: { ...SettlementDecisionRecordAny, nullable: true },
+      settlementReceipt: { allOf: [SettlementReceiptV1], nullable: true }
+    }
+  };
+
   const AgentReputationV1 = {
     type: "object",
     additionalProperties: false,
@@ -810,6 +957,103 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const MarketplaceOfferV2 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "offerId",
+      "tenantId",
+      "rfqId",
+      "runId",
+      "bidId",
+      "revision",
+      "amountCents",
+      "currency",
+      "proposalHash",
+      "proposedAt",
+      "createdAt",
+      "offerHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["MarketplaceOffer.v2"] },
+      offerId: { type: "string" },
+      tenantId: { type: "string" },
+      rfqId: { type: "string" },
+      runId: { type: "string", nullable: true },
+      bidId: { type: "string" },
+      proposalId: { type: "string", nullable: true },
+      revision: { type: "integer", minimum: 1 },
+      proposerAgentId: { type: "string", nullable: true },
+      amountCents: { type: "integer", minimum: 1 },
+      currency: { type: "string" },
+      etaSeconds: { type: "integer", minimum: 1, nullable: true },
+      note: { type: "string", nullable: true },
+      verificationMethod: { ...VerificationMethodV1, nullable: true },
+      policy: { ...SettlementPolicyV1, nullable: true },
+      policyRef: { ...MarketplaceSettlementPolicyRefV1, nullable: true },
+      policyRefHash: { type: "string", nullable: true },
+      prevProposalHash: { type: "string", nullable: true },
+      proposalHash: { type: "string" },
+      offerChainHash: { type: "string", nullable: true },
+      proposalCount: { type: "integer", minimum: 1, nullable: true },
+      metadata: { type: "object", additionalProperties: true, nullable: true },
+      proposedAt: { type: "string", format: "date-time" },
+      createdAt: { type: "string", format: "date-time" },
+      offerHash: { type: "string" }
+    }
+  };
+
+  const MarketplaceAcceptanceV2 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "acceptanceId",
+      "tenantId",
+      "rfqId",
+      "runId",
+      "bidId",
+      "acceptedAt",
+      "acceptedByAgentId",
+      "acceptedProposalId",
+      "acceptedRevision",
+      "acceptedProposalHash",
+      "offerChainHash",
+      "proposalCount",
+      "offerRef",
+      "createdAt",
+      "acceptanceHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["MarketplaceAcceptance.v2"] },
+      acceptanceId: { type: "string" },
+      tenantId: { type: "string" },
+      rfqId: { type: "string" },
+      runId: { type: "string" },
+      bidId: { type: "string" },
+      agreementId: { type: "string", nullable: true },
+      acceptedAt: { type: "string", format: "date-time", nullable: true },
+      acceptedByAgentId: { type: "string", nullable: true },
+      acceptedProposalId: { type: "string", nullable: true },
+      acceptedRevision: { type: "integer", minimum: 1, nullable: true },
+      acceptedProposalHash: { type: "string", nullable: true },
+      offerChainHash: { type: "string", nullable: true },
+      proposalCount: { type: "integer", minimum: 1, nullable: true },
+      offerRef: {
+        type: "object",
+        additionalProperties: false,
+        required: ["offerId", "offerHash"],
+        properties: {
+          offerId: { type: "string", nullable: true },
+          offerHash: { type: "string", nullable: true }
+        }
+      },
+      createdAt: { type: "string", format: "date-time" },
+      acceptanceHash: { type: "string" }
+    }
+  };
+
   const AgentDelegationLinkV1 = {
     type: "object",
     additionalProperties: false,
@@ -855,12 +1099,12 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
   const DelegationTraceV1 = {
     type: "object",
     additionalProperties: false,
-    required: ["chainHash", "tenantId", "runId", "taskId", "agreementId", "contextType", "delegationChain"],
+    required: ["chainHash", "tenantId", "runId", "rfqId", "agreementId", "contextType", "delegationChain"],
     properties: {
       chainHash: { type: "string" },
       tenantId: { type: "string" },
       runId: { type: "string" },
-      taskId: { type: "string" },
+      rfqId: { type: "string" },
       agreementId: { type: "string" },
       contextType: { type: "string", enum: ["agreement_acceptance", "change_order_acceptance", "cancellation_acceptance"] },
       contextId: { type: "string", nullable: true },
@@ -917,14 +1161,14 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
-  const MarketplaceAgreementAcceptanceSignatureV1 = {
+  const MarketplaceAgreementAcceptanceSignatureV2 = {
     type: "object",
     additionalProperties: false,
     required: [
       "schemaVersion",
       "agreementId",
       "tenantId",
-      "taskId",
+      "rfqId",
       "runId",
       "bidId",
       "acceptedByAgentId",
@@ -940,10 +1184,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       "signature"
     ],
     properties: {
-      schemaVersion: { type: "string", enum: ["MarketplaceAgreementAcceptanceSignature.v1"] },
+      schemaVersion: { type: "string", enum: ["MarketplaceAgreementAcceptanceSignature.v2"] },
       agreementId: { type: "string" },
       tenantId: { type: "string" },
-      taskId: { type: "string" },
+      rfqId: { type: "string" },
       runId: { type: "string" },
       bidId: { type: "string" },
       acceptedByAgentId: { type: "string" },
@@ -964,7 +1208,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
-  const MarketplaceAgreementChangeOrderAcceptanceSignatureV1 = {
+  const MarketplaceAgreementChangeOrderAcceptanceSignatureV2 = {
     type: "object",
     additionalProperties: false,
     required: [
@@ -972,7 +1216,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       "tenantId",
       "runId",
       "agreementId",
-      "taskId",
+      "rfqId",
       "bidId",
       "changeOrderId",
       "requestedByAgentId",
@@ -988,11 +1232,11 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       "signature"
     ],
     properties: {
-      schemaVersion: { type: "string", enum: ["MarketplaceAgreementChangeOrderAcceptanceSignature.v1"] },
+      schemaVersion: { type: "string", enum: ["MarketplaceAgreementChangeOrderAcceptanceSignature.v2"] },
       tenantId: { type: "string" },
       runId: { type: "string" },
       agreementId: { type: "string" },
-      taskId: { type: "string" },
+      rfqId: { type: "string" },
       bidId: { type: "string" },
       changeOrderId: { type: "string" },
       requestedByAgentId: { type: "string" },
@@ -1014,7 +1258,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
-  const MarketplaceAgreementCancellationAcceptanceSignatureV1 = {
+  const MarketplaceAgreementCancellationAcceptanceSignatureV2 = {
     type: "object",
     additionalProperties: false,
     required: [
@@ -1022,7 +1266,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       "tenantId",
       "runId",
       "agreementId",
-      "taskId",
+      "rfqId",
       "bidId",
       "cancellationId",
       "cancelledByAgentId",
@@ -1037,11 +1281,11 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       "signature"
     ],
     properties: {
-      schemaVersion: { type: "string", enum: ["MarketplaceAgreementCancellationAcceptanceSignature.v1"] },
+      schemaVersion: { type: "string", enum: ["MarketplaceAgreementCancellationAcceptanceSignature.v2"] },
       tenantId: { type: "string" },
       runId: { type: "string" },
       agreementId: { type: "string" },
-      taskId: { type: "string" },
+      rfqId: { type: "string" },
       bidId: { type: "string" },
       cancellationId: { type: "string" },
       cancelledByAgentId: { type: "string" },
@@ -1075,14 +1319,14 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
-  const MarketplaceAgreementPolicyBindingV1 = {
+  const MarketplaceAgreementPolicyBindingV2 = {
     type: "object",
     additionalProperties: false,
     required: [
       "schemaVersion",
       "agreementId",
       "tenantId",
-      "taskId",
+      "rfqId",
       "runId",
       "bidId",
       "acceptedAt",
@@ -1102,10 +1346,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       "signature"
     ],
     properties: {
-      schemaVersion: { type: "string", enum: ["MarketplaceAgreementPolicyBinding.v1"] },
+      schemaVersion: { type: "string", enum: ["MarketplaceAgreementPolicyBinding.v2"] },
       agreementId: { type: "string" },
       tenantId: { type: "string" },
-      taskId: { type: "string" },
+      rfqId: { type: "string" },
       runId: { type: "string" },
       bidId: { type: "string" },
       acceptedAt: { type: "string", format: "date-time", nullable: true },
@@ -1203,13 +1447,102 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
-  const MarketplaceTaskV1 = {
+  const MarketplaceCapabilityPriceModelV1 = {
     type: "object",
     additionalProperties: false,
-    required: ["schemaVersion", "taskId", "tenantId", "title", "status", "currency", "createdAt", "updatedAt"],
+    required: ["schemaVersion", "mode", "currency"],
     properties: {
-      schemaVersion: { type: "string", enum: ["MarketplaceTask.v1"] },
-      taskId: { type: "string" },
+      schemaVersion: { type: "string", enum: ["MarketplaceCapabilityPriceModel.v1"] },
+      mode: { type: "string", enum: ["fixed", "hourly", "per_unit", "quote"] },
+      amountCents: { type: "integer", minimum: 1, nullable: true },
+      minAmountCents: { type: "integer", minimum: 1, nullable: true },
+      maxAmountCents: { type: "integer", minimum: 1, nullable: true },
+      currency: { type: "string" },
+      unit: { type: "string", nullable: true }
+    }
+  };
+
+  const MarketplaceCapabilityAvailabilityV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "timezone", "windows"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["MarketplaceCapabilityAvailability.v1"] },
+      timezone: { type: "string", nullable: true },
+      windows: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: true
+        }
+      }
+    }
+  };
+
+  const MarketplaceCapabilityListingV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "listingId",
+      "tenantId",
+      "capability",
+      "title",
+      "status",
+      "tags",
+      "createdAt",
+      "updatedAt"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["MarketplaceCapabilityListing.v1"] },
+      listingId: { type: "string" },
+      tenantId: { type: "string" },
+      capability: { type: "string" },
+      title: { type: "string" },
+      description: { type: "string", nullable: true },
+      category: { type: "string", nullable: true },
+      sellerAgentId: { type: "string", nullable: true },
+      status: { type: "string", enum: ["active", "paused", "retired"] },
+      tags: {
+        type: "array",
+        items: { type: "string" }
+      },
+      priceModel: { ...MarketplaceCapabilityPriceModelV1, nullable: true },
+      availability: { ...MarketplaceCapabilityAvailabilityV1, nullable: true },
+      metadata: { type: "object", additionalProperties: true, nullable: true },
+      createdAt: { type: "string", format: "date-time" },
+      updatedAt: { type: "string", format: "date-time" }
+    }
+  };
+
+  const MarketplaceCapabilityListingUpsertRequest = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      listingId: { type: "string" },
+      capability: { type: "string" },
+      title: { type: "string" },
+      description: { type: "string", nullable: true },
+      category: { type: "string", nullable: true },
+      sellerAgentId: { type: "string", nullable: true },
+      status: { type: "string", enum: ["active", "paused", "retired"] },
+      tags: {
+        type: "array",
+        items: { type: "string" }
+      },
+      priceModel: { ...MarketplaceCapabilityPriceModelV1, nullable: true },
+      availability: { ...MarketplaceCapabilityAvailabilityV1, nullable: true },
+      metadata: { type: "object", additionalProperties: true, nullable: true }
+    }
+  };
+
+  const MarketplaceRfqV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "rfqId", "tenantId", "title", "status", "currency", "createdAt", "updatedAt"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["MarketplaceRfq.v1"] },
+      rfqId: { type: "string" },
       tenantId: { type: "string" },
       title: { type: "string" },
       description: { type: "string", nullable: true },
@@ -1249,14 +1582,14 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
-  const MarketplaceTaskAgreementV1 = {
+  const MarketplaceTaskAgreementV2 = {
     type: "object",
     additionalProperties: false,
     required: [
       "schemaVersion",
       "agreementId",
       "tenantId",
-      "taskId",
+      "rfqId",
       "runId",
       "bidId",
       "payerAgentId",
@@ -1273,10 +1606,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       "policyRef"
     ],
     properties: {
-      schemaVersion: { type: "string", enum: ["MarketplaceTaskAgreement.v1"] },
+      schemaVersion: { type: "string", enum: ["MarketplaceTaskAgreement.v2"] },
       agreementId: { type: "string" },
       tenantId: { type: "string" },
-      taskId: { type: "string" },
+      rfqId: { type: "string" },
       runId: { type: "string" },
       bidId: { type: "string" },
       payerAgentId: { type: "string" },
@@ -1294,25 +1627,29 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       acceptedProposalId: { type: "string", nullable: true },
       acceptedRevision: { type: "integer", minimum: 1, nullable: true },
       acceptedProposalHash: { type: "string", nullable: true },
+      offer: { ...MarketplaceOfferV2, nullable: true },
+      offerHash: { type: "string", nullable: true },
+      offerAcceptance: { ...MarketplaceAcceptanceV2, nullable: true },
+      offerAcceptanceHash: { type: "string", nullable: true },
       negotiation: { ...MarketplaceAgreementNegotiationV1, nullable: true },
       acceptance: { ...MarketplaceAgreementAcceptanceV1, nullable: true },
-      acceptanceSignature: { ...MarketplaceAgreementAcceptanceSignatureV1, nullable: true },
+      acceptanceSignature: { ...MarketplaceAgreementAcceptanceSignatureV2, nullable: true },
       termsHash: { type: "string" },
       verificationMethodHash: { type: "string" },
       policyHash: { type: "string" },
       policyRef: MarketplaceSettlementPolicyRefV1,
-      policyBinding: { ...MarketplaceAgreementPolicyBindingV1, nullable: true },
+      policyBinding: { ...MarketplaceAgreementPolicyBindingV2, nullable: true },
       verificationMethod: VerificationMethodV1,
       policy: SettlementPolicyV1,
       terms: MarketplaceAgreementTermsV1
     }
   };
 
-  const MarketplaceTaskCreateRequest = {
+  const MarketplaceRfqCreateRequest = {
     type: "object",
     additionalProperties: false,
     properties: {
-      taskId: { type: "string" },
+      rfqId: { type: "string" },
       title: { type: "string" },
       description: { type: "string" },
       capability: { type: "string" },
@@ -1336,13 +1673,13 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
-  const MarketplaceBidV1 = {
+  const MarketplaceRfqBidV1 = {
     type: "object",
     additionalProperties: false,
     required: [
       "schemaVersion",
       "bidId",
-      "taskId",
+      "rfqId",
       "tenantId",
       "bidderAgentId",
       "amountCents",
@@ -1354,7 +1691,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     properties: {
       schemaVersion: { type: "string", enum: ["MarketplaceBid.v1"] },
       bidId: { type: "string" },
-      taskId: { type: "string" },
+      rfqId: { type: "string" },
       tenantId: { type: "string" },
       fromType: InteractionDirectionEntityType,
       toType: InteractionDirectionEntityType,
@@ -1733,10 +2070,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     additionalProperties: false,
     properties: {
       runId: { type: "string" },
-      task: MarketplaceTaskV1,
+      rfq: MarketplaceRfqV1,
       run: AgentRunV1,
       settlement: AgentRunSettlementV1,
-      agreement: { allOf: [MarketplaceTaskAgreementV1], nullable: true },
+      agreement: { allOf: [MarketplaceTaskAgreementV2], nullable: true },
       cancellation: { type: "object", additionalProperties: true },
       acceptanceSignatureVerification: { type: "object", additionalProperties: true }
     }
@@ -1839,6 +2176,90 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const FundingHoldV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "agreementHash",
+      "receiptHash",
+      "payerAgentId",
+      "payeeAgentId",
+      "amountCents",
+      "heldAmountCents",
+      "currency",
+      "holdbackBps",
+      "challengeWindowMs",
+      "createdAt",
+      "holdHash",
+      "status",
+      "revision",
+      "updatedAt"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["FundingHold.v1"] },
+      tenantId: { type: "string" },
+      agreementHash: { type: "string" },
+      receiptHash: { type: "string" },
+      payerAgentId: { type: "string" },
+      payeeAgentId: { type: "string" },
+      amountCents: { type: "integer", minimum: 1 },
+      heldAmountCents: { type: "integer", minimum: 0 },
+      currency: { type: "string" },
+      holdbackBps: { type: "integer", minimum: 0, maximum: 10000 },
+      challengeWindowMs: { type: "integer", minimum: 0 },
+      createdAt: { type: "string", format: "date-time" },
+      holdHash: { type: "string" },
+      status: { type: "string", enum: ["held", "released", "refunded"] },
+      resolvedAt: { type: "string", format: "date-time", nullable: true },
+      revision: { type: "integer", minimum: 0 },
+      updatedAt: { type: "string", format: "date-time" },
+      metadata: { type: "object", additionalProperties: true, nullable: true }
+    }
+  };
+
+  const SettlementAdjustmentV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "adjustmentId",
+      "tenantId",
+      "agreementHash",
+      "receiptHash",
+      "holdHash",
+      "kind",
+      "amountCents",
+      "currency",
+      "createdAt",
+      "adjustmentHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SettlementAdjustment.v1"] },
+      adjustmentId: { type: "string" },
+      tenantId: { type: "string" },
+      agreementHash: { type: "string" },
+      receiptHash: { type: "string" },
+      holdHash: { type: "string" },
+      kind: { type: "string", enum: ["holdback_release", "holdback_refund"] },
+      amountCents: { type: "integer", minimum: 0 },
+      currency: { type: "string" },
+      verdictRef: {
+        type: "object",
+        additionalProperties: false,
+        nullable: true,
+        properties: {
+          caseId: { type: "string" },
+          verdictHash: { type: "string" }
+        }
+      },
+      createdAt: { type: "string", format: "date-time" },
+      adjustmentHash: { type: "string" },
+      metadata: { type: "object", additionalProperties: true, nullable: true }
+    }
+  };
+
   const RunSettlementPolicyReplayResponse = {
     type: "object",
     additionalProperties: false,
@@ -1850,13 +2271,14 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       policyHash: { type: "string", nullable: true },
       verificationMethodHash: { type: "string", nullable: true },
       policyRef: { allOf: [MarketplaceSettlementPolicyRefV1], nullable: true },
-      policyBinding: { allOf: [MarketplaceAgreementPolicyBindingV1], nullable: true },
+      policyBinding: { allOf: [MarketplaceAgreementPolicyBindingV2], nullable: true },
       policyBindingVerification: { type: "object", additionalProperties: true },
       acceptanceSignatureVerification: { type: "object", additionalProperties: true },
       runStatus: { type: "string", nullable: true },
       verificationStatus: { type: "string", enum: ["green", "amber", "red"] },
       replay: { type: "object", additionalProperties: true },
       settlement: AgentRunSettlementV1,
+      kernelVerification: SettlementKernelVerification,
       matchesStoredDecision: { type: "boolean" }
     }
   };
@@ -1940,6 +2362,16 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const CommandCenterKernelCodeCount = {
+    type: "object",
+    additionalProperties: false,
+    required: ["code", "count"],
+    properties: {
+      code: { type: "string" },
+      count: { type: "integer", minimum: 0 }
+    }
+  };
+
   const OpsNetworkCommandCenterSummary = {
     type: "object",
     additionalProperties: false,
@@ -1996,14 +2428,25 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       settlement: {
         type: "object",
         additionalProperties: false,
-        required: ["windowHours", "resolvedCount", "lockedCount", "settlementAmountCents", "releasedAmountCents", "refundedAmountCents"],
+        required: [
+          "windowHours",
+          "resolvedCount",
+          "lockedCount",
+          "settlementAmountCents",
+          "releasedAmountCents",
+          "refundedAmountCents",
+          "kernelVerificationErrorCount",
+          "kernelVerificationErrorCountsByCode"
+        ],
         properties: {
           windowHours: { type: "integer", minimum: 1 },
           resolvedCount: { type: "integer", minimum: 0 },
           lockedCount: { type: "integer", minimum: 0 },
           settlementAmountCents: { type: "integer", minimum: 0 },
           releasedAmountCents: { type: "integer", minimum: 0 },
-          refundedAmountCents: { type: "integer", minimum: 0 }
+          refundedAmountCents: { type: "integer", minimum: 0 },
+          kernelVerificationErrorCount: { type: "integer", minimum: 0 },
+          kernelVerificationErrorCountsByCode: { type: "array", items: CommandCenterKernelCodeCount }
         }
       },
       disputes: {
@@ -2109,6 +2552,143 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           deliveriesCreated: { type: "integer", minimum: 0 }
         }
       }
+    }
+  };
+
+  const OpsArbitrationQueueItem = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      caseId: { type: "string", nullable: true },
+      runId: { type: "string", nullable: true },
+      disputeId: { type: "string", nullable: true },
+      settlementId: { type: "string", nullable: true },
+      priority: { type: "string", enum: ["low", "normal", "high", "critical"], nullable: true },
+      status: { type: "string", enum: ["open", "under_review", "verdict_issued", "closed"], nullable: true },
+      arbiterAgentId: { type: "string", nullable: true },
+      openedAt: { type: "string", format: "date-time", nullable: true },
+      closedAt: { type: "string", format: "date-time", nullable: true },
+      ageSeconds: { type: "integer", minimum: 0, nullable: true },
+      ageHours: { type: "number", minimum: 0, nullable: true },
+      slaHours: { type: "number", minimum: 1, maximum: 8760 },
+      dueAt: { type: "string", format: "date-time", nullable: true },
+      overSla: { type: "boolean" },
+      summary: { type: "string", nullable: true },
+      evidenceCount: { type: "integer", minimum: 0 },
+      appealRef: { type: "object", additionalProperties: true, nullable: true },
+      revision: { type: "integer", minimum: 0, nullable: true },
+      updatedAt: { type: "string", format: "date-time", nullable: true }
+    }
+  };
+
+  const OpsArbitrationQueueResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["tenantId", "filters", "count", "limit", "offset", "overSlaCount", "statusCounts", "queue"],
+    properties: {
+      tenantId: { type: "string" },
+      filters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          status: { type: "string", nullable: true },
+          openedSince: { type: "string", format: "date-time", nullable: true },
+          runId: { type: "string", nullable: true },
+          caseId: { type: "string", nullable: true },
+          priority: { type: "string", enum: ["low", "normal", "high", "critical"], nullable: true },
+          assignedArbiter: { type: "boolean", nullable: true },
+          slaHours: { type: "number", minimum: 1, maximum: 8760 }
+        }
+      },
+      count: { type: "integer", minimum: 0 },
+      limit: { type: "integer", minimum: 1 },
+      offset: { type: "integer", minimum: 0 },
+      overSlaCount: { type: "integer", minimum: 0 },
+      statusCounts: {
+        type: "object",
+        additionalProperties: { type: "integer", minimum: 0 }
+      },
+      queue: { type: "array", items: OpsArbitrationQueueItem }
+    }
+  };
+
+  const OpsArbitrationTimelineEvent = {
+    type: "object",
+    additionalProperties: false,
+    required: ["eventType", "at", "source", "details"],
+    properties: {
+      eventType: { type: "string" },
+      at: { type: "string", format: "date-time" },
+      source: { type: "string", nullable: true },
+      details: { type: "object", additionalProperties: true, nullable: true }
+    }
+  };
+
+  const OpsArbitrationActionability = {
+    type: "object",
+    additionalProperties: false,
+    required: ["canWrite", "canAssignArbiter", "canAddEvidence", "canSubmitVerdict", "canCloseCase", "canOpenAppeal"],
+    properties: {
+      canWrite: { type: "boolean" },
+      canAssignArbiter: { type: "boolean" },
+      canAddEvidence: { type: "boolean" },
+      canSubmitVerdict: { type: "boolean" },
+      canCloseCase: { type: "boolean" },
+      canOpenAppeal: { type: "boolean" }
+    }
+  };
+
+  const OpsArbitrationEvidenceRefs = {
+    type: "object",
+    additionalProperties: false,
+    required: ["case", "disputeContext", "disputeResolution", "all"],
+    properties: {
+      case: { type: "array", items: { type: "string" } },
+      disputeContext: { type: "array", items: { type: "string" } },
+      disputeResolution: { type: "array", items: { type: "string" } },
+      all: { type: "array", items: { type: "string" } }
+    }
+  };
+
+  const OpsArbitrationWorkspaceResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "tenantId",
+      "runId",
+      "caseId",
+      "slaHours",
+      "queueItem",
+      "arbitrationCase",
+      "relatedCases",
+      "settlement",
+      "run",
+      "actionability",
+      "timeline",
+      "evidenceRefs"
+    ],
+    properties: {
+      tenantId: { type: "string" },
+      runId: { type: "string" },
+      caseId: { type: "string" },
+      slaHours: { type: "number", minimum: 1, maximum: 8760 },
+      queueItem: OpsArbitrationQueueItem,
+      arbitrationCase: ArbitrationCaseV1,
+      relatedCases: { type: "array", items: OpsArbitrationQueueItem },
+      settlement: AgentRunSettlementV1,
+      run: {
+        type: "object",
+        nullable: true,
+        additionalProperties: false,
+        properties: {
+          run: AgentRunV1,
+          verification: { type: "object", additionalProperties: true, nullable: true },
+          recentEvents: { type: "array", items: { type: "object", additionalProperties: true } }
+        }
+      },
+      actionability: OpsArbitrationActionability,
+      timeline: { type: "array", items: OpsArbitrationTimelineEvent },
+      evidenceRefs: OpsArbitrationEvidenceRefs
     }
   };
 
@@ -2218,6 +2798,11 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         AgentRunEventAppendRequest,
         AgentWalletV1,
         AgentRunSettlementV1,
+        SettlementDecisionRecordV1,
+        SettlementDecisionRecordV2,
+        SettlementDecisionRecordAny,
+        SettlementReceiptV1,
+        SettlementKernelVerification,
         AgentReputationV1,
         AgentReputationWindowV2,
         AgentReputationV2,
@@ -2234,24 +2819,30 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         MarketplaceCounterOfferPolicyV1,
         MarketplaceBidAcceptanceV1,
         MarketplaceAgreementAcceptanceV1,
+        MarketplaceOfferV2,
+        MarketplaceAcceptanceV2,
         AgentDelegationLinkV1,
         AgentActingOnBehalfOfV1,
         DelegationTraceV1,
         DelegationTraceListResponse,
         DelegationEmergencyRevokeRequest,
         DelegationEmergencyRevokeResponse,
-        MarketplaceAgreementAcceptanceSignatureV1,
-        MarketplaceAgreementChangeOrderAcceptanceSignatureV1,
-        MarketplaceAgreementCancellationAcceptanceSignatureV1,
+        MarketplaceAgreementAcceptanceSignatureV2,
+        MarketplaceAgreementChangeOrderAcceptanceSignatureV2,
+        MarketplaceAgreementCancellationAcceptanceSignatureV2,
         MarketplaceAgreementAcceptanceSignatureInput,
-        MarketplaceAgreementPolicyBindingV1,
+        MarketplaceAgreementPolicyBindingV2,
         MarketplaceBidNegotiationProposalV1,
         MarketplaceBidNegotiationV1,
         MarketplaceAgreementNegotiationV1,
-        MarketplaceTaskV1,
-        MarketplaceTaskAgreementV1,
-        MarketplaceTaskCreateRequest,
-        MarketplaceBidV1,
+        MarketplaceCapabilityPriceModelV1,
+        MarketplaceCapabilityAvailabilityV1,
+        MarketplaceCapabilityListingV1,
+        MarketplaceCapabilityListingUpsertRequest,
+        MarketplaceRfqV1,
+        MarketplaceTaskAgreementV2,
+        MarketplaceRfqCreateRequest,
+        MarketplaceRfqBidV1,
         MarketplaceBidCreateRequest,
         MarketplaceBidCounterOfferRequest,
         MarketplaceBidAcceptRequest,
@@ -2272,6 +2863,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         OpsJobsListResponse,
         CommandCenterReasonCount,
         CommandCenterDestinationCount,
+        CommandCenterKernelCodeCount,
         OpsNetworkCommandCenterSummary,
         OpsNetworkCommandCenterResponse,
         OpsFinanceReconcileResponse,
@@ -2338,9 +2930,180 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
-      "/marketplace/tasks": {
+      "/marketplace/capability-listings": {
         get: {
-          summary: "List marketplace tasks",
+          summary: "List marketplace capability listings",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "status", in: "query", required: false, schema: { type: "string", enum: ["active", "paused", "retired", "all"] } },
+            { name: "capability", in: "query", required: false, schema: { type: "string" } },
+            { name: "sellerAgentId", in: "query", required: false, schema: { type: "string" } },
+            { name: "q", in: "query", required: false, schema: { type: "string" } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 200 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["listings", "total", "limit", "offset"],
+                    properties: {
+                      listings: { type: "array", items: MarketplaceCapabilityListingV1 },
+                      total: { type: "integer", minimum: 0 },
+                      limit: { type: "integer", minimum: 1 },
+                      offset: { type: "integer", minimum: 0 }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        post: {
+          summary: "Create or upsert a marketplace capability listing",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: { required: true, content: { "application/json": { schema: MarketplaceCapabilityListingUpsertRequest } } },
+          responses: {
+            200: {
+              description: "Updated",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      listing: MarketplaceCapabilityListingV1
+                    }
+                  }
+                }
+              }
+            },
+            201: {
+              description: "Created",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      listing: MarketplaceCapabilityListingV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/marketplace/capability-listings/{listingId}": {
+        get: {
+          summary: "Get marketplace capability listing by id",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "listingId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      listing: MarketplaceCapabilityListingV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        post: {
+          summary: "Update marketplace capability listing by id",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            IdempotencyHeader,
+            { name: "listingId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: { required: true, content: { "application/json": { schema: MarketplaceCapabilityListingUpsertRequest } } },
+          responses: {
+            200: {
+              description: "Updated",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      listing: MarketplaceCapabilityListingV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        delete: {
+          summary: "Delete marketplace capability listing by id",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            IdempotencyHeader,
+            { name: "listingId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "Deleted",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      deleted: { type: "boolean" },
+                      listingId: { type: "string" },
+                      listing: MarketplaceCapabilityListingV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/marketplace/rfqs": {
+        get: {
+          summary: "List marketplace RFQs",
           parameters: [
             TenantHeader,
             ProtocolHeader,
@@ -2360,9 +3123,9 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                   schema: {
                     type: "object",
                     additionalProperties: false,
-                    required: ["tasks", "total", "limit", "offset"],
+                    required: ["rfqs", "total", "limit", "offset"],
                     properties: {
-                      tasks: { type: "array", items: MarketplaceTaskV1 },
+                      rfqs: { type: "array", items: MarketplaceRfqV1 },
                       total: { type: "integer", minimum: 0 },
                       limit: { type: "integer", minimum: 1 },
                       offset: { type: "integer", minimum: 0 }
@@ -2375,10 +3138,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         },
         post: {
-          summary: "Create a marketplace task",
+          summary: "Create a marketplace RFQ",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          requestBody: { required: true, content: { "application/json": { schema: MarketplaceTaskCreateRequest } } },
+          requestBody: { required: true, content: { "application/json": { schema: MarketplaceRfqCreateRequest } } },
           responses: {
             201: {
               description: "Created",
@@ -2388,7 +3151,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                     type: "object",
                     additionalProperties: false,
                     properties: {
-                      task: MarketplaceTaskV1
+                      rfq: MarketplaceRfqV1
                     }
                   }
                 }
@@ -2505,14 +3268,14 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
-      "/marketplace/tasks/{taskId}/bids": {
+      "/marketplace/rfqs/{rfqId}/bids": {
         get: {
-          summary: "List bids for a marketplace task",
+          summary: "List bids for a marketplace RFQ",
           parameters: [
             TenantHeader,
             ProtocolHeader,
             RequestIdHeader,
-            { name: "taskId", in: "path", required: true, schema: { type: "string" } },
+            { name: "rfqId", in: "path", required: true, schema: { type: "string" } },
             { name: "status", in: "query", required: false, schema: { type: "string", enum: ["pending", "accepted", "rejected", "all"] } },
             { name: "bidderAgentId", in: "query", required: false, schema: { type: "string" } },
             { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 200 } },
@@ -2527,10 +3290,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                   schema: {
                     type: "object",
                     additionalProperties: false,
-                    required: ["taskId", "bids", "total", "limit", "offset"],
+                    required: ["rfqId", "bids", "total", "limit", "offset"],
                     properties: {
-                      taskId: { type: "string" },
-                      bids: { type: "array", items: MarketplaceBidV1 },
+                      rfqId: { type: "string" },
+                      bids: { type: "array", items: MarketplaceRfqBidV1 },
                       total: { type: "integer", minimum: 0 },
                       limit: { type: "integer", minimum: 1 },
                       offset: { type: "integer", minimum: 0 }
@@ -2544,8 +3307,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         },
         post: {
-          summary: "Submit a bid for a marketplace task",
-          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader, { name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+          summary: "Submit a bid for a marketplace RFQ",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader, { name: "rfqId", in: "path", required: true, schema: { type: "string" } }],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
           requestBody: { required: true, content: { "application/json": { schema: MarketplaceBidCreateRequest } } },
           responses: {
@@ -2557,8 +3320,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                     type: "object",
                     additionalProperties: false,
                     properties: {
-                      task: MarketplaceTaskV1,
-                      bid: MarketplaceBidV1
+                      rfq: MarketplaceRfqV1,
+                      bid: MarketplaceRfqBidV1
                     }
                   }
                 }
@@ -2570,7 +3333,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
-      "/marketplace/tasks/{taskId}/bids/{bidId}/counter-offer": {
+      "/marketplace/rfqs/{rfqId}/bids/{bidId}/counter-offer": {
         post: {
           summary: "Apply a counter-offer revision to a pending marketplace bid",
           parameters: [
@@ -2578,7 +3341,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             ProtocolHeader,
             RequestIdHeader,
             IdempotencyHeader,
-            { name: "taskId", in: "path", required: true, schema: { type: "string" } },
+            { name: "rfqId", in: "path", required: true, schema: { type: "string" } },
             { name: "bidId", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
@@ -2592,8 +3355,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                     type: "object",
                     additionalProperties: false,
                     properties: {
-                      task: MarketplaceTaskV1,
-                      bid: MarketplaceBidV1,
+                      rfq: MarketplaceRfqV1,
+                      bid: MarketplaceRfqBidV1,
                       negotiation: MarketplaceBidNegotiationV1,
                       proposal: MarketplaceBidNegotiationProposalV1
                     }
@@ -2607,10 +3370,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
-      "/marketplace/tasks/{taskId}/accept": {
+      "/marketplace/rfqs/{rfqId}/accept": {
         post: {
-          summary: "Accept a bid for a marketplace task",
-          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader, { name: "taskId", in: "path", required: true, schema: { type: "string" } }],
+          summary: "Accept a bid for a marketplace RFQ",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader, { name: "rfqId", in: "path", required: true, schema: { type: "string" } }],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
           requestBody: { required: true, content: { "application/json": { schema: MarketplaceBidAcceptRequest } } },
           responses: {
@@ -2622,11 +3385,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                     type: "object",
                     additionalProperties: false,
                     properties: {
-                      task: MarketplaceTaskV1,
-                      acceptedBid: { allOf: [MarketplaceBidV1], nullable: true },
+                      rfq: MarketplaceRfqV1,
+                      acceptedBid: { allOf: [MarketplaceRfqBidV1], nullable: true },
                       run: AgentRunV1,
                       settlement: AgentRunSettlementV1,
-                      agreement: MarketplaceTaskAgreementV1
+                      agreement: MarketplaceTaskAgreementV2,
+                      offer: { allOf: [MarketplaceOfferV2], nullable: true },
+                      offerAcceptance: { allOf: [MarketplaceAcceptanceV2], nullable: true },
+                      decisionRecord: { ...SettlementDecisionRecordAny, nullable: true },
+                      settlementReceipt: { ...SettlementReceiptV1, nullable: true }
                     }
                   }
                 }
@@ -3654,7 +4421,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                     properties: {
                       event: AgentEventV1,
                       run: AgentRunV1,
-                      settlement: { ...AgentRunSettlementV1, nullable: true }
+                      settlement: { ...AgentRunSettlementV1, nullable: true },
+                      decisionRecord: { ...SettlementDecisionRecordAny, nullable: true },
+                      settlementReceipt: { ...SettlementReceiptV1, nullable: true },
+                      kernelVerification: { ...SettlementKernelVerification, nullable: true }
                     }
                   }
                 }
@@ -3701,7 +4471,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                     type: "object",
                     additionalProperties: false,
                     properties: {
-                      settlement: AgentRunSettlementV1
+                      settlement: AgentRunSettlementV1,
+                      decisionRecord: { ...SettlementDecisionRecordAny, nullable: true },
+                      settlementReceipt: { ...SettlementReceiptV1, nullable: true },
+                      kernelVerification: SettlementKernelVerification
                     }
                   }
                 }
@@ -3731,14 +4504,20 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                     additionalProperties: false,
                     properties: {
                       runId: { type: "string" },
-                      taskId: { type: "string", nullable: true },
+                      rfqId: { type: "string", nullable: true },
                       agreementId: { type: "string", nullable: true },
-                      agreement: MarketplaceTaskAgreementV1,
+                      agreement: MarketplaceTaskAgreementV2,
+                      offer: { allOf: [MarketplaceOfferV2], nullable: true },
+                      offerAcceptance: { allOf: [MarketplaceAcceptanceV2], nullable: true },
                       policyRef: { allOf: [MarketplaceSettlementPolicyRefV1], nullable: true },
                       policyHash: { type: "string", nullable: true },
                       verificationMethodHash: { type: "string", nullable: true },
                       policyBindingVerification: { type: "object", additionalProperties: true },
-                      acceptanceSignatureVerification: { type: "object", additionalProperties: true }
+                      acceptanceSignatureVerification: { type: "object", additionalProperties: true },
+                      settlement: { ...AgentRunSettlementV1, nullable: true },
+                      decisionRecord: { ...SettlementDecisionRecordAny, nullable: true },
+                      settlementReceipt: { ...SettlementReceiptV1, nullable: true },
+                      kernelVerification: { ...SettlementKernelVerification, nullable: true }
                     }
                   }
                 }
@@ -3770,8 +4549,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                     additionalProperties: false,
                     properties: {
                       runId: { type: "string" },
-                      task: MarketplaceTaskV1,
-                      agreement: MarketplaceTaskAgreementV1,
+                      rfq: MarketplaceRfqV1,
+                      agreement: MarketplaceTaskAgreementV2,
                       changeOrder: { type: "object", additionalProperties: true },
                       acceptanceSignatureVerification: { type: "object", additionalProperties: true }
                     }
@@ -3936,6 +4715,141 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
+      "/tool-calls/arbitration/cases": {
+        get: {
+          summary: "List tool-call arbitration cases for an agreement hash",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agreementHash", in: "query", required: true, schema: { type: "string" } },
+            { name: "status", in: "query", required: false, schema: { type: "string", enum: ["open", "under_review", "verdict_issued", "closed"] } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      agreementHash: { type: "string" },
+                      runId: { type: "string" },
+                      cases: { type: "array", items: ArbitrationCaseV1 }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/tool-calls/arbitration/cases/{caseId}": {
+        get: {
+          summary: "Get tool-call arbitration case by id",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "caseId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: { "application/json": { schema: { type: "object", additionalProperties: false, properties: { caseId: { type: "string" }, arbitrationCase: ArbitrationCaseV1 } } } }
+            },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/tool-calls/arbitration/open": {
+        post: {
+          summary: "Open a tool-call arbitration case (holdback dispute)",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["agreementHash", "receiptHash", "holdHash", "summary"],
+                  properties: {
+                    agreementHash: { type: "string" },
+                    receiptHash: { type: "string" },
+                    holdHash: { type: "string" },
+                    caseId: { type: "string" },
+                    openedByAgentId: { type: "string" },
+                    arbiterAgentId: { type: "string" },
+                    panelCandidateAgentIds: { type: "array", items: { type: "string" } },
+                    summary: { type: "string" },
+                    evidenceRefs: { type: "array", items: { type: "string" } },
+                    adminOverride: { type: "object", additionalProperties: true }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: "Created",
+              content: { "application/json": { schema: { type: "object", additionalProperties: false, properties: { arbitrationCase: ArbitrationCaseV1 } } } }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/tool-calls/arbitration/verdict": {
+        post: {
+          summary: "Submit signed arbitration verdict for a tool-call case (binary release/refund)",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["caseId", "arbitrationVerdict"],
+                  properties: {
+                    caseId: { type: "string" },
+                    arbitrationVerdict: ArbitrationVerdictSignedRequest
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      arbitrationCase: ArbitrationCaseV1,
+                      arbitrationVerdict: { type: "object", additionalProperties: true, nullable: true },
+                      settlementAdjustment: { allOf: [SettlementAdjustmentV1], nullable: true }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
       "/ops/status": {
         get: {
           summary: "Ops status summary",
@@ -3943,6 +4857,151 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
           "x-settld-scopes": ["ops_read"],
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
+        }
+      },
+      "/artifacts/{artifactId}": {
+        get: {
+          summary: "Get artifact body",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, { name: "artifactId", in: "path", required: true, schema: { type: "string" } }],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: false, properties: { artifact: { type: "object", additionalProperties: true } } } } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/tool-calls/holds/lock": {
+        post: {
+          summary: "Ops: lock a tool-call funding hold (holdback escrow)",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_write"],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["agreementHash", "receiptHash", "payerAgentId", "payeeAgentId", "amountCents", "holdbackBps", "challengeWindowMs"],
+                  properties: {
+                    agreementHash: { type: "string" },
+                    receiptHash: { type: "string" },
+                    payerAgentId: { type: "string" },
+                    payeeAgentId: { type: "string" },
+                    amountCents: { type: "integer", minimum: 1 },
+                    currency: { type: "string" },
+                    holdbackBps: { type: "integer", minimum: 0, maximum: 10000 },
+                    challengeWindowMs: { type: "integer", minimum: 0 },
+                    createdAt: { type: "string", format: "date-time" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: "Created", content: { "application/json": { schema: { type: "object", additionalProperties: false, properties: { hold: FundingHoldV1 } } } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/tool-calls/holds": {
+        get: {
+          summary: "Ops: list tool-call funding holds",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agreementHash", in: "query", required: false, schema: { type: "string" } },
+            { name: "status", in: "query", required: false, schema: { type: "string" } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 2000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_read"],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      tenantId: { type: "string" },
+                      agreementHash: { type: "string", nullable: true },
+                      status: { type: "string", nullable: true },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" },
+                      holds: { type: "array", items: FundingHoldV1 }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/tool-calls/holds/{holdHash}": {
+        get: {
+          summary: "Ops: get tool-call funding hold",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, { name: "holdHash", in: "path", required: true, schema: { type: "string" } }],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_read"],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: { ok: { type: "boolean" }, tenantId: { type: "string" }, hold: FundingHoldV1 }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/maintenance/tool-call-holdback/run": {
+        post: {
+          summary: "Ops: run tool-call holdback maintenance tick",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_write"],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    dryRun: { type: "boolean" },
+                    limit: { type: "integer", minimum: 1, maximum: 5000 }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } }
+          }
         }
       },
       "/ops/jobs": {
@@ -4054,7 +5113,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "httpServerErrorRateThresholdPct", in: "query", required: false, schema: { type: "number", minimum: 0 } },
             { name: "deliveryDlqThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } },
             { name: "disputeOverSlaThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } },
-            { name: "determinismRejectThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+            { name: "determinismRejectThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } },
+            { name: "kernelVerificationErrorThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
           "x-settld-scopes": ["ops_read"],
@@ -4078,6 +5138,81 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/arbitration/queue": {
+        get: {
+          summary: "List arbitration case queue for operator workflows",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "status", in: "query", required: false, schema: { type: "string", enum: ["open", "under_review", "verdict_issued", "closed"] } },
+            { name: "openedSince", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+            { name: "runId", in: "query", required: false, schema: { type: "string" } },
+            { name: "caseId", in: "query", required: false, schema: { type: "string" } },
+            { name: "priority", in: "query", required: false, schema: { type: "string", enum: ["low", "normal", "high", "critical"] } },
+            { name: "assignedArbiter", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "slaHours", in: "query", required: false, schema: { type: "number", minimum: 1, maximum: 8760, default: 24 } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 500, default: 50 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0, default: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["finance_read", "finance_write", "ops_read"],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: OpsArbitrationQueueResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/settlement-adjustments/{adjustmentId}": {
+        get: {
+          summary: "Ops: get settlement adjustment record",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, { name: "adjustmentId", in: "path", required: true, schema: { type: "string" } }],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_read"],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: { ok: { type: "boolean" }, tenantId: { type: "string" }, adjustment: SettlementAdjustmentV1 }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/arbitration/cases/{caseId}/workspace": {
+        get: {
+          summary: "Get arbitration case workspace packet",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "caseId", in: "path", required: true, schema: { type: "string" } },
+            { name: "slaHours", in: "query", required: false, schema: { type: "number", minimum: 1, maximum: 8760, default: 24 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["finance_read", "finance_write", "ops_read"],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: OpsArbitrationWorkspaceResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not implemented", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },

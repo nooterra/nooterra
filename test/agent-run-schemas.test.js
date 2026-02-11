@@ -25,12 +25,22 @@ test("Agent run + wallet schemas validate canonical examples", async () => {
   const validateEvent = ajv.getSchema("https://settld.local/schemas/AgentEvent.v1.schema.json");
   const validateWallet = ajv.getSchema("https://settld.local/schemas/AgentWallet.v1.schema.json");
   const validateSettlement = ajv.getSchema("https://settld.local/schemas/AgentRunSettlement.v1.schema.json");
+  const validateSettlementDecisionRecord = ajv.getSchema("https://settld.local/schemas/SettlementDecisionRecord.v1.schema.json");
+  const validateSettlementDecisionRecordV2 = ajv.getSchema("https://settld.local/schemas/SettlementDecisionRecord.v2.schema.json");
+  const validateSettlementReceipt = ajv.getSchema("https://settld.local/schemas/SettlementReceipt.v1.schema.json");
+  const validateMarketplaceOffer = ajv.getSchema("https://settld.local/schemas/MarketplaceOffer.v2.schema.json");
+  const validateMarketplaceAcceptance = ajv.getSchema("https://settld.local/schemas/MarketplaceAcceptance.v2.schema.json");
   const validateReputation = ajv.getSchema("https://settld.local/schemas/AgentReputation.v1.schema.json");
   const validateReputationV2 = ajv.getSchema("https://settld.local/schemas/AgentReputation.v2.schema.json");
   assert.ok(validateRun);
   assert.ok(validateEvent);
   assert.ok(validateWallet);
   assert.ok(validateSettlement);
+  assert.ok(validateSettlementDecisionRecord);
+  assert.ok(validateSettlementDecisionRecordV2);
+  assert.ok(validateSettlementReceipt);
+  assert.ok(validateMarketplaceOffer);
+  assert.ok(validateMarketplaceAcceptance);
   assert.ok(validateReputation);
   assert.ok(validateReputationV2);
 
@@ -104,6 +114,143 @@ test("Agent run + wallet schemas validate canonical examples", async () => {
     updatedAt: "2026-02-01T00:02:00.000Z"
   };
   assert.equal(validateSettlement(settlement), true);
+
+  const settlementDecisionRecord = {
+    schemaVersion: "SettlementDecisionRecord.v1",
+    decisionId: "dec_run_schema_demo_auto",
+    tenantId: "tenant_default",
+    runId: "run_schema_demo",
+    settlementId: "setl_run_schema_demo",
+    agreementId: "agr_schema_demo",
+    decisionStatus: "auto_resolved",
+    decisionMode: "automatic",
+    decisionReason: null,
+    verificationStatus: "green",
+    policyRef: {
+      policyHash: "3".repeat(64),
+      verificationMethodHash: "4".repeat(64)
+    },
+    verifierRef: {
+      verifierId: "settld.policy-engine",
+      verifierVersion: "v1",
+      verifierHash: "5".repeat(64),
+      modality: "deterministic"
+    },
+    workRef: {
+      runStatus: "completed",
+      runLastEventId: "ev_schema_demo_2",
+      runLastChainHash: "ch_schema_demo_2",
+      resolutionEventId: "ev_schema_demo_2"
+    },
+    decidedAt: "2026-02-01T00:02:00.000Z",
+    decisionHash: "6".repeat(64)
+  };
+  assert.equal(validateSettlementDecisionRecord(settlementDecisionRecord), true);
+
+  const settlementDecisionRecordV2 = {
+    ...settlementDecisionRecord,
+    schemaVersion: "SettlementDecisionRecord.v2",
+    policyHashUsed: settlementDecisionRecord.policyRef.policyHash,
+    verificationMethodHashUsed: settlementDecisionRecord.policyRef.verificationMethodHash
+  };
+  assert.equal(validateSettlementDecisionRecordV2(settlementDecisionRecordV2), true);
+
+  const settlementReceipt = {
+    schemaVersion: "SettlementReceipt.v1",
+    receiptId: "rcpt_run_schema_demo_auto",
+    tenantId: "tenant_default",
+    runId: "run_schema_demo",
+    settlementId: "setl_run_schema_demo",
+    decisionRef: {
+      decisionId: settlementDecisionRecord.decisionId,
+      decisionHash: settlementDecisionRecord.decisionHash
+    },
+    status: "released",
+    amountCents: 1250,
+    releasedAmountCents: 1250,
+    refundedAmountCents: 0,
+    releaseRatePct: 100,
+    currency: "USD",
+    runStatus: "completed",
+    resolutionEventId: "ev_schema_demo_2",
+    finalityProvider: "internal_ledger",
+    finalityState: "final",
+    settledAt: "2026-02-01T00:02:00.000Z",
+    createdAt: "2026-02-01T00:02:00.000Z",
+    receiptHash: "7".repeat(64)
+  };
+  assert.equal(validateSettlementReceipt(settlementReceipt), true);
+
+  const marketplaceOffer = {
+    schemaVersion: "MarketplaceOffer.v2",
+    offerId: "ofr_rfq_schema_demo_bid_schema_demo_ofr_bid_schema_demo_2",
+    tenantId: "tenant_default",
+    rfqId: "rfq_schema_demo",
+    runId: "run_schema_demo",
+    bidId: "bid_schema_demo",
+    proposalId: "ofr_bid_schema_demo_2",
+    revision: 2,
+    proposerAgentId: "agt_schema_demo",
+    amountCents: 1250,
+    currency: "USD",
+    etaSeconds: 900,
+    note: "final offer",
+    verificationMethod: { schemaVersion: "VerificationMethod.v1", mode: "deterministic" },
+    policy: {
+      schemaVersion: "SettlementPolicy.v1",
+      policyVersion: 1,
+      mode: "automatic",
+      rules: {
+        requireDeterministicVerification: true,
+        autoReleaseOnGreen: true,
+        autoReleaseOnAmber: false,
+        autoReleaseOnRed: false
+      },
+      policyHash: "8".repeat(64)
+    },
+    policyRef: {
+      schemaVersion: "MarketplaceSettlementPolicyRef.v1",
+      source: "inline",
+      policyId: null,
+      policyVersion: 1,
+      policyHash: "8".repeat(64),
+      verificationMethodHash: "9".repeat(64)
+    },
+    policyRefHash: "a".repeat(64),
+    prevProposalHash: "b".repeat(64),
+    proposalHash: "c".repeat(64),
+    offerChainHash: "d".repeat(64),
+    proposalCount: 2,
+    metadata: { market: "schema" },
+    proposedAt: "2026-02-01T00:01:30.000Z",
+    createdAt: "2026-02-01T00:02:00.000Z",
+    offerHash: "e".repeat(64)
+  };
+  assert.equal(validateMarketplaceOffer(marketplaceOffer), true);
+
+  const marketplaceAcceptance = {
+    schemaVersion: "MarketplaceAcceptance.v2",
+    acceptanceId: "acc_agr_rfq_schema_demo_bid_schema_demo",
+    tenantId: "tenant_default",
+    rfqId: "rfq_schema_demo",
+    runId: "run_schema_demo",
+    bidId: "bid_schema_demo",
+    agreementId: "agr_rfq_schema_demo_bid_schema_demo",
+    acceptedAt: "2026-02-01T00:02:00.000Z",
+    acceptedByAgentId: "agt_schema_operator",
+    acceptedProposalId: "ofr_bid_schema_demo_2",
+    acceptedRevision: 2,
+    acceptedProposalHash: "c".repeat(64),
+    offerChainHash: "d".repeat(64),
+    proposalCount: 2,
+    offerRef: {
+      offerId: marketplaceOffer.offerId,
+      offerHash: marketplaceOffer.offerHash
+    },
+    createdAt: "2026-02-01T00:02:00.000Z",
+    acceptanceHash: "f".repeat(64)
+  };
+  assert.equal(validateMarketplaceAcceptance(marketplaceAcceptance), true);
 
   const reputation = {
     schemaVersion: "AgentReputation.v1",

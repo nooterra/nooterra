@@ -155,6 +155,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.agentRuns.clear();
     if (!(store.arbitrationCases instanceof Map)) store.arbitrationCases = new Map();
     store.arbitrationCases.clear();
+    if (!(store.toolCallHolds instanceof Map)) store.toolCallHolds = new Map();
+    store.toolCallHolds.clear();
+    if (!(store.settlementAdjustments instanceof Map)) store.settlementAdjustments = new Map();
+    store.settlementAdjustments.clear();
 
     const res = await pool.query("SELECT tenant_id, aggregate_type, aggregate_id, snapshot_json FROM snapshots");
     for (const row of res.rows) {
@@ -174,6 +178,20 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           ...snap,
           tenantId: snap?.tenantId ?? tenantId,
           caseId: snap?.caseId ?? String(id)
+        });
+      }
+      if (type === "tool_call_hold") {
+        store.toolCallHolds.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          holdHash: snap?.holdHash ?? String(id)
+        });
+      }
+      if (type === "settlement_adjustment") {
+        store.settlementAdjustments.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          adjustmentId: snap?.adjustmentId ?? String(id)
         });
       }
     }
@@ -520,11 +538,11 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
   }
 
   function marketplaceTaskRowToRecord(row) {
-    const task = row?.task_json ?? null;
+    const task = row?.rfq_json ?? null;
     if (!task || typeof task !== "object" || Array.isArray(task)) return null;
     const tenantId = normalizeTenantId(row?.tenant_id ?? task?.tenantId ?? DEFAULT_TENANT_ID);
-    const taskId = row?.task_id ? String(row.task_id) : task?.taskId ? String(task.taskId) : null;
-    if (!taskId) return null;
+    const rfqId = row?.rfq_id ? String(row.rfq_id) : task?.rfqId ? String(task.rfqId) : null;
+    if (!rfqId) return null;
 
     const createdAt = parseIsoOrNull(task?.createdAt ?? row?.created_at) ?? new Date(0).toISOString();
     const updatedAt = parseIsoOrNull(task?.updatedAt ?? row?.updated_at) ?? createdAt;
@@ -535,7 +553,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     return {
       ...task,
       tenantId,
-      taskId,
+      rfqId,
       fromType: direction.fromType,
       toType: direction.toType,
       status: task?.status ? String(task.status) : row?.status ? String(row.status) : "open",
@@ -546,22 +564,22 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
   }
 
-  async function refreshMarketplaceTasks() {
-    if (!(store.marketplaceTasks instanceof Map)) store.marketplaceTasks = new Map();
-    store.marketplaceTasks.clear();
+  async function refreshMarketplaceRfqs() {
+    if (!(store.marketplaceRfqs instanceof Map)) store.marketplaceRfqs = new Map();
+    store.marketplaceRfqs.clear();
     try {
       const res = await pool.query(
         `
-          SELECT tenant_id, task_id, status, capability, poster_agent_id, created_at, updated_at, task_json
-          FROM marketplace_tasks
-          ORDER BY tenant_id ASC, created_at DESC, task_id DESC
+          SELECT tenant_id, rfq_id, status, capability, poster_agent_id, created_at, updated_at, rfq_json
+          FROM marketplace_rfqs
+          ORDER BY tenant_id ASC, created_at DESC, rfq_id DESC
         `
       );
       for (const row of res.rows) {
         const record = marketplaceTaskRowToRecord(row);
         if (!record) continue;
-        const key = makeScopedKey({ tenantId: record.tenantId, id: record.taskId });
-        store.marketplaceTasks.set(key, record);
+        const key = makeScopedKey({ tenantId: record.tenantId, id: record.rfqId });
+        store.marketplaceRfqs.set(key, record);
       }
     } catch (err) {
       if (err?.code === "42P01") return;
@@ -573,9 +591,9 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     const bid = row?.bid_json ?? null;
     if (!bid || typeof bid !== "object" || Array.isArray(bid)) return null;
     const tenantId = normalizeTenantId(row?.tenant_id ?? bid?.tenantId ?? DEFAULT_TENANT_ID);
-    const taskId = row?.task_id ? String(row.task_id) : bid?.taskId ? String(bid.taskId) : null;
+    const rfqId = row?.rfq_id ? String(row.rfq_id) : bid?.rfqId ? String(bid.rfqId) : null;
     const bidId = row?.bid_id ? String(row.bid_id) : bid?.bidId ? String(bid.bidId) : null;
-    if (!taskId || !bidId) return null;
+    if (!rfqId || !bidId) return null;
 
     let amountCents = null;
     const bidAmount = Number(bid?.amountCents);
@@ -592,7 +610,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     return {
       ...bid,
       tenantId,
-      taskId,
+      rfqId,
       bidId,
       fromType: direction.fromType,
       toType: direction.toType,
@@ -604,23 +622,23 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
   }
 
-  async function refreshMarketplaceTaskBids() {
-    if (!(store.marketplaceTaskBids instanceof Map)) store.marketplaceTaskBids = new Map();
-    store.marketplaceTaskBids.clear();
+  async function refreshMarketplaceRfqBids() {
+    if (!(store.marketplaceRfqBids instanceof Map)) store.marketplaceRfqBids = new Map();
+    store.marketplaceRfqBids.clear();
     try {
       const res = await pool.query(
         `
-          SELECT tenant_id, task_id, bid_id, status, bidder_agent_id, amount_cents, created_at, updated_at, bid_json
-          FROM marketplace_task_bids
-          ORDER BY tenant_id ASC, task_id ASC, amount_cents ASC NULLS LAST, created_at ASC, bid_id ASC
+          SELECT tenant_id, rfq_id, bid_id, status, bidder_agent_id, amount_cents, created_at, updated_at, bid_json
+          FROM marketplace_rfq_bids
+          ORDER BY tenant_id ASC, rfq_id ASC, amount_cents ASC NULLS LAST, created_at ASC, bid_id ASC
         `
       );
       for (const row of res.rows) {
         const record = marketplaceBidRowToRecord(row);
         if (!record) continue;
-        const key = makeScopedKey({ tenantId: record.tenantId, id: record.taskId });
-        const existing = store.marketplaceTaskBids.get(key) ?? [];
-        store.marketplaceTaskBids.set(key, [...existing, record]);
+        const key = makeScopedKey({ tenantId: record.tenantId, id: record.rfqId });
+        const existing = store.marketplaceRfqBids.get(key) ?? [];
+        store.marketplaceRfqBids.set(key, [...existing, record]);
       }
     } catch (err) {
       if (err?.code === "42P01") return;
@@ -1131,6 +1149,66 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     );
   }
 
+  async function persistToolCallHold(client, { tenantId, holdHash, hold }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!hold || typeof hold !== "object" || Array.isArray(hold)) {
+      throw new TypeError("hold is required");
+    }
+    const normalizedHoldHash = holdHash ? String(holdHash) : hold.holdHash ? String(hold.holdHash) : null;
+    if (!normalizedHoldHash) throw new TypeError("holdHash is required");
+    const updatedAt = parseIsoOrNull(hold.updatedAt) ?? new Date().toISOString();
+    const normalizedHold = {
+      ...hold,
+      tenantId,
+      holdHash: normalizedHoldHash,
+      updatedAt
+    };
+    await client.query(
+      `
+        INSERT INTO snapshots (tenant_id, aggregate_type, aggregate_id, seq, at_chain_hash, snapshot_json, updated_at)
+        VALUES ($1, 'tool_call_hold', $2, 0, NULL, $3, $4)
+        ON CONFLICT (tenant_id, aggregate_type, aggregate_id) DO UPDATE SET
+          snapshot_json = EXCLUDED.snapshot_json,
+          updated_at = EXCLUDED.updated_at
+      `,
+      [tenantId, normalizedHoldHash, JSON.stringify(normalizedHold), updatedAt]
+    );
+  }
+
+  async function persistSettlementAdjustment(client, { tenantId, adjustmentId, adjustment }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!adjustment || typeof adjustment !== "object" || Array.isArray(adjustment)) {
+      throw new TypeError("adjustment is required");
+    }
+    const normalizedAdjustmentId =
+      adjustmentId ? String(adjustmentId) : adjustment.adjustmentId ? String(adjustment.adjustmentId) : null;
+    if (!normalizedAdjustmentId) throw new TypeError("adjustmentId is required");
+    const updatedAt = parseIsoOrNull(adjustment.createdAt) ?? new Date().toISOString();
+    const normalizedAdjustment = {
+      ...adjustment,
+      tenantId,
+      adjustmentId: normalizedAdjustmentId
+    };
+    try {
+      // Immutable snapshot: do not update on conflict. Uniqueness is relied upon for idempotency.
+      await client.query(
+        `
+          INSERT INTO snapshots (tenant_id, aggregate_type, aggregate_id, seq, at_chain_hash, snapshot_json, updated_at)
+          VALUES ($1, 'settlement_adjustment', $2, 0, NULL, $3, $4)
+        `,
+        [tenantId, normalizedAdjustmentId, JSON.stringify(normalizedAdjustment), updatedAt]
+      );
+    } catch (err) {
+      if (err?.code === "23505") {
+        const e = new Error("settlement adjustment already exists");
+        e.code = "ADJUSTMENT_ALREADY_EXISTS";
+        e.constraint = err?.constraint ?? null;
+        throw e;
+      }
+      throw err;
+    }
+  }
+
   function authKeyRowToRecord(row) {
     if (!row) return null;
     const tenantId = normalizeTenantId(row?.tenant_id ?? DEFAULT_TENANT_ID);
@@ -1354,26 +1432,26 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     );
   }
 
-  async function persistMarketplaceTask(client, { tenantId, task }) {
+  async function persistMarketplaceRfq(client, { tenantId, rfq }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
-    if (!task || typeof task !== "object" || Array.isArray(task)) throw new TypeError("task is required");
-    const taskId = task.taskId ? String(task.taskId) : null;
-    if (!taskId) throw new TypeError("task.taskId is required");
+    if (!rfq || typeof rfq !== "object" || Array.isArray(rfq)) throw new TypeError("rfq is required");
+    const rfqId = rfq.rfqId ? String(rfq.rfqId) : null;
+    if (!rfqId) throw new TypeError("rfq.rfqId is required");
 
-    const createdAt = parseIsoOrNull(task.createdAt) ?? new Date().toISOString();
-    const updatedAt = parseIsoOrNull(task.updatedAt) ?? createdAt;
-    const status = task.status ? String(task.status) : "open";
-    const capability = task.capability === null || task.capability === undefined ? null : String(task.capability);
-    const posterAgentId = task.posterAgentId === null || task.posterAgentId === undefined ? null : String(task.posterAgentId);
+    const createdAt = parseIsoOrNull(rfq.createdAt) ?? new Date().toISOString();
+    const updatedAt = parseIsoOrNull(rfq.updatedAt) ?? createdAt;
+    const status = rfq.status ? String(rfq.status) : "open";
+    const capability = rfq.capability === null || rfq.capability === undefined ? null : String(rfq.capability);
+    const posterAgentId = rfq.posterAgentId === null || rfq.posterAgentId === undefined ? null : String(rfq.posterAgentId);
     const direction = normalizeMarketplaceDirectionForWrite({
-      fromType: task.fromType,
-      toType: task.toType
+      fromType: rfq.fromType,
+      toType: rfq.toType
     });
 
-    const normalizedTask = {
-      ...task,
+    const normalizedRfq = {
+      ...rfq,
       tenantId,
-      taskId,
+      rfqId,
       fromType: direction.fromType,
       toType: direction.toType,
       status,
@@ -1384,26 +1462,26 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
     await client.query(
       `
-        INSERT INTO marketplace_tasks (tenant_id, task_id, status, capability, poster_agent_id, created_at, updated_at, task_json)
+        INSERT INTO marketplace_rfqs (tenant_id, rfq_id, status, capability, poster_agent_id, created_at, updated_at, rfq_json)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-        ON CONFLICT (tenant_id, task_id) DO UPDATE SET
+        ON CONFLICT (tenant_id, rfq_id) DO UPDATE SET
           status = EXCLUDED.status,
           capability = EXCLUDED.capability,
           poster_agent_id = EXCLUDED.poster_agent_id,
           updated_at = EXCLUDED.updated_at,
-          task_json = EXCLUDED.task_json
+          rfq_json = EXCLUDED.rfq_json
       `,
-      [tenantId, taskId, status, capability, posterAgentId, createdAt, updatedAt, JSON.stringify(normalizedTask)]
+      [tenantId, rfqId, status, capability, posterAgentId, createdAt, updatedAt, JSON.stringify(normalizedRfq)]
     );
   }
 
-  async function persistMarketplaceTaskBids(client, { tenantId, taskId, bids }) {
+  async function persistMarketplaceRfqBids(client, { tenantId, rfqId, bids }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
-    assertNonEmptyString(taskId, "taskId");
+    assertNonEmptyString(rfqId, "rfqId");
     if (!Array.isArray(bids)) throw new TypeError("bids must be an array");
-    const normalizedTaskId = String(taskId);
+    const normalizedTaskId = String(rfqId);
 
-    await client.query("DELETE FROM marketplace_task_bids WHERE tenant_id = $1 AND task_id = $2", [tenantId, normalizedTaskId]);
+    await client.query("DELETE FROM marketplace_rfq_bids WHERE tenant_id = $1 AND rfq_id = $2", [tenantId, normalizedTaskId]);
 
     for (const bid of bids) {
       if (!bid || typeof bid !== "object" || Array.isArray(bid)) throw new TypeError("each bid must be an object");
@@ -1428,7 +1506,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       const normalizedBid = {
         ...bid,
         tenantId,
-        taskId: normalizedTaskId,
+        rfqId: normalizedTaskId,
         bidId,
         fromType: direction.fromType,
         toType: direction.toType,
@@ -1441,8 +1519,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
 
       await client.query(
         `
-          INSERT INTO marketplace_task_bids (
-            tenant_id, task_id, bid_id, status, bidder_agent_id, amount_cents, created_at, updated_at, bid_json
+          INSERT INTO marketplace_rfq_bids (
+            tenant_id, rfq_id, bid_id, status, bidder_agent_id, amount_cents, created_at, updated_at, bid_json
           ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
         `,
         [tenantId, normalizedTaskId, bidId, status, bidderAgentId, amountCents, createdAt, updatedAt, JSON.stringify(normalizedBid)]
@@ -1512,8 +1590,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
   await refreshLedgerBalances();
   await refreshContracts();
   await refreshTenantBillingConfigs();
-  await refreshMarketplaceTasks();
-  await refreshMarketplaceTaskBids();
+  await refreshMarketplaceRfqs();
+  await refreshMarketplaceRfqBids();
   await refreshTenantSettlementPolicies();
   await refreshAgentIdentities();
   await refreshAgentWallets();
@@ -1565,8 +1643,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "AGENT_RUN_EVENTS_APPENDED",
       "AGENT_RUN_SETTLEMENT_UPSERT",
       "ARBITRATION_CASE_UPSERT",
-      "MARKETPLACE_TASK_UPSERT",
-      "MARKETPLACE_TASK_BIDS_SET",
+      "TOOL_CALL_HOLD_UPSERT",
+      "SETTLEMENT_ADJUSTMENT_PUT",
+      "MARKETPLACE_RFQ_UPSERT",
+      "MARKETPLACE_RFQ_BIDS_SET",
       "TENANT_SETTLEMENT_POLICY_UPSERT",
       "IDEMPOTENCY_PUT",
       "OUTBOX_ENQUEUE",
@@ -2335,13 +2415,21 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? op.arbitrationCase?.tenantId ?? DEFAULT_TENANT_ID);
           await persistArbitrationCase(client, { tenantId, caseId: op.caseId, arbitrationCase: op.arbitrationCase });
         }
-        if (op.kind === "MARKETPLACE_TASK_UPSERT") {
-          const tenantId = normalizeTenantId(op.tenantId ?? op.task?.tenantId ?? DEFAULT_TENANT_ID);
-          await persistMarketplaceTask(client, { tenantId, task: op.task });
+        if (op.kind === "TOOL_CALL_HOLD_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.hold?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistToolCallHold(client, { tenantId, holdHash: op.holdHash, hold: op.hold });
         }
-        if (op.kind === "MARKETPLACE_TASK_BIDS_SET") {
+        if (op.kind === "SETTLEMENT_ADJUSTMENT_PUT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.adjustment?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistSettlementAdjustment(client, { tenantId, adjustmentId: op.adjustmentId, adjustment: op.adjustment });
+        }
+        if (op.kind === "MARKETPLACE_RFQ_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.rfq?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistMarketplaceRfq(client, { tenantId, rfq: op.rfq });
+        }
+        if (op.kind === "MARKETPLACE_RFQ_BIDS_SET") {
           const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
-          await persistMarketplaceTaskBids(client, { tenantId, taskId: op.taskId, bids: op.bids });
+          await persistMarketplaceRfqBids(client, { tenantId, rfqId: op.rfqId, bids: op.bids });
         }
         if (op.kind === "TENANT_SETTLEMENT_POLICY_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.policy?.tenantId ?? DEFAULT_TENANT_ID);
@@ -2410,8 +2498,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     await refreshLedgerBalances();
     await refreshContracts();
     await refreshTenantBillingConfigs();
-    await refreshMarketplaceTasks();
-    await refreshMarketplaceTaskBids();
+    await refreshMarketplaceRfqs();
+    await refreshMarketplaceRfqBids();
     await refreshTenantSettlementPolicies();
     await refreshAgentIdentities();
     await refreshAgentWallets();
@@ -2683,6 +2771,33 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
   }
 
+  function toolCallHoldSnapshotRowToRecord(row) {
+    const hold = row?.snapshot_json ?? null;
+    if (!hold || typeof hold !== "object" || Array.isArray(hold)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? hold?.tenantId ?? DEFAULT_TENANT_ID);
+    const holdHash = row?.aggregate_id ? String(row.aggregate_id) : hold?.holdHash ? String(hold.holdHash) : null;
+    if (!holdHash) return null;
+    return {
+      ...hold,
+      tenantId,
+      holdHash
+    };
+  }
+
+  function settlementAdjustmentSnapshotRowToRecord(row) {
+    const adjustment = row?.snapshot_json ?? null;
+    if (!adjustment || typeof adjustment !== "object" || Array.isArray(adjustment)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? adjustment?.tenantId ?? DEFAULT_TENANT_ID);
+    const adjustmentId =
+      row?.aggregate_id ? String(row.aggregate_id) : adjustment?.adjustmentId ? String(adjustment.adjustmentId) : null;
+    if (!adjustmentId) return null;
+    return {
+      ...adjustment,
+      tenantId,
+      adjustmentId
+    };
+  }
+
   store.getArbitrationCase = async function getArbitrationCase({ tenantId = DEFAULT_TENANT_ID, caseId } = {}) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     assertNonEmptyString(caseId, "caseId");
@@ -2700,6 +2815,101 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return store.arbitrationCases.get(makeScopedKey({ tenantId, id: String(caseId) })) ?? null;
+    }
+  };
+
+  store.getToolCallHold = async function getToolCallHold({ tenantId = DEFAULT_TENANT_ID, holdHash } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(holdHash, "holdHash");
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'tool_call_hold' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, String(holdHash)]
+      );
+      return res.rows.length ? toolCallHoldSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.toolCallHolds.get(makeScopedKey({ tenantId, id: String(holdHash) })) ?? null;
+    }
+  };
+
+  store.listToolCallHolds = async function listToolCallHolds({
+    tenantId = DEFAULT_TENANT_ID,
+    agreementHash = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (agreementHash !== null) assertNonEmptyString(agreementHash, "agreementHash");
+    if (status !== null) assertNonEmptyString(status, "status");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    try {
+      const params = [tenantId];
+      const where = ["tenant_id = $1", "aggregate_type = 'tool_call_hold'"];
+      if (agreementHash !== null) {
+        params.push(String(agreementHash).toLowerCase());
+        where.push(`lower(snapshot_json->>'agreementHash') = $${params.length}`);
+      }
+      if (status !== null) {
+        params.push(String(status).toLowerCase());
+        where.push(`lower(snapshot_json->>'status') = $${params.length}`);
+      }
+      params.push(safeLimit);
+      params.push(safeOffset);
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE ${where.join(" AND ")}
+          ORDER BY aggregate_id ASC
+          LIMIT $${params.length - 1} OFFSET $${params.length}
+        `,
+        params
+      );
+      return res.rows.map(toolCallHoldSnapshotRowToRecord).filter(Boolean);
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      const out = [];
+      const statusFilter = status === null ? null : String(status).toLowerCase();
+      const agreementFilter = agreementHash === null ? null : String(agreementHash).toLowerCase();
+      for (const row of store.toolCallHolds.values()) {
+        if (!row || typeof row !== "object") continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (agreementFilter && String(row.agreementHash ?? "").toLowerCase() !== agreementFilter) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((a, b) => String(a.holdHash ?? "").localeCompare(String(b.holdHash ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    }
+  };
+
+  store.getSettlementAdjustment = async function getSettlementAdjustment({ tenantId = DEFAULT_TENANT_ID, adjustmentId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(adjustmentId, "adjustmentId");
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'settlement_adjustment' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, String(adjustmentId)]
+      );
+      return res.rows.length ? settlementAdjustmentSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.settlementAdjustments.get(makeScopedKey({ tenantId, id: String(adjustmentId) })) ?? null;
     }
   };
 

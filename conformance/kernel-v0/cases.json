@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "KernelConformanceCases.v0",
+  "cases": [
+    {
+      "id": "tool_call_holdback_release",
+      "kind": "tool_call_holdback_dispute",
+      "verdict": "payee"
+    },
+    {
+      "id": "tool_call_holdback_refund",
+      "kind": "tool_call_holdback_dispute",
+      "verdict": "payer"
+    }
+  ]
+}
+

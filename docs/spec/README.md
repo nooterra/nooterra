@@ -45,6 +45,14 @@ These specs are written so an independent implementer can build a verifier witho
 - `AgentRun.v1.md` — deterministic agent run snapshot contract.
 - `AgentEvent.v1.md` — append-only event envelope for agent runs.
 - `AgentRunSettlement.v1.md` — deterministic run escrow/settlement contract.
+- `MarketplaceOffer.v2.md` — canonical pre-contract offer artifact derived from negotiation proposals.
+- `MarketplaceAcceptance.v2.md` — canonical acceptance artifact bound to a `MarketplaceOffer.v2` hash.
+- `SettlementDecisionRecord.v1.md` — legacy settlement decision artifact (historical verification).
+- `SettlementDecisionRecord.v2.md` — settlement decision artifact with replay-critical policy pinning (current).
+- `SettlementReceipt.v1.md` — canonical settlement finality receipt bound to a decision hash.
+- `FundingHold.v1.md` — deterministic escrow hold for holdback/challenge-window workflows.
+- `SettlementAdjustment.v1.md` — deterministic, idempotent adjustment artifact for held-funds release/refund.
+- `SettlementKernel.v1.md` — binding invariants + stable verification error semantics for settlement decision/receipt integrity.
 - `ArbitrationCase.v1.md` — formal arbitration case contract with appeal linkage.
 - `ArbitrationVerdict.v1.md` — signed arbitration verdict contract with appeal references.
 - `AgentReputation.v1.md` — deterministic trust score snapshot derived from runs + settlement outcomes.
@@ -66,6 +74,11 @@ These specs are written so an independent implementer can build a verifier witho
 - `ReleaseTrust.v1.md` — trusted release signing keys (legacy/simple mapping).
 - `ReleaseTrust.v2.md` — trusted release signing keys with rotation/revocation + quorum.
 - `SUPPLY_CHAIN.md` — release-channel threat model and verification procedure.
+
+## Legacy archive
+
+Legacy protocol objects are retained under `docs/spec/legacy/` (including `legacy/schemas/`) for historical verification only.
+Current integrations should use the active specs listed above.
 
 ## Schemas + examples
 

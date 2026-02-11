@@ -78,6 +78,22 @@ Settld invariants still apply during incidents:
   - then re-run with `{ "dryRun": false }` if counts look sane
 - If cleanup keeps failing, check DB health and recent migrations first (cleanup is intentionally bounded and should not take locks for long).
 
+### 6) Stripe replayable dead-letter backlog (billing drift risk)
+
+**Trigger**
+- `GET /ops/finance/billing/providers/stripe/reconcile/report?limit=200` returns:
+  - `replayableRejectedCount > 0` for 15m, or
+  - rapidly growing `rejectedReasonCounts.reconcile_apply_failed`.
+
+**First actions**
+- Snapshot report + candidate dead-letter events:
+  - `GET /ops/finance/billing/providers/stripe/reconcile/report?limit=200`
+  - `GET /ops/finance/billing/providers/stripe/dead-letter?limit=200`
+- Execute dry-run replay, then live replay if dry-run is clean:
+  - `POST /ops/finance/billing/providers/stripe/dead-letter/replay`
+- Validate post-replay counters and billing plan state.
+- Follow `docs/ops/BILLING_WEBHOOK_REPLAY.md` end-to-end and attach snapshots to incident notes.
+
 ## Prometheus rule examples
 
 These are examples; tune thresholds for your pilot volume and SLOs.
@@ -131,4 +147,3 @@ groups:
 
 - `outbox_pending_gauge{kind=...}` is low-cardinality (bounded set of topics).
 - `delivery_dlq_pending_by_destination_gauge{destinationId=...}` only exposes the top 10 destinations by DLQ depth to stay alertable without exploding metric series.
-

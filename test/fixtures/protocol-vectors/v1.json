@@ -112,6 +112,45 @@
     "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"amountCents\":1250,\"createdAt\":\"2026-02-01T00:00:30.000Z\",\"currency\":\"USD\",\"lockedAt\":\"2026-02-01T00:00:30.000Z\",\"payerAgentId\":\"agt_vectors_payer_0001\",\"resolutionEventId\":null,\"resolvedAt\":null,\"revision\":0,\"runId\":\"run_vectors_0001\",\"runStatus\":null,\"schemaVersion\":\"AgentRunSettlement.v1\",\"settlementId\":\"setl_run_vectors_0001\",\"status\":\"locked\",\"tenantId\":\"tenant_vectors\",\"updatedAt\":\"2026-02-01T00:00:30.000Z\"}",
     "sha256": "61fc9b56362a00b61b68f5e7c861e833130bed336fa38fc788829de78b49f04c"
   },
+  "settlementDecisionRecord": {
+    "schemaVersion": "SettlementDecisionRecord.v1",
+    "decisionId": "dec_run_vectors_0001_auto",
+    "decisionStatus": "auto_resolved",
+    "canonicalJson": "{\"agreementId\":\"agr_vectors_0001\",\"decidedAt\":\"2026-02-01T00:02:00.000Z\",\"decisionHash\":\"e2e8ebfcad644d3cd7e2c4ab985693ed5091c76a52d41f515a7f0c6f9c5924d4\",\"decisionId\":\"dec_run_vectors_0001_auto\",\"decisionMode\":\"automatic\",\"decisionReason\":null,\"decisionStatus\":\"auto_resolved\",\"policyRef\":{\"policyHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"verificationMethodHash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"SettlementDecisionRecord.v1\",\"settlementId\":\"setl_run_vectors_0001\",\"tenantId\":\"tenant_vectors\",\"verificationStatus\":\"green\",\"verifierRef\":{\"modality\":\"deterministic\",\"verifierHash\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"verifierId\":\"settld.policy-engine\",\"verifierVersion\":\"v1\"},\"workRef\":{\"resolutionEventId\":\"ev_run_vectors_0003\",\"runLastChainHash\":\"ch_run_vectors_0003\",\"runLastEventId\":\"ev_run_vectors_0003\",\"runStatus\":\"completed\"}}",
+    "sha256": "b3027b2376020615cfc786c671765fcbaed02eb6280a4956a3953d2d060463d7"
+  },
+  "settlementDecisionRecordV2": {
+    "schemaVersion": "SettlementDecisionRecord.v2",
+    "decisionId": "dec_run_vectors_0001_auto_v2",
+    "decisionStatus": "auto_resolved",
+    "canonicalJson": "{\"agreementId\":\"agr_vectors_0001\",\"decidedAt\":\"2026-02-01T00:02:00.000Z\",\"decisionHash\":\"1cb8ac692c1be71bddfd5f34f0cc2b89bfc99224c4e2a187632351c2a7ff2c8b\",\"decisionId\":\"dec_run_vectors_0001_auto_v2\",\"decisionMode\":\"automatic\",\"decisionReason\":null,\"decisionStatus\":\"auto_resolved\",\"policyHashUsed\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"policyNormalizationVersion\":\"v1\",\"policyRef\":{\"policyHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"verificationMethodHash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"SettlementDecisionRecord.v2\",\"settlementId\":\"setl_run_vectors_0001\",\"tenantId\":\"tenant_vectors\",\"verificationMethodHashUsed\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"verificationStatus\":\"green\",\"verifierRef\":{\"modality\":\"deterministic\",\"verifierHash\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"verifierId\":\"settld.policy-engine\",\"verifierVersion\":\"v1\"},\"workRef\":{\"resolutionEventId\":\"ev_run_vectors_0003\",\"runLastChainHash\":\"ch_run_vectors_0003\",\"runLastEventId\":\"ev_run_vectors_0003\",\"runStatus\":\"completed\"}}",
+    "sha256": "ecee0a898872e22ea1e76b756733a056730709c6493a1721c4edf8d41347ffee"
+  },
+  "settlementReceipt": {
+    "schemaVersion": "SettlementReceipt.v1",
+    "receiptId": "rcpt_run_vectors_0001_auto",
+    "status": "released",
+    "finalityProvider": "internal_ledger",
+    "finalityState": "final",
+    "canonicalJson": "{\"amountCents\":1250,\"createdAt\":\"2026-02-01T00:02:00.000Z\",\"currency\":\"USD\",\"decisionRef\":{\"decisionHash\":\"e2e8ebfcad644d3cd7e2c4ab985693ed5091c76a52d41f515a7f0c6f9c5924d4\",\"decisionId\":\"dec_run_vectors_0001_auto\"},\"finalityProvider\":\"internal_ledger\",\"finalityState\":\"final\",\"receiptHash\":\"67216590704b604fe6633ce12403e03086b5bbc4fe5b90e1ada4b8a014c66025\",\"receiptId\":\"rcpt_run_vectors_0001_auto\",\"refundedAmountCents\":0,\"releaseRatePct\":100,\"releasedAmountCents\":1250,\"resolutionEventId\":\"ev_run_vectors_0003\",\"runId\":\"run_vectors_0001\",\"runStatus\":\"completed\",\"schemaVersion\":\"SettlementReceipt.v1\",\"settledAt\":\"2026-02-01T00:02:00.000Z\",\"settlementId\":\"setl_run_vectors_0001\",\"status\":\"released\",\"tenantId\":\"tenant_vectors\"}",
+    "sha256": "e9959ac3d50f5c3f5796f3039872453d4ce306637ba2e214f8caef41f830e1b9"
+  },
+  "marketplaceOffer": {
+    "schemaVersion": "MarketplaceOffer.v2",
+    "offerId": "ofr_rfq_vectors_0001_bid_vectors_0001_ofr_bid_vectors_0001_2",
+    "proposalId": "ofr_bid_vectors_0001_2",
+    "revision": 2,
+    "canonicalJson": "{\"amountCents\":1250,\"bidId\":\"bid_vectors_0001\",\"createdAt\":\"2026-02-01T00:02:00.000Z\",\"currency\":\"USD\",\"etaSeconds\":900,\"metadata\":{\"stage\":\"vectors\"},\"note\":\"vector offer\",\"offerChainHash\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"offerHash\":\"4a8cd54515b58db4608b17a24543a5dc316d9e74db7ba14c7e77a20736d61e1a\",\"offerId\":\"ofr_rfq_vectors_0001_bid_vectors_0001_ofr_bid_vectors_0001_2\",\"policy\":{\"mode\":\"automatic\",\"policyHash\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"policyVersion\":1,\"rules\":{\"autoReleaseOnAmber\":false,\"autoReleaseOnGreen\":true,\"autoReleaseOnRed\":false,\"requireDeterministicVerification\":true},\"schemaVersion\":\"SettlementPolicy.v1\"},\"policyRef\":{\"policyHash\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"policyId\":null,\"policyVersion\":1,\"schemaVersion\":\"MarketplaceSettlementPolicyRef.v1\",\"source\":\"inline\",\"verificationMethodHash\":\"7777777777777777777777777777777777777777777777777777777777777777\"},\"policyRefHash\":\"8888888888888888888888888888888888888888888888888888888888888888\",\"prevProposalHash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"proposalCount\":2,\"proposalHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"proposalId\":\"ofr_bid_vectors_0001_2\",\"proposedAt\":\"2026-02-01T00:01:30.000Z\",\"proposerAgentId\":\"agt_vectors_0001\",\"revision\":2,\"rfqId\":\"rfq_vectors_0001\",\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"MarketplaceOffer.v2\",\"tenantId\":\"tenant_vectors\",\"verificationMethod\":{\"mode\":\"deterministic\",\"schemaVersion\":\"VerificationMethod.v1\"}}",
+    "sha256": "1be3df103136b83d5ab35fe9a2fbf3e1cae242775bd2786d6066e83cfe054209"
+  },
+  "marketplaceAcceptance": {
+    "schemaVersion": "MarketplaceAcceptance.v2",
+    "acceptanceId": "acc_agr_rfq_vectors_0001_bid_vectors_0001",
+    "acceptedProposalId": "ofr_bid_vectors_0001_2",
+    "acceptedRevision": 2,
+    "canonicalJson": "{\"acceptanceHash\":\"7c73e3f58c0e818e3a07bbb2a46af970b2f466748aa5f0b47e2bdb31e7ac1e26\",\"acceptanceId\":\"acc_agr_rfq_vectors_0001_bid_vectors_0001\",\"acceptedAt\":\"2026-02-01T00:02:00.000Z\",\"acceptedByAgentId\":\"agt_vectors_operator_0001\",\"acceptedProposalHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"acceptedProposalId\":\"ofr_bid_vectors_0001_2\",\"acceptedRevision\":2,\"agreementId\":\"agr_rfq_vectors_0001_bid_vectors_0001\",\"bidId\":\"bid_vectors_0001\",\"createdAt\":\"2026-02-01T00:02:00.000Z\",\"offerChainHash\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"offerRef\":{\"offerHash\":\"4a8cd54515b58db4608b17a24543a5dc316d9e74db7ba14c7e77a20736d61e1a\",\"offerId\":\"ofr_rfq_vectors_0001_bid_vectors_0001_ofr_bid_vectors_0001_2\"},\"proposalCount\":2,\"rfqId\":\"rfq_vectors_0001\",\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"MarketplaceAcceptance.v2\",\"tenantId\":\"tenant_vectors\"}",
+    "sha256": "45db5dcfdfae87f03d62af3e0d8fda2c85a2ce3f7c42d4f80bdadd8aa29a8a82"
+  },
   "agentReputation": {
     "schemaVersion": "AgentReputation.v1",
     "trustScore": 48,

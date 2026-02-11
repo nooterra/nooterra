@@ -37,8 +37,8 @@ logger.info("maintenance.start", { intervalSeconds, batchSize, maxMillis, dryRun
 while (!stopped) {
   const loopStartedMs = Date.now();
   try {
-    const result = await api.tickRetentionCleanup({ tenantId: null, maxRows: batchSize, maxMillis, dryRun, requireLock: true });
-    const outcome = result?.ok ? "ok" : result?.code === "MAINTENANCE_ALREADY_RUNNING" ? "already_running" : "error";
+    const retention = await api.tickRetentionCleanup({ tenantId: null, maxRows: batchSize, maxMillis, dryRun, requireLock: true });
+    const retentionOutcome = retention?.ok ? "ok" : retention?.code === "MAINTENANCE_ALREADY_RUNNING" ? "already_running" : "error";
     try {
       if (typeof store.appendOpsAudit === "function") {
         await store.appendOpsAudit({
@@ -54,15 +54,15 @@ while (!stopped) {
             at: new Date().toISOString(),
             details: {
               origin: "maintenance_runner",
-              outcome,
-              scope: result?.scope ?? "global",
-              dryRun: Boolean(result?.dryRun),
-              maxRows: Number(result?.maxRows ?? batchSize),
-              maxMillis: Number(result?.maxMillis ?? maxMillis),
-              runtimeMs: result?.runtimeMs ?? null,
-              timedOut: result?.timedOut === true,
-              purged: result?.purged ?? null,
-              code: result?.code ?? null
+              outcome: retentionOutcome,
+              scope: retention?.scope ?? "global",
+              dryRun: Boolean(retention?.dryRun),
+              maxRows: Number(retention?.maxRows ?? batchSize),
+              maxMillis: Number(retention?.maxMillis ?? maxMillis),
+              runtimeMs: retention?.runtimeMs ?? null,
+              timedOut: retention?.timedOut === true,
+              purged: retention?.purged ?? null,
+              code: retention?.code ?? null
             }
           })
         });
@@ -71,8 +71,51 @@ while (!stopped) {
       logger.error("maintenance.audit_failed", { err });
     }
 
-    if (!result?.ok && result?.code !== "MAINTENANCE_ALREADY_RUNNING") {
-      throw new Error(`retention cleanup failed: ${String(result?.code ?? "UNKNOWN")}`);
+    if (!retention?.ok && retention?.code !== "MAINTENANCE_ALREADY_RUNNING") {
+      throw new Error(`retention cleanup failed: ${String(retention?.code ?? "UNKNOWN")}`);
+    }
+
+    const financeReconcile = await api.tickFinanceReconciliation({
+      tenantId: null,
+      period: null,
+      force: true,
+      requireLock: true
+    });
+    const financeOutcome = financeReconcile?.ok ? "ok" : financeReconcile?.code === "MAINTENANCE_ALREADY_RUNNING" ? "already_running" : "error";
+    try {
+      if (typeof store.appendOpsAudit === "function") {
+        await store.appendOpsAudit({
+          tenantId: DEFAULT_TENANT_ID,
+          audit: makeOpsAuditRecord({
+            tenantId: DEFAULT_TENANT_ID,
+            actorKeyId: null,
+            actorPrincipalId: "maintenance_runner",
+            requestId: null,
+            action: "MAINTENANCE_FINANCE_RECONCILE_RUN",
+            targetType: "maintenance",
+            targetId: "finance_reconcile",
+            at: new Date().toISOString(),
+            details: {
+              origin: "maintenance_runner",
+              outcome: financeOutcome,
+              scope: financeReconcile?.scope ?? "global",
+              period: financeReconcile?.period ?? null,
+              force: financeReconcile?.force === true,
+              maxTenants: financeReconcile?.maxTenants ?? null,
+              maxPeriodsPerTenant: financeReconcile?.maxPeriodsPerTenant ?? null,
+              runtimeMs: financeReconcile?.runtimeMs ?? null,
+              summary: financeReconcile?.summary ?? null,
+              code: financeReconcile?.code ?? null
+            }
+          })
+        });
+      }
+    } catch (err) {
+      logger.error("maintenance.audit_failed", { err });
+    }
+
+    if (!financeReconcile?.ok && financeReconcile?.code !== "MAINTENANCE_ALREADY_RUNNING") {
+      throw new Error(`finance reconcile failed: ${String(financeReconcile?.code ?? "UNKNOWN")}`);
     }
   } catch (err) {
     logger.error("maintenance.failed", { err });
@@ -90,6 +133,28 @@ while (!stopped) {
             targetId: "retention",
             at: new Date().toISOString(),
             details: { origin: "maintenance_runner", outcome: "error", dryRun: Boolean(dryRun), maxRows: batchSize, maxMillis, error: err?.message ?? String(err) }
+          })
+        });
+        await store.appendOpsAudit({
+          tenantId: DEFAULT_TENANT_ID,
+          audit: makeOpsAuditRecord({
+            tenantId: DEFAULT_TENANT_ID,
+            actorKeyId: null,
+            actorPrincipalId: "maintenance_runner",
+            requestId: null,
+            action: "MAINTENANCE_FINANCE_RECONCILE_RUN",
+            targetType: "maintenance",
+            targetId: "finance_reconcile",
+            at: new Date().toISOString(),
+            details: {
+              origin: "maintenance_runner",
+              outcome: "error",
+              period: null,
+              force: true,
+              maxTenants: null,
+              maxPeriodsPerTenant: null,
+              error: err?.message ?? String(err)
+            }
           })
         });
       }

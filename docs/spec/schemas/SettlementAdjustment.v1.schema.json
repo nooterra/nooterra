@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/SettlementAdjustment.v1.schema.json",
+  "title": "SettlementAdjustment.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "adjustmentId",
+    "tenantId",
+    "agreementHash",
+    "receiptHash",
+    "holdHash",
+    "kind",
+    "amountCents",
+    "currency",
+    "createdAt",
+    "adjustmentHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "SettlementAdjustment.v1" },
+    "adjustmentId": { "type": "string", "minLength": 3, "maxLength": 200 },
+    "tenantId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "agreementHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "receiptHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "holdHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "kind": { "type": "string", "enum": ["holdback_release", "holdback_refund"] },
+    "amountCents": { "type": "integer", "minimum": 0 },
+    "currency": { "type": "string", "minLength": 3, "maxLength": 12, "pattern": "^[A-Z][A-Z0-9_]{2,11}$" },
+    "verdictRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseId", "verdictHash"],
+      "properties": {
+        "caseId": { "type": "string", "minLength": 3, "maxLength": 200 },
+        "verdictHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "adjustmentHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "metadata": { "type": "object", "additionalProperties": true }
+  }
+}
+

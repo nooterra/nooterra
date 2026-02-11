@@ -6,6 +6,7 @@ import os from "node:os";
 import http from "node:http";
 
 import { processPaymentTriggerRetryQueueOnce, sendPaymentTriggerOnApproval } from "../services/magic-link/src/payment-triggers.js";
+import { listenOnEphemeralLoopback } from "./lib/listen.js";
 
 function sampleDecisionReport({ decision = "approve", reportHash = "hash_report_1", token = "ml_test", tenantId = "tenant_test" } = {}) {
   return {
@@ -99,9 +100,22 @@ test("payment trigger retry: succeeds on retry delivery", async (t) => {
     res.statusCode = 204;
     res.end("");
   });
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const addr = server.address();
-  const port = typeof addr === "object" && addr ? addr.port : 0;
+  let port = null;
+  try {
+    ({ port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] }));
+  } catch (err) {
+    const cause = err?.cause ?? err;
+    if (cause?.code === "EPERM" || cause?.code === "EACCES") {
+      t.skip(`loopback listen not permitted (${cause.code})`);
+      try {
+        if (server.listening) await new Promise((resolve) => server.close(resolve));
+      } catch {
+        // ignore
+      }
+      return;
+    }
+    throw err;
+  }
   await t.after(async () => {
     await new Promise((resolve) => server.close(resolve));
   });

@@ -25,10 +25,10 @@ test("R1 API contract freeze: required operations remain published", () => {
   assertOperation(spec, "/agents/{agentId}/runs", "post");
   assertOperation(spec, "/agents/{agentId}/runs/{runId}/events", "post");
 
-  assertOperation(spec, "/marketplace/tasks", "post");
-  assertOperation(spec, "/marketplace/tasks", "get");
-  assertOperation(spec, "/marketplace/tasks/{taskId}/bids", "post");
-  assertOperation(spec, "/marketplace/tasks/{taskId}/accept", "post");
+  assertOperation(spec, "/marketplace/rfqs", "post");
+  assertOperation(spec, "/marketplace/rfqs", "get");
+  assertOperation(spec, "/marketplace/rfqs/{rfqId}/bids", "post");
+  assertOperation(spec, "/marketplace/rfqs/{rfqId}/accept", "post");
 
   assertOperation(spec, "/runs/{runId}/settlement", "get");
   assertOperation(spec, "/runs/{runId}/settlement/policy-replay", "get");
@@ -47,7 +47,7 @@ test("R1 API contract freeze: dispute lifecycle semantics remain encoded", () =>
   const spec = buildOpenApiSpec();
 
   const acceptRequest =
-    spec?.paths?.["/marketplace/tasks/{taskId}/accept"]?.post?.requestBody?.content?.["application/json"]?.schema ?? null;
+    spec?.paths?.["/marketplace/rfqs/{rfqId}/accept"]?.post?.requestBody?.content?.["application/json"]?.schema ?? null;
   assertObjectSchema(acceptRequest, "accept request");
   assert.ok(
     Object.prototype.hasOwnProperty.call(acceptRequest.properties ?? {}, "disputeWindowDays"),

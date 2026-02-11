@@ -211,6 +211,57 @@ class SettldClient:
             raise ValueError("body is required")
         return self._request("POST", f"/runs/{parse.quote(run_id, safe='')}/settlement/resolve", body=body, **opts)
 
+    def ops_lock_tool_call_hold(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/ops/tool-calls/holds/lock", body=body, **opts)
+
+    def ops_list_tool_call_holds(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        params: Dict[str, Any] = {}
+        if isinstance(query, dict):
+            for key in ("agreementHash", "status", "limit", "offset"):
+                if query.get(key) is not None:
+                    params[key] = query.get(key)
+        suffix = f"?{parse.urlencode(params)}" if params else ""
+        return self._request("GET", f"/ops/tool-calls/holds{suffix}", **opts)
+
+    def ops_get_tool_call_hold(self, hold_hash: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(hold_hash, "hold_hash")
+        return self._request("GET", f"/ops/tool-calls/holds/{parse.quote(hold_hash, safe='')}", **opts)
+
+    def ops_run_tool_call_holdback_maintenance(self, body: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        payload = {} if body is None else body
+        if not isinstance(payload, dict):
+            raise ValueError("body must be an object")
+        return self._request("POST", "/ops/maintenance/tool-call-holdback/run", body=payload, **opts)
+
+    def tool_call_list_arbitration_cases(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        params: Dict[str, Any] = {}
+        if isinstance(query, dict):
+            for key in ("agreementHash", "status"):
+                if query.get(key) is not None:
+                    params[key] = query.get(key)
+        suffix = f"?{parse.urlencode(params)}" if params else ""
+        return self._request("GET", f"/tool-calls/arbitration/cases{suffix}", **opts)
+
+    def tool_call_get_arbitration_case(self, case_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(case_id, "case_id")
+        return self._request("GET", f"/tool-calls/arbitration/cases/{parse.quote(case_id, safe='')}", **opts)
+
+    def tool_call_open_arbitration(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/tool-calls/arbitration/open", body=body, **opts)
+
+    def tool_call_submit_arbitration_verdict(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/tool-calls/arbitration/verdict", body=body, **opts)
+
+    def ops_get_settlement_adjustment(self, adjustment_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(adjustment_id, "adjustment_id")
+        return self._request("GET", f"/ops/settlement-adjustments/{parse.quote(adjustment_id, safe='')}", **opts)
+
     def open_run_dispute(self, run_id: str, body: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
         _assert_non_empty_string(run_id, "run_id")
         payload = {} if body is None else body
@@ -239,42 +290,42 @@ class SettldClient:
         _assert_non_empty_string(body.get("escalationLevel"), "body.escalationLevel")
         return self._request("POST", f"/runs/{parse.quote(run_id, safe='')}/dispute/escalate", body=body, **opts)
 
-    def create_marketplace_task(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+    def create_marketplace_rfq(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
         if not isinstance(body, dict):
             raise ValueError("body is required")
-        return self._request("POST", "/marketplace/tasks", body=body, **opts)
+        return self._request("POST", "/marketplace/rfqs", body=body, **opts)
 
-    def list_marketplace_tasks(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+    def list_marketplace_rfqs(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
         params = {}
         if isinstance(query, dict):
             for key in ("status", "capability", "posterAgentId", "limit", "offset"):
                 if query.get(key) is not None:
                     params[key] = query.get(key)
         suffix = f"?{parse.urlencode(params)}" if params else ""
-        return self._request("GET", f"/marketplace/tasks{suffix}", **opts)
+        return self._request("GET", f"/marketplace/rfqs{suffix}", **opts)
 
-    def submit_marketplace_bid(self, task_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
-        _assert_non_empty_string(task_id, "task_id")
+    def submit_marketplace_bid(self, rfq_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(rfq_id, "rfq_id")
         if not isinstance(body, dict):
             raise ValueError("body is required")
-        return self._request("POST", f"/marketplace/tasks/{parse.quote(task_id, safe='')}/bids", body=body, **opts)
+        return self._request("POST", f"/marketplace/rfqs/{parse.quote(rfq_id, safe='')}/bids", body=body, **opts)
 
-    def list_marketplace_bids(self, task_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
-        _assert_non_empty_string(task_id, "task_id")
+    def list_marketplace_bids(self, rfq_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(rfq_id, "rfq_id")
         params = {}
         if isinstance(query, dict):
             for key in ("status", "bidderAgentId", "limit", "offset"):
                 if query.get(key) is not None:
                     params[key] = query.get(key)
         suffix = f"?{parse.urlencode(params)}" if params else ""
-        return self._request("GET", f"/marketplace/tasks/{parse.quote(task_id, safe='')}/bids{suffix}", **opts)
+        return self._request("GET", f"/marketplace/rfqs/{parse.quote(rfq_id, safe='')}/bids{suffix}", **opts)
 
-    def accept_marketplace_bid(self, task_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
-        _assert_non_empty_string(task_id, "task_id")
+    def accept_marketplace_bid(self, rfq_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(rfq_id, "rfq_id")
         if not isinstance(body, dict):
             raise ValueError("body is required")
         _assert_non_empty_string(body.get("bidId"), "body.bidId")
-        return self._request("POST", f"/marketplace/tasks/{parse.quote(task_id, safe='')}/accept", body=body, **opts)
+        return self._request("POST", f"/marketplace/rfqs/{parse.quote(rfq_id, safe='')}/accept", body=body, **opts)
 
     def get_tenant_analytics(self, tenant_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
         _assert_non_empty_string(tenant_id, "tenant_id")
@@ -321,7 +372,7 @@ class SettldClient:
         suffix = f"?{parse.urlencode(params)}" if params else ""
         return self._request("GET", f"/v1/tenants/{parse.quote(tenant_id, safe='')}/trust-graph/diff{suffix}", **opts)
 
-    def first_paid_task(
+    def first_paid_rfq(
         self,
         params: Dict[str, Any],
         *,
@@ -343,7 +394,7 @@ class SettldClient:
 
         step_prefix = _normalize_prefix(
             idempotency_prefix,
-            f"sdk_first_paid_task_{int(time.time() * 1000):x}_{random.randint(0, 0xFFFFFF):06x}",
+            f"sdk_first_paid_rfq_{int(time.time() * 1000):x}_{random.randint(0, 0xFFFFFF):06x}",
         )
         request_prefix = _normalize_prefix(request_id_prefix, _random_request_id())
 
@@ -392,31 +443,31 @@ class SettldClient:
                 **make_step_opts("credit_poster_wallet"),
             )
 
-        task_defaults = {
-            "taskId": f"task_{step_prefix}",
-            "title": "SDK paid task",
+        rfq_defaults = {
+            "rfqId": f"rfq_{step_prefix}",
+            "title": "SDK paid rfq",
             "capability": "general",
             "posterAgentId": poster_agent_id,
             "budgetCents": 1000,
             "currency": "USD",
         }
-        task_body = {**task_defaults, **(params.get("task") if isinstance(params.get("task"), dict) else {})}
-        task_body["posterAgentId"] = poster_agent_id
-        create_task = self.create_marketplace_task(task_body, **make_step_opts("create_task"))
-        task = create_task.get("body", {}).get("task", {}) if isinstance(create_task.get("body"), dict) else {}
-        task_id = task.get("taskId")
-        _assert_non_empty_string(task_id, "task_id")
+        rfq_body = {**rfq_defaults, **(params.get("rfq") if isinstance(params.get("rfq"), dict) else {})}
+        rfq_body["posterAgentId"] = poster_agent_id
+        create_rfq = self.create_marketplace_rfq(rfq_body, **make_step_opts("create_rfq"))
+        rfq = create_rfq.get("body", {}).get("rfq", {}) if isinstance(create_rfq.get("body"), dict) else {}
+        rfq_id = rfq.get("rfqId")
+        _assert_non_empty_string(rfq_id, "rfq_id")
 
         bid_defaults = {
             "bidId": f"bid_{step_prefix}",
             "bidderAgentId": bidder_agent_id,
-            "amountCents": int(task_body.get("budgetCents", 1000)),
-            "currency": str(task_body.get("currency", "USD")),
+            "amountCents": int(rfq_body.get("budgetCents", 1000)),
+            "currency": str(rfq_body.get("currency", "USD")),
             "etaSeconds": 900,
         }
         bid_body = {**bid_defaults, **(params.get("bid") if isinstance(params.get("bid"), dict) else {})}
         bid_body["bidderAgentId"] = bidder_agent_id
-        submit_bid = self.submit_marketplace_bid(task_id, bid_body, **make_step_opts("submit_bid"))
+        submit_bid = self.submit_marketplace_bid(rfq_id, bid_body, **make_step_opts("submit_bid"))
         bid = submit_bid.get("body", {}).get("bid", {}) if isinstance(submit_bid.get("body"), dict) else {}
         bid_id = bid.get("bidId")
         _assert_non_empty_string(bid_id, "bid_id")
@@ -428,14 +479,14 @@ class SettldClient:
             "settlement": {
                 "payerAgentId": poster_agent_id,
                 "amountCents": int(bid_body.get("amountCents")),
-                "currency": str(bid_body.get("currency", task_body.get("currency", "USD"))),
+                "currency": str(bid_body.get("currency", rfq_body.get("currency", "USD"))),
             },
         }
         accept_body = {**accept_defaults, **(params.get("accept") if isinstance(params.get("accept"), dict) else {})}
         if not isinstance(accept_body.get("settlement"), dict):
             accept_body["settlement"] = {}
         accept_body["settlement"] = {**accept_defaults["settlement"], **accept_body["settlement"], **settlement_config}
-        accept_bid = self.accept_marketplace_bid(task_id, accept_body, **make_step_opts("accept_bid"))
+        accept_bid = self.accept_marketplace_bid(rfq_id, accept_body, **make_step_opts("accept_bid"))
         accepted_body = accept_bid.get("body", {}) if isinstance(accept_bid.get("body"), dict) else {}
         run = accepted_body.get("run", {}) if isinstance(accepted_body.get("run"), dict) else {}
         run_id = run.get("runId")
@@ -473,7 +524,7 @@ class SettldClient:
                 "poster_agent_id": poster_agent_id,
                 "bidder_agent_id": bidder_agent_id,
                 "accepted_by_agent_id": accepted_by_agent_id,
-                "task_id": task_id,
+                "rfq_id": rfq_id,
                 "bid_id": bid_id,
                 "run_id": run_id,
             },
@@ -481,7 +532,7 @@ class SettldClient:
             "bidder_registration": bidder_registration,
             "accepted_by_registration": accepted_by_registration,
             "payer_credit": credit_result,
-            "create_task": create_task,
+            "create_rfq": create_rfq,
             "submit_bid": submit_bid,
             "accept_bid": accept_bid,
             "final_event": final_event,

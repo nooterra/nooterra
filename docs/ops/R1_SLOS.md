@@ -8,7 +8,7 @@ Release target: `Settld Verified Transactions v1` (end of Sprint 4)
 These SLOs govern the Release 1 production path:
 
 - Agent identity registration and wallet funding.
-- Marketplace task, bid, accept, and run execution flows.
+- Marketplace RFQ, bid, accept, and run execution flows.
 - Settlement, dispute, and policy replay endpoints.
 - Ops payout enqueue and money rail operation status/cancel flows.
 

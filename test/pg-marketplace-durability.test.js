@@ -48,7 +48,7 @@ async function creditWallet(api, { tenantId, agentId, amountCents, idempotencyKe
   assert.equal(response.statusCode, 201);
 }
 
-(databaseUrl ? test : test.skip)("pg: marketplace tasks and bids persist across restart", async () => {
+(databaseUrl ? test : test.skip)("pg: marketplace rfqs and bids persist across restart", async () => {
   const schema = makeSchema();
   const tenantId = "tenant_marketplace_pg";
 
@@ -71,13 +71,13 @@ async function creditWallet(api, { tenantId, agentId, amountCents, idempotencyKe
 
     const createTask = await request(apiA, {
       method: "POST",
-      path: "/marketplace/tasks",
+      path: "/marketplace/rfqs",
       headers: {
         "x-proxy-tenant-id": tenantId,
-        "x-idempotency-key": "mk_task_pg_1"
+        "x-idempotency-key": "mk_rfq_pg_1"
       },
       body: {
-        taskId: "task_translate_pg_1",
+        rfqId: "rfq_translate_pg_1",
         title: "Translate flight checklist",
         capability: "translate",
         posterAgentId: "agt_market_poster_pg",
@@ -86,11 +86,11 @@ async function creditWallet(api, { tenantId, agentId, amountCents, idempotencyKe
       }
     });
     assert.equal(createTask.statusCode, 201);
-    assert.equal(createTask.json?.task?.status, "open");
+    assert.equal(createTask.json?.rfq?.status, "open");
 
     const bidA = await request(apiA, {
       method: "POST",
-      path: "/marketplace/tasks/task_translate_pg_1/bids",
+      path: "/marketplace/rfqs/rfq_translate_pg_1/bids",
       headers: {
         "x-proxy-tenant-id": tenantId,
         "x-idempotency-key": "mk_bid_pg_a"
@@ -107,7 +107,7 @@ async function creditWallet(api, { tenantId, agentId, amountCents, idempotencyKe
 
     const bidB = await request(apiA, {
       method: "POST",
-      path: "/marketplace/tasks/task_translate_pg_1/bids",
+      path: "/marketplace/rfqs/rfq_translate_pg_1/bids",
       headers: {
         "x-proxy-tenant-id": tenantId,
         "x-idempotency-key": "mk_bid_pg_b"
@@ -124,7 +124,7 @@ async function creditWallet(api, { tenantId, agentId, amountCents, idempotencyKe
 
     const acceptBid = await request(apiA, {
       method: "POST",
-      path: "/marketplace/tasks/task_translate_pg_1/accept",
+      path: "/marketplace/rfqs/rfq_translate_pg_1/accept",
       headers: {
         "x-proxy-tenant-id": tenantId,
         "x-idempotency-key": "mk_accept_pg_1"
@@ -135,17 +135,17 @@ async function creditWallet(api, { tenantId, agentId, amountCents, idempotencyKe
       }
     });
     assert.equal(acceptBid.statusCode, 200);
-    assert.equal(acceptBid.json?.task?.status, "assigned");
-    assert.equal(acceptBid.json?.task?.acceptedBidId, "bid_translate_pg_b");
+    assert.equal(acceptBid.json?.rfq?.status, "assigned");
+    assert.equal(acceptBid.json?.rfq?.acceptedBidId, "bid_translate_pg_b");
     assert.equal(acceptBid.json?.run?.status, "created");
     assert.equal(acceptBid.json?.settlement?.status, "locked");
-    assert.equal(acceptBid.json?.agreement?.taskId, "task_translate_pg_1");
+    assert.equal(acceptBid.json?.agreement?.rfqId, "rfq_translate_pg_1");
 
-    const taskCountBefore = await storeA.pg.pool.query("SELECT COUNT(*)::int AS c FROM marketplace_tasks WHERE tenant_id = $1", [tenantId]);
+    const taskCountBefore = await storeA.pg.pool.query("SELECT COUNT(*)::int AS c FROM marketplace_rfqs WHERE tenant_id = $1", [tenantId]);
     assert.equal(Number(taskCountBefore.rows[0]?.c ?? 0), 1);
-    const bidCountBefore = await storeA.pg.pool.query("SELECT COUNT(*)::int AS c FROM marketplace_task_bids WHERE tenant_id = $1 AND task_id = $2", [
+    const bidCountBefore = await storeA.pg.pool.query("SELECT COUNT(*)::int AS c FROM marketplace_rfq_bids WHERE tenant_id = $1 AND rfq_id = $2", [
       tenantId,
-      "task_translate_pg_1"
+      "rfq_translate_pg_1"
     ]);
     assert.equal(Number(bidCountBefore.rows[0]?.c ?? 0), 2);
     const settlementCountBefore = await storeA.pg.pool.query("SELECT COUNT(*)::int AS c FROM agent_run_settlements WHERE tenant_id = $1", [tenantId]);
@@ -159,18 +159,18 @@ async function creditWallet(api, { tenantId, agentId, amountCents, idempotencyKe
 
     const listAssigned = await request(apiB, {
       method: "GET",
-      path: "/marketplace/tasks?status=assigned&limit=10&offset=0",
+      path: "/marketplace/rfqs?status=assigned&limit=10&offset=0",
       headers: { "x-proxy-tenant-id": tenantId }
     });
     assert.equal(listAssigned.statusCode, 200);
     assert.equal(listAssigned.json?.total, 1);
-    assert.equal(listAssigned.json?.tasks?.[0]?.taskId, "task_translate_pg_1");
-    assert.equal(listAssigned.json?.tasks?.[0]?.acceptedBidId, "bid_translate_pg_b");
-    assert.ok(typeof listAssigned.json?.tasks?.[0]?.runId === "string" && listAssigned.json.tasks[0].runId.length > 0);
+    assert.equal(listAssigned.json?.rfqs?.[0]?.rfqId, "rfq_translate_pg_1");
+    assert.equal(listAssigned.json?.rfqs?.[0]?.acceptedBidId, "bid_translate_pg_b");
+    assert.ok(typeof listAssigned.json?.rfqs?.[0]?.runId === "string" && listAssigned.json.rfqs[0].runId.length > 0);
 
     const accepted = await request(apiB, {
       method: "GET",
-      path: "/marketplace/tasks/task_translate_pg_1/bids?status=accepted",
+      path: "/marketplace/rfqs/rfq_translate_pg_1/bids?status=accepted",
       headers: { "x-proxy-tenant-id": tenantId }
     });
     assert.equal(accepted.statusCode, 200);
@@ -179,7 +179,7 @@ async function creditWallet(api, { tenantId, agentId, amountCents, idempotencyKe
 
     const rejected = await request(apiB, {
       method: "GET",
-      path: "/marketplace/tasks/task_translate_pg_1/bids?status=rejected",
+      path: "/marketplace/rfqs/rfq_translate_pg_1/bids?status=rejected",
       headers: { "x-proxy-tenant-id": tenantId }
     });
     assert.equal(rejected.statusCode, 200);
@@ -187,11 +187,11 @@ async function creditWallet(api, { tenantId, agentId, amountCents, idempotencyKe
     assert.equal(rejected.json?.bids?.[0]?.bidId, "bid_translate_pg_a");
 
     await storeB.refreshFromDb();
-    const taskCountAfter = await storeB.pg.pool.query("SELECT COUNT(*)::int AS c FROM marketplace_tasks WHERE tenant_id = $1", [tenantId]);
+    const taskCountAfter = await storeB.pg.pool.query("SELECT COUNT(*)::int AS c FROM marketplace_rfqs WHERE tenant_id = $1", [tenantId]);
     assert.equal(Number(taskCountAfter.rows[0]?.c ?? 0), 1);
-    const bidCountAfter = await storeB.pg.pool.query("SELECT COUNT(*)::int AS c FROM marketplace_task_bids WHERE tenant_id = $1 AND task_id = $2", [
+    const bidCountAfter = await storeB.pg.pool.query("SELECT COUNT(*)::int AS c FROM marketplace_rfq_bids WHERE tenant_id = $1 AND rfq_id = $2", [
       tenantId,
-      "task_translate_pg_1"
+      "rfq_translate_pg_1"
     ]);
     assert.equal(Number(bidCountAfter.rows[0]?.c ?? 0), 2);
     const settlementCountAfter = await storeB.pg.pool.query("SELECT COUNT(*)::int AS c FROM agent_run_settlements WHERE tenant_id = $1", [tenantId]);

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/FundingHold.v1.schema.json",
+  "title": "FundingHold.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "tenantId",
+    "agreementHash",
+    "receiptHash",
+    "payerAgentId",
+    "payeeAgentId",
+    "amountCents",
+    "heldAmountCents",
+    "currency",
+    "holdbackBps",
+    "challengeWindowMs",
+    "createdAt",
+    "holdHash",
+    "status",
+    "revision",
+    "updatedAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "FundingHold.v1" },
+    "tenantId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "agreementHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "receiptHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "payerAgentId": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "payeeAgentId": { "type": "string", "minLength": 3, "maxLength": 128, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "amountCents": { "type": "integer", "minimum": 1 },
+    "heldAmountCents": { "type": "integer", "minimum": 0 },
+    "currency": { "type": "string", "minLength": 3, "maxLength": 12, "pattern": "^[A-Z][A-Z0-9_]{2,11}$" },
+    "holdbackBps": { "type": "integer", "minimum": 0 },
+    "challengeWindowMs": { "type": "integer", "minimum": 0 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "holdHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "status": { "type": "string", "enum": ["held", "released", "refunded"] },
+    "resolvedAt": { "type": "string", "format": "date-time" },
+    "revision": { "type": "integer", "minimum": 0 },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "metadata": { "type": "object", "additionalProperties": true }
+  }
+}
+
