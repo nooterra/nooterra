@@ -17,6 +17,7 @@ function usage() {
   console.error("  settld dev ps");
   console.error("  settld dev logs [--follow] [--service api]");
   console.error("  settld dev info");
+  console.error("  settld init capability <name> [--out <dir>] [--force]");
 }
 
 function repoRoot() {
@@ -160,6 +161,23 @@ function main() {
     usage();
     // eslint-disable-next-line no-console
     console.error(`unknown dev subcommand: ${sub}`);
+    process.exit(1);
+  }
+
+  if (cmd === "init") {
+    const sub = argv[1] ? String(argv[1]) : "";
+    if (!sub) {
+      usage();
+      // eslint-disable-next-line no-console
+      console.error("missing init subcommand");
+      process.exit(1);
+    }
+    if (sub === "capability") {
+      return runNodeScript("scripts/init/capability.mjs", argv.slice(2));
+    }
+    usage();
+    // eslint-disable-next-line no-console
+    console.error(`unknown init subcommand: ${sub}`);
     process.exit(1);
   }
 
