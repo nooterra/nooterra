@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/ToolManifest.v1.schema.json",
+  "title": "ToolManifest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "toolId",
+    "toolVersion",
+    "endpoints",
+    "inputSchemaHash",
+    "outputSchemaHash",
+    "createdAt",
+    "signature"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "ToolManifest.v1" },
+    "toolId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "toolVersion": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "endpoints": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "baseUrl", "callPath", "manifestPath"],
+        "properties": {
+          "kind": { "const": "http" },
+          "baseUrl": { "type": "string", "minLength": 1, "maxLength": 2048 },
+          "callPath": { "type": "string", "minLength": 1, "maxLength": 2048 },
+          "manifestPath": { "type": "string", "minLength": 1, "maxLength": 2048 }
+        }
+      }
+    },
+    "inputSchemaHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "outputSchemaHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "verifierHints": { "type": ["object", "null"] },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "signerKeyId", "manifestHash", "signature"],
+      "properties": {
+        "algorithm": { "const": "ed25519" },
+        "signerKeyId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "signerPublicKeyPem": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "manifestHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "signature": { "type": "string", "minLength": 1, "maxLength": 16384 }
+      }
+    }
+  }
+}
+

@@ -16,6 +16,7 @@ import { computeAgentReputation, computeAgentReputationV2 } from "../../src/core
 import { buildInteractionDirectionMatrixV1 } from "../../src/core/interaction-directions.js";
 import { buildSettlementDecisionRecordV1, buildSettlementDecisionRecordV2, buildSettlementReceipt } from "../../src/core/settlement-kernel.js";
 import { buildMarketplaceOffer, buildMarketplaceAcceptance } from "../../src/core/marketplace-kernel.js";
+import { buildToolManifestV1 } from "../../src/core/tool-manifest.js";
 
 function bytes(text) {
   return new TextEncoder().encode(text);
@@ -200,6 +201,53 @@ async function main() {
 
     return { jcs: "RFC8785", cases };
   })();
+
+  const toolManifestInputSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    additionalProperties: false,
+    properties: { text: { type: "string", minLength: 0, maxLength: 2000 } },
+    required: ["text"]
+  };
+  const toolManifestOutputSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      upper: { type: "string" },
+      length: { type: "integer", minimum: 0 }
+    },
+    required: ["upper", "length"]
+  };
+  const {
+    manifest: toolManifest,
+    core: toolManifestCore,
+    manifestHash: toolManifestHash,
+    inputSchema: toolManifestInputSchemaNormalized,
+    outputSchema: toolManifestOutputSchemaNormalized
+  } = buildToolManifestV1({
+    toolId: "tool_vectors_echo",
+    toolVersion: "0.0.0-vectors",
+    endpoints: [
+      {
+        kind: "http",
+        baseUrl: "https://example.settld.local",
+        callPath: "/call",
+        manifestPath: "/manifest.json"
+      }
+    ],
+    inputSchema: toolManifestInputSchema,
+    outputSchema: toolManifestOutputSchema,
+    verifierHints: { mode: "deterministic" },
+    createdAt,
+    signerKeyId: keyId,
+    signerPrivateKeyPem: privateKeyPem,
+    signerPublicKeyPem: publicKeyPem
+  });
+  const toolManifestCanonical = canonicalJsonStringify(toolManifest);
+  const toolManifestCoreCanonical = canonicalJsonStringify(toolManifestCore);
+  const toolManifestInputSchemaCanonical = canonicalJsonStringify(toolManifestInputSchemaNormalized);
+  const toolManifestOutputSchemaCanonical = canonicalJsonStringify(toolManifestOutputSchemaNormalized);
 
   const { files: financeFiles, bundle: financeBundle } = buildFinancePackBundleV1({
     tenantId,
@@ -587,6 +635,21 @@ async function main() {
     generatedAt,
     signer: { keyId },
     canonicalJson,
+    toolManifest: {
+      schemaVersion: toolManifest.schemaVersion,
+      toolId: toolManifest.toolId,
+      toolVersion: toolManifest.toolVersion,
+      manifestHash: toolManifestHash,
+      signatureKeyId: toolManifest.signature?.signerKeyId ?? null,
+      canonicalJson: toolManifestCanonical,
+      sha256: sha256Hex(toolManifestCanonical),
+      coreCanonicalJson: toolManifestCoreCanonical,
+      coreSha256: sha256Hex(toolManifestCoreCanonical),
+      inputSchemaCanonicalJson: toolManifestInputSchemaCanonical,
+      inputSchemaSha256: sha256Hex(toolManifestInputSchemaCanonical),
+      outputSchemaCanonicalJson: toolManifestOutputSchemaCanonical,
+      outputSchemaSha256: sha256Hex(toolManifestOutputSchemaCanonical)
+    },
     jobProof: {
       manifestHash: jobBundle.manifestHash,
       headAttestationHash: parseJson(jobFiles.get("attestation/bundle_head_attestation.json")).attestationHash,

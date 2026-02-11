@@ -40,6 +40,7 @@ These specs are written so an independent implementer can build a verifier witho
 - `VerifyCliOutput.v1.md` — `settld-verify --format json` machine output contract.
 - `VerifyAboutOutput.v1.md` — `settld-verify --about --format json` tool metadata contract.
 - `ProduceCliOutput.v1.md` — `settld-produce --format json` machine output contract.
+- `ToolManifest.v1.md` — signed tool/capability manifest that can be pinned by hash.
 - `AgentIdentity.v1.md` — portable autonomous agent identity contract.
 - `AgentWallet.v1.md` — deterministic autonomous wallet snapshot contract.
 - `AgentRun.v1.md` — deterministic agent run snapshot contract.

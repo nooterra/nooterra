@@ -58,6 +58,21 @@
       }
     ]
   },
+  "toolManifest": {
+    "schemaVersion": "ToolManifest.v1",
+    "toolId": "tool_vectors_echo",
+    "toolVersion": "0.0.0-vectors",
+    "manifestHash": "26ee7528a2813f467f36d5471a47c6d3350ad9652804ba415e1000e3d35e158b",
+    "signatureKeyId": "key_282c80df2381d6831a92e89b",
+    "canonicalJson": "{\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"endpoints\":[{\"baseUrl\":\"https://example.settld.local\",\"callPath\":\"/call\",\"kind\":\"http\",\"manifestPath\":\"/manifest.json\"}],\"inputSchemaHash\":\"5c6f8cb91692432b1bfa3f7a4176a05649dd497c37d2f51a0b7ec0e27f1a0018\",\"outputSchemaHash\":\"57ed5360b3e8ed220673da2ca4ec87cd9aba115108ffc5a0a586afba3d1674ff\",\"schemaVersion\":\"ToolManifest.v1\",\"signature\":{\"algorithm\":\"ed25519\",\"manifestHash\":\"26ee7528a2813f467f36d5471a47c6d3350ad9652804ba415e1000e3d35e158b\",\"signature\":\"XVut9u44fLyN/hyfuFzTwxhdKRJwaTf53iag+QP5ss/d5ZyoUZDotAhQua/hvWhQIrVlA/f4OAaEwu+ynYsECg==\",\"signerKeyId\":\"key_282c80df2381d6831a92e89b\",\"signerPublicKeyPem\":\"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAhmTc0vvEd3k+JFIr58rahGv7ryY7lZW3unw7rhYyBm8=\\n-----END PUBLIC KEY-----\\n\"},\"toolId\":\"tool_vectors_echo\",\"toolVersion\":\"0.0.0-vectors\",\"verifierHints\":{\"mode\":\"deterministic\"}}",
+    "sha256": "123e551498d2179d9b60b257469d1af9818ab9771510c810d7cb72c54573e579",
+    "coreCanonicalJson": "{\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"endpoints\":[{\"baseUrl\":\"https://example.settld.local\",\"callPath\":\"/call\",\"kind\":\"http\",\"manifestPath\":\"/manifest.json\"}],\"inputSchemaHash\":\"5c6f8cb91692432b1bfa3f7a4176a05649dd497c37d2f51a0b7ec0e27f1a0018\",\"outputSchemaHash\":\"57ed5360b3e8ed220673da2ca4ec87cd9aba115108ffc5a0a586afba3d1674ff\",\"schemaVersion\":\"ToolManifest.v1\",\"toolId\":\"tool_vectors_echo\",\"toolVersion\":\"0.0.0-vectors\",\"verifierHints\":{\"mode\":\"deterministic\"}}",
+    "coreSha256": "26ee7528a2813f467f36d5471a47c6d3350ad9652804ba415e1000e3d35e158b",
+    "inputSchemaCanonicalJson": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"text\":{\"maxLength\":2000,\"minLength\":0,\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}",
+    "inputSchemaSha256": "5c6f8cb91692432b1bfa3f7a4176a05649dd497c37d2f51a0b7ec0e27f1a0018",
+    "outputSchemaCanonicalJson": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"length\":{\"minimum\":0,\"type\":\"integer\"},\"upper\":{\"type\":\"string\"}},\"required\":[\"upper\",\"length\"],\"type\":\"object\"}",
+    "outputSchemaSha256": "57ed5360b3e8ed220673da2ca4ec87cd9aba115108ffc5a0a586afba3d1674ff"
+  },
   "jobProof": {
     "manifestHash": "14e8197d32fc7eeb95c7e49c0b23443776b410617ae30e3f1f05539fad520b25",
     "headAttestationHash": "53e67250dbe0611c26beac8142bf0c18deab49f790719f4f6876f39d7abc5e34",
