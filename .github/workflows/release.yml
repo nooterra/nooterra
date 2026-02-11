@@ -253,6 +253,14 @@ jobs:
 
       - run: npm ci
 
+      - name: Stamp npm package versions for release artifacts
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.v.outputs.version }}"
+          npm pkg set version="$VERSION" --silent
+          npm pkg set version="$VERSION" --prefix packages/api-sdk --silent
+          printf '%s\n' "$VERSION" > SETTLD_VERSION
+
       - name: Pack npm artifacts (no publish)
         run: |
           set -euo pipefail
@@ -335,6 +343,7 @@ jobs:
           VERSION="${{ steps.v.outputs.version }}"
           npm pkg set version="$VERSION" --silent
           npm pkg set version="$VERSION" --prefix packages/api-sdk --silent
+          printf '%s\n' "$VERSION" > SETTLD_VERSION
 
       - name: Publish npm packages (CLI + JS SDK)
         if: ${{ steps.npm_publish_guard.outputs.skip != 'true' }}
@@ -384,7 +393,7 @@ jobs:
           test "$(tr -d '\r\n' < /tmp/settld-npm-view-version.txt)" = "${VERSION}"
 
           wait_for_cmd "npm exec --yes --package settld@${VERSION} -- settld --version > /tmp/settld-npx-version.txt"
-          test -s /tmp/settld-npx-version.txt
+          test "$(tr -d '\r\n' < /tmp/settld-npx-version.txt)" = "${VERSION}"
 
           wait_for_cmd "npm exec --yes --package settld@${VERSION} -- settld conformance kernel:list > /tmp/settld-kernel-cases.txt"
           test -s /tmp/settld-kernel-cases.txt
