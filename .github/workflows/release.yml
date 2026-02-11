@@ -720,14 +720,32 @@ jobs:
           ls /tmp/release-assets/settld_api_sdk_python-*.tar.gz >/dev/null
           test -f /tmp/release-assets/python-SHA256SUMS
 
+      - name: Gate ReleaseIndex signing key
+        id: release_signing_guard
+        env:
+          SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM}" ]]; then
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "has_key=false" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            echo "SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM is required for tag releases." >&2
+            exit 1
+          fi
+          echo "workflow_dispatch without release signing key; skipping ReleaseIndex signature steps."
+
       - name: Generate ReleaseIndex.v1 (signed release manifest)
-        if: ${{ github.event_name != 'workflow_dispatch' || secrets.SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM != '' }}
+        if: ${{ steps.release_signing_guard.outputs.has_key == 'true' }}
         run: |
           set -euo pipefail
           node scripts/release/generate-release-index.mjs --dir /tmp/release-assets --tag "${{ steps.v.outputs.tag }}" --version "${{ steps.v.outputs.version }}" --commit "${{ github.sha }}"
 
       - name: Sign ReleaseIndex.v1
-        if: ${{ github.event_name != 'workflow_dispatch' || secrets.SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM != '' }}
+        if: ${{ steps.release_signing_guard.outputs.has_key == 'true' }}
         env:
           SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM }}
         run: |
@@ -735,7 +753,7 @@ jobs:
           node scripts/release/sign-release-index.mjs --index /tmp/release-assets/release_index_v1.json --out /tmp/release-assets/release_index_v1.sig --private-key-env SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM
 
       - name: Validate release assets (checksums + contents + ReleaseIndex signature)
-        if: ${{ github.event_name != 'workflow_dispatch' || secrets.SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM != '' }}
+        if: ${{ steps.release_signing_guard.outputs.has_key == 'true' }}
         run: node scripts/release/validate-release-assets.mjs --dir /tmp/release-assets --release-trust trust/release-trust.json
 
       - name: Create GitHub Release and upload assets
