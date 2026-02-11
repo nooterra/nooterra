@@ -26651,6 +26651,156 @@ export function createApi({
         });
       }
 
+      if (parts[0] === "runs" && parts[1] && parts[2] === "settlement" && parts[3] === "replay-evaluate" && parts.length === 4 && req.method === "GET") {
+        const runId = parts[1];
+        let settlement = null;
+        try {
+          settlement = await getAgentRunSettlementRecord({ tenantId, runId });
+        } catch (err) {
+          return sendError(res, 501, "agent run settlements not supported for this store", { message: err?.message });
+        }
+        if (!settlement) return sendError(res, 404, "run settlement not found");
+
+        let run = null;
+        if (typeof store.getAgentRun === "function") {
+          run = await store.getAgentRun({ tenantId, runId });
+        } else if (store.agentRuns instanceof Map) {
+          run = store.agentRuns.get(runStoreKey(tenantId, runId)) ?? null;
+        }
+        if (!run) return sendError(res, 404, "run not found");
+
+        const events = await getAgentRunEvents(tenantId, runId);
+        const verification = computeAgentRunVerification({ run, events });
+        const linkedTask = findMarketplaceRfqByRunId({ tenantId, runId });
+        const agreement = linkedTask?.agreement ?? null;
+        if (!agreement || typeof agreement !== "object") {
+          return sendError(res, 404, "run has no marketplace agreement policy");
+        }
+
+        const agreementPolicyMaterial = resolveAgreementPolicyMaterial({ tenantId, agreement });
+        const replayVerificationStatusRaw = run.status === "failed" ? "red" : String(verification.verificationStatus ?? "").toLowerCase();
+        const replayVerificationStatus =
+          replayVerificationStatusRaw === "green" || replayVerificationStatusRaw === "amber" || replayVerificationStatusRaw === "red"
+            ? replayVerificationStatusRaw
+            : "amber";
+
+        let replayDecision = null;
+        try {
+          replayDecision = evaluateSettlementPolicy({
+            policy: agreementPolicyMaterial.policy ?? null,
+            verificationMethod: agreementPolicyMaterial.verificationMethod ?? null,
+            verificationStatus: replayVerificationStatus,
+            runStatus: run.status === "failed" ? "failed" : "completed",
+            amountCents: settlement.amountCents
+          });
+        } catch (err) {
+          return sendError(res, 409, "policy replay failed", { message: err?.message });
+        }
+        replayDecision = applyAgreementMilestoneRelease({
+          policyDecision: replayDecision,
+          agreement,
+          run,
+          verification,
+          amountCents: settlement.amountCents
+        }).decision;
+
+        const expectedDecisionStatus = replayDecision.shouldAutoResolve
+          ? settlement.status === AGENT_RUN_SETTLEMENT_STATUS.LOCKED
+            ? AGENT_RUN_SETTLEMENT_DECISION_STATUS.PENDING
+            : AGENT_RUN_SETTLEMENT_DECISION_STATUS.AUTO_RESOLVED
+          : AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_REVIEW_REQUIRED;
+        const expectedSettlementStatus = replayDecision.shouldAutoResolve ? replayDecision.settlementStatus : AGENT_RUN_SETTLEMENT_STATUS.LOCKED;
+        const matchesStoredDecision =
+          String(settlement.decisionStatus ?? "").toLowerCase() === String(expectedDecisionStatus).toLowerCase() &&
+          String(settlement.status ?? "").toLowerCase() === String(expectedSettlementStatus).toLowerCase();
+
+        const normalizePolicyDecisionForCompare = (decision) => {
+          if (!decision || typeof decision !== "object" || Array.isArray(decision)) return null;
+          const reasons = Array.isArray(decision.reasonCodes) ? decision.reasonCodes.map((r) => String(r)).filter(Boolean) : [];
+          reasons.sort();
+          return normalizeForCanonicalJson(
+            {
+              decisionMode: decision.decisionMode ?? null,
+              shouldAutoResolve: decision.shouldAutoResolve === true,
+              reasonCodes: reasons,
+              releaseRatePct: Number.isFinite(Number(decision.releaseRatePct)) ? Number(decision.releaseRatePct) : 0,
+              releaseAmountCents: Number.isFinite(Number(decision.releaseAmountCents)) ? Number(decision.releaseAmountCents) : 0,
+              refundAmountCents: Number.isFinite(Number(decision.refundAmountCents)) ? Number(decision.refundAmountCents) : 0,
+              settlementStatus: decision.settlementStatus ?? null,
+              verificationStatus: decision.verificationStatus ?? null,
+              runStatus: decision.runStatus ?? null
+            },
+            { path: "$" }
+          );
+        };
+
+        const storedPolicyDecisionRaw =
+          settlement?.decisionTrace?.policyDecision && typeof settlement.decisionTrace.policyDecision === "object" && !Array.isArray(settlement.decisionTrace.policyDecision)
+            ? settlement.decisionTrace.policyDecision
+            : null;
+        const computedPolicyDecision = normalizePolicyDecisionForCompare(replayDecision);
+        const storedPolicyDecision = normalizePolicyDecisionForCompare(storedPolicyDecisionRaw);
+        const policyDecisionMatchesStored =
+          computedPolicyDecision && storedPolicyDecision
+            ? canonicalJsonStringify(computedPolicyDecision) === canonicalJsonStringify(storedPolicyDecision)
+            : computedPolicyDecision === null && storedPolicyDecision === null;
+
+        const storedDecisionRecordRaw =
+          settlement?.decisionTrace?.decisionRecord && typeof settlement.decisionTrace.decisionRecord === "object" && !Array.isArray(settlement.decisionTrace.decisionRecord)
+            ? settlement.decisionTrace.decisionRecord
+            : null;
+        const storedReceiptRaw =
+          settlement?.decisionTrace?.settlementReceipt &&
+          typeof settlement.decisionTrace.settlementReceipt === "object" &&
+          !Array.isArray(settlement.decisionTrace.settlementReceipt)
+            ? settlement.decisionTrace.settlementReceipt
+            : null;
+        const kernelVerification = verifySettlementKernelArtifacts({ settlement, runId });
+
+        const replayPolicyHash = agreementPolicyMaterial.policyHash ?? null;
+        const replayVerificationMethodHash = agreementPolicyMaterial.verificationMethodHash ?? null;
+
+        const replayCriticalMatchesStored =
+          storedDecisionRecordRaw && String(storedDecisionRecordRaw.schemaVersion ?? "") === "SettlementDecisionRecord.v2"
+            ? (typeof storedDecisionRecordRaw.policyHashUsed === "string" ? storedDecisionRecordRaw.policyHashUsed.trim().toLowerCase() : "") ===
+                String(replayPolicyHash ?? "").toLowerCase() &&
+              (replayVerificationMethodHash
+                ? (typeof storedDecisionRecordRaw.verificationMethodHashUsed === "string"
+                    ? storedDecisionRecordRaw.verificationMethodHashUsed.trim().toLowerCase()
+                    : "") === String(replayVerificationMethodHash).toLowerCase()
+                : true)
+            : null;
+
+        return sendJson(res, 200, {
+          runId,
+          agreementId: agreement?.agreementId ?? null,
+          policyVersion: agreementPolicyMaterial.policyVersion ?? null,
+          policyHash: replayPolicyHash,
+          verificationMethodHash: replayVerificationMethodHash,
+          policyRef: agreementPolicyMaterial.policyRef ?? null,
+          runStatus: run.status ?? null,
+          verificationStatus: run.status === "failed" ? "red" : verification.verificationStatus,
+          replay: {
+            computedAt: nowIso(),
+            decision: replayDecision,
+            expectedDecisionStatus,
+            expectedSettlementStatus
+          },
+          stored: {
+            policyDecision: storedPolicyDecisionRaw,
+            decisionRecord: storedDecisionRecordRaw,
+            settlementReceipt: storedReceiptRaw
+          },
+          kernelVerification,
+          comparisons: {
+            matchesStoredDecision,
+            policyDecisionMatchesStored,
+            decisionRecordReplayCriticalMatchesStored: replayCriticalMatchesStored,
+            kernelBindingsValid: kernelVerification.valid === true
+          }
+        });
+      }
+
       if (parts[0] === "runs" && parts[1] && parts[2] === "settlement" && parts[3] === "resolve" && parts.length === 4 && req.method === "POST") {
         if (!requireProtocolHeaderForWrite(req, res)) return;
         const runId = parts[1];
@@ -26850,39 +27000,42 @@ export function createApi({
               settledAt,
               createdAt: settledAt
             });
-            settlement = resolveAgentRunSettlement({
-              settlement,
-              status: statusRaw,
-              runStatus: run.status,
-              releasedAmountCents,
-              refundedAmountCents,
-              releaseRatePct,
-              disputeWindowDays: settlement.disputeWindowDays ?? 0,
-              decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED,
-              decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
-              decisionPolicyHash: settlement.decisionPolicyHash ?? null,
-              decisionReason:
-                typeof body?.reason === "string" && body.reason.trim() !== ""
-                  ? body.reason.trim()
-                  : "manual settlement resolution",
-              decisionTrace: {
-                phase: "run.settlement.manual_resolve",
-                resolvedByAgentId:
-                  typeof body?.resolvedByAgentId === "string" && body.resolvedByAgentId.trim() !== ""
-                    ? body.resolvedByAgentId.trim()
-                    : null,
-                input: {
-                  status: statusRaw,
-                  releaseRatePct,
-                  releasedAmountCents,
-                  refundedAmountCents
-                },
-                decisionRecord: manualResolveKernelRefs.decisionRecord,
-                settlementReceipt: manualResolveKernelRefs.settlementReceipt
-              },
-              resolutionEventId: manualResolveKernelRefs.decisionRecord?.workRef?.resolutionEventId ?? null,
-              at: settledAt
-            });
+	            settlement = resolveAgentRunSettlement({
+	              settlement,
+	              status: statusRaw,
+	              runStatus: run.status,
+	              releasedAmountCents,
+	              refundedAmountCents,
+	              releaseRatePct,
+	              disputeWindowDays: settlement.disputeWindowDays ?? 0,
+	              decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED,
+	              decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+	              decisionPolicyHash: settlement.decisionPolicyHash ?? null,
+	              decisionReason:
+	                typeof body?.reason === "string" && body.reason.trim() !== ""
+	                  ? body.reason.trim()
+	                  : "manual settlement resolution",
+	              decisionTrace: {
+	                phase: "run.settlement.manual_resolve",
+	                resolvedByAgentId:
+	                  typeof body?.resolvedByAgentId === "string" && body.resolvedByAgentId.trim() !== ""
+	                    ? body.resolvedByAgentId.trim()
+	                    : null,
+	                input: {
+	                  status: statusRaw,
+	                  releaseRatePct,
+	                  releasedAmountCents,
+	                  refundedAmountCents
+	                },
+	                // Preserve the original policy decision trace (if any) so replay tooling can still
+	                // compare "what policy would have done" even after a manual override.
+	                policyDecision: settlement?.decisionTrace?.policyDecision ?? null,
+	                decisionRecord: manualResolveKernelRefs.decisionRecord,
+	                settlementReceipt: manualResolveKernelRefs.settlementReceipt
+	              },
+	              resolutionEventId: manualResolveKernelRefs.decisionRecord?.workRef?.resolutionEventId ?? null,
+	              at: settledAt
+	            });
             assertSettlementKernelBindingsForResolution({
               settlement,
               runId,
@@ -27020,39 +27173,40 @@ export function createApi({
             settledAt,
             createdAt: settledAt
           });
-          settlement = resolveAgentRunSettlement({
-            settlement,
-            status: AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
-            runStatus: run.status,
-            releasedAmountCents: 0,
-            refundedAmountCents: settlement.amountCents,
-            releaseRatePct: 0,
-            disputeWindowDays: settlement.disputeWindowDays ?? 0,
-            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED,
-            decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
-            decisionPolicyHash: settlement.decisionPolicyHash ?? null,
-            decisionReason:
-              typeof body?.reason === "string" && body.reason.trim() !== ""
-                ? body.reason.trim()
-                : "manual settlement resolution",
-            decisionTrace: {
-              phase: "run.settlement.manual_resolve",
-              resolvedByAgentId:
-                typeof body?.resolvedByAgentId === "string" && body.resolvedByAgentId.trim() !== ""
-                  ? body.resolvedByAgentId.trim()
-                  : null,
-              input: {
-                status: AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
-                releaseRatePct: 0,
-                releasedAmountCents: 0,
-                refundedAmountCents: settlement.amountCents
-              },
-              decisionRecord: manualRefundKernelRefs.decisionRecord,
-              settlementReceipt: manualRefundKernelRefs.settlementReceipt
-            },
-            resolutionEventId: manualRefundKernelRefs.decisionRecord?.workRef?.resolutionEventId ?? null,
-            at: settledAt
-          });
+	          settlement = resolveAgentRunSettlement({
+	            settlement,
+	            status: AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
+	            runStatus: run.status,
+	            releasedAmountCents: 0,
+	            refundedAmountCents: settlement.amountCents,
+	            releaseRatePct: 0,
+	            disputeWindowDays: settlement.disputeWindowDays ?? 0,
+	            decisionStatus: AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED,
+	            decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+	            decisionPolicyHash: settlement.decisionPolicyHash ?? null,
+	            decisionReason:
+	              typeof body?.reason === "string" && body.reason.trim() !== ""
+	                ? body.reason.trim()
+	                : "manual settlement resolution",
+	            decisionTrace: {
+	              phase: "run.settlement.manual_resolve",
+	              resolvedByAgentId:
+	                typeof body?.resolvedByAgentId === "string" && body.resolvedByAgentId.trim() !== ""
+	                  ? body.resolvedByAgentId.trim()
+	                  : null,
+	              input: {
+	                status: AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
+	                releaseRatePct: 0,
+	                releasedAmountCents: 0,
+	                refundedAmountCents: settlement.amountCents
+	              },
+	              policyDecision: settlement?.decisionTrace?.policyDecision ?? null,
+	              decisionRecord: manualRefundKernelRefs.decisionRecord,
+	              settlementReceipt: manualRefundKernelRefs.settlementReceipt
+	            },
+	            resolutionEventId: manualRefundKernelRefs.decisionRecord?.workRef?.resolutionEventId ?? null,
+	            at: settledAt
+	          });
           assertSettlementKernelBindingsForResolution({
             settlement,
             runId,

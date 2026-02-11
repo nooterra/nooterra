@@ -2283,6 +2283,26 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const RunSettlementReplayEvaluateResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["runId", "runStatus", "verificationStatus", "replay", "stored", "kernelVerification", "comparisons"],
+    properties: {
+      runId: { type: "string" },
+      agreementId: { type: "string", nullable: true },
+      policyVersion: { type: "integer", nullable: true },
+      policyHash: { type: "string", nullable: true },
+      verificationMethodHash: { type: "string", nullable: true },
+      policyRef: { allOf: [MarketplaceSettlementPolicyRefV1], nullable: true },
+      runStatus: { type: "string", nullable: true },
+      verificationStatus: { type: "string", enum: ["green", "amber", "red"] },
+      replay: { type: "object", additionalProperties: true },
+      stored: { type: "object", additionalProperties: true },
+      kernelVerification: SettlementKernelVerification,
+      comparisons: { type: "object", additionalProperties: true }
+    }
+  };
+
   const MonthCloseRequest = {
     type: "object",
     additionalProperties: false,
@@ -2856,6 +2876,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         ArbitrationVerdictSignedRequest,
         ArbitrationCaseV1,
         RunSettlementPolicyReplayResponse,
+        RunSettlementReplayEvaluateResponse,
         MonthCloseRequest,
         AckRequest,
         ArtifactVerificationSummary,
@@ -4607,6 +4628,30 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
               content: {
                 "application/json": {
                   schema: RunSettlementPolicyReplayResponse
+                }
+              }
+            },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/runs/{runId}/settlement/replay-evaluate": {
+        get: {
+          summary: "Replay settlement evaluation and compare against stored decision trace",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "runId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: RunSettlementReplayEvaluateResponse
                 }
               }
             },

@@ -1573,6 +1573,16 @@ test("API e2e: policy can require manual settlement review and resolve", async (
   assert.equal(replayBeforeManualResolve.json?.policyVersion, 1);
   assert.equal(replayBeforeManualResolve.json?.replay?.decision?.shouldAutoResolve, false);
 
+  const replayEvaluateBeforeManualResolve = await request(api, {
+    method: "GET",
+    path: `/runs/${encodeURIComponent(runId)}/settlement/replay-evaluate`
+  });
+  assert.equal(replayEvaluateBeforeManualResolve.statusCode, 200);
+  assert.equal(replayEvaluateBeforeManualResolve.json?.comparisons?.matchesStoredDecision, true);
+  assert.equal(replayEvaluateBeforeManualResolve.json?.comparisons?.policyDecisionMatchesStored, true);
+  assert.equal(replayEvaluateBeforeManualResolve.json?.comparisons?.kernelBindingsValid, true);
+  assert.equal(replayEvaluateBeforeManualResolve.json?.policyVersion, 1);
+
   const payerAfterComplete = await request(api, {
     method: "GET",
     path: "/agents/agt_market_policy_poster/wallet"
@@ -1605,6 +1615,15 @@ test("API e2e: policy can require manual settlement review and resolve", async (
   assert.equal(replayAfterManualResolve.statusCode, 200);
   assert.equal(replayAfterManualResolve.json?.matchesStoredDecision, false);
   assert.equal(replayAfterManualResolve.json?.replay?.decision?.shouldAutoResolve, false);
+
+  const replayEvaluateAfterManualResolve = await request(api, {
+    method: "GET",
+    path: `/runs/${encodeURIComponent(runId)}/settlement/replay-evaluate`
+  });
+  assert.equal(replayEvaluateAfterManualResolve.statusCode, 200);
+  assert.equal(replayEvaluateAfterManualResolve.json?.comparisons?.matchesStoredDecision, false);
+  // Policy decision itself should still match stored trace; the mismatch is the manual override.
+  assert.equal(replayEvaluateAfterManualResolve.json?.comparisons?.policyDecisionMatchesStored, true);
 
   const payerAfterResolve = await request(api, {
     method: "GET",
