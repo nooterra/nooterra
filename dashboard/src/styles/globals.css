@@ -1,40 +1,580 @@
+@import url("https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;500;700;800&family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #020617; /* slate-950 */
-  --foreground: #f8fafc; /* slate-50 */
-  --border: #1e293b; /* slate-800 */
-  --success: #10b981; /* emerald-500 */
-  --warning: #f59e0b; /* amber-500 */
-  --failure: #ef4444; /* red-500 */
+  --ink-950: #181714;
+  --ink-800: #2c2821;
+  --ink-600: #5d5244;
+  --sand-100: #f4eee4;
+  --sand-200: #ebe2d5;
+  --sand-300: #dccfb9;
+  --accent-700: #8d2f19;
+  --accent-500: #c84a23;
+  --accent-300: #e98b5f;
+  --leaf-600: #1f5d4d;
+  --line: rgba(44, 40, 33, 0.22);
+  --glow: rgba(200, 74, 35, 0.2);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "JetBrains Mono", "Liberation Mono", "Courier New", monospace;
-  overflow: hidden; /* split panes should scroll independently */
+  margin: 0;
+  background: radial-gradient(circle at 8% 12%, rgba(232, 139, 95, 0.25), transparent 30%),
+    radial-gradient(circle at 80% 20%, rgba(31, 93, 77, 0.14), transparent 28%),
+    linear-gradient(180deg, #f8f3ea 0%, #f0e8db 100%);
+  color: var(--ink-950);
+  font-family: "Bricolage Grotesque", "Segoe UI", sans-serif;
+  line-height: 1.5;
 }
 
 ::selection {
-  background: rgba(16, 185, 129, 0.3);
+  background: rgba(200, 74, 35, 0.25);
 }
 
-/* Custom scrollbar for inner panels (WebKit). */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: var(--background);
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
+.site-root {
+  position: relative;
+  min-height: 100vh;
+  overflow: hidden;
 }
 
+.site-bg-grid {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(93, 82, 68, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(93, 82, 68, 0.08) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(circle at top, black 45%, transparent 100%);
+}
+
+.site-bg-glow {
+  pointer-events: none;
+  position: absolute;
+  inset: -12rem -8rem auto;
+  height: 26rem;
+  background: radial-gradient(circle at 38% 50%, var(--glow), transparent 58%);
+}
+
+.site-nav-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  padding: 1rem clamp(1.2rem, 3vw, 2.25rem);
+  backdrop-filter: blur(10px);
+}
+
+.site-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--line);
+  background: rgba(248, 243, 234, 0.85);
+  border-radius: 999px;
+  padding: 0.65rem 0.75rem 0.65rem 1rem;
+}
+
+.brand-mark {
+  color: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.brand-mark-core {
+  font-family: "Fraunces", serif;
+  letter-spacing: 0.08em;
+  font-size: 1.1rem;
+}
+
+.brand-mark-tag {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.55rem;
+  color: var(--ink-600);
+}
+
+.site-links {
+  display: flex;
+  gap: 0.7rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.site-links a {
+  color: var(--ink-800);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.86rem;
+}
+
+.site-links a:hover {
+  color: var(--accent-700);
+}
+
+.site-nav-cta {
+  display: inline-flex;
+  gap: 0.6rem;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.62rem 1rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+}
+
+.btn-solid {
+  background: linear-gradient(135deg, var(--accent-700), var(--accent-500));
+  color: #fff5ec;
+  box-shadow: 0 9px 25px rgba(157, 52, 20, 0.24);
+}
+
+.btn-ghost {
+  border: 1px solid var(--line);
+  color: var(--ink-800);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.section-shell {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: clamp(2.8rem, 6vw, 5.6rem) clamp(1.2rem, 3vw, 2.25rem);
+  position: relative;
+  animation: reveal-up 650ms ease both;
+}
+
+.section-shell + .section-shell {
+  padding-top: clamp(2rem, 4vw, 3.5rem);
+}
+
+.section-highlight {
+  background: rgba(255, 251, 246, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  box-shadow: 0 30px 50px rgba(24, 23, 20, 0.08);
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.74rem;
+  color: var(--ink-600);
+  margin-bottom: 0.65rem;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: 1.25fr 0.95fr;
+  gap: clamp(1.5rem, 3vw, 2.2rem);
+  align-items: stretch;
+}
+
+.hero h1,
+.section-heading h2,
+.panel h2 {
+  margin: 0;
+  font-family: "Fraunces", serif;
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+}
+
+.hero h1 {
+  font-size: clamp(2.2rem, 6vw, 4.35rem);
+}
+
+.section-heading h2,
+.panel h2 {
+  font-size: clamp(1.5rem, 3.8vw, 2.65rem);
+}
+
+.hero-sub {
+  margin-top: 1rem;
+  font-size: clamp(1rem, 2.3vw, 1.26rem);
+  color: var(--ink-800);
+  max-width: 44ch;
+}
+
+.hero-actions {
+  margin-top: 1.45rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.hero-note {
+  margin-top: 0.85rem;
+  color: var(--ink-600);
+  font-size: 0.92rem;
+}
+
+.hero-proof-panel,
+.panel,
+.future-card,
+.price-card,
+.check-card,
+.chain-card {
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 251, 245, 0.83);
+}
+
+.hero-proof-panel {
+  padding: 1.4rem;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+}
+
+.hero-proof-panel h2 {
+  font-size: 1.25rem;
+  margin: 0 0 0.8rem;
+}
+
+.hero-proof-panel ul {
+  margin: 0;
+  padding-left: 1rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.hero-proof-panel p {
+  margin: 1rem 0 0;
+  color: var(--ink-600);
+}
+
+.section-heading {
+  margin-bottom: 1.2rem;
+}
+
+.section-heading p {
+  max-width: 70ch;
+}
+
+.check-grid,
+.future-grid,
+.price-grid {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.check-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.check-card {
+  padding: 1rem;
+}
+
+.check-card p {
+  margin: 0;
+  font-weight: 500;
+}
+
+.proof-strip {
+  padding-top: 0.4rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+}
+
+.proof-strip h3 {
+  margin: 0 0 0.45rem;
+}
+
+.section-linkline {
+  margin-top: 0.9rem;
+}
+
+.chain-grid {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.chain-card {
+  padding: 1rem;
+}
+
+.chain-index {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--accent-700);
+  font-size: 0.86rem;
+  margin: 0 0 0.35rem;
+}
+
+.chain-card h3 {
+  margin: 0;
+  font-size: 1.07rem;
+}
+
+.chain-card p {
+  margin: 0.5rem 0 0;
+  color: var(--ink-600);
+}
+
+.chain-artifacts code {
+  font-size: 0.78rem;
+}
+
+.split-section {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.95rem;
+}
+
+.panel {
+  padding: 1.2rem;
+}
+
+.panel-strong {
+  background: linear-gradient(165deg, rgba(249, 238, 224, 0.92), rgba(244, 229, 214, 0.88));
+}
+
+.panel h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.18rem;
+}
+
+.mini-code {
+  margin: 0.9rem 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.mini-code code,
+.command-list code {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.88rem;
+  border: 1px solid rgba(93, 82, 68, 0.3);
+  border-radius: 12px;
+  padding: 0.56rem 0.7rem;
+  display: block;
+  overflow-x: auto;
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.text-link {
+  color: var(--accent-700);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.metric-list {
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.metric-list dt {
+  font-weight: 700;
+}
+
+.metric-list dd {
+  margin: 0.1rem 0 0;
+  color: var(--ink-600);
+}
+
+.tight-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.quickstart-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 0.9rem;
+}
+
+.command-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.command-list li::marker {
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.future-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.future-card,
+.price-card {
+  padding: 1rem;
+}
+
+.future-card p,
+.price-card p {
+  margin: 0;
+}
+
+.price-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.price-card h3 {
+  margin: 0;
+  font-family: "Fraunces", serif;
+  font-size: 1.3rem;
+}
+
+.price-note {
+  margin-top: 0.3rem;
+  margin-bottom: 0.5rem;
+  color: var(--accent-700);
+  font-weight: 600;
+}
+
+.site-footer {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 2.5rem clamp(1.2rem, 3vw, 2.25rem) 3.6rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.footer-brand {
+  margin: 0;
+  font-family: "Fraunces", serif;
+  font-size: 1.2rem;
+}
+
+.site-footer p {
+  margin: 0.35rem 0 0;
+  max-width: 58ch;
+  color: var(--ink-600);
+}
+
+.faq-list {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.faq-item {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 251, 245, 0.83);
+  padding: 0.9rem 1rem;
+}
+
+.faq-item summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.faq-item p {
+  margin: 0.55rem 0 0;
+  color: var(--ink-600);
+}
+
+.cta-banner {
+  padding: 1.4rem;
+}
+
+.footer-links {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.footer-links a {
+  text-decoration: none;
+  color: var(--ink-800);
+  font-weight: 600;
+}
+
+.footer-links a:hover {
+  color: var(--accent-700);
+}
+
+@media (max-width: 1050px) {
+  .site-links {
+    display: none;
+  }
+
+  .hero,
+  .split-section,
+  .quickstart-grid,
+  .proof-strip,
+  .chain-grid,
+  .price-grid,
+  .check-grid,
+  .future-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .site-nav {
+    border-radius: 18px;
+    padding: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .site-nav-cta {
+    width: 100%;
+  }
+
+  .site-nav-cta .btn {
+    flex: 1;
+  }
+
+  .section-shell {
+    padding-top: 2.2rem;
+    padding-bottom: 2.2rem;
+  }
+
+  .hero-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Preserve legacy demo animation hooks used by ?demo=1 mode. */
 @keyframes pulse-glow {
   0%,
   100% {

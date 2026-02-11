@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settld Kernel v0</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        font-family: Inter, "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: #f6f7fb;
+        color: #101828;
+      }
+      .wrap {
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 36px 18px 60px;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 18px 20px;
+        margin-bottom: 16px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 34px;
+        line-height: 1.15;
+      }
+      h2 {
+        margin: 0 0 10px;
+        font-size: 20px;
+      }
+      p {
+        margin: 0;
+      }
+      ul {
+        margin: 0;
+        padding-left: 20px;
+      }
+      li + li {
+        margin-top: 8px;
+      }
+      code {
+        background: #f3f4f6;
+        padding: 2px 6px;
+        border-radius: 5px;
+      }
+      .muted {
+        color: #475467;
+      }
+      .tag {
+        display: inline-block;
+        border: 1px solid #d0d5dd;
+        color: #344054;
+        border-radius: 999px;
+        font-size: 12px;
+        padding: 4px 10px;
+        margin-bottom: 10px;
+        font-weight: 600;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+      }
+      th,
+      td {
+        border-bottom: 1px solid #eaecf0;
+        text-align: left;
+        vertical-align: top;
+        padding: 10px 8px;
+      }
+      th {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #667085;
+      }
+      .code {
+        margin-top: 10px;
+        display: grid;
+        gap: 8px;
+      }
+      .code pre {
+        margin: 0;
+        background: #0f172a;
+        color: #e2e8f0;
+        border-radius: 10px;
+        padding: 12px;
+        overflow-x: auto;
+      }
+      .warn {
+        border-left: 3px solid #f59e0b;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <section class="card">
+        <span class="tag">Kernel v0</span>
+        <h1>Kernel v0: paid capability calls</h1>
+        <p class="muted">
+          The first canonical transaction: a payer purchases a capability call under signed terms, with pre-authorized
+          funding, deterministic evaluation, and portable settlement artifacts.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Kernel v0 guarantees</h2>
+        <ul>
+          <li>Money moves only with authorized agreement + valid evidence + signed decision.</li>
+          <li>Every step is signed, replayable, and auditable.</li>
+          <li>Holdbacks and disputes are enforced at artifact level.</li>
+          <li>Offline closepacks verify full lineage without server trust.</li>
+        </ul>
+      </section>
+
+      <section class="card warn">
+        <h2>Kernel v0 does not guarantee (yet)</h2>
+        <ul>
+          <li>Semantic correctness beyond deterministic verifier rules you select.</li>
+          <li>Generalized multi-party split routing as first-class kernel objects.</li>
+          <li>Real-money adapters by default (design-partner integrations only).</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Object map</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Object</th>
+              <th>Signer</th>
+              <th>Binds To</th>
+              <th>Deterministic ID</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ToolManifest</td>
+              <td>Provider</td>
+              <td>toolId/version</td>
+              <td>Manifest hash</td>
+            </tr>
+            <tr>
+              <td>ToolCallAgreement</td>
+              <td>Payer</td>
+              <td>callId + inputHash</td>
+              <td><code>agmt_*</code></td>
+            </tr>
+            <tr>
+              <td>FundingHold</td>
+              <td>Kernel</td>
+              <td>agreementHash</td>
+              <td><code>hold_agmt_*</code></td>
+            </tr>
+            <tr>
+              <td>ToolCallEvidence</td>
+              <td>Provider</td>
+              <td>agreement + call/input</td>
+              <td>Evidence hash</td>
+            </tr>
+            <tr>
+              <td>SettlementDecisionRecord v2</td>
+              <td>Verifier</td>
+              <td>policyHashUsed</td>
+              <td><code>sdr_agmt_*</code></td>
+            </tr>
+            <tr>
+              <td>SettlementReceipt</td>
+              <td>Kernel</td>
+              <td>agreement + decision</td>
+              <td><code>rcp_agmt_*</code></td>
+            </tr>
+            <tr>
+              <td>DisputeOpenEnvelope / ArbitrationCase / Verdict</td>
+              <td>Payer/Payee/Arbiter</td>
+              <td>agreement + receipt lineage</td>
+              <td>Case and verdict hashes</td>
+            </tr>
+            <tr>
+              <td>SettlementAdjustment</td>
+              <td>Kernel</td>
+              <td>verdict + held funds</td>
+              <td><code>sadj_agmt_*_holdback</code></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>Kernel conformance</h2>
+        <div class="code">
+          <pre>npx settld conformance kernel --ops-token tok_ops --json-out /tmp/kernel-report.json</pre>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Offline verification and audit export</h2>
+        <div class="code">
+          <pre>npx settld closepack export --agreement-hash &lt;hash&gt; --out closepack.zip
+npx settld closepack verify closepack.zip --json-out verify.json</pre>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>
