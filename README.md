@@ -29,7 +29,7 @@ This repository is a runnable Node.js prototype (API + agent simulator) and a se
 Start the API:
 
 ```sh
-npm run dev:api
+PROXY_OPS_TOKEN=tok_ops npm run dev:api
 ```
 
 Developer helper flow (recommended for local Neon/PG usage):
