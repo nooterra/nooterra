@@ -43,7 +43,7 @@
     "dev:billing:doctor": "bash scripts/dev/billing-doctor.sh",
     "dev:billing:webhook:replay": "bash scripts/dev/billing-webhook-replay.sh",
     "dev:billing:smoke:prod": "bash scripts/dev/billing-smoke-prod.sh",
-    "test": "node --test",
+    "test": "bash scripts/test/run.sh",
     "test:ops:arbitration:browser": "bash scripts/ci/run-arbitration-workspace-browser-e2e.sh",
     "test:ops:throughput:10x": "node scripts/ci/run-10x-throughput-drill.mjs",
     "test:ops:throughput:incident": "node scripts/ci/run-10x-throughput-incident-rehearsal.mjs",

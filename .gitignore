@@ -14,11 +14,18 @@ pnpm-debug.log*
 # OS
 .DS_Store
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+
 # Builds / artifacts
 dist/
 build/
 coverage/
 .nyc_output/
+artifacts/
+.playwright-cli/
 
 # Dashboard build output
 dashboard/dist/
