@@ -30,7 +30,7 @@ services:
       PROXY_AUTOTICK_INTERVAL_MS: "250"
       PROXY_AUTOTICK_MAX_MESSAGES: "100"
       # Local bootstrap ops token for dev compose.
-      PROXY_OPS_TOKENS: "dev:ops_read,ops_write,finance_read,finance_write,audit_read"
+      PROXY_OPS_TOKENS: "tok_ops:ops_read,ops_write,finance_read,finance_write,audit_read"
       PROXY_ALLOW_INLINE_SECRETS: "1"
       PROXY_EVIDENCE_STORE: "s3"
       PROXY_EVIDENCE_S3_ENDPOINT: "http://minio:9000"

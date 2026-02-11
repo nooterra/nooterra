@@ -15,6 +15,7 @@ This repository is a runnable Node.js prototype (API + agent simulator) and a se
 
 - Overview: `docs/OVERVIEW.md`
 - Quickstart: `docs/QUICKSTART_VERIFY.md`
+- Kernel v0 quickstart (local dev stack + conformance + explorer): `docs/QUICKSTART_KERNEL_V0.md`
 - Producer bootstrap: `docs/QUICKSTART_PRODUCE.md` (trust → produce → strict verify)
 - SDK quickstart (first verified run): `docs/QUICKSTART_SDK.md`
 - SDK quickstart (Python): `docs/QUICKSTART_SDK_PYTHON.md`
@@ -30,6 +31,12 @@ Start the API:
 
 ```sh
 PROXY_OPS_TOKEN=tok_ops npm run dev:api
+```
+
+Or start the full local dev stack (Postgres + MinIO + API + receiver + finance sink):
+
+```sh
+./bin/settld.js dev up
 ```
 
 Developer helper flow (recommended for local Neon/PG usage):
