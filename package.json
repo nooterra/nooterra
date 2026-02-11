@@ -17,6 +17,7 @@
     "docker-compose.yml",
     "bin",
     "conformance",
+    "packages/artifact-verify/src",
     "scripts/closepack",
     "scripts/init",
     "src",
