@@ -372,7 +372,7 @@ jobs:
           }
 
           wait_for_cmd "npm view settld@${VERSION} version > /tmp/settld-npm-view-version.txt"
-          test \"$(tr -d '\r\n' < /tmp/settld-npm-view-version.txt)\" = "${VERSION}"
+          test "$(tr -d '\r\n' < /tmp/settld-npm-view-version.txt)" = "${VERSION}"
 
           wait_for_cmd "npm exec --yes --package settld@${VERSION} -- settld --version > /tmp/settld-npx-version.txt"
           test -s /tmp/settld-npx-version.txt
