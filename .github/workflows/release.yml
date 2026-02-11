@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Enforce Kernel v0 launch gate checklist
+        run: npm run -s test:ops:kernel-v0-launch-gate -- --mode prepublish
+
       - name: Run test suite
         run: npm test
 
@@ -51,6 +54,9 @@ jobs:
           set -euo pipefail
           npm run -s sdk:smoke
           npm run -s sdk:smoke:py
+
+      - name: Run CLI pack smoke
+        run: npm run -s test:cli:pack-smoke
 
       - name: Run billing smoke gate (staging)
         env:
@@ -197,7 +203,15 @@ jobs:
         uses: sigstore/cosign-installer@v3
 
       - name: Sign chart (keyless)
+        id: sign_chart
+        continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
         run: cosign sign --yes "${{ env.CHART_REGISTRY }}/settld:${{ steps.v.outputs.version }}"
+
+      - name: Enforce chart signing on tag releases
+        if: ${{ steps.sign_chart.outcome == 'failure' && github.event_name != 'workflow_dispatch' }}
+        run: |
+          echo "chart signing failed on tag release; blocking release." >&2
+          exit 1
 
       - name: Upload chart artifact
         uses: actions/upload-artifact@v4
@@ -251,6 +265,7 @@ jobs:
           (cd packages/executor-sdk && npm pack --silent --pack-destination "$OUT")
           (cd packages/magic-link-cli && npm pack --silent --pack-destination "$OUT")
           (cd packages/metering-adapter-sdk && npm pack --silent --pack-destination "$OUT")
+          (cd . && npm pack --silent --pack-destination "$OUT")
 
           (cd "$OUT" && ls -la && sha256sum *.tgz | tee npm-SHA256SUMS)
 
@@ -259,6 +274,133 @@ jobs:
         with:
           name: npm-artifacts-${{ steps.v.outputs.version }}
           path: /tmp/npm-artifacts
+
+  npm_publish:
+    needs: [npm_packages]
+    if: ${{ secrets.NPM_TOKEN != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute version
+        id: v
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [[ -z "${VERSION}" ]]; then
+            echo "missing version" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - name: Stamp npm package versions for publish
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.v.outputs.version }}"
+          npm pkg set version="$VERSION" --silent
+          npm pkg set version="$VERSION" --prefix packages/api-sdk --silent
+
+      - name: Publish npm packages (CLI + JS SDK)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.v.outputs.version }}"
+          publish_if_missing() {
+            local dir="$1"
+            local name
+            name="$(node -p "require('./${dir}/package.json').name")"
+            if npm view "${name}@${VERSION}" version >/dev/null 2>&1; then
+              echo "${name}@${VERSION} already exists; skipping publish."
+              return 0
+            fi
+            echo "publishing ${name}@${VERSION}"
+            (cd "${dir}" && npm publish --access public --provenance)
+          }
+          publish_if_missing "."
+          publish_if_missing "packages/api-sdk"
+
+      - name: Smoke npm registry install (npx, no-clone)
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.v.outputs.version }}"
+
+          wait_for_npx() {
+            local cmd="$1"
+            local attempts=18
+            for i in $(seq 1 "$attempts"); do
+              if bash -lc "$cmd"; then
+                return 0
+              fi
+              if [ "$i" -eq "$attempts" ]; then
+                echo "registry smoke command failed after ${attempts} attempts: $cmd" >&2
+                return 1
+              fi
+              sleep 10
+            done
+          }
+
+          wait_for_npx "npx --yes settld@${VERSION} --version > /tmp/settld-npx-version.txt"
+          test \"$(tr -d '\r\n' < /tmp/settld-npx-version.txt)\" = "${VERSION}"
+
+          wait_for_npx "npx --yes settld@${VERSION} conformance kernel:list > /tmp/settld-kernel-cases.txt"
+          test -s /tmp/settld-kernel-cases.txt
+
+          npx --yes settld@${VERSION} closepack verify --help >/tmp/settld-closepack-help.txt
+          test -s /tmp/settld-closepack-help.txt
+
+          STARTER_DIR="/tmp/settld-registry-starter"
+          rm -rf "$STARTER_DIR"
+          npx --yes settld@${VERSION} init capability smoke-cap --out "$STARTER_DIR"
+          test -f "$STARTER_DIR/manifest.json"
+          test -f "$STARTER_DIR/manifest.sig.json"
+          test -f "$STARTER_DIR/scripts/kernel-prove.mjs"
+          grep -q 'settld-api-sdk' "$STARTER_DIR/package.json"
+
+          node -e '
+            const fs = require("node:fs");
+            const payload = {
+              schemaVersion: "NpmPostpublishSmoke.v1",
+              package: "settld",
+              version: process.env.VERSION || null,
+              checkedAt: new Date().toISOString(),
+              commands: [
+                { cmd: "npx --yes settld@<version> --version", ok: true },
+                { cmd: "npx --yes settld@<version> conformance kernel:list", ok: true },
+                { cmd: "npx --yes settld@<version> closepack verify --help", ok: true },
+                { cmd: "npx --yes settld@<version> init capability smoke-cap --out /tmp/settld-registry-starter", ok: true }
+              ]
+            };
+            fs.writeFileSync("/tmp/npm-postpublish-smoke.json", JSON.stringify(payload, null, 2));
+          '
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+
+      - name: Upload npm postpublish smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-postpublish-smoke-${{ steps.v.outputs.version }}
+          path: |
+            /tmp/settld-npx-version.txt
+            /tmp/settld-kernel-cases.txt
+            /tmp/settld-closepack-help.txt
+            /tmp/npm-postpublish-smoke.json
+          if-no-files-found: warn
 
   python_package:
     needs: [release_gate]
@@ -311,7 +453,7 @@ jobs:
 
   python_publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     needs: [python_package]
     environment:
       name: pypi
@@ -360,6 +502,26 @@ jobs:
         with:
           packages-dir: .artifacts/python-publish
           skip-existing: true
+
+      - name: Smoke PyPI install (no-clone)
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.v.outputs.version }}"
+          python3 -m pip install --disable-pip-version-check --no-input --upgrade pip
+          for i in $(seq 1 18); do
+            if python3 -m pip install --disable-pip-version-check --no-input --no-deps "settld-api-sdk-python==${VERSION}"; then
+              break
+            fi
+            if [ "$i" -eq 18 ]; then
+              echo "PyPI smoke install failed for settld-api-sdk-python==${VERSION}" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          python3 - <<'PY'
+from settld_api_sdk.client import SettldClient
+print(SettldClient.__name__)
+PY
 
   conformance_pack:
     needs: [release_gate]
@@ -495,6 +657,7 @@ jobs:
           ls /tmp/release-assets/settld-artifact-verify-*.tgz >/dev/null
           ls /tmp/release-assets/settld-magic-link-cli-*.tgz >/dev/null
           ls /tmp/release-assets/settld-metering-adapter-sdk-*.tgz >/dev/null
+          ls /tmp/release-assets/settld-*.tgz >/dev/null
           test -f /tmp/release-assets/npm-SHA256SUMS
           # python distribution artifacts + checksums
           ls /tmp/release-assets/settld_api_sdk_python-*.whl >/dev/null
