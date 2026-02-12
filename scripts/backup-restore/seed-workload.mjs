@@ -55,9 +55,6 @@ const accessValidTo = new Date(baseNow + 90 * 60_000).toISOString();
 const { publicKeyPem: robotPublicKeyPem, privateKeyPem: robotPrivateKeyPem } = createEd25519Keypair();
 const robotKeyId = keyIdFromPublicKeyPem(robotPublicKeyPem);
 
-const { publicKeyPem: operatorPublicKeyPem, privateKeyPem: operatorPrivateKeyPem } = createEd25519Keypair();
-const operatorKeyId = keyIdFromPublicKeyPem(operatorPublicKeyPem);
-
 const regRobot = await request({
   method: "POST",
   path: "/robots/register",
@@ -74,14 +71,6 @@ const setAvail = await request({
   body: { availability: [{ startAt: "2026-01-01T00:00:00.000Z", endAt: "2026-03-01T00:00:00.000Z" }] }
 });
 if (setAvail.statusCode !== 201) throw new Error(`robot availability failed: ${setAvail.statusCode} ${setAvail.body}`);
-
-const regOperator = await request({
-  method: "POST",
-  path: "/operators/register",
-  headers: { "x-idempotency-key": "backup_op_reg_1" },
-  body: { operatorId: "op_backup", publicKeyPem: operatorPublicKeyPem }
-});
-if (regOperator.statusCode !== 201) throw new Error(`operator register failed: ${regOperator.statusCode} ${regOperator.body}`);
 
 const jobIds = [];
 
@@ -126,19 +115,6 @@ for (let i = 0; i < JOBS; i += 1) {
     return res;
   };
 
-  const postOperatorEvent = async (type, payload, { at } = {}) => {
-    const draft = createChainedEvent({ streamId: jobId, type, actor: { type: "operator", id: "op_backup" }, payload, at });
-    const finalized = finalizeChainedEvent({
-      event: draft,
-      prevChainHash: prev,
-      signer: { keyId: operatorKeyId, privateKeyPem: operatorPrivateKeyPem }
-    });
-    const res = await request({ method: "POST", path: `/jobs/${jobId}/events`, body: finalized });
-    if (res.statusCode !== 201) throw new Error(`operator event ${type} failed: ${res.statusCode} ${res.body}`);
-    prev = res.json?.job?.lastChainHash;
-    return res;
-  };
-
   const quoteAt = new Date(baseNow + 30_000).toISOString();
   const bookedAt = new Date(baseNow + 40_000).toISOString();
   const matchedAt = new Date(baseNow + 50_000).toISOString();
@@ -175,8 +151,6 @@ for (let i = 0; i < JOBS; i += 1) {
   const enRouteAt = new Date(baseNow + 5 * 60_000 + 5_000).toISOString();
   const accessGrantedAt = new Date(baseNow + 5 * 60_000 + 15_000).toISOString();
   const executionStartedAt = new Date(baseNow + 5 * 60_000 + 30_000).toISOString();
-  const assistStartedAt = new Date(baseNow + 5 * 60_000 + 35_000).toISOString();
-  const assistEndedAt = new Date(baseNow + 5 * 60_000 + 45_000).toISOString();
   const executionCompletedAt = new Date(baseNow + 5 * 60_000 + 60_000).toISOString();
 
   const accessPlanId = `ap_backup_${jobId}`;
@@ -199,8 +173,6 @@ for (let i = 0; i < JOBS; i += 1) {
   );
   await postRobotEvent("ACCESS_GRANTED", { jobId, accessPlanId, method: "BUILDING_CONCIERGE" }, { at: accessGrantedAt });
   await postRobotEvent("EXECUTION_STARTED", { plan: ["navigate"] }, { at: executionStartedAt });
-  await postOperatorEvent("ASSIST_STARTED", { reason: "backup_test" }, { at: assistStartedAt });
-  await postOperatorEvent("ASSIST_ENDED", { outcome: "approved" }, { at: assistEndedAt });
   await postRobotEvent("EXECUTION_COMPLETED", { report: { durationSeconds: 10 } }, { at: executionCompletedAt });
   await postServerEvent("SETTLED", { settlement: "backup" }, `backup_settle_${i}`, { at: settledAt });
 }
