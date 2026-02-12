@@ -49,8 +49,8 @@ FP_ZIP="$(DATABASE_URL="${DATABASE_URL}" TENANT_ID="${TENANT_ID}" PROXY_PG_SCHEM
 node "${ROOT}/packages/artifact-verify/bin/settld-verify.js" --strict --finance-pack "${FP_ZIP}" >/dev/null
 FP_SHA="$(node -e "import fs from 'node:fs'; import crypto from 'node:crypto'; const b=fs.readFileSync(process.argv[1]); console.log(crypto.createHash('sha256').update(b).digest('hex'))" "${FP_ZIP}")"
 
-echo "[4/8] pg_dump source DB"
-pg_dump "${DATABASE_URL}" > "${SQL_DUMP}"
+echo "[4/8] pg_dump source DB schema (${PROXY_PG_SCHEMA})"
+pg_dump --schema="${PROXY_PG_SCHEMA}" --no-owner --no-privileges "${DATABASE_URL}" > "${SQL_DUMP}"
 
 echo "[5/8] Restore into restore DB"
 # Restore DB is assumed to exist and be empty-ish; caller can create it via CI setup.
