@@ -11,7 +11,7 @@ const expected = JSON.parse(fs.readFileSync(expectedPath, "utf8"));
 
 // Compute actual by reusing capture-state with the current env vars.
 // We inline-import capture-state and intercept stdout by calling its logic directly.
-import { Client } from "pg";
+import pg from "pg";
 import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
 import { sha256Hex } from "../../src/core/crypto.js";
 import { normalizeTenantId } from "../../src/core/tenancy.js";
@@ -24,6 +24,7 @@ function digestRows(rows) {
   return sha256Hex(canonicalJsonStringify(rows));
 }
 
+const { Client } = pg;
 const client = new Client({ connectionString: DATABASE_URL });
 await client.connect();
 
@@ -128,4 +129,3 @@ const actual = {
 
 assert.deepEqual(actual, expected, "state mismatch after restore");
 process.stdout.write("ok\n");
-

@@ -2337,6 +2337,30 @@ export function createApi({
     return entries;
   }
 
+  async function listAllLedgerAllocationsForTenant({ tenantId, maxEntries = 50_000 } = {}) {
+    tenantId = normalizeTenant(tenantId);
+    if (!Number.isSafeInteger(maxEntries) || maxEntries <= 0) throw new TypeError("maxEntries must be a positive safe integer");
+
+    if (typeof store.listLedgerAllocations !== "function") {
+      const all = store.ledgerAllocations instanceof Map ? Array.from(store.ledgerAllocations.values()) : [];
+      return all.filter((a) => normalizeTenantId(a?.tenantId ?? DEFAULT_TENANT_ID) === tenantId).slice(0, maxEntries);
+    }
+
+    const allocations = [];
+    const pageSize = 5000;
+    let offset = 0;
+    while (allocations.length < maxEntries) {
+      // listLedgerAllocations may be sync (memory) or async (pg). await handles both.
+      // eslint-disable-next-line no-await-in-loop
+      const batch = await store.listLedgerAllocations({ tenantId, limit: pageSize, offset });
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      allocations.push(...batch);
+      if (batch.length < pageSize) break;
+      offset += batch.length;
+    }
+    return allocations;
+  }
+
   function normalizeTenant(tenantId) {
     return normalizeTenantId(tenantId, { defaultTenantId: DEFAULT_TENANT_ID });
   }
@@ -4833,13 +4857,8 @@ export function createApi({
 	          if (jobId && includedJobIds.has(jobId)) includedEntryIds.add(String(entry.id));
 	        }
 
-	        const allocations = [];
-	        for (const a of store.ledgerAllocations?.values?.() ?? []) {
-	          if (!a || typeof a !== "object") continue;
-	          if (normalizeTenantId(a.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
-	          if (!includedEntryIds.has(String(a.entryId ?? ""))) continue;
-	          allocations.push(a);
-	        }
+	        const allAllocations = await listAllLedgerAllocationsForTenant({ tenantId });
+	        const allocations = allAllocations.filter((a) => includedEntryIds.has(String(a?.entryId ?? "")));
 
 	        const byParty = new Map(); // `${partyRole}\n${partyId}` -> allocations
 	        for (const a of allocations) {

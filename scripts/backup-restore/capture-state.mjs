@@ -3,7 +3,7 @@
  *
  * Prints JSON to stdout.
  */
-import { Client } from "pg";
+import pg from "pg";
 import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
 import { sha256Hex } from "../../src/core/crypto.js";
 import { normalizeTenantId } from "../../src/core/tenancy.js";
@@ -16,6 +16,7 @@ function digestRows(rows) {
   return sha256Hex(canonicalJsonStringify(rows));
 }
 
+const { Client } = pg;
 const client = new Client({ connectionString: DATABASE_URL });
 await client.connect();
 
@@ -119,4 +120,3 @@ const state = {
 };
 
 process.stdout.write(JSON.stringify(state, null, 2) + "\n");
-
