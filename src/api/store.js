@@ -1299,6 +1299,55 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     return all;
   };
 
+  store.listReputationEvents = async function listReputationEvents({
+    tenantId = DEFAULT_TENANT_ID,
+    agentId,
+    toolId = null,
+    occurredAtGte = null,
+    occurredAtLte = null,
+    limit = 1000,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof agentId !== "string" || agentId.trim() === "") throw new TypeError("agentId is required");
+    if (toolId !== null && toolId !== undefined && (typeof toolId !== "string" || toolId.trim() === "")) {
+      throw new TypeError("toolId must be null or a non-empty string");
+    }
+    if (occurredAtGte !== null && occurredAtGte !== undefined && !Number.isFinite(Date.parse(String(occurredAtGte)))) {
+      throw new TypeError("occurredAtGte must be an ISO date-time");
+    }
+    if (occurredAtLte !== null && occurredAtLte !== undefined && !Number.isFinite(Date.parse(String(occurredAtLte)))) {
+      throw new TypeError("occurredAtLte must be an ISO date-time");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const minMs = occurredAtGte ? Date.parse(String(occurredAtGte)) : Number.NaN;
+    const maxMs = occurredAtLte ? Date.parse(String(occurredAtLte)) : Number.NaN;
+    const out = [];
+    for (const art of store.artifacts.values()) {
+      if (!art || typeof art !== "object" || Array.isArray(art)) continue;
+      if (normalizeTenantId(art.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (String(art.schemaVersion ?? "") !== "ReputationEvent.v1") continue;
+      const subject = art.subject && typeof art.subject === "object" && !Array.isArray(art.subject) ? art.subject : null;
+      if (!subject) continue;
+      if (String(subject.agentId ?? "") !== String(agentId)) continue;
+      if (toolId !== null && toolId !== undefined && String(subject.toolId ?? "") !== String(toolId)) continue;
+      const occurredAtMs = Date.parse(String(art.occurredAt ?? ""));
+      if (!Number.isFinite(occurredAtMs)) continue;
+      if (Number.isFinite(minMs) && occurredAtMs < minMs) continue;
+      if (Number.isFinite(maxMs) && occurredAtMs > maxMs) continue;
+      out.push(art);
+    }
+    out.sort((left, right) => {
+      const leftMs = Date.parse(String(left?.occurredAt ?? ""));
+      const rightMs = Date.parse(String(right?.occurredAt ?? ""));
+      if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && leftMs !== rightMs) return leftMs - rightMs;
+      return String(left?.eventId ?? "").localeCompare(String(right?.eventId ?? ""));
+    });
+    return out.slice(offset, offset + Math.min(5000, limit));
+  };
+
   store.getArtifact = async function getArtifact({ tenantId = DEFAULT_TENANT_ID, artifactId }) {
     tenantId = normalizeTenantId(tenantId);
     if (typeof artifactId !== "string" || artifactId.trim() === "") throw new TypeError("artifactId is required");

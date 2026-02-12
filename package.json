@@ -85,6 +85,10 @@
     "test:cli:pack-smoke": "node scripts/ci/cli-pack-smoke.mjs",
     "ops:lighthouse:update": "node scripts/ci/update-lighthouse-tracker.mjs",
     "ops:tenant:bootstrap:conformance": "node scripts/ops/bootstrap-tenant-conformance.mjs",
+    "ops:money-rails:reconcile:evidence": "node scripts/ops/money-rails-reconcile-evidence.mjs",
+    "ops:money-rails:chargeback:evidence": "node scripts/ops/money-rails-chargeback-evidence.mjs",
+    "ops:hosted-baseline:evidence": "node scripts/ops/hosted-baseline-evidence.mjs",
+    "ops:design-partner:run-packet": "node scripts/ops/design-partner-run-packet.mjs",
     "magic-link:migrate-runs-db": "node scripts/magic-link/migrate-run-records-to-db.mjs",
     "release:artifacts": "node scripts/release/build-artifacts.mjs",
     "audit:packet": "node scripts/audit/build-audit-packet.mjs"

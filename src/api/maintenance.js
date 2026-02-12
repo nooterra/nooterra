@@ -117,6 +117,52 @@ while (!stopped) {
     if (!financeReconcile?.ok && financeReconcile?.code !== "MAINTENANCE_ALREADY_RUNNING") {
       throw new Error(`finance reconcile failed: ${String(financeReconcile?.code ?? "UNKNOWN")}`);
     }
+
+    const moneyRailReconcile = await api.tickMoneyRailReconciliation({
+      tenantId: null,
+      period: null,
+      providerId: null,
+      force: true,
+      requireLock: true
+    });
+    const moneyRailOutcome = moneyRailReconcile?.ok ? "ok" : moneyRailReconcile?.code === "MAINTENANCE_ALREADY_RUNNING" ? "already_running" : "error";
+    try {
+      if (typeof store.appendOpsAudit === "function") {
+        await store.appendOpsAudit({
+          tenantId: DEFAULT_TENANT_ID,
+          audit: makeOpsAuditRecord({
+            tenantId: DEFAULT_TENANT_ID,
+            actorKeyId: null,
+            actorPrincipalId: "maintenance_runner",
+            requestId: null,
+            action: "MAINTENANCE_MONEY_RAIL_RECONCILE_RUN",
+            targetType: "maintenance",
+            targetId: "money_rails_reconcile",
+            at: new Date().toISOString(),
+            details: {
+              origin: "maintenance_runner",
+              outcome: moneyRailOutcome,
+              scope: moneyRailReconcile?.scope ?? "global",
+              period: moneyRailReconcile?.period ?? null,
+              providerId: moneyRailReconcile?.providerId ?? null,
+              force: moneyRailReconcile?.force === true,
+              maxTenants: moneyRailReconcile?.maxTenants ?? null,
+              maxPeriodsPerTenant: moneyRailReconcile?.maxPeriodsPerTenant ?? null,
+              maxProvidersPerTenant: moneyRailReconcile?.maxProvidersPerTenant ?? null,
+              runtimeMs: moneyRailReconcile?.runtimeMs ?? null,
+              summary: moneyRailReconcile?.summary ?? null,
+              code: moneyRailReconcile?.code ?? null
+            }
+          })
+        });
+      }
+    } catch (err) {
+      logger.error("maintenance.audit_failed", { err });
+    }
+
+    if (!moneyRailReconcile?.ok && moneyRailReconcile?.code !== "MAINTENANCE_ALREADY_RUNNING") {
+      throw new Error(`money rail reconcile failed: ${String(moneyRailReconcile?.code ?? "UNKNOWN")}`);
+    }
   } catch (err) {
     logger.error("maintenance.failed", { err });
     try {
@@ -153,6 +199,30 @@ while (!stopped) {
               force: true,
               maxTenants: null,
               maxPeriodsPerTenant: null,
+              error: err?.message ?? String(err)
+            }
+          })
+        });
+        await store.appendOpsAudit({
+          tenantId: DEFAULT_TENANT_ID,
+          audit: makeOpsAuditRecord({
+            tenantId: DEFAULT_TENANT_ID,
+            actorKeyId: null,
+            actorPrincipalId: "maintenance_runner",
+            requestId: null,
+            action: "MAINTENANCE_MONEY_RAIL_RECONCILE_RUN",
+            targetType: "maintenance",
+            targetId: "money_rails_reconcile",
+            at: new Date().toISOString(),
+            details: {
+              origin: "maintenance_runner",
+              outcome: "error",
+              period: null,
+              providerId: null,
+              force: true,
+              maxTenants: null,
+              maxPeriodsPerTenant: null,
+              maxProvidersPerTenant: null,
               error: err?.message ?? String(err)
             }
           })

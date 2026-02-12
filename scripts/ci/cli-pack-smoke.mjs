@@ -43,6 +43,27 @@ async function main() {
     const packageRoot = path.join(unpackDir, "package");
     const cliPath = path.join(packageRoot, "bin", "settld.js");
 
+    const runTarballCli = (args) => {
+      const cmd = ["npx", "--yes", "--package", tarballPath, "--", "settld", ...args].map(shellQuote).join(" ");
+      const res = spawnSync("bash", ["-lc", cmd], {
+        cwd: packDir,
+        env: npmEnv,
+        encoding: "utf8"
+      });
+      const blockedBySandbox =
+        res.error &&
+        res.error.code === "EPERM" &&
+        res.status === 0 &&
+        String(res.stdout ?? "").trim() === "" &&
+        String(res.stderr ?? "").trim() === "";
+      if (blockedBySandbox) return { stdout: "", blockedBySandbox: true };
+      if (res.status !== 0) {
+        const err = (res.stderr || res.stdout || "").trim();
+        throw new Error(`npx --package <tarball> settld ${args.join(" ")} failed (exit ${res.status})${err ? `: ${err}` : ""}`);
+      }
+      return { stdout: String(res.stdout ?? ""), blockedBySandbox: false };
+    };
+
     const runCli = (args) => {
       const cmd = [process.execPath, cliPath, ...args].map(shellQuote).join(" ");
       const res = spawnSync("bash", ["-lc", cmd], {
@@ -64,7 +85,7 @@ async function main() {
       return { stdout: String(res.stdout ?? ""), blockedBySandbox: false };
     };
 
-    const versionResult = runCli(["--version"]);
+    const versionResult = runTarballCli(["--version"]);
     const sandboxBlocked = versionResult.blockedBySandbox === true;
     if (!sandboxBlocked) {
       const version = versionResult.stdout.trim();
@@ -97,6 +118,12 @@ async function main() {
       }
       return;
     }
+
+    const tarballCases = runTarballCli(["conformance", "kernel:list"]).stdout
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    assert(tarballCases.length > 0, "npx --package <tarball> settld conformance kernel:list returned no cases");
 
     const infoRaw = runCli(["dev", "info"]).stdout.trim();
     const info = JSON.parse(infoRaw);

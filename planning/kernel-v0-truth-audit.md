@@ -27,7 +27,7 @@ Legend:
 | Claim                                                                          |      Status | Evidence                                                        | Notes / Gap                                                                                           | To make TRUE                                                                                               |
 | ------------------------------------------------------------------------------ | ----------: | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | Deterministic caseId is enforced                                               |    **TRUE** | (implied by audit note)                                         | —                                                                                                     | —                                                                                                          |
-| Deterministic dispute-open envelope artifact ID is enforced                    | **PARTIAL** | `src/api/app.js:26202`, `src/core/dispute-open-envelope.js:137` | Envelope ID determinism not enforced server-side; possible duplicate envelopes for same semantic open | Enforce deterministic artifactId pattern (e.g., `env_case_${caseId}`) + uniqueness check + return existing |
+| Deterministic dispute-open envelope artifact ID is enforced                    | **TRUE** | `src/api/app.js:26202`, `src/core/dispute-open-envelope.js:37-77` | Server enforces `envelopeId = dopen_tc_{agreementHash}`, `caseId = arb_case_tc_{agreementHash}`; core sets `artifactId = envelopeId`; validation asserts equality; E2E tests confirm deterministic IDs | — |
 | Dispute-open window/party/one-active-case rules are enforced with stable codes |    **TRUE** | (audit states semantics exist; earlier details in app.js)       | —                                                                                                     | Add conformance cases if any missing edge isn’t asserted                                                   |
 
 ## 3) Conformance and replay legitimacy
@@ -50,7 +50,7 @@ Legend:
 | Claim                                                                                 |      Status | Evidence                                                                | Notes / Gap                                                                               | To make TRUE                                                                                                    |
 | ------------------------------------------------------------------------------------- | ----------: | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | Tarball “no clone” path is documented                                                 |    **TRUE** | `docs/QUICKSTART_KERNEL_V0.md:15`                                       | —                                                                                         | —                                                                                                               |
-| CI smoke explicitly tests **local tarball npx --package ./settld-<version>.tgz** path | **PARTIAL** | `scripts/ci/cli-pack-smoke.mjs:37`, `.github/workflows/release.yml:326` | Smoke focuses on unpacked tarball + registry npx, not the exact local tarball-npx command | Add a smoke step that runs the exact documented tarball npx invocation (guarded for CI environment constraints) |
+| CI smoke explicitly tests **local tarball npx --package ./settld-<version>.tgz** path | **TRUE** | `scripts/ci/cli-pack-smoke.mjs`, `.github/workflows/release.yml:58` | Release gate runs `test:cli:pack-smoke`; script now executes `npx --yes --package <local-tarball> -- settld --version` and `conformance kernel:list` | — |
 | Registry publish is wired                                                             |    **TRUE** | `.github/workflows/release.yml` (publish lane exists)                   | Wired ≠ executed                                                                          | —                                                                                                               |
 | “First live npm publish proven”                                                       |    **TRUE** | GitHub Actions run `21917972978` (`npm_publish` + `python_publish` + `github_release` green), release `v0.1.2`, `npm view settld@0.1.2 version -> 0.1.2`, `npm exec --yes --package settld@0.1.2 -- settld --version -> 0.1.2`, PyPI `settld-api-sdk-python==0.1.2` | — | — |
 
@@ -64,7 +64,7 @@ Legend:
 
 | Claim                                                                         |    Status | Evidence | Notes / Gap     | To make TRUE                                                                                                                  |
 | ----------------------------------------------------------------------------- | --------: | -------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Real-money alpha exists (Connect/KYB/chargeback/reconciliation-by-kernel-ids) | **FALSE** | (none)   | Not implemented | Design-partner alpha: Stripe Connect mapping, webhook ingestion, reconciliation tables, refund/chargeback policy, risk limits |
+| Real-money alpha exists (Connect/KYB/chargeback/reconciliation-by-kernel-ids) | **PARTIAL** | `src/api/app.js`, `src/api/maintenance.js`, `test/api-e2e-ops-money-rails.test.js`, `test/api-e2e-ops-maintenance-money-rails-reconcile.test.js` | Stripe Connect account mapping + payout gating + signed webhook ingest + provider submit execution (`/v1/transfers`) + chargeback negative-balance (`hold|net`) + deterministic money-rail reconciliation (including scheduled maintenance) + KYB/capability sync (`POST /ops/finance/money-rails/stripe-connect/accounts/sync`) are implemented; production design-partner runbook evidence is still missing | Collect design-partner real-money run evidence (repeated flows, no manual DB edits) |
 
 ---
 
@@ -123,12 +123,10 @@ Must be TRUE:
 
 ---
 
-# Immediate action items (to eliminate PARTIAL items)
+# Immediate action items (remaining FALSE/PARTIAL items)
 
-1. Enforce deterministic envelope artifactId server-side
-2. Add CI smoke for the *exact* documented tarball `npx --package ./settld-<version>.tgz …` path
-3. Execute first tagged npm publish and record evidence (version, commands run, outcomes) in this file
-4. Stand up staging/prod hosted baseline and mark each requirement with evidence links
+1. Stand up staging/prod hosted baseline and mark each requirement with evidence links
+2. Complete real-money alpha by collecting design-partner run evidence (repeatable flow, no manual DB edits)
 
 ---
 
@@ -155,4 +153,4 @@ When this section has a verified entry for the current release line, flip **“F
 
 If you drop this file into the repo, it becomes the “no-BS truth ledger” for the company. It also prevents the most common founder failure mode: marketing claims outrunning the product.
 
-Founder note: your next two “PARTIAL → TRUE” wins that matter most for credibility are **(1) deterministic envelope artifactId** and **(2) first live npm publish evidence**. Everything else is either longer-horizon (hosted baseline) or strategically gated (real money).
+Founder note: deterministic envelope artifact IDs are now enforced server-side and validated by E2E (`dopen_tc_${agreementHash}` / `arb_case_tc_${agreementHash}` paths). Real-money alpha is now PARTIAL (controls + ingest + submit execution + chargeback policy + reconciliation + scheduler + KYB sync), with hosted baseline and design-partner execution evidence remaining.

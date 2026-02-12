@@ -101,6 +101,16 @@ import {
 import { buildFundingHoldV1, FUNDING_HOLD_STATUS, resolveFundingHoldV1, validateFundingHoldV1 } from "../core/funding-hold.js";
 import { buildSettlementAdjustmentV1, SETTLEMENT_ADJUSTMENT_KIND, validateSettlementAdjustmentV1 } from "../core/settlement-adjustment.js";
 import {
+  DISPUTE_OPEN_ENVELOPE_SCHEMA_VERSION,
+  validateDisputeOpenEnvelopeV1
+} from "../core/dispute-open-envelope.js";
+import {
+  REPUTATION_EVENT_KIND,
+  REPUTATION_EVENT_SCHEMA_VERSION,
+  buildReputationEventV1,
+  validateReputationEventV1
+} from "../core/reputation-event.js";
+import {
   AGENT_REPUTATION_WINDOW,
   computeAgentReputation,
   computeAgentReputationV2
@@ -154,6 +164,7 @@ import {
   walletEscrowAccountId
 } from "../core/escrow-ledger.js";
 import {
+  MONEY_RAIL_DIRECTION,
   MONEY_RAIL_OPERATION_STATE,
   MONEY_RAIL_PROVIDER_EVENT_TYPE,
   createStoreBackedMoneyRailAdapter,
@@ -198,6 +209,7 @@ import {
   normalizeSettlementPolicy,
   normalizeVerificationMethod
 } from "../core/settlement-policy.js";
+import { evaluateSettlementVerifierExecution, resolveSettlementVerifierRef } from "../core/settlement-verifier.js";
 import {
   SETTLEMENT_FINALITY_STATE,
   SETTLEMENT_KERNEL_VERIFICATION_CODE,
@@ -232,7 +244,11 @@ import {
   resolveBillingPlan
 } from "../core/billing-plans.js";
 import { buildOpenApiSpec } from "./openapi.js";
-import { FINANCE_RECONCILE_ADVISORY_LOCK_KEY, RETENTION_CLEANUP_ADVISORY_LOCK_KEY } from "../core/maintenance-locks.js";
+import {
+  FINANCE_RECONCILE_ADVISORY_LOCK_KEY,
+  MONEY_RAIL_RECONCILE_ADVISORY_LOCK_KEY,
+  RETENTION_CLEANUP_ADVISORY_LOCK_KEY
+} from "../core/maintenance-locks.js";
 import { compareProtocolVersions, parseProtocolVersion, resolveProtocolPolicy } from "../core/protocol.js";
 import {
   CONTRACT_DOCUMENT_TYPE_V1,
@@ -290,7 +306,12 @@ export function createApi({
   financeReconcileEnabled = null,
   financeReconcileIntervalSeconds = null,
   financeReconcileMaxTenants = null,
-  financeReconcileMaxPeriodsPerTenant = null
+  financeReconcileMaxPeriodsPerTenant = null,
+  moneyRailReconcileEnabled = null,
+  moneyRailReconcileIntervalSeconds = null,
+  moneyRailReconcileMaxTenants = null,
+  moneyRailReconcileMaxPeriodsPerTenant = null,
+  moneyRailReconcileMaxProvidersPerTenant = null
 } = {}) {
   const apiStartedAtMs = Date.now();
   const apiStartedAtIso = new Date(apiStartedAtMs).toISOString();
@@ -322,6 +343,8 @@ export function createApi({
   const legacyOpsTokenRaw = opsToken ?? (typeof process !== "undefined" ? (process.env.PROXY_OPS_TOKEN ?? null) : null);
   const rateLimitRpmRaw = rateLimitRpm ?? (typeof process !== "undefined" ? (process.env.PROXY_RATE_LIMIT_RPM ?? null) : null);
   const rateLimitBurstRaw = rateLimitBurst ?? (typeof process !== "undefined" ? (process.env.PROXY_RATE_LIMIT_BURST ?? null) : null);
+  const rateLimitPerKeyRpmRaw = typeof process !== "undefined" ? process.env.PROXY_RATE_LIMIT_PER_KEY_RPM ?? null : null;
+  const rateLimitPerKeyBurstRaw = typeof process !== "undefined" ? process.env.PROXY_RATE_LIMIT_PER_KEY_BURST ?? null : null;
 
   const evidenceSigningSecret =
     typeof process !== "undefined" && typeof process.env.PROXY_EVIDENCE_SIGNING_SECRET === "string" && process.env.PROXY_EVIDENCE_SIGNING_SECRET.trim() !== ""
@@ -345,6 +368,25 @@ export function createApi({
   }
   const rateBuckets = new Map(); // tenantId -> { tokens, lastMs }
   const rateRefillPerMs = rateLimitRpmValue ? rateLimitRpmValue / 60_000 : 0;
+  const rateLimitPerKeyRpmValue =
+    rateLimitPerKeyRpmRaw && String(rateLimitPerKeyRpmRaw).trim() !== "" ? Number(rateLimitPerKeyRpmRaw) : 0;
+  if (
+    rateLimitPerKeyRpmRaw &&
+    String(rateLimitPerKeyRpmRaw).trim() !== "" &&
+    (!Number.isFinite(rateLimitPerKeyRpmValue) || rateLimitPerKeyRpmValue <= 0)
+  ) {
+    throw new TypeError("PROXY_RATE_LIMIT_PER_KEY_RPM must be a positive number");
+  }
+  const rateLimitPerKeyBurstValue = rateLimitPerKeyRpmValue
+    ? rateLimitPerKeyBurstRaw && String(rateLimitPerKeyBurstRaw).trim() !== ""
+      ? Number(rateLimitPerKeyBurstRaw)
+      : rateLimitPerKeyRpmValue
+    : 0;
+  if (rateLimitPerKeyRpmValue && (!Number.isFinite(rateLimitPerKeyBurstValue) || rateLimitPerKeyBurstValue <= 0)) {
+    throw new TypeError("PROXY_RATE_LIMIT_PER_KEY_BURST must be a positive number");
+  }
+  const rateBucketsByApiKey = new Map(); // `${tenantId}\n${apiKeyId}` -> { tokens, lastMs }
+  const ratePerKeyRefillPerMs = rateLimitPerKeyRpmValue ? rateLimitPerKeyRpmValue / 60_000 : 0;
 
   function setProtocolResponseHeaders(res) {
     try {
@@ -435,6 +477,29 @@ export function createApi({
       return { ok: false, retryAfterSeconds };
     }
     rateBuckets.set(key, { tokens: refilled - 1, lastMs: nowMs });
+    return { ok: true };
+  }
+
+  function takeApiKeyRateLimitToken({ tenantId, apiKeyId }) {
+    if (!rateLimitPerKeyRpmValue) return { ok: true };
+    const normalizedApiKeyId = typeof apiKeyId === "string" ? apiKeyId.trim() : "";
+    if (!normalizedApiKeyId) return { ok: true };
+
+    const nowMs = Date.now();
+    const key = `${normalizeTenant(tenantId)}\n${normalizedApiKeyId}`;
+    const existing = rateBucketsByApiKey.get(key) ?? null;
+    const lastMs = existing?.lastMs ?? nowMs;
+    const elapsedMs = Math.max(0, nowMs - lastMs);
+    const prevTokens =
+      typeof existing?.tokens === "number" && Number.isFinite(existing.tokens) ? existing.tokens : rateLimitPerKeyBurstValue;
+    const refilled = Math.min(rateLimitPerKeyBurstValue, prevTokens + elapsedMs * ratePerKeyRefillPerMs);
+    if (refilled < 1) {
+      const waitMs = ratePerKeyRefillPerMs > 0 ? Math.ceil((1 - refilled) / ratePerKeyRefillPerMs) : 60_000;
+      const retryAfterSeconds = Math.max(1, Math.ceil(waitMs / 1000));
+      rateBucketsByApiKey.set(key, { tokens: refilled, lastMs: nowMs });
+      return { ok: false, retryAfterSeconds };
+    }
+    rateBucketsByApiKey.set(key, { tokens: refilled - 1, lastMs: nowMs });
     return { ok: true };
   }
 
@@ -789,6 +854,40 @@ export function createApi({
   if (!Number.isSafeInteger(effectiveFinanceReconcileMaxPeriodsPerTenant) || effectiveFinanceReconcileMaxPeriodsPerTenant <= 0) {
     throw new TypeError("PROXY_FINANCE_RECONCILE_MAX_PERIODS_PER_TENANT must be a positive safe integer");
   }
+  const effectiveMoneyRailReconcileEnabled =
+    moneyRailReconcileEnabled !== null && moneyRailReconcileEnabled !== undefined
+      ? moneyRailReconcileEnabled === true
+      : typeof process !== "undefined" && typeof process.env.PROXY_MONEY_RAIL_RECONCILE_ENABLED === "string"
+        ? process.env.PROXY_MONEY_RAIL_RECONCILE_ENABLED !== "0"
+        : true;
+  const effectiveMoneyRailReconcileIntervalSeconds =
+    moneyRailReconcileIntervalSeconds !== null && moneyRailReconcileIntervalSeconds !== undefined
+      ? Number(moneyRailReconcileIntervalSeconds)
+      : parseNonNegativeIntEnv("PROXY_MONEY_RAIL_RECONCILE_INTERVAL_SECONDS", 300);
+  if (!Number.isSafeInteger(effectiveMoneyRailReconcileIntervalSeconds) || effectiveMoneyRailReconcileIntervalSeconds < 0) {
+    throw new TypeError("PROXY_MONEY_RAIL_RECONCILE_INTERVAL_SECONDS must be a non-negative safe integer");
+  }
+  const effectiveMoneyRailReconcileMaxTenants =
+    moneyRailReconcileMaxTenants !== null && moneyRailReconcileMaxTenants !== undefined
+      ? Number(moneyRailReconcileMaxTenants)
+      : parseNonNegativeIntEnv("PROXY_MONEY_RAIL_RECONCILE_MAX_TENANTS", 50);
+  if (!Number.isSafeInteger(effectiveMoneyRailReconcileMaxTenants) || effectiveMoneyRailReconcileMaxTenants <= 0) {
+    throw new TypeError("PROXY_MONEY_RAIL_RECONCILE_MAX_TENANTS must be a positive safe integer");
+  }
+  const effectiveMoneyRailReconcileMaxPeriodsPerTenant =
+    moneyRailReconcileMaxPeriodsPerTenant !== null && moneyRailReconcileMaxPeriodsPerTenant !== undefined
+      ? Number(moneyRailReconcileMaxPeriodsPerTenant)
+      : parseNonNegativeIntEnv("PROXY_MONEY_RAIL_RECONCILE_MAX_PERIODS_PER_TENANT", 2);
+  if (!Number.isSafeInteger(effectiveMoneyRailReconcileMaxPeriodsPerTenant) || effectiveMoneyRailReconcileMaxPeriodsPerTenant <= 0) {
+    throw new TypeError("PROXY_MONEY_RAIL_RECONCILE_MAX_PERIODS_PER_TENANT must be a positive safe integer");
+  }
+  const effectiveMoneyRailReconcileMaxProvidersPerTenant =
+    moneyRailReconcileMaxProvidersPerTenant !== null && moneyRailReconcileMaxProvidersPerTenant !== undefined
+      ? Number(moneyRailReconcileMaxProvidersPerTenant)
+      : parseNonNegativeIntEnv("PROXY_MONEY_RAIL_RECONCILE_MAX_PROVIDERS_PER_TENANT", 10);
+  if (!Number.isSafeInteger(effectiveMoneyRailReconcileMaxProvidersPerTenant) || effectiveMoneyRailReconcileMaxProvidersPerTenant <= 0) {
+    throw new TypeError("PROXY_MONEY_RAIL_RECONCILE_MAX_PROVIDERS_PER_TENANT must be a positive safe integer");
+  }
   const billingStripeSyncState = {
     inFlight: false,
     lastRunAt: null,
@@ -797,6 +896,13 @@ export function createApi({
     nextEligibleAtMs: 0
   };
   const financeReconcileState = {
+    inFlight: false,
+    lastRunAt: null,
+    lastSuccessAt: null,
+    lastResult: null,
+    nextEligibleAtMs: 0
+  };
+  const moneyRailReconcileState = {
     inFlight: false,
     lastRunAt: null,
     lastSuccessAt: null,
@@ -901,6 +1007,16 @@ export function createApi({
       });
       const allowPayout = item.allowPayout !== false;
       const allowCollection = item.allowCollection !== false;
+      const webhookSecret =
+        typeof item.webhookSecret === "string" && item.webhookSecret.trim() !== "" ? item.webhookSecret.trim() : null;
+      const requireSignedIngest = item.requireSignedIngest === true || webhookSecret !== null;
+      const webhookSignatureToleranceSecondsRaw =
+        item.webhookSignatureToleranceSeconds === null || item.webhookSignatureToleranceSeconds === undefined
+          ? 300
+          : Number(item.webhookSignatureToleranceSeconds);
+      if (!Number.isSafeInteger(webhookSignatureToleranceSecondsRaw) || webhookSignatureToleranceSecondsRaw <= 0) {
+        throw new TypeError(`money rail provider ${providerId}.webhookSignatureToleranceSeconds must be a positive safe integer`);
+      }
 
       const statusMap = new Map();
       for (const canonicalType of CANONICAL_MONEY_RAIL_PROVIDER_EVENT_TYPES) statusMap.set(canonicalType, canonicalType);
@@ -925,7 +1041,10 @@ export function createApi({
         mode: providerMode,
         allowPayout,
         allowCollection,
-        providerStatusMap: statusMap
+        providerStatusMap: statusMap,
+        webhookSecret,
+        requireSignedIngest,
+        webhookSignatureToleranceSeconds: webhookSignatureToleranceSecondsRaw
       });
     }
     return normalizedEntries;
@@ -935,6 +1054,63 @@ export function createApi({
     if (value === null || value === undefined) return null;
     const normalized = String(value).trim().toLowerCase();
     return normalized || null;
+  }
+
+  function parseMoneyRailProviderSignatureHeader(value) {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      throw new TypeError("x-proxy-provider-signature header is required");
+    }
+    const input = String(value);
+    let timestamp = null;
+    const signatures = [];
+    for (const part of input.split(",")) {
+      const [rawKey, rawVal] = part.split("=");
+      const key = String(rawKey ?? "").trim().toLowerCase();
+      const val = String(rawVal ?? "").trim();
+      if (!key || !val) continue;
+      if (key === "t") {
+        const n = Number(val);
+        if (!Number.isSafeInteger(n) || n <= 0) throw new TypeError("provider signature timestamp is invalid");
+        timestamp = n;
+      } else if (key === "v1") {
+        signatures.push(val.toLowerCase());
+      }
+    }
+    if (!Number.isSafeInteger(timestamp) || timestamp <= 0) throw new TypeError("provider signature missing timestamp");
+    if (!signatures.length) throw new TypeError("provider signature missing v1 digest");
+    return { timestamp, signatures };
+  }
+
+  function verifyMoneyRailProviderSignature({
+    signatureHeader,
+    rawBody,
+    secret,
+    toleranceSeconds = 300,
+    nowAt = null
+  } = {}) {
+    if (typeof secret !== "string" || secret.trim() === "") throw new TypeError("provider webhook secret is required");
+    const { timestamp, signatures } = parseMoneyRailProviderSignatureHeader(signatureHeader);
+    const payload = `${timestamp}.${String(rawBody ?? "")}`;
+    const expected = crypto.createHmac("sha256", secret).update(payload, "utf8").digest("hex");
+    let matched = false;
+    for (const candidate of signatures) {
+      if (typeof candidate !== "string" || !candidate) continue;
+      if (candidate.length !== expected.length) continue;
+      if (crypto.timingSafeEqual(Buffer.from(candidate, "utf8"), Buffer.from(expected, "utf8"))) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) throw new TypeError("provider signature digest mismatch");
+
+    const tolerance = Number(toleranceSeconds);
+    if (Number.isSafeInteger(tolerance) && tolerance > 0) {
+      const nowMs = Date.parse(nowAt ?? nowIso());
+      if (Number.isFinite(nowMs)) {
+        const delta = Math.abs(Math.floor(nowMs / 1000) - timestamp);
+        if (delta > tolerance) throw new TypeError("provider signature timestamp outside tolerance window");
+      }
+    }
   }
 
   const moneyRailModeRaw =
@@ -967,7 +1143,12 @@ export function createApi({
         mode: config.mode,
         allowPayout: config.allowPayout,
         allowCollection: config.allowCollection,
-        providerStatusMap: new Map(config.providerStatusMap)
+        providerStatusMap: new Map(config.providerStatusMap),
+        webhookSecret: config.webhookSecret ?? null,
+        requireSignedIngest: config.requireSignedIngest === true,
+        webhookSignatureToleranceSeconds: Number.isSafeInteger(config.webhookSignatureToleranceSeconds)
+          ? config.webhookSignatureToleranceSeconds
+          : 300
       }
     ])
   );
@@ -980,7 +1161,10 @@ export function createApi({
       mode: effectiveMoneyRailMode,
       allowPayout: true,
       allowCollection: true,
-      providerStatusMap: new Map(fallbackProviderStatusMap)
+      providerStatusMap: new Map(fallbackProviderStatusMap),
+      webhookSecret: null,
+      requireSignedIngest: false,
+      webhookSignatureToleranceSeconds: 300
     });
   }
   if (effectiveMoneyRailMode === "production" && String(defaultMoneyRailProviderId).toLowerCase().startsWith("stub")) {
@@ -1184,6 +1368,7 @@ export function createApi({
 
   const COMMAND_CENTER_ALERT_ARTIFACT_TYPE = "CommandCenterAlert.v1";
   const RECONCILE_REPORT_ARTIFACT_TYPE = "ReconcileReport.v1";
+  const MONEY_RAIL_RECONCILE_REPORT_ARTIFACT_TYPE = "MoneyRailReconcileReport.v1";
   const BILLING_PERIOD_CLOSE_ARTIFACT_TYPE = "BillingPeriodClose.v1";
   const BILLING_STRIPE_CHECKOUT_SESSION_SCHEMA = "BillingStripeCheckoutSession.v1";
   const BILLING_STRIPE_PORTAL_SESSION_SCHEMA = "BillingStripePortalSession.v1";
@@ -1846,14 +2031,46 @@ export function createApi({
     }
   }
 
+  async function fetchMaintenanceMoneyRailReconcileRunInfo({ tenantId }) {
+    if (typeof store.listOpsAudit !== "function") return { last: null, lastOk: null };
+    try {
+      const records = await store.listOpsAudit({ tenantId, limit: 200, offset: 0 });
+      let last = null;
+      let lastOk = null;
+      for (const r of records ?? []) {
+        if (!r || typeof r !== "object") continue;
+        if (r.action !== "MAINTENANCE_MONEY_RAIL_RECONCILE_RUN") continue;
+        if (!last) last = r;
+        const outcome = r?.details?.outcome ?? null;
+        if (!lastOk && outcome === "ok") lastOk = r;
+        if (last && lastOk) break;
+      }
+      return { last, lastOk };
+    } catch {
+      return { last: null, lastOk: null };
+    }
+  }
+
 	  async function refreshAlertGauges({ tenantId }) {
 	    await refreshOutboxPendingGauges();
 
-	    const backlog = await computeOpsBacklogSummary({ tenantId, includeOutbox: false });
+	    const backlog = await computeOpsBacklogSummary({ tenantId, includeOutbox: true });
 	    metricGauge("deliveries_pending_gauge", { state: "pending" }, Number(backlog?.deliveriesPending ?? 0));
 	    metricGauge("deliveries_pending_gauge", { state: "failed" }, Number(backlog?.deliveriesFailed ?? 0));
 	    metricGauge("ingest_rejected_gauge", null, Number(backlog?.ingestRejected ?? 0));
 	    metricGauge("delivery_dlq_pending_total_gauge", null, Number(backlog?.deliveriesFailed ?? 0));
+    metricGauge("worker_deliveries_pending_total_gauge", null, Number(backlog?.deliveriesPending ?? 0));
+    const outboxByKindForGauge =
+      backlog?.outboxByKind && typeof backlog.outboxByKind === "object" && !Array.isArray(backlog.outboxByKind)
+        ? backlog.outboxByKind
+        : null;
+    const outboxPendingTotal = outboxByKindForGauge
+      ? Object.values(outboxByKindForGauge).reduce((sum, raw) => {
+          const n = Number(raw);
+          return sum + (Number.isFinite(n) ? n : 0);
+        }, 0)
+      : 0;
+    metricGauge("worker_outbox_pending_total_gauge", null, outboxPendingTotal);
 
     const topDlq = Array.isArray(backlog?.deliveryDlqTopDestinations) ? backlog.deliveryDlqTopDestinations : [];
     for (const row of topDlq) {
@@ -1863,11 +2080,30 @@ export function createApi({
     for (const destinationId of knownDeliveryDlqDestinationsForGauge) {
       metricGauge("delivery_dlq_pending_by_destination_gauge", { destinationId }, 0);
     }
-    for (const row of topDlq) {
-      const destinationId = row?.destinationId ? String(row.destinationId) : null;
-      if (!destinationId) continue;
-      const n = Number(row?.count ?? 0);
-      metricGauge("delivery_dlq_pending_by_destination_gauge", { destinationId }, Number.isFinite(n) ? n : 0);
+	    for (const row of topDlq) {
+	      const destinationId = row?.destinationId ? String(row.destinationId) : null;
+	      if (!destinationId) continue;
+	      const n = Number(row?.count ?? 0);
+	      metricGauge("delivery_dlq_pending_by_destination_gauge", { destinationId }, Number.isFinite(n) ? n : 0);
+	    }
+
+    try {
+      const commandCenter = await computeNetworkCommandCenterSummary({
+        tenantId,
+        windowHours: 24,
+        disputeSlaHours: 24
+      });
+      metricGauge("replay_mismatch_gauge", null, Number(commandCenter?.settlement?.kernelVerificationErrorCount ?? 0));
+      metricGauge("disputes_open_gauge", null, Number(commandCenter?.disputes?.openCount ?? 0));
+      metricGauge("disputes_over_sla_gauge", null, Number(commandCenter?.disputes?.overSlaCount ?? 0));
+      metricGauge(
+        "disputes_expired_window_open_gauge",
+        null,
+        Number(commandCenter?.disputes?.expiredWindowOpenCount ?? 0)
+      );
+      metricGauge("arbitration_over_sla_gauge", null, Number(commandCenter?.disputes?.arbitrationOverSlaCount ?? 0));
+    } catch {
+      // best-effort telemetry for ops alerting.
     }
 
     const retentionInfo = await fetchMaintenanceRetentionRunInfo({ tenantId });
@@ -1904,12 +2140,39 @@ export function createApi({
         : null);
     metricGauge("maintenance_last_run_ok_gauge", { kind: "finance_reconcile" }, financeOutcome === "ok" ? 1 : 0);
 
+    const moneyRailReconcileInfo = await fetchMaintenanceMoneyRailReconcileRunInfo({ tenantId });
+    const lastMoneyRail = moneyRailReconcileInfo?.last ?? null;
+    const lastMoneyRailOk = moneyRailReconcileInfo?.lastOk ?? null;
+    const moneyRailLastRunAt = store?.__moneyRailReconcileLastRunAt ?? lastMoneyRail?.at ?? null;
+    const moneyRailLastSuccessAt = store?.__moneyRailReconcileLastSuccessAt ?? lastMoneyRailOk?.at ?? null;
+    const moneyRailLastRunAtMs = moneyRailLastRunAt ? Date.parse(String(moneyRailLastRunAt)) : Number.NaN;
+    const moneyRailLastOkAtMs = moneyRailLastSuccessAt ? Date.parse(String(moneyRailLastSuccessAt)) : Number.NaN;
+    metricGauge(
+      "maintenance_last_run_unixtime",
+      { kind: "money_rails_reconcile" },
+      Number.isFinite(moneyRailLastRunAtMs) ? Math.floor(moneyRailLastRunAtMs / 1000) : 0
+    );
+    metricGauge(
+      "maintenance_last_success_unixtime",
+      { kind: "money_rails_reconcile" },
+      Number.isFinite(moneyRailLastOkAtMs) ? Math.floor(moneyRailLastOkAtMs / 1000) : 0
+    );
+    const moneyRailOutcome =
+      lastMoneyRail?.details?.outcome ??
+      (store?.__moneyRailReconcileLastResult && typeof store.__moneyRailReconcileLastResult === "object"
+        ? store.__moneyRailReconcileLastResult.ok === true
+          ? "ok"
+          : "error"
+        : null);
+    metricGauge("maintenance_last_run_ok_gauge", { kind: "money_rails_reconcile" }, moneyRailOutcome === "ok" ? 1 : 0);
+
 	    // Settlement holds: finance-operability gauges (count + aging distribution).
 	    try {
 	      const nowAt = nowIso();
 	      const nowMs = Date.parse(nowAt);
 	      let heldCount = 0;
 	      let oldestAgeSeconds = 0;
+        let holdsOver24Hours = 0;
 
 	      const ages = [];
 	      for (const job of listJobs({ tenantId })) {
@@ -1923,10 +2186,12 @@ export function createApi({
 	        const ageSeconds = Number.isFinite(nowMs) && Number.isFinite(heldAtMs) ? Math.max(0, Math.floor((nowMs - heldAtMs) / 1000)) : 0;
 	        ages.push(ageSeconds);
 	        if (ageSeconds > oldestAgeSeconds) oldestAgeSeconds = ageSeconds;
+          if (ageSeconds > 24 * 60 * 60) holdsOver24Hours += 1;
 	      }
 
 	      metricGauge("settlement_holds_open_gauge", { status: "HELD" }, heldCount);
 	      metricGauge("settlement_hold_oldest_age_seconds_gauge", null, oldestAgeSeconds);
+        metricGauge("settlement_holds_over_24h_gauge", null, holdsOver24Hours);
 
 	      // Use Prom-style bucket gauges for a snapshot distribution of open holds.
 	      const buckets = [3600, 6 * 3600, 24 * 3600, 7 * 24 * 3600, 30 * 24 * 3600];
@@ -6340,6 +6605,20 @@ export function createApi({
     };
   }
 
+  function resolveAgreementVerifierRef(verificationMethod) {
+    return resolveSettlementVerifierRef({ verificationMethod: verificationMethod ?? null });
+  }
+
+  function evaluateRunSettlementVerifierExecution({ verificationMethod, run, verification }) {
+    const baseVerificationStatus = run?.status === "failed" ? "red" : verification?.verificationStatus;
+    return evaluateSettlementVerifierExecution({
+      verificationMethod: verificationMethod ?? null,
+      run: run ?? null,
+      verification: verification ?? null,
+      baseVerificationStatus
+    });
+  }
+
   function parsePagination({ limitRaw, offsetRaw, defaultLimit = 50, maxLimit = 200 } = {}) {
     const limit = limitRaw === null || limitRaw === undefined || String(limitRaw).trim() === "" ? defaultLimit : Number(limitRaw);
     const offset = offsetRaw === null || offsetRaw === undefined || String(offsetRaw).trim() === "" ? 0 : Number(offsetRaw);
@@ -7599,6 +7878,39 @@ export function createApi({
     return ordered.slice(0, safeMaxPeriods);
   }
 
+  function listMoneyRailReconcilePeriodsFromArtifacts({ artifacts, maxPeriodsPerTenant = effectiveMoneyRailReconcileMaxPeriodsPerTenant } = {}) {
+    const periods = new Set();
+    const rows = Array.isArray(artifacts) ? artifacts : [];
+    for (const artifact of rows) {
+      if (artifact?.artifactType !== ARTIFACT_TYPE.PAYOUT_INSTRUCTION_V1) continue;
+      const rawPeriod = artifact?.period ?? null;
+      try {
+        const normalized = normalizeFinanceReconciliationPeriod(rawPeriod, { fieldName: "period", allowNull: false });
+        periods.add(normalized);
+      } catch {
+        continue;
+      }
+    }
+    const ordered = Array.from(periods).sort((a, b) => String(b).localeCompare(String(a)));
+    const safeMaxPeriods =
+      Number.isSafeInteger(maxPeriodsPerTenant) && maxPeriodsPerTenant > 0
+        ? Math.min(24, maxPeriodsPerTenant)
+        : effectiveMoneyRailReconcileMaxPeriodsPerTenant;
+    return ordered.slice(0, safeMaxPeriods);
+  }
+
+  function listMoneyRailProviderIdsForReconcile({ providerId = null, maxProvidersPerTenant = effectiveMoneyRailReconcileMaxProvidersPerTenant } = {}) {
+    if (providerId !== null && providerId !== undefined && String(providerId).trim() !== "") {
+      return [String(providerId).trim()];
+    }
+    const safeMaxProviders =
+      Number.isSafeInteger(maxProvidersPerTenant) && maxProvidersPerTenant > 0
+        ? Math.min(200, maxProvidersPerTenant)
+        : effectiveMoneyRailReconcileMaxProvidersPerTenant;
+    const ids = Array.from(moneyRailAdaptersByProviderId.keys()).sort((a, b) => String(a).localeCompare(String(b)));
+    return ids.slice(0, safeMaxProviders);
+  }
+
   async function computeFinanceReconcileReport({
     tenantId,
     period,
@@ -7743,6 +8055,626 @@ export function createApi({
       triageQueue,
       triageSummary
     };
+  }
+
+  async function computeMoneyRailReconcileReport({
+    tenantId,
+    period,
+    providerId,
+    persist = false,
+    includeTriages = true
+  } = {}) {
+    const normalizedTenantId = normalizeTenant(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedPeriod = normalizeFinanceReconciliationPeriod(period, { fieldName: "period", allowNull: false });
+    const normalizedProviderId = normalizeNonEmptyStringOrNull(providerId) ?? defaultMoneyRailProviderId;
+
+    if (typeof store.listArtifacts !== "function") throw makeHttpStatusError(501, "artifacts not supported for this store");
+    const adapter = getMoneyRailAdapter(normalizedProviderId);
+    if (!adapter) throw makeHttpStatusError(404, "money rail provider not found");
+    if (typeof adapter.listOperations !== "function") {
+      throw makeHttpStatusError(409, "money rail provider does not support reconciliation listing");
+    }
+
+    const artifacts = await store.listArtifacts({ tenantId: normalizedTenantId });
+    const payoutInstructions = artifacts
+      .filter(
+        (artifact) =>
+          artifact?.artifactType === ARTIFACT_TYPE.PAYOUT_INSTRUCTION_V1 &&
+          String(artifact?.period ?? "") === String(normalizedPeriod)
+      )
+      .map((artifact) => {
+        const payoutKey =
+          typeof artifact?.payoutKey === "string" && artifact.payoutKey.trim() !== "" ? artifact.payoutKey.trim() : null;
+        const amountCents = Number.isSafeInteger(artifact?.payout?.amountCents) ? artifact.payout.amountCents : null;
+        const currency =
+          typeof artifact?.payout?.currency === "string" && artifact.payout.currency.trim() !== ""
+            ? artifact.payout.currency.trim().toUpperCase()
+            : "USD";
+        return {
+          artifactId: artifact?.artifactId ?? null,
+          artifactHash: artifact?.artifactHash ?? null,
+          payoutKey,
+          operationId: payoutKey ? `mop_${payoutKey}` : null,
+          amountCents,
+          currency,
+          partyId: typeof artifact?.partyId === "string" ? artifact.partyId : null,
+          partyRole: typeof artifact?.partyRole === "string" ? artifact.partyRole : null
+        };
+      })
+      .filter((row) => row.payoutKey && row.operationId && Number.isSafeInteger(row.amountCents))
+      .sort(
+        (a, b) =>
+          String(a.operationId).localeCompare(String(b.operationId)) ||
+          String(a.artifactId ?? "").localeCompare(String(b.artifactId ?? ""))
+      );
+
+    const expectedByOperationId = new Map();
+    const duplicateExpected = [];
+    for (const row of payoutInstructions) {
+      if (!expectedByOperationId.has(row.operationId)) {
+        expectedByOperationId.set(row.operationId, row);
+        continue;
+      }
+      const first = expectedByOperationId.get(row.operationId);
+      duplicateExpected.push({
+        operationId: row.operationId,
+        payoutKey: row.payoutKey,
+        primaryArtifactId: first?.artifactId ?? null,
+        duplicateArtifactId: row.artifactId ?? null
+      });
+    }
+
+    const listedOperationsRaw = await adapter.listOperations({ tenantId: normalizedTenantId });
+    const listedOperations = (Array.isArray(listedOperationsRaw) ? listedOperationsRaw : [])
+      .filter((operation) => {
+        if (!operation || typeof operation !== "object") return false;
+        if (String(operation?.direction ?? "").toLowerCase() !== "payout") return false;
+        const payoutKey = extractPayoutKeyFromMoneyRailOperation(operation);
+        return payoutKeyMatchesPeriod({ payoutKey, period: normalizedPeriod });
+      })
+      .sort((a, b) => String(a?.operationId ?? "").localeCompare(String(b?.operationId ?? "")));
+
+    const operationById = new Map();
+    const operationStateCounts = Object.fromEntries(
+      Object.values(MONEY_RAIL_OPERATION_STATE).map((state) => [state, 0])
+    );
+    for (const operation of listedOperations) {
+      const operationId = typeof operation?.operationId === "string" ? operation.operationId : null;
+      if (!operationId || operationById.has(operationId)) continue;
+      operationById.set(operationId, operation);
+      const state = String(operation?.state ?? "").toLowerCase();
+      if (state in operationStateCounts) operationStateCounts[state] += 1;
+    }
+
+    const missingOperations = [];
+    const amountMismatches = [];
+    const currencyMismatches = [];
+    const terminalFailures = [];
+    const unexpectedOperations = [];
+    let expectedPayoutAmountCents = 0;
+    let matchedCount = 0;
+    let settledCount = 0;
+    let inFlightCount = 0;
+    let cancelledCount = 0;
+    for (const expected of expectedByOperationId.values()) {
+      expectedPayoutAmountCents += expected.amountCents;
+      const operation = operationById.get(expected.operationId) ?? null;
+      if (!operation) {
+        missingOperations.push({
+          operationId: expected.operationId,
+          payoutKey: expected.payoutKey,
+          amountCents: expected.amountCents,
+          currency: expected.currency,
+          partyId: expected.partyId,
+          artifactId: expected.artifactId
+        });
+        continue;
+      }
+
+      const actualAmountCents = Number.isSafeInteger(operation?.amountCents) ? operation.amountCents : null;
+      if (actualAmountCents !== expected.amountCents) {
+        amountMismatches.push({
+          operationId: expected.operationId,
+          payoutKey: expected.payoutKey,
+          expectedAmountCents: expected.amountCents,
+          actualAmountCents
+        });
+      }
+
+      const actualCurrency =
+        typeof operation?.currency === "string" && operation.currency.trim() !== ""
+          ? operation.currency.trim().toUpperCase()
+          : null;
+      if (actualCurrency !== expected.currency) {
+        currencyMismatches.push({
+          operationId: expected.operationId,
+          payoutKey: expected.payoutKey,
+          expectedCurrency: expected.currency,
+          actualCurrency
+        });
+      }
+
+      const state = String(operation?.state ?? "").toLowerCase();
+      if (state === MONEY_RAIL_OPERATION_STATE.FAILED || state === MONEY_RAIL_OPERATION_STATE.REVERSED) {
+        terminalFailures.push({
+          operationId: expected.operationId,
+          payoutKey: expected.payoutKey,
+          state,
+          reasonCode: operation?.reasonCode ?? null
+        });
+      } else if (state === MONEY_RAIL_OPERATION_STATE.CONFIRMED) {
+        settledCount += 1;
+      } else if (state === MONEY_RAIL_OPERATION_STATE.CANCELLED) {
+        cancelledCount += 1;
+      } else {
+        inFlightCount += 1;
+      }
+
+      matchedCount += 1;
+    }
+
+    for (const operation of operationById.values()) {
+      const operationId = String(operation?.operationId ?? "");
+      if (expectedByOperationId.has(operationId)) continue;
+      unexpectedOperations.push({
+        operationId,
+        payoutKey: extractPayoutKeyFromMoneyRailOperation(operation),
+        amountCents: Number.isSafeInteger(operation?.amountCents) ? operation.amountCents : null,
+        currency: operation?.currency ?? null,
+        state: operation?.state ?? null,
+        reasonCode: operation?.reasonCode ?? null
+      });
+    }
+    unexpectedOperations.sort((a, b) => String(a.operationId).localeCompare(String(b.operationId)));
+
+    const criticalMismatchCount =
+      missingOperations.length +
+      amountMismatches.length +
+      currencyMismatches.length +
+      terminalFailures.length +
+      unexpectedOperations.length +
+      duplicateExpected.length;
+    const status = criticalMismatchCount === 0 ? "pass" : "fail";
+    const mismatchRows = {
+      missingOperations,
+      amountMismatches,
+      currencyMismatches,
+      terminalFailures,
+      unexpectedOperations,
+      duplicateExpected
+    };
+    const summary = {
+      expectedPayoutCount: expectedByOperationId.size,
+      expectedPayoutAmountCents,
+      operationCount: operationById.size,
+      matchedCount,
+      settledCount,
+      inFlightCount,
+      cancelledCount,
+      criticalMismatchCount,
+      operationStateCounts
+    };
+    const reportCore = normalizeForCanonicalJson(
+      {
+        schemaVersion: MONEY_RAIL_RECONCILE_REPORT_ARTIFACT_TYPE,
+        tenantId: normalizedTenantId,
+        period: normalizedPeriod,
+        providerId: normalizedProviderId,
+        status,
+        summary,
+        mismatches: mismatchRows
+      },
+      { path: "$" }
+    );
+    const reportHash = sha256Hex(canonicalJsonStringify(reportCore));
+
+    let artifactSummary = null;
+    if (persist) {
+      const artifactId = `money_rail_reconcile_${normalizedPeriod.replaceAll(/[^0-9a-zA-Z_-]/g, "_")}_${normalizedProviderId.replaceAll(
+        /[^0-9a-zA-Z_-]/g,
+        "_"
+      )}_${reportHash.slice(0, 24)}`;
+      const artifactBody = normalizeForCanonicalJson(
+        {
+          schemaVersion: MONEY_RAIL_RECONCILE_REPORT_ARTIFACT_TYPE,
+          artifactType: MONEY_RAIL_RECONCILE_REPORT_ARTIFACT_TYPE,
+          artifactId,
+          tenantId: normalizedTenantId,
+          period: normalizedPeriod,
+          providerId: normalizedProviderId,
+          generatedAt: nowIso(),
+          reportHash,
+          report: reportCore
+        },
+        { path: "$" }
+      );
+      const artifactHash = computeArtifactHash(artifactBody);
+      const artifact = { ...artifactBody, artifactHash };
+      let storedArtifact = artifact;
+      try {
+        await store.putArtifact({ tenantId: normalizedTenantId, artifact });
+      } catch (err) {
+        if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+        if (typeof store.getArtifact !== "function") throw err;
+        const existing = await store.getArtifact({ tenantId: normalizedTenantId, artifactId });
+        if (!existing || typeof existing?.artifactHash !== "string" || existing.artifactHash.trim() === "") throw err;
+        storedArtifact = existing;
+      }
+
+      let deliveriesCreated = 0;
+      if (typeof store.createDelivery === "function") {
+        const destinations = listDestinationsForTenant(normalizedTenantId).filter((d) => {
+          const allowed = Array.isArray(d?.artifactTypes) && d.artifactTypes.length ? d.artifactTypes : null;
+          return !allowed || allowed.includes(MONEY_RAIL_RECONCILE_REPORT_ARTIFACT_TYPE);
+        });
+        for (const dest of destinations) {
+          const resolvedArtifactHash = String(storedArtifact.artifactHash);
+          const dedupeKey = `${normalizedTenantId}:${dest.destinationId}:${MONEY_RAIL_RECONCILE_REPORT_ARTIFACT_TYPE}:${artifactId}:${resolvedArtifactHash}`;
+          const scopeKey = `money_rail_reconcile:period:${normalizedPeriod}:provider:${normalizedProviderId}`;
+          const orderSeq = Date.parse(artifactBody.generatedAt);
+          const priority = 96;
+          const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
+          try {
+            await store.createDelivery({
+              tenantId: normalizedTenantId,
+              delivery: {
+                destinationId: dest.destinationId,
+                artifactType: MONEY_RAIL_RECONCILE_REPORT_ARTIFACT_TYPE,
+                artifactId,
+                artifactHash: resolvedArtifactHash,
+                dedupeKey,
+                scopeKey,
+                orderSeq,
+                priority,
+                orderKey
+              }
+            });
+            deliveriesCreated += 1;
+          } catch (err) {
+            if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+            throw err;
+          }
+        }
+      }
+      artifactSummary = {
+        artifactId,
+        artifactHash: String(storedArtifact.artifactHash),
+        deliveriesCreated
+      };
+    }
+
+    const mismatchQueue = buildMoneyRailReconcileMismatchQueue({
+      period: normalizedPeriod,
+      providerId: normalizedProviderId,
+      mismatches: mismatchRows
+    });
+    const triageDecorated = includeTriages
+      ? await decorateReconciliationMismatchQueueWithTriages({
+          tenantId: normalizedTenantId,
+          period: normalizedPeriod,
+          sourceType: FINANCE_RECONCILIATION_TRIAGE_SOURCE_TYPE.MONEY_RAILS_RECONCILE,
+          providerId: normalizedProviderId,
+          queue: mismatchQueue
+        })
+      : { queue: null, summary: null };
+
+    return {
+      ok: true,
+      tenantId: normalizedTenantId,
+      period: normalizedPeriod,
+      providerId: normalizedProviderId,
+      status,
+      reportHash,
+      summary,
+      mismatches: mismatchRows,
+      artifact: artifactSummary,
+      triageQueue: triageDecorated.queue,
+      triageSummary: triageDecorated.summary
+    };
+  }
+
+  async function tickMoneyRailReconciliation({
+    tenantId = null,
+    period = null,
+    providerId = null,
+    maxTenants = effectiveMoneyRailReconcileMaxTenants,
+    maxPeriodsPerTenant = effectiveMoneyRailReconcileMaxPeriodsPerTenant,
+    maxProvidersPerTenant = effectiveMoneyRailReconcileMaxProvidersPerTenant,
+    force = false,
+    requireLock = false
+  } = {}) {
+    const startedAtWallMs = Date.now();
+    const startedAt = nowIso();
+    const startedAtMs = Date.parse(startedAt);
+    const scopedTenantId = tenantId === null || tenantId === undefined ? null : normalizeTenant(tenantId);
+    const normalizedPeriod = normalizeFinanceReconciliationPeriod(period, { fieldName: "period", allowNull: true });
+    const normalizedProviderId = normalizeNonEmptyStringOrNull(providerId);
+    const scope = scopedTenantId ? "tenant" : "global";
+    const safeMaxTenants =
+      Number.isSafeInteger(maxTenants) && maxTenants > 0 ? Math.min(1000, maxTenants) : effectiveMoneyRailReconcileMaxTenants;
+    const safeMaxPeriodsPerTenant =
+      Number.isSafeInteger(maxPeriodsPerTenant) && maxPeriodsPerTenant > 0
+        ? Math.min(24, maxPeriodsPerTenant)
+        : effectiveMoneyRailReconcileMaxPeriodsPerTenant;
+    const safeMaxProvidersPerTenant =
+      Number.isSafeInteger(maxProvidersPerTenant) && maxProvidersPerTenant > 0
+        ? Math.min(200, maxProvidersPerTenant)
+        : effectiveMoneyRailReconcileMaxProvidersPerTenant;
+
+    if (!effectiveMoneyRailReconcileEnabled) {
+      return {
+        ok: true,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        providerId: normalizedProviderId,
+        skipped: true,
+        reason: "disabled"
+      };
+    }
+    if (typeof store.listArtifacts !== "function") {
+      return {
+        ok: false,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        providerId: normalizedProviderId,
+        code: "ARTIFACT_STORE_UNSUPPORTED",
+        message: "artifacts not supported for this store"
+      };
+    }
+    if (moneyRailReconcileState.inFlight) {
+      return {
+        ok: false,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        providerId: normalizedProviderId,
+        code: "MAINTENANCE_ALREADY_RUNNING",
+        message: "money rail reconciliation maintenance is already running"
+      };
+    }
+    if (
+      force !== true &&
+      effectiveMoneyRailReconcileIntervalSeconds > 0 &&
+      Number.isFinite(moneyRailReconcileState.nextEligibleAtMs) &&
+      moneyRailReconcileState.nextEligibleAtMs > startedAtMs
+    ) {
+      return {
+        ok: true,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        providerId: normalizedProviderId,
+        skipped: true,
+        reason: "interval_not_elapsed",
+        nextEligibleAt: new Date(moneyRailReconcileState.nextEligibleAtMs).toISOString()
+      };
+    }
+
+    const lockKey = MONEY_RAIL_RECONCILE_ADVISORY_LOCK_KEY;
+    let locked = false;
+    let lockClient = null;
+
+    moneyRailReconcileState.inFlight = true;
+    moneyRailReconcileState.lastRunAt = startedAt;
+    moneyRailReconcileState.nextEligibleAtMs =
+      effectiveMoneyRailReconcileIntervalSeconds > 0
+        ? startedAtMs + effectiveMoneyRailReconcileIntervalSeconds * 1000
+        : startedAtMs;
+    try {
+      if (requireLock) {
+        if (store?.kind === "pg" && store?.pg?.pool) {
+          lockClient = await store.pg.pool.connect();
+          const res = await lockClient.query("SELECT pg_try_advisory_lock(hashtext($1)) AS ok", [lockKey]);
+          locked = Boolean(res.rows[0]?.ok);
+          if (!locked) {
+            try {
+              lockClient.release();
+            } catch {}
+            lockClient = null;
+            return {
+              ok: false,
+              code: "MAINTENANCE_ALREADY_RUNNING",
+              scope,
+              tenantId: scopedTenantId,
+              period: normalizedPeriod,
+              providerId: normalizedProviderId,
+              maxTenants: safeMaxTenants,
+              maxPeriodsPerTenant: safeMaxPeriodsPerTenant,
+              maxProvidersPerTenant: safeMaxProvidersPerTenant,
+              runtimeMs: Date.now() - startedAtWallMs
+            };
+          }
+        } else {
+          store.__moneyRailReconcileLockHeld = store.__moneyRailReconcileLockHeld === true;
+          if (store.__moneyRailReconcileLockHeld) {
+            return {
+              ok: false,
+              code: "MAINTENANCE_ALREADY_RUNNING",
+              scope,
+              tenantId: scopedTenantId,
+              period: normalizedPeriod,
+              providerId: normalizedProviderId,
+              maxTenants: safeMaxTenants,
+              maxPeriodsPerTenant: safeMaxPeriodsPerTenant,
+              maxProvidersPerTenant: safeMaxProvidersPerTenant,
+              runtimeMs: Date.now() - startedAtWallMs
+            };
+          }
+          store.__moneyRailReconcileLockHeld = true;
+          locked = true;
+        }
+      }
+
+      const tenantIds = listFinanceReconcileTenantIds({ tenantId: scopedTenantId, maxTenants: safeMaxTenants });
+      const results = [];
+      let attempted = 0;
+      let reconciled = 0;
+      let passCount = 0;
+      let failCount = 0;
+      let skippedNoInputs = 0;
+      let errored = 0;
+      let artifactsPersisted = 0;
+      let deliveriesCreated = 0;
+
+      for (const currentTenantId of tenantIds) {
+        const artifacts = await store.listArtifacts({ tenantId: currentTenantId });
+        const periods = normalizedPeriod
+          ? [normalizedPeriod]
+          : listMoneyRailReconcilePeriodsFromArtifacts({ artifacts, maxPeriodsPerTenant: safeMaxPeriodsPerTenant });
+        if (!periods.length) {
+          skippedNoInputs += 1;
+          results.push({ tenantId: currentTenantId, period: null, providerId: normalizedProviderId, status: "skipped", reason: "no_payout_instruction" });
+          continue;
+        }
+        const providerIds = listMoneyRailProviderIdsForReconcile({
+          providerId: normalizedProviderId,
+          maxProvidersPerTenant: safeMaxProvidersPerTenant
+        });
+        if (!providerIds.length) {
+          skippedNoInputs += 1;
+          results.push({ tenantId: currentTenantId, period: periods[0] ?? null, providerId: null, status: "skipped", reason: "no_provider" });
+          continue;
+        }
+        for (const currentPeriod of periods) {
+          for (const currentProviderId of providerIds) {
+            attempted += 1;
+            try {
+              // eslint-disable-next-line no-await-in-loop
+              const report = await computeMoneyRailReconcileReport({
+                tenantId: currentTenantId,
+                period: currentPeriod,
+                providerId: currentProviderId,
+                persist: true,
+                includeTriages: false
+              });
+              const status = String(report?.status ?? "unknown").toLowerCase();
+              reconciled += 1;
+              if (status === "pass") passCount += 1;
+              else failCount += 1;
+              if (report?.artifact) {
+                artifactsPersisted += 1;
+                deliveriesCreated += Number(report.artifact.deliveriesCreated ?? 0);
+              }
+              results.push({
+                tenantId: currentTenantId,
+                period: currentPeriod,
+                providerId: currentProviderId,
+                status,
+                reportHash: report?.reportHash ?? null,
+                artifactId: report?.artifact?.artifactId ?? null
+              });
+            } catch (err) {
+              const statusCode = Number(err?.statusCode);
+              if (statusCode === 404) {
+                skippedNoInputs += 1;
+                results.push({
+                  tenantId: currentTenantId,
+                  period: currentPeriod,
+                  providerId: currentProviderId,
+                  status: "skipped",
+                  reason: err?.message ?? "inputs_missing"
+                });
+                continue;
+              }
+              errored += 1;
+              results.push({
+                tenantId: currentTenantId,
+                period: currentPeriod,
+                providerId: currentProviderId,
+                status: "error",
+                code: err?.code ?? null,
+                error: err?.message ?? "unknown error"
+              });
+            }
+          }
+        }
+      }
+
+      const completedAt = nowIso();
+      const runtimeMs = Date.now() - startedAtWallMs;
+      const ok = errored === 0;
+      const summary = {
+        tenantCount: tenantIds.length,
+        attempted,
+        reconciled,
+        passCount,
+        failCount,
+        skippedNoInputs,
+        errored,
+        artifactsPersisted,
+        deliveriesCreated
+      };
+      const result = {
+        ok,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        providerId: normalizedProviderId,
+        force: force === true,
+        maxTenants: safeMaxTenants,
+        maxPeriodsPerTenant: safeMaxPeriodsPerTenant,
+        maxProvidersPerTenant: safeMaxProvidersPerTenant,
+        startedAt,
+        completedAt,
+        runtimeMs,
+        summary,
+        results
+      };
+
+      if (ok) moneyRailReconcileState.lastSuccessAt = completedAt;
+      moneyRailReconcileState.lastResult = result;
+      try {
+        store.__moneyRailReconcileLastRunAt = startedAt;
+        if (ok) store.__moneyRailReconcileLastSuccessAt = completedAt;
+        store.__moneyRailReconcileLastResult = result;
+      } catch {}
+
+      metricInc("maintenance_runs_total", { kind: "money_rails_reconcile", result: ok ? "ok" : "error", scope }, 1);
+      metricGauge("maintenance_last_run_ok_gauge", { kind: "money_rails_reconcile" }, ok ? 1 : 0);
+      if (!ok) metricInc("maintenance_fail_total", { kind: "money_rails_reconcile", scope }, 1);
+
+      return result;
+    } catch (err) {
+      const completedAt = nowIso();
+      const failure = {
+        ok: false,
+        scope,
+        tenantId: scopedTenantId,
+        period: normalizedPeriod,
+        providerId: normalizedProviderId,
+        startedAt,
+        completedAt,
+        runtimeMs: Date.now() - startedAtWallMs,
+        error: err?.message ?? "unknown error"
+      };
+      moneyRailReconcileState.lastResult = failure;
+      try {
+        store.__moneyRailReconcileLastRunAt = startedAt;
+        store.__moneyRailReconcileLastResult = failure;
+      } catch {}
+      metricInc("maintenance_runs_total", { kind: "money_rails_reconcile", result: "error", scope }, 1);
+      metricGauge("maintenance_last_run_ok_gauge", { kind: "money_rails_reconcile" }, 0);
+      metricInc("maintenance_fail_total", { kind: "money_rails_reconcile", scope }, 1);
+      return failure;
+    } finally {
+      moneyRailReconcileState.inFlight = false;
+      if (requireLock) {
+        if (lockClient) {
+          try {
+            await lockClient.query("SELECT pg_advisory_unlock(hashtext($1))", [lockKey]);
+          } catch {}
+          try {
+            lockClient.release();
+          } catch {}
+        } else if (locked && store && typeof store === "object") {
+          try {
+            store.__moneyRailReconcileLockHeld = false;
+          } catch {}
+        }
+      }
+    }
   }
 
   async function tickFinanceReconciliation({
@@ -8048,6 +8980,467 @@ export function createApi({
       overrides,
       hardLimitEnforced
     });
+  }
+
+  function normalizeOptionalNonNegativeSafeInt(value, { fieldName, allowNull = true } = {}) {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    const n = Number(value);
+    if (!Number.isSafeInteger(n) || n < 0) throw new TypeError(`${fieldName} must be a non-negative safe integer`);
+    return n;
+  }
+
+  const MONEY_RAIL_CHARGEBACK_NEGATIVE_BALANCE_MODE = Object.freeze({
+    HOLD: "hold",
+    NET: "net"
+  });
+
+  function normalizeMoneyRailChargebackNegativeBalanceMode(value, { fieldName = "moneyRails.chargebacks.negativeBalanceMode" } = {}) {
+    const normalized = normalizeNonEmptyStringOrNull(value);
+    if (normalized === null) return MONEY_RAIL_CHARGEBACK_NEGATIVE_BALANCE_MODE.HOLD;
+    const mode = String(normalized).toLowerCase();
+    if (
+      mode !== MONEY_RAIL_CHARGEBACK_NEGATIVE_BALANCE_MODE.HOLD &&
+      mode !== MONEY_RAIL_CHARGEBACK_NEGATIVE_BALANCE_MODE.NET
+    ) {
+      throw new TypeError(`${fieldName} must be hold|net`);
+    }
+    return mode;
+  }
+
+  function normalizeMoneyRailChargebackPolicy(value, { allowNull = true, nowAt = null } = {}) {
+    if (value === null || value === undefined) {
+      if (allowNull) return null;
+      return {
+        schemaVersion: "MoneyRailChargebackPolicy.v1",
+        enabled: false,
+        negativeBalanceMode: MONEY_RAIL_CHARGEBACK_NEGATIVE_BALANCE_MODE.HOLD,
+        maxOutstandingCents: null,
+        updatedAt: nowAt ?? null
+      };
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError("moneyRails.chargebacks must be an object or null");
+    }
+    return {
+      schemaVersion: "MoneyRailChargebackPolicy.v1",
+      enabled: value.enabled === true,
+      negativeBalanceMode: normalizeMoneyRailChargebackNegativeBalanceMode(value.negativeBalanceMode),
+      maxOutstandingCents: normalizeOptionalNonNegativeSafeInt(value.maxOutstandingCents, {
+        fieldName: "moneyRails.chargebacks.maxOutstandingCents",
+        allowNull: true
+      }),
+      updatedAt: normalizeBillingTimestampInput(value.updatedAt) ?? nowAt ?? null
+    };
+  }
+
+  function normalizeMoneyRailAllowedProviderIds(value, { fieldName = "moneyRails.allowedProviderIds" } = {}) {
+    if (value === null || value === undefined) return null;
+    if (!Array.isArray(value)) throw new TypeError(`${fieldName} must be an array or null`);
+    const out = [];
+    const seen = new Set();
+    for (const raw of value) {
+      const id = String(raw ?? "").trim();
+      if (!id) throw new TypeError(`${fieldName} entries must be non-empty strings`);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+    }
+    return out.length ? out : [];
+  }
+
+  function normalizeStripeConnectAccountId(value, { fieldName = "moneyRails.connect.accountId", allowNull = false } = {}) {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    const accountId = String(value).trim();
+    if (!/^acct_[A-Za-z0-9_]+$/.test(accountId)) {
+      throw new TypeError(`${fieldName} must match /^acct_[A-Za-z0-9_]+$/`);
+    }
+    return accountId;
+  }
+
+  const MONEY_RAIL_CONNECT_KYB_STATUS = Object.freeze({
+    PENDING: "pending",
+    RESTRICTED: "restricted",
+    VERIFIED: "verified",
+    REJECTED: "rejected",
+    UNKNOWN: "unknown"
+  });
+
+  function normalizeUniqueStringList(value, { fieldName, allowNull = true } = {}) {
+    if (value === null || value === undefined) {
+      if (allowNull) return [];
+      throw new TypeError(`${fieldName} is required`);
+    }
+    if (!Array.isArray(value)) throw new TypeError(`${fieldName} must be an array`);
+    const out = [];
+    const seen = new Set();
+    for (const entry of value) {
+      const v = normalizeNonEmptyStringOrNull(entry);
+      if (!v) continue;
+      if (seen.has(v)) continue;
+      seen.add(v);
+      out.push(v);
+    }
+    out.sort((a, b) => String(a).localeCompare(String(b)));
+    return out;
+  }
+
+  function normalizeMoneyRailConnectKybStatus(value, { fieldName = "moneyRails.connect.accounts[].kybStatus", allowNull = true } = {}) {
+    const normalized = normalizeNonEmptyStringOrNull(value);
+    if (!normalized) {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    const status = String(normalized).toLowerCase();
+    if (!Object.values(MONEY_RAIL_CONNECT_KYB_STATUS).includes(status)) {
+      throw new TypeError(
+        `${fieldName} must be ${Object.values(MONEY_RAIL_CONNECT_KYB_STATUS).join("|")}`
+      );
+    }
+    return status;
+  }
+
+  function normalizeMoneyRailConnectAccounts(value, { nowAt = null } = {}) {
+    if (value === null || value === undefined) return [];
+    if (!Array.isArray(value)) throw new TypeError("moneyRails.connect.accounts must be an array");
+    const out = [];
+    const seen = new Set();
+    for (const row of value) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        throw new TypeError("moneyRails.connect.accounts[] must be an object");
+      }
+      const accountId = normalizeStripeConnectAccountId(row.accountId, {
+        fieldName: "moneyRails.connect.accounts[].accountId",
+        allowNull: false
+      });
+      if (seen.has(accountId)) continue;
+      seen.add(accountId);
+      const partyId = normalizeNonEmptyStringOrNull(row.partyId);
+      const partyRole = normalizeNonEmptyStringOrNull(row.partyRole);
+      const statusRaw = normalizeNonEmptyStringOrNull(row.status) ?? "active";
+      const status = String(statusRaw).toLowerCase();
+      if (status !== "active" && status !== "disabled") {
+        throw new TypeError("moneyRails.connect.accounts[].status must be active|disabled");
+      }
+      out.push({
+        schemaVersion: "MoneyRailConnectAccount.v1",
+        accountId,
+        partyId,
+        partyRole,
+        payoutsEnabled: row.payoutsEnabled !== false,
+        transfersEnabled: row.transfersEnabled !== false,
+        status,
+        kybStatus: normalizeMoneyRailConnectKybStatus(row.kybStatus, {
+          fieldName: "moneyRails.connect.accounts[].kybStatus",
+          allowNull: true
+        }),
+        kybCurrentlyDue: normalizeUniqueStringList(row.kybCurrentlyDue, {
+          fieldName: "moneyRails.connect.accounts[].kybCurrentlyDue",
+          allowNull: true
+        }),
+        kybPendingVerification: normalizeUniqueStringList(row.kybPendingVerification, {
+          fieldName: "moneyRails.connect.accounts[].kybPendingVerification",
+          allowNull: true
+        }),
+        kybDisabledReason: normalizeNonEmptyStringOrNull(row.kybDisabledReason),
+        kybLastSyncAt: normalizeBillingTimestampInput(row.kybLastSyncAt) ?? null,
+        kybLastSyncError: normalizeNonEmptyStringOrNull(row.kybLastSyncError),
+        updatedAt: normalizeBillingTimestampInput(row.updatedAt) ?? nowAt ?? null
+      });
+    }
+    out.sort((a, b) => String(a.accountId).localeCompare(String(b.accountId)));
+    return out;
+  }
+
+  function normalizeMoneyRailConnectConfig(value, { allowNull = true, nowAt = null } = {}) {
+    if (value === null || value === undefined) {
+      if (allowNull) return null;
+      return {
+        schemaVersion: "MoneyRailConnectConfig.v1",
+        enabled: false,
+        defaultAccountId: null,
+        accounts: [],
+        updatedAt: nowAt ?? null
+      };
+    }
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new TypeError("moneyRails.connect must be an object or null");
+    }
+    const accounts = normalizeMoneyRailConnectAccounts(value.accounts ?? [], { nowAt });
+    const accountIds = new Set(accounts.map((row) => row.accountId));
+    const defaultAccountId = normalizeStripeConnectAccountId(value.defaultAccountId, {
+      fieldName: "moneyRails.connect.defaultAccountId",
+      allowNull: true
+    });
+    if (defaultAccountId !== null && !accountIds.has(defaultAccountId)) {
+      throw new TypeError("moneyRails.connect.defaultAccountId must reference an account in moneyRails.connect.accounts");
+    }
+    return {
+      schemaVersion: "MoneyRailConnectConfig.v1",
+      enabled: value.enabled === true,
+      defaultAccountId,
+      accounts,
+      updatedAt: normalizeBillingTimestampInput(value.updatedAt) ?? nowAt ?? null
+    };
+  }
+
+  function normalizeMoneyRailControls(input, { allowNull = true, defaultRealMoneyEnabled = false, nowAt = null } = {}) {
+    if (input === null || input === undefined) {
+      if (allowNull) return null;
+      return {
+        schemaVersion: "MoneyRailControls.v1",
+        realMoneyEnabled: defaultRealMoneyEnabled === true,
+        payoutKillSwitch: false,
+        maxPayoutAmountCents: null,
+        dailyPayoutLimitCents: null,
+        allowedProviderIds: null,
+        connect: null,
+        chargebacks: null,
+        updatedAt: nowAt ?? null
+      };
+    }
+    if (typeof input !== "object" || Array.isArray(input)) {
+      throw new TypeError("moneyRails must be an object or null");
+    }
+    return {
+      schemaVersion: "MoneyRailControls.v1",
+      realMoneyEnabled: input.realMoneyEnabled === true,
+      payoutKillSwitch: input.payoutKillSwitch === true,
+      maxPayoutAmountCents: normalizeOptionalNonNegativeSafeInt(input.maxPayoutAmountCents, {
+        fieldName: "moneyRails.maxPayoutAmountCents",
+        allowNull: true
+      }),
+      dailyPayoutLimitCents: normalizeOptionalNonNegativeSafeInt(input.dailyPayoutLimitCents, {
+        fieldName: "moneyRails.dailyPayoutLimitCents",
+        allowNull: true
+      }),
+      allowedProviderIds: normalizeMoneyRailAllowedProviderIds(input.allowedProviderIds),
+      connect: normalizeMoneyRailConnectConfig(input.connect ?? null, { allowNull: true, nowAt }),
+      chargebacks: normalizeMoneyRailChargebackPolicy(input.chargebacks ?? null, { allowNull: true, nowAt }),
+      updatedAt: normalizeBillingTimestampInput(input.updatedAt) ?? nowAt ?? null
+    };
+  }
+
+  function resolveTenantMoneyRailControls({ billingCfg = null } = {}) {
+    const normalized = normalizeMoneyRailControls(billingCfg?.moneyRails ?? null, {
+      allowNull: true,
+      defaultRealMoneyEnabled: false,
+      nowAt: null
+    });
+    if (normalized) return normalized;
+    return {
+      schemaVersion: "MoneyRailControls.v1",
+      realMoneyEnabled: false,
+      payoutKillSwitch: false,
+      maxPayoutAmountCents: null,
+      dailyPayoutLimitCents: null,
+      allowedProviderIds: null,
+      connect: normalizeMoneyRailConnectConfig(null, { allowNull: false, nowAt: null }),
+      chargebacks: normalizeMoneyRailChargebackPolicy(null, { allowNull: false, nowAt: null }),
+      updatedAt: null
+    };
+  }
+
+  function resolveStripeConnectAccountForPayout({ connectConfig, partyId } = {}) {
+    const connect = normalizeMoneyRailConnectConfig(connectConfig ?? null, { allowNull: false, nowAt: null });
+    if (connect.enabled !== true) {
+      return { ok: false, code: "STRIPE_CONNECT_DISABLED", message: "stripe connect payouts are disabled for this tenant" };
+    }
+    const isEligible = (row) =>
+      row &&
+      row.status === "active" &&
+      row.payoutsEnabled === true;
+    const accounts = Array.isArray(connect.accounts) ? connect.accounts : [];
+    const byParty = accounts.find((row) => row.partyId === partyId && isEligible(row)) ?? null;
+    if (byParty) return { ok: true, account: byParty };
+    const byDefault =
+      connect.defaultAccountId !== null
+        ? accounts.find((row) => row.accountId === connect.defaultAccountId && isEligible(row)) ?? null
+        : null;
+    if (byDefault) return { ok: true, account: byDefault };
+    return {
+      ok: false,
+      code: "STRIPE_CONNECT_ACCOUNT_REQUIRED",
+      message: "no active Stripe Connect account is configured for this payout party"
+    };
+  }
+
+  function isStripeMoneyRailProviderId(providerId) {
+    return typeof providerId === "string" && providerId.trim().toLowerCase().startsWith("stripe");
+  }
+
+  function parseStripeConnectAccountFromCounterpartyRef(counterpartyRef) {
+    const raw = normalizeNonEmptyStringOrNull(counterpartyRef);
+    if (!raw || !raw.startsWith("stripe_connect:")) return null;
+    const accountIdRaw = raw.slice("stripe_connect:".length);
+    try {
+      return normalizeStripeConnectAccountId(accountIdRaw, {
+        fieldName: "counterpartyRef",
+        allowNull: false
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  function deriveStripeConnectKybSnapshot(stripeAccount) {
+    const account = stripeAccount && typeof stripeAccount === "object" && !Array.isArray(stripeAccount) ? stripeAccount : {};
+    const requirements =
+      account.requirements && typeof account.requirements === "object" && !Array.isArray(account.requirements)
+        ? account.requirements
+        : {};
+    const payoutsEnabled = account.payouts_enabled === true;
+    const transfersEnabled = account.transfers_enabled === true;
+    const detailsSubmitted = account.details_submitted === true;
+    const kybCurrentlyDue = normalizeUniqueStringList(requirements.currently_due, {
+      fieldName: "requirements.currently_due",
+      allowNull: true
+    });
+    const kybPendingVerification = normalizeUniqueStringList(requirements.pending_verification, {
+      fieldName: "requirements.pending_verification",
+      allowNull: true
+    });
+    const kybDisabledReason =
+      normalizeNonEmptyStringOrNull(requirements.disabled_reason) ??
+      normalizeNonEmptyStringOrNull(account.disabled_reason);
+    let kybStatus = MONEY_RAIL_CONNECT_KYB_STATUS.UNKNOWN;
+    if (kybDisabledReason) {
+      kybStatus = MONEY_RAIL_CONNECT_KYB_STATUS.REJECTED;
+    } else if (
+      payoutsEnabled === true &&
+      transfersEnabled === true &&
+      detailsSubmitted === true &&
+      kybCurrentlyDue.length === 0 &&
+      kybPendingVerification.length === 0
+    ) {
+      kybStatus = MONEY_RAIL_CONNECT_KYB_STATUS.VERIFIED;
+    } else if (kybCurrentlyDue.length > 0 || kybPendingVerification.length > 0) {
+      kybStatus = MONEY_RAIL_CONNECT_KYB_STATUS.PENDING;
+    } else if (detailsSubmitted !== true) {
+      kybStatus = MONEY_RAIL_CONNECT_KYB_STATUS.RESTRICTED;
+    } else {
+      kybStatus = MONEY_RAIL_CONNECT_KYB_STATUS.PENDING;
+    }
+    return {
+      payoutsEnabled,
+      transfersEnabled,
+      kybStatus,
+      kybCurrentlyDue,
+      kybPendingVerification,
+      kybDisabledReason
+    };
+  }
+
+  function isMoneyRailExposureStateForDailyLimit(state) {
+    const normalized = String(state ?? "").trim().toLowerCase();
+    return (
+      normalized === MONEY_RAIL_OPERATION_STATE.INITIATED ||
+      normalized === MONEY_RAIL_OPERATION_STATE.SUBMITTED ||
+      normalized === MONEY_RAIL_OPERATION_STATE.CONFIRMED
+    );
+  }
+
+  function computeMoneyRailDailyPayoutExposureCents({ operations, dayKey }) {
+    const list = Array.isArray(operations) ? operations : [];
+    let total = 0;
+    for (const operation of list) {
+      if (!operation || typeof operation !== "object") continue;
+      if (String(operation.direction ?? "").trim().toLowerCase() !== "payout") continue;
+      if (!isMoneyRailExposureStateForDailyLimit(operation.state)) continue;
+      const initiatedAt = typeof operation.initiatedAt === "string" ? operation.initiatedAt : typeof operation.createdAt === "string" ? operation.createdAt : null;
+      if (!initiatedAt || initiatedAt.slice(0, 10) !== dayKey) continue;
+      const amountCents = Number(operation.amountCents);
+      if (!Number.isSafeInteger(amountCents) || amountCents <= 0) continue;
+      total += amountCents;
+    }
+    return total;
+  }
+
+  function normalizeMoneyRailOperationPartyId(operation) {
+    const fromMetadata = normalizeNonEmptyStringOrNull(operation?.metadata?.partyId);
+    if (fromMetadata) return fromMetadata;
+    const counterpartyRef = normalizeNonEmptyStringOrNull(operation?.counterpartyRef);
+    if (counterpartyRef && counterpartyRef.startsWith("party:")) {
+      const maybePartyId = normalizeNonEmptyStringOrNull(counterpartyRef.slice("party:".length));
+      if (maybePartyId) return maybePartyId;
+    }
+    return null;
+  }
+
+  function listMoneyRailOperationsChronological(operations) {
+    const list = Array.isArray(operations) ? operations.filter((row) => row && typeof row === "object" && !Array.isArray(row)) : [];
+    const keyed = list.map((row, idx) => ({ row, idx }));
+    keyed.sort((a, b) => {
+      const aAt = Date.parse(String(a.row?.initiatedAt ?? a.row?.createdAt ?? ""));
+      const bAt = Date.parse(String(b.row?.initiatedAt ?? b.row?.createdAt ?? ""));
+      const aMs = Number.isFinite(aAt) ? aAt : Number.MAX_SAFE_INTEGER;
+      const bMs = Number.isFinite(bAt) ? bAt : Number.MAX_SAFE_INTEGER;
+      if (aMs !== bMs) return aMs - bMs;
+      const byId = String(a.row?.operationId ?? "").localeCompare(String(b.row?.operationId ?? ""));
+      if (byId !== 0) return byId;
+      return a.idx - b.idx;
+    });
+    return keyed.map((entry) => entry.row);
+  }
+
+  function normalizeMoneyRailRecoveryAppliedCents(operation) {
+    const value = Number(operation?.metadata?.chargebackRecoveryAppliedCents);
+    if (!Number.isSafeInteger(value) || value <= 0) return 0;
+    return value;
+  }
+
+  function deriveMoneyRailChargebackExposureByParty({ operations, period = null } = {}) {
+    const normalizedPeriod = normalizeFinanceReconciliationPeriod(period, {
+      fieldName: "period",
+      allowNull: true
+    });
+    const rowsByPartyId = new Map();
+    const ordered = listMoneyRailOperationsChronological(operations);
+    for (const operation of ordered) {
+      if (String(operation?.direction ?? "").toLowerCase() !== MONEY_RAIL_DIRECTION.PAYOUT) continue;
+      const payoutKey = extractPayoutKeyFromMoneyRailOperation(operation);
+      if (normalizedPeriod && !payoutKeyMatchesPeriod({ payoutKey, period: normalizedPeriod })) continue;
+      const partyId = normalizeMoneyRailOperationPartyId(operation);
+      if (!partyId) continue;
+      const amountCents = Number(operation?.amountCents);
+      if (!Number.isSafeInteger(amountCents) || amountCents <= 0) continue;
+      const current = rowsByPartyId.get(partyId) ?? {
+        partyId,
+        outstandingCents: 0,
+        totalReversedAmountCents: 0,
+        totalRecoveredCents: 0,
+        reversedCount: 0,
+        recoveryCount: 0,
+        latestReversedAt: null
+      };
+      const state = String(operation?.state ?? "").toLowerCase();
+      if (state === MONEY_RAIL_OPERATION_STATE.REVERSED) {
+        current.outstandingCents += amountCents;
+        current.totalReversedAmountCents += amountCents;
+        current.reversedCount += 1;
+        current.latestReversedAt = operation?.reversedAt ?? operation?.updatedAt ?? operation?.initiatedAt ?? current.latestReversedAt ?? null;
+      }
+      if (
+        state === MONEY_RAIL_OPERATION_STATE.INITIATED ||
+        state === MONEY_RAIL_OPERATION_STATE.SUBMITTED ||
+        state === MONEY_RAIL_OPERATION_STATE.CONFIRMED
+      ) {
+        const requestedRecoveryCents = normalizeMoneyRailRecoveryAppliedCents(operation);
+        const appliedRecoveryCents = Math.min(current.outstandingCents, requestedRecoveryCents);
+        if (appliedRecoveryCents > 0) {
+          current.outstandingCents -= appliedRecoveryCents;
+          current.totalRecoveredCents += appliedRecoveryCents;
+          current.recoveryCount += 1;
+        }
+      }
+      rowsByPartyId.set(partyId, current);
+    }
+    return rowsByPartyId;
   }
 
   function normalizeBillingProvider(value) {
@@ -8537,10 +9930,14 @@ export function createApi({
     stripeCircuitState.consecutiveFailures = 0;
   }
 
-  async function stripeApiPostJson({ endpoint, formData }) {
+  async function stripeApiRequestJson({ method = "POST", endpoint, formData = null } = {}) {
     if (!effectiveBillingStripeSecretKey) throw new Error("stripe secret key is not configured");
     const fetchImpl = effectiveBillingStripeFetchFn ?? (typeof fetch === "function" ? fetch : null);
     if (!fetchImpl) throw new Error("global fetch is not available");
+    const requestMethod = String(method ?? "POST").trim().toUpperCase();
+    if (requestMethod !== "POST" && requestMethod !== "GET") {
+      throw new TypeError("stripe request method must be POST or GET");
+    }
     if (stripeCircuitState.openedUntilMs > Date.now()) {
       throw createStripeProviderError({
         message: "stripe circuit is open; request temporarily blocked",
@@ -8554,16 +9951,19 @@ export function createApi({
     const maxAttempts = Math.max(1, effectiveBillingStripeRetryMaxAttempts);
     let lastError = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      const body = new URLSearchParams(formData ?? {});
+      const requestHeaders = {
+        authorization: `Bearer ${effectiveBillingStripeSecretKey}`
+      };
+      const requestInit = {
+        method: requestMethod,
+        headers: requestHeaders
+      };
+      if (requestMethod === "POST") {
+        requestHeaders["content-type"] = "application/x-www-form-urlencoded";
+        requestInit.body = new URLSearchParams(formData ?? {});
+      }
       try {
-        const resp = await fetchImpl(target, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${effectiveBillingStripeSecretKey}`,
-            "content-type": "application/x-www-form-urlencoded"
-          },
-          body
-        });
+        const resp = await fetchImpl(target, requestInit);
         const text = await resp.text();
         let json = null;
         try {
@@ -8655,6 +10055,14 @@ export function createApi({
     });
   }
 
+  async function stripeApiPostJson({ endpoint, formData }) {
+    return stripeApiRequestJson({ method: "POST", endpoint, formData });
+  }
+
+  async function stripeApiGetJson({ endpoint }) {
+    return stripeApiRequestJson({ method: "GET", endpoint, formData: null });
+  }
+
   function isStripeNoSuchCustomerError(err) {
     const message = err && typeof err.message === "string" ? err.message : "";
     return /\bno such customer\b/i.test(message);
@@ -8735,7 +10143,8 @@ export function createApi({
     const overageUnitsRaw = Number(estimate.verifiedRunOverageUnits ?? 0);
     const overageUnits = Number.isSafeInteger(overageUnitsRaw) && overageUnitsRaw > 0 ? overageUnitsRaw : 0;
     const overageUnitCentsRaw = Number(estimate.verifiedRunOverageCentsPerUnit ?? 0);
-    const overageUnitCents = Number.isSafeInteger(overageUnitCentsRaw) && overageUnitCentsRaw >= 0 ? overageUnitCentsRaw : 0;
+    const overageUnitCents =
+      Number.isFinite(overageUnitCentsRaw) && overageUnitCentsRaw >= 0 ? Math.round(overageUnitCentsRaw * 1000) / 1000 : 0;
     const overageCentsRaw = Number(estimate.verifiedRunOverageCents ?? 0);
     const overageCents = Number.isSafeInteger(overageCentsRaw) && overageCentsRaw > 0 ? overageCentsRaw : 0;
     const settledFeeBpsRaw = Number(plan.settledVolumeFeeBps ?? estimate.settledVolumeFeeBps ?? 0);
@@ -9524,6 +10933,247 @@ export function createApi({
         settlementId: input?.settlementId ?? null,
         disputeId: input?.disputeId ?? null,
         arbitrationCaseId: input?.arbitrationCaseId ?? null,
+        context,
+        err
+      });
+      return null;
+    }
+  }
+
+  function normalizeReputationFactsWindowInput(value) {
+    const window = parseReputationWindow(value ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS);
+    if (window !== AGENT_REPUTATION_WINDOW.SEVEN_DAYS && window !== AGENT_REPUTATION_WINDOW.THIRTY_DAYS && window !== AGENT_REPUTATION_WINDOW.ALL_TIME) {
+      throw new TypeError("window must be one of 7d|30d|allTime");
+    }
+    return window;
+  }
+
+  function reputationWindowStartAt({ window, at = nowIso() } = {}) {
+    const nowMs = Date.parse(at);
+    if (!Number.isFinite(nowMs)) return null;
+    if (window === AGENT_REPUTATION_WINDOW.ALL_TIME) return null;
+    const days = window === AGENT_REPUTATION_WINDOW.SEVEN_DAYS ? 7 : 30;
+    return new Date(nowMs - days * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  function toSafeNonNegativeInt(value) {
+    const n = Number(value);
+    if (!Number.isSafeInteger(n) || n < 0) return null;
+    return n;
+  }
+
+  function computePercentile(values, percentile) {
+    if (!Array.isArray(values) || values.length === 0) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    const rank = Math.max(0, Math.ceil((Number(percentile) / 100) * sorted.length) - 1);
+    return sorted[Math.min(sorted.length - 1, rank)];
+  }
+
+  function computeReputationFactsAggregate({ events = [] } = {}) {
+    const totals = {
+      eventCount: 0,
+      decisions: { total: 0, approved: 0, rejected: 0 },
+      disputes: { opened: 0, payerWin: 0, payeeWin: 0, partial: 0, rate: null },
+      slaBreaches: { count: 0, rate: null },
+      economics: {
+        settledCents: 0,
+        refundedCents: 0,
+        penalizedCents: 0,
+        autoReleasedCents: 0,
+        adjustmentAppliedCents: 0
+      }
+    };
+    const latencies = [];
+
+    for (const event of events) {
+      if (!event || typeof event !== "object" || Array.isArray(event)) continue;
+      totals.eventCount += 1;
+      const eventKind = String(event.eventKind ?? "").toLowerCase();
+      const facts = event.facts && typeof event.facts === "object" && !Array.isArray(event.facts) ? event.facts : {};
+
+      if (eventKind === REPUTATION_EVENT_KIND.DECISION_APPROVED) {
+        totals.decisions.total += 1;
+        totals.decisions.approved += 1;
+      } else if (eventKind === REPUTATION_EVENT_KIND.DECISION_REJECTED) {
+        totals.decisions.total += 1;
+        totals.decisions.rejected += 1;
+      } else if (eventKind === REPUTATION_EVENT_KIND.DISPUTE_OPENED) {
+        totals.disputes.opened += 1;
+      } else if (eventKind === REPUTATION_EVENT_KIND.VERDICT_ISSUED) {
+        const outcome = String(facts.verdictOutcome ?? "").toLowerCase();
+        if (outcome === "payer_win") totals.disputes.payerWin += 1;
+        else if (outcome === "payee_win") totals.disputes.payeeWin += 1;
+        else if (outcome === "partial") totals.disputes.partial += 1;
+      } else if (eventKind === REPUTATION_EVENT_KIND.HOLDBACK_AUTO_RELEASED) {
+        const autoReleasedCents = toSafeNonNegativeInt(facts.autoReleasedCents ?? facts.amountCents);
+        if (autoReleasedCents !== null) totals.economics.autoReleasedCents += autoReleasedCents;
+      } else if (eventKind === REPUTATION_EVENT_KIND.ADJUSTMENT_APPLIED) {
+        const adjustmentAmountCents = toSafeNonNegativeInt(facts.amountCents);
+        if (adjustmentAmountCents !== null) totals.economics.adjustmentAppliedCents += adjustmentAmountCents;
+      }
+
+      const settledCents = toSafeNonNegativeInt(facts.amountSettledCents);
+      if (settledCents !== null) totals.economics.settledCents += settledCents;
+      const refundedCents = toSafeNonNegativeInt(facts.amountRefundedCents);
+      if (refundedCents !== null) totals.economics.refundedCents += refundedCents;
+      const penalizedCents = toSafeNonNegativeInt(facts.amountPenalizedCents);
+      if (penalizedCents !== null) totals.economics.penalizedCents += penalizedCents;
+
+      const latencyMs = toSafeNonNegativeInt(facts.latencyMs);
+      if (latencyMs !== null) latencies.push(latencyMs);
+      if (facts.slaBreached === true) totals.slaBreaches.count += 1;
+    }
+
+    totals.disputes.rate = totals.decisions.total > 0 ? Number((totals.disputes.opened / totals.decisions.total).toFixed(6)) : null;
+    totals.slaBreaches.rate = totals.decisions.total > 0 ? Number((totals.slaBreaches.count / totals.decisions.total).toFixed(6)) : null;
+    return {
+      totals,
+      latencyMs: {
+        count: latencies.length,
+        p50: computePercentile(latencies, 50),
+        p95: computePercentile(latencies, 95)
+      }
+    };
+  }
+
+  async function listReputationEventArtifactsAll({ tenantId, pageSize = 1000 } = {}) {
+    if (typeof store.listArtifacts !== "function") return [];
+    const safePageSize = Number.isSafeInteger(pageSize) && pageSize > 0 ? Math.min(1000, pageSize) : 1000;
+    if (store.kind !== "pg") {
+      const rows = await store.listArtifacts({ tenantId, artifactType: REPUTATION_EVENT_SCHEMA_VERSION });
+      return Array.isArray(rows) ? rows : [];
+    }
+    let offset = 0;
+    const out = [];
+    while (true) {
+      const chunk = await store.listArtifacts({
+        tenantId,
+        artifactType: REPUTATION_EVENT_SCHEMA_VERSION,
+        limit: safePageSize,
+        offset
+      });
+      if (!Array.isArray(chunk) || chunk.length === 0) break;
+      out.push(...chunk);
+      if (chunk.length < safePageSize) break;
+      offset += chunk.length;
+    }
+    return out;
+  }
+
+  async function listReputationEventArtifactsBySubject({
+    tenantId,
+    agentId,
+    toolId = null,
+    occurredAtGte = null,
+    occurredAtLte = null,
+    pageSize = 1000
+  } = {}) {
+    if (typeof store.listReputationEvents === "function") {
+      return await store.listReputationEvents({
+        tenantId,
+        agentId,
+        toolId,
+        occurredAtGte,
+        occurredAtLte,
+        limit: pageSize,
+        offset: 0
+      });
+    }
+    return listReputationEventArtifactsAll({ tenantId, pageSize });
+  }
+
+  async function emitReputationEvent({
+    tenantId,
+    eventId,
+    occurredAt = nowIso(),
+    eventKind,
+    subject,
+    sourceRef,
+    facts = {},
+    priority = 72
+  } = {}) {
+    if (typeof store.putArtifact !== "function") return null;
+    const body = buildReputationEventV1({
+      eventId,
+      tenantId,
+      occurredAt,
+      eventKind,
+      subject,
+      sourceRef,
+      facts
+    });
+    validateReputationEventV1(body);
+
+    let artifact = null;
+    const proposed = { ...body, artifactHash: computeArtifactHash(body) };
+    try {
+      artifact = await store.putArtifact({ tenantId, artifact: proposed });
+    } catch (err) {
+      if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+      if (typeof store.getArtifact !== "function") throw err;
+      artifact = await store.getArtifact({ tenantId, artifactId: proposed.artifactId });
+      if (!artifact) throw err;
+    }
+
+    if (typeof store.createDelivery !== "function") {
+      return {
+        artifactId: artifact.artifactId,
+        artifactHash: artifact.artifactHash,
+        deliveriesCreated: 0
+      };
+    }
+
+    const destinations = listDestinationsForTenant(tenantId).filter((destination) => {
+      const allowed = Array.isArray(destination?.artifactTypes) && destination.artifactTypes.length ? destination.artifactTypes : null;
+      return !allowed || allowed.includes(REPUTATION_EVENT_SCHEMA_VERSION);
+    });
+    let deliveriesCreated = 0;
+    for (const destination of destinations) {
+      const dedupeKey = `${tenantId}:${destination.destinationId}:${REPUTATION_EVENT_SCHEMA_VERSION}:${artifact.artifactId}:${artifact.artifactHash}`;
+      const scopeKey =
+        String(sourceRef?.runId ?? "") ||
+        String(sourceRef?.agreementHash ?? "") ||
+        String(sourceRef?.settlementId ?? "") ||
+        String(subject?.agentId ?? "") ||
+        String(artifact.artifactId ?? "");
+      const orderSeq = Date.parse(String(occurredAt ?? nowIso())) || 0;
+      const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifact.artifactId}`;
+      try {
+        await store.createDelivery({
+          tenantId,
+          delivery: {
+            destinationId: destination.destinationId,
+            artifactType: REPUTATION_EVENT_SCHEMA_VERSION,
+            artifactId: artifact.artifactId,
+            artifactHash: artifact.artifactHash,
+            dedupeKey,
+            scopeKey,
+            orderSeq,
+            priority,
+            orderKey
+          }
+        });
+        deliveriesCreated += 1;
+      } catch (err) {
+        if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+        throw err;
+      }
+    }
+    return {
+      artifactId: artifact.artifactId,
+      artifactHash: artifact.artifactHash,
+      deliveriesCreated
+    };
+  }
+
+  async function emitReputationEventBestEffort(input, { context = null } = {}) {
+    try {
+      return await emitReputationEvent(input);
+    } catch (err) {
+      logger.warn("reputation.event.emit_failed", {
+        tenantId: input?.tenantId ?? null,
+        eventId: input?.eventId ?? null,
+        eventKind: input?.eventKind ?? null,
         context,
         err
       });
@@ -10818,6 +12468,74 @@ export function createApi({
         signature
       }
     };
+  }
+
+  async function parseSignedDisputeOpenEnvelope({
+    tenantId,
+    disputeOpenEnvelopeInput,
+    expectedCaseId,
+    expectedAgreementHash,
+    expectedReceiptHash,
+    expectedHoldHash
+  } = {}) {
+    if (!disputeOpenEnvelopeInput || typeof disputeOpenEnvelopeInput !== "object" || Array.isArray(disputeOpenEnvelopeInput)) {
+      throw new TypeError("disputeOpenEnvelope must be an object");
+    }
+    validateDisputeOpenEnvelopeV1(disputeOpenEnvelopeInput);
+    const envelope = normalizeForCanonicalJson(disputeOpenEnvelopeInput, { path: "$" });
+    if (String(envelope.schemaVersion ?? "") !== DISPUTE_OPEN_ENVELOPE_SCHEMA_VERSION) {
+      throw new TypeError(`disputeOpenEnvelope.schemaVersion must be ${DISPUTE_OPEN_ENVELOPE_SCHEMA_VERSION}`);
+    }
+    if (String(envelope.tenantId ?? "") !== String(normalizeTenant(tenantId))) {
+      throw new TypeError("disputeOpenEnvelope.tenantId must match tenant");
+    }
+
+    const caseId = typeof envelope.caseId === "string" && envelope.caseId.trim() !== "" ? envelope.caseId.trim() : null;
+    if (!caseId) throw new TypeError("disputeOpenEnvelope.caseId is required");
+    if (expectedCaseId && caseId !== String(expectedCaseId)) {
+      throw new TypeError("disputeOpenEnvelope.caseId does not match deterministic case id");
+    }
+
+    if (expectedAgreementHash && String(envelope.agreementHash ?? "").toLowerCase() !== String(expectedAgreementHash).toLowerCase()) {
+      throw new TypeError("disputeOpenEnvelope.agreementHash mismatch");
+    }
+    if (expectedReceiptHash && String(envelope.receiptHash ?? "").toLowerCase() !== String(expectedReceiptHash).toLowerCase()) {
+      throw new TypeError("disputeOpenEnvelope.receiptHash mismatch");
+    }
+    if (expectedHoldHash && String(envelope.holdHash ?? "").toLowerCase() !== String(expectedHoldHash).toLowerCase()) {
+      throw new TypeError("disputeOpenEnvelope.holdHash mismatch");
+    }
+
+    const openedByAgentId =
+      typeof envelope.openedByAgentId === "string" && envelope.openedByAgentId.trim() !== ""
+        ? envelope.openedByAgentId.trim()
+        : null;
+    if (!openedByAgentId) throw new TypeError("disputeOpenEnvelope.openedByAgentId is required");
+    const openerIdentity = await getAgentIdentityRecord({ tenantId, agentId: openedByAgentId });
+    if (!openerIdentity) throw new TypeError("disputeOpenEnvelope.openedByAgentId not found");
+
+    const signerKeyId =
+      typeof envelope.signerKeyId === "string" && envelope.signerKeyId.trim() !== "" ? envelope.signerKeyId.trim() : null;
+    if (!signerKeyId) throw new TypeError("disputeOpenEnvelope.signerKeyId is required");
+    const expectedAgentKeyId = String(openerIdentity?.keys?.keyId ?? "");
+    if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
+      throw new TypeError("disputeOpenEnvelope.signerKeyId does not match openedByAgentId key");
+    }
+
+    const envelopeHash = normalizeSha256HashInput(envelope.envelopeHash, "disputeOpenEnvelope.envelopeHash", {
+      allowNull: false
+    });
+    const signature =
+      typeof envelope.signature === "string" && envelope.signature.trim() !== "" ? envelope.signature.trim() : null;
+    if (!signature) throw new TypeError("disputeOpenEnvelope.signature is required");
+    const publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+    const isValid = verifyHashHexEd25519({
+      hashHex: envelopeHash,
+      signatureBase64: signature,
+      publicKeyPem
+    });
+    if (!isValid) throw new TypeError("invalid disputeOpenEnvelope signature");
+    return envelope;
   }
 
   function assertArbitrationVerdictEvidenceBoundToDisputeContext({ settlement, arbitrationVerdict } = {}) {
@@ -12479,6 +14197,69 @@ export function createApi({
       }
     }
     return { artifactId, artifactHash, deliveriesCreated, verdictHash: verdict.verdictHash ?? null };
+  }
+
+  async function emitDisputeOpenEnvelopeArtifact({
+    tenantId,
+    runId,
+    settlement,
+    disputeOpenEnvelope
+  } = {}) {
+    if (!disputeOpenEnvelope || typeof disputeOpenEnvelope !== "object" || Array.isArray(disputeOpenEnvelope)) return null;
+    if (typeof store.putArtifact !== "function" || typeof store.createDelivery !== "function") return null;
+    validateDisputeOpenEnvelopeV1(disputeOpenEnvelope);
+    const artifactType = DISPUTE_OPEN_ENVELOPE_SCHEMA_VERSION;
+    const artifactId = typeof disputeOpenEnvelope.artifactId === "string" ? disputeOpenEnvelope.artifactId.trim() : "";
+    if (!artifactId) return null;
+    const body = normalizeForCanonicalJson(
+      {
+        ...disputeOpenEnvelope,
+        schemaVersion: artifactType,
+        artifactType,
+        artifactId
+      },
+      { path: "$" }
+    );
+    const artifactHash = computeArtifactHash(body);
+    const artifact = { ...body, artifactHash };
+    try {
+      await store.putArtifact({ tenantId, artifact });
+    } catch (err) {
+      if (err?.code !== "ARTIFACT_HASH_MISMATCH") throw err;
+    }
+    const destinations = listDestinationsForTenant(tenantId).filter((destination) => {
+      const allowed = Array.isArray(destination?.artifactTypes) && destination.artifactTypes.length ? destination.artifactTypes : null;
+      return !allowed || allowed.includes(artifactType);
+    });
+    let deliveriesCreated = 0;
+    for (const destination of destinations) {
+      const dedupeKey = `${tenantId}:${destination.destinationId}:${artifactType}:${artifactId}:${artifactHash}`;
+      const scopeKey = String(runId ?? settlement?.settlementId ?? disputeOpenEnvelope.caseId ?? artifactId);
+      const orderSeq = Date.parse(disputeOpenEnvelope.openedAt ?? nowIso()) || 0;
+      const priority = 76;
+      const orderKey = `${scopeKey}\n${String(orderSeq)}\n${String(priority)}\n${artifactId}`;
+      try {
+        await store.createDelivery({
+          tenantId,
+          delivery: {
+            destinationId: destination.destinationId,
+            artifactType,
+            artifactId,
+            artifactHash,
+            dedupeKey,
+            scopeKey,
+            orderSeq,
+            priority,
+            orderKey
+          }
+        });
+        deliveriesCreated += 1;
+      } catch (err) {
+        if (err?.code === "DELIVERY_DEDUPE_CONFLICT") continue;
+        throw err;
+      }
+    }
+    return { artifactId, artifactHash, deliveriesCreated, envelopeHash: disputeOpenEnvelope.envelopeHash ?? null };
   }
 
   async function emitArbitrationCaseArtifact({
@@ -14339,7 +16120,7 @@ export function createApi({
         if (!rateLimitExempt) {
           const rate = takeRateLimitToken({ tenantId });
           if (!rate.ok) {
-            metricInc("rate_limited_total", null, 1);
+            metricInc("rate_limited_total", { scope: "tenant" }, 1);
             try {
               res.setHeader("retry-after", String(rate.retryAfterSeconds));
             } catch {
@@ -14362,6 +16143,19 @@ export function createApi({
           : await authenticateRequest({ req, store, tenantId, legacyTokenScopes: opsTokenScopes, nowIso });
         if (!authExempt && !auth.ok) return sendError(res, 403, "forbidden", null, { code: "FORBIDDEN" });
         if (auth.ok && auth.principalId) principalId = auth.principalId;
+
+        if (!rateLimitExempt && auth.ok && auth.method === "api_key") {
+          const keyRate = takeApiKeyRateLimitToken({ tenantId, apiKeyId: auth.keyId ?? null });
+          if (!keyRate.ok) {
+            metricInc("rate_limited_total", { scope: "api_key" }, 1);
+            try {
+              res.setHeader("retry-after", String(keyRate.retryAfterSeconds));
+            } catch {
+              // ignore
+            }
+            return sendError(res, 429, "rate limit exceeded", null, { code: "RATE_LIMITED" });
+          }
+        }
 
         try {
           const ctx = getLogContext();
@@ -15398,6 +17192,238 @@ export function createApi({
           });
         }
 
+        if (parts[1] === "tool-calls" && parts[2] === "replay-evaluate" && parts.length === 3 && req.method === "GET") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+          let agreementHash = null;
+          try {
+            agreementHash = normalizeSha256HashInput(url.searchParams.get("agreementHash"), "agreementHash", { allowNull: false });
+          } catch (err) {
+            return sendError(res, 400, "invalid agreementHash", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const nowAt = nowIso();
+          const runId = `tc_${agreementHash}`;
+          const caseId = `arb_case_tc_${agreementHash}`;
+          const adjustmentId = `sadj_agmt_${agreementHash}_holdback`;
+
+          let holds = [];
+          try {
+            holds = await listToolCallHoldRecords({ tenantId, agreementHash, status: null, limit: 1000, offset: 0 });
+          } catch (err) {
+            return sendError(res, 501, "tool call holds not supported for this store", { message: err?.message });
+          }
+          if (!Array.isArray(holds) || holds.length === 0) {
+            return sendError(res, 404, "tool call hold not found for agreementHash", null, { code: "TOOL_CALL_HOLD_NOT_FOUND" });
+          }
+          if (holds.length > 1) {
+            return sendError(
+              res,
+              409,
+              "multiple tool-call holds found for agreementHash",
+              {
+                count: holds.length,
+                holdHashes: holds.map((row) => String(row?.holdHash ?? "")).filter(Boolean)
+              },
+              { code: "TOOL_CALL_REPLAY_HOLD_AMBIGUOUS" }
+            );
+          }
+          const hold = holds[0];
+
+          let holdValid = true;
+          let holdValidationError = null;
+          try {
+            validateFundingHoldV1(hold);
+          } catch (err) {
+            holdValid = false;
+            holdValidationError = err?.message ?? "invalid funding hold";
+          }
+
+          let arbitrationCase = null;
+          try {
+            arbitrationCase = await getArbitrationCaseRecord({ tenantId, caseId });
+          } catch (err) {
+            return sendError(res, 501, "arbitration cases not supported for this store", { message: err?.message });
+          }
+          const caseMeta =
+            arbitrationCase?.metadata && typeof arbitrationCase.metadata === "object" && !Array.isArray(arbitrationCase.metadata)
+              ? arbitrationCase.metadata
+              : null;
+          const caseBindingsValid = arbitrationCase
+            ? Boolean(
+                caseMeta &&
+                  String(caseMeta.caseType ?? "").toLowerCase() === "tool_call" &&
+                  String(caseMeta.agreementHash ?? "").toLowerCase() === agreementHash &&
+                  String(caseMeta.receiptHash ?? "").toLowerCase() === String(hold?.receiptHash ?? "").toLowerCase() &&
+                  String(caseMeta.holdHash ?? "").toLowerCase() === String(hold?.holdHash ?? "").toLowerCase()
+              )
+            : true;
+
+          let normalizedCaseStatus = null;
+          let caseStatusError = null;
+          if (arbitrationCase) {
+            try {
+              normalizedCaseStatus = normalizeArbitrationCaseStatus(arbitrationCase.status, { fieldName: "arbitrationCase.status" });
+            } catch (err) {
+              caseStatusError = err?.message ?? "invalid arbitration case status";
+            }
+          }
+
+          let settlementAdjustment = null;
+          try {
+            settlementAdjustment = await getSettlementAdjustmentRecord({ tenantId, adjustmentId });
+          } catch (err) {
+            return sendError(res, 501, "settlement adjustments not supported for this store", { message: err?.message });
+          }
+
+          let adjustmentValid = true;
+          let adjustmentValidationError = null;
+          if (settlementAdjustment) {
+            try {
+              validateSettlementAdjustmentV1(settlementAdjustment);
+            } catch (err) {
+              adjustmentValid = false;
+              adjustmentValidationError = err?.message ?? "invalid settlement adjustment";
+            }
+          }
+          const adjustmentDeterministicIdMatch = settlementAdjustment ? String(settlementAdjustment.adjustmentId ?? "") === adjustmentId : true;
+
+          const verdictId =
+            arbitrationCase && typeof arbitrationCase?.verdictId === "string" && arbitrationCase.verdictId.trim() !== ""
+              ? arbitrationCase.verdictId.trim()
+              : null;
+          const verdictArtifactId = verdictId ? `arbitration_verdict_${verdictId}` : null;
+          let arbitrationVerdictArtifact = null;
+          let verdictArtifactError = null;
+          if (verdictArtifactId) {
+            if (typeof store.getArtifact !== "function") {
+              verdictArtifactError = "artifacts not supported for this store";
+            } else {
+              try {
+                arbitrationVerdictArtifact = await store.getArtifact({ tenantId, artifactId: verdictArtifactId });
+              } catch (err) {
+                verdictArtifactError = err?.message ?? "failed to fetch arbitration verdict artifact";
+              }
+            }
+          }
+          const verdictArtifactBindingsValid = verdictArtifactId
+            ? Boolean(
+                arbitrationVerdictArtifact &&
+                  String(arbitrationVerdictArtifact?.schemaVersion ?? "") === "ArbitrationVerdict.v1" &&
+                  String(arbitrationVerdictArtifact?.caseId ?? "") === String(arbitrationCase?.caseId ?? "") &&
+                  String(arbitrationVerdictArtifact?.runId ?? "") === String(arbitrationCase?.runId ?? "") &&
+                  String(arbitrationVerdictArtifact?.disputeId ?? "") === String(arbitrationCase?.disputeId ?? "") &&
+                  String(arbitrationVerdictArtifact?.settlementId ?? "") === String(arbitrationCase?.settlementId ?? "") &&
+                  String(arbitrationVerdictArtifact?.verdictId ?? "") === String(verdictId) &&
+                  (!arbitrationCase?.verdictHash ||
+                    String(arbitrationVerdictArtifact?.signature?.verdictHash ?? "").toLowerCase() ===
+                      String(arbitrationCase?.verdictHash ?? "").toLowerCase())
+              )
+            : true;
+
+          let stage = "no_dispute";
+          if (arbitrationCase) {
+            stage = normalizedCaseStatus === ARBITRATION_CASE_STATUS.CLOSED ? "terminal_dispute" : "active_dispute";
+          }
+
+          const expected = {
+            adjustmentId,
+            adjustmentRequired: false,
+            adjustmentKind: null,
+            adjustmentAmountCents: null,
+            holdStatus: null
+          };
+
+          if (stage === "active_dispute") {
+            expected.adjustmentRequired = false;
+            expected.holdStatus = FUNDING_HOLD_STATUS.HELD;
+          } else if (stage === "terminal_dispute") {
+            const releaseRatePct = Number(arbitrationVerdictArtifact?.releaseRatePct);
+            const binaryVerdict = Number.isSafeInteger(releaseRatePct) && (releaseRatePct === 0 || releaseRatePct === 100);
+            if (binaryVerdict) {
+              expected.adjustmentRequired = true;
+              expected.adjustmentKind =
+                releaseRatePct === 100 ? SETTLEMENT_ADJUSTMENT_KIND.HOLDBACK_RELEASE : SETTLEMENT_ADJUSTMENT_KIND.HOLDBACK_REFUND;
+              expected.adjustmentAmountCents = Number(hold?.heldAmountCents ?? 0);
+              expected.holdStatus =
+                releaseRatePct === 100 ? FUNDING_HOLD_STATUS.RELEASED : FUNDING_HOLD_STATUS.REFUNDED;
+            }
+          } else {
+            expected.adjustmentRequired = false;
+            expected.holdStatus = null;
+          }
+
+          const holdStatusMatchesExpected =
+            expected.holdStatus === null
+              ? true
+              : String(hold?.status ?? "").toLowerCase() === String(expected.holdStatus).toLowerCase();
+
+          const adjustmentMatchesExpected = expected.adjustmentRequired
+            ? Boolean(
+                settlementAdjustment &&
+                  String(settlementAdjustment.kind ?? "").toLowerCase() === String(expected.adjustmentKind ?? "").toLowerCase() &&
+                  Number(settlementAdjustment.amountCents ?? -1) === Number(expected.adjustmentAmountCents ?? -2) &&
+                  String(settlementAdjustment.agreementHash ?? "").toLowerCase() === agreementHash &&
+                  String(settlementAdjustment.receiptHash ?? "").toLowerCase() === String(hold?.receiptHash ?? "").toLowerCase() &&
+                  String(settlementAdjustment.holdHash ?? "").toLowerCase() === String(hold?.holdHash ?? "").toLowerCase()
+              )
+            : settlementAdjustment === null;
+
+          const issues = [];
+          if (!holdValid) issues.push(`HOLD_INVALID:${holdValidationError ?? "unknown"}`);
+          if (!caseBindingsValid) issues.push("CASE_BINDING_INVALID");
+          if (caseStatusError) issues.push(`CASE_STATUS_INVALID:${caseStatusError}`);
+          if (!adjustmentValid) issues.push(`ADJUSTMENT_INVALID:${adjustmentValidationError ?? "unknown"}`);
+          if (!adjustmentDeterministicIdMatch) issues.push("ADJUSTMENT_ID_NOT_DETERMINISTIC");
+          if (!verdictArtifactBindingsValid) issues.push("VERDICT_ARTIFACT_BINDING_INVALID");
+          if (verdictArtifactError) issues.push(`VERDICT_ARTIFACT_ERROR:${verdictArtifactError}`);
+          if (!holdStatusMatchesExpected) issues.push("HOLD_STATUS_MISMATCH");
+          if (!adjustmentMatchesExpected) issues.push("ADJUSTMENT_MISMATCH");
+          if (stage === "terminal_dispute" && expected.adjustmentRequired !== true) {
+            issues.push("TERMINAL_DISPUTE_REPLAY_INCOMPLETE");
+          }
+
+          const chainConsistent =
+            holdValid &&
+            caseBindingsValid &&
+            !caseStatusError &&
+            adjustmentValid &&
+            adjustmentDeterministicIdMatch &&
+            verdictArtifactBindingsValid &&
+            holdStatusMatchesExpected &&
+            adjustmentMatchesExpected &&
+            (stage !== "terminal_dispute" || expected.adjustmentRequired === true);
+
+          return sendJson(res, 200, {
+            ok: true,
+            tenantId,
+            agreementHash,
+            runId,
+            replay: {
+              computedAt: nowAt,
+              stage,
+              expected
+            },
+            stored: {
+              hold,
+              arbitrationCase: arbitrationCase ?? null,
+              arbitrationVerdictArtifactId: verdictArtifactId,
+              arbitrationVerdictArtifact,
+              settlementAdjustment
+            },
+            comparisons: {
+              holdValid,
+              caseBindingsValid,
+              adjustmentValid,
+              adjustmentDeterministicIdMatch,
+              verdictArtifactBindingsValid,
+              holdStatusMatchesExpected,
+              adjustmentMatchesExpected,
+              chainConsistent
+            },
+            issues
+          });
+        }
+
         if (parts[1] === "tool-calls" && parts[2] === "holds" && parts[3] && parts.length === 4 && req.method === "GET") {
           if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
           const holdHash = String(parts[3] ?? "").trim();
@@ -15410,6 +17436,90 @@ export function createApi({
           }
           if (!hold) return sendError(res, 404, "tool call hold not found");
           return sendJson(res, 200, { ok: true, tenantId, hold });
+        }
+
+        if (parts[1] === "reputation" && parts[2] === "facts" && parts.length === 3 && req.method === "GET") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+          if (typeof store.listArtifacts !== "function") return sendError(res, 501, "reputation facts not supported for this store");
+
+          const agentIdRaw = typeof url.searchParams.get("agentId") === "string" ? String(url.searchParams.get("agentId")) : "";
+          const agentId = agentIdRaw.trim();
+          if (!agentId) return sendError(res, 400, "agentId is required", null, { code: "SCHEMA_INVALID" });
+
+          const toolIdRaw = typeof url.searchParams.get("toolId") === "string" ? String(url.searchParams.get("toolId")) : "";
+          const toolId = toolIdRaw.trim() !== "" ? toolIdRaw.trim() : null;
+
+          let window = AGENT_REPUTATION_WINDOW.THIRTY_DAYS;
+          try {
+            window = normalizeReputationFactsWindowInput(url.searchParams.get("window"));
+          } catch (err) {
+            return sendError(res, 400, "invalid window", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          let asOf = nowIso();
+          if (typeof url.searchParams.get("asOf") === "string" && String(url.searchParams.get("asOf")).trim() !== "") {
+            const parsed = String(url.searchParams.get("asOf")).trim();
+            if (!Number.isFinite(Date.parse(parsed))) {
+              return sendError(res, 400, "asOf must be an ISO date-time", null, { code: "SCHEMA_INVALID" });
+            }
+            asOf = new Date(Date.parse(parsed)).toISOString();
+          }
+          const windowStartAt = reputationWindowStartAt({ window, at: asOf });
+          const windowStartMs = windowStartAt ? Date.parse(windowStartAt) : Number.NaN;
+          const asOfMs = Date.parse(asOf);
+          const includeEvents = String(url.searchParams.get("includeEvents") ?? "").toLowerCase() === "1";
+
+          let records = [];
+          try {
+            records = await listReputationEventArtifactsBySubject({
+              tenantId,
+              agentId,
+              toolId,
+              occurredAtGte: windowStartAt,
+              occurredAtLte: asOf,
+              pageSize: 5000
+            });
+          } catch (err) {
+            return sendError(res, 500, "failed to list reputation events", { message: err?.message });
+          }
+          const filtered = [];
+          for (const row of records) {
+            if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+            if (String(row.schemaVersion ?? "") !== REPUTATION_EVENT_SCHEMA_VERSION) continue;
+            try {
+              validateReputationEventV1(row);
+            } catch {
+              continue;
+            }
+            const subject = row.subject && typeof row.subject === "object" && !Array.isArray(row.subject) ? row.subject : null;
+            if (!subject) continue;
+            if (String(subject.agentId ?? "") !== agentId) continue;
+            if (toolId !== null && String(subject.toolId ?? "") !== toolId) continue;
+            const occurredAtMs = Date.parse(String(row.occurredAt ?? ""));
+            if (!Number.isFinite(occurredAtMs)) continue;
+            if (Number.isFinite(asOfMs) && occurredAtMs > asOfMs) continue;
+            if (Number.isFinite(windowStartMs) && occurredAtMs < windowStartMs) continue;
+            filtered.push(row);
+          }
+          filtered.sort((left, right) => {
+            const leftAtMs = Date.parse(String(left?.occurredAt ?? ""));
+            const rightAtMs = Date.parse(String(right?.occurredAt ?? ""));
+            if (Number.isFinite(leftAtMs) && Number.isFinite(rightAtMs) && leftAtMs !== rightAtMs) return leftAtMs - rightAtMs;
+            return String(left?.eventId ?? "").localeCompare(String(right?.eventId ?? ""));
+          });
+
+          const aggregate = computeReputationFactsAggregate({ events: filtered });
+          return sendJson(res, 200, {
+            ok: true,
+            tenantId,
+            agentId,
+            toolId,
+            window,
+            asOf,
+            windowStartAt,
+            facts: aggregate,
+            events: includeEvents ? filtered.slice(-200) : undefined
+          });
         }
 
         if (parts[1] === "settlement-adjustments" && parts[2] && parts.length === 3 && req.method === "GET") {
@@ -15570,6 +17680,34 @@ export function createApi({
                 }
               );
               released += 1;
+              await emitReputationEventBestEffort(
+                {
+                  tenantId,
+                  eventId: `rep_rel_${String(resolvedHold.agreementHash ?? "").toLowerCase()}`,
+                  occurredAt: nowAt,
+                  eventKind: REPUTATION_EVENT_KIND.HOLDBACK_AUTO_RELEASED,
+                  subject: {
+                    agentId: String(resolvedHold.payeeAgentId),
+                    toolId: "tool_call",
+                    counterpartyAgentId: String(resolvedHold.payerAgentId),
+                    role: "payee"
+                  },
+                  sourceRef: {
+                    kind: "funding_hold",
+                    sourceId: String(resolvedHold.holdHash ?? ""),
+                    hash: String(resolvedHold.holdHash ?? "").trim().toLowerCase() || null,
+                    agreementHash: resolvedHold.agreementHash,
+                    receiptHash: resolvedHold.receiptHash,
+                    holdHash: resolvedHold.holdHash
+                  },
+                  facts: {
+                    amountCents: heldAmountCents,
+                    autoReleasedCents: heldAmountCents,
+                    amountSettledCents: heldAmountCents
+                  }
+                },
+                { context: "tool_call_holdback.auto_release" }
+              );
             } catch (err) {
               errors += 1;
               logger.warn("tool_call_holdback.auto_release.commit_failed", { err: err?.message, code: err?.code ?? null, holdHash: tenantHoldHash });
@@ -16081,12 +18219,15 @@ export function createApi({
             "<div class=\"field\"><div class=\"muted\">Deterministic holdback adjustment (if any)</div><pre id=\"toolCallAdjustment\" class=\"mono\">{}</pre></div>",
             "</div>",
             "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">Replay evaluate</div><pre id=\"toolCallReplayEvaluate\" class=\"mono\">{}</pre></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
             "<div class=\"field\"><div class=\"muted\">Arbitration case artifact</div><pre id=\"toolCallCaseArtifact\" class=\"mono\">{}</pre></div>",
             "</div>",
             "<div class=\"row\" style=\"margin-top:10px\">",
             "<div class=\"field\"><div class=\"muted\">Arbitration verdict artifact</div><pre id=\"toolCallVerdictArtifact\" class=\"mono\">{}</pre></div>",
             "</div>",
-            "<div class=\"muted\" style=\"margin-top:10px\">Note: tool-call replay is not exposed here yet. Marketplace policy replay is available and must match stored decision output.</div>",
+            "<div class=\"muted\" style=\"margin-top:10px\">Tool-call replay evaluate must return chainConsistent=true for closed disputes with deterministic holdback adjustments.</div>",
             "</section>",
             "</div>",
             "<script>",
@@ -16097,7 +18238,7 @@ export function createApi({
             "function headers(){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; return h; }",
             "async function requestJson(path, { method='GET', body=null } = {}){ const res = await fetch(path, { method, headers: { ...headers(), ...(body !== null ? { 'content-type': 'application/json', 'x-settld-protocol': String(byId('protocolInput').value || '').trim() || INITIAL.protocol } : {}) }, body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
 	            "async function loadRun(){ const runId = String(byId('runIdInput').value || '').trim(); if(!runId){ setStatus('workspaceStatus','runId is required.','bad'); return; } setStatus('workspaceStatus',`Loading run ${runId}...`,''); try { const [ag, st, cs, rp, re] = await Promise.all([ requestJson(`/runs/${encodeURIComponent(runId)}/agreement`), requestJson(`/runs/${encodeURIComponent(runId)}/settlement`), requestJson(`/runs/${encodeURIComponent(runId)}/arbitration/cases`), requestJson(`/runs/${encodeURIComponent(runId)}/settlement/policy-replay`), requestJson(`/runs/${encodeURIComponent(runId)}/settlement/replay-evaluate`) ]); setText('runAgreement', JSON.stringify(ag, null, 2)); setText('runSettlement', JSON.stringify(st, null, 2)); setText('runCases', JSON.stringify(cs, null, 2)); setText('runReplay', JSON.stringify(rp, null, 2)); setText('runReplayEvaluate', JSON.stringify(re, null, 2)); const match = rp && rp.matchesStoredDecision === true; const kernelOk = re && re.comparisons && re.comparisons.kernelBindingsValid === true; setStatus('workspaceStatus', `Loaded run. policyReplay.matchesStoredDecision=${match}; replayEvaluate.kernelBindingsValid=${kernelOk}.`, (match && kernelOk) ? 'good' : 'warn'); } catch (err){ setStatus('workspaceStatus', `Run load failed: ${err.message}`, 'bad'); } }",
-            "async function loadToolCall(){ const agreementHash = String(byId('agreementHashInput').value || '').trim(); if(!agreementHash){ setStatus('workspaceStatus','agreementHash is required.','bad'); return; } setStatus('workspaceStatus',`Loading tool-call ${agreementHash}...`,''); try { const qs = new URLSearchParams({ agreementHash }); const [holds, cases] = await Promise.all([ requestJson(`/ops/tool-calls/holds?${qs.toString()}`), requestJson(`/tool-calls/arbitration/cases?${qs.toString()}`) ]); setText('toolCallHolds', JSON.stringify(holds, null, 2)); setText('toolCallCases', JSON.stringify(cases, null, 2)); const adjustmentId = `sadj_agmt_${agreementHash}_holdback`; try { const adj = await requestJson(`/ops/settlement-adjustments/${encodeURIComponent(adjustmentId)}`); setText('toolCallAdjustment', JSON.stringify(adj, null, 2)); } catch (err){ setText('toolCallAdjustment', JSON.stringify({ ok:false, message: String(err.message || err) }, null, 2)); } const caseRows = cases && Array.isArray(cases.cases) ? cases.cases : []; const closed = caseRows.find((row)=>String(row && row.status ? row.status : '').toLowerCase()==='closed') || caseRows[0] || null; if(closed && closed.caseId){ const revRaw = Number(closed.revision || 1); const rev = Number.isSafeInteger(revRaw) && revRaw > 1 ? revRaw : 1; const caseArtId = rev > 1 ? `arbitration_case_${closed.caseId}_r${rev}` : `arbitration_case_${closed.caseId}`; try { const art = await requestJson(`/artifacts/${encodeURIComponent(caseArtId)}`); setText('toolCallCaseArtifact', JSON.stringify(art, null, 2)); } catch (err){ setText('toolCallCaseArtifact', JSON.stringify({ ok:false, message: String(err.message || err), artifactId: caseArtId }, null, 2)); } const verdictId = closed.verdictId ? String(closed.verdictId) : ''; if(verdictId){ const verdictArtId = `arbitration_verdict_${verdictId}`; try { const art2 = await requestJson(`/artifacts/${encodeURIComponent(verdictArtId)}`); setText('toolCallVerdictArtifact', JSON.stringify(art2, null, 2)); } catch (err){ setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message: String(err.message || err), artifactId: verdictArtId }, null, 2)); } } else { setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message:'no verdictId on case (open or missing)' }, null, 2)); } } else { setText('toolCallCaseArtifact', JSON.stringify({ ok:false, message:'no cases found' }, null, 2)); setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message:'no cases found' }, null, 2)); } setStatus('workspaceStatus','Loaded tool-call chain.','good'); } catch (err){ setStatus('workspaceStatus', `Tool-call load failed: ${err.message}`, 'bad'); } }",
+            "async function loadToolCall(){ const agreementHash = String(byId('agreementHashInput').value || '').trim(); if(!agreementHash){ setStatus('workspaceStatus','agreementHash is required.','bad'); return; } setStatus('workspaceStatus',`Loading tool-call ${agreementHash}...`,''); try { const qs = new URLSearchParams({ agreementHash }); const [holds, cases, replay] = await Promise.all([ requestJson(`/ops/tool-calls/holds?${qs.toString()}`), requestJson(`/tool-calls/arbitration/cases?${qs.toString()}`), requestJson(`/ops/tool-calls/replay-evaluate?${qs.toString()}`) ]); setText('toolCallHolds', JSON.stringify(holds, null, 2)); setText('toolCallCases', JSON.stringify(cases, null, 2)); setText('toolCallReplayEvaluate', JSON.stringify(replay, null, 2)); const adjustmentId = `sadj_agmt_${agreementHash}_holdback`; try { const adj = await requestJson(`/ops/settlement-adjustments/${encodeURIComponent(adjustmentId)}`); setText('toolCallAdjustment', JSON.stringify(adj, null, 2)); } catch (err){ setText('toolCallAdjustment', JSON.stringify({ ok:false, message: String(err.message || err) }, null, 2)); } const caseRows = cases && Array.isArray(cases.cases) ? cases.cases : []; const closed = caseRows.find((row)=>String(row && row.status ? row.status : '').toLowerCase()==='closed') || caseRows[0] || null; if(closed && closed.caseId){ const revRaw = Number(closed.revision || 1); const rev = Number.isSafeInteger(revRaw) && revRaw > 1 ? revRaw : 1; const caseArtId = rev > 1 ? `arbitration_case_${closed.caseId}_r${rev}` : `arbitration_case_${closed.caseId}`; try { const art = await requestJson(`/artifacts/${encodeURIComponent(caseArtId)}`); setText('toolCallCaseArtifact', JSON.stringify(art, null, 2)); } catch (err){ setText('toolCallCaseArtifact', JSON.stringify({ ok:false, message: String(err.message || err), artifactId: caseArtId }, null, 2)); } const verdictId = closed.verdictId ? String(closed.verdictId) : ''; if(verdictId){ const verdictArtId = `arbitration_verdict_${verdictId}`; try { const art2 = await requestJson(`/artifacts/${encodeURIComponent(verdictArtId)}`); setText('toolCallVerdictArtifact', JSON.stringify(art2, null, 2)); } catch (err){ setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message: String(err.message || err), artifactId: verdictArtId }, null, 2)); } } else { setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message:'no verdictId on case (open or missing)' }, null, 2)); } } else { setText('toolCallCaseArtifact', JSON.stringify({ ok:false, message:'no cases found' }, null, 2)); setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message:'no cases found' }, null, 2)); } const consistent = replay && replay.comparisons && replay.comparisons.chainConsistent === true; setStatus('workspaceStatus', `Loaded tool-call chain. replayEvaluate.chainConsistent=${consistent}.`, consistent ? 'good' : 'warn'); } catch (err){ setStatus('workspaceStatus', `Tool-call load failed: ${err.message}`, 'bad'); } }",
             "byId('tenantIdInput').value = String(INITIAL.tenantId || 'tenant_default');",
             "byId('opsTokenInput').value = String(INITIAL.opsToken || '');",
             "byId('protocolInput').value = String(INITIAL.protocol || '');",
@@ -17363,10 +19504,220 @@ export function createApi({
 	          if (!partyStatementBody || typeof partyStatementBody !== "object") return sendError(res, 409, "party statement artifact missing statement body");
 	          if (typeof partyRole !== "string" || !partyRole.trim()) return sendError(res, 409, "party statement artifact missing partyRole");
 
-	          const payoutAmountCents = computePayoutAmountCentsForStatement({ partyRole, statement: partyStatementBody });
-	          if (!Number.isSafeInteger(payoutAmountCents) || payoutAmountCents <= 0) {
+	          const payoutAmountCentsGross = computePayoutAmountCentsForStatement({ partyRole, statement: partyStatementBody });
+	          if (!Number.isSafeInteger(payoutAmountCentsGross) || payoutAmountCentsGross <= 0) {
 	            return sendJson(res, 200, { ok: true, enqueued: false, reason: "no_payout_due" });
 	          }
+
+          const providerIdInput =
+            typeof body?.moneyRailProviderId === "string" && body.moneyRailProviderId.trim() !== ""
+              ? body.moneyRailProviderId.trim()
+              : defaultMoneyRailProviderId;
+          const adapter = getMoneyRailAdapter(providerIdInput);
+          if (!adapter) return sendError(res, 400, "unknown money rail provider");
+          const providerConfig = getMoneyRailProviderConfig(providerIdInput);
+          if (!providerConfig) return sendError(res, 400, "unknown money rail provider");
+          if (providerConfig.allowPayout !== true) {
+            return sendError(res, 409, "money rail provider does not support payout direction");
+          }
+
+          const billingCfg = await getTenantBillingConfig(tenantId);
+          const moneyRailControls = resolveTenantMoneyRailControls({ billingCfg });
+          if (providerConfig.mode === "production" && moneyRailControls.realMoneyEnabled !== true) {
+            return sendError(
+              res,
+              409,
+              "real-money payouts are disabled for this tenant",
+              { providerId: providerIdInput },
+              { code: "REAL_MONEY_DISABLED" }
+            );
+          }
+          if (moneyRailControls.payoutKillSwitch === true) {
+            return sendError(
+              res,
+              409,
+              "payout kill switch is active",
+              { providerId: providerIdInput },
+              { code: "PAYOUT_KILL_SWITCH_ACTIVE" }
+            );
+          }
+          if (
+            Array.isArray(moneyRailControls.allowedProviderIds) &&
+            moneyRailControls.allowedProviderIds.length > 0 &&
+            !moneyRailControls.allowedProviderIds.includes(providerIdInput)
+          ) {
+            return sendError(
+              res,
+              409,
+              "money rail provider is not allowed for this tenant",
+              { providerId: providerIdInput, allowedProviderIds: moneyRailControls.allowedProviderIds },
+              { code: "MONEY_RAIL_PROVIDER_NOT_ALLOWED" }
+            );
+          }
+          let providerOperationsForChecks = null;
+          let payoutAmountCents = payoutAmountCentsGross;
+          let chargebackContext = {
+            policyEnabled: false,
+            negativeBalanceMode: null,
+            outstandingBeforeCents: 0,
+            recoveryAppliedCents: 0,
+            outstandingAfterCents: 0,
+            payoutAmountGrossCents: payoutAmountCentsGross,
+            payoutAmountNetCents: payoutAmountCentsGross
+          };
+
+          const chargebackPolicy = normalizeMoneyRailChargebackPolicy(moneyRailControls.chargebacks ?? null, {
+            allowNull: false,
+            nowAt: null
+          });
+          if (chargebackPolicy.enabled === true) {
+            if (typeof adapter.listOperations !== "function") {
+              return sendError(
+                res,
+                409,
+                "money rail provider does not support chargeback exposure checks",
+                { providerId: providerIdInput },
+                { code: "CHARGEBACK_POLICY_UNSUPPORTED" }
+              );
+            }
+            providerOperationsForChecks = await adapter.listOperations({ tenantId });
+            const exposureByParty = deriveMoneyRailChargebackExposureByParty({ operations: providerOperationsForChecks });
+            const partyExposure = exposureByParty.get(partyId) ?? null;
+            const outstandingBeforeCents = Number(partyExposure?.outstandingCents ?? 0);
+            const maxOutstandingCents =
+              Number.isSafeInteger(chargebackPolicy.maxOutstandingCents) && chargebackPolicy.maxOutstandingCents > 0
+                ? chargebackPolicy.maxOutstandingCents
+                : null;
+            chargebackContext = {
+              policyEnabled: true,
+              negativeBalanceMode: chargebackPolicy.negativeBalanceMode,
+              outstandingBeforeCents,
+              recoveryAppliedCents: 0,
+              outstandingAfterCents: outstandingBeforeCents,
+              payoutAmountGrossCents: payoutAmountCentsGross,
+              payoutAmountNetCents: payoutAmountCentsGross
+            };
+            if (maxOutstandingCents !== null && outstandingBeforeCents > maxOutstandingCents) {
+              return sendError(
+                res,
+                409,
+                "chargeback outstanding balance exceeds tenant threshold",
+                {
+                  providerId: providerIdInput,
+                  partyId,
+                  outstandingBeforeCents,
+                  maxOutstandingCents
+                },
+                { code: "CHARGEBACK_OUTSTANDING_LIMIT_EXCEEDED" }
+              );
+            }
+            if (outstandingBeforeCents > 0) {
+              if (chargebackPolicy.negativeBalanceMode === MONEY_RAIL_CHARGEBACK_NEGATIVE_BALANCE_MODE.HOLD) {
+                return sendError(
+                  res,
+                  409,
+                  "payout blocked until chargeback balance is resolved",
+                  {
+                    providerId: providerIdInput,
+                    partyId,
+                    outstandingBeforeCents,
+                    payoutAmountCentsGross
+                  },
+                  { code: "NEGATIVE_BALANCE_PAYOUT_HOLD" }
+                );
+              }
+              if (chargebackPolicy.negativeBalanceMode === MONEY_RAIL_CHARGEBACK_NEGATIVE_BALANCE_MODE.NET) {
+                const recoveryAppliedCents = Math.min(outstandingBeforeCents, payoutAmountCentsGross);
+                payoutAmountCents = payoutAmountCentsGross - recoveryAppliedCents;
+                chargebackContext = {
+                  ...chargebackContext,
+                  recoveryAppliedCents,
+                  outstandingAfterCents: Math.max(0, outstandingBeforeCents - recoveryAppliedCents),
+                  payoutAmountNetCents: payoutAmountCents
+                };
+                if (payoutAmountCents <= 0) {
+                  return sendJson(res, 200, {
+                    ok: true,
+                    enqueued: false,
+                    reason: "chargeback_offset_consumed",
+                    chargeback: chargebackContext
+                  });
+                }
+              }
+            }
+          }
+          if (
+            Number.isSafeInteger(moneyRailControls.maxPayoutAmountCents) &&
+            moneyRailControls.maxPayoutAmountCents > 0 &&
+            payoutAmountCents > moneyRailControls.maxPayoutAmountCents
+          ) {
+            return sendError(
+              res,
+              409,
+              "single payout exceeds tenant limit",
+              {
+                providerId: providerIdInput,
+                payoutAmountCents,
+                maxPayoutAmountCents: moneyRailControls.maxPayoutAmountCents
+              },
+              { code: "PAYOUT_AMOUNT_LIMIT_EXCEEDED" }
+            );
+          }
+          if (Number.isSafeInteger(moneyRailControls.dailyPayoutLimitCents) && moneyRailControls.dailyPayoutLimitCents > 0) {
+            if (typeof adapter.listOperations !== "function") {
+              return sendError(
+                res,
+                409,
+                "money rail provider does not support payout limit checks",
+                { providerId: providerIdInput },
+                { code: "MONEY_RAIL_LIMIT_CHECK_UNAVAILABLE" }
+              );
+            }
+            const allOperations = Array.isArray(providerOperationsForChecks) ? providerOperationsForChecks : await adapter.listOperations({ tenantId });
+            const dayKey = nowIso().slice(0, 10);
+            const currentExposureCents = computeMoneyRailDailyPayoutExposureCents({ operations: allOperations, dayKey });
+            const projectedExposureCents = currentExposureCents + payoutAmountCents;
+            if (projectedExposureCents > moneyRailControls.dailyPayoutLimitCents) {
+              return sendError(
+                res,
+                409,
+                "daily payout limit exceeded",
+                {
+                  providerId: providerIdInput,
+                  dayKey,
+                  currentExposureCents,
+                  payoutAmountCents,
+                  projectedExposureCents,
+                  dailyPayoutLimitCents: moneyRailControls.dailyPayoutLimitCents
+                },
+                { code: "PAYOUT_DAILY_LIMIT_EXCEEDED" }
+              );
+            }
+          }
+
+          let stripeConnectAccountId = null;
+          const isStripeProductionProvider =
+            providerConfig.mode === "production" && String(providerIdInput).trim().toLowerCase().startsWith("stripe");
+          const stripeConnectConfig = normalizeMoneyRailConnectConfig(moneyRailControls.connect ?? null, {
+            allowNull: false,
+            nowAt: null
+          });
+          if (isStripeProductionProvider && stripeConnectConfig.enabled === true) {
+            const resolvedConnect = resolveStripeConnectAccountForPayout({
+              connectConfig: stripeConnectConfig,
+              partyId
+            });
+            if (!resolvedConnect.ok) {
+              return sendError(
+                res,
+                409,
+                resolvedConnect.message,
+                { providerId: providerIdInput, partyId },
+                { code: resolvedConnect.code }
+              );
+            }
+            stripeConnectAccountId = resolvedConnect.account.accountId;
+          }
 
 	          const statementHash = record.artifactHash;
 	          const payoutKey = payoutKeyFor({ tenantId, partyId, period, statementHash });
@@ -17422,22 +19773,35 @@ export function createApi({
 	          }
           let moneyRailOperation = null;
           try {
-            const providerIdInput =
-              typeof body?.moneyRailProviderId === "string" && body.moneyRailProviderId.trim() !== ""
-                ? body.moneyRailProviderId.trim()
-                : defaultMoneyRailProviderId;
-            const adapter = getMoneyRailAdapter(providerIdInput);
-            if (!adapter) return sendError(res, 400, "unknown money rail provider");
-            const providerConfig = getMoneyRailProviderConfig(providerIdInput);
-            if (!providerConfig) return sendError(res, 400, "unknown money rail provider");
-            if (providerConfig.allowPayout !== true) {
-              return sendError(res, 409, "money rail provider does not support payout direction");
-            }
             const operationId = `mop_${payoutKey}`;
-            const counterpartyRef =
+            const counterpartyRefInput =
               typeof body?.counterpartyRef === "string" && body.counterpartyRef.trim() !== ""
                 ? body.counterpartyRef.trim()
-                : `party:${partyId}`;
+                : null;
+            const expectedStripeConnectCounterpartyRef =
+              stripeConnectAccountId !== null ? `stripe_connect:${stripeConnectAccountId}` : null;
+            if (
+              expectedStripeConnectCounterpartyRef !== null &&
+              counterpartyRefInput !== null &&
+              counterpartyRefInput !== expectedStripeConnectCounterpartyRef
+            ) {
+              return sendError(
+                res,
+                409,
+                "counterpartyRef must match configured Stripe Connect account",
+                {
+                  providerId: providerIdInput,
+                  partyId,
+                  expectedCounterpartyRef: expectedStripeConnectCounterpartyRef,
+                  receivedCounterpartyRef: counterpartyRefInput
+                },
+                { code: "STRIPE_CONNECT_COUNTERPARTY_MISMATCH" }
+              );
+            }
+            const counterpartyRef =
+              expectedStripeConnectCounterpartyRef ??
+              counterpartyRefInput ??
+              `party:${partyId}`;
             const createdOperation = await adapter.create({
               tenantId,
               operationId,
@@ -17452,7 +19816,14 @@ export function createApi({
                 payoutArtifactHash: payoutArtifact.artifactHash,
                 period,
                 partyId,
-                providerMode: providerConfig.mode
+                stripeConnectAccountId,
+                providerMode: providerConfig.mode,
+                payoutAmountGrossCents: chargebackContext.payoutAmountGrossCents,
+                payoutAmountNetCents: chargebackContext.payoutAmountNetCents,
+                chargebackRecoveryAppliedCents: chargebackContext.recoveryAppliedCents,
+                chargebackOutstandingBeforeCents: chargebackContext.outstandingBeforeCents,
+                chargebackOutstandingAfterCents: chargebackContext.outstandingAfterCents,
+                chargebackNegativeBalanceMode: chargebackContext.negativeBalanceMode
               },
               at: nowIso()
             });
@@ -17464,6 +19835,7 @@ export function createApi({
 	          return sendJson(res, 201, {
               ok: true,
               payout: { payoutKey, artifactId: payoutArtifact.artifactId, artifactHash: payoutArtifact.artifactHash },
+              chargeback: chargebackContext,
               moneyRailOperation
             });
 	        }
@@ -17481,16 +19853,347 @@ export function createApi({
             return sendJson(res, 200, { operation });
           }
 
+          if (
+            parts[1] === "money-rails" &&
+            parts[2] &&
+            parts[3] === "operations" &&
+            parts[4] &&
+            parts[5] === "submit" &&
+            parts.length === 6 &&
+            req.method === "POST"
+          ) {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            const providerId = String(parts[2]);
+            const operationId = String(parts[4]);
+            const adapter = getMoneyRailAdapter(providerId);
+            if (!adapter) return sendError(res, 404, "money rail provider not found");
+            const providerConfig = getMoneyRailProviderConfig(providerId);
+            if (!providerConfig) return sendError(res, 404, "money rail provider not found");
+
+            const body = (await readJsonBody(req)) ?? {};
+            if (!body || typeof body !== "object" || Array.isArray(body)) {
+              return sendError(res, 400, "invalid submit payload", { message: "body must be an object" }, { code: "SCHEMA_INVALID" });
+            }
+
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            const operation = await adapter.status({ tenantId, operationId });
+            if (!operation) return sendError(res, 404, "money rail operation not found");
+            if (String(operation.direction ?? "").toLowerCase() !== MONEY_RAIL_DIRECTION.PAYOUT) {
+              return sendError(
+                res,
+                409,
+                "money rail submit only supports payout operations",
+                { operationId, direction: operation.direction ?? null },
+                { code: "MONEY_RAIL_SUBMIT_DIRECTION_UNSUPPORTED" }
+              );
+            }
+
+            const operationState = String(operation.state ?? "").toLowerCase();
+            if (operationState !== MONEY_RAIL_OPERATION_STATE.INITIATED) {
+              const alreadySubmitted =
+                operationState === MONEY_RAIL_OPERATION_STATE.SUBMITTED ||
+                operationState === MONEY_RAIL_OPERATION_STATE.CONFIRMED ||
+                operationState === MONEY_RAIL_OPERATION_STATE.REVERSED;
+              if (alreadySubmitted) {
+                const responseBody = {
+                  operation,
+                  applied: false,
+                  reason: "already_submitted",
+                  providerSubmission: null
+                };
+                if (idemStoreKey) {
+                  await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+                }
+                return sendJson(res, 200, responseBody);
+              }
+              return sendError(
+                res,
+                409,
+                "money rail operation is not in initiated state",
+                { operationId, state: operationState },
+                { code: "MONEY_RAIL_SUBMIT_INVALID_STATE" }
+              );
+            }
+
+            let providerRef =
+              typeof body?.providerRef === "string" && body.providerRef.trim() !== ""
+                ? body.providerRef.trim()
+                : null;
+            let providerSubmission = null;
+            if (providerConfig.mode === "production" && isStripeMoneyRailProviderId(providerId)) {
+              const stripeConnectAccountId = parseStripeConnectAccountFromCounterpartyRef(operation.counterpartyRef);
+              if (!stripeConnectAccountId) {
+                return sendError(
+                  res,
+                  409,
+                  "counterpartyRef must be a Stripe Connect destination for production Stripe payouts",
+                  { operationId, counterpartyRef: operation.counterpartyRef ?? null },
+                  { code: "STRIPE_CONNECT_COUNTERPARTY_REQUIRED" }
+                );
+              }
+
+              const payoutKey = normalizeNonEmptyStringOrNull(operation?.metadata?.payoutKey) ?? `${tenantId}:${operationId}`;
+              const currency = String(operation.currency ?? "USD").trim().toLowerCase() || "usd";
+              let stripeTransfer = null;
+              try {
+                stripeTransfer = await stripeApiPostJson({
+                  endpoint: "/v1/transfers",
+                  formData: {
+                    amount: String(operation.amountCents),
+                    currency,
+                    destination: stripeConnectAccountId,
+                    transfer_group: payoutKey,
+                    description: `Settld payout ${operationId}`,
+                    "metadata[settld_tenant_id]": String(tenantId),
+                    "metadata[settld_operation_id]": String(operationId),
+                    "metadata[settld_provider_id]": String(providerId),
+                    "metadata[settld_payout_key]": String(payoutKey)
+                  }
+                });
+              } catch (err) {
+                return sendError(
+                  res,
+                  stripeProviderErrorStatusCode(err, 502),
+                  "money rail payout submit failed",
+                  serializeStripeProviderError(err),
+                  { code: "MONEY_RAIL_PROVIDER_UPSTREAM_ERROR" }
+                );
+              }
+
+              providerRef = normalizeNonEmptyStringOrNull(stripeTransfer?.id);
+              if (!providerRef) {
+                return sendError(
+                  res,
+                  502,
+                  "stripe payout submission missing transfer id",
+                  { operationId, providerId },
+                  { code: "MONEY_RAIL_PROVIDER_INVALID_RESPONSE" }
+                );
+              }
+              const createdEpochSeconds = Number(stripeTransfer?.created);
+              providerSubmission = {
+                providerId,
+                mode: providerConfig.mode,
+                transferId: providerRef,
+                destinationAccountId: stripeConnectAccountId,
+                amountCents: Number.isSafeInteger(Number(stripeTransfer?.amount)) ? Number(stripeTransfer.amount) : Number(operation.amountCents),
+                currency: typeof stripeTransfer?.currency === "string" ? stripeTransfer.currency : currency,
+                createdAt:
+                  Number.isFinite(createdEpochSeconds) && createdEpochSeconds > 0
+                    ? new Date(createdEpochSeconds * 1000).toISOString()
+                    : nowIso()
+              };
+            } else {
+              if (!providerRef) providerRef = `sim_submit_${operationId}`;
+              providerSubmission = {
+                providerId,
+                mode: providerConfig.mode,
+                transferId: providerRef,
+                simulated: true
+              };
+            }
+
+            let nextOperation = null;
+            let applied = true;
+            try {
+              if (typeof adapter.transition === "function") {
+                nextOperation = await adapter.transition({
+                  tenantId,
+                  operationId,
+                  state: MONEY_RAIL_OPERATION_STATE.SUBMITTED,
+                  providerRef,
+                  at: nowIso()
+                });
+              } else if (typeof adapter.ingestProviderEvent === "function") {
+                const ingested = await adapter.ingestProviderEvent({
+                  tenantId,
+                  operationId,
+                  eventType: MONEY_RAIL_PROVIDER_EVENT_TYPE.SUBMITTED,
+                  providerRef,
+                  at: nowIso(),
+                  payload: providerSubmission
+                });
+                nextOperation = ingested?.operation ?? null;
+                applied = ingested?.applied !== false;
+              } else {
+                return sendError(
+                  res,
+                  409,
+                  "money rail provider does not support submit transition",
+                  { providerId },
+                  { code: "MONEY_RAIL_SUBMIT_UNSUPPORTED" }
+                );
+              }
+            } catch (err) {
+              if (err?.code === "MONEY_RAIL_OPERATION_NOT_FOUND") return sendError(res, 404, "money rail operation not found");
+              if (err?.code === "MONEY_RAIL_INVALID_TRANSITION") {
+                return sendError(
+                  res,
+                  409,
+                  "money rail submit rejected",
+                  { message: err?.message, code: err?.code ?? null },
+                  { code: "MONEY_RAIL_SUBMIT_INVALID_STATE" }
+                );
+              }
+              return sendError(
+                res,
+                409,
+                "money rail submit rejected",
+                { message: err?.message, code: err?.code ?? null },
+                { code: "MONEY_RAIL_SUBMIT_REJECTED" }
+              );
+            }
+
+            if (!nextOperation || typeof nextOperation !== "object") {
+              nextOperation = await adapter.status({ tenantId, operationId });
+            }
+            if (typeof store.appendOpsAudit === "function") {
+              try {
+                await store.appendOpsAudit({
+                  tenantId,
+                  audit: makeOpsAudit({
+                    action: "MONEY_RAIL_OPERATION_SUBMITTED",
+                    targetType: "money_rail_operation",
+                    targetId: operationId,
+                    details: {
+                      providerId,
+                      operationId,
+                      providerRef: providerRef ?? null,
+                      mode: providerConfig.mode,
+                      applied
+                    }
+                  })
+                });
+              } catch {
+                // best-effort
+              }
+            }
+
+            const responseBody = {
+              operation: nextOperation,
+              applied,
+              providerSubmission
+            };
+            if (idemStoreKey) {
+              await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+            }
+            return sendJson(res, 200, responseBody);
+          }
+
+          if (parts[1] === "finance" && parts[2] === "money-rails" && parts[3] === "chargebacks" && parts.length === 4 && req.method === "GET") {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            const providerId =
+              typeof url.searchParams.get("providerId") === "string" && url.searchParams.get("providerId").trim() !== ""
+                ? url.searchParams.get("providerId").trim()
+                : defaultMoneyRailProviderId;
+            const partyId = normalizeNonEmptyStringOrNull(url.searchParams.get("partyId"));
+            let period = null;
+            try {
+              period = normalizeFinanceReconciliationPeriod(url.searchParams.get("period"), {
+                fieldName: "period",
+                allowNull: true
+              });
+            } catch (err) {
+              return sendError(res, 400, "invalid chargeback query", { message: err?.message });
+            }
+            const adapter = getMoneyRailAdapter(providerId);
+            if (!adapter) return sendError(res, 404, "money rail provider not found");
+            if (typeof adapter.listOperations !== "function") {
+              return sendError(res, 409, "money rail provider does not support chargeback exposure listing");
+            }
+            const operations = await adapter.listOperations({ tenantId });
+            const exposureByParty = deriveMoneyRailChargebackExposureByParty({
+              operations,
+              period
+            });
+            let rows = Array.from(exposureByParty.values())
+              .filter((row) => Number(row?.totalReversedAmountCents ?? 0) > 0 || Number(row?.outstandingCents ?? 0) > 0)
+              .map((row) => ({
+                partyId: row.partyId,
+                outstandingCents: Number(row.outstandingCents ?? 0),
+                totalReversedAmountCents: Number(row.totalReversedAmountCents ?? 0),
+                totalRecoveredCents: Number(row.totalRecoveredCents ?? 0),
+                reversedCount: Number(row.reversedCount ?? 0),
+                recoveryCount: Number(row.recoveryCount ?? 0),
+                latestReversedAt: row.latestReversedAt ?? null,
+                status: Number(row.outstandingCents ?? 0) > 0 ? "negative_balance" : "clear"
+              }))
+              .sort((a, b) => String(a.partyId).localeCompare(String(b.partyId)));
+            if (partyId !== null) {
+              rows = rows.filter((row) => row.partyId === partyId);
+            }
+            const totalOutstandingCents = rows.reduce((sum, row) => sum + Number(row.outstandingCents ?? 0), 0);
+            const totalReversedAmountCents = rows.reduce((sum, row) => sum + Number(row.totalReversedAmountCents ?? 0), 0);
+            const totalRecoveredCents = rows.reduce((sum, row) => sum + Number(row.totalRecoveredCents ?? 0), 0);
+            return sendJson(res, 200, {
+              tenantId,
+              providerId,
+              period,
+              partyId,
+              summary: {
+                partyCount: rows.length,
+                totalOutstandingCents,
+                totalReversedAmountCents,
+                totalRecoveredCents
+              },
+              parties: rows
+            });
+          }
+
           if (parts[1] === "money-rails" && parts[2] && parts[3] === "events" && parts[4] === "ingest" && parts.length === 5 && req.method === "POST") {
             if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
             const providerId = String(parts[2]);
             const adapter = getMoneyRailAdapter(providerId);
             if (!adapter) return sendError(res, 404, "money rail provider not found");
+            const providerConfig = getMoneyRailProviderConfig(providerId);
+            if (!providerConfig) return sendError(res, 404, "money rail provider not found");
             if (typeof adapter.ingestProviderEvent !== "function") {
               return sendError(res, 409, "money rail provider does not support provider event ingestion");
             }
 
-            const body = (await readJsonBody(req)) ?? {};
+            const rawBody = await readRawBody(req);
+            let body = {};
+            if (String(rawBody ?? "").trim() !== "") {
+              try {
+                body = JSON.parse(String(rawBody));
+              } catch (err) {
+                return sendError(res, 400, "invalid provider event", { message: "invalid JSON body" }, { code: "SCHEMA_INVALID" });
+              }
+            }
+            if (!body || typeof body !== "object" || Array.isArray(body)) {
+              return sendError(res, 400, "invalid provider event", { message: "provider event payload must be an object" }, { code: "SCHEMA_INVALID" });
+            }
+            if (providerConfig.requireSignedIngest === true) {
+              try {
+                verifyMoneyRailProviderSignature({
+                  signatureHeader: req.headers["x-proxy-provider-signature"] ?? null,
+                  rawBody: String(rawBody ?? ""),
+                  secret: providerConfig.webhookSecret ?? "",
+                  toleranceSeconds: providerConfig.webhookSignatureToleranceSeconds ?? 300,
+                  nowAt: nowIso()
+                });
+              } catch (err) {
+                return sendError(res, 400, "invalid provider signature", { message: err?.message ?? null }, { code: "SCHEMA_INVALID" });
+              }
+            }
             let idemStoreKey = null;
             let idemRequestHash = null;
             try {
@@ -17562,6 +20265,43 @@ export function createApi({
               eventType,
               providerStatus: normalizeMoneyRailProviderStatusValue(body?.providerStatus ?? null)
             };
+            if (
+              responseBody.applied === true &&
+              eventType === MONEY_RAIL_PROVIDER_EVENT_TYPE.REVERSED &&
+              typeof store.appendOpsAudit === "function"
+            ) {
+              try {
+                const operation = responseBody.operation ?? null;
+                const partyId = normalizeMoneyRailOperationPartyId(operation);
+                const amountCents = Number.isSafeInteger(Number(operation?.amountCents)) ? Number(operation.amountCents) : null;
+                let outstandingAfterCents = null;
+                if (partyId && typeof adapter.listOperations === "function") {
+                  const allOperations = await adapter.listOperations({ tenantId });
+                  const exposureByParty = deriveMoneyRailChargebackExposureByParty({ operations: allOperations });
+                  outstandingAfterCents = Number(exposureByParty.get(partyId)?.outstandingCents ?? 0);
+                }
+                await store.appendOpsAudit({
+                  tenantId,
+                  audit: makeOpsAudit({
+                    action: "MONEY_RAIL_CHARGEBACK_RECORDED",
+                    targetType: "money_rail_operation",
+                    targetId: operationId,
+                    details: {
+                      providerId,
+                      operationId,
+                      eventType,
+                      eventId: eventId ?? null,
+                      partyId,
+                      amountCents,
+                      reasonCode: reasonCode ?? null,
+                      outstandingAfterCents
+                    }
+                  })
+                });
+              } catch {
+                // best-effort audit signal
+              }
+            }
             if (idemStoreKey) {
               await commitTx([
                 {
@@ -17630,11 +20370,504 @@ export function createApi({
             return sendJson(res, 200, responseBody);
           }
 
+          if (
+            parts[1] === "finance" &&
+            parts[2] === "money-rails" &&
+            parts[3] === "stripe-connect" &&
+            parts[4] === "accounts" &&
+            parts.length === 5 &&
+            req.method === "GET"
+          ) {
+            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+              return sendError(res, 403, "forbidden");
+            }
+            const billingCfg = await getTenantBillingConfig(tenantId);
+            const moneyRailControls = resolveTenantMoneyRailControls({ billingCfg });
+            const connect = normalizeMoneyRailConnectConfig(moneyRailControls.connect ?? null, {
+              allowNull: false,
+              nowAt: null
+            });
+            const activeCount = connect.accounts.filter((row) => row.status === "active").length;
+            const payoutsEnabledCount = connect.accounts.filter((row) => row.status === "active" && row.payoutsEnabled === true).length;
+            const verifiedCount = connect.accounts.filter((row) => row.kybStatus === MONEY_RAIL_CONNECT_KYB_STATUS.VERIFIED).length;
+            const pendingCount = connect.accounts.filter((row) => row.kybStatus === MONEY_RAIL_CONNECT_KYB_STATUS.PENDING).length;
+            const rejectedCount = connect.accounts.filter((row) => row.kybStatus === MONEY_RAIL_CONNECT_KYB_STATUS.REJECTED).length;
+            return sendJson(res, 200, {
+              tenantId,
+              connect,
+              summary: {
+                totalAccounts: connect.accounts.length,
+                activeCount,
+                payoutsEnabledCount,
+                verifiedCount,
+                pendingCount,
+                rejectedCount,
+                defaultAccountId: connect.defaultAccountId
+              }
+            });
+          }
+
+          if (
+            parts[1] === "finance" &&
+            parts[2] === "money-rails" &&
+            parts[3] === "stripe-connect" &&
+            parts[4] === "accounts" &&
+            parts[5] === "sync" &&
+            parts.length === 6 &&
+            req.method === "POST"
+          ) {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            const body = (await readJsonBody(req)) ?? {};
+            if (!body || typeof body !== "object" || Array.isArray(body)) {
+              return sendError(res, 400, "invalid stripe connect sync payload", { message: "body must be an object" }, { code: "SCHEMA_INVALID" });
+            }
+            const providerIdQuery = normalizeNonEmptyStringOrNull(url.searchParams.get("providerId"));
+            const providerIdBody = normalizeNonEmptyStringOrNull(body.providerId);
+            const providerId = providerIdBody ?? providerIdQuery ?? defaultMoneyRailProviderId;
+            if (!isStripeMoneyRailProviderId(providerId)) {
+              return sendError(res, 400, "stripe connect sync requires a stripe provider", { providerId }, { code: "SCHEMA_INVALID" });
+            }
+            const providerConfig = getMoneyRailProviderConfig(providerId);
+            if (!providerConfig) return sendError(res, 404, "money rail provider not found");
+            if (!effectiveBillingStripeSecretKey) {
+              return sendError(
+                res,
+                409,
+                "stripe secret key is not configured",
+                { providerId },
+                { code: "STRIPE_SECRET_KEY_REQUIRED" }
+              );
+            }
+
+            const dryRun = body?.dryRun === true;
+            const accountIdsInput = Array.isArray(body.accountIds) ? body.accountIds : [];
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            const idempotencyBody = {
+              ...body,
+              providerId
+            };
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({
+                method: "POST",
+                requestPath: path,
+                expectedPrevChainHash: null,
+                body: idempotencyBody
+              }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            const billingCfg = await getTenantBillingConfig(tenantId);
+            const moneyRailControls = resolveTenantMoneyRailControls({ billingCfg });
+            const connect = normalizeMoneyRailConnectConfig(moneyRailControls.connect ?? null, { allowNull: false, nowAt: null });
+            const byAccountId = new Map(connect.accounts.map((row) => [row.accountId, row]));
+
+            const requestedIds = [];
+            const seenRequested = new Set();
+            for (const rawId of accountIdsInput) {
+              let accountId = null;
+              try {
+                accountId = normalizeStripeConnectAccountId(rawId, {
+                  fieldName: "accountIds[]",
+                  allowNull: false
+                });
+              } catch (err) {
+                return sendError(res, 400, "invalid stripe connect sync payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+              }
+              if (seenRequested.has(accountId)) continue;
+              seenRequested.add(accountId);
+              requestedIds.push(accountId);
+            }
+            const targetAccountIds = requestedIds.length > 0 ? requestedIds : connect.accounts.map((row) => row.accountId);
+            if (targetAccountIds.length === 0) {
+              const responseBody = {
+                tenantId,
+                providerId,
+                dryRun,
+                summary: {
+                  requestedCount: 0,
+                  syncedCount: 0,
+                  failedCount: 0
+                },
+                results: [],
+                connect
+              };
+              if (idemStoreKey) {
+                await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+              }
+              return sendJson(res, 200, responseBody);
+            }
+
+            const nowAt = nowIso();
+            const accountUpdates = new Map();
+            const results = [];
+            let syncedCount = 0;
+            let failedCount = 0;
+            for (const accountId of targetAccountIds) {
+              const existingAccount = byAccountId.get(accountId) ?? null;
+              if (!existingAccount) {
+                failedCount += 1;
+                results.push({
+                  accountId,
+                  ok: false,
+                  error: "account is not configured in tenant connect settings",
+                  code: "STRIPE_CONNECT_ACCOUNT_NOT_CONFIGURED"
+                });
+                continue;
+              }
+              try {
+                const stripeAccount = await stripeApiGetJson({
+                  endpoint: `/v1/accounts/${encodeURIComponent(accountId)}`
+                });
+                const kybSnapshot = deriveStripeConnectKybSnapshot(stripeAccount);
+                const nextAccount = normalizeMoneyRailConnectAccounts(
+                  [
+                    {
+                      ...existingAccount,
+                      accountId,
+                      payoutsEnabled: kybSnapshot.payoutsEnabled,
+                      transfersEnabled: kybSnapshot.transfersEnabled,
+                      status: kybSnapshot.kybStatus === MONEY_RAIL_CONNECT_KYB_STATUS.REJECTED ? "disabled" : "active",
+                      kybStatus: kybSnapshot.kybStatus,
+                      kybCurrentlyDue: kybSnapshot.kybCurrentlyDue,
+                      kybPendingVerification: kybSnapshot.kybPendingVerification,
+                      kybDisabledReason: kybSnapshot.kybDisabledReason,
+                      kybLastSyncAt: nowAt,
+                      kybLastSyncError: null,
+                      updatedAt: nowAt
+                    }
+                  ],
+                  { nowAt }
+                )[0];
+                accountUpdates.set(accountId, nextAccount);
+                syncedCount += 1;
+                results.push({
+                  accountId,
+                  ok: true,
+                  payoutsEnabled: nextAccount.payoutsEnabled,
+                  transfersEnabled: nextAccount.transfersEnabled,
+                  kybStatus: nextAccount.kybStatus,
+                  kybCurrentlyDueCount: nextAccount.kybCurrentlyDue.length,
+                  kybPendingVerificationCount: nextAccount.kybPendingVerification.length,
+                  kybDisabledReason: nextAccount.kybDisabledReason ?? null
+                });
+              } catch (err) {
+                failedCount += 1;
+                const serializedError = serializeStripeProviderError(err);
+                if (dryRun !== true) {
+                  const nextAccount = normalizeMoneyRailConnectAccounts(
+                    [
+                      {
+                        ...existingAccount,
+                        kybLastSyncAt: nowAt,
+                        kybLastSyncError:
+                          serializedError.message ??
+                          "stripe account sync failed",
+                        updatedAt: nowAt
+                      }
+                    ],
+                    { nowAt }
+                  )[0];
+                  accountUpdates.set(accountId, nextAccount);
+                }
+                results.push({
+                  accountId,
+                  ok: false,
+                  code: "STRIPE_CONNECT_SYNC_FAILED",
+                  error: serializedError
+                });
+              }
+            }
+
+            let nextConnect = connect;
+            if (dryRun !== true) {
+              const nextAccounts = connect.accounts.map((row) => accountUpdates.get(row.accountId) ?? row);
+              nextConnect = normalizeMoneyRailConnectConfig(
+                {
+                  ...connect,
+                  accounts: nextAccounts,
+                  updatedAt: nowAt
+                },
+                { allowNull: false, nowAt }
+              );
+              const nextMoneyRails = normalizeMoneyRailControls(
+                {
+                  ...moneyRailControls,
+                  connect: nextConnect,
+                  updatedAt: nowAt
+                },
+                { allowNull: false, defaultRealMoneyEnabled: moneyRailControls.realMoneyEnabled === true, nowAt }
+              );
+              await putTenantBillingConfig(tenantId, {
+                ...billingCfg,
+                moneyRails: nextMoneyRails
+              });
+            }
+
+            if (typeof store.appendOpsAudit === "function") {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "STRIPE_CONNECT_ACCOUNTS_SYNC",
+                  targetType: "stripe_connect_account",
+                  targetId: providerId,
+                  details: {
+                    providerId,
+                    dryRun,
+                    requestedCount: targetAccountIds.length,
+                    syncedCount,
+                    failedCount
+                  }
+                })
+              });
+            }
+
+            const responseBody = {
+              tenantId,
+              providerId,
+              dryRun,
+              summary: {
+                requestedCount: targetAccountIds.length,
+                syncedCount,
+                failedCount
+              },
+              results,
+              connect: nextConnect
+            };
+            if (idemStoreKey) {
+              await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+            }
+            return sendJson(res, 200, responseBody);
+          }
+
+          if (
+            parts[1] === "finance" &&
+            parts[2] === "money-rails" &&
+            parts[3] === "stripe-connect" &&
+            parts[4] === "accounts" &&
+            parts[5] &&
+            parts.length === 6 &&
+            req.method === "PUT"
+          ) {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            let accountId = null;
+            try {
+              accountId = normalizeStripeConnectAccountId(parts[5], {
+                fieldName: "accountId",
+                allowNull: false
+              });
+            } catch (err) {
+              return sendError(res, 400, "invalid stripe connect account payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const body = (await readJsonBody(req)) ?? {};
+            if (!body || typeof body !== "object" || Array.isArray(body)) {
+              return sendError(res, 400, "invalid stripe connect account payload", { message: "body must be an object" }, { code: "SCHEMA_INVALID" });
+            }
+            const billingCfg = await getTenantBillingConfig(tenantId);
+            const moneyRailControls = resolveTenantMoneyRailControls({ billingCfg });
+            const connect = normalizeMoneyRailConnectConfig(moneyRailControls.connect ?? null, { allowNull: false, nowAt: null });
+            const byAccountId = new Map(connect.accounts.map((row) => [row.accountId, row]));
+            const existing = byAccountId.get(accountId) ?? null;
+            const nowAt = nowIso();
+            const partyId =
+              Object.prototype.hasOwnProperty.call(body, "partyId")
+                ? normalizeNonEmptyStringOrNull(body.partyId)
+                : existing?.partyId ?? null;
+            const partyRole =
+              Object.prototype.hasOwnProperty.call(body, "partyRole")
+                ? normalizeNonEmptyStringOrNull(body.partyRole)
+                : existing?.partyRole ?? null;
+            const statusRaw =
+              Object.prototype.hasOwnProperty.call(body, "status")
+                ? normalizeNonEmptyStringOrNull(body.status)
+                : existing?.status ?? "active";
+            const status = String(statusRaw ?? "active").toLowerCase();
+            if (status !== "active" && status !== "disabled") {
+              return sendError(res, 400, "invalid stripe connect account payload", { message: "status must be active|disabled" }, { code: "SCHEMA_INVALID" });
+            }
+            const payoutsEnabled =
+              Object.prototype.hasOwnProperty.call(body, "payoutsEnabled")
+                ? body.payoutsEnabled === true
+                : existing?.payoutsEnabled !== false;
+            const transfersEnabled =
+              Object.prototype.hasOwnProperty.call(body, "transfersEnabled")
+                ? body.transfersEnabled === true
+                : existing?.transfersEnabled !== false;
+
+            const nextAccount = normalizeMoneyRailConnectAccounts(
+              [
+                {
+                  accountId,
+                  partyId,
+                  partyRole,
+                  status,
+                  payoutsEnabled,
+                  transfersEnabled,
+                  kybStatus: existing?.kybStatus ?? null,
+                  kybCurrentlyDue: existing?.kybCurrentlyDue ?? [],
+                  kybPendingVerification: existing?.kybPendingVerification ?? [],
+                  kybDisabledReason: existing?.kybDisabledReason ?? null,
+                  kybLastSyncAt: existing?.kybLastSyncAt ?? null,
+                  kybLastSyncError: existing?.kybLastSyncError ?? null,
+                  updatedAt: nowAt
+                }
+              ],
+              { nowAt }
+            )[0];
+
+            const nextAccounts = connect.accounts.filter((row) => row.accountId !== accountId);
+            if (nextAccount.partyId !== null) {
+              const conflict = nextAccounts.find((row) => row.partyId === nextAccount.partyId);
+              if (conflict) {
+                return sendError(
+                  res,
+                  409,
+                  "party is already mapped to another Stripe Connect account",
+                  { partyId: nextAccount.partyId, conflictingAccountId: conflict.accountId },
+                  { code: "STRIPE_CONNECT_PARTY_CONFLICT" }
+                );
+              }
+            }
+            nextAccounts.push(nextAccount);
+            nextAccounts.sort((a, b) => String(a.accountId).localeCompare(String(b.accountId)));
+
+            const nextDefaultAccountId =
+              body?.setDefault === true
+                ? accountId
+                : body?.setDefault === false && connect.defaultAccountId === accountId
+                  ? null
+                  : connect.defaultAccountId;
+            const nextConnect = normalizeMoneyRailConnectConfig(
+              {
+                ...connect,
+                enabled: body?.enableConnect === true ? true : connect.enabled,
+                defaultAccountId: nextDefaultAccountId,
+                accounts: nextAccounts,
+                updatedAt: nowAt
+              },
+              { allowNull: false, nowAt }
+            );
+            const nextMoneyRails = normalizeMoneyRailControls(
+              {
+                ...moneyRailControls,
+                connect: nextConnect,
+                updatedAt: nowAt
+              },
+              { allowNull: false, defaultRealMoneyEnabled: moneyRailControls.realMoneyEnabled === true, nowAt }
+            );
+            const nextBilling = {
+              ...billingCfg,
+              moneyRails: nextMoneyRails
+            };
+            await putTenantBillingConfig(tenantId, nextBilling);
+            if (typeof store.appendOpsAudit === "function") {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "STRIPE_CONNECT_ACCOUNT_UPSERT",
+                  targetType: "stripe_connect_account",
+                  targetId: accountId,
+                  details: {
+                    accountId,
+                    partyId: nextAccount.partyId,
+                    status: nextAccount.status,
+                    payoutsEnabled: nextAccount.payoutsEnabled,
+                    isDefault: nextConnect.defaultAccountId === accountId
+                  }
+                })
+              });
+            }
+            return sendJson(res, 200, {
+              tenantId,
+              account: nextAccount,
+              connect: nextConnect
+            });
+          }
+
+          if (
+            parts[1] === "finance" &&
+            parts[2] === "money-rails" &&
+            parts[3] === "stripe-connect" &&
+            parts[4] === "accounts" &&
+            parts[5] &&
+            parts.length === 6 &&
+            req.method === "DELETE"
+          ) {
+            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
+            let accountId = null;
+            try {
+              accountId = normalizeStripeConnectAccountId(parts[5], {
+                fieldName: "accountId",
+                allowNull: false
+              });
+            } catch (err) {
+              return sendError(res, 400, "invalid stripe connect account payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const billingCfg = await getTenantBillingConfig(tenantId);
+            const moneyRailControls = resolveTenantMoneyRailControls({ billingCfg });
+            const connect = normalizeMoneyRailConnectConfig(moneyRailControls.connect ?? null, { allowNull: false, nowAt: null });
+            const existing = connect.accounts.find((row) => row.accountId === accountId) ?? null;
+            if (!existing) return sendError(res, 404, "stripe connect account not found");
+            const nowAt = nowIso();
+            const nextAccounts = connect.accounts.filter((row) => row.accountId !== accountId);
+            const nextConnect = normalizeMoneyRailConnectConfig(
+              {
+                ...connect,
+                defaultAccountId: connect.defaultAccountId === accountId ? null : connect.defaultAccountId,
+                accounts: nextAccounts,
+                updatedAt: nowAt
+              },
+              { allowNull: false, nowAt }
+            );
+            const nextMoneyRails = normalizeMoneyRailControls(
+              {
+                ...moneyRailControls,
+                connect: nextConnect,
+                updatedAt: nowAt
+              },
+              { allowNull: false, defaultRealMoneyEnabled: moneyRailControls.realMoneyEnabled === true, nowAt }
+            );
+            const nextBilling = {
+              ...billingCfg,
+              moneyRails: nextMoneyRails
+            };
+            await putTenantBillingConfig(tenantId, nextBilling);
+            if (typeof store.appendOpsAudit === "function") {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "STRIPE_CONNECT_ACCOUNT_DELETE",
+                  targetType: "stripe_connect_account",
+                  targetId: accountId,
+                  details: {
+                    accountId,
+                    partyId: existing.partyId ?? null
+                  }
+                })
+              });
+            }
+            return sendJson(res, 200, {
+              tenantId,
+              deleted: true,
+              accountId,
+              connect: nextConnect
+            });
+          }
+
           if (parts[1] === "finance" && parts[2] === "money-rails" && parts[3] === "reconcile" && parts.length === 4 && req.method === "GET") {
             if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
               return sendError(res, 403, "forbidden");
             }
-            if (typeof store.listArtifacts !== "function") return sendError(res, 501, "artifacts not supported for this store");
 
             const period = url.searchParams.get("period") ?? url.searchParams.get("month");
             if (!period) return sendError(res, 400, "period is required");
@@ -17643,205 +20876,30 @@ export function createApi({
               typeof url.searchParams.get("providerId") === "string" && url.searchParams.get("providerId").trim() !== ""
                 ? url.searchParams.get("providerId").trim()
                 : defaultMoneyRailProviderId;
-            const adapter = getMoneyRailAdapter(providerIdQuery);
-            if (!adapter) return sendError(res, 404, "money rail provider not found");
-            if (typeof adapter.listOperations !== "function") {
-              return sendError(res, 409, "money rail provider does not support reconciliation listing");
-            }
-
-            const artifacts = await store.listArtifacts({ tenantId });
-            const payoutInstructions = artifacts
-              .filter((artifact) => artifact?.artifactType === ARTIFACT_TYPE.PAYOUT_INSTRUCTION_V1 && String(artifact?.period ?? "") === String(period))
-              .map((artifact) => {
-                const payoutKey = typeof artifact?.payoutKey === "string" && artifact.payoutKey.trim() !== "" ? artifact.payoutKey.trim() : null;
-                const amountCents = Number.isSafeInteger(artifact?.payout?.amountCents) ? artifact.payout.amountCents : null;
-                const currency =
-                  typeof artifact?.payout?.currency === "string" && artifact.payout.currency.trim() !== ""
-                    ? artifact.payout.currency.trim().toUpperCase()
-                    : "USD";
-                return {
-                  artifactId: artifact?.artifactId ?? null,
-                  artifactHash: artifact?.artifactHash ?? null,
-                  payoutKey,
-                  operationId: payoutKey ? `mop_${payoutKey}` : null,
-                  amountCents,
-                  currency,
-                  partyId: typeof artifact?.partyId === "string" ? artifact.partyId : null,
-                  partyRole: typeof artifact?.partyRole === "string" ? artifact.partyRole : null
-                };
-              })
-              .filter((row) => row.payoutKey && row.operationId && Number.isSafeInteger(row.amountCents))
-              .sort(
-                (a, b) =>
-                  String(a.operationId).localeCompare(String(b.operationId)) ||
-                  String(a.artifactId ?? "").localeCompare(String(b.artifactId ?? ""))
-              );
-
-            const expectedByOperationId = new Map();
-            const duplicateExpected = [];
-            for (const row of payoutInstructions) {
-              if (!expectedByOperationId.has(row.operationId)) {
-                expectedByOperationId.set(row.operationId, row);
-                continue;
-              }
-              const first = expectedByOperationId.get(row.operationId);
-              duplicateExpected.push({
-                operationId: row.operationId,
-                payoutKey: row.payoutKey,
-                primaryArtifactId: first?.artifactId ?? null,
-                duplicateArtifactId: row.artifactId ?? null
+            let persist = false;
+            try {
+              persist = parseBooleanQueryValue(url.searchParams.get("persist"), {
+                defaultValue: false,
+                name: "persist"
               });
+            } catch (err) {
+              return sendError(res, 400, "invalid money rail reconciliation query", { message: err?.message });
             }
-
-            const listedOperationsRaw = await adapter.listOperations({ tenantId });
-            const listedOperations = (Array.isArray(listedOperationsRaw) ? listedOperationsRaw : [])
-              .filter((operation) => {
-                if (!operation || typeof operation !== "object") return false;
-                if (String(operation?.direction ?? "").toLowerCase() !== "payout") return false;
-                const payoutKey = extractPayoutKeyFromMoneyRailOperation(operation);
-                return payoutKeyMatchesPeriod({ payoutKey, period });
-              })
-              .sort((a, b) => String(a?.operationId ?? "").localeCompare(String(b?.operationId ?? "")));
-
-            const operationById = new Map();
-            const operationStateCounts = Object.fromEntries(Object.values(MONEY_RAIL_OPERATION_STATE).map((state) => [state, 0]));
-            for (const operation of listedOperations) {
-              const operationId = typeof operation?.operationId === "string" ? operation.operationId : null;
-              if (!operationId || operationById.has(operationId)) continue;
-              operationById.set(operationId, operation);
-              const state = String(operation?.state ?? "").toLowerCase();
-              if (state in operationStateCounts) operationStateCounts[state] += 1;
-            }
-
-            const missingOperations = [];
-            const amountMismatches = [];
-            const currencyMismatches = [];
-            const terminalFailures = [];
-            const unexpectedOperations = [];
-            let expectedPayoutAmountCents = 0;
-            let matchedCount = 0;
-            let settledCount = 0;
-            let inFlightCount = 0;
-            let cancelledCount = 0;
-            for (const expected of expectedByOperationId.values()) {
-              expectedPayoutAmountCents += expected.amountCents;
-              const operation = operationById.get(expected.operationId) ?? null;
-              if (!operation) {
-                missingOperations.push({
-                  operationId: expected.operationId,
-                  payoutKey: expected.payoutKey,
-                  amountCents: expected.amountCents,
-                  currency: expected.currency,
-                  partyId: expected.partyId,
-                  artifactId: expected.artifactId
-                });
-                continue;
-              }
-
-              const actualAmountCents = Number.isSafeInteger(operation?.amountCents) ? operation.amountCents : null;
-              if (actualAmountCents !== expected.amountCents) {
-                amountMismatches.push({
-                  operationId: expected.operationId,
-                  payoutKey: expected.payoutKey,
-                  expectedAmountCents: expected.amountCents,
-                  actualAmountCents
-                });
-              }
-
-              const actualCurrency =
-                typeof operation?.currency === "string" && operation.currency.trim() !== "" ? operation.currency.trim().toUpperCase() : null;
-              if (actualCurrency !== expected.currency) {
-                currencyMismatches.push({
-                  operationId: expected.operationId,
-                  payoutKey: expected.payoutKey,
-                  expectedCurrency: expected.currency,
-                  actualCurrency
-                });
-              }
-
-              const state = String(operation?.state ?? "").toLowerCase();
-              if (state === MONEY_RAIL_OPERATION_STATE.FAILED || state === MONEY_RAIL_OPERATION_STATE.REVERSED) {
-                terminalFailures.push({
-                  operationId: expected.operationId,
-                  payoutKey: expected.payoutKey,
-                  state,
-                  reasonCode: operation?.reasonCode ?? null
-                });
-              } else if (state === MONEY_RAIL_OPERATION_STATE.CONFIRMED) {
-                settledCount += 1;
-              } else if (state === MONEY_RAIL_OPERATION_STATE.CANCELLED) {
-                cancelledCount += 1;
-              } else {
-                inFlightCount += 1;
-              }
-
-              matchedCount += 1;
-            }
-
-            for (const operation of operationById.values()) {
-              const operationId = String(operation?.operationId ?? "");
-              if (expectedByOperationId.has(operationId)) continue;
-              unexpectedOperations.push({
-                operationId,
-                payoutKey: extractPayoutKeyFromMoneyRailOperation(operation),
-                amountCents: Number.isSafeInteger(operation?.amountCents) ? operation.amountCents : null,
-                currency: operation?.currency ?? null,
-                state: operation?.state ?? null,
-                reasonCode: operation?.reasonCode ?? null
+            try {
+              const report = await computeMoneyRailReconcileReport({
+                tenantId,
+                period,
+                providerId: providerIdQuery,
+                persist,
+                includeTriages: true
               });
+              return sendJson(res, 200, report);
+            } catch (err) {
+              if (Number.isSafeInteger(err?.statusCode)) {
+                return sendError(res, err.statusCode, err?.message ?? "money rail reconcile failed", { code: err?.code ?? null });
+              }
+              throw err;
             }
-            unexpectedOperations.sort((a, b) => String(a.operationId).localeCompare(String(b.operationId)));
-
-            const criticalMismatchCount =
-              missingOperations.length +
-              amountMismatches.length +
-              currencyMismatches.length +
-              terminalFailures.length +
-              unexpectedOperations.length +
-              duplicateExpected.length;
-            const status = criticalMismatchCount === 0 ? "pass" : "fail";
-            const mismatchRows = {
-              missingOperations,
-              amountMismatches,
-              currencyMismatches,
-              terminalFailures,
-              unexpectedOperations,
-              duplicateExpected
-            };
-            const mismatchQueue = buildMoneyRailReconcileMismatchQueue({
-              period,
-              providerId: providerIdQuery,
-              mismatches: mismatchRows
-            });
-            const triageDecorated = await decorateReconciliationMismatchQueueWithTriages({
-              tenantId,
-              period,
-              sourceType: FINANCE_RECONCILIATION_TRIAGE_SOURCE_TYPE.MONEY_RAILS_RECONCILE,
-              providerId: providerIdQuery,
-              queue: mismatchQueue
-            });
-
-            return sendJson(res, 200, {
-              ok: true,
-              tenantId,
-              period,
-              providerId: providerIdQuery,
-              status,
-              summary: {
-                expectedPayoutCount: expectedByOperationId.size,
-                expectedPayoutAmountCents,
-                operationCount: operationById.size,
-                matchedCount,
-                settledCount,
-                inFlightCount,
-                cancelledCount,
-                criticalMismatchCount,
-                operationStateCounts
-              },
-              mismatches: mismatchRows,
-              triageQueue: triageDecorated.queue,
-              triageSummary: triageDecorated.summary
-            });
           }
 
           if (parts[1] === "finance" && parts[2] === "billing" && parts[3] === "catalog" && parts.length === 4 && req.method === "GET") {
@@ -17865,7 +20923,8 @@ export function createApi({
               billing: {
                 plan: normalizeBillingPlanId(billingCfg.plan ?? BILLING_PLAN_ID.FREE, { allowNull: false, defaultPlan: BILLING_PLAN_ID.FREE }),
                 planOverrides: normalizeBillingPlanOverrides(billingCfg.planOverrides ?? null, { allowNull: true }),
-                hardLimitEnforced: billingCfg.hardLimitEnforced !== false
+                hardLimitEnforced: billingCfg.hardLimitEnforced !== false,
+                moneyRails: resolveTenantMoneyRailControls({ billingCfg })
               },
               resolvedPlan
             });
@@ -17876,9 +20935,13 @@ export function createApi({
             const body = (await readJsonBody(req)) ?? {};
             let plan = null;
             let planOverrides = undefined;
+            let moneyRails = undefined;
             try {
               plan = normalizeBillingPlanId(body?.plan ?? BILLING_PLAN_ID.FREE, { allowNull: false, defaultPlan: BILLING_PLAN_ID.FREE });
               planOverrides = normalizeBillingPlanOverrides(body?.planOverrides, { allowNull: true });
+              if (Object.prototype.hasOwnProperty.call(body, "moneyRails")) {
+                moneyRails = normalizeMoneyRailControls(body?.moneyRails ?? null, { allowNull: true, defaultRealMoneyEnabled: false, nowAt: nowIso() });
+              }
             } catch (err) {
               return sendError(res, 400, "invalid billing plan payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
             }
@@ -17891,7 +20954,8 @@ export function createApi({
               ...existingBilling,
               plan,
               planOverrides: planOverrides === undefined ? null : planOverrides,
-              hardLimitEnforced
+              hardLimitEnforced,
+              moneyRails: moneyRails === undefined ? existingBilling?.moneyRails ?? null : moneyRails
             };
             await putTenantBillingConfig(tenantId, nextBilling);
             if (typeof store.appendOpsAudit === "function") {
@@ -17904,7 +20968,8 @@ export function createApi({
                   details: {
                     plan,
                     hardLimitEnforced,
-                    hasPlanOverrides: planOverrides !== undefined && planOverrides !== null
+                    hasPlanOverrides: planOverrides !== undefined && planOverrides !== null,
+                    hasMoneyRailsControls: moneyRails !== undefined
                   }
                 })
               });
@@ -19476,9 +22541,12 @@ export function createApi({
 	          const backlog = await computeOpsBacklogSummary({ tenantId, includeOutbox: true });
 	          const retentionInfo = await fetchMaintenanceRetentionRunInfo({ tenantId });
           const financeReconcileInfo = await fetchMaintenanceFinanceReconcileRunInfo({ tenantId });
+          const moneyRailReconcileInfo = await fetchMaintenanceMoneyRailReconcileRunInfo({ tenantId });
           const lastRetention = retentionInfo?.last ?? null;
           const lastFinanceReconcile = financeReconcileInfo?.last ?? null;
           const lastFinanceReconcileOk = financeReconcileInfo?.lastOk ?? null;
+          const lastMoneyRailReconcile = moneyRailReconcileInfo?.last ?? null;
+          const lastMoneyRailReconcileOk = moneyRailReconcileInfo?.lastOk ?? null;
           const snapshot = (() => {
             try {
               return metrics.snapshot();
@@ -19545,6 +22613,31 @@ export function createApi({
                   runtimeMs,
                   requestId: lastFinanceReconcile?.requestId ?? null,
                   auditId: lastFinanceReconcile?.id ?? null
+                };
+              })(),
+              moneyRailReconciliation: (() => {
+                const stateLastRunAt = store?.__moneyRailReconcileLastRunAt ?? null;
+                const stateLastSuccessAt = store?.__moneyRailReconcileLastSuccessAt ?? null;
+                const stateLastResult = store?.__moneyRailReconcileLastResult ?? null;
+                const auditOutcome = lastMoneyRailReconcile?.details?.outcome ?? null;
+                const auditAt = lastMoneyRailReconcile?.at ?? null;
+                const auditSuccessAt = lastMoneyRailReconcileOk?.at ?? null;
+                const runtimeMs = lastMoneyRailReconcile?.details?.runtimeMs ?? stateLastResult?.runtimeMs ?? null;
+                const effectiveLastRunAt = stateLastRunAt ?? auditAt;
+                const effectiveLastSuccessAt = stateLastSuccessAt ?? auditSuccessAt;
+                return {
+                  enabled: effectiveMoneyRailReconcileEnabled,
+                  intervalSeconds: effectiveMoneyRailReconcileIntervalSeconds,
+                  maxTenants: effectiveMoneyRailReconcileMaxTenants,
+                  maxPeriodsPerTenant: effectiveMoneyRailReconcileMaxPeriodsPerTenant,
+                  maxProvidersPerTenant: effectiveMoneyRailReconcileMaxProvidersPerTenant,
+                  lastRunAt: effectiveLastRunAt,
+                  lastSuccessAt: effectiveLastSuccessAt,
+                  lastResult: stateLastResult,
+                  outcome: auditOutcome ?? (stateLastResult?.ok === true ? "ok" : stateLastResult ? "error" : null),
+                  runtimeMs,
+                  requestId: lastMoneyRailReconcile?.requestId ?? null,
+                  auditId: lastMoneyRailReconcile?.id ?? null
                 };
               })()
             },
@@ -19775,6 +22868,134 @@ export function createApi({
           return sendJson(res, 200, {
             ok: result?.ok === true,
             period: result?.period ?? period ?? null,
+            runtimeMs: result?.runtimeMs ?? null,
+            summary: result?.summary ?? null,
+            results: result?.results ?? []
+          });
+        }
+
+        if (parts[1] === "maintenance" && parts[2] === "money-rails-reconcile" && parts[3] === "run" && parts.length === 4 && req.method === "POST") {
+          const hasMaintenanceWriteScope =
+            requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
+          if (!hasMaintenanceWriteScope) return sendError(res, 403, "forbidden");
+          if (typeof store.appendOpsAudit !== "function") return sendError(res, 501, "ops audit not supported for this store");
+
+          const body = (await readJsonBody(req)) ?? {};
+          let period = null;
+          if (Object.prototype.hasOwnProperty.call(body, "period") || Object.prototype.hasOwnProperty.call(body, "month")) {
+            try {
+              period = normalizeFinanceReconciliationPeriod(body?.period ?? body?.month ?? null, { fieldName: "period", allowNull: true });
+            } catch (err) {
+              return sendError(res, 400, err?.message ?? "period must match YYYY-MM", null, { code: "SCHEMA_INVALID" });
+            }
+          }
+          let providerId = null;
+          try {
+            providerId = normalizeNonEmptyStringOrNull(body?.providerId ?? null);
+          } catch (err) {
+            return sendError(res, 400, "invalid providerId", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const force = body?.force === undefined ? true : body.force === true;
+          const maxTenantsRaw = body?.maxTenants ?? null;
+          const maxTenants = maxTenantsRaw === null ? effectiveMoneyRailReconcileMaxTenants : Number(maxTenantsRaw);
+          if (!Number.isSafeInteger(maxTenants) || maxTenants <= 0) {
+            return sendError(res, 400, "invalid maxTenants", null, { code: "SCHEMA_INVALID" });
+          }
+          const maxPeriodsRaw = body?.maxPeriodsPerTenant ?? body?.maxPeriods ?? null;
+          const maxPeriodsPerTenant = maxPeriodsRaw === null ? effectiveMoneyRailReconcileMaxPeriodsPerTenant : Number(maxPeriodsRaw);
+          if (!Number.isSafeInteger(maxPeriodsPerTenant) || maxPeriodsPerTenant <= 0) {
+            return sendError(res, 400, "invalid maxPeriodsPerTenant", null, { code: "SCHEMA_INVALID" });
+          }
+          const maxProvidersRaw = body?.maxProvidersPerTenant ?? body?.maxProviders ?? null;
+          const maxProvidersPerTenant = maxProvidersRaw === null ? effectiveMoneyRailReconcileMaxProvidersPerTenant : Number(maxProvidersRaw);
+          if (!Number.isSafeInteger(maxProvidersPerTenant) || maxProvidersPerTenant <= 0) {
+            return sendError(res, 400, "invalid maxProvidersPerTenant", null, { code: "SCHEMA_INVALID" });
+          }
+
+          let result;
+          let outcome = "ok";
+          try {
+            result = await tickMoneyRailReconciliation({
+              tenantId,
+              period,
+              providerId,
+              maxTenants,
+              maxPeriodsPerTenant,
+              maxProvidersPerTenant,
+              force,
+              requireLock: true
+            });
+            if (!result?.ok && result?.code === "MAINTENANCE_ALREADY_RUNNING") outcome = "already_running";
+            else if (!result?.ok) outcome = "error";
+          } catch (err) {
+            outcome = "error";
+            result = {
+              ok: false,
+              scope: "tenant",
+              tenantId,
+              period,
+              providerId,
+              runtimeMs: null
+            };
+            try {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "MAINTENANCE_MONEY_RAIL_RECONCILE_RUN",
+                  targetType: "maintenance",
+                  targetId: "money_rails_reconcile",
+                  details: {
+                    path: "/ops/maintenance/money-rails-reconcile/run",
+                    outcome,
+                    period,
+                    providerId,
+                    force,
+                    maxTenants,
+                    maxPeriodsPerTenant,
+                    maxProvidersPerTenant,
+                    error: err?.message ?? String(err)
+                  }
+                })
+              });
+            } catch {}
+            return sendError(res, 500, "maintenance run failed", { message: err?.message });
+          }
+
+          try {
+            await store.appendOpsAudit({
+              tenantId,
+              audit: makeOpsAudit({
+                action: "MAINTENANCE_MONEY_RAIL_RECONCILE_RUN",
+                targetType: "maintenance",
+                targetId: "money_rails_reconcile",
+                details: {
+                  path: "/ops/maintenance/money-rails-reconcile/run",
+                  outcome,
+                  scope: result?.scope ?? "tenant",
+                  period: result?.period ?? period ?? null,
+                  providerId: result?.providerId ?? providerId ?? null,
+                  force,
+                  maxTenants: Number(result?.maxTenants ?? maxTenants),
+                  maxPeriodsPerTenant: Number(result?.maxPeriodsPerTenant ?? maxPeriodsPerTenant),
+                  maxProvidersPerTenant: Number(result?.maxProvidersPerTenant ?? maxProvidersPerTenant),
+                  runtimeMs: result?.runtimeMs ?? null,
+                  summary: result?.summary ?? null,
+                  code: result?.code ?? null
+                }
+              })
+            });
+          } catch (err) {
+            return sendError(res, 500, "failed to write audit record", { message: err?.message }, { code: "AUDIT_LOG_FAILED" });
+          }
+
+          if (!result?.ok && result?.code === "MAINTENANCE_ALREADY_RUNNING") {
+            return sendError(res, 409, "maintenance already running", null, { code: "MAINTENANCE_ALREADY_RUNNING" });
+          }
+
+          return sendJson(res, 200, {
+            ok: result?.ok === true,
+            period: result?.period ?? period ?? null,
+            providerId: result?.providerId ?? providerId ?? null,
             runtimeMs: result?.runtimeMs ?? null,
             summary: result?.summary ?? null,
             results: result?.results ?? []
@@ -24674,6 +27895,7 @@ export function createApi({
             disputeWindowDays,
             at: acceptedAt
           });
+          const pendingVerifierRef = resolveAgreementVerifierRef(agreement?.verificationMethod ?? null);
           const pendingKernelRefs = buildSettlementKernelRefs({
             settlement,
             run,
@@ -24684,7 +27906,10 @@ export function createApi({
             verificationStatus: null,
             policyHash: agreement?.policyHash ?? null,
             verificationMethodHash: agreement?.verificationMethodHash ?? null,
-            verificationMethodMode: agreement?.verificationMethod?.mode ?? null,
+            verificationMethodMode: pendingVerifierRef?.modality ?? agreement?.verificationMethod?.mode ?? null,
+            verifierId: pendingVerifierRef?.verifierId ?? "settld.policy-engine",
+            verifierVersion: pendingVerifierRef?.verifierVersion ?? "v1",
+            verifierHash: pendingVerifierRef?.verifierHash ?? null,
             finalityState: SETTLEMENT_FINALITY_STATE.PENDING,
             settledAt: null,
             createdAt: acceptedAt
@@ -25357,7 +28582,7 @@ export function createApi({
           const nowMs = Date.parse(nowAt);
           const withinWindow = Number.isFinite(createdAtMs) && Number.isFinite(nowMs) && nowMs <= createdAtMs + windowMs;
           if (!overrideEnabled && !withinWindow) {
-            return sendError(res, 409, "challenge window closed", null, { code: "CHALLENGE_WINDOW_CLOSED" });
+            return sendError(res, 409, "challenge window closed", null, { code: "DISPUTE_WINDOW_EXPIRED" });
           }
 
           const defaultCaseId = `arb_case_tc_${agreementHash}`;
@@ -25380,12 +28605,43 @@ export function createApi({
             return sendError(res, 501, "arbitration cases not supported for this store", { message: err?.message });
           }
           if (existingCase) {
+            const existingCaseStatus = normalizeArbitrationCaseStatus(existingCase.status ?? ARBITRATION_CASE_STATUS.OPEN, {
+              fieldName: "arbitrationCase.status"
+            });
+            if (existingCaseStatus !== ARBITRATION_CASE_STATUS.CLOSED) {
+              return sendError(
+                res,
+                409,
+                "an active dispute case already exists for this agreement",
+                { caseId, status: existingCaseStatus },
+                { code: "DISPUTE_ALREADY_OPEN" }
+              );
+            }
             const revisionRaw = Number(existingCase?.revision ?? 1);
             const revision = Number.isSafeInteger(revisionRaw) && revisionRaw > 0 ? revisionRaw : 1;
             const caseArtifactId = revision > 1 ? `arbitration_case_${caseId}_r${revision}` : `arbitration_case_${caseId}`;
+            const existingMeta =
+              existingCase?.metadata && typeof existingCase.metadata === "object" && !Array.isArray(existingCase.metadata)
+                ? existingCase.metadata
+                : null;
+            const existingEnvelopeRef =
+              existingMeta?.disputeOpenEnvelopeRef &&
+              typeof existingMeta.disputeOpenEnvelopeRef === "object" &&
+              !Array.isArray(existingMeta.disputeOpenEnvelopeRef)
+                ? existingMeta.disputeOpenEnvelopeRef
+                : null;
             const responseBody = {
               arbitrationCase: existingCase,
               arbitrationCaseArtifact: { artifactId: caseArtifactId },
+              disputeOpenEnvelopeArtifact: existingEnvelopeRef?.artifactId
+                ? {
+                    artifactId: String(existingEnvelopeRef.artifactId),
+                    artifactHash:
+                      typeof existingEnvelopeRef.artifactHash === "string" && existingEnvelopeRef.artifactHash.trim() !== ""
+                        ? existingEnvelopeRef.artifactHash
+                        : null
+                  }
+                : null,
               alreadyExisted: true
             };
             if (idemStoreKey) {
@@ -25398,12 +28654,57 @@ export function createApi({
           const disputeId = `disp_tc_${agreementHash}`;
           const settlementId = `setl_tc_${agreementHash}`;
 
-          const openedByAgentIdRaw =
+          const disputeOpenEnvelopeRaw = body?.disputeOpenEnvelope;
+          if (disputeOpenEnvelopeRaw !== undefined && disputeOpenEnvelopeRaw !== null && (typeof disputeOpenEnvelopeRaw !== "object" || Array.isArray(disputeOpenEnvelopeRaw))) {
+            return sendError(res, 400, "invalid disputeOpenEnvelope", { message: "disputeOpenEnvelope must be an object" }, { code: "SCHEMA_INVALID" });
+          }
+
+          let disputeOpenEnvelope = null;
+          if (disputeOpenEnvelopeRaw && typeof disputeOpenEnvelopeRaw === "object" && !Array.isArray(disputeOpenEnvelopeRaw)) {
+            try {
+              disputeOpenEnvelope = await parseSignedDisputeOpenEnvelope({
+                tenantId,
+                disputeOpenEnvelopeInput: disputeOpenEnvelopeRaw,
+                expectedCaseId: defaultCaseId,
+                expectedAgreementHash: agreementHash,
+                expectedReceiptHash: receiptHash,
+                expectedHoldHash: holdHash
+              });
+            } catch (err) {
+              const message = String(err?.message ?? "");
+              const signerIssue =
+                /signature|signerkeyid|openedbyagentid|unknown signerkeyid|invalid disputeopenenvelope/i.test(message) ||
+                /does not match openedbyagentid key/i.test(message);
+              return sendError(
+                res,
+                signerIssue ? 409 : 400,
+                "invalid disputeOpenEnvelope",
+                { message },
+                { code: signerIssue ? "DISPUTE_INVALID_SIGNER" : "SCHEMA_INVALID" }
+              );
+            }
+          }
+          if (!overrideEnabled && !disputeOpenEnvelope) {
+            return sendError(
+              res,
+              400,
+              "disputeOpenEnvelope is required for non-admin opens",
+              null,
+              { code: "SCHEMA_INVALID" }
+            );
+          }
+
+          const openedByAgentIdBody =
             typeof body?.openedByAgentId === "string" && body.openedByAgentId.trim() !== "" ? body.openedByAgentId.trim() : null;
-          const openedByAgentId = openedByAgentIdRaw ?? String(hold.payerAgentId ?? "");
+          if (disputeOpenEnvelope && openedByAgentIdBody && openedByAgentIdBody !== String(disputeOpenEnvelope.openedByAgentId)) {
+            return sendError(res, 409, "openedByAgentId must match disputeOpenEnvelope.openedByAgentId", null, {
+              code: "DISPUTE_INVALID_SIGNER"
+            });
+          }
+          const openedByAgentId = String(disputeOpenEnvelope?.openedByAgentId ?? openedByAgentIdBody ?? hold.payerAgentId ?? "");
           if (!openedByAgentId) return sendError(res, 400, "openedByAgentId is required");
           if (!overrideEnabled && openedByAgentId !== hold.payerAgentId && openedByAgentId !== hold.payeeAgentId) {
-            return sendError(res, 409, "openedByAgentId must be a hold party", null, { code: "NOT_A_PARTY" });
+            return sendError(res, 409, "openedByAgentId must be a hold party", null, { code: "DISPUTE_INVALID_SIGNER" });
           }
           const claimantAgentId = openedByAgentId;
           const respondentAgentId =
@@ -25470,6 +28771,19 @@ export function createApi({
                 receiptHash,
                 holdHash,
                 override: overrideEnabled ? { enabled: true, reason: overrideReason, openedByPrincipalId: principalId } : { enabled: false },
+                ...(disputeOpenEnvelope
+                  ? {
+                      disputeOpenEnvelopeRef: {
+                        artifactId: String(disputeOpenEnvelope.artifactId),
+                        envelopeHash: String(disputeOpenEnvelope.envelopeHash ?? ""),
+                        signerKeyId: String(disputeOpenEnvelope.signerKeyId ?? ""),
+                        openedByAgentId: String(disputeOpenEnvelope.openedByAgentId ?? ""),
+                        openedAt: String(disputeOpenEnvelope.openedAt ?? nowAt),
+                        reasonCode: String(disputeOpenEnvelope.reasonCode ?? ""),
+                        nonce: String(disputeOpenEnvelope.nonce ?? "")
+                      }
+                    }
+                  : null),
                 ...(assignment
                   ? {
                       assignmentHash: assignment.assignmentHash,
@@ -25484,13 +28798,14 @@ export function createApi({
             { path: "$" }
           );
 
-          const responseBody = { arbitrationCase, arbitrationCaseArtifact: null };
+          const responseBody = { arbitrationCase, arbitrationCaseArtifact: null, disputeOpenEnvelopeArtifact: null };
           const ops = [{ kind: "ARBITRATION_CASE_UPSERT", tenantId, caseId, arbitrationCase }];
           if (idemStoreKey) {
             ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
           }
           await commitTx(ops);
           let arbitrationCaseArtifact = null;
+          let disputeOpenEnvelopeArtifact = null;
           try {
             arbitrationCaseArtifact = await emitArbitrationCaseArtifact({
               tenantId,
@@ -25503,7 +28818,59 @@ export function createApi({
           } catch {
             arbitrationCaseArtifact = null;
           }
-          return sendJson(res, 201, { ...responseBody, arbitrationCaseArtifact });
+          if (disputeOpenEnvelope) {
+            try {
+              disputeOpenEnvelopeArtifact = await emitDisputeOpenEnvelopeArtifact({
+                tenantId,
+                runId,
+                settlement: { settlementId, payerAgentId: hold.payerAgentId, agentId: hold.payeeAgentId, currency: hold.currency, disputeId },
+                disputeOpenEnvelope
+              });
+            } catch {
+              disputeOpenEnvelopeArtifact = null;
+            }
+          }
+          await emitReputationEventBestEffort(
+            {
+              tenantId,
+              eventId: `rep_dsp_${agreementHash}`,
+              occurredAt: nowAt,
+              eventKind: REPUTATION_EVENT_KIND.DISPUTE_OPENED,
+              subject: {
+                agentId: String(hold.payeeAgentId),
+                toolId: "tool_call",
+                counterpartyAgentId: String(hold.payerAgentId),
+                role: "payee"
+              },
+              sourceRef: {
+                kind: "arbitration_case",
+                artifactId: arbitrationCaseArtifact?.artifactId ?? `arbitration_case_${caseId}`,
+                hash: arbitrationCaseArtifact?.artifactHash ?? computeArtifactHash(arbitrationCase),
+                agreementHash,
+                receiptHash,
+                holdHash,
+                runId,
+                settlementId,
+                disputeId,
+                caseId
+              },
+              facts: {
+                openedByAgentId,
+                openedByRole:
+                  openedByAgentId === String(hold.payerAgentId)
+                    ? "payer"
+                    : openedByAgentId === String(hold.payeeAgentId)
+                      ? "payee"
+                      : "admin",
+                adminOverride: overrideEnabled,
+                amountCents: Number(hold.amountCents ?? 0),
+                heldAmountCents: Number(hold.heldAmountCents ?? 0),
+                challengeWindowMs: Number(hold.challengeWindowMs ?? 0)
+              }
+            },
+            { context: "tool_call_dispute.opened" }
+          );
+          return sendJson(res, 201, { ...responseBody, arbitrationCaseArtifact, disputeOpenEnvelopeArtifact });
         }
 
         if (action === "verdict") {
@@ -25763,6 +29130,78 @@ export function createApi({
           } catch {
             arbitrationVerdictArtifact = null;
           }
+          const verdictOutcome =
+            releaseRatePct === 100
+              ? "payee_win"
+              : releaseRatePct === 0
+                ? "payer_win"
+                : "partial";
+          await emitReputationEventBestEffort(
+            {
+              tenantId,
+              eventId: `rep_vrd_${String(signedArbitrationVerdict.verdictHash ?? "").toLowerCase()}`,
+              occurredAt: String(signedArbitrationVerdict.issuedAt ?? nowAt),
+              eventKind: REPUTATION_EVENT_KIND.VERDICT_ISSUED,
+              subject: {
+                agentId: String(hold.payeeAgentId),
+                toolId: "tool_call",
+                counterpartyAgentId: String(hold.payerAgentId),
+                role: "payee"
+              },
+              sourceRef: {
+                kind: "arbitration_verdict",
+                artifactId: arbitrationVerdictArtifact?.artifactId ?? `arbitration_verdict_${signedArbitrationVerdict.verdictId}`,
+                hash: arbitrationVerdictArtifact?.artifactHash ?? computeArtifactHash(signedArbitrationVerdict),
+                verdictHash: signedArbitrationVerdict.verdictHash ?? null,
+                agreementHash,
+                receiptHash,
+                holdHash,
+                runId: arbitrationCase.runId,
+                settlementId: arbitrationCase.settlementId,
+                disputeId: arbitrationCase.disputeId,
+                caseId
+              },
+              facts: {
+                verdictOutcome,
+                releaseRatePct,
+                amountCents: heldAmountCents
+              }
+            },
+            { context: "tool_call_dispute.verdict_issued" }
+          );
+          await emitReputationEventBestEffort(
+            {
+              tenantId,
+              eventId: `rep_adj_${adjustmentId}`,
+              occurredAt: nowAt,
+              eventKind: REPUTATION_EVENT_KIND.ADJUSTMENT_APPLIED,
+              subject: {
+                agentId: String(hold.payeeAgentId),
+                toolId: "tool_call",
+                counterpartyAgentId: String(hold.payerAgentId),
+                role: "payee"
+              },
+              sourceRef: {
+                kind: "settlement_adjustment",
+                sourceId: adjustmentId,
+                hash: adjustment.adjustmentHash,
+                agreementHash,
+                receiptHash,
+                holdHash,
+                settlementId: arbitrationCase.settlementId,
+                disputeId: arbitrationCase.disputeId,
+                caseId,
+                adjustmentId
+              },
+              facts: {
+                adjustmentKind: kind,
+                amountCents: heldAmountCents,
+                amountSettledCents: kind === SETTLEMENT_ADJUSTMENT_KIND.HOLDBACK_RELEASE ? heldAmountCents : 0,
+                amountRefundedCents: kind === SETTLEMENT_ADJUSTMENT_KIND.HOLDBACK_REFUND ? heldAmountCents : 0
+              }
+            },
+            { context: "tool_call_dispute.adjustment_applied" }
+          );
 
           return sendJson(res, 200, { ...responseBody, arbitrationCaseArtifact, arbitrationVerdictArtifact });
         }
@@ -26296,6 +29735,7 @@ export function createApi({
 
         let cancellationKernelRefs = null;
         try {
+          const cancellationVerifierRef = resolveAgreementVerifierRef(agreement?.verificationMethod ?? null);
           cancellationKernelRefs = buildSettlementKernelRefs({
             settlement,
             run: null,
@@ -26306,7 +29746,10 @@ export function createApi({
             verificationStatus: "red",
             policyHash: agreement?.policyHash ?? settlement.decisionPolicyHash ?? null,
             verificationMethodHash: agreement?.verificationMethodHash ?? null,
-            verificationMethodMode: agreement?.verificationMethod?.mode ?? null,
+            verificationMethodMode: cancellationVerifierRef?.modality ?? agreement?.verificationMethod?.mode ?? null,
+            verifierId: cancellationVerifierRef?.verifierId ?? "settld.policy-engine",
+            verifierVersion: cancellationVerifierRef?.verifierVersion ?? "v1",
+            verifierHash: cancellationVerifierRef?.verifierHash ?? null,
             resolutionEventId: cancellationId,
             status: releasedAmountCents > 0 ? AGENT_RUN_SETTLEMENT_STATUS.RELEASED : AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
             releasedAmountCents,
@@ -26589,11 +30032,12 @@ export function createApi({
           return sendError(res, 404, "run has no marketplace agreement policy");
         }
         const agreementPolicyMaterial = resolveAgreementPolicyMaterial({ tenantId, agreement });
-        const replayVerificationStatusRaw = run.status === "failed" ? "red" : String(verification.verificationStatus ?? "").toLowerCase();
-        const replayVerificationStatus =
-          replayVerificationStatusRaw === "green" || replayVerificationStatusRaw === "amber" || replayVerificationStatusRaw === "red"
-            ? replayVerificationStatusRaw
-            : "amber";
+        const replayVerifierExecution = evaluateRunSettlementVerifierExecution({
+          verificationMethod: agreementPolicyMaterial.verificationMethod ?? null,
+          run,
+          verification
+        });
+        const replayVerificationStatus = replayVerifierExecution.verificationStatus;
         let replayDecision = null;
         try {
           replayDecision = evaluateSettlementPolicy({
@@ -26636,11 +30080,13 @@ export function createApi({
           policyHash: agreementPolicyMaterial.policyHash ?? null,
           verificationMethodHash: agreementPolicyMaterial.verificationMethodHash ?? null,
           policyRef: agreementPolicyMaterial.policyRef ?? null,
+          verifierRef: replayVerifierExecution.verifierRef,
+          verifierExecution: replayVerifierExecution.evaluation,
           policyBinding: agreement?.policyBinding ?? null,
           policyBindingVerification,
           acceptanceSignatureVerification,
           runStatus: run.status ?? null,
-          verificationStatus: run.status === "failed" ? "red" : verification.verificationStatus,
+          verificationStatus: replayVerificationStatus,
           replay: {
             computedAt: nowIso(),
             policy: agreementPolicyMaterial.policy ?? null,
@@ -26682,11 +30128,12 @@ export function createApi({
         }
 
         const agreementPolicyMaterial = resolveAgreementPolicyMaterial({ tenantId, agreement });
-        const replayVerificationStatusRaw = run.status === "failed" ? "red" : String(verification.verificationStatus ?? "").toLowerCase();
-        const replayVerificationStatus =
-          replayVerificationStatusRaw === "green" || replayVerificationStatusRaw === "amber" || replayVerificationStatusRaw === "red"
-            ? replayVerificationStatusRaw
-            : "amber";
+        const replayVerifierExecution = evaluateRunSettlementVerifierExecution({
+          verificationMethod: agreementPolicyMaterial.verificationMethod ?? null,
+          run,
+          verification
+        });
+        const replayVerificationStatus = replayVerifierExecution.verificationStatus;
 
         let replayDecision = null;
         try {
@@ -26775,6 +30222,38 @@ export function createApi({
                 : true)
             : null;
 
+        const normalizeVerifierRefForCompare = (value) => {
+          if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+          return normalizeForCanonicalJson(
+            {
+              verifierId:
+                value.verifierId === null || value.verifierId === undefined || String(value.verifierId).trim() === ""
+                  ? null
+                  : String(value.verifierId),
+              verifierVersion:
+                value.verifierVersion === null || value.verifierVersion === undefined || String(value.verifierVersion).trim() === ""
+                  ? null
+                  : String(value.verifierVersion),
+              verifierHash:
+                value.verifierHash === null || value.verifierHash === undefined || String(value.verifierHash).trim() === ""
+                  ? null
+                  : String(value.verifierHash).trim().toLowerCase(),
+              modality:
+                value.modality === null || value.modality === undefined || String(value.modality).trim() === ""
+                  ? null
+                  : String(value.modality).trim().toLowerCase()
+            },
+            { path: "$" }
+          );
+        };
+
+        const computedVerifierRef = normalizeVerifierRefForCompare(replayVerifierExecution.verifierRef);
+        const storedVerifierRef = normalizeVerifierRefForCompare(storedDecisionRecordRaw?.verifierRef ?? null);
+        const verifierRefMatchesStored =
+          computedVerifierRef && storedVerifierRef
+            ? canonicalJsonStringify(computedVerifierRef) === canonicalJsonStringify(storedVerifierRef)
+            : computedVerifierRef === null && storedVerifierRef === null;
+
         return sendJson(res, 200, {
           runId,
           agreementId: agreement?.agreementId ?? null,
@@ -26782,8 +30261,10 @@ export function createApi({
           policyHash: replayPolicyHash,
           verificationMethodHash: replayVerificationMethodHash,
           policyRef: agreementPolicyMaterial.policyRef ?? null,
+          verifierRef: replayVerifierExecution.verifierRef,
+          verifierExecution: replayVerifierExecution.evaluation,
           runStatus: run.status ?? null,
-          verificationStatus: run.status === "failed" ? "red" : verification.verificationStatus,
+          verificationStatus: replayVerificationStatus,
           replay: {
             computedAt: nowIso(),
             decision: replayDecision,
@@ -26800,6 +30281,7 @@ export function createApi({
             matchesStoredDecision,
             policyDecisionMatchesStored,
             decisionRecordReplayCriticalMatchesStored: replayCriticalMatchesStored,
+            verifierRefMatchesStored,
             kernelBindingsValid: kernelVerification.valid === true
           }
         });
@@ -27077,6 +30559,50 @@ export function createApi({
               });
             }
             await commitTx(ops);
+            const decisionHashRaw =
+              settlement?.decisionTrace?.decisionRecord && typeof settlement.decisionTrace.decisionRecord === "object"
+                ? settlement.decisionTrace.decisionRecord.decisionHash
+                : null;
+            const decisionHash =
+              typeof decisionHashRaw === "string" && /^[0-9a-f]{64}$/i.test(decisionHashRaw.trim())
+                ? decisionHashRaw.trim().toLowerCase()
+                : sha256Hex(
+                    `${String(settlement?.settlementId ?? runId)}:${String(settlement?.resolutionEventId ?? "manual_resolution")}:${String(
+                      settlement?.status ?? ""
+                    )}`
+                  );
+            await emitReputationEventBestEffort(
+              {
+                tenantId,
+                eventId: `rep_dec_${decisionHash}`,
+                occurredAt: settlement?.resolvedAt ?? settledAt,
+                eventKind:
+                  Number(settlement?.releasedAmountCents ?? 0) > 0
+                    ? REPUTATION_EVENT_KIND.DECISION_APPROVED
+                    : REPUTATION_EVENT_KIND.DECISION_REJECTED,
+                subject: {
+                  agentId: String(settlement.agentId),
+                  counterpartyAgentId: String(settlement.payerAgentId),
+                  role: "payee"
+                },
+                sourceRef: {
+                  kind: "settlement_decision",
+                  sourceId: String(settlement?.settlementId ?? runId),
+                  hash: decisionHash,
+                  decisionHash,
+                  runId,
+                  settlementId: settlement?.settlementId ?? null
+                },
+                facts: {
+                  decisionStatus: Number(settlement?.releasedAmountCents ?? 0) > 0 ? "approved" : "rejected",
+                  releaseRatePct: Number(settlement?.releaseRatePct ?? 0),
+                  amountSettledCents: Number(settlement?.releasedAmountCents ?? 0),
+                  amountRefundedCents: Number(settlement?.refundedAmountCents ?? 0),
+                  latencyMs: toSafeNonNegativeInt(run?.metrics?.latencyMs)
+                }
+              },
+              { context: "manual_settlement_resolution.released" }
+            );
             const releasedAmountCentsRaw =
               settlement?.releasedAmountCents ??
               (String(settlement?.status ?? "").toLowerCase() === AGENT_RUN_SETTLEMENT_STATUS.RELEASED ? settlement?.amountCents : 0);
@@ -27247,6 +30773,47 @@ export function createApi({
             });
           }
           await commitTx(ops);
+          const decisionHashRaw =
+            settlement?.decisionTrace?.decisionRecord && typeof settlement.decisionTrace.decisionRecord === "object"
+              ? settlement.decisionTrace.decisionRecord.decisionHash
+              : null;
+          const decisionHash =
+            typeof decisionHashRaw === "string" && /^[0-9a-f]{64}$/i.test(decisionHashRaw.trim())
+              ? decisionHashRaw.trim().toLowerCase()
+              : sha256Hex(
+                  `${String(settlement?.settlementId ?? runId)}:${String(settlement?.resolutionEventId ?? "manual_resolution")}:${String(
+                    settlement?.status ?? ""
+                  )}`
+                );
+          await emitReputationEventBestEffort(
+            {
+              tenantId,
+              eventId: `rep_dec_${decisionHash}`,
+              occurredAt: settlement?.resolvedAt ?? settledAt,
+              eventKind: REPUTATION_EVENT_KIND.DECISION_REJECTED,
+              subject: {
+                agentId: String(settlement.agentId),
+                counterpartyAgentId: String(settlement.payerAgentId),
+                role: "payee"
+              },
+              sourceRef: {
+                kind: "settlement_decision",
+                sourceId: String(settlement?.settlementId ?? runId),
+                hash: decisionHash,
+                decisionHash,
+                runId,
+                settlementId: settlement?.settlementId ?? null
+              },
+              facts: {
+                decisionStatus: "rejected",
+                releaseRatePct: 0,
+                amountSettledCents: 0,
+                amountRefundedCents: Number(settlement?.refundedAmountCents ?? settlement?.amountCents ?? 0),
+                latencyMs: toSafeNonNegativeInt(run?.metrics?.latencyMs)
+              }
+            },
+            { context: "manual_settlement_resolution.refunded" }
+          );
           await emitBillableUsageEventBestEffort(
             {
               tenantId,
@@ -28882,6 +32449,12 @@ export function createApi({
                   });
                   const agreementPolicy = agreementPolicyMaterial.policy ?? null;
                   const agreementVerificationMethod = agreementPolicyMaterial.verificationMethod ?? null;
+                  const verifierExecution = evaluateRunSettlementVerifierExecution({
+                    verificationMethod: agreementVerificationMethod,
+                    run,
+                    verification
+                  });
+                  const effectiveVerificationStatus = verifierExecution.verificationStatus;
                   const hasMarketplaceAgreement = Boolean(linkedTask?.agreement && typeof linkedTask.agreement === "object");
                   let policyDecision = null;
                   if (!hasMarketplaceAgreement) {
@@ -28900,7 +32473,7 @@ export function createApi({
                       releaseAmountCents: fallbackReleaseAmountCents,
                       refundAmountCents: settlement.amountCents - fallbackReleaseAmountCents,
                       settlementStatus: fallbackReleaseAmountCents > 0 ? "released" : "refunded",
-                      verificationStatus: run.status === "failed" ? "red" : verification.verificationStatus,
+                      verificationStatus: effectiveVerificationStatus,
                       runStatus: run.status
                     };
                   } else {
@@ -28908,7 +32481,7 @@ export function createApi({
                       policyDecision = evaluateSettlementPolicy({
                         policy: agreementPolicy,
                         verificationMethod: agreementVerificationMethod,
-                        verificationStatus: run.status === "failed" ? "red" : verification.verificationStatus,
+                        verificationStatus: effectiveVerificationStatus,
                         runStatus: run.status,
                         amountCents: settlement.amountCents
                       });
@@ -28928,7 +32501,7 @@ export function createApi({
                         releaseAmountCents: fallbackReleaseAmountCents,
                         refundAmountCents: settlement.amountCents - fallbackReleaseAmountCents,
                         settlementStatus: fallbackReleaseAmountCents > 0 ? "released" : "refunded",
-                        verificationStatus: run.status === "failed" ? "red" : verification.verificationStatus,
+                        verificationStatus: effectiveVerificationStatus,
                         runStatus: run.status
                       };
                     }
@@ -28952,7 +32525,10 @@ export function createApi({
                       verificationStatus: policyDecision.verificationStatus ?? null,
                       policyHash: agreementPolicyMaterial.policyHash ?? null,
                       verificationMethodHash: agreementPolicyMaterial.verificationMethodHash ?? null,
-                      verificationMethodMode: agreementVerificationMethod?.mode ?? null,
+                      verificationMethodMode: verifierExecution.verifierRef?.modality ?? agreementVerificationMethod?.mode ?? null,
+                      verifierId: verifierExecution.verifierRef?.verifierId ?? "settld.policy-engine",
+                      verifierVersion: verifierExecution.verifierRef?.verifierVersion ?? "v1",
+                      verifierHash: verifierExecution.verifierRef?.verifierHash ?? null,
                       resolutionEventId: null,
                       finalityState: SETTLEMENT_FINALITY_STATE.PENDING,
                       settledAt: null,
@@ -28966,6 +32542,7 @@ export function createApi({
                       decisionReason: policyDecision.reasonCodes?.[0] ?? "manual review required by settlement policy",
                       decisionTrace: {
                         phase: "run.terminal.awaiting_manual_resolution",
+                        verifierExecution: verifierExecution.evaluation,
                         policyDecision,
                         decisionRecord: manualReviewKernelRefs.decisionRecord,
                         settlementReceipt: manualReviewKernelRefs.settlementReceipt
@@ -29052,7 +32629,10 @@ export function createApi({
                       verificationStatus: policyDecision.verificationStatus ?? null,
                       policyHash: agreementPolicyMaterial.policyHash ?? null,
                       verificationMethodHash: agreementPolicyMaterial.verificationMethodHash ?? null,
-                      verificationMethodMode: agreementVerificationMethod?.mode ?? null,
+                      verificationMethodMode: verifierExecution.verifierRef?.modality ?? agreementVerificationMethod?.mode ?? null,
+                      verifierId: verifierExecution.verifierRef?.verifierId ?? "settld.policy-engine",
+                      verifierVersion: verifierExecution.verifierRef?.verifierVersion ?? "v1",
+                      verifierHash: verifierExecution.verifierRef?.verifierHash ?? null,
                       resolutionEventId: event.id,
                       status: releaseAmountCents > 0 ? AGENT_RUN_SETTLEMENT_STATUS.RELEASED : AGENT_RUN_SETTLEMENT_STATUS.REFUNDED,
                       releasedAmountCents: releaseAmountCents,
@@ -29076,6 +32656,7 @@ export function createApi({
                       decisionReason: policyDecision.reasonCodes?.[0] ?? null,
                       decisionTrace: {
                         phase: "run.terminal.auto_resolved",
+                        verifierExecution: verifierExecution.evaluation,
                         policyDecision,
                         decisionRecord: autoResolvedKernelRefs.decisionRecord,
                         settlementReceipt: autoResolvedKernelRefs.settlementReceipt
@@ -29167,6 +32748,50 @@ export function createApi({
               );
             }
             if (settlement && settlement.status !== AGENT_RUN_SETTLEMENT_STATUS.LOCKED) {
+              const decisionHashRaw =
+                settlement?.decisionTrace?.decisionRecord && typeof settlement.decisionTrace.decisionRecord === "object"
+                  ? settlement.decisionTrace.decisionRecord.decisionHash
+                  : null;
+              const decisionHash =
+                typeof decisionHashRaw === "string" && /^[0-9a-f]{64}$/i.test(decisionHashRaw.trim())
+                  ? decisionHashRaw.trim().toLowerCase()
+                  : sha256Hex(
+                      `${String(settlement?.settlementId ?? runId)}:${String(settlement?.resolutionEventId ?? event?.id ?? "auto_resolution")}:${String(
+                        settlement?.status ?? ""
+                      )}`
+                    );
+              await emitReputationEventBestEffort(
+                {
+                  tenantId,
+                  eventId: `rep_dec_${decisionHash}`,
+                  occurredAt: settlement?.resolvedAt ?? event?.at ?? nowIso(),
+                  eventKind:
+                    Number(settlement?.releasedAmountCents ?? 0) > 0
+                      ? REPUTATION_EVENT_KIND.DECISION_APPROVED
+                      : REPUTATION_EVENT_KIND.DECISION_REJECTED,
+                  subject: {
+                    agentId: String(settlement.agentId),
+                    counterpartyAgentId: String(settlement.payerAgentId),
+                    role: "payee"
+                  },
+                  sourceRef: {
+                    kind: "settlement_decision",
+                    sourceId: String(settlement?.settlementId ?? runId),
+                    hash: decisionHash,
+                    decisionHash,
+                    runId,
+                    settlementId: settlement?.settlementId ?? null
+                  },
+                  facts: {
+                    decisionStatus: Number(settlement?.releasedAmountCents ?? 0) > 0 ? "approved" : "rejected",
+                    releaseRatePct: Number(settlement?.releaseRatePct ?? 0),
+                    amountSettledCents: Number(settlement?.releasedAmountCents ?? 0),
+                    amountRefundedCents: Number(settlement?.refundedAmountCents ?? 0),
+                    latencyMs: toSafeNonNegativeInt(run?.metrics?.latencyMs)
+                  }
+                },
+                { context: "agent_run_event.settlement_decision" }
+              );
               const releasedAmountCentsRaw =
                 settlement?.releasedAmountCents ??
                 (String(settlement.status ?? "").toLowerCase() === AGENT_RUN_SETTLEMENT_STATUS.RELEASED ? settlement?.amountCents : 0);
@@ -31786,6 +35411,7 @@ export function createApi({
     tickEvidenceRetention,
     tickRetentionCleanup,
     tickFinanceReconciliation,
+    tickMoneyRailReconciliation,
     tickBillingStripeSync,
     tickProof,
     tickArtifacts,

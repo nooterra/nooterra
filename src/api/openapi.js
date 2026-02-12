@@ -2123,6 +2123,47 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const DisputeOpenEnvelopeSignedRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "artifactType",
+      "artifactId",
+      "envelopeId",
+      "caseId",
+      "tenantId",
+      "agreementHash",
+      "receiptHash",
+      "holdHash",
+      "openedByAgentId",
+      "openedAt",
+      "reasonCode",
+      "nonce",
+      "signerKeyId",
+      "envelopeHash",
+      "signature"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["DisputeOpenEnvelope.v1"] },
+      artifactType: { type: "string", enum: ["DisputeOpenEnvelope.v1"] },
+      artifactId: { type: "string" },
+      envelopeId: { type: "string" },
+      caseId: { type: "string" },
+      tenantId: { type: "string" },
+      agreementHash: { type: "string" },
+      receiptHash: { type: "string" },
+      holdHash: { type: "string" },
+      openedByAgentId: { type: "string" },
+      openedAt: { type: "string", format: "date-time" },
+      reasonCode: { type: "string" },
+      nonce: { type: "string" },
+      signerKeyId: { type: "string" },
+      envelopeHash: { type: "string" },
+      signature: { type: "string" }
+    }
+  };
+
   const ArbitrationCaseV1 = {
     type: "object",
     additionalProperties: false,
@@ -2300,6 +2341,58 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       stored: { type: "object", additionalProperties: true },
       kernelVerification: SettlementKernelVerification,
       comparisons: { type: "object", additionalProperties: true }
+    }
+  };
+
+  const ToolCallReplayEvaluateResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "agreementHash", "runId", "replay", "stored", "comparisons", "issues"],
+    properties: {
+      ok: { type: "boolean" },
+      tenantId: { type: "string" },
+      agreementHash: { type: "string" },
+      runId: { type: "string" },
+      replay: { type: "object", additionalProperties: true },
+      stored: { type: "object", additionalProperties: true },
+      comparisons: { type: "object", additionalProperties: true },
+      issues: { type: "array", items: { type: "string" } }
+    }
+  };
+
+  const ReputationFactsResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "agentId", "window", "asOf", "facts"],
+    properties: {
+      ok: { type: "boolean" },
+      tenantId: { type: "string" },
+      agentId: { type: "string" },
+      toolId: { type: "string", nullable: true },
+      window: { type: "string", enum: ["7d", "30d", "allTime"] },
+      asOf: { type: "string", format: "date-time" },
+      windowStartAt: { type: "string", format: "date-time", nullable: true },
+      facts: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          totals: { type: "object", additionalProperties: true },
+          latencyMs: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              count: { type: "integer", minimum: 0 },
+              p50: { type: "integer", minimum: 0, nullable: true },
+              p95: { type: "integer", minimum: 0, nullable: true }
+            }
+          }
+        }
+      },
+      events: {
+        type: "array",
+        nullable: true,
+        items: { type: "object", additionalProperties: true }
+      }
     }
   };
 
@@ -2874,9 +2967,12 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         RunAgreementCancelResponse,
         DisputeVerdictSignedRequest,
         ArbitrationVerdictSignedRequest,
+        DisputeOpenEnvelopeSignedRequest,
         ArbitrationCaseV1,
         RunSettlementPolicyReplayResponse,
         RunSettlementReplayEvaluateResponse,
+        ToolCallReplayEvaluateResponse,
+        ReputationFactsResponse,
         MonthCloseRequest,
         AckRequest,
         ArtifactVerificationSummary,
@@ -4834,6 +4930,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                     panelCandidateAgentIds: { type: "array", items: { type: "string" } },
                     summary: { type: "string" },
                     evidenceRefs: { type: "array", items: { type: "string" } },
+                    disputeOpenEnvelope: DisputeOpenEnvelopeSignedRequest,
                     adminOverride: { type: "object", additionalProperties: true }
                   }
                 }
@@ -4843,7 +4940,36 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           responses: {
             201: {
               description: "Created",
-              content: { "application/json": { schema: { type: "object", additionalProperties: false, properties: { arbitrationCase: ArbitrationCaseV1 } } } }
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      arbitrationCase: ArbitrationCaseV1,
+                      arbitrationCaseArtifact: {
+                        type: "object",
+                        nullable: true,
+                        additionalProperties: false,
+                        properties: {
+                          artifactId: { type: "string" },
+                          artifactHash: { type: "string", nullable: true }
+                        }
+                      },
+                      disputeOpenEnvelopeArtifact: {
+                        type: "object",
+                        nullable: true,
+                        additionalProperties: false,
+                        properties: {
+                          artifactId: { type: "string" },
+                          artifactHash: { type: "string", nullable: true }
+                        }
+                      },
+                      alreadyExisted: { type: "boolean" }
+                    }
+                  }
+                }
+              }
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
@@ -4986,6 +5112,64 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                       holds: { type: "array", items: FundingHoldV1 }
                     }
                   }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/tool-calls/replay-evaluate": {
+        get: {
+          summary: "Ops: replay tool-call holdback/dispute resolution by agreement hash",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agreementHash", in: "query", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_read"],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: ToolCallReplayEvaluateResponse
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/reputation/facts": {
+        get: {
+          summary: "Ops: aggregate append-only reputation facts for an agent/tool window",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agentId", in: "query", required: true, schema: { type: "string" } },
+            { name: "toolId", in: "query", required: false, schema: { type: "string" } },
+            { name: "window", in: "query", required: false, schema: { type: "string", enum: ["7d", "30d", "allTime"] } },
+            { name: "asOf", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+            { name: "includeEvents", in: "query", required: false, schema: { type: "string", enum: ["1"] } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_read"],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: ReputationFactsResponse
                 }
               }
             },
@@ -5444,6 +5628,43 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
+      "/ops/money-rails/{providerId}/operations/{operationId}/submit": {
+        post: {
+          summary: "Submit a money rail payout operation to the configured provider",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            IdempotencyHeader,
+            { name: "providerId", in: "path", required: true, schema: { type: "string" } },
+            { name: "operationId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["finance_write"],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    providerRef: { type: "string" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: { description: "Bad request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            502: { description: "Upstream provider error", content: { "application/json": { schema: ErrorResponse } } },
+            503: { description: "Provider circuit open", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
       "/ops/money-rails/{providerId}/events/ingest": {
         post: {
           summary: "Ingest provider event and deterministically map to operation state",
@@ -5517,6 +5738,44 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             404: { description: "Not found", content: { "application/json": { schema: ErrorResponse } } },
             409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/finance/money-rails/stripe-connect/accounts/sync": {
+        post: {
+          summary: "Sync Stripe Connect account KYB/capability state from Stripe",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            IdempotencyHeader,
+            { name: "providerId", in: "query", required: false, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["finance_write"],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    providerId: { type: "string" },
+                    dryRun: { type: "boolean", default: false },
+                    accountIds: { type: "array", items: { type: "string" } }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            502: { description: "Upstream provider error", content: { "application/json": { schema: ErrorResponse } } },
+            503: { description: "Provider circuit open", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },

@@ -2028,6 +2028,45 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     );
   }
 
+  async function persistReputationEventIndexRow(client, { tenantId, artifactId, artifactHash, artifact }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!artifact || typeof artifact !== "object" || Array.isArray(artifact)) return;
+    if (String(artifact.artifactType ?? artifact.schemaVersion ?? "") !== "ReputationEvent.v1") return;
+
+    const subject = artifact.subject && typeof artifact.subject === "object" && !Array.isArray(artifact.subject) ? artifact.subject : null;
+    const sourceRef = artifact.sourceRef && typeof artifact.sourceRef === "object" && !Array.isArray(artifact.sourceRef) ? artifact.sourceRef : null;
+    const agentId = subject?.agentId ? String(subject.agentId).trim() : "";
+    if (!agentId) return;
+
+    const toolIdRaw = subject?.toolId ? String(subject.toolId).trim() : "";
+    const toolId = toolIdRaw === "" ? null : toolIdRaw;
+    const sourceKindRaw = sourceRef?.kind ? String(sourceRef.kind).trim().toLowerCase() : "";
+    const sourceKind = sourceKindRaw === "" ? "unknown" : sourceKindRaw;
+    const sourceHashRaw = sourceRef?.hash ? String(sourceRef.hash).trim().toLowerCase() : "";
+    const sourceHash = sourceHashRaw === "" ? null : sourceHashRaw;
+    const eventKindRaw = artifact?.eventKind ? String(artifact.eventKind).trim().toLowerCase() : "";
+    const eventKind = eventKindRaw === "" ? "unknown" : eventKindRaw;
+    const occurredAtParsed = Date.parse(String(artifact.occurredAt ?? ""));
+    const occurredAt = Number.isFinite(occurredAtParsed) ? new Date(occurredAtParsed).toISOString() : new Date().toISOString();
+
+    await client.query(
+      `
+        INSERT INTO reputation_event_index (
+          tenant_id, artifact_id, artifact_hash, subject_agent_id, subject_tool_id, occurred_at, event_kind, source_kind, source_hash
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        ON CONFLICT (tenant_id, artifact_id) DO UPDATE SET
+          artifact_hash = EXCLUDED.artifact_hash,
+          subject_agent_id = EXCLUDED.subject_agent_id,
+          subject_tool_id = EXCLUDED.subject_tool_id,
+          occurred_at = EXCLUDED.occurred_at,
+          event_kind = EXCLUDED.event_kind,
+          source_kind = EXCLUDED.source_kind,
+          source_hash = EXCLUDED.source_hash
+      `,
+      [tenantId, String(artifactId), String(artifactHash), agentId, toolId, occurredAt, eventKind, sourceKind, sourceHash]
+    );
+  }
+
 	  async function persistArtifactRow(client, { tenantId, artifact }) {
 	    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
 	    if (!artifact || typeof artifact !== "object") throw new TypeError("artifact is required");
@@ -2058,6 +2097,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           err.gotArtifactHash = String(artifactHash);
           throw err;
         }
+        await persistReputationEventIndexRow(client, { tenantId, artifactId: currentId, artifactHash: currentHash, artifact });
         return;
       }
     }
@@ -2072,6 +2112,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
 	        err.gotArtifactHash = String(artifactHash);
 	        throw err;
 	      }
+	      await persistReputationEventIndexRow(client, { tenantId, artifactId, artifactHash: current, artifact });
 	      return;
 	    }
 
@@ -2092,6 +2133,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
 	          JSON.stringify(artifact)
 	        ]
 	      );
+	      await persistReputationEventIndexRow(client, { tenantId, artifactId, artifactHash, artifact });
 	    } catch (err) {
 	      // Under concurrency, two workers may attempt to persist the same artifact at the same time. Treat this as
 	      // idempotent when the existing row's hash matches, and retryable otherwise.
@@ -2104,7 +2146,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
 	          if (bySource.rows.length) {
 	            const currentId = String(bySource.rows[0].artifact_id);
 	            const currentHash = String(bySource.rows[0].artifact_hash);
-	            if (currentHash === String(artifactHash)) return;
+	            if (currentHash === String(artifactHash)) {
+                await persistReputationEventIndexRow(client, { tenantId, artifactId: currentId, artifactHash: currentHash, artifact });
+                return;
+              }
 	            const conflict = new Error("artifact already exists for this job/type/sourceEventId with a different hash");
 	            conflict.code = "ARTIFACT_SOURCE_EVENT_CONFLICT";
 	            conflict.existingArtifactId = currentId;
@@ -2117,7 +2162,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
 	        const byId = await client.query("SELECT artifact_hash FROM artifacts WHERE tenant_id = $1 AND artifact_id = $2", [tenantId, artifactId]);
 	        if (byId.rows.length) {
 	          const current = String(byId.rows[0].artifact_hash);
-	          if (current === String(artifactHash)) return;
+	          if (current === String(artifactHash)) {
+              await persistReputationEventIndexRow(client, { tenantId, artifactId, artifactHash: current, artifact });
+              return;
+            }
 	          const mismatch = new Error("artifactId already exists with a different hash");
 	          mismatch.code = "ARTIFACT_HASH_MISMATCH";
 	          mismatch.expectedArtifactHash = current;
@@ -4732,6 +4780,58 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       params
     );
     return res.rows.map((r) => r.artifact_json);
+  };
+
+  store.listReputationEvents = async function listReputationEvents({
+    tenantId = DEFAULT_TENANT_ID,
+    agentId,
+    toolId = null,
+    occurredAtGte = null,
+    occurredAtLte = null,
+    limit = 1000,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(agentId, "agentId");
+    if (toolId !== null && toolId !== undefined) assertNonEmptyString(toolId, "toolId");
+    if (occurredAtGte !== null && occurredAtGte !== undefined) assertNonEmptyString(occurredAtGte, "occurredAtGte");
+    if (occurredAtLte !== null && occurredAtLte !== undefined) assertNonEmptyString(occurredAtLte, "occurredAtLte");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const params = [tenantId, String(agentId)];
+    const where = ["idx.tenant_id = $1", "idx.subject_agent_id = $2"];
+    if (toolId !== null && toolId !== undefined) {
+      params.push(String(toolId));
+      where.push(`idx.subject_tool_id = $${params.length}`);
+    }
+    if (occurredAtGte !== null && occurredAtGte !== undefined) {
+      params.push(String(occurredAtGte));
+      where.push(`idx.occurred_at >= $${params.length}::timestamptz`);
+    }
+    if (occurredAtLte !== null && occurredAtLte !== undefined) {
+      params.push(String(occurredAtLte));
+      where.push(`idx.occurred_at <= $${params.length}::timestamptz`);
+    }
+    const safeLimit = Math.min(5000, limit);
+    params.push(safeLimit);
+    params.push(offset);
+
+    const res = await pool.query(
+      `
+        SELECT a.artifact_json
+        FROM reputation_event_index idx
+        INNER JOIN artifacts a
+          ON a.tenant_id = idx.tenant_id
+         AND a.artifact_id = idx.artifact_id
+        WHERE ${where.join(" AND ")}
+        ORDER BY idx.occurred_at ASC, idx.artifact_id ASC
+        LIMIT $${params.length - 1}
+        OFFSET $${params.length}
+      `,
+      params
+    );
+    return res.rows.map((row) => row.artifact_json);
   };
 
   store.createDelivery = async function createDelivery({ tenantId = DEFAULT_TENANT_ID, delivery }) {

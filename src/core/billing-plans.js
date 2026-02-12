@@ -12,6 +12,7 @@ const BILLING_PLAN_CATALOG = Object.freeze({
     subscriptionCents: 0,
     includedVerifiedRunsPerMonth: 1000,
     verifiedRunOverageCents: 0,
+    verifiedRunOverageMilliCents: 0,
     settledVolumeFeeBps: 0,
     arbitrationCaseFeeCents: 0,
     hardLimitVerifiedRunsPerMonth: 1000
@@ -22,6 +23,7 @@ const BILLING_PLAN_CATALOG = Object.freeze({
     subscriptionCents: 9900,
     includedVerifiedRunsPerMonth: 10_000,
     verifiedRunOverageCents: 1,
+    verifiedRunOverageMilliCents: 1000,
     settledVolumeFeeBps: 75,
     arbitrationCaseFeeCents: 200,
     hardLimitVerifiedRunsPerMonth: 0
@@ -31,7 +33,8 @@ const BILLING_PLAN_CATALOG = Object.freeze({
     displayName: "Growth",
     subscriptionCents: 59_900,
     includedVerifiedRunsPerMonth: 100_000,
-    verifiedRunOverageCents: 1,
+    verifiedRunOverageCents: 0.7,
+    verifiedRunOverageMilliCents: 700,
     settledVolumeFeeBps: 45,
     arbitrationCaseFeeCents: 100,
     hardLimitVerifiedRunsPerMonth: 0
@@ -42,6 +45,7 @@ const BILLING_PLAN_CATALOG = Object.freeze({
     subscriptionCents: 0,
     includedVerifiedRunsPerMonth: 0,
     verifiedRunOverageCents: 0,
+    verifiedRunOverageMilliCents: 0,
     settledVolumeFeeBps: 35,
     arbitrationCaseFeeCents: 0,
     hardLimitVerifiedRunsPerMonth: 0
@@ -54,6 +58,22 @@ function assertNonNegativeSafeInt(value, fieldName) {
     throw new TypeError(`${fieldName} must be a non-negative safe integer`);
   }
   return n;
+}
+
+function assertNonNegativeCentsRate(value, fieldName) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new TypeError(`${fieldName} must be a non-negative finite number`);
+  }
+  const rounded = Math.round(n * 1000) / 1000;
+  if (Math.abs(rounded - n) > 1e-9) {
+    throw new TypeError(`${fieldName} must use at most 3 decimal places`);
+  }
+  return rounded;
+}
+
+function toMilliCentsFromCentsRate(centsRate) {
+  return Math.round(assertNonNegativeCentsRate(centsRate, "plan.verifiedRunOverageCents") * 1000);
 }
 
 export function normalizeBillingPlanId(value, { allowNull = false, defaultPlan = BILLING_PLAN_ID.FREE } = {}) {
@@ -96,9 +116,15 @@ export function normalizeBillingPlanOverrides(input, { allowNull = true } = {}) 
     );
   }
   if (Object.prototype.hasOwnProperty.call(input, "verifiedRunOverageCents")) {
-    out.verifiedRunOverageCents = assertNonNegativeSafeInt(
+    out.verifiedRunOverageCents = assertNonNegativeCentsRate(
       input.verifiedRunOverageCents,
       "billing.overrides.verifiedRunOverageCents"
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "verifiedRunOverageMilliCents")) {
+    out.verifiedRunOverageMilliCents = assertNonNegativeSafeInt(
+      input.verifiedRunOverageMilliCents,
+      "billing.overrides.verifiedRunOverageMilliCents"
     );
   }
   if (Object.prototype.hasOwnProperty.call(input, "settledVolumeFeeBps")) {
@@ -144,9 +170,15 @@ export function computeBillingEstimate({
     plan?.includedVerifiedRunsPerMonth ?? normalizedPlan.includedVerifiedRunsPerMonth ?? 0,
     "plan.includedVerifiedRunsPerMonth"
   );
-  const verifiedRunOverageCentsPerUnit = assertNonNegativeSafeInt(
+  const verifiedRunOverageCentsPerUnit = assertNonNegativeCentsRate(
     plan?.verifiedRunOverageCents ?? normalizedPlan.verifiedRunOverageCents ?? 0,
     "plan.verifiedRunOverageCents"
+  );
+  const verifiedRunOverageMilliCentsPerUnit = assertNonNegativeSafeInt(
+    plan?.verifiedRunOverageMilliCents ??
+      normalizedPlan.verifiedRunOverageMilliCents ??
+      toMilliCentsFromCentsRate(verifiedRunOverageCentsPerUnit),
+    "plan.verifiedRunOverageMilliCents"
   );
   const settledVolumeFeeBps = assertNonNegativeSafeInt(
     plan?.settledVolumeFeeBps ?? normalizedPlan.settledVolumeFeeBps ?? 0,
@@ -165,9 +197,9 @@ export function computeBillingEstimate({
   const settledVolumeCents = assertNonNegativeSafeInt(usage?.settledVolumeCents ?? 0, "usage.settledVolumeCents");
   const arbitrationCases = assertNonNegativeSafeInt(usage?.arbitrationCases ?? 0, "usage.arbitrationCases");
 
-  const verifiedRunOverageUnits =
-    includedVerifiedRunsPerMonth > 0 ? Math.max(0, verifiedRuns - includedVerifiedRunsPerMonth) : 0;
-  const verifiedRunOverageCents = verifiedRunOverageUnits * verifiedRunOverageCentsPerUnit;
+  const verifiedRunOverageUnits = Math.max(0, verifiedRuns - includedVerifiedRunsPerMonth);
+  const verifiedRunOverageMilliCents = verifiedRunOverageUnits * verifiedRunOverageMilliCentsPerUnit;
+  const verifiedRunOverageCents = Math.round(verifiedRunOverageMilliCents / 1000);
   const settledVolumeFeeCents = Math.floor((settledVolumeCents * settledVolumeFeeBps) / 10_000);
   const arbitrationFeeCents = arbitrationCases * arbitrationCaseFeeCents;
   const totalEstimatedCents = subscriptionCents + verifiedRunOverageCents + settledVolumeFeeCents + arbitrationFeeCents;
@@ -177,7 +209,9 @@ export function computeBillingEstimate({
     includedVerifiedRunsPerMonth,
     verifiedRunOverageUnits,
     verifiedRunOverageCents,
+    verifiedRunOverageMilliCents,
     verifiedRunOverageCentsPerUnit,
+    verifiedRunOverageMilliCentsPerUnit,
     settledVolumeFeeBps,
     settledVolumeFeeCents,
     arbitrationCaseFeeCents,

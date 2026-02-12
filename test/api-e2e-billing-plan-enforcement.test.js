@@ -197,6 +197,79 @@ test("API e2e: billing catalog + summary reflects billable event usage and estim
   assert.equal(summary.json?.estimate?.totalEstimatedCents, 10111);
 });
 
+test("API e2e: growth plan preserves sub-cent verified-run pricing via milli-cent accounting", async () => {
+  const api = createApi({
+    now: () => "2026-02-07T00:00:00.000Z",
+    opsTokens: ["tok_finr:finance_read", "tok_finw:finance_write"].join(";")
+  });
+
+  const tenantId = "tenant_billing_growth_millicent";
+  const payerAgentId = "agt_billing_growth_payer";
+  const payeeAgentId = "agt_billing_growth_payee";
+
+  const setPlan = await request(api, {
+    method: "PUT",
+    path: "/ops/finance/billing/plan",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw"
+    },
+    body: {
+      plan: "growth",
+      hardLimitEnforced: true,
+      planOverrides: {
+        includedVerifiedRunsPerMonth: 0
+      }
+    }
+  });
+  assert.equal(setPlan.statusCode, 200);
+
+  await registerAgent(api, { tenantId, agentId: payerAgentId });
+  await registerAgent(api, { tenantId, agentId: payeeAgentId });
+
+  const credit = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(payerAgentId)}/wallet/credit`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": "billing_growth_credit_1"
+    },
+    body: {
+      amountCents: 1000,
+      currency: "USD"
+    }
+  });
+  assert.equal(credit.statusCode, 201);
+
+  const completed = await createAndCompleteRun(api, {
+    tenantId,
+    payerAgentId,
+    payeeAgentId,
+    runId: "run_billing_growth_1",
+    amountCents: 1,
+    idempotencyPrefix: "billing_growth_run_1"
+  });
+  assert.equal(completed.statusCode, 201);
+
+  const summary = await request(api, {
+    method: "GET",
+    path: "/ops/finance/billing/summary?period=2026-02",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(summary.statusCode, 200);
+  assert.equal(summary.json?.plan?.planId, "growth");
+  assert.equal(summary.json?.estimate?.subscriptionCents, 59900);
+  assert.equal(summary.json?.estimate?.verifiedRunOverageUnits, 1);
+  assert.equal(summary.json?.estimate?.verifiedRunOverageCentsPerUnit, 0.7);
+  assert.equal(summary.json?.estimate?.verifiedRunOverageMilliCentsPerUnit, 700);
+  assert.equal(summary.json?.estimate?.verifiedRunOverageMilliCents, 700);
+  assert.equal(summary.json?.estimate?.verifiedRunOverageCents, 1);
+  assert.equal(summary.json?.estimate?.totalEstimatedCents, 59901);
+});
+
 test("API e2e: billing stripe provider session endpoints + period-close artifact export", async () => {
   const api = createApi({
     now: () => "2026-02-07T00:00:00.000Z",
