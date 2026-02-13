@@ -11,6 +11,11 @@ This file is the execution bridge from current P0 completion into the next major
 - Release/CI now includes deploy safety smoke and secret hygiene checks.
 - Remaining hard gate before closing P0 operations evidence: run hosted-baseline backup/restore with real DB URLs and archive signed artifacts.
 
+Progress update (2026-02-13):
+
+- Production hosted-baseline backup/restore evidence now passes (`artifacts/ops/hosted-baseline-prod.json`, `artifactHash=2a5833fd44e6b904ed87763e2d1212e02ffcd9583c4d50fdd5b2cffa3d99a597`).
+- Staging hosted-baseline backup/restore rerun is still pending with current rotated secrets.
+
 ## Readiness definition for S23 start
 
 S23 starts only when all items below are true:
