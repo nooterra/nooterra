@@ -27,6 +27,14 @@ npm run mcp:server
 
 The server speaks JSON-RPC 2.0 over `stdio` and exposes curated tools.
 
+## Sanity Check (No Manual JSON Copy/Paste)
+
+```bash
+npm run mcp:probe
+```
+
+This spawns the MCP server, runs `initialize` and `tools/list`, prints the responses, and exits.
+
 ## Tool Flow (Typical)
 
 1. Create an agreement (marketplace-backed) and a run:
@@ -89,4 +97,3 @@ Tool: `settld.open_dispute`
 - Writes require `x-settld-protocol`. The MCP server sets this automatically for write calls.
 - Run event appends require `x-proxy-expected-prev-chain-hash`. The MCP server fetches the current head and supplies it.
 - This is a spike (Sprint 23). Production hardening (SSE transport, rate limiting, etc.) is planned for Sprint 25.
-

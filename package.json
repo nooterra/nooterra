@@ -58,6 +58,7 @@
     "proof:month": "node scripts/proof-bundle/month.mjs",
     "trust:wizard": "node scripts/trust-config/wizard.mjs",
     "mcp:server": "node scripts/mcp/settld-mcp-server.mjs",
+    "mcp:probe": "node scripts/mcp/probe.mjs",
     "governance:export": "node scripts/governance/export.mjs",
     "openapi:write": "node scripts/openapi/write.mjs",
     "sdk:smoke": "node scripts/sdk/smoke.mjs",
