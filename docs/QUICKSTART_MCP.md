@@ -100,7 +100,19 @@ Tool: `settld.settle_run`
 }
 ```
 
-4. Open a dispute (only valid within the dispute window):
+4. Resolve the settlement (so it is no longer `locked`):
+
+Tool: `settld.resolve_settlement`
+
+```json
+{
+  "runId": "<runId>",
+  "status": "released",
+  "reason": "demo settlement resolution"
+}
+```
+
+5. Open a dispute (only valid within the dispute window):
 
 Tool: `settld.open_dispute`
 

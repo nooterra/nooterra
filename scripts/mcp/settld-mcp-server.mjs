@@ -296,6 +296,25 @@ function buildTools() {
       }
     },
     {
+      name: "settld.resolve_settlement",
+      description:
+        "Manually resolve a run settlement (released/refunded). Useful for demos where the policy engine would otherwise leave the settlement locked.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["runId"],
+        properties: {
+          runId: { type: "string" },
+          status: { type: "string", enum: ["released", "refunded"], default: "released" },
+          releaseRatePct: { type: ["integer", "null"], minimum: 0, maximum: 100, default: null },
+          releasedAmountCents: { type: ["integer", "null"], minimum: 0, default: null },
+          refundedAmountCents: { type: ["integer", "null"], minimum: 0, default: null },
+          reason: { type: ["string", "null"], default: null },
+          resolvedByAgentId: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
       name: "settld.open_dispute",
       description: "Open a dispute on a resolved run settlement (requires dispute window still open).",
       inputSchema: {
@@ -608,6 +627,26 @@ async function main() {
                 disputeChannel: args?.channel ?? null
               },
               idem: makeIdempotencyKey("mcp_dispute_open")
+            });
+            result = { ok: true, ...redactSecrets(out) };
+          } else if (name === "settld.resolve_settlement") {
+            const runId = String(args?.runId ?? "").trim();
+            assertNonEmptyString(runId, "runId");
+            const status = args?.status ? String(args.status).trim().toLowerCase() : "released";
+            if (status !== "released" && status !== "refunded") throw new TypeError("status must be released|refunded");
+
+            const out = await client.requestJson(`/runs/${encodeURIComponent(runId)}/settlement/resolve`, {
+              method: "POST",
+              write: true,
+              body: {
+                status,
+                releaseRatePct: args?.releaseRatePct ?? null,
+                releasedAmountCents: args?.releasedAmountCents ?? null,
+                refundedAmountCents: args?.refundedAmountCents ?? null,
+                reason: args?.reason ?? null,
+                resolvedByAgentId: args?.resolvedByAgentId ?? null
+              },
+              idem: makeIdempotencyKey("mcp_settlement_resolve")
             });
             result = { ok: true, ...redactSecrets(out) };
           } else {
