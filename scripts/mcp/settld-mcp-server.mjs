@@ -330,6 +330,10 @@ async function main() {
   assertNonEmptyString(tenantId, "SETTLD_TENANT_ID");
   assertNonEmptyString(apiKey, "SETTLD_API_KEY");
 
+  // Operational hint: this server speaks JSON-RPC over stdin/stdout (MCP stdio transport).
+  // Keep stdout strictly for JSON-RPC messages; print hints to stderr only.
+  process.stderr.write("[mcp] ready (stdio). Use `npm run mcp:probe` or an MCP client; do not paste shell prompts.\n");
+
   const client = makeSettldClient({ baseUrl, tenantId, apiKey, protocol });
   const tools = buildTools();
   const toolByName = new Map(tools.map((t) => [t.name, t]));

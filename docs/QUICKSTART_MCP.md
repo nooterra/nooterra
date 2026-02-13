@@ -26,6 +26,7 @@ npm run mcp:server
 ```
 
 The server speaks JSON-RPC 2.0 over `stdio` and exposes curated tools.
+If you run it in a normal terminal, it will just sit waiting for JSON-RPC input (this is expected). Use `mcp:probe` below to validate it end-to-end.
 
 ## Sanity Check (No Manual JSON Copy/Paste)
 
@@ -45,6 +46,13 @@ cat > /tmp/settld-mcp-create-agreement.json <<'JSON'
 JSON
 
 npm run -s mcp:probe -- --call-file settld.create_agreement /tmp/settld-mcp-create-agreement.json
+```
+
+Alternative that avoids paste issues entirely:
+
+```bash
+jq -n '{amountCents:500,currency:"USD",title:"MCP live probe",capability:"agent-task:demo",disputeWindowDays:7}' \
+  > /tmp/settld-mcp-create-agreement.json
 ```
 
 ## Tool Flow (Typical)
