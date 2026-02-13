@@ -48,6 +48,9 @@ async function runAutotickOnce() {
     if (cfg.store.mode === "pg" && typeof store.processOutbox === "function") {
       await store.processOutbox({ maxMessages: autotickMaxMessages });
     }
+    if (typeof api.tickDispatch === "function") {
+      await api.tickDispatch({ maxMessages: autotickMaxMessages });
+    }
     if (typeof api.tickProof === "function") {
       await api.tickProof({ maxMessages: autotickMaxMessages });
     }

@@ -23187,22 +23187,26 @@ export function createApi({
             return sendError(res, 400, "invalid passes", null, { code: "SCHEMA_INVALID" });
           }
 
-          const startedMs = Date.now();
-          const result = { passes, runs: [] };
-          try {
-            for (let i = 0; i < passes; i += 1) {
-              const run = {
-                index: i,
-                storeOutbox: null,
-                proof: null,
-                artifacts: null,
-                deliveries: null
-              };
-              run.storeOutbox = await store.processOutbox({ maxMessages });
-              if (typeof tickProof === "function") run.proof = await tickProof({ maxMessages });
-              if (typeof tickArtifacts === "function") run.artifacts = await tickArtifacts({ maxMessages });
-              if (typeof tickDeliveries === "function") run.deliveries = await tickDeliveries({ maxMessages });
-              result.runs.push(run);
+	          const startedMs = Date.now();
+	          const result = { passes, runs: [] };
+	          try {
+	            for (let i = 0; i < passes; i += 1) {
+	              const run = {
+	                index: i,
+	                storeOutbox: null,
+	                dispatch: null,
+	                proof: null,
+	                artifacts: null,
+	                deliveries: null
+	              };
+	              run.storeOutbox = await store.processOutbox({ maxMessages });
+	              // Some outbox topics are handled by "tick*" workers in this API monolith, not by store.processOutbox().
+	              // Include them here so ops tooling can drain outbox even when PROXY_AUTOTICK is disabled.
+	              if (typeof tickDispatch === "function") run.dispatch = await tickDispatch({ maxMessages });
+	              if (typeof tickProof === "function") run.proof = await tickProof({ maxMessages });
+	              if (typeof tickArtifacts === "function") run.artifacts = await tickArtifacts({ maxMessages });
+	              if (typeof tickDeliveries === "function") run.deliveries = await tickDeliveries({ maxMessages });
+	              result.runs.push(run);
 
               const storeProcessedCount = (() => {
                 try {
@@ -23218,15 +23222,16 @@ export function createApi({
                 } catch {
                   return 0;
                 }
-              })();
-              const proofCount = Array.isArray(run.proof?.processed) ? run.proof.processed.length : 0;
-              const artifactCount = Array.isArray(run.artifacts?.processed) ? run.artifacts.processed.length : 0;
-              const deliveryCount = Array.isArray(run.deliveries?.processed) ? run.deliveries.processed.length : 0;
-              if (storeProcessedCount + proofCount + artifactCount + deliveryCount === 0) break;
-            }
-          } catch (err) {
-            return sendError(res, 500, "outbox processing failed", { message: err?.message ?? String(err) });
-          }
+	              })();
+	              const dispatchCount = Array.isArray(run.dispatch?.processed) ? run.dispatch.processed.length : 0;
+	              const proofCount = Array.isArray(run.proof?.processed) ? run.proof.processed.length : 0;
+	              const artifactCount = Array.isArray(run.artifacts?.processed) ? run.artifacts.processed.length : 0;
+	              const deliveryCount = Array.isArray(run.deliveries?.processed) ? run.deliveries.processed.length : 0;
+	              if (storeProcessedCount + dispatchCount + proofCount + artifactCount + deliveryCount === 0) break;
+	            }
+	          } catch (err) {
+	            return sendError(res, 500, "outbox processing failed", { message: err?.message ?? String(err) });
+	          }
 
           const runtimeMs = Date.now() - startedMs;
           try {
