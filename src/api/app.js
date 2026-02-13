@@ -16474,18 +16474,36 @@ export function createApi({
           return sendJson(res, 200, buildOpenApiSpec());
         }
 
-      if (req.method === "GET" && path === "/healthz") {
-        const signals = {
-          ok: true,
-          dbOk: true,
-          dbLatencyMs: null,
-          outboxPending: null,
-          deliveriesPending: null,
-          deliveriesFailed: null,
-          ingestRejected: null,
-          autotickLastTickAt: store?.__autotickLastTickAt ?? null,
-          autotickLastSuccessAt: store?.__autotickLastSuccessAt ?? null
-        };
+	      if (req.method === "GET" && path === "/healthz") {
+	        const scopedTokenScopes = parseOpsTokens(opsTokensRaw);
+	        const scopedTokensConfigured = scopedTokenScopes.size > 0;
+	        const legacyTokenConfigured =
+	          typeof legacyOpsTokenRaw === "string" && legacyOpsTokenRaw.trim() !== "" && !scopedTokensConfigured;
+
+	        const signals = {
+	          ok: true,
+	          dbOk: true,
+	          dbLatencyMs: null,
+	          outboxPending: null,
+	          deliveriesPending: null,
+	          deliveriesFailed: null,
+	          ingestRejected: null,
+	          autotickLastTickAt: store?.__autotickLastTickAt ?? null,
+	          autotickLastSuccessAt: store?.__autotickLastSuccessAt ?? null,
+	          // Non-sensitive deploy/config hints (do not include tokens/secrets).
+	          build: {
+	            gitSha: typeof process !== "undefined" ? (process.env.GIT_SHA ?? null) : null,
+	            version: typeof process !== "undefined" ? (process.env.SETTLD_VERSION ?? null) : null,
+	            railwayEnvironment: typeof process !== "undefined" ? (process.env.RAILWAY_ENVIRONMENT_NAME ?? null) : null,
+	            railwayService: typeof process !== "undefined" ? (process.env.RAILWAY_SERVICE_NAME ?? null) : null
+	          },
+	          opsAuth: {
+	            mode: scopedTokensConfigured ? "scoped" : legacyTokenConfigured ? "legacy" : "disabled",
+	            scopedTokensCount: scopedTokenScopes.size,
+	            scopedTokensEmptyScopesCount: Array.from(scopedTokenScopes.values()).filter((s) => (s ? s.size === 0 : true)).length,
+	            effectiveTokensCount: opsTokenScopes.size
+	          }
+	        };
 
         if (store?.kind === "pg" && store?.pg?.pool) {
           const started = Date.now();
