@@ -23181,11 +23181,49 @@ export function createApi({
           if (!Number.isSafeInteger(maxMessages) || maxMessages <= 0) {
             return sendError(res, 400, "invalid maxMessages", null, { code: "SCHEMA_INVALID" });
           }
+          const passesRaw = body?.passes ?? null;
+          const passes = passesRaw === null || passesRaw === undefined || passesRaw === "" ? 3 : Number(passesRaw);
+          if (!Number.isSafeInteger(passes) || passes <= 0 || passes > 25) {
+            return sendError(res, 400, "invalid passes", null, { code: "SCHEMA_INVALID" });
+          }
 
           const startedMs = Date.now();
-          let result = null;
+          const result = { passes, runs: [] };
           try {
-            result = await store.processOutbox({ maxMessages });
+            for (let i = 0; i < passes; i += 1) {
+              const run = {
+                index: i,
+                storeOutbox: null,
+                proof: null,
+                artifacts: null,
+                deliveries: null
+              };
+              run.storeOutbox = await store.processOutbox({ maxMessages });
+              if (typeof tickProof === "function") run.proof = await tickProof({ maxMessages });
+              if (typeof tickArtifacts === "function") run.artifacts = await tickArtifacts({ maxMessages });
+              if (typeof tickDeliveries === "function") run.deliveries = await tickDeliveries({ maxMessages });
+              result.runs.push(run);
+
+              const storeProcessedCount = (() => {
+                try {
+                  const out = run.storeOutbox ?? {};
+                  let n = 0;
+                  for (const v of Object.values(out)) {
+                    if (!v || typeof v !== "object") continue;
+                    if (Array.isArray(v.processed)) n += v.processed.length;
+                    else if (Array.isArray(v.processed ?? null)) n += v.processed.length;
+                    else if (Array.isArray(v?.processed ?? null)) n += v.processed.length;
+                  }
+                  return n;
+                } catch {
+                  return 0;
+                }
+              })();
+              const proofCount = Array.isArray(run.proof?.processed) ? run.proof.processed.length : 0;
+              const artifactCount = Array.isArray(run.artifacts?.processed) ? run.artifacts.processed.length : 0;
+              const deliveryCount = Array.isArray(run.deliveries?.processed) ? run.deliveries.processed.length : 0;
+              if (storeProcessedCount + proofCount + artifactCount + deliveryCount === 0) break;
+            }
           } catch (err) {
             return sendError(res, 500, "outbox processing failed", { message: err?.message ?? String(err) });
           }
@@ -23202,6 +23240,7 @@ export function createApi({
                   details: {
                     path: "/ops/maintenance/outbox/run",
                     maxMessages,
+                    passes,
                     runtimeMs,
                     result
                   }

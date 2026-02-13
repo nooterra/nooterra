@@ -6495,13 +6495,35 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     return { processed, worker };
   }
 
+  async function processNoopOutboxTopic({ topic, worker, maxMessages = Number.MAX_SAFE_INTEGER } = {}) {
+    if (typeof topic !== "string" || topic.trim() === "") throw new TypeError("topic is required");
+    if (typeof worker !== "string" || worker.trim() === "") throw new TypeError("worker is required");
+    if (!Number.isSafeInteger(maxMessages) || maxMessages < 0) throw new TypeError("maxMessages must be a non-negative safe integer");
+
+    const processed = [];
+
+    // These topics are informational today (no worker consumes them in pg mode).
+    // Drain them deterministically so ops / hosted-baseline checks don't wedge.
+    while (processed.length < maxMessages) {
+      const claimed = await store.claimOutbox({ topic, maxMessages: Math.min(1000, maxMessages - processed.length), worker });
+      if (!claimed.length) break;
+      const ids = claimed.map((r) => r.id);
+      await store.markOutboxProcessed({ ids, lastError: "ok:noop" });
+      for (const id of ids) processed.push({ id, status: "noop" });
+    }
+
+    return { processed, worker };
+  }
+
   store.processOutbox = async function processOutbox({ maxMessages = 1000 } = {}) {
     const ledger = await processLedgerOutbox({ maxMessages });
     const notifications = await processNotificationsOutbox({ maxMessages });
     const correlations = await processCorrelationsOutbox({ maxMessages });
+    const jobStatusChanged = await processNoopOutboxTopic({ topic: "JOB_STATUS_CHANGED", worker: "job_status_changed_v0", maxMessages });
+    const jobSettled = await processNoopOutboxTopic({ topic: "JOB_SETTLED", worker: "job_settled_v0", maxMessages });
     const monthClose = await processMonthCloseOutbox({ maxMessages });
     const financePack = await processFinancePackOutbox({ maxMessages });
-    return { ledger, notifications, correlations, monthClose, financePack };
+    return { ledger, notifications, correlations, jobStatusChanged, jobSettled, monthClose, financePack };
   };
 
   store.close = async function close() {
