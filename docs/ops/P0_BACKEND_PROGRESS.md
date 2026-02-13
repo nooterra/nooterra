@@ -121,11 +121,27 @@ Executed and passing:
   - Backup/restore: `checks.backupRestore.ok=true`
   - External archive path: `/home/aiden/ops-evidence/settld/hosted-baseline/2026-02-13`
 
+### Money-Rail Chargeback + Design-Partner Packet (2026-02-13)
+
+- [x] Chargeback/refund simulation evidence run captured and signed.
+  - Tenant: `tenant_p0_evidence_20260213_v9`
+  - Period: `2026-02`
+  - Artifact: `artifacts/ops/chargeback-evidence-tenant_p0_evidence_20260213_v9.json`
+  - `artifactHash`: `a7df81308cfed250ecc93a2997758f09d91a807beb74f3a8cd8aaee3f181fbe7`
+
+- [x] Design-partner run packet captured and signed (reconcile is expected to fail when a chargeback reversal is present).
+  - Tenant: `tenant_p0_evidence_20260213_v9`
+  - Period: `2026-02`
+  - Artifact: `artifacts/ops/design-partner-run-packet-tenant_p0_evidence_20260213_v9.json`
+  - `artifactHash`: `c6eaa09b8ee4f662cb95403800d87cf89ace865bd6e7c29bfe09b5ab5a2b7e62`
+  - Reconcile report hash: `36e8e5fb2ed0af3574aa41c8d72e66020fe19130bb185daa67af079983354cac`
+  - External archive path: `/home/aiden/ops-evidence/settld/p0/2026-02-13/tenant_p0_evidence_20260213_v9`
+
 ## Remaining P0 work (outside this code drop)
 
 - [x] Execute hosted baseline evidence runs in staging/prod with `--run-backup-restore true` and archive signed artifacts
-- [ ] Execute chargeback/refund simulation runs and archive signed artifacts
-- [ ] Execute design-partner run packets against live partner tenants (repeatable, no manual DB edits)
+- [x] Execute chargeback/refund simulation runs and archive signed artifacts
+- [x] Execute design-partner run packets against live partner tenants (repeatable, no manual DB edits)
 
 References:
 
