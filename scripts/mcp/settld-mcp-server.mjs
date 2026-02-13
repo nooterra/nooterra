@@ -417,6 +417,11 @@ async function main() {
             const title = args?.title ? String(args.title).trim() : "MCP spike agreement";
             const description = args?.description === undefined ? null : args.description === null ? null : String(args.description);
             const capability = args?.capability ? String(args.capability).trim() : "agent-task:demo";
+            const disputeWindowDaysRaw = args?.disputeWindowDays ?? 7;
+            const disputeWindowDays = Number(disputeWindowDaysRaw);
+            if (!Number.isSafeInteger(disputeWindowDays) || disputeWindowDays < 0) {
+              throw new TypeError("disputeWindowDays must be a non-negative safe integer");
+            }
             const payerDisplayName = args?.payerDisplayName ? String(args.payerDisplayName).trim() : "MCP Payer";
             const payeeDisplayName = args?.payeeDisplayName ? String(args.payeeDisplayName).trim() : "MCP Payee";
 
@@ -484,6 +489,7 @@ async function main() {
               body: {
                 bidId,
                 payerAgentId,
+                disputeWindowDays,
                 settlement: { payerAgentId }
               },
               idem: makeIdempotencyKey("mcp_accept")
@@ -516,7 +522,8 @@ async function main() {
               method: "POST",
               write: true,
               headers: { "x-proxy-expected-prev-chain-hash": head.prevChainHash === null ? "null" : String(head.prevChainHash) },
-              body: { schemaVersion: "AgentEvent.v1", type: "EVIDENCE_ADDED", payload: { evidenceRef } },
+              // Note: event schemaVersion is an integer (default=1). Omit to use the default.
+              body: { type: "EVIDENCE_ADDED", payload: { evidenceRef } },
               idem: makeIdempotencyKey("mcp_run_event_evidence")
             });
             result = { ok: true, ...redactSecrets(out) };
@@ -532,8 +539,8 @@ async function main() {
             const head = await client.getRunPrevChainHash({ agentId, runId });
             const body =
               outcome === "completed"
-                ? { schemaVersion: "AgentEvent.v1", type: "RUN_COMPLETED", payload: { outputRef: args?.outputRef ?? null, metrics: null } }
-                : { schemaVersion: "AgentEvent.v1", type: "RUN_FAILED", payload: { code: args?.errorCode ?? null, message: args?.errorMessage ?? null } };
+                ? { type: "RUN_COMPLETED", payload: { outputRef: args?.outputRef ?? null, metrics: null } }
+                : { type: "RUN_FAILED", payload: { code: args?.errorCode ?? null, message: args?.errorMessage ?? null } };
 
             const out = await client.requestJson(`/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/events`, {
               method: "POST",
@@ -591,4 +598,3 @@ main().catch((err) => {
   process.stderr.write(`[mcp] fatal: ${err?.stack || err?.message || String(err)}\n`);
   process.exitCode = 1;
 });
-
