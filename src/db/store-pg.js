@@ -5696,7 +5696,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
               `,
               [tenantId, periodStart, periodEnd]
             );
-            const jobIds = settledIdsRes.rows.map((r) => String(r.aggregate_id)).filter((id) => id && id.trim() !== "");
+            const jobIds = settledIdsRes.rows
+              .map((r) => String(r.aggregate_id))
+              .filter((id) => id && id.trim() !== "")
+              .sort((a, b) => a.localeCompare(b));
 
             const jobs = [];
             if (jobIds.length) {
@@ -5704,7 +5707,11 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
                 "SELECT aggregate_id, snapshot_json FROM snapshots WHERE tenant_id = $1 AND aggregate_type = 'job' AND aggregate_id = ANY($2::text[])",
                 [tenantId, jobIds]
               );
-              for (const r of snapRes.rows) {
+              // Determinism: DB may return rows in arbitrary order for ANY($2), but artifacts must be hash-stable.
+              const ordered = snapRes.rows
+                .slice()
+                .sort((a, b) => String(a.aggregate_id ?? "").localeCompare(String(b.aggregate_id ?? "")));
+              for (const r of ordered) {
                 jobs.push(r.snapshot_json);
               }
             }
