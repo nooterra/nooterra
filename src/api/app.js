@@ -23169,6 +23169,57 @@ export function createApi({
           });
         }
 
+        if (parts[1] === "maintenance" && parts[2] === "outbox" && parts[3] === "run" && parts.length === 4 && req.method === "POST") {
+          const hasMaintenanceWriteScope =
+            requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
+          if (!hasMaintenanceWriteScope) return sendError(res, 403, "forbidden");
+          if (typeof store.processOutbox !== "function") return sendError(res, 501, "outbox processing not supported for this store");
+
+          const body = (await readJsonBody(req)) ?? {};
+          const maxMessagesRaw = body?.maxMessages ?? null;
+          const maxMessages = maxMessagesRaw === null || maxMessagesRaw === undefined || maxMessagesRaw === "" ? 1000 : Number(maxMessagesRaw);
+          if (!Number.isSafeInteger(maxMessages) || maxMessages <= 0) {
+            return sendError(res, 400, "invalid maxMessages", null, { code: "SCHEMA_INVALID" });
+          }
+
+          const startedMs = Date.now();
+          let result = null;
+          try {
+            result = await store.processOutbox({ maxMessages });
+          } catch (err) {
+            return sendError(res, 500, "outbox processing failed", { message: err?.message ?? String(err) });
+          }
+
+          const runtimeMs = Date.now() - startedMs;
+          try {
+            if (typeof store.appendOpsAudit === "function") {
+              await store.appendOpsAudit({
+                tenantId,
+                audit: makeOpsAudit({
+                  action: "MAINTENANCE_OUTBOX_RUN",
+                  targetType: "maintenance",
+                  targetId: "outbox",
+                  details: {
+                    path: "/ops/maintenance/outbox/run",
+                    maxMessages,
+                    runtimeMs,
+                    result
+                  }
+                })
+              });
+            }
+          } catch {
+            // best-effort
+          }
+
+          return sendJson(res, 200, {
+            ok: true,
+            runtimeMs,
+            maxMessages,
+            result
+          });
+        }
+
         if (parts[1] === "maintenance" && parts[2] === "money-rails-reconcile" && parts[3] === "run" && parts.length === 4 && req.method === "POST") {
           const hasMaintenanceWriteScope =
             requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
