@@ -9,19 +9,19 @@ This file is the execution bridge from current P0 completion into the next major
 - Hosted baseline evidence passes for API health, scheduler presence, metrics presence, and billing catalog alignment on `api.settld.work`.
 - Real-money Stripe paths are implemented and tested in `test/api-e2e-ops-money-rails.test.js`.
 - Release/CI now includes deploy safety smoke and secret hygiene checks.
-- Remaining hard gate before closing P0 operations evidence: run hosted-baseline backup/restore with real DB URLs and archive signed artifacts.
+- Hosted-baseline backup/restore evidence now passes in both staging and production and is archived.
 
 Progress update (2026-02-13):
 
 - Production hosted-baseline backup/restore evidence now passes (`artifacts/ops/hosted-baseline-prod.json`, `artifactHash=2a5833fd44e6b904ed87763e2d1212e02ffcd9583c4d50fdd5b2cffa3d99a597`).
-- Staging hosted-baseline backup/restore rerun is still pending with current rotated secrets.
+- Staging hosted-baseline backup/restore now also passes (`artifacts/ops/hosted-baseline-staging.json`, `artifactHash=354f339d1c668eccb000416a231309ed6f3a5614539d43448aad9f6f3ca0dc28`).
 
 ## Readiness definition for S23 start
 
-S23 starts only when all items below are true:
+S23 can start when all items below are true:
 
-- `artifacts/ops/hosted-baseline-staging.json` is `status=pass` with `runBackupRestore=true`.
-- `artifacts/ops/hosted-baseline-prod.json` is `status=pass` with `runBackupRestore=true`.
+- [x] `artifacts/ops/hosted-baseline-staging.json` is `status=pass` with `runBackupRestore=true`.
+- [x] `artifacts/ops/hosted-baseline-prod.json` is `status=pass` with `runBackupRestore=true`.
 - Chargeback evidence packet is generated and signed for at least one real tenant.
 - Design-partner packet is generated from repeated runs without manual DB edits.
 

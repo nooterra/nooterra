@@ -114,12 +114,16 @@ Executed and passing:
   - `artifactHash`: `2a5833fd44e6b904ed87763e2d1212e02ffcd9583c4d50fdd5b2cffa3d99a597`
   - Backup/restore: `checks.backupRestore.ok=true`
   - External archive path: `/home/aiden/ops-evidence/settld/hosted-baseline/2026-02-13`
-- [ ] Staging hosted-baseline backup/restore evidence still needs a rerun with current rotated secrets.
-  - Current staging file (`artifacts/ops/hosted-baseline-staging.json`) remains an older fail snapshot.
+- [x] Staging hosted-baseline backup/restore evidence is now passing.
+  - Captured at: `2026-02-13T02:26:37.785Z`
+  - Artifact: `artifacts/ops/hosted-baseline-staging.json`
+  - `artifactHash`: `354f339d1c668eccb000416a231309ed6f3a5614539d43448aad9f6f3ca0dc28`
+  - Backup/restore: `checks.backupRestore.ok=true`
+  - External archive path: `/home/aiden/ops-evidence/settld/hosted-baseline/2026-02-13`
 
 ## Remaining P0 work (outside this code drop)
 
-- [ ] Execute hosted baseline evidence run in staging with `--run-backup-restore true` and archive signed artifact
+- [x] Execute hosted baseline evidence runs in staging/prod with `--run-backup-restore true` and archive signed artifacts
 - [ ] Execute chargeback/refund simulation runs and archive signed artifacts
 - [ ] Execute design-partner run packets against live partner tenants (repeatable, no manual DB edits)
 
