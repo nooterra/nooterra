@@ -4,10 +4,10 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 
 const PRIVATE_KEY_PATTERNS = Object.freeze([
-  "-----BEGIN PRIVATE KEY-----",
-  "-----BEGIN EC PRIVATE KEY-----",
-  "-----BEGIN RSA PRIVATE KEY-----",
-  "-----BEGIN OPENSSH PRIVATE KEY-----"
+  /(^|\r?\n)-----BEGIN PRIVATE KEY-----\r?\n/m,
+  /(^|\r?\n)-----BEGIN EC PRIVATE KEY-----\r?\n/m,
+  /(^|\r?\n)-----BEGIN RSA PRIVATE KEY-----\r?\n/m,
+  /(^|\r?\n)-----BEGIN OPENSSH PRIVATE KEY-----\r?\n/m
 ]);
 
 const ALLOWED_PREFIXES = Object.freeze([
@@ -34,7 +34,7 @@ function hasPrivateKeyMaterial(filePath) {
   const buffer = fs.readFileSync(absolutePath);
   if (buffer.includes(0)) return false;
   const text = buffer.toString("utf8");
-  return PRIVATE_KEY_PATTERNS.some((pattern) => text.includes(pattern));
+  return PRIVATE_KEY_PATTERNS.some((pattern) => pattern.test(text));
 }
 
 function main() {
