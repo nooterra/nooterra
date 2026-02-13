@@ -6526,6 +6526,44 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     return { ledger, notifications, correlations, jobStatusChanged, jobSettled, monthClose, financePack };
   };
 
+  // Read-only ops debugging helper (used by /ops/debug/outbox).
+  // Intentionally narrow: surfaces enough to diagnose stuck/DLQ outbox without direct DB access.
+  store.listOutboxDebug = async function listOutboxDebug({
+    topic = null,
+    tenantId = null,
+    includeProcessed = false,
+    limit = 50
+  } = {}) {
+    const safeLimit = Number.isSafeInteger(Number(limit)) ? Number(limit) : 50;
+    if (safeLimit <= 0 || safeLimit > 500) throw new TypeError("limit must be a safe integer between 1 and 500");
+    const t = typeof topic === "string" && topic.trim() ? topic.trim() : null;
+    const tenant = typeof tenantId === "string" && tenantId.trim() ? normalizeTenantId(tenantId) : null;
+    const processedClause = includeProcessed ? "" : "AND processed_at IS NULL";
+
+    return await withTx({ statementTimeoutMs: workerStatementTimeoutMs }, async (client) => {
+      const params = [];
+      let where = `WHERE 1=1 ${processedClause}`;
+      if (t) {
+        params.push(String(t));
+        where += ` AND topic = $${params.length}`;
+      }
+      if (tenant) {
+        params.push(String(tenant));
+        where += ` AND tenant_id = $${params.length}`;
+      }
+      params.push(safeLimit);
+      const sql = `
+        SELECT id, tenant_id, topic, aggregate_type, aggregate_id, attempts, claimed_at, processed_at, last_error, payload_json
+        FROM outbox
+        ${where}
+        ORDER BY id DESC
+        LIMIT $${params.length}
+      `;
+      const res = await client.query(sql, params);
+      return res.rows;
+    });
+  };
+
   store.close = async function close() {
     const schemaName = schema;
     const shouldDrop = dropSchemaOnClose && schemaName !== "public";

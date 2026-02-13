@@ -23169,11 +23169,11 @@ export function createApi({
           });
         }
 
-        if (parts[1] === "maintenance" && parts[2] === "outbox" && parts[3] === "run" && parts.length === 4 && req.method === "POST") {
-          const hasMaintenanceWriteScope =
-            requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
-          if (!hasMaintenanceWriteScope) return sendError(res, 403, "forbidden");
-          if (typeof store.processOutbox !== "function") return sendError(res, 501, "outbox processing not supported for this store");
+	        if (parts[1] === "maintenance" && parts[2] === "outbox" && parts[3] === "run" && parts.length === 4 && req.method === "POST") {
+	          const hasMaintenanceWriteScope =
+	            requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
+	          if (!hasMaintenanceWriteScope) return sendError(res, 403, "forbidden");
+	          if (typeof store.processOutbox !== "function") return sendError(res, 501, "outbox processing not supported for this store");
 
           const body = (await readJsonBody(req)) ?? {};
           const maxMessagesRaw = body?.maxMessages ?? null;
@@ -23256,13 +23256,38 @@ export function createApi({
             // best-effort
           }
 
-          return sendJson(res, 200, {
-            ok: true,
-            runtimeMs,
-            maxMessages,
-            result
-          });
-        }
+	          return sendJson(res, 200, {
+	            ok: true,
+	            runtimeMs,
+	            maxMessages,
+	            result
+	          });
+	        }
+
+	        if (parts[1] === "debug" && parts[2] === "outbox" && parts.length === 3 && req.method === "GET") {
+	          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+	          if (typeof store.listOutboxDebug !== "function") return sendError(res, 501, "outbox debug not supported for this store");
+	          const topic = url.searchParams.get("topic");
+	          const tenantFilter = url.searchParams.get("tenantId");
+	          const includeProcessed = url.searchParams.get("includeProcessed") === "true";
+	          const limitRaw = url.searchParams.get("limit");
+	          const limit = limitRaw === null ? 50 : Number(limitRaw);
+	          if (limitRaw !== null && (!Number.isSafeInteger(limit) || limit <= 0 || limit > 500)) {
+	            return sendError(res, 400, "invalid limit", null, { code: "SCHEMA_INVALID" });
+	          }
+	          let rows;
+	          try {
+	            rows = await store.listOutboxDebug({
+	              topic,
+	              tenantId: tenantFilter,
+	              includeProcessed,
+	              limit
+	            });
+	          } catch (err) {
+	            return sendError(res, 400, "invalid outbox debug query", { message: err?.message });
+	          }
+	          return sendJson(res, 200, { rows });
+	        }
 
         if (parts[1] === "maintenance" && parts[2] === "money-rails-reconcile" && parts[3] === "run" && parts.length === 4 && req.method === "POST") {
           const hasMaintenanceWriteScope =
