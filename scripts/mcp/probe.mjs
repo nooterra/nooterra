@@ -15,7 +15,7 @@ function sleep(ms) {
 }
 
 function parseArgs(argv) {
-  const out = { call: null };
+  const out = { call: null, timeoutMs: null };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--call") {
@@ -29,6 +29,11 @@ function parseArgs(argv) {
       const file = argv[i + 2] || "";
       out.call = { name, argsRaw: null, file };
       i += 2;
+    }
+    if (a === "--timeout-ms") {
+      const raw = argv[i + 1];
+      out.timeoutMs = raw;
+      i += 1;
     }
   }
   return out;
@@ -77,6 +82,14 @@ async function main() {
     }
   });
 
+  const timeoutMsRaw =
+    args.timeoutMs !== null && args.timeoutMs !== undefined
+      ? Number(args.timeoutMs)
+      : typeof process !== "undefined"
+        ? Number(process.env.MCP_PROBE_TIMEOUT_MS ?? 30_000)
+        : 30_000;
+  const timeoutMs = Number.isFinite(timeoutMsRaw) && timeoutMsRaw > 0 ? Math.floor(timeoutMsRaw) : 30_000;
+
   function rpc(method, params) {
     const id = String(Math.random()).slice(2);
     const payload = JSON.stringify({ jsonrpc: "2.0", id, method, params });
@@ -87,7 +100,7 @@ async function main() {
         if (!pending.has(id)) return;
         pending.delete(id);
         reject(new Error(`timeout waiting for ${method}`));
-      }, 8000).unref?.();
+      }, timeoutMs).unref?.();
     });
   }
 
