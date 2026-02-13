@@ -114,7 +114,7 @@ test("API e2e: payout enqueue creates money rail operation and cancel is idempot
 
   const status = await request(api, {
     method: "GET",
-    path: `/ops/money-rails/${providerId}/operations/${operationId}`,
+    path: `/ops/money-rails/${encodeURIComponent(providerId)}/operations/${encodeURIComponent(operationId)}`,
     headers: financeReadHeaders
   });
   assert.equal(status.statusCode, 200);
@@ -123,7 +123,7 @@ test("API e2e: payout enqueue creates money rail operation and cancel is idempot
 
   const cancel = await request(api, {
     method: "POST",
-    path: `/ops/money-rails/${providerId}/operations/${operationId}/cancel`,
+    path: `/ops/money-rails/${encodeURIComponent(providerId)}/operations/${encodeURIComponent(operationId)}/cancel`,
     headers: {
       ...financeWriteHeaders,
       "x-idempotency-key": "ops_money_rail_cancel_1"
@@ -136,7 +136,7 @@ test("API e2e: payout enqueue creates money rail operation and cancel is idempot
 
   const cancelReplay = await request(api, {
     method: "POST",
-    path: `/ops/money-rails/${providerId}/operations/${operationId}/cancel`,
+    path: `/ops/money-rails/${encodeURIComponent(providerId)}/operations/${encodeURIComponent(operationId)}/cancel`,
     headers: {
       ...financeWriteHeaders,
       "x-idempotency-key": "ops_money_rail_cancel_1"
@@ -148,7 +148,7 @@ test("API e2e: payout enqueue creates money rail operation and cancel is idempot
 
   const cancelAgain = await request(api, {
     method: "POST",
-    path: `/ops/money-rails/${providerId}/operations/${operationId}/cancel`,
+    path: `/ops/money-rails/${encodeURIComponent(providerId)}/operations/${encodeURIComponent(operationId)}/cancel`,
     headers: {
       ...financeWriteHeaders,
       "x-idempotency-key": "ops_money_rail_cancel_2"

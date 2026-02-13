@@ -318,6 +318,16 @@ export function createApi({
 
   const protocolPolicy = resolveProtocolPolicy(protocol ?? {});
 
+  function decodePathPart(value) {
+    // `url.pathname` preserves percent-encoding (ex: ":" becomes "%3A"). Our ops routes
+    // parse by splitting on "/" and need to decode path params before using them as IDs.
+    try {
+      return decodeURIComponent(String(value ?? ""));
+    } catch {
+      return String(value ?? "");
+    }
+  }
+
   const serverSigner = { keyId: store.serverSigner.keyId, privateKeyPem: store.serverSigner.privateKeyPem };
   const OPS_SCOPES = Object.freeze({
     OPS_READ: "ops_read",
@@ -20012,8 +20022,8 @@ export function createApi({
             if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
               return sendError(res, 403, "forbidden");
             }
-            const providerId = String(parts[2]);
-            const operationId = String(parts[4]);
+            const providerId = decodePathPart(parts[2]);
+            const operationId = decodePathPart(parts[4]);
             const adapter = getMoneyRailAdapter(providerId);
             if (!adapter) return sendError(res, 404, "money rail provider not found");
             const operation = await adapter.status({ tenantId, operationId });
@@ -20031,8 +20041,8 @@ export function createApi({
             req.method === "POST"
           ) {
             if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
-            const providerId = String(parts[2]);
-            const operationId = String(parts[4]);
+            const providerId = decodePathPart(parts[2]);
+            const operationId = decodePathPart(parts[4]);
             const adapter = getMoneyRailAdapter(providerId);
             if (!adapter) return sendError(res, 404, "money rail provider not found");
             const providerConfig = getMoneyRailProviderConfig(providerId);
@@ -20642,8 +20652,8 @@ export function createApi({
             req.method === "POST"
           ) {
             if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) return sendError(res, 403, "forbidden");
-            const providerId = String(parts[2]);
-            const operationId = String(parts[4]);
+            const providerId = decodePathPart(parts[2]);
+            const operationId = decodePathPart(parts[4]);
             const adapter = getMoneyRailAdapter(providerId);
             if (!adapter) return sendError(res, 404, "money rail provider not found");
 

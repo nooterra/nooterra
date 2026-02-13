@@ -265,6 +265,62 @@ async function main() {
   const inferredPartyId = normalizeOptionalString(operationBefore?.body?.operation?.metadata?.partyId);
   const partyId = args.partyId ?? inferredPartyId;
 
+  const operationStateBefore = normalizeOptionalString(operationBefore?.body?.operation?.state);
+  let submitIngest = null;
+  let confirmIngest = null;
+  let operationConfirmed = null;
+
+  // Chargebacks map to a "reversed" provider event. Our state machine only allows
+  // `confirmed -> reversed`, so this script must drive the operation to confirmed first.
+  if (operationBefore.ok && operationStateBefore) {
+    const state = String(operationStateBefore).toLowerCase();
+    if (state === "initiated") {
+      submitIngest = await requestJson({
+        baseUrl: args.baseUrl,
+        tenantId: args.tenantId,
+        opsToken: args.opsToken,
+        pathName: `/ops/money-rails/${encodeURIComponent(args.providerId)}/events/ingest`,
+        method: "POST",
+        idempotencyKey: mkIdem("submitted"),
+        body: {
+          operationId: args.operationId,
+          eventType: "submitted",
+          at: startedAt,
+          eventId: `evt_submit_${args.eventId}`,
+          payload: { source: "ops_chargeback_evidence_script", capturedAt: startedAt }
+        }
+      });
+    }
+
+    // Always attempt to confirm if we were initiated or submitted; idempotency makes it safe.
+    const shouldConfirm = state === "initiated" || state === "submitted";
+    if (shouldConfirm) {
+      confirmIngest = await requestJson({
+        baseUrl: args.baseUrl,
+        tenantId: args.tenantId,
+        opsToken: args.opsToken,
+        pathName: `/ops/money-rails/${encodeURIComponent(args.providerId)}/events/ingest`,
+        method: "POST",
+        idempotencyKey: mkIdem("confirmed"),
+        body: {
+          operationId: args.operationId,
+          eventType: "confirmed",
+          at: startedAt,
+          eventId: `evt_confirm_${args.eventId}`,
+          payload: { source: "ops_chargeback_evidence_script", capturedAt: startedAt }
+        }
+      });
+    }
+
+    operationConfirmed = await requestJson({
+      baseUrl: args.baseUrl,
+      tenantId: args.tenantId,
+      opsToken: args.opsToken,
+      pathName: `/ops/money-rails/${encodeURIComponent(args.providerId)}/operations/${encodeURIComponent(args.operationId)}`,
+      method: "GET"
+    });
+  }
+
   const reverseIngest = await requestJson({
     baseUrl: args.baseUrl,
     tenantId: args.tenantId,
@@ -337,6 +393,25 @@ async function main() {
     pass = false;
     failures.push(`operation lookup failed (${operationBefore.statusCode})`);
   }
+  if (operationBefore.ok) {
+    const confirmedState = normalizeOptionalString(operationConfirmed?.body?.operation?.state);
+    if (confirmedState && String(confirmedState).toLowerCase() !== "confirmed") {
+      pass = false;
+      failures.push(`operation must be confirmed before reversal (state=${confirmedState})`);
+    }
+    if (!operationConfirmed?.ok) {
+      pass = false;
+      failures.push(`pre-reverse confirm step lookup failed (${operationConfirmed?.statusCode ?? "null"})`);
+    }
+    if (submitIngest && !submitIngest.ok) {
+      pass = false;
+      failures.push(`submit ingest failed (${submitIngest.statusCode})`);
+    }
+    if (confirmIngest && !confirmIngest.ok) {
+      pass = false;
+      failures.push(`confirm ingest failed (${confirmIngest.statusCode})`);
+    }
+  }
   if (!reverseIngest.ok) {
     pass = false;
     failures.push(`reverse ingest failed (${reverseIngest.statusCode})`);
@@ -391,6 +466,9 @@ async function main() {
     },
     calls: {
       operationBefore,
+      submitIngest,
+      confirmIngest,
+      operationConfirmed,
       reverseIngest,
       operationAfter,
       exposure,
