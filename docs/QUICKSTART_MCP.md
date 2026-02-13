@@ -1,0 +1,92 @@
+# Quickstart: MCP (Stdio Spike)
+
+This quickstart connects an MCP-compatible agent/client to Settld using the Sprint 23 `stdio` MCP spike server.
+
+## Prerequisites
+
+- Node.js 20+
+- A Settld API key with appropriate scopes (`keyId.secret` format)
+- Settld API reachable (local `npm run dev:api` or hosted)
+
+## Run The MCP Server
+
+Set environment variables:
+
+```bash
+export SETTLD_BASE_URL='https://api.settld.work'   # or http://127.0.0.1:3000
+export SETTLD_TENANT_ID='tenant_default'
+export SETTLD_API_KEY='sk_live_xxx.yyy'            # keyId.secret (do not commit)
+export SETTLD_PROTOCOL='1.0'                       # optional; server will try to auto-discover
+```
+
+Start the server:
+
+```bash
+npm run mcp:server
+```
+
+The server speaks JSON-RPC 2.0 over `stdio` and exposes curated tools.
+
+## Tool Flow (Typical)
+
+1. Create an agreement (marketplace-backed) and a run:
+
+Method: `tools/call`
+
+Tool: `settld.create_agreement`
+
+Arguments example:
+
+```json
+{
+  "amountCents": 500,
+  "currency": "USD",
+  "title": "MCP spike agreement",
+  "capability": "agent-task:demo",
+  "disputeWindowDays": 7
+}
+```
+
+2. Submit evidence for the run:
+
+Tool: `settld.submit_evidence`
+
+```json
+{
+  "agentId": "<payeeAgentId from create_agreement>",
+  "runId": "<runId from create_agreement>",
+  "evidenceRef": "evidence://demo/step-1"
+}
+```
+
+3. Settle the run:
+
+Tool: `settld.settle_run`
+
+```json
+{
+  "agentId": "<payeeAgentId>",
+  "runId": "<runId>",
+  "outcome": "completed",
+  "outputRef": "evidence://demo/output"
+}
+```
+
+4. Open a dispute (only valid within the dispute window):
+
+Tool: `settld.open_dispute`
+
+```json
+{
+  "runId": "<runId>",
+  "reason": "Disputing for demo purposes",
+  "evidenceRefs": ["evidence://demo/dispute/1"]
+}
+```
+
+## Notes
+
+- Writes require `x-settld-protocol`. The MCP server sets this automatically for write calls.
+- Run event appends require `x-proxy-expected-prev-chain-hash`. The MCP server fetches the current head and supplies it.
+- This is a spike (Sprint 23). Production hardening (SSE transport, rate limiting, etc.) is planned for Sprint 25.
+
