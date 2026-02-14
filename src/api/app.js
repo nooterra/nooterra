@@ -34786,7 +34786,7 @@ export function createApi({
               contractVersion
             }
           };
-          const existing = getJobEvents(tenantId, jobId);
+          const existing = await getJobEventsFresh(tenantId, jobId);
           const currentPrevChainHash = getCurrentPrevChainHash(existing);
           if (expectedHeader.expectedPrevChainHash !== currentPrevChainHash) {
             return sendError(res, 409, "event append conflict", {
@@ -35089,7 +35089,7 @@ export function createApi({
             return sendError(res, 400, "invalid booking", { message: err?.message });
           }
 
-          const existing = getJobEvents(tenantId, jobId);
+          const existing = await getJobEventsFresh(tenantId, jobId);
           const currentPrevChainHash = getCurrentPrevChainHash(existing);
           if (expectedHeader.expectedPrevChainHash !== currentPrevChainHash) {
             return sendError(res, 409, "event append conflict", {

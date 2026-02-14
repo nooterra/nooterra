@@ -227,16 +227,17 @@ async function createSettledJob({ baseUrl, robotId, robotKeyId, robotPrivateKeyP
       })
     ]);
 
-    // Any write request will call store.processOutbox() and should crash during ledger apply.
+    // Drain outbox explicitly so pg-mode tests don't depend on PROXY_AUTOTICK.
+    // Server should crash during ledger apply due to the failpoint.
     await requestJson({
       baseUrl: server1.baseUrl,
       method: "POST",
-      path: "/robots/register",
-      headers: authHeaders(),
-      body: { robotId: `rob_${schema}`, publicKeyPem: createEd25519Keypair().publicKeyPem }
+      path: "/ops/maintenance/outbox/run",
+      headers: { ...authHeaders(), "x-proxy-tenant-id": "tenant_default" },
+      body: { maxMessages: 1000, passes: 3 }
     }).catch(() => {});
 
-    const exit = await server1.waitForExit({ timeoutMs: 10_000 });
+    const exit = await server1.waitForExit();
     assert.equal(exit.signal, "SIGKILL");
 
     const port2 = await getFreePort();
@@ -251,13 +252,12 @@ async function createSettledJob({ baseUrl, robotId, robotKeyId, robotPrivateKeyP
     try {
       await waitForHealth({ baseUrl: server2.baseUrl, timeoutMs: 10_000 });
 
-      // Trigger outbox processing again.
       await requestJson({
         baseUrl: server2.baseUrl,
         method: "POST",
-        path: "/robots/register",
-        headers: authHeaders(),
-        body: { robotId: `rob2_${schema}`, publicKeyPem: createEd25519Keypair().publicKeyPem }
+        path: "/ops/maintenance/outbox/run",
+        headers: { ...authHeaders(), "x-proxy-tenant-id": "tenant_default" },
+        body: { maxMessages: 1000, passes: 10 }
       });
 
       await waitUntil(async () => {
@@ -357,7 +357,7 @@ async function createSettledJob({ baseUrl, robotId, robotKeyId, robotPrivateKeyP
   let crashArtifactRow = null;
   try {
     await waitForHealth({ baseUrl: server2.baseUrl, timeoutMs: 10_000 });
-    const exit = await server2.waitForExit({ timeoutMs: 10_000 });
+    const exit = await server2.waitForExit();
     assert.equal(exit.signal, "SIGKILL");
 
     crashArtifactRow = await pool.query(
@@ -429,6 +429,7 @@ async function createSettledJob({ baseUrl, robotId, robotKeyId, robotPrivateKeyP
 
   try {
     receiver = await createWebhookReceiver();
+    assert.match(receiver.url, /^http:\/\/127\.0\.0\.1:\d+\/webhook$/);
     const destinations = {
       tenant_default: [
         {
@@ -495,8 +496,35 @@ async function createSettledJob({ baseUrl, robotId, robotKeyId, robotPrivateKeyP
 
     try {
       await waitForHealth({ baseUrl: server2.baseUrl, timeoutMs: 10_000 });
+      // Trigger delivery attempt deterministically (CI timing can make autotick flaky).
+      // This request is expected to be interrupted by SIGKILL once the delivery failpoint fires.
+      const outboxRun = await requestJson({
+        baseUrl: server2.baseUrl,
+        method: "POST",
+        path: "/ops/maintenance/outbox/run",
+        headers: { ...authHeaders(), "x-proxy-tenant-id": "tenant_default" },
+        body: { maxMessages: 1000, passes: 25 }
+      }).catch(() => null);
+      if (outboxRun && outboxRun.statusCode !== 200) {
+        throw new Error(`unexpected /ops/maintenance/outbox/run status=${outboxRun.statusCode} body=${outboxRun.text}`);
+      }
       // CI can be slow to process outbox -> delivery -> failpoint, so keep this generous.
-      const exit = await server2.waitForExit({ timeoutMs: 30_000 });
+      const exit = await server2.waitForExit().catch(async (err) => {
+        const deliveries = await pool.query(
+          "SELECT state, attempts, last_status, last_error, destination_id, artifact_type, dedupe_key FROM deliveries WHERE tenant_id = $1 ORDER BY id ASC LIMIT 25",
+          ["tenant_default"]
+        );
+        const logs = server2.output();
+        const tail = (s) => (typeof s === "string" && s.length > 3000 ? s.slice(-3000) : s);
+        throw new Error(
+          [
+            `server2 did not hit delivery failpoint: ${err?.message ?? String(err)}`,
+            `deliveries: ${JSON.stringify(deliveries.rows)}`,
+            `server2.stderr (tail): ${JSON.stringify(tail(logs.stderr))}`,
+            `server2.stdout (tail): ${JSON.stringify(tail(logs.stdout))}`
+          ].join("\n")
+        );
+      });
       assert.equal(exit.signal, "SIGKILL");
     } finally {
       await server2.stop().catch(() => {});
