@@ -21,6 +21,7 @@ This repository is a runnable Node.js prototype (API + agent simulator) and a se
 - Producer bootstrap: `docs/QUICKSTART_PRODUCE.md` (trust → produce → strict verify)
 - SDK quickstart (first verified run): `docs/QUICKSTART_SDK.md`
 - SDK quickstart (Python): `docs/QUICKSTART_SDK_PYTHON.md`
+- x402 gateway quickstart (verify-before-release wedge): `docs/QUICKSTART_X402_GATEWAY.md`
 - Integrations (GitHub Actions templates): `docs/integrations/README.md`
 - Protocol contract (schemas/specs): `docs/spec/README.md`
 - Conformance pack (portable oracle): `conformance/v1/README.md`
