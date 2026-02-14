@@ -52,6 +52,7 @@ These specs are written so an independent implementer can build a verifier witho
 - `SettlementDecisionRecord.v2.md` — settlement decision artifact with replay-critical policy pinning (current).
 - `SettlementReceipt.v1.md` — canonical settlement finality receipt bound to a decision hash.
 - `FundingHold.v1.md` — deterministic escrow hold for holdback/challenge-window workflows.
+- `AgreementDelegation.v1.md` — parent->child agreement delegation link for multi-hop settlement graphs.
 - `SettlementAdjustment.v1.md` — deterministic, idempotent adjustment artifact for held-funds release/refund.
 - `SettlementKernel.v1.md` — binding invariants + stable verification error semantics for settlement decision/receipt integrity.
 - `ArbitrationCase.v1.md` — formal arbitration case contract with appeal linkage.
