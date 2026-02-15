@@ -275,6 +275,9 @@ curl -isS http://127.0.0.1:8402/resource \
 You should see:
 
 - `HTTP 200`
+- `x-settld-response-sha256: ...`
+- `x-settld-verification-status: green|red`
+- `x-settld-verification-codes: ...` (optional; reason codes when verification is forced red)
 - `x-settld-settlement-status: released`
 - `x-settld-released-amount-cents`, `x-settld-refunded-amount-cents`
 - `x-settld-holdback-status`, `x-settld-holdback-amount-cents` (when `HOLDBACK_BPS>0`)
