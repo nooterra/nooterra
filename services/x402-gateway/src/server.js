@@ -230,118 +230,199 @@ async function handleProxy(req, res) {
     return;
   }
 
-  // For "paid" requests, capture a small deterministic response hash and verify before returning.
-  const capture = await readBodyWithLimit(upstreamRes, { maxBytes: 2 * 1024 * 1024 });
-  if (!capture.ok) {
-    res.writeHead(upstreamRes.status, Object.fromEntries(upstreamRes.headers.entries()));
-    res.end(`gateway: response too large to verify (>${2 * 1024 * 1024} bytes)`);
-    return;
-  }
-  const contentType = String(upstreamRes.headers.get("content-type") ?? "");
-  const respHash = (() => {
-    // If upstream returns JSON, hash canonical JSON instead of raw bytes to avoid whitespace/ordering drift.
-    if (contentType.toLowerCase().includes("application/json")) {
-      try {
-        const parsed = JSON.parse(capture.buf.toString("utf8"));
-        return sha256Hex(canonicalJsonStringify(parsed));
-      } catch {}
+  try {
+    // For "paid" requests, capture a small deterministic response hash and verify before returning.
+    const capture = await readBodyWithLimit(upstreamRes, { maxBytes: 2 * 1024 * 1024 });
+    if (!capture.ok) {
+      const gateVerify = await settldJson("/x402/gate/verify", {
+        tenantId,
+        method: "POST",
+        idempotencyKey: stableIdemKey("x402_verify", `${gateId}\nUNVERIFIABLE\n${upstreamRes.status}`),
+        body: {
+          gateId,
+          verificationStatus: "red",
+          runStatus: "failed",
+          policy: {
+            mode: "automatic",
+            rules: {
+              autoReleaseOnGreen: true,
+              greenReleaseRatePct: 100,
+              autoReleaseOnAmber: false,
+              amberReleaseRatePct: 0,
+              autoReleaseOnRed: true,
+              redReleaseRatePct: 0
+            }
+          },
+          verificationMethod: { mode: "deterministic", source: "gateway_unverifiable_v1", attestor: null },
+          verificationCodes: ["X402_GATEWAY_RESPONSE_TOO_LARGE"],
+          evidenceRefs: [`http:status:${upstreamRes.status}`]
+        }
+      });
+
+      const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
+      outHeaders["x-settld-gate-id"] = gateId;
+      outHeaders["x-settld-settlement-status"] = String(gateVerify?.settlement?.status ?? "");
+      outHeaders["x-settld-released-amount-cents"] = String(gateVerify?.settlement?.releasedAmountCents ?? "");
+      outHeaders["x-settld-refunded-amount-cents"] = String(gateVerify?.settlement?.refundedAmountCents ?? "");
+      if (gateVerify?.gate?.holdback?.status) outHeaders["x-settld-holdback-status"] = String(gateVerify.gate.holdback.status);
+      if (gateVerify?.gate?.holdback?.amountCents !== undefined) outHeaders["x-settld-holdback-amount-cents"] = String(gateVerify.gate.holdback.amountCents);
+
+      res.writeHead(502, outHeaders);
+      res.end(`gateway: response too large to verify (>${2 * 1024 * 1024} bytes); refunded`);
+      return;
     }
-    return sha256Hex(capture.buf);
-  })();
-
-  const providerReasonCodes = [];
-  let providerSignature = null;
-  if (X402_PROVIDER_PUBLIC_KEY_PEM) {
-    const keyId = upstreamRes.headers.get("x-settld-provider-key-id");
-    const signedAt = upstreamRes.headers.get("x-settld-provider-signed-at");
-    const nonce = upstreamRes.headers.get("x-settld-provider-nonce");
-    const signedResponseHash = upstreamRes.headers.get("x-settld-provider-response-sha256");
-    const signatureBase64 = upstreamRes.headers.get("x-settld-provider-signature");
-
-    if (!keyId || !signedAt || !nonce || !signedResponseHash || !signatureBase64) {
-      providerReasonCodes.push("X402_PROVIDER_SIGNATURE_MISSING");
-    } else if (X402_PROVIDER_KEY_ID && String(keyId).trim() !== X402_PROVIDER_KEY_ID) {
-      providerReasonCodes.push("X402_PROVIDER_KEY_ID_MISMATCH");
-    } else if (String(signedResponseHash).trim().toLowerCase() !== respHash) {
-      providerReasonCodes.push("X402_PROVIDER_RESPONSE_HASH_MISMATCH");
-    } else {
-      const payloadHash = computeToolProviderSignaturePayloadHashV1({ responseHash: respHash, nonce, signedAt });
-      providerSignature = {
-        schemaVersion: "ToolProviderSignature.v1",
-        algorithm: "ed25519",
-        keyId: String(keyId).trim(),
-        signedAt: String(signedAt).trim(),
-        nonce: String(nonce).trim(),
-        responseHash: respHash,
-        payloadHash,
-        signatureBase64: String(signatureBase64).trim()
-      };
-      let ok = false;
-      try {
-        ok = verifyToolProviderSignatureV1({ signature: providerSignature, publicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM });
-      } catch {
-        ok = false;
+    const contentType = String(upstreamRes.headers.get("content-type") ?? "");
+    const respHash = (() => {
+      // If upstream returns JSON, hash canonical JSON instead of raw bytes to avoid whitespace/ordering drift.
+      if (contentType.toLowerCase().includes("application/json")) {
+        try {
+          const parsed = JSON.parse(capture.buf.toString("utf8"));
+          return sha256Hex(canonicalJsonStringify(parsed));
+        } catch {}
       }
-      if (!ok) providerReasonCodes.push("X402_PROVIDER_SIGNATURE_INVALID");
+      return sha256Hex(capture.buf);
+    })();
+
+    const providerReasonCodes = [];
+    let providerSignature = null;
+    if (X402_PROVIDER_PUBLIC_KEY_PEM) {
+      const keyId = upstreamRes.headers.get("x-settld-provider-key-id");
+      const signedAt = upstreamRes.headers.get("x-settld-provider-signed-at");
+      const nonce = upstreamRes.headers.get("x-settld-provider-nonce");
+      const signedResponseHash = upstreamRes.headers.get("x-settld-provider-response-sha256");
+      const signatureBase64 = upstreamRes.headers.get("x-settld-provider-signature");
+
+      if (!keyId || !signedAt || !nonce || !signedResponseHash || !signatureBase64) {
+        providerReasonCodes.push("X402_PROVIDER_SIGNATURE_MISSING");
+      } else if (X402_PROVIDER_KEY_ID && String(keyId).trim() !== X402_PROVIDER_KEY_ID) {
+        providerReasonCodes.push("X402_PROVIDER_KEY_ID_MISMATCH");
+      } else if (String(signedResponseHash).trim().toLowerCase() !== respHash) {
+        providerReasonCodes.push("X402_PROVIDER_RESPONSE_HASH_MISMATCH");
+      } else {
+        try {
+          const payloadHash = computeToolProviderSignaturePayloadHashV1({ responseHash: respHash, nonce, signedAt });
+          providerSignature = {
+            schemaVersion: "ToolProviderSignature.v1",
+            algorithm: "ed25519",
+            keyId: String(keyId).trim(),
+            signedAt: String(signedAt).trim(),
+            nonce: String(nonce).trim(),
+            responseHash: respHash,
+            payloadHash,
+            signatureBase64: String(signatureBase64).trim()
+          };
+          let ok = false;
+          try {
+            ok = verifyToolProviderSignatureV1({ signature: providerSignature, publicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM });
+          } catch {
+            ok = false;
+          }
+          if (!ok) providerReasonCodes.push("X402_PROVIDER_SIGNATURE_INVALID");
+        } catch {
+          providerReasonCodes.push("X402_PROVIDER_SIGNATURE_INVALID");
+        }
+      }
     }
+
+    // Deterministic default: release 100% on PASS; refund 100% on FAIL.
+    const policy = {
+      mode: "automatic",
+      rules: {
+        autoReleaseOnGreen: true,
+        greenReleaseRatePct: 100,
+        autoReleaseOnAmber: false,
+        amberReleaseRatePct: 0,
+        autoReleaseOnRed: true,
+        redReleaseRatePct: 0
+      }
+    };
+
+    const gateVerify = await settldJson("/x402/gate/verify", {
+      tenantId,
+      method: "POST",
+      idempotencyKey: stableIdemKey("x402_verify", `${gateId}\n${respHash}`),
+      body: {
+        gateId,
+        verificationStatus:
+          upstreamRes.ok && (!X402_PROVIDER_PUBLIC_KEY_PEM || providerReasonCodes.length === 0) ? "green" : "red",
+        runStatus: upstreamRes.ok ? "completed" : "failed",
+        policy,
+        verificationMethod: {
+          mode: X402_PROVIDER_PUBLIC_KEY_PEM ? "attested" : "deterministic",
+          source: X402_PROVIDER_PUBLIC_KEY_PEM ? "provider_signature_v1" : "http_status_v1",
+          attestor: providerSignature?.keyId ?? null
+        },
+        ...(providerSignature ? { providerSignature: { ...providerSignature, publicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM } } : {}),
+        verificationCodes: providerReasonCodes,
+        evidenceRefs: [
+          `http:response_sha256:${respHash}`,
+          `http:status:${upstreamRes.status}`,
+          ...(providerSignature
+            ? [
+                `provider:key_id:${providerSignature.keyId}`,
+                `provider:signed_at:${providerSignature.signedAt}`,
+                `provider:nonce:${providerSignature.nonce}`,
+                `provider:payload_sha256:${providerSignature.payloadHash}`,
+                `provider:sig_b64:${providerSignature.signatureBase64}`
+              ]
+            : [])
+        ]
+      }
+    });
+
+    const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
+    outHeaders["x-settld-gate-id"] = gateId;
+    outHeaders["x-settld-settlement-status"] = String(gateVerify?.settlement?.status ?? "");
+    outHeaders["x-settld-released-amount-cents"] = String(gateVerify?.settlement?.releasedAmountCents ?? "");
+    outHeaders["x-settld-refunded-amount-cents"] = String(gateVerify?.settlement?.refundedAmountCents ?? "");
+    if (gateVerify?.gate?.holdback?.status) outHeaders["x-settld-holdback-status"] = String(gateVerify.gate.holdback.status);
+    if (gateVerify?.gate?.holdback?.amountCents !== undefined) outHeaders["x-settld-holdback-amount-cents"] = String(gateVerify.gate.holdback.amountCents);
+
+    res.writeHead(upstreamRes.status, outHeaders);
+    res.end(capture.buf);
+  } catch (err) {
+    // Best-effort: if anything goes wrong after a hold exists, force the gate red to refund instead of stranding escrow.
+    let gateVerify = null;
+    try {
+      gateVerify = await settldJson("/x402/gate/verify", {
+        tenantId,
+        method: "POST",
+        idempotencyKey: stableIdemKey("x402_verify", `${gateId}\nERROR\n${upstreamRes.status}`),
+        body: {
+          gateId,
+          verificationStatus: "red",
+          runStatus: "failed",
+          policy: {
+            mode: "automatic",
+            rules: {
+              autoReleaseOnGreen: true,
+              greenReleaseRatePct: 100,
+              autoReleaseOnAmber: false,
+              amberReleaseRatePct: 0,
+              autoReleaseOnRed: true,
+              redReleaseRatePct: 0
+            }
+          },
+          verificationMethod: { mode: "deterministic", source: "gateway_error_v1", attestor: null },
+          verificationCodes: ["X402_GATEWAY_ERROR"],
+          evidenceRefs: [`http:status:${upstreamRes.status}`]
+        }
+      });
+    } catch {}
+
+    const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
+    outHeaders["x-settld-gate-id"] = gateId;
+    if (gateVerify) {
+      outHeaders["x-settld-settlement-status"] = String(gateVerify?.settlement?.status ?? "");
+      outHeaders["x-settld-released-amount-cents"] = String(gateVerify?.settlement?.releasedAmountCents ?? "");
+      outHeaders["x-settld-refunded-amount-cents"] = String(gateVerify?.settlement?.refundedAmountCents ?? "");
+      if (gateVerify?.gate?.holdback?.status) outHeaders["x-settld-holdback-status"] = String(gateVerify.gate.holdback.status);
+      if (gateVerify?.gate?.holdback?.amountCents !== undefined) outHeaders["x-settld-holdback-amount-cents"] = String(gateVerify.gate.holdback.amountCents);
+    }
+
+    res.writeHead(502, outHeaders);
+    res.end(`gateway error: ${err?.message ?? String(err ?? "")}`);
   }
-
-  // Deterministic default: release 100% on PASS; refund 100% on FAIL.
-  const policy = {
-    mode: "automatic",
-    rules: {
-      autoReleaseOnGreen: true,
-      greenReleaseRatePct: 100,
-      autoReleaseOnAmber: false,
-      amberReleaseRatePct: 0,
-      autoReleaseOnRed: true,
-      redReleaseRatePct: 0
-    }
-  };
-
-  const gateVerify = await settldJson("/x402/gate/verify", {
-    tenantId,
-    method: "POST",
-    idempotencyKey: stableIdemKey("x402_verify", `${gateId}\n${respHash}`),
-    body: {
-      gateId,
-      verificationStatus:
-        upstreamRes.ok && (!X402_PROVIDER_PUBLIC_KEY_PEM || providerReasonCodes.length === 0) ? "green" : "red",
-      runStatus: upstreamRes.ok ? "completed" : "failed",
-      policy,
-      verificationMethod: {
-        mode: X402_PROVIDER_PUBLIC_KEY_PEM ? "attested" : "deterministic",
-        source: X402_PROVIDER_PUBLIC_KEY_PEM ? "provider_signature_v1" : "http_status_v1",
-        attestor: providerSignature?.keyId ?? null
-      },
-      ...(providerSignature ? { providerSignature: { ...providerSignature, publicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM } } : {}),
-      verificationCodes: providerReasonCodes,
-      evidenceRefs: [
-        `http:response_sha256:${respHash}`,
-        `http:status:${upstreamRes.status}`,
-        ...(providerSignature
-          ? [
-              `provider:key_id:${providerSignature.keyId}`,
-              `provider:signed_at:${providerSignature.signedAt}`,
-              `provider:nonce:${providerSignature.nonce}`,
-              `provider:payload_sha256:${providerSignature.payloadHash}`,
-              `provider:sig_b64:${providerSignature.signatureBase64}`
-            ]
-          : [])
-      ]
-    }
-  });
-
-  const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
-  outHeaders["x-settld-gate-id"] = gateId;
-  outHeaders["x-settld-settlement-status"] = String(gateVerify?.settlement?.status ?? "");
-  outHeaders["x-settld-released-amount-cents"] = String(gateVerify?.settlement?.releasedAmountCents ?? "");
-  outHeaders["x-settld-refunded-amount-cents"] = String(gateVerify?.settlement?.refundedAmountCents ?? "");
-  if (gateVerify?.gate?.holdback?.status) outHeaders["x-settld-holdback-status"] = String(gateVerify.gate.holdback.status);
-  if (gateVerify?.gate?.holdback?.amountCents !== undefined) outHeaders["x-settld-holdback-amount-cents"] = String(gateVerify.gate.holdback.amountCents);
-
-  res.writeHead(upstreamRes.status, outHeaders);
-  res.end(capture.buf);
 }
 
 const server = http.createServer((req, res) => {
