@@ -122,3 +122,81 @@ test("API e2e: x402 provider signature invalid => verification forced red and se
   assert.equal(payeeAfter.statusCode, 200, payeeAfter.body);
   assert.equal(payeeAfter.json?.wallet?.availableCents, 0);
 });
+
+test("API e2e: pinned providerPublicKeyPem prevents key swap attacks (signature verified against gate)", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_sig_payer_2" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_sig_payee_2" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_sig_2" });
+
+  const gateId = "gate_sig_2";
+  const amountCents = 500;
+
+  const pinnedProvider = createEd25519Keypair();
+  const attackerProvider = createEd25519Keypair();
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_sig_2" },
+    body: {
+      gateId,
+      payerAgentId,
+      payeeAgentId,
+      amountCents,
+      currency: "USD",
+      providerPublicKeyPem: pinnedProvider.publicKeyPem
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const responseHash = sha256Hex("demo response bytes 2");
+  const nonce = "b".repeat(16);
+  const signedAt = "2026-02-15T00:00:00.000Z";
+
+  // Attacker signs with their own key and even supplies their own public key in the verify request.
+  // Settld must ignore that and verify against the provider key pinned on the gate record.
+  const signature = signToolProviderSignatureV1({
+    responseHash,
+    nonce,
+    signedAt,
+    publicKeyPem: attackerProvider.publicKeyPem,
+    privateKeyPem: attackerProvider.privateKeyPem
+  });
+
+  const verify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_sig_2" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      // Deterministic conditional release economics: release 100% on PASS; refund 100% on FAIL.
+      policy: {
+        mode: "automatic",
+        rules: {
+          autoReleaseOnGreen: true,
+          greenReleaseRatePct: 100,
+          autoReleaseOnAmber: false,
+          amberReleaseRatePct: 0,
+          autoReleaseOnRed: true,
+          redReleaseRatePct: 0
+        }
+      },
+      verificationMethod: { mode: "attested", source: "provider_signature_v1" },
+      evidenceRefs: [`http:response_sha256:${responseHash}`],
+      providerSignature: {
+        ...signature,
+        publicKeyPem: attackerProvider.publicKeyPem
+      }
+    }
+  });
+  assert.equal(verify.statusCode, 200, verify.body);
+  assert.equal(verify.json?.settlement?.status, "refunded");
+  assert.equal(verify.json?.settlement?.releasedAmountCents, 0);
+  assert.equal(verify.json?.settlement?.refundedAmountCents, amountCents);
+  assert.ok(Array.isArray(verify.json?.gate?.decision?.reasonCodes));
+  assert.ok(verify.json.gate.decision.reasonCodes.includes("X402_PROVIDER_SIGNATURE_INVALID"));
+});

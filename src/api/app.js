@@ -28819,12 +28819,24 @@ export function createApi({
             return parsed.ok ? parsed : null;
           })();
 
-          let agreementHash = null;
-          try {
-            agreementHash = normalizeSha256HashInput(body?.agreementHash, "agreementHash", { allowNull: true });
-          } catch (err) {
-            return sendError(res, 400, "invalid agreementHash", { message: err?.message }, { code: "SCHEMA_INVALID" });
-          }
+	          let agreementHash = null;
+	          try {
+	            agreementHash = normalizeSha256HashInput(body?.agreementHash, "agreementHash", { allowNull: true });
+	          } catch (err) {
+	            return sendError(res, 400, "invalid agreementHash", { message: err?.message }, { code: "SCHEMA_INVALID" });
+	          }
+
+	          let providerKey = null;
+	          const providerPublicKeyPem =
+	            typeof body?.providerPublicKeyPem === "string" && body.providerPublicKeyPem.trim() !== "" ? body.providerPublicKeyPem.trim() : null;
+	          if (providerPublicKeyPem) {
+	            try {
+	              const keyId = keyIdFromPublicKeyPem(providerPublicKeyPem);
+	              providerKey = { algorithm: "ed25519", keyId, publicKeyPem: providerPublicKeyPem };
+	            } catch (err) {
+	              return sendError(res, 400, "invalid providerPublicKeyPem", { message: err?.message }, { code: "SCHEMA_INVALID" });
+	            }
+	          }
 
           const existingGate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
           if (existingGate && !idemStoreKey) return sendError(res, 409, "gate already exists", null, { code: "ALREADY_EXISTS" });
@@ -28880,14 +28892,15 @@ export function createApi({
               gateId,
               tenantId,
               runId,
-              payerAgentId,
-              payeeAgentId,
-              ...(agreementHash ? { agreementHash } : {}),
-              terms,
-              upstream,
-              status: "held",
-              createdAt: nowAt,
-              updatedAt: nowAt
+	              payerAgentId,
+	              payeeAgentId,
+	              ...(agreementHash ? { agreementHash } : {}),
+	              ...(providerKey ? { providerKey } : {}),
+	              terms,
+	              upstream,
+	              status: "held",
+	              createdAt: nowAt,
+	              updatedAt: nowAt
             },
             { path: "$" }
           );
@@ -29019,13 +29032,21 @@ export function createApi({
               ? body.verificationMethod.source
               : null;
           const verificationSource = typeof verificationSourceRaw === "string" ? verificationSourceRaw.trim() : null;
-          if (verificationSource === "provider_signature_v1") {
-            const ps = body?.providerSignature ?? null;
-            const publicKeyPem = typeof ps?.publicKeyPem === "string" && ps.publicKeyPem.trim() !== "" ? ps.publicKeyPem : null;
-            if (!ps || typeof ps !== "object" || Array.isArray(ps) || !publicKeyPem) {
-              extraReasonCodes.add("X402_PROVIDER_SIGNATURE_MISSING");
-              verificationStatus = "red";
-              runStatus = "failed";
+	          if (verificationSource === "provider_signature_v1") {
+	            const ps = body?.providerSignature ?? null;
+	            const pinnedPublicKeyPem =
+	              typeof gate?.providerKey?.publicKeyPem === "string" && gate.providerKey.publicKeyPem.trim() !== ""
+	                ? gate.providerKey.publicKeyPem
+	                : null;
+	            const publicKeyPem = pinnedPublicKeyPem
+	              ? pinnedPublicKeyPem
+	              : typeof ps?.publicKeyPem === "string" && ps.publicKeyPem.trim() !== ""
+	                  ? ps.publicKeyPem
+	                  : null;
+	            if (!ps || typeof ps !== "object" || Array.isArray(ps) || !publicKeyPem) {
+	              extraReasonCodes.add("X402_PROVIDER_SIGNATURE_MISSING");
+	              verificationStatus = "red";
+	              runStatus = "failed";
             } else {
               // Ensure the signature binds to the response hash we claim.
               const responseHash = typeof ps.responseHash === "string" ? ps.responseHash.trim().toLowerCase() : null;

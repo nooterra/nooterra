@@ -208,6 +208,7 @@ async function handleProxy(req, res) {
         ...(X402_AUTOFUND ? { autoFundPayerCents: amount.amountCents } : {}),
         holdbackBps: HOLDBACK_BPS,
         disputeWindowMs: DISPUTE_WINDOW_MS,
+        ...(X402_PROVIDER_PUBLIC_KEY_PEM ? { providerPublicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM } : {}),
         paymentRequiredHeader: { "x-payment-required": parsed.raw }
       }
     });
