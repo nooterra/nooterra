@@ -35,13 +35,14 @@ docker pull ghcr.io/aidenlippert/settld/x402-gateway:latest
 # docker build -f services/x402-gateway/Dockerfile -t settld/x402-gateway:dev .
 
 docker run --rm -p 8402:8402 \
-  # Linux (Docker 20.10+): add --add-host=host.docker.internal:host-gateway
   -e X402_AUTOFUND=0 \
   -e SETTLD_API_URL="http://host.docker.internal:3000" \
   -e SETTLD_API_KEY="YOUR_KEY_ID.YOUR_SECRET" \
   -e UPSTREAM_URL="https://example.com" \
   ghcr.io/aidenlippert/settld/x402-gateway:latest
 ```
+
+Linux (Docker Engine 20.10+): add `--add-host=host.docker.internal:host-gateway` to the `docker run` command.
 
 ## Usage
 
