@@ -68,6 +68,25 @@ test("circle reserve adapter: stub mode returns deterministic reserve ids", asyn
   assert.equal(a.reserveId, b.reserveId);
 });
 
+test("circle reserve adapter: production mode defers config validation until first reserve call", async () => {
+  const adapter = createCircleReserveAdapter({
+    mode: "production",
+    now: () => "2026-02-16T00:00:00.000Z"
+  });
+
+  assert.equal(adapter.mode, "production");
+  await assert.rejects(
+    () =>
+      adapter.reserve({
+        tenantId: "tenant_default",
+        gateId: "gate_prod_missing_config",
+        amountCents: 100,
+        currency: "USD"
+      }),
+    (err) => /CIRCLE_API_KEY must be a non-empty string/.test(String(err?.message ?? ""))
+  );
+});
+
 test("circle reserve adapter: sandbox reserve maps INITIATED to reserved and sends UUID idempotency", async () => {
   const { fetchFn, calls } = makeQueuedFetch([jsonResponse(200, { data: { id: "tx_1", state: "INITIATED" } })]);
   const adapter = createCircleReserveAdapter({

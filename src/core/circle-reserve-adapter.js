@@ -590,16 +590,21 @@ export function createCircleReserveAdapter({
   config = null,
   entitySecretCiphertextProvider = null
 } = {}) {
-  const runtime = readCircleRuntimeConfig({ mode, config, fetchFn, now, entitySecretCiphertextProvider });
-  const normalizedMode = runtime.mode;
+  const normalizedMode = normalizeMode(mode);
+  let runtime = null;
+  function getRuntime() {
+    if (runtime) return runtime;
+    runtime = readCircleRuntimeConfig({ mode: normalizedMode, config, fetchFn, now, entitySecretCiphertextProvider });
+    return runtime;
+  }
 
   const walletAddressCache = new Map();
-  async function resolveWalletAddress(walletId, { fallbackAddress = null } = {}) {
+  async function resolveWalletAddress(runtimeValue, walletId, { fallbackAddress = null } = {}) {
     const normalizedWalletId = assertNonEmptyString(walletId, "walletId");
     if (typeof fallbackAddress === "string" && fallbackAddress.trim() !== "") return fallbackAddress.trim();
     if (walletAddressCache.has(normalizedWalletId)) return walletAddressCache.get(normalizedWalletId);
     const payload = await fetchCircleJson({
-      runtime,
+      runtime: runtimeValue,
       method: "GET",
       path: `/v1/w3s/wallets/${encodeURIComponent(normalizedWalletId)}`
     });
@@ -639,7 +644,12 @@ export function createCircleReserveAdapter({
     return address;
   }
 
-  const nowIso = runtime.nowIso;
+  function nowIso() {
+    if (normalizedMode === "stub" || normalizedMode === "fail") {
+      return normalizeIsoDate(typeof now === "function" ? now() : new Date().toISOString(), "now()");
+    }
+    return getRuntime().nowIso();
+  }
 
   async function reserve({
     tenantId,
@@ -683,18 +693,21 @@ export function createCircleReserveAdapter({
       };
     }
 
+    const runtimeValue = getRuntime();
     const circleIdempotencyKey = normalizeCircleIdempotencyKey(normalizedIdempotencyKey);
-    const destinationAddress = await resolveWalletAddress(runtime.escrowWalletId, { fallbackAddress: runtime.escrowAddress });
+    const destinationAddress = await resolveWalletAddress(runtimeValue, runtimeValue.escrowWalletId, {
+      fallbackAddress: runtimeValue.escrowAddress
+    });
     let transferred = null;
     try {
       transferred = await transferWithShape({
-        runtime,
-        sourceWalletId: runtime.spendWalletId,
+        runtime: runtimeValue,
+        sourceWalletId: runtimeValue.spendWalletId,
         destinationAddress,
-        destinationWalletId: runtime.escrowWalletId,
+        destinationWalletId: runtimeValue.escrowWalletId,
         amountCents: normalizedAmountCents,
         idempotencyKey: circleIdempotencyKey,
-        transferAmountField: runtime.transferAmountField
+        transferAmountField: runtimeValue.transferAmountField
       });
     } catch (err) {
       throw normalizeTransferError(err, {
@@ -751,7 +764,8 @@ export function createCircleReserveAdapter({
       throw makeAdapterError("CIRCLE_RESERVE_UNAVAILABLE", "circle reserve unavailable");
     }
 
-    const tx = await fetchCircleTransactionById({ runtime, transactionId: normalizedReserveId });
+    const runtimeValue = getRuntime();
+    const tx = await fetchCircleTransactionById({ runtime: runtimeValue, transactionId: normalizedReserveId });
     const state = normalizeCircleState(tx.state);
     if (state === CIRCLE_TRANSACTION_STATE.CANCELLED || state === CIRCLE_TRANSACTION_STATE.DENIED || state === CIRCLE_TRANSACTION_STATE.FAILED) {
       return {
@@ -764,7 +778,7 @@ export function createCircleReserveAdapter({
     }
 
     if (CANCELLABLE_STATES.has(state)) {
-      const cancelled = await tryCircleCancel({ runtime, reserveId: normalizedReserveId });
+      const cancelled = await tryCircleCancel({ runtime: runtimeValue, reserveId: normalizedReserveId });
       if (cancelled.cancelled) {
         return {
           reserveId: normalizedReserveId,
@@ -777,8 +791,10 @@ export function createCircleReserveAdapter({
     }
 
     const normalizedAmountCents = normalizePositiveSafeInt(amountCents, "amountCents");
-    const compensateSourceWalletId = runtime.escrowWalletId;
-    const spendAddress = await resolveWalletAddress(runtime.spendWalletId, { fallbackAddress: runtime.spendAddress });
+    const compensateSourceWalletId = runtimeValue.escrowWalletId;
+    const spendAddress = await resolveWalletAddress(runtimeValue, runtimeValue.spendWalletId, {
+      fallbackAddress: runtimeValue.spendAddress
+    });
     const compensationIdempotencySource =
       idempotencyKey === null || idempotencyKey === undefined || String(idempotencyKey).trim() === ""
         ? `${normalizedReserveId}:void`
@@ -788,13 +804,13 @@ export function createCircleReserveAdapter({
     let compensation = null;
     try {
       compensation = await transferWithShape({
-        runtime,
+        runtime: runtimeValue,
         sourceWalletId: compensateSourceWalletId,
         destinationAddress: spendAddress,
-        destinationWalletId: runtime.spendWalletId,
+        destinationWalletId: runtimeValue.spendWalletId,
         amountCents: normalizedAmountCents,
         idempotencyKey: compensationIdempotencyKey,
-        transferAmountField: runtime.transferAmountField
+        transferAmountField: runtimeValue.transferAmountField
       });
     } catch (err) {
       throw normalizeTransferError(err, { operation: "compensating transfer", details: { reserveId: normalizedReserveId } });
