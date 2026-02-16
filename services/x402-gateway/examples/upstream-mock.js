@@ -42,7 +42,10 @@ const server = http.createServer((req, res) => {
   }
 
   // "x402-style": if there's no payment proof header, require payment.
+  const authorizationHeader = typeof req.headers["authorization"] === "string" ? req.headers["authorization"].trim() : "";
+  const hasSettldPayAuth = authorizationHeader.toLowerCase().startsWith("settldpay ");
   const paid =
+    hasSettldPayAuth ||
     (req.headers["x-payment"] && String(req.headers["x-payment"]).trim() !== "") ||
     (req.headers["x-payment-proof"] && String(req.headers["x-payment-proof"]).trim() !== "");
   if (!paid) {

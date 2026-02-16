@@ -163,12 +163,13 @@ async function handleProxy(req, res) {
     if (Array.isArray(v)) headers.set(k, v.join(","));
     else headers.set(k, String(v));
   }
+  const gateId = req.headers["x-settld-gate-id"] ? String(req.headers["x-settld-gate-id"]).trim() : null;
 
   const ac = new AbortController();
   req.on("close", () => ac.abort());
 
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
-  const upstreamRes = await fetch(upstreamUrl, {
+  let upstreamRes = await fetch(upstreamUrl, {
     method: req.method,
     headers,
     body: hasBody ? req : undefined,
@@ -179,48 +180,89 @@ async function handleProxy(req, res) {
 
   // If upstream requests payment, create a Settld gate and return the 402 to the client.
   if (upstreamRes.status === 402) {
-    const headersObj = Object.fromEntries(upstreamRes.headers.entries());
-    const parsed = parseX402PaymentRequired(headersObj);
-    if (!parsed.ok) {
-      res.writeHead(402, Object.fromEntries(upstreamRes.headers.entries()));
-      res.end(await upstreamRes.text());
-      return;
-    }
-    const amount = extractAmountAndCurrency(parsed.fields);
-    if (!amount.ok) {
-      res.writeHead(402, Object.fromEntries(upstreamRes.headers.entries()));
-      res.end(await upstreamRes.text());
-      return;
-    }
-
-    const payerAgentId = derivePayerAgentId();
-    const payeeAgentId = derivePayeeAgentId();
-    const gateCreate = await settldJson("/x402/gate/create", {
-      tenantId,
-      method: "POST",
-      idempotencyKey: stableIdemKey("x402_create", `${upstreamUrl.toString()}\n${parsed.raw}\n${payerAgentId}\n${payeeAgentId}`),
-      body: {
-        payerAgentId,
-        payeeAgentId,
-        amountCents: amount.amountCents,
-        currency: amount.currency,
-        // Local-demo-only: lets the gate create an escrow hold without integrating a real payment rail.
-        ...(X402_AUTOFUND ? { autoFundPayerCents: amount.amountCents } : {}),
-        holdbackBps: HOLDBACK_BPS,
-        disputeWindowMs: DISPUTE_WINDOW_MS,
-        ...(X402_PROVIDER_PUBLIC_KEY_PEM ? { providerPublicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM } : {}),
-        paymentRequiredHeader: { "x-payment-required": parsed.raw }
+    if (gateId) {
+      if (hasBody) {
+        res.writeHead(502, { "content-type": "application/json; charset=utf-8", "x-settld-gate-id": gateId });
+        res.end(JSON.stringify({ ok: false, error: "gateway_retry_requires_buffered_body", gateId }));
+        return;
       }
-    });
+      const authz = await settldJson("/x402/gate/authorize-payment", {
+        tenantId,
+        method: "POST",
+        idempotencyKey: stableIdemKey("x402_authz", `${gateId}`),
+        body: { gateId }
+      });
+      const token = typeof authz?.token === "string" ? authz.token.trim() : "";
+      if (!token) {
+        res.writeHead(502, { "content-type": "application/json; charset=utf-8", "x-settld-gate-id": gateId });
+        res.end(JSON.stringify({ ok: false, error: "gateway_authorization_token_missing", gateId }));
+        return;
+      }
+      headers.set("authorization", `SettldPay ${token}`);
+      // Back-compat with the local upstream mock; provider wrappers can rely on Authorization only.
+      headers.set("x-payment", token);
+      if (typeof authz?.authorizationRef === "string" && authz.authorizationRef.trim() !== "") {
+        headers.set("x-settld-authorization-ref", authz.authorizationRef.trim());
+      }
+      upstreamRes = await fetch(upstreamUrl, {
+        method: req.method,
+        headers,
+        body: undefined,
+        redirect: "manual",
+        signal: ac.signal
+      });
+    }
 
-    const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
-    outHeaders["x-settld-gate-id"] = String(gateCreate?.gate?.gateId ?? "");
-    res.writeHead(402, outHeaders);
-    res.end(await upstreamRes.text());
-    return;
+    if (upstreamRes.status === 402 && gateId) {
+      const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
+      outHeaders["x-settld-gate-id"] = gateId;
+      res.writeHead(402, outHeaders);
+      res.end(await upstreamRes.text());
+      return;
+    }
+
+    if (!gateId) {
+      const headersObj = Object.fromEntries(upstreamRes.headers.entries());
+      const parsed = parseX402PaymentRequired(headersObj);
+      if (!parsed.ok) {
+        res.writeHead(402, Object.fromEntries(upstreamRes.headers.entries()));
+        res.end(await upstreamRes.text());
+        return;
+      }
+      const amount = extractAmountAndCurrency(parsed.fields);
+      if (!amount.ok) {
+        res.writeHead(402, Object.fromEntries(upstreamRes.headers.entries()));
+        res.end(await upstreamRes.text());
+        return;
+      }
+
+      const payerAgentId = derivePayerAgentId();
+      const payeeAgentId = derivePayeeAgentId();
+      const gateCreate = await settldJson("/x402/gate/create", {
+        tenantId,
+        method: "POST",
+        idempotencyKey: stableIdemKey("x402_create", `${upstreamUrl.toString()}\n${parsed.raw}\n${payerAgentId}\n${payeeAgentId}`),
+        body: {
+          payerAgentId,
+          payeeAgentId,
+          amountCents: amount.amountCents,
+          currency: amount.currency,
+          // Local-demo-only: lets the gate create an escrow hold without integrating a real payment rail.
+          ...(X402_AUTOFUND ? { autoFundPayerCents: amount.amountCents } : {}),
+          holdbackBps: HOLDBACK_BPS,
+          disputeWindowMs: DISPUTE_WINDOW_MS,
+          ...(X402_PROVIDER_PUBLIC_KEY_PEM ? { providerPublicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM } : {}),
+          paymentRequiredHeader: { "x-payment-required": parsed.raw }
+        }
+      });
+
+      const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
+      outHeaders["x-settld-gate-id"] = String(gateCreate?.gate?.gateId ?? "");
+      res.writeHead(402, outHeaders);
+      res.end(await upstreamRes.text());
+      return;
+    }
   }
-
-  const gateId = req.headers["x-settld-gate-id"] ? String(req.headers["x-settld-gate-id"]).trim() : null;
   if (!gateId) {
     res.writeHead(upstreamRes.status, Object.fromEntries(upstreamRes.headers.entries()));
     if (upstreamRes.body) {
