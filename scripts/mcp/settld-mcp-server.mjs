@@ -11,6 +11,8 @@
 
 import crypto from "node:crypto";
 
+import { fetchWithSettldAutopay } from "../../packages/api-sdk/src/x402-autopay.js";
+
 function nowMs() {
   return Date.now();
 }
@@ -243,6 +245,67 @@ function makeSettldClient({ baseUrl, tenantId, apiKey, protocol }) {
   };
 }
 
+function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch }) {
+  const normalizedBaseUrl = (() => {
+    if (typeof baseUrl !== "string" || baseUrl.trim() === "") return null;
+    return baseUrl.trim();
+  })();
+
+  async function exaSearch({ query, numResults = 5 } = {}) {
+    if (!normalizedBaseUrl) throw new Error("SETTLD_PAID_TOOLS_BASE_URL is required for settld.exa_search_paid");
+    const normalizedQuery = String(query ?? "").trim();
+    assertNonEmptyString(normalizedQuery, "query");
+
+    const normalizedNumResultsRaw = Number(numResults ?? 5);
+    if (!Number.isSafeInteger(normalizedNumResultsRaw) || normalizedNumResultsRaw < 1 || normalizedNumResultsRaw > 10) {
+      throw new TypeError("numResults must be an integer between 1 and 10");
+    }
+    const normalizedNumResults = normalizedNumResultsRaw;
+
+    const url = new URL("/exa/search", normalizedBaseUrl);
+    url.searchParams.set("q", normalizedQuery);
+    url.searchParams.set("numResults", String(normalizedNumResults));
+
+    const res = await fetchWithSettldAutopay(
+      url,
+      {
+        method: "GET",
+        headers: { "x-proxy-tenant-id": tenantId }
+      },
+      { fetch: fetchImpl }
+    );
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    if (!res.ok) {
+      const msg = json?.error ?? json?.message ?? text ?? `HTTP ${res.status}`;
+      const err = new Error(String(msg));
+      err.statusCode = res.status;
+      err.details = json;
+      throw err;
+    }
+
+    const headers = {};
+    for (const [k, v] of res.headers.entries()) {
+      if (k.toLowerCase().startsWith("x-settld-")) headers[k] = v;
+    }
+
+    return {
+      ok: true,
+      query: normalizedQuery,
+      numResults: normalizedNumResults,
+      response: json,
+      headers
+    };
+  }
+
+  return { exaSearch };
+}
+
 function buildTools() {
   return [
     {
@@ -292,6 +355,19 @@ function buildTools() {
           outputRef: { type: ["string", "null"], default: null },
           errorCode: { type: ["string", "null"], default: null },
           errorMessage: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.exa_search_paid",
+      description: "Execute a paid Exa-style search through the x402 gateway with transparent Settld autopay.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["query"],
+        properties: {
+          query: { type: "string" },
+          numResults: { type: "integer", minimum: 1, maximum: 10, default: 5 }
         }
       }
     },
@@ -354,6 +430,7 @@ async function main() {
   const tenantId = process.env.SETTLD_TENANT_ID || "tenant_default";
   const apiKey = process.env.SETTLD_API_KEY || "";
   const protocol = process.env.SETTLD_PROTOCOL || null;
+  const paidToolsBaseUrl = process.env.SETTLD_PAID_TOOLS_BASE_URL || "http://127.0.0.1:8402";
 
   assertNonEmptyString(baseUrl, "SETTLD_BASE_URL");
   assertNonEmptyString(tenantId, "SETTLD_TENANT_ID");
@@ -364,6 +441,7 @@ async function main() {
   process.stderr.write("[mcp] ready (stdio). Use `npm run mcp:probe` or an MCP client; do not paste shell prompts.\n");
 
   const client = makeSettldClient({ baseUrl, tenantId, apiKey, protocol });
+  const paidToolsClient = makePaidToolsClient({ baseUrl: paidToolsBaseUrl, tenantId });
   const tools = buildTools();
   const toolByName = new Map(tools.map((t) => [t.name, t]));
 
@@ -441,8 +519,13 @@ async function main() {
             result = {
               ok: true,
               server: { name: "settld-mcp-spike", version: "s23" },
-              config: redactSecrets({ baseUrl, tenantId, protocol: discovered })
+              config: redactSecrets({ baseUrl, tenantId, protocol: discovered, paidToolsBaseUrl })
             };
+          } else if (name === "settld.exa_search_paid") {
+            const query = String(args?.query ?? "").trim();
+            assertNonEmptyString(query, "query");
+            const numResults = args?.numResults ?? 5;
+            result = await paidToolsClient.exaSearch({ query, numResults });
           } else if (name === "settld.create_agreement") {
             const amountCents = Number(args?.amountCents ?? 500);
             if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new TypeError("amountCents must be a positive safe integer");

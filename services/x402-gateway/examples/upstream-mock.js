@@ -20,6 +20,32 @@ MC4CAQAwBQYDK2VwBCIEIJzGRPeTwBQESqFfShXcFhPhq7tUm1V9X92FU7ucZ+H4
 -----END PRIVATE KEY-----\n`;
 const PROVIDER_KEY_ID = keyIdFromPublicKeyPem(PROVIDER_PUBLIC_KEY_PEM);
 
+function sanitizeQuery(raw) {
+  const text = String(raw ?? "").trim();
+  return text || "empty-query";
+}
+
+function clampNumResults(raw) {
+  const n = Number(raw ?? 5);
+  if (!Number.isSafeInteger(n)) return 5;
+  return Math.max(1, Math.min(10, n));
+}
+
+function buildExaLikeResults({ query, numResults }) {
+  const safeQuery = sanitizeQuery(query);
+  const count = clampNumResults(numResults);
+  const rows = [];
+  for (let i = 0; i < count; i += 1) {
+    rows.push({
+      rank: i + 1,
+      title: `${safeQuery} result ${i + 1}`,
+      url: `https://exa.mock/search/${encodeURIComponent(safeQuery)}/${i + 1}`,
+      snippet: `Mock search result ${i + 1} for query: ${safeQuery}`
+    });
+  }
+  return rows;
+}
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
   if (req.method === "GET" && url.pathname === "/healthz") {
@@ -62,11 +88,23 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const responseObj = {
-    ok: true,
-    resource: url.pathname,
-    note: "this is a mock upstream response"
-  };
+  const responseObj =
+    req.method === "GET" && url.pathname === "/exa/search"
+      ? {
+          ok: true,
+          provider: "exa-mock",
+          query: sanitizeQuery(url.searchParams.get("q")),
+          numResults: clampNumResults(url.searchParams.get("numResults")),
+          results: buildExaLikeResults({
+            query: url.searchParams.get("q"),
+            numResults: url.searchParams.get("numResults")
+          })
+        }
+      : {
+          ok: true,
+          resource: url.pathname,
+          note: "this is a mock upstream response"
+        };
   const responseCanonical = canonicalJsonStringify(responseObj);
   const responseHash = sha256Hex(responseCanonical);
 

@@ -17,6 +17,7 @@ export SETTLD_BASE_URL='https://api.settld.work'   # or http://127.0.0.1:3000
 export SETTLD_TENANT_ID='tenant_default'
 export SETTLD_API_KEY='sk_live_xxx.yyy'            # keyId.secret (do not commit)
 export SETTLD_PROTOCOL='1.0'                       # optional; server will try to auto-discover
+export SETTLD_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402' # optional; paid x402 tools
 ```
 
 Start the server:
@@ -141,6 +142,30 @@ Tool: `settld.open_dispute`
   "waitMs": 5000
 }
 ```
+
+## Paid Tool Flow (`settld.exa_search_paid`)
+
+`settld.exa_search_paid` exercises the x402 path from MCP:
+
+1. First call returns `402` from the paid endpoint.
+2. MCP wrapper retries with `x-settld-gate-id`.
+3. Gateway returns `200` and `x-settld-*` verification/settlement headers.
+
+Run the local paid upstream + gateway from `docs/QUICKSTART_X402_GATEWAY.md`, then invoke:
+
+```bash
+cat > /tmp/settld-mcp-exa-search.json <<'JSON'
+{"query":"dentist near me chicago","numResults":3}
+JSON
+
+SETTLD_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402' \
+npm run -s mcp:probe -- --call-file settld.exa_search_paid /tmp/settld-mcp-exa-search.json
+```
+
+The tool result includes:
+
+- `response`: Exa-style search body.
+- `headers`: captured `x-settld-*` verification/settlement headers.
 
 ## Notes
 

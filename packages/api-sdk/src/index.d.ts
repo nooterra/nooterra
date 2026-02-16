@@ -1,5 +1,11 @@
 export type ProtocolVersion = `${number}.${number}`;
 
+export type SettldAutopayFetchOptions = {
+  fetch?: typeof fetch;
+  gateHeaderName?: string;
+  maxAttempts?: number;
+};
+
 export type SettldClientOptions = {
   baseUrl: string;
   tenantId: string;
@@ -33,6 +39,12 @@ export type SettldResponse<T> = {
   body: T;
   headers: Record<string, string>;
 };
+
+export declare function fetchWithSettldAutopay(
+  url: string | URL,
+  init?: RequestInit,
+  opts?: SettldAutopayFetchOptions
+): Promise<Response>;
 
 export type InteractionEntityType = "agent" | "human" | "robot" | "machine";
 
