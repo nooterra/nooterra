@@ -327,6 +327,8 @@ export function createApi({
   moneyRailReconcileMaxPeriodsPerTenant = null,
   moneyRailReconcileMaxProvidersPerTenant = null,
   x402ReserveAdapter = null,
+  x402RequireExternalReserve = null,
+  x402ReserveMode = null,
   settldPayTokenTtlSeconds = null,
   settldPayFallbackKeys = null,
   settldPayIssuer = null
@@ -990,6 +992,17 @@ export function createApi({
     throw new TypeError("boolean-like value must be true|false");
   }
 
+  function isProductionLikeRuntimeEnv() {
+    const nodeEnv = typeof process !== "undefined" ? String(process.env.NODE_ENV ?? "").trim().toLowerCase() : "";
+    if (nodeEnv === "production") return true;
+    const settldEnv = typeof process !== "undefined" ? String(process.env.SETTLD_ENV ?? "").trim().toLowerCase() : "";
+    if (settldEnv === "production" || settldEnv === "prod") return true;
+    const railwayEnv =
+      typeof process !== "undefined" ? String(process.env.RAILWAY_ENVIRONMENT_NAME ?? "").trim().toLowerCase() : "";
+    if (railwayEnv === "production" || railwayEnv === "prod") return true;
+    return false;
+  }
+
   function normalizeSettldPayFallbackKeysInput(raw) {
     if (raw === null || raw === undefined || raw === "") return [];
     let parsed = raw;
@@ -1049,16 +1062,21 @@ export function createApi({
         : "";
     return [{ publicKeyPem: singlePem, keyId: singleKid || null }];
   })();
-  const x402RequireExternalReserve = (() => {
-    const raw = typeof process !== "undefined" ? process.env.X402_REQUIRE_EXTERNAL_RESERVE : null;
-    return parseBooleanLike(raw, false);
+  const productionLikeEnv = isProductionLikeRuntimeEnv();
+  const x402RequireExternalReserveValue = (() => {
+    const raw =
+      x402RequireExternalReserve ??
+      (typeof process !== "undefined" ? process.env.X402_REQUIRE_EXTERNAL_RESERVE : null);
+    return parseBooleanLike(raw, productionLikeEnv);
   })();
-  const x402ReserveMode = (() => {
-    const raw = typeof process !== "undefined" ? process.env.X402_CIRCLE_RESERVE_MODE : null;
-    if (raw === null || raw === undefined || String(raw).trim() === "") return "stub";
+  const x402ReserveModeValue = (() => {
+    const raw =
+      x402ReserveMode ??
+      (typeof process !== "undefined" ? process.env.X402_CIRCLE_RESERVE_MODE : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return productionLikeEnv ? "production" : "stub";
     return String(raw).trim();
   })();
-  const circleReserveAdapter = x402ReserveAdapter ?? createCircleReserveAdapter({ mode: x402ReserveMode, now: nowIso });
+  const circleReserveAdapter = x402ReserveAdapter ?? createCircleReserveAdapter({ mode: x402ReserveModeValue, now: nowIso });
 
   function buildSettldPayKeyset() {
     return buildSettldPayKeysetV1({
@@ -29183,7 +29201,7 @@ export function createApi({
             return sendJson(res, 200, responseBody);
           }
 
-          if (x402RequireExternalReserve && String(circleReserveAdapter?.mode ?? "").toLowerCase() === "stub") {
+          if (x402RequireExternalReserveValue && String(circleReserveAdapter?.mode ?? "").toLowerCase() === "stub") {
             return sendError(res, 503, "external reserve unavailable", null, { code: "X402_RESERVE_UNAVAILABLE" });
           }
 

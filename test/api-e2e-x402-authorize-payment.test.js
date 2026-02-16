@@ -176,3 +176,54 @@ test("API e2e: reserve failure during authorize-payment rolls back wallet escrow
   assert.equal(gateRead.statusCode, 200, gateRead.body);
   assert.equal(gateRead.json?.gate?.authorization?.status, "failed");
 });
+
+test("API e2e: production-like defaults fail closed when external reserve is unavailable", async (t) => {
+  const prevSettldEnv = process.env.SETTLD_ENV;
+  const prevRequireReserve = process.env.X402_REQUIRE_EXTERNAL_RESERVE;
+  const prevReserveMode = process.env.X402_CIRCLE_RESERVE_MODE;
+
+  process.env.SETTLD_ENV = "production";
+  delete process.env.X402_REQUIRE_EXTERNAL_RESERVE;
+  delete process.env.X402_CIRCLE_RESERVE_MODE;
+  t.after(() => {
+    if (prevSettldEnv === undefined) delete process.env.SETTLD_ENV;
+    else process.env.SETTLD_ENV = prevSettldEnv;
+    if (prevRequireReserve === undefined) delete process.env.X402_REQUIRE_EXTERNAL_RESERVE;
+    else process.env.X402_REQUIRE_EXTERNAL_RESERVE = prevRequireReserve;
+    if (prevReserveMode === undefined) delete process.env.X402_CIRCLE_RESERVE_MODE;
+    else process.env.X402_CIRCLE_RESERVE_MODE = prevReserveMode;
+  });
+
+  const api = createApi({
+    opsToken: "tok_ops",
+    x402ReserveAdapter: createCircleReserveAdapter({ mode: "stub" })
+  });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_auth_payer_3" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_auth_payee_3" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_auth_3" });
+
+  const gateId = "gate_auth_3";
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_auth_3" },
+    body: {
+      gateId,
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 700,
+      currency: "USD"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const authz = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_3" },
+    body: { gateId }
+  });
+  assert.equal(authz.statusCode, 503, authz.body);
+  assert.equal(authz.json?.code, "X402_RESERVE_UNAVAILABLE");
+});
