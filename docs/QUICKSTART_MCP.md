@@ -8,6 +8,31 @@ This quickstart connects an MCP-compatible agent/client to Settld using the Spri
 - A Settld API key with appropriate scopes (`keyId.secret` format)
 - Settld API reachable (local `npm run dev:api` or hosted)
 
+## One-Command Local Demo (Paid MCP Exa Flow)
+
+Boots local API + provider wrapper + x402 gateway, runs MCP `settld.exa_search_paid`, verifies signatures/tokens, and writes an artifact bundle.
+
+```bash
+npm run demo:mcp-paid-exa
+```
+
+Success output:
+
+```text
+PASS artifactDir=artifacts/mcp-paid-exa/...
+gateId=...
+```
+
+Artifact bundle includes:
+
+- `summary.json`
+- `mcp-call.raw.json`
+- `mcp-call.parsed.json`
+- `response-body.json`
+- `gate-state.json`
+- `provider-signature-verification.json`
+- `settld-pay-token-verification.json`
+
 ## Run The MCP Server
 
 Set environment variables:

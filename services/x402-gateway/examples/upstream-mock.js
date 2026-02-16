@@ -102,10 +102,10 @@ if (!Number.isSafeInteger(SETTLD_PAY_PINNED_MAX_AGE_MS) || SETTLD_PAY_PINNED_MAX
 // Dev-only demo key. Do not reuse this key for any real workloads.
 const PROVIDER_PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEA7zJ+oQLAO6F4Xewe7yJB1mv5TxsLo5bGZI7ZJPuFB6s=
------END PUBLIC KEY-----\n`;
+-----END PUBLIC KEY-----`;
 const PROVIDER_PRIVATE_KEY_PEM = `-----BEGIN PRIVATE KEY-----
 MC4CAQAwBQYDK2VwBCIEIJzGRPeTwBQESqFfShXcFhPhq7tUm1V9X92FU7ucZ+H4
------END PRIVATE KEY-----\n`;
+-----END PRIVATE KEY-----`;
 const PROVIDER_KEY_ID = keyIdFromPublicKeyPem(PROVIDER_PUBLIC_KEY_PEM);
 
 const PINNED_KEYSET = (() => {

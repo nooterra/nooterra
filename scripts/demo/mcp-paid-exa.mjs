@@ -1,0 +1,504 @@
+#!/usr/bin/env node
+
+import { spawn } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import process from "node:process";
+import { setTimeout as delay } from "node:timers/promises";
+
+import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
+import { sha256Hex } from "../../src/core/crypto.js";
+import { verifySettldPayTokenV1 } from "../../src/core/settld-pay-token.js";
+import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "../../src/core/tool-provider-signature.js";
+
+function readIntEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === "") return fallback;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n <= 0) throw new Error(`${name} must be a positive integer`);
+  return n;
+}
+
+function readBoolEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === null || String(raw).trim() === "") return fallback;
+  const v = String(raw).trim().toLowerCase();
+  if (v === "1" || v === "true" || v === "yes") return true;
+  if (v === "0" || v === "false" || v === "no") return false;
+  throw new Error(`${name} must be a boolean (1/0/true/false)`);
+}
+
+function sanitize(text) {
+  return String(text ?? "").replaceAll(/[\r\n]+/g, " ").trim();
+}
+
+function sanitizeIdSegment(text, { maxLen = 96 } = {}) {
+  const raw = String(text ?? "").trim();
+  const safe = raw.replaceAll(/[^A-Za-z0-9:_-]/g, "_").slice(0, maxLen);
+  return safe || "unknown";
+}
+
+function log(prefix, msg) {
+  process.stderr.write(`[${prefix}] ${msg}\n`);
+}
+
+function spawnProc({ name, cmd, args, env }) {
+  log(name, `spawn: ${cmd} ${args.join(" ")}`);
+  const child = spawn(cmd, args, {
+    env: { ...process.env, ...(env ?? {}) },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  child.stdout?.on("data", (buf) => {
+    const s = sanitize(buf.toString("utf8"));
+    if (s) log(name, s);
+  });
+  child.stderr?.on("data", (buf) => {
+    const s = sanitize(buf.toString("utf8"));
+    if (s) log(name, s);
+  });
+  child.on("exit", (code, signal) => {
+    log(name, `exit: code=${code} signal=${signal ?? ""}`);
+  });
+  return child;
+}
+
+async function waitForHealth(url, { name, timeoutMs = 30_000, proc = null } = {}) {
+  const start = Date.now();
+  while (true) {
+    if (proc && proc.exitCode !== null) {
+      throw new Error(`${name ?? url} exited before becoming ready (exitCode=${proc.exitCode})`);
+    }
+    try {
+      const res = await fetch(url, { method: "GET" });
+      if (res.ok) return;
+    } catch {
+      // retry
+    }
+    if (Date.now() - start > timeoutMs) {
+      throw new Error(`${name ?? url} did not become ready within ${timeoutMs}ms: ${url}`);
+    }
+    await delay(250);
+  }
+}
+
+async function mintApiKey({ apiUrl, opsToken, tenantId }) {
+  const res = await fetch(new URL("/ops/api-keys", apiUrl), {
+    method: "POST",
+    headers: {
+      "x-proxy-ops-token": opsToken,
+      authorization: `Bearer ${opsToken}`,
+      "x-proxy-tenant-id": tenantId,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      scopes: ["ops_read", "ops_write", "finance_read", "finance_write", "audit_read"],
+      description: "mcp paid exa demo"
+    })
+  });
+  const text = await res.text();
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+  if (!res.ok) throw new Error(`mint api key failed: HTTP ${res.status} ${text}`);
+  const keyId = json?.keyId;
+  const secret = json?.secret;
+  if (typeof keyId !== "string" || typeof secret !== "string" || !keyId || !secret) {
+    throw new Error(`mint api key returned unexpected body: ${text}`);
+  }
+  return `${keyId}.${secret}`;
+}
+
+async function runMcpToolCall({
+  baseUrl,
+  tenantId,
+  apiKey,
+  paidToolsBaseUrl,
+  query,
+  numResults = 3,
+  timeoutMs = 20_000
+}) {
+  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+    env: {
+      ...process.env,
+      SETTLD_BASE_URL: baseUrl,
+      SETTLD_TENANT_ID: tenantId,
+      SETTLD_API_KEY: apiKey,
+      SETTLD_PROTOCOL: "1.0",
+      SETTLD_PAID_TOOLS_BASE_URL: paidToolsBaseUrl
+    },
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+
+  let stderrBuf = "";
+  child.stderr.on("data", (chunk) => {
+    stderrBuf += String(chunk);
+  });
+
+  const pending = new Map();
+  let buf = "";
+  child.stdout.on("data", (chunk) => {
+    buf += chunk;
+    for (;;) {
+      const idx = buf.indexOf("\n");
+      if (idx === -1) break;
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line) continue;
+      let msg = null;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const id = msg?.id;
+      if (id !== undefined && id !== null && pending.has(String(id))) {
+        const item = pending.get(String(id));
+        pending.delete(String(id));
+        item.resolve(msg);
+      }
+    }
+  });
+
+  function rpc(method, params = {}) {
+    const id = String(Math.random()).slice(2);
+    const payload = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+    child.stdin.write(payload + "\n");
+    return new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        reject(new Error(`timeout waiting for ${method}`));
+      }, timeoutMs).unref?.();
+    });
+  }
+
+  try {
+    const initialize = await rpc("initialize", {
+      protocolVersion: "2024-11-05",
+      clientInfo: { name: "settld-demo-mcp-paid-exa", version: "s1" },
+      capabilities: {}
+    });
+    const called = await rpc("tools/call", {
+      name: "settld.exa_search_paid",
+      arguments: { query, numResults }
+    });
+
+    const text = called?.result?.content?.[0]?.text ?? "";
+    let parsed = null;
+    try {
+      parsed = text ? JSON.parse(text) : null;
+    } catch {
+      parsed = null;
+    }
+
+    return {
+      initialize,
+      called,
+      parsed,
+      stderr: stderrBuf
+    };
+  } finally {
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // ignore
+    }
+    await Promise.race([delay(100), new Promise((resolve) => child.once("exit", resolve))]);
+  }
+}
+
+async function writeArtifactJson(dir, filename, value) {
+  await writeFile(path.join(dir, filename), JSON.stringify(value, null, 2) + "\n", "utf8");
+}
+
+async function main() {
+  const apiPort = readIntEnv("SETTLD_DEMO_API_PORT", 3000);
+  const upstreamPort = readIntEnv("SETTLD_DEMO_UPSTREAM_PORT", 9402);
+  const gatewayPort = readIntEnv("SETTLD_DEMO_GATEWAY_PORT", 8402);
+  const keepAlive = readBoolEnv("SETTLD_DEMO_KEEP_ALIVE", false);
+  const opsToken = String(process.env.SETTLD_DEMO_OPS_TOKEN ?? "tok_ops").trim() || "tok_ops";
+  const tenantId = String(process.env.SETTLD_TENANT_ID ?? "tenant_default").trim() || "tenant_default";
+  const query = String(process.env.SETTLD_DEMO_QUERY ?? "dentist near me chicago").trim() || "dentist near me chicago";
+  const numResults = readIntEnv("SETTLD_DEMO_NUM_RESULTS", 3);
+
+  const now = new Date();
+  const runId = now.toISOString().replaceAll(":", "").replaceAll(".", "");
+  const artifactDir =
+    process.env.SETTLD_DEMO_ARTIFACT_DIR && String(process.env.SETTLD_DEMO_ARTIFACT_DIR).trim() !== ""
+      ? String(process.env.SETTLD_DEMO_ARTIFACT_DIR).trim()
+      : path.join("artifacts", "mcp-paid-exa", runId);
+
+  const apiUrl = new URL(`http://127.0.0.1:${apiPort}`);
+  const upstreamUrl = new URL(`http://127.0.0.1:${upstreamPort}`);
+  const gatewayUrl = new URL(`http://127.0.0.1:${gatewayPort}`);
+  const providerId = `agt_x402_payee_${sanitizeIdSegment(upstreamUrl.host)}`;
+
+  await mkdir(artifactDir, { recursive: true });
+
+  const procs = [];
+  const stopAll = () => {
+    for (const p of procs) {
+      try {
+        p.kill("SIGTERM");
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  let summary = {
+    ok: false,
+    runId,
+    artifactDir,
+    providerId,
+    timestamps: { startedAt: now.toISOString(), completedAt: null }
+  };
+
+  process.on("SIGINT", () => {
+    log("demo", "SIGINT: shutting down...");
+    stopAll();
+    process.exit(130);
+  });
+  process.on("SIGTERM", () => {
+    log("demo", "SIGTERM: shutting down...");
+    stopAll();
+    process.exit(143);
+  });
+
+  try {
+    const api = spawnProc({
+      name: "api",
+      cmd: "node",
+      args: ["src/api/server.js"],
+      env: {
+        PROXY_OPS_TOKEN: opsToken,
+        BIND_HOST: "127.0.0.1",
+        PORT: String(apiPort)
+      }
+    });
+    procs.push(api);
+    await waitForHealth(new URL("/healthz", apiUrl).toString(), { name: "api /healthz", proc: api });
+
+    const apiKey = await mintApiKey({ apiUrl, opsToken, tenantId });
+    log("demo", "SETTLD_API_KEY minted");
+
+    const upstream = spawnProc({
+      name: "upstream",
+      cmd: "node",
+      args: ["services/x402-gateway/examples/upstream-mock.js"],
+      env: {
+        BIND_HOST: "127.0.0.1",
+        PORT: String(upstreamPort),
+        SETTLD_PROVIDER_ID: providerId,
+        SETTLD_PAY_KEYSET_URL: new URL("/.well-known/settld-keys.json", apiUrl).toString()
+      }
+    });
+    procs.push(upstream);
+    await waitForHealth(new URL("/healthz", upstreamUrl).toString(), { name: "upstream /healthz", proc: upstream });
+
+    const providerKeyRes = await fetch(new URL("/settld/provider-key", upstreamUrl));
+    if (!providerKeyRes.ok) throw new Error(`provider key fetch failed: HTTP ${providerKeyRes.status}`);
+    const providerKey = await providerKeyRes.json();
+    const providerPublicKeyPem = typeof providerKey?.publicKeyPem === "string" ? providerKey.publicKeyPem : null;
+    if (!providerPublicKeyPem) throw new Error("provider did not return publicKeyPem");
+
+    const gateway = spawnProc({
+      name: "gateway",
+      cmd: "node",
+      args: ["services/x402-gateway/src/server.js"],
+      env: {
+        BIND_HOST: "127.0.0.1",
+        SETTLD_API_URL: apiUrl.toString(),
+        SETTLD_API_KEY: apiKey,
+        UPSTREAM_URL: upstreamUrl.toString(),
+        X402_AUTOFUND: "1",
+        X402_PROVIDER_PUBLIC_KEY_PEM: providerPublicKeyPem,
+        PORT: String(gatewayPort)
+      }
+    });
+    procs.push(gateway);
+    await waitForHealth(new URL("/healthz", gatewayUrl).toString(), { name: "gateway /healthz", proc: gateway });
+
+    const mcp = await runMcpToolCall({
+      baseUrl: apiUrl.toString(),
+      tenantId,
+      apiKey,
+      paidToolsBaseUrl: gatewayUrl.toString(),
+      query,
+      numResults
+    });
+    await writeArtifactJson(artifactDir, "mcp-call.raw.json", mcp.called);
+    await writeArtifactJson(artifactDir, "mcp-call.parsed.json", mcp.parsed ?? {});
+
+    if (mcp.called?.result?.isError) {
+      throw new Error(`mcp tool call returned error: ${mcp.called?.result?.content?.[0]?.text ?? "unknown"}`);
+    }
+    if (!mcp.parsed?.result || typeof mcp.parsed.result !== "object") {
+      throw new Error("mcp parsed result missing");
+    }
+
+    const result = mcp.parsed.result;
+    const responseBody = result.response ?? null;
+    const headers = result.headers ?? {};
+    const gateId = typeof headers["x-settld-gate-id"] === "string" ? headers["x-settld-gate-id"] : "";
+    if (!gateId) throw new Error("missing x-settld-gate-id from paid response headers");
+    await writeArtifactJson(artifactDir, "response-body.json", responseBody ?? {});
+
+    const gateStateRes = await fetch(new URL(`/x402/gate/${encodeURIComponent(gateId)}`, apiUrl), {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "x-proxy-tenant-id": tenantId,
+        "x-settld-protocol": "1.0"
+      }
+    });
+    const gateStateText = await gateStateRes.text();
+    let gateState = null;
+    try {
+      gateState = gateStateText ? JSON.parse(gateStateText) : null;
+    } catch {
+      gateState = null;
+    }
+    if (!gateStateRes.ok) throw new Error(`gate state fetch failed: HTTP ${gateStateRes.status} ${gateStateText}`);
+    await writeArtifactJson(artifactDir, "gate-state.json", gateState ?? {});
+
+    const providerSignatureVerification = (() => {
+      const responseHash = sha256Hex(canonicalJsonStringify(responseBody ?? {}));
+      const signature = {
+        schemaVersion: "ToolProviderSignature.v1",
+        algorithm: "ed25519",
+        keyId: String(headers["x-settld-provider-key-id"] ?? ""),
+        signedAt: String(headers["x-settld-provider-signed-at"] ?? ""),
+        nonce: String(headers["x-settld-provider-nonce"] ?? ""),
+        responseHash,
+        payloadHash: computeToolProviderSignaturePayloadHashV1({
+          responseHash,
+          nonce: String(headers["x-settld-provider-nonce"] ?? ""),
+          signedAt: String(headers["x-settld-provider-signed-at"] ?? "")
+        }),
+        signatureBase64: String(headers["x-settld-provider-signature"] ?? "")
+      };
+      let ok = false;
+      let error = null;
+      try {
+        ok = verifyToolProviderSignatureV1({ signature, publicKeyPem: providerPublicKeyPem });
+      } catch (err) {
+        ok = false;
+        error = err?.message ?? String(err ?? "");
+      }
+      return {
+        ok,
+        error,
+        responseHashExpected: responseHash,
+        responseHashHeader: String(headers["x-settld-provider-response-sha256"] ?? ""),
+        signature
+      };
+    })();
+    await writeArtifactJson(artifactDir, "provider-signature-verification.json", providerSignatureVerification);
+
+    const tokenVerification = await (async () => {
+      const token = gateState?.gate?.authorization?.token?.value;
+      if (typeof token !== "string" || token.trim() === "") return { ok: false, skipped: true, reason: "token_missing" };
+      const keysetRes = await fetch(new URL("/.well-known/settld-keys.json", apiUrl));
+      const keysetText = await keysetRes.text();
+      let keyset = null;
+      try {
+        keyset = keysetText ? JSON.parse(keysetText) : null;
+      } catch {
+        keyset = null;
+      }
+      if (!keysetRes.ok || !keyset) return { ok: false, skipped: true, reason: "keyset_unavailable", status: keysetRes.status };
+      let verified = null;
+      try {
+        verified = verifySettldPayTokenV1({
+          token,
+          keyset,
+          expectedAudience: String(gateState?.gate?.payeeAgentId ?? ""),
+          expectedPayeeProviderId: String(gateState?.gate?.payeeAgentId ?? "")
+        });
+      } catch (err) {
+        return { ok: false, skipped: false, code: "VERIFY_THROW", message: err?.message ?? String(err ?? "") };
+      }
+      return { ok: Boolean(verified?.ok), verification: verified };
+    })();
+    await writeArtifactJson(artifactDir, "settld-pay-token-verification.json", tokenVerification);
+
+    const passChecks = {
+      settlementStatus: String(headers["x-settld-settlement-status"] ?? "") === "released",
+      verificationStatus: String(headers["x-settld-verification-status"] ?? "") === "green",
+      providerSignature: providerSignatureVerification.ok === true,
+      tokenVerified: tokenVerification.ok === true
+    };
+
+    summary = {
+      ...summary,
+      ok: Object.values(passChecks).every(Boolean),
+      passChecks,
+      gateId,
+      query,
+      numResults,
+      artifactFiles: [
+        "mcp-call.raw.json",
+        "mcp-call.parsed.json",
+        "response-body.json",
+        "gate-state.json",
+        "provider-signature-verification.json",
+        "settld-pay-token-verification.json"
+      ],
+      timestamps: {
+        ...summary.timestamps,
+        completedAt: new Date().toISOString()
+      }
+    };
+
+    await writeArtifactJson(artifactDir, "summary.json", summary);
+
+    if (!summary.ok) {
+      process.stdout.write(`FAIL artifactDir=${artifactDir}\n`);
+      process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+      process.exitCode = 1;
+      return;
+    }
+
+    process.stdout.write(`PASS artifactDir=${artifactDir}\n`);
+    process.stdout.write(`gateId=${gateId}\n`);
+
+    if (!keepAlive) {
+      stopAll();
+      return;
+    }
+
+    log("demo", "Services are running. Press Ctrl+C to stop.");
+    // eslint-disable-next-line no-constant-condition
+    while (true) await delay(1000);
+  } catch (err) {
+    summary = {
+      ...summary,
+      ok: false,
+      error: err?.message ?? String(err ?? ""),
+      timestamps: {
+        ...summary.timestamps,
+        completedAt: new Date().toISOString()
+      }
+    };
+    try {
+      await writeArtifactJson(artifactDir, "summary.json", summary);
+    } catch {
+      // ignore
+    }
+    process.stdout.write(`FAIL artifactDir=${artifactDir}\n`);
+    process.stderr.write(`${err?.stack ?? err?.message ?? String(err ?? "")}\n`);
+    process.exitCode = 1;
+  } finally {
+    if (!keepAlive) stopAll();
+  }
+}
+
+main();

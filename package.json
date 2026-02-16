@@ -53,6 +53,7 @@
     "load:deliveries": "node scripts/load/run-delivery-load.js",
     "acceptance:full-stack": "bash scripts/acceptance/full-stack.sh",
     "demo:delivery": "node scripts/demo/delivery-robot/generate.mjs",
+    "demo:mcp-paid-exa": "node scripts/demo/mcp-paid-exa.mjs",
     "demo:ui:prep": "node scripts/demo/delivery-robot/export-ui-fixture.mjs",
     "demo:ui": "cd dashboard && npm run dev",
     "demo:build": "cd dashboard && npm run build",
