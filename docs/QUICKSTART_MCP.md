@@ -24,6 +24,16 @@ X402_REQUIRE_EXTERNAL_RESERVE=1 \
 npm run demo:mcp-paid-exa -- --circle=sandbox
 ```
 
+Circle sandbox mode with batch settlement execution:
+
+```bash
+SETTLD_DEMO_CIRCLE_MODE=sandbox \
+SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1 \
+SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID="$CIRCLE_WALLET_ID_ESCROW" \
+X402_REQUIRE_EXTERNAL_RESERVE=1 \
+npm run demo:mcp-paid-exa -- --circle=sandbox
+```
+
 Success output:
 
 ```text
@@ -41,6 +51,9 @@ Artifact bundle includes:
 - `reserve-state.json`
 - `provider-signature-verification.json`
 - `settld-pay-token-verification.json`
+- `batch-payout-registry.json` (when `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`)
+- `batch-worker-state.json` (when `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`)
+- `batch-settlement.json` (when `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`)
 
 ## Run The MCP Server
 

@@ -69,6 +69,36 @@ Artifacts include:
 - `summary.json` with `circleMode`, `circleReserveId`, `reserveTransitions`, and `payoutDestination`.
 - `reserve-state.json` with reserve details, transition timeline, and configured Circle rail metadata.
 
+## Run paid MCP demo + batch settlement in Circle mode
+
+This runs the same demo flow and then executes the batch payout worker against the generated artifact root:
+
+```bash
+SETTLD_DEMO_CIRCLE_MODE=sandbox \
+SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1 \
+SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID="$CIRCLE_WALLET_ID_ESCROW" \
+X402_REQUIRE_EXTERNAL_RESERVE=1 \
+node scripts/demo/mcp-paid-exa.mjs --circle=sandbox
+```
+
+Additional artifacts:
+
+- `batch-payout-registry.json`
+- `batch-worker-state.json`
+- `batch-settlement.json`
+
+## Run sandbox-gated batch settlement E2E test
+
+```bash
+CIRCLE_E2E=1 CIRCLE_BATCH_E2E=1 node --test test/circle-sandbox-batch-settlement-e2e.test.js
+```
+
+This test:
+
+1. Runs the paid MCP demo in sandbox mode with batch settlement enabled.
+2. Confirms payout submission state is recorded.
+3. Reruns the worker and verifies payout idempotency (no duplicate submit).
+
 ## Pass criteria
 
 - Reserve call returns a stable `reserveId`.

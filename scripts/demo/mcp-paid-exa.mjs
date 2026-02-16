@@ -18,7 +18,9 @@ function usage() {
     "  node scripts/demo/mcp-paid-exa.mjs --circle=sandbox",
     "",
     "Environment overrides:",
-    "  SETTLD_DEMO_CIRCLE_MODE=stub|sandbox|production"
+    "  SETTLD_DEMO_CIRCLE_MODE=stub|sandbox|production",
+    "  SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1",
+    "  SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID=<circle wallet id>"
   ].join("\n");
 }
 
@@ -75,6 +77,52 @@ function sanitizeIdSegment(text, { maxLen = 96 } = {}) {
   const raw = String(text ?? "").trim();
   const safe = raw.replaceAll(/[^A-Za-z0-9:_-]/g, "_").slice(0, maxLen);
   return safe || "unknown";
+}
+
+function runCommand({ cmd, args, env, timeoutMs = 60_000 }) {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, {
+      env: { ...process.env, ...(env ?? {}) },
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // ignore
+      }
+      resolve({
+        code: null,
+        timeout: true,
+        stdout,
+        stderr
+      });
+    }, timeoutMs);
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.once("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        code,
+        timeout: false,
+        stdout,
+        stderr
+      });
+    });
+  });
 }
 
 function normalizeCircleMode(value) {
@@ -339,6 +387,99 @@ async function writeArtifactJson(dir, filename, value) {
   await writeFile(path.join(dir, filename), JSON.stringify(value, null, 2) + "\n", "utf8");
 }
 
+async function runBatchSettlementDemo({
+  artifactDir,
+  providerId,
+  circleMode,
+  enabled
+}) {
+  if (!enabled) {
+    return {
+      enabled: false,
+      ok: true,
+      skipped: true,
+      reason: "disabled"
+    };
+  }
+
+  const providerWalletId = readEnvString("SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID", readEnvString("CIRCLE_WALLET_ID_ESCROW", null));
+  if (circleMode !== "stub" && !providerWalletId) {
+    throw new Error("batch settlement demo requires SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID or CIRCLE_WALLET_ID_ESCROW");
+  }
+
+  const registryPath = path.join(artifactDir, "batch-payout-registry.json");
+  const statePath = path.join(artifactDir, "batch-worker-state.json");
+  const outDir = path.join(artifactDir, "batch-settlement-run");
+  const artifactRoot = path.dirname(artifactDir);
+  const registry = {
+    schemaVersion: "X402ProviderPayoutRegistry.v1",
+    providers: [
+      {
+        providerId,
+        destination: {
+          type: "circle_wallet",
+          walletId: providerWalletId ?? "wallet_demo_stub",
+          blockchain: readEnvString("CIRCLE_BLOCKCHAIN", circleMode === "production" ? "BASE" : "BASE-SEPOLIA"),
+          token: "USDC"
+        }
+      }
+    ]
+  };
+  await writeArtifactJson(artifactDir, "batch-payout-registry.json", registry);
+
+  const args = [
+    "scripts/settlement/x402-batch-worker.mjs",
+    "--artifact-root",
+    artifactRoot,
+    "--registry",
+    registryPath,
+    "--state",
+    statePath,
+    "--out-dir",
+    outDir,
+    "--execute-circle",
+    "--circle-mode",
+    circleMode
+  ];
+  const run = await runCommand({
+    cmd: "node",
+    args,
+    timeoutMs: readIntEnv("SETTLD_DEMO_BATCH_SETTLEMENT_TIMEOUT_MS", 90_000)
+  });
+  if (run.timeout) throw new Error("batch settlement command timed out");
+  if (run.code !== 0) {
+    throw new Error(`batch settlement failed (exit=${run.code}): ${sanitize(run.stderr) || sanitize(run.stdout)}`);
+  }
+  const stdoutLines = String(run.stdout ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const lastLine = stdoutLines[stdoutLines.length - 1] ?? "";
+  let parsed = null;
+  try {
+    parsed = lastLine ? JSON.parse(lastLine) : null;
+  } catch {
+    parsed = null;
+  }
+  if (!parsed || parsed.ok !== true) {
+    throw new Error(`batch settlement returned unexpected output: ${sanitize(run.stdout).slice(0, 300)}`);
+  }
+
+  const artifact = {
+    enabled: true,
+    ok: true,
+    circleMode,
+    command: ["node", ...args],
+    artifactRoot,
+    registryPath,
+    statePath,
+    outDir,
+    result: parsed
+  };
+  await writeArtifactJson(artifactDir, "batch-settlement.json", artifact);
+  return artifact;
+}
+
 async function main() {
   const cli = parseCliArgs(process.argv.slice(2));
   if (cli.help) {
@@ -350,6 +491,7 @@ async function main() {
   const upstreamPort = readIntEnv("SETTLD_DEMO_UPSTREAM_PORT", 9402);
   const gatewayPort = readIntEnv("SETTLD_DEMO_GATEWAY_PORT", 8402);
   const keepAlive = readBoolEnv("SETTLD_DEMO_KEEP_ALIVE", false);
+  const runBatchSettlement = readBoolEnv("SETTLD_DEMO_RUN_BATCH_SETTLEMENT", false);
   const circleMode = normalizeCircleMode(cli.circleMode ?? readEnvString("SETTLD_DEMO_CIRCLE_MODE", "stub"));
   const externalReserveRequired = circleMode !== "stub";
   assertCircleModeInputs({ mode: circleMode });
@@ -536,6 +678,27 @@ async function main() {
     })();
     await writeArtifactJson(artifactDir, "reserve-state.json", reserveState);
 
+    // Write a provisional summary so artifact-driven settlement workers can
+    // discover this run before final summary enrichment.
+    const preBatchSummary = {
+      ...summary,
+      ok: true,
+      gateId,
+      query,
+      numResults,
+      circleReserveId: reserveState.circleReserveId,
+      reserveTransitions: reserveState.transitions,
+      payoutDestination: reserveState.payoutDestination,
+      artifactFiles: [
+        "mcp-call.raw.json",
+        "mcp-call.parsed.json",
+        "response-body.json",
+        "gate-state.json",
+        "reserve-state.json"
+      ]
+    };
+    await writeArtifactJson(artifactDir, "summary.json", preBatchSummary);
+
     const providerSignatureVerification = (() => {
       const responseHash = sha256Hex(canonicalJsonStringify(responseBody ?? {}));
       const signature = {
@@ -597,11 +760,19 @@ async function main() {
     })();
     await writeArtifactJson(artifactDir, "settld-pay-token-verification.json", tokenVerification);
 
+    const batchSettlement = await runBatchSettlementDemo({
+      artifactDir,
+      providerId,
+      circleMode,
+      enabled: runBatchSettlement
+    });
+
     const passChecks = {
       settlementStatus: String(headers["x-settld-settlement-status"] ?? "") === "released",
       verificationStatus: String(headers["x-settld-verification-status"] ?? "") === "green",
       providerSignature: providerSignatureVerification.ok === true,
       tokenVerified: tokenVerification.ok === true,
+      batchSettlement: batchSettlement.ok === true,
       reserveTracked:
         typeof reserveState?.circleReserveId === "string" &&
         reserveState.circleReserveId.trim() !== "" &&
@@ -619,6 +790,7 @@ async function main() {
       circleReserveId: reserveState.circleReserveId,
       reserveTransitions: reserveState.transitions,
       payoutDestination: reserveState.payoutDestination,
+      batchSettlement,
       artifactFiles: [
         "mcp-call.raw.json",
         "mcp-call.parsed.json",
@@ -626,7 +798,8 @@ async function main() {
         "gate-state.json",
         "reserve-state.json",
         "provider-signature-verification.json",
-        "settld-pay-token-verification.json"
+        "settld-pay-token-verification.json",
+        ...(runBatchSettlement ? ["batch-payout-registry.json", "batch-worker-state.json", "batch-settlement.json"] : [])
       ],
       timestamps: {
         ...summary.timestamps,

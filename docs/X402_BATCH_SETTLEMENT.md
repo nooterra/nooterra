@@ -100,6 +100,19 @@ Optional:
 - `CIRCLE_BLOCKCHAIN`
 - `CIRCLE_TIMEOUT_MS`
 
+## Demo integration
+
+`scripts/demo/mcp-paid-exa.mjs` can run this worker automatically after a successful paid-tool call:
+
+- `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`
+- `SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID=<walletId>` (required for sandbox/production if `CIRCLE_WALLET_ID_ESCROW` is not set)
+
+The demo writes:
+
+- `batch-payout-registry.json`
+- `batch-worker-state.json`
+- `batch-settlement.json`
+
 ## Optional manifest signing
 
 Set both env vars:
