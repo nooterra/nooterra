@@ -10,6 +10,18 @@ Prove the reserve contract used by `POST /x402/gate/authorize-payment`:
 2. Reserve failure does not mint a token.
 3. Reserve rollback path restores internal wallet state.
 
+## Production safety defaults
+
+The API is configured to fail closed in production-like environments:
+
+- `X402_REQUIRE_EXTERNAL_RESERVE` defaults to `true` when `SETTLD_ENV=production|prod`, `NODE_ENV=production`, or `RAILWAY_ENVIRONMENT_NAME=production|prod`.
+- `X402_CIRCLE_RESERVE_MODE` defaults to `production` in production-like environments.
+- In local/test environments, defaults remain:
+  - `X402_REQUIRE_EXTERNAL_RESERVE=false`
+  - `X402_CIRCLE_RESERVE_MODE=stub`
+
+To force explicit behavior in any environment, set both env vars directly.
+
 ## Required env
 
 Set these for sandbox runs:
