@@ -1,0 +1,50 @@
+# Circle Sandbox E2E (Reserve Adapter)
+
+This guide is for validating the x402 reserve path against Circle sandbox before enabling production mode.
+
+## Goal
+
+Prove the reserve contract used by `POST /x402/gate/authorize-payment`:
+
+1. Reserve succeeds before token mint.
+2. Reserve failure does not mint a token.
+3. Reserve rollback path restores internal wallet state.
+
+## Required env
+
+Set these for sandbox runs:
+
+- `CIRCLE_E2E=1` (enables sandbox e2e tests)
+- `CIRCLE_API_KEY` (sandbox key)
+- `CIRCLE_BASE_URL=https://api-sandbox.circle.com`
+- `CIRCLE_BLOCKCHAIN` (for example `BASE-SEPOLIA`)
+- `CIRCLE_WALLET_ID_SPEND`
+- `CIRCLE_WALLET_ID_ESCROW`
+- `CIRCLE_TOKEN_ID_USDC`
+
+If your environment uses a different naming convention, map these into the adapter config before running tests.
+
+## Suggested test flow
+
+1. Verify spend wallet has sufficient USDC.
+2. Call reserve (`spend -> escrow`) with idempotency key = gate id.
+3. Poll transaction status until terminal/safe state.
+4. Attempt rollback:
+   - cancel when still cancellable, or
+   - compensating transfer (`escrow -> spend`) when already confirmed.
+5. Verify resulting balances + persisted reserve status.
+
+## Run command
+
+After adapter wiring is complete:
+
+```bash
+CIRCLE_E2E=1 node --test test/circle-sandbox-reserve-e2e.test.js
+```
+
+## Pass criteria
+
+- Reserve call returns a stable `reserveId`.
+- Repeated reserve calls with same gate id are idempotent.
+- Failed reserves return `X402_RESERVE_FAILED` and leave no stranded internal escrow lock.
+- Rollback returns funds to spend wallet (cancel or compensation).

@@ -22,6 +22,13 @@ Optional fields:
 - all optional fields from `SettlementDecisionRecord.v1`
 - `policyNormalizationVersion` (string; OPTIONAL; v2 emitters SHOULD include this to pin the normalization algorithm used to compute `policyHashUsed`)
 - `verificationMethodHashUsed` (sha256 hex, lowercase; OPTIONAL; omit when absent)
+- `bindings` (object; OPTIONAL) - settlement receipt trail bindings for gateway-style flows:
+  - `authorizationRef`
+  - `token` (`kid`, `sha256`, `expiresAt`)
+  - `request` (`sha256`)
+  - `response` (`status`, `sha256`)
+  - `providerSig` (`required`, `present`, `verified`, `providerKeyId`, `error`)
+  - `reserve` (`adapter`, `mode`, `reserveId`, `status`)
 
 ## Policy pinning rules
 

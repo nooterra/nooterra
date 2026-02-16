@@ -1,6 +1,6 @@
 # Quickstart: x402 Gateway (Verify Before Release)
 
-Goal: in ~10 minutes, run a local Settld API + a mock x402 upstream + the Settld x402 gateway, then complete a `402 -> hold -> verify -> release` flow and get a deterministic receipt trail.
+Goal: in ~10 minutes, run a local Settld API + a mock x402 upstream + the Settld x402 gateway, then complete a `402 -> authorize -> verify -> release` flow and get a deterministic receipt trail.
 
 ## TL;DR (one command)
 
@@ -84,7 +84,7 @@ fi
 
 ## 3) Start a mock x402 upstream
 
-The upstream will return `HTTP 402` with `x-payment-required` until you retry with `x-payment: paid`.
+The upstream will return `HTTP 402` with `x-payment-required` until the gateway retries with a `SettldPay` authorization token.
 
 ```bash
 PORT=9402 node services/x402-gateway/examples/upstream-mock.js
@@ -229,7 +229,7 @@ GATE_ID="$(echo "$h402" | awk 'tolower($1) == "x-settld-gate-id:" {print $2}' | 
 test -n "$GATE_ID"
 echo "gateId=$GATE_ID"
 
-h200="$(curl -sS -D - -o /dev/null http://127.0.0.1:8402/resource -H "x-settld-gate-id: $GATE_ID" -H "x-payment: paid")"
+h200="$(curl -sS -D - -o /dev/null http://127.0.0.1:8402/resource -H "x-settld-gate-id: $GATE_ID")"
 echo "$h200" | grep -qE '^HTTP/.* 200 '
 
 settlement_status="$(echo "$h200" | awk 'tolower($1) == "x-settld-settlement-status:" {print $2}' | tr -d '\r' | head -n 1)"
@@ -264,12 +264,11 @@ GATE_ID="$(
 echo "gateId=$GATE_ID"
 ```
 
-### 5.2 Second request (retry with gate id + mock payment proof)
+### 5.2 Second request (retry with gate id; gateway auto-authorizes payment)
 
 ```bash
 curl -isS http://127.0.0.1:8402/resource \
-  -H "x-settld-gate-id: $GATE_ID" \
-  -H "x-payment: paid" | sed -n '1,80p'
+  -H "x-settld-gate-id: $GATE_ID" | sed -n '1,80p'
 ```
 
 You should see:
@@ -289,6 +288,12 @@ curl -fsS "http://127.0.0.1:3000/x402/gate/$GATE_ID" \
   -H "x-proxy-tenant-id: tenant_default" \
   -H "authorization: Bearer $SETTLD_API_KEY" \
   -H "x-settld-protocol: 1.0"
+```
+
+You can also inspect the gateway signing keyset used for `SettldPay` verification:
+
+```bash
+curl -fsS "http://127.0.0.1:3000/.well-known/settld-keys.json"
 ```
 
 ## Troubleshooting

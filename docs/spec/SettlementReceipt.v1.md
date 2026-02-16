@@ -32,6 +32,16 @@ It binds money movement and finality to a `SettlementDecisionRecord` (`v1` or `v
 - `createdAt`
 - `receiptHash`
 
+Optional fields:
+
+- `bindings` (object) mirroring decision-time authorization/request/response binding context:
+  - `authorizationRef`
+  - `token` (`kid`, `sha256`, `expiresAt`)
+  - `request` (`sha256`)
+  - `response` (`status`, `sha256`)
+  - `providerSig` (`required`, `present`, `verified`, `providerKeyId`, `error`)
+  - `reserve` (`adapter`, `mode`, `reserveId`, `status`)
+
 ## Internal finality semantics (`Kernel v0`)
 
 - `finalityProvider` is `internal_ledger`.

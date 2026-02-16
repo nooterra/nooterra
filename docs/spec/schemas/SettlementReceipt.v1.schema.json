@@ -51,6 +51,64 @@
     "finalityProvider": { "type": "string", "enum": ["internal_ledger"] },
     "finalityState": { "type": "string", "enum": ["pending", "final"] },
     "settledAt": { "type": ["string", "null"], "format": "date-time" },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authorizationRef", "token", "request", "response", "providerSig", "reserve"],
+      "properties": {
+        "authorizationRef": { "type": ["string", "null"], "maxLength": 200 },
+        "token": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["kid", "sha256", "expiresAt"],
+          "properties": {
+            "kid": { "type": ["string", "null"], "maxLength": 200 },
+            "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+            "expiresAt": { "type": ["string", "null"], "format": "date-time" }
+          }
+        },
+        "request": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["sha256"],
+          "properties": {
+            "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+          }
+        },
+        "response": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["status", "sha256"],
+          "properties": {
+            "status": { "type": ["integer", "null"], "minimum": 100, "maximum": 999 },
+            "sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+          }
+        },
+        "providerSig": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["required", "present", "verified", "providerKeyId", "error"],
+          "properties": {
+            "required": { "type": ["boolean", "null"] },
+            "present": { "type": ["boolean", "null"] },
+            "verified": { "type": ["boolean", "null"] },
+            "providerKeyId": { "type": ["string", "null"], "maxLength": 200 },
+            "error": { "type": ["string", "null"], "maxLength": 4000 }
+          }
+        },
+        "reserve": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["adapter", "mode", "reserveId", "status"],
+          "properties": {
+            "adapter": { "type": ["string", "null"], "maxLength": 200 },
+            "mode": { "type": ["string", "null"], "maxLength": 200 },
+            "reserveId": { "type": ["string", "null"], "maxLength": 256 },
+            "status": { "type": ["string", "null"], "maxLength": 64 }
+          }
+        }
+      }
+    },
     "createdAt": { "type": "string", "format": "date-time" },
     "receiptHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
   }
