@@ -257,7 +257,11 @@ async function main() {
     name: "upstream",
     cmd: "node",
     args: ["services/x402-gateway/examples/upstream-mock.js"],
-    env: { BIND_HOST: "127.0.0.1", PORT: String(upstreamPort) }
+    env: {
+      BIND_HOST: "127.0.0.1",
+      PORT: String(upstreamPort),
+      SETTLD_PAY_KEYSET_URL: new URL("/.well-known/settld-keys.json", apiUrl).toString()
+    }
   });
   procs.push(upstream);
   await waitForJson(new URL("/healthz", upstreamUrl).toString(), { name: "upstream /healthz", proc: upstream });

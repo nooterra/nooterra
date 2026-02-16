@@ -84,11 +84,15 @@ fi
 
 ## 3) Start a mock x402 upstream
 
-The upstream will return `HTTP 402` with `x-payment-required` until the gateway retries with a `SettldPay` authorization token.
+The upstream will return `HTTP 402` with both `x-payment-required` and `PAYMENT-REQUIRED` until the gateway retries with a `SettldPay` authorization token.
 
 ```bash
-PORT=9402 node services/x402-gateway/examples/upstream-mock.js
+PORT=9402 \
+SETTLD_PAY_KEYSET_URL='http://127.0.0.1:3000/.well-known/settld-keys.json' \
+node services/x402-gateway/examples/upstream-mock.js
 ```
+
+If your Settld API is not on port `3000`, set `SETTLD_PAY_KEYSET_URL` to the correct `/.well-known/settld-keys.json` URL so the provider can verify SettldPay tokens offline.
 
 In another terminal:
 
