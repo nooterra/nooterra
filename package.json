@@ -64,6 +64,7 @@
     "trust:wizard": "node scripts/trust-config/wizard.mjs",
     "keys:rotate": "node scripts/trust-config/rotate-settld-pay.mjs",
     "scaffold:paid-tool": "node scripts/scaffold/create-settld-paid-tool.mjs",
+    "settlement:x402:batch": "node scripts/settlement/x402-batch-worker.mjs",
     "mcp:server": "node scripts/mcp/settld-mcp-server.mjs",
     "mcp:probe": "node scripts/mcp/probe.mjs",
     "mcp:http": "node scripts/mcp/settld-mcp-http-gateway.mjs",

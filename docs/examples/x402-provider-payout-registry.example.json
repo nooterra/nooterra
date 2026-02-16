@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "X402ProviderPayoutRegistry.v1",
+  "providers": [
+    {
+      "providerId": "agt_x402_payee_127_0_0_1:9402",
+      "destination": {
+        "type": "circle_wallet",
+        "walletId": "wallet_123",
+        "blockchain": "BASE-SEPOLIA",
+        "token": "USDC"
+      }
+    }
+  ]
+}
