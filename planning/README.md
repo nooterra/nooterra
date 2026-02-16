@@ -32,3 +32,6 @@ If you're asking **"what's still open?"**, start with `planning/STATUS.md` and t
 - `planning/sprints/sprint-plan.md`
   - Multi-sprint plan (S1-S12) and earlier strategic assumptions.
   - Useful for context, but not a live status tracker.
+
+- `planning/sprints/agent-economy-roadmap.md`
+  - Long-horizon "agent economy" vision and sequencing (workstreams), not a live execution tracker.

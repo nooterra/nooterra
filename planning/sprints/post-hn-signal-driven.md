@@ -14,6 +14,8 @@ The existing `planning/sprints/s23-s34-plan.md` is a 24-week aspirational roadma
 
 This plan supersedes it with signal-driven sequencing.
 
+Long-horizon vision (not execution status): `planning/sprints/agent-economy-roadmap.md`.
+
 ## What Just Shipped (S23.5, 2026-02-13)
 
 | Item | Status | Evidence |
