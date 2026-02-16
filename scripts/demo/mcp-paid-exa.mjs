@@ -148,9 +148,10 @@ function assertCircleModeInputs({ mode }) {
   }
   const hasTemplate = Boolean(readEnvString("CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE"));
   const hasStatic = Boolean(readEnvString("CIRCLE_ENTITY_SECRET_CIPHERTEXT")) && readBoolEnv("CIRCLE_ALLOW_STATIC_ENTITY_SECRET", false);
-  if (!hasTemplate && !hasStatic) {
+  const hasEntitySecretHex = Boolean(readEnvString("ENTITY_SECRET")) || Boolean(readEnvString("CIRCLE_ENTITY_SECRET_HEX"));
+  if (!hasTemplate && !hasStatic && !hasEntitySecretHex) {
     throw new Error(
-      `circle mode ${mode} requires CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE (recommended) or CIRCLE_ENTITY_SECRET_CIPHERTEXT with CIRCLE_ALLOW_STATIC_ENTITY_SECRET=1`
+      `circle mode ${mode} requires ENTITY_SECRET/CIRCLE_ENTITY_SECRET_HEX (preferred), CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE, or CIRCLE_ENTITY_SECRET_CIPHERTEXT with CIRCLE_ALLOW_STATIC_ENTITY_SECRET=1`
     );
   }
 }

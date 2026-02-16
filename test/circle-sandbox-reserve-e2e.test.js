@@ -28,10 +28,12 @@ test(
     }
 
     const hasEntityProvider =
+      Boolean(readEnv("ENTITY_SECRET")) ||
+      Boolean(readEnv("CIRCLE_ENTITY_SECRET_HEX")) ||
       Boolean(readEnv("CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE")) ||
       (Boolean(readEnv("CIRCLE_ENTITY_SECRET_CIPHERTEXT")) && isEnabled("CIRCLE_ALLOW_STATIC_ENTITY_SECRET"));
     if (!hasEntityProvider) {
-      t.skip("set CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE or allow static ciphertext for sandbox e2e");
+      t.skip("set ENTITY_SECRET/CIRCLE_ENTITY_SECRET_HEX, CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE, or allow static ciphertext for sandbox e2e");
       return;
     }
 

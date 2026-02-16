@@ -224,10 +224,82 @@ function normalizeEntitySecretProvider({
   return { mode: "missing", get: null };
 }
 
+function normalizeEntitySecretHex(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (!/^[0-9a-fA-F]{64}$/.test(raw)) {
+    throw makeAdapterError("CIRCLE_CONFIG_INVALID", "ENTITY_SECRET must be a 64-character hex string");
+  }
+  return raw.toLowerCase();
+}
+
+function normalizePublicKeyPem(raw) {
+  const text = assertNonEmptyString(raw, "entityPublicKey");
+  if (text.includes("BEGIN PUBLIC KEY")) return text.replace(/\\n/g, "\n");
+  const chunks = text.match(/.{1,64}/g) ?? [];
+  return `-----BEGIN PUBLIC KEY-----\n${chunks.join("\n")}\n-----END PUBLIC KEY-----\n`;
+}
+
+function createEntitySecretCiphertextProvider({
+  apiKey,
+  baseUrl,
+  fetchFn,
+  timeoutMs,
+  requestId,
+  entitySecretHex
+} = {}) {
+  let cachedPublicKeyPem = null;
+  const secret = normalizeEntitySecretHex(entitySecretHex);
+  if (!secret) return null;
+  return async () => {
+    if (!cachedPublicKeyPem) {
+      const requestUrl = new URL("/v1/w3s/config/entity/publicKey", baseUrl).toString();
+      const response = await fetchWithTimeout(
+        fetchFn,
+        requestUrl,
+        {
+          method: "GET",
+          headers: {
+            authorization: `Bearer ${apiKey}`,
+            accept: "application/json",
+            "x-request-id": requestId()
+          }
+        },
+        timeoutMs
+      );
+      const { json, text } = await parseErrorBody(response);
+      if (response.status < 200 || response.status >= 300) {
+        const detail = json?.message ?? json?.error ?? text ?? `HTTP ${response.status}`;
+        throw makeAdapterError("CIRCLE_HTTP_ERROR", `GET /v1/w3s/config/entity/publicKey failed: ${detail}`, {
+          status: response.status,
+          body: json ?? text
+        });
+      }
+      cachedPublicKeyPem = normalizePublicKeyPem(json?.data?.publicKey);
+    }
+    return crypto
+      .publicEncrypt(
+        {
+          key: cachedPublicKeyPem,
+          padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+          oaepHash: "sha256"
+        },
+        Buffer.from(secret, "hex")
+      )
+      .toString("base64");
+  };
+}
+
 function normalizeTransferAmountField(value) {
   const normalized = String(value ?? "amounts").trim().toLowerCase();
   if (normalized === "amounts" || normalized === "amount") return normalized;
   throw new TypeError("transferAmountField must be amounts|amount");
+}
+
+function normalizeFeeLevel(value) {
+  const normalized = String(value ?? "MEDIUM").trim().toUpperCase();
+  if (!normalized) return "MEDIUM";
+  return normalized;
 }
 
 function buildTransferBody({
@@ -239,7 +311,8 @@ function buildTransferBody({
   blockchain,
   entitySecretCiphertext,
   idempotencyKey,
-  transferAmountField = "amounts"
+  transferAmountField = "amounts",
+  feeLevel = null
 } = {}) {
   const body = {
     idempotencyKey,
@@ -250,6 +323,7 @@ function buildTransferBody({
     entitySecretCiphertext
   };
   if (destinationWalletId) body.destinationWalletId = destinationWalletId;
+  if (typeof feeLevel === "string" && feeLevel.trim() !== "") body.feeLevel = feeLevel.trim().toUpperCase();
   if (transferAmountField === "amounts") body.amounts = [amountString];
   else body.amount = amountString;
   return body;
@@ -315,6 +389,7 @@ function readCircleRuntimeConfig({
   const escrowAddress = cfg.escrowAddress ?? env.CIRCLE_ESCROW_ADDRESS ?? null;
   const tokenId = assertNonEmptyString(cfg.tokenId ?? env.CIRCLE_TOKEN_ID_USDC ?? "", "CIRCLE_TOKEN_ID_USDC");
   const transferAmountField = normalizeTransferAmountField(cfg.transferAmountField ?? env.CIRCLE_TRANSFER_AMOUNT_FIELD ?? "amounts");
+  const feeLevel = normalizeFeeLevel(cfg.feeLevel ?? env.CIRCLE_FEE_LEVEL ?? "MEDIUM");
 
   const entitySecret = normalizeEntitySecretProvider({
     entitySecretCiphertextProvider: cfg.entitySecretCiphertextProvider ?? entitySecretCiphertextProvider,
@@ -336,6 +411,19 @@ function readCircleRuntimeConfig({
           return crypto.randomUUID();
         };
 
+  const entitySecretHex = normalizeEntitySecretHex(cfg.entitySecretHex ?? env.CIRCLE_ENTITY_SECRET_HEX ?? env.ENTITY_SECRET ?? null);
+  const dynamicEntitySecretProvider =
+    typeof cfg.entitySecretCiphertextProvider === "function"
+      ? null
+      : createEntitySecretCiphertextProvider({
+          apiKey,
+          baseUrl,
+          fetchFn: effectiveFetch,
+          timeoutMs,
+          requestId,
+          entitySecretHex
+        });
+
   return {
     mode: normalizedMode,
     nowIso,
@@ -349,15 +437,19 @@ function readCircleRuntimeConfig({
     spendAddress: typeof spendAddress === "string" && spendAddress.trim() !== "" ? spendAddress.trim() : null,
     escrowAddress: typeof escrowAddress === "string" && escrowAddress.trim() !== "" ? escrowAddress.trim() : null,
     tokenId,
+    feeLevel,
     transferAmountField,
-    entitySecret,
+    entitySecret:
+      dynamicEntitySecretProvider === null ? entitySecret : { mode: "derived", get: dynamicEntitySecretProvider },
     requestId
   };
 }
 
 function resolveResponseJsonOrThrow({ status, json, text, request }) {
   if (status >= 200 && status < 300) return json;
-  const detail = json?.message ?? json?.error ?? text ?? `HTTP ${status}`;
+  const baseDetail = json?.message ?? json?.error ?? text ?? `HTTP ${status}`;
+  const validationErrors = Array.isArray(json?.errors) ? json.errors : null;
+  const detail = validationErrors ? `${baseDetail} ${JSON.stringify(validationErrors)}` : baseDetail;
   throw makeAdapterError("CIRCLE_HTTP_ERROR", `${request} failed: ${detail}`, { status, body: json ?? text });
 }
 
@@ -439,7 +531,8 @@ async function transferWithShape({
     blockchain: runtime.blockchain,
     entitySecretCiphertext,
     idempotencyKey,
-    transferAmountField
+    transferAmountField,
+    feeLevel: runtime.feeLevel
   });
 
   const payload = await fetchCircleJson({
@@ -513,7 +606,14 @@ export function createCircleReserveAdapter({
     const root = pickFirstObject(payload);
     const candidates = [];
     if (root) candidates.push(root);
+    if (root?.wallet) candidates.push(root.wallet);
     if (root?.data) candidates.push(root.data);
+    if (root?.data?.wallet) candidates.push(root.data.wallet);
+    if (Array.isArray(root?.data?.wallets)) {
+      for (const row of root.data.wallets) {
+        if (row && typeof row === "object" && !Array.isArray(row)) candidates.push(row);
+      }
+    }
     let address = null;
     for (const candidate of candidates) {
       const row = pickFirstObject(candidate);
@@ -597,23 +697,10 @@ export function createCircleReserveAdapter({
         transferAmountField: runtime.transferAmountField
       });
     } catch (err) {
-      // Fallback for API variants that expect `amount` instead of `amounts`.
-      if (runtime.transferAmountField === "amounts" && errorIncludes(JSON.stringify(err?.details?.body ?? ""), "amount")) {
-        transferred = await transferWithShape({
-          runtime,
-          sourceWalletId: runtime.spendWalletId,
-          destinationAddress,
-          destinationWalletId: runtime.escrowWalletId,
-          amountCents: normalizedAmountCents,
-          idempotencyKey: circleIdempotencyKey,
-          transferAmountField: "amount"
-        });
-      } else {
-        throw normalizeTransferError(err, {
-          operation: "reserve transfer",
-          details: { gateId: normalizedGateId, idempotencyKey: normalizedIdempotencyKey }
-        });
-      }
+      throw normalizeTransferError(err, {
+        operation: "reserve transfer",
+        details: { gateId: normalizedGateId, idempotencyKey: normalizedIdempotencyKey }
+      });
     }
 
     const circleState = normalizeCircleState(transferred.state);
@@ -710,19 +797,7 @@ export function createCircleReserveAdapter({
         transferAmountField: runtime.transferAmountField
       });
     } catch (err) {
-      if (runtime.transferAmountField === "amounts" && errorIncludes(JSON.stringify(err?.details?.body ?? ""), "amount")) {
-        compensation = await transferWithShape({
-          runtime,
-          sourceWalletId: compensateSourceWalletId,
-          destinationAddress: spendAddress,
-          destinationWalletId: runtime.spendWalletId,
-          amountCents: normalizedAmountCents,
-          idempotencyKey: compensationIdempotencyKey,
-          transferAmountField: "amount"
-        });
-      } else {
-        throw normalizeTransferError(err, { operation: "compensating transfer", details: { reserveId: normalizedReserveId } });
-      }
+      throw normalizeTransferError(err, { operation: "compensating transfer", details: { reserveId: normalizedReserveId } });
     }
 
     const compensationState = normalizeCircleState(compensation.state);

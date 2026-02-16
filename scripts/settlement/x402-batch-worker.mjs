@@ -31,11 +31,13 @@ function usage() {
     "  CIRCLE_API_KEY",
     "  CIRCLE_WALLET_ID_SPEND",
     "  CIRCLE_TOKEN_ID_USDC",
+    "  ENTITY_SECRET or CIRCLE_ENTITY_SECRET_HEX (preferred, per-request ciphertext)",
     "  CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE (recommended) or",
     "  CIRCLE_ENTITY_SECRET_CIPHERTEXT + CIRCLE_ALLOW_STATIC_ENTITY_SECRET=1",
     "Optional:",
     "  CIRCLE_BASE_URL",
     "  CIRCLE_BLOCKCHAIN",
+    "  CIRCLE_FEE_LEVEL",
     "  CIRCLE_TIMEOUT_MS"
   ].join("\n");
 }
@@ -439,6 +441,51 @@ function normalizeEntitySecretProvider() {
   return null;
 }
 
+function normalizeEntitySecretHex(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (!/^[0-9a-fA-F]{64}$/.test(raw)) throw new Error("ENTITY_SECRET must be a 64-character hex string");
+  return raw.toLowerCase();
+}
+
+function normalizePublicKeyPem(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) throw new Error("entity public key is missing");
+  if (raw.includes("BEGIN PUBLIC KEY")) return raw.replace(/\\n/g, "\n");
+  const chunks = raw.match(/.{1,64}/g) ?? [];
+  return `-----BEGIN PUBLIC KEY-----\n${chunks.join("\n")}\n-----END PUBLIC KEY-----\n`;
+}
+
+function createDynamicEntitySecretProvider({ apiKey, baseUrl, timeoutMs, entitySecretHex }) {
+  const secret = normalizeEntitySecretHex(entitySecretHex);
+  if (!secret) return null;
+  let cachedPublicKeyPem = null;
+  return async () => {
+    if (!cachedPublicKeyPem) {
+      const payload = await fetchCircleJson({
+        runtime: {
+          apiKey,
+          baseUrl,
+          timeoutMs
+        },
+        method: "GET",
+        endpoint: "/v1/w3s/config/entity/publicKey"
+      });
+      cachedPublicKeyPem = normalizePublicKeyPem(payload?.data?.publicKey);
+    }
+    return crypto
+      .publicEncrypt(
+        {
+          key: cachedPublicKeyPem,
+          padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+          oaepHash: "sha256"
+        },
+        Buffer.from(secret, "hex")
+      )
+      .toString("base64");
+  };
+}
+
 function createCirclePayoutRuntime({ mode }) {
   const normalizedMode = normalizeCircleMode(mode);
   if (normalizedMode === "stub") {
@@ -452,8 +499,19 @@ function createCirclePayoutRuntime({ mode }) {
   const tokenId = readEnv("CIRCLE_TOKEN_ID_USDC", null);
   const baseUrl = readEnv("CIRCLE_BASE_URL", normalizedMode === "production" ? "https://api.circle.com" : "https://api-sandbox.circle.com");
   const blockchain = readEnv("CIRCLE_BLOCKCHAIN", normalizedMode === "production" ? "BASE" : "BASE-SEPOLIA");
+  const feeLevel = String(readEnv("CIRCLE_FEE_LEVEL", "MEDIUM") ?? "MEDIUM")
+    .trim()
+    .toUpperCase();
   const timeoutMs = Number(readEnv("CIRCLE_TIMEOUT_MS", "20000"));
-  const entitySecretProvider = normalizeEntitySecretProvider();
+  const staticEntitySecretProvider = normalizeEntitySecretProvider();
+  const entitySecretHex = normalizeEntitySecretHex(readEnv("CIRCLE_ENTITY_SECRET_HEX", readEnv("ENTITY_SECRET", null)));
+  const entitySecretProvider =
+    createDynamicEntitySecretProvider({
+      apiKey,
+      baseUrl,
+      timeoutMs,
+      entitySecretHex
+    }) ?? staticEntitySecretProvider;
 
   const missing = [];
   if (!apiKey) missing.push("CIRCLE_API_KEY");
@@ -474,6 +532,7 @@ function createCirclePayoutRuntime({ mode }) {
     tokenId,
     baseUrl: String(baseUrl).replace(/\/+$/, ""),
     blockchain,
+    feeLevel,
     timeoutMs,
     getEntitySecretCiphertext: entitySecretProvider
   };
@@ -537,7 +596,9 @@ async function fetchCircleJson({ runtime, method, endpoint, body = null }) {
   );
   const parsed = await parseResponseBody(res);
   if (!res.ok) {
-    const detail = parsed.json?.message ?? parsed.json?.error ?? parsed.text ?? `HTTP ${res.status}`;
+    const baseDetail = parsed.json?.message ?? parsed.json?.error ?? parsed.text ?? `HTTP ${res.status}`;
+    const validationErrors = Array.isArray(parsed.json?.errors) ? parsed.json.errors : null;
+    const detail = validationErrors ? `${baseDetail} ${JSON.stringify(validationErrors)}` : baseDetail;
     throw new Error(`Circle ${method} ${endpoint} failed: ${detail}`);
   }
   return parsed.json;
@@ -552,7 +613,13 @@ async function resolveWalletAddress({ runtime, walletId, cache }) {
     method: "GET",
     endpoint: `/v1/w3s/wallets/${encodeURIComponent(key)}`
   });
-  const candidates = [payload, payload?.data].filter((row) => row && typeof row === "object" && !Array.isArray(row));
+  const candidates = [payload, payload?.wallet, payload?.data, payload?.data?.wallet]
+    .filter((row) => row && typeof row === "object" && !Array.isArray(row));
+  if (Array.isArray(payload?.data?.wallets)) {
+    for (const row of payload.data.wallets) {
+      if (row && typeof row === "object" && !Array.isArray(row)) candidates.push(row);
+    }
+  }
   let address = null;
   for (const row of candidates) {
     if (typeof row.address === "string" && row.address.trim() !== "") {
@@ -642,7 +709,8 @@ async function executeCirclePayoutBatch({ runtime, batch, walletAddressCache }) 
     destinationAddress,
     tokenId: runtime.tokenId,
     blockchain,
-    entitySecretCiphertext: runtime.getEntitySecretCiphertext(),
+    feeLevel: runtime.feeLevel,
+    entitySecretCiphertext: await runtime.getEntitySecretCiphertext(),
     amounts: [centsToAssetAmountString(batch.totalAmountCents)]
   };
   if (destinationWalletId) body.destinationWalletId = destinationWalletId;

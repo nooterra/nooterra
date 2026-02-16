@@ -104,10 +104,12 @@ test(
       return;
     }
     const hasEntityProvider =
+      Boolean(readEnv("ENTITY_SECRET")) ||
+      Boolean(readEnv("CIRCLE_ENTITY_SECRET_HEX")) ||
       Boolean(readEnv("CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE")) ||
       (Boolean(readEnv("CIRCLE_ENTITY_SECRET_CIPHERTEXT")) && isEnabled("CIRCLE_ALLOW_STATIC_ENTITY_SECRET"));
     if (!hasEntityProvider) {
-      t.skip("set CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE or allow static ciphertext for sandbox e2e");
+      t.skip("set ENTITY_SECRET/CIRCLE_ENTITY_SECRET_HEX, CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE, or allow static ciphertext for sandbox e2e");
       return;
     }
 
@@ -117,6 +119,7 @@ test(
     const upstreamPort = await reservePort();
     const gatewayPort = await reservePort();
     const providerWalletId = readEnv("SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID", readEnv("CIRCLE_WALLET_ID_ESCROW", ""));
+    const amountCents = readEnv("CIRCLE_BATCH_E2E_AMOUNT_CENTS", "100");
 
     const demo = await runNode({
       args: ["scripts/demo/mcp-paid-exa.mjs", "--circle=sandbox"],
@@ -130,7 +133,8 @@ test(
         SETTLD_DEMO_ARTIFACT_DIR: artifactDir,
         SETTLD_DEMO_CIRCLE_MODE: "sandbox",
         SETTLD_DEMO_RUN_BATCH_SETTLEMENT: "1",
-        SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID: providerWalletId
+        SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID: providerWalletId,
+        SETTLD_PRICE_AMOUNT_CENTS: amountCents
       }
     });
 

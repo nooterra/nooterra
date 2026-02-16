@@ -97,6 +97,7 @@ test("circle reserve adapter: sandbox reserve maps INITIATED to reserved and sen
   assert.equal(requestBody.destinationAddress, "0x2222222222222222222222222222222222222222");
   assert.equal(requestBody.blockchain, "BASE-SEPOLIA");
   assert.equal(requestBody.tokenId, "token_usdc");
+  assert.equal(requestBody.feeLevel, "MEDIUM");
   assert.deepEqual(requestBody.amounts, ["5.00"]);
 });
 
@@ -119,6 +120,38 @@ test("circle reserve adapter: sandbox reserve rejects DENIED state", async () =>
       }),
     (err) => err?.code === "CIRCLE_RESERVE_FAILED"
   );
+});
+
+test("circle reserve adapter: resolves destination address from data.wallet payload", async () => {
+  const resolvedEscrowAddress = "0x3333333333333333333333333333333333333333";
+  const { fetchFn, calls } = makeQueuedFetch([
+    jsonResponse(200, { data: { wallet: { id: "wallet_escrow", address: resolvedEscrowAddress } } }),
+    jsonResponse(200, { data: { id: "tx_lookup", state: "INITIATED" } })
+  ]);
+  const config = {
+    ...baseSandboxConfig(),
+    escrowAddress: null
+  };
+  const adapter = createCircleReserveAdapter({
+    mode: "sandbox",
+    fetchFn,
+    config
+  });
+
+  const reserve = await adapter.reserve({
+    tenantId: "tenant_default",
+    gateId: "gate_lookup",
+    amountCents: 250,
+    currency: "USD",
+    idempotencyKey: "gate_lookup"
+  });
+  assert.equal(reserve.status, CIRCLE_RESERVE_STATUS.RESERVED);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].method, "GET");
+  assert.ok(calls[0].url.endsWith("/v1/w3s/wallets/wallet_escrow"));
+  assert.equal(calls[1].method, "POST");
+  const requestBody = JSON.parse(String(calls[1].body ?? "{}"));
+  assert.equal(requestBody.destinationAddress, resolvedEscrowAddress);
 });
 
 test("circle reserve adapter: void cancels pending reserves when transaction is cancellable", async () => {

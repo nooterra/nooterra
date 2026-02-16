@@ -91,6 +91,7 @@ Required when `--execute-circle --circle-mode sandbox|production`:
 - `CIRCLE_API_KEY`
 - `CIRCLE_WALLET_ID_SPEND`
 - `CIRCLE_TOKEN_ID_USDC`
+- `ENTITY_SECRET` (or `CIRCLE_ENTITY_SECRET_HEX`) preferred
 - `CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE`
   - or `CIRCLE_ENTITY_SECRET_CIPHERTEXT` with `CIRCLE_ALLOW_STATIC_ENTITY_SECRET=1`
 
@@ -98,6 +99,7 @@ Optional:
 
 - `CIRCLE_BASE_URL`
 - `CIRCLE_BLOCKCHAIN`
+- `CIRCLE_FEE_LEVEL` (default `MEDIUM`)
 - `CIRCLE_TIMEOUT_MS`
 
 ## Demo integration
