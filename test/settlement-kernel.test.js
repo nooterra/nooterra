@@ -222,3 +222,84 @@ test("Settlement kernel verification reports temporal ordering violations", () =
   assert.ok(verification.errors.includes(SETTLEMENT_KERNEL_VERIFICATION_CODE.SETTLEMENT_RECEIPT_SETTLED_BEFORE_DECISION));
   assert.ok(verification.errors.includes(SETTLEMENT_KERNEL_VERIFICATION_CODE.SETTLEMENT_RECEIPT_SETTLED_BEFORE_CREATED));
 });
+
+test("Settlement kernel preserves x402 authorization/request/response bindings", () => {
+  const decision = buildSettlementDecisionRecord({
+    decisionId: "dec_run_4_auto",
+    tenantId: "tenant_default",
+    runId: "run_4",
+    settlementId: "setl_run_4",
+    agreementId: "agr_4",
+    decisionStatus: "auto_resolved",
+    decisionMode: "automatic",
+    verificationStatus: "green",
+    policyHashUsed: "3".repeat(64),
+    verificationMethodHashUsed: "4".repeat(64),
+    policyRef: {
+      policyHash: "3".repeat(64),
+      verificationMethodHash: "4".repeat(64)
+    },
+    verifierRef: {
+      verifierId: "settld.policy-engine",
+      verifierVersion: "v1",
+      verifierHash: "5".repeat(64),
+      modality: "deterministic"
+    },
+    runStatus: "completed",
+    runLastEventId: "ev_run_4_2",
+    runLastChainHash: "ch_run_4_2",
+    resolutionEventId: "ev_run_4_2",
+    bindings: {
+      authorizationRef: "auth_gate_4",
+      token: {
+        kid: "k_2026_02_16_01",
+        sha256: "a".repeat(64),
+        expiresAt: "2026-02-08T00:05:00.000Z"
+      },
+      request: {
+        sha256: "b".repeat(64)
+      },
+      response: {
+        status: 200,
+        sha256: "c".repeat(64)
+      },
+      providerSig: {
+        required: true,
+        present: true,
+        verified: true,
+        providerKeyId: "provkey_1",
+        error: null
+      },
+      reserve: {
+        adapter: "circle",
+        mode: "transfer",
+        reserveId: "circle_transfer_123",
+        status: "reserved"
+      }
+    },
+    decidedAt: "2026-02-08T00:00:00.000Z"
+  });
+  assert.equal(decision.bindings.authorizationRef, "auth_gate_4");
+  assert.equal(decision.bindings.request.sha256, "b".repeat(64));
+
+  const receipt = buildSettlementReceipt({
+    receiptId: "rcpt_run_4_auto",
+    tenantId: "tenant_default",
+    runId: "run_4",
+    settlementId: "setl_run_4",
+    decisionRecord: decision,
+    status: "released",
+    amountCents: 2000,
+    releasedAmountCents: 2000,
+    refundedAmountCents: 0,
+    releaseRatePct: 100,
+    currency: "USD",
+    runStatus: "completed",
+    resolutionEventId: "ev_run_4_2",
+    settledAt: "2026-02-08T00:00:05.000Z",
+    createdAt: "2026-02-08T00:00:06.000Z",
+    bindings: decision.bindings
+  });
+  assert.equal(receipt.bindings.response.status, 200);
+  assert.equal(receipt.bindings.providerSig.verified, true);
+});

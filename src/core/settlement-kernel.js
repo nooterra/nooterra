@@ -84,6 +84,75 @@ function normalizeHexHash(value, name, { allowNull = false } = {}) {
   return out;
 }
 
+function normalizeNullableString(value, name, { max = 256 } = {}) {
+  if (value === null || value === undefined) return null;
+  const out = String(value);
+  if (out.length > max) throw new TypeError(`${name} must be <= ${max} chars`);
+  return out;
+}
+
+function normalizeNullableBoolean(value, name) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "boolean") throw new TypeError(`${name} must be boolean`);
+  return value;
+}
+
+function normalizeNullableHttpStatus(value, name) {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  if (!Number.isSafeInteger(n) || n < 100 || n > 999) throw new TypeError(`${name} must be a 3-digit integer status code`);
+  return n;
+}
+
+function normalizeSettlementBindings(value, name, { allowNull = true } = {}) {
+  if (value === null || value === undefined) {
+    if (allowNull) return null;
+    throw new TypeError(`${name} is required`);
+  }
+  assertPlainObject(value, name);
+  return normalizeForCanonicalJson(
+    {
+      authorizationRef: normalizeNullableString(value.authorizationRef, `${name}.authorizationRef`, { max: 200 }),
+      token: value.token
+        ? {
+            kid: normalizeNullableString(value.token.kid, `${name}.token.kid`, { max: 200 }),
+            sha256: normalizeHexHash(value.token.sha256, `${name}.token.sha256`, { allowNull: true }),
+            expiresAt: value.token.expiresAt === null || value.token.expiresAt === undefined ? null : String(value.token.expiresAt)
+          }
+        : null,
+      request: value.request
+        ? {
+            sha256: normalizeHexHash(value.request.sha256, `${name}.request.sha256`, { allowNull: true })
+          }
+        : null,
+      response: value.response
+        ? {
+            status: normalizeNullableHttpStatus(value.response.status, `${name}.response.status`),
+            sha256: normalizeHexHash(value.response.sha256, `${name}.response.sha256`, { allowNull: true })
+          }
+        : null,
+      providerSig: value.providerSig
+        ? {
+            required: normalizeNullableBoolean(value.providerSig.required, `${name}.providerSig.required`),
+            present: normalizeNullableBoolean(value.providerSig.present, `${name}.providerSig.present`),
+            verified: normalizeNullableBoolean(value.providerSig.verified, `${name}.providerSig.verified`),
+            providerKeyId: normalizeNullableString(value.providerSig.providerKeyId, `${name}.providerSig.providerKeyId`, { max: 200 }),
+            error: normalizeNullableString(value.providerSig.error, `${name}.providerSig.error`, { max: 4000 })
+          }
+        : null,
+      reserve: value.reserve
+        ? {
+            adapter: normalizeNullableString(value.reserve.adapter, `${name}.reserve.adapter`, { max: 200 }),
+            mode: normalizeNullableString(value.reserve.mode, `${name}.reserve.mode`, { max: 200 }),
+            reserveId: normalizeNullableString(value.reserve.reserveId, `${name}.reserve.reserveId`, { max: 256 }),
+            status: normalizeNullableString(value.reserve.status, `${name}.reserve.status`, { max: 64 })
+          }
+        : null
+    },
+    { path: "$" }
+  );
+}
+
 function assertNonNegativeSafeInt(value, name, { min = 0 } = {}) {
   const n = Number(value);
   if (!Number.isSafeInteger(n) || n < min) throw new TypeError(`${name} must be a safe integer >= ${min}`);
@@ -127,7 +196,8 @@ export function buildSettlementDecisionRecord({
   runLastEventId = null,
   runLastChainHash = null,
   resolutionEventId = null,
-  decidedAt
+  decidedAt,
+  bindings = undefined
 } = {}) {
   assertIsoDate(decidedAt, "decidedAt");
   const resolvedSchemaVersion = String(schemaVersion ?? "").trim();
@@ -178,6 +248,7 @@ export function buildSettlementDecisionRecord({
         runLastChainHash: runLastChainHash === null ? null : String(runLastChainHash),
         resolutionEventId: resolutionEventId === null ? null : String(resolutionEventId)
       },
+      ...(bindings === null || bindings === undefined ? {} : { bindings: normalizeSettlementBindings(bindings, "bindings", { allowNull: false }) }),
       decidedAt: String(decidedAt)
     },
     { path: "$" }
@@ -212,7 +283,8 @@ export function buildSettlementReceipt({
   finalityProvider = SETTLEMENT_FINALITY_PROVIDER.INTERNAL_LEDGER,
   finalityState = undefined,
   settledAt = null,
-  createdAt
+  createdAt,
+  bindings = undefined
 } = {}) {
   assertPlainObject(decisionRecord, "decisionRecord");
   assertIsoDate(createdAt, "createdAt");
@@ -245,6 +317,7 @@ export function buildSettlementReceipt({
       finalityProvider: String(finalityProvider ?? SETTLEMENT_FINALITY_PROVIDER.INTERNAL_LEDGER),
       finalityState: resolvedFinalityState,
       settledAt: settledAt === null ? null : String(settledAt),
+      ...(bindings === null || bindings === undefined ? {} : { bindings: normalizeSettlementBindings(bindings, "bindings", { allowNull: false }) }),
       createdAt: String(createdAt)
     },
     { path: "$" }
