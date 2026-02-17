@@ -196,9 +196,9 @@ Tool: `settld.open_dispute`
 }
 ```
 
-## Paid Tool Flow (`settld.exa_search_paid`)
+## Paid Tool Flows (`settld.exa_search_paid`, `settld.weather_current_paid`)
 
-`settld.exa_search_paid` exercises the x402 path from MCP:
+Both paid tools exercise the same x402 path from MCP:
 
 1. First call returns `402` from the paid endpoint.
 2. MCP wrapper retries with `x-settld-gate-id`.
@@ -215,10 +215,21 @@ SETTLD_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402' \
 npm run -s mcp:probe -- --call-file settld.exa_search_paid /tmp/settld-mcp-exa-search.json
 ```
 
-The tool result includes:
+Exa call result includes:
 
 - `response`: Exa-style search body.
 - `headers`: captured `x-settld-*` verification/settlement headers.
+
+Weather call example:
+
+```bash
+cat > /tmp/settld-mcp-weather.json <<'JSON'
+{"city":"Chicago","unit":"f"}
+JSON
+
+SETTLD_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402' \
+npm run -s mcp:probe -- --call-file settld.weather_current_paid /tmp/settld-mcp-weather.json
+```
 
 ## Notes
 

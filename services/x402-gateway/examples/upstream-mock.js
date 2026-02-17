@@ -112,8 +112,28 @@ function clampNumResults(raw) {
   return Math.max(1, Math.min(10, n));
 }
 
+function sanitizeCity(raw) {
+  const text = String(raw ?? "").trim();
+  return text || "Unknown";
+}
+
+function normalizeTemperatureUnit(raw) {
+  const value = String(raw ?? "").trim().toLowerCase();
+  return value === "f" ? "f" : "c";
+}
+
+function citySeed(city) {
+  const text = String(city ?? "");
+  let sum = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    sum += text.charCodeAt(i);
+  }
+  return sum;
+}
+
 function toolIdForRequest(req, url) {
   if (req.method === "GET" && url.pathname === "/exa/search") return "exa.search";
+  if (req.method === "GET" && url.pathname === "/weather/current") return "weather.current";
   return `${String(req.method ?? "GET").toUpperCase()}:${String(url.pathname ?? "/")}`;
 }
 
@@ -143,6 +163,25 @@ function buildResponseObject(req, url) {
         query: url.searchParams.get("q"),
         numResults: url.searchParams.get("numResults")
       })
+    };
+  }
+  if (req.method === "GET" && url.pathname === "/weather/current") {
+    const city = sanitizeCity(url.searchParams.get("city"));
+    const unit = normalizeTemperatureUnit(url.searchParams.get("unit"));
+    const seed = citySeed(city);
+    const tempC = ((seed % 360) - 40) / 10;
+    const temperature = unit === "f" ? Math.round((tempC * 9) / 5 + 32) : Math.round(tempC * 10) / 10;
+    const conditions = ["sunny", "cloudy", "rain", "windy", "fog"];
+    return {
+      ok: true,
+      provider: "weather-mock",
+      city,
+      unit,
+      current: {
+        temperature,
+        condition: conditions[seed % conditions.length],
+        observedAt: "2026-01-01T00:00:00.000Z"
+      }
     };
   }
   return {

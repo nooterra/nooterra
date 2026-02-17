@@ -303,7 +303,59 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch }) {
     };
   }
 
-  return { exaSearch };
+  async function weatherCurrent({ city, unit = "c" } = {}) {
+    if (!normalizedBaseUrl) throw new Error("SETTLD_PAID_TOOLS_BASE_URL is required for settld.weather_current_paid");
+    const normalizedCity = String(city ?? "").trim();
+    assertNonEmptyString(normalizedCity, "city");
+
+    const normalizedUnitRaw = String(unit ?? "c").trim().toLowerCase();
+    if (normalizedUnitRaw !== "c" && normalizedUnitRaw !== "f") {
+      throw new TypeError("unit must be c or f");
+    }
+    const normalizedUnit = normalizedUnitRaw;
+
+    const url = new URL("/weather/current", normalizedBaseUrl);
+    url.searchParams.set("city", normalizedCity);
+    url.searchParams.set("unit", normalizedUnit);
+
+    const res = await fetchWithSettldAutopay(
+      url,
+      {
+        method: "GET",
+        headers: { "x-proxy-tenant-id": tenantId }
+      },
+      { fetch: fetchImpl }
+    );
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    if (!res.ok) {
+      const msg = json?.error ?? json?.message ?? text ?? `HTTP ${res.status}`;
+      const err = new Error(String(msg));
+      err.statusCode = res.status;
+      err.details = json;
+      throw err;
+    }
+
+    const headers = {};
+    for (const [k, v] of res.headers.entries()) {
+      if (k.toLowerCase().startsWith("x-settld-")) headers[k] = v;
+    }
+
+    return {
+      ok: true,
+      city: normalizedCity,
+      unit: normalizedUnit,
+      response: json,
+      headers
+    };
+  }
+
+  return { exaSearch, weatherCurrent };
 }
 
 function buildTools() {
@@ -368,6 +420,19 @@ function buildTools() {
         properties: {
           query: { type: "string" },
           numResults: { type: "integer", minimum: 1, maximum: 10, default: 5 }
+        }
+      }
+    },
+    {
+      name: "settld.weather_current_paid",
+      description: "Fetch paid current weather through the x402 gateway with transparent Settld autopay.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["city"],
+        properties: {
+          city: { type: "string" },
+          unit: { type: "string", enum: ["c", "f"], default: "c" }
         }
       }
     },
@@ -526,6 +591,11 @@ async function main() {
             assertNonEmptyString(query, "query");
             const numResults = args?.numResults ?? 5;
             result = await paidToolsClient.exaSearch({ query, numResults });
+          } else if (name === "settld.weather_current_paid") {
+            const city = String(args?.city ?? "").trim();
+            assertNonEmptyString(city, "city");
+            const unit = args?.unit ?? "c";
+            result = await paidToolsClient.weatherCurrent({ city, unit });
           } else if (name === "settld.create_agreement") {
             const amountCents = Number(args?.amountCents ?? 500);
             if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new TypeError("amountCents must be a positive safe integer");
