@@ -70,6 +70,8 @@
     "mcp:server": "node scripts/mcp/settld-mcp-server.mjs",
     "mcp:probe": "node scripts/mcp/probe.mjs",
     "mcp:http": "node scripts/mcp/settld-mcp-http-gateway.mjs",
+    "provider:conformance": "node scripts/provider/conformance-run.mjs",
+    "provider:publish": "node scripts/provider/publish.mjs",
     "governance:export": "node scripts/governance/export.mjs",
     "openapi:write": "node scripts/openapi/write.mjs",
     "sdk:smoke": "node scripts/sdk/smoke.mjs",

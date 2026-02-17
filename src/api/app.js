@@ -236,6 +236,8 @@ import {
   buildMarketplaceOffer,
   buildMarketplaceAcceptance
 } from "../core/marketplace-kernel.js";
+import { computePaidToolManifestHashV1, normalizePaidToolManifestV1 } from "../core/paid-tool-manifest.js";
+import { runProviderConformanceV1 } from "../core/provider-publish-conformance.js";
 import { createArtifactWorker, deriveArtifactEnqueuesFromJobEvents } from "./workers/artifacts.js";
 import { createDeliveryWorker } from "./workers/deliveries.js";
 import { createProofWorker, deriveProofEvalEnqueuesFromJobEvents } from "./workers/proof.js";
@@ -2537,6 +2539,10 @@ export function createApi({
 
   function capabilityListingStoreKey(tenantId, listingId) {
     return makeScopedKey({ tenantId: normalizeTenant(tenantId), id: listingId });
+  }
+
+  function providerPublicationStoreKey(tenantId, providerId) {
+    return makeScopedKey({ tenantId: normalizeTenant(tenantId), id: providerId });
   }
 
   function monthStoreKey(tenantId, monthId) {
@@ -6201,6 +6207,25 @@ export function createApi({
     throw new TypeError("status must be active|paused|retired|all");
   }
 
+  function parseMarketplaceProviderPublicationStatus(rawValue, { allowAll = true, defaultStatus = "all" } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultStatus;
+    const value = String(rawValue).trim().toLowerCase();
+    if (value === "certified" || value === "conformance_failed" || value === "draft") return value;
+    if (allowAll && value === "all") return value;
+    throw new TypeError("status must be certified|conformance_failed|draft|all");
+  }
+
+  function parseMarketplaceProviderId(rawValue, { fieldPath = "providerId", allowNull = false } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const value = String(rawValue).trim();
+    if (value.length > 160) throw new TypeError(`${fieldPath} must be <= 160 chars`);
+    if (!/^[A-Za-z0-9._:-]+$/.test(value)) throw new TypeError(`${fieldPath} must match [A-Za-z0-9._:-]+`);
+    return value;
+  }
+
   function parseInteractionDirection({
     fromTypeRaw,
     toTypeRaw,
@@ -6216,6 +6241,7 @@ export function createApi({
   }
 
   const MARKETPLACE_POLICY_REF_SCHEMA_VERSION = "MarketplaceSettlementPolicyRef.v1";
+  const MARKETPLACE_PROVIDER_PUBLICATION_SCHEMA_VERSION = "MarketplaceProviderPublication.v1";
   const TENANT_SETTLEMENT_POLICY_SCHEMA_VERSION = "TenantSettlementPolicy.v1";
   const TENANT_SETTLEMENT_POLICY_ROLLOUT_SCHEMA_VERSION = "TenantSettlementPolicyRollout.v1";
   const TENANT_SETTLEMENT_POLICY_DIFF_SCHEMA_VERSION = "TenantSettlementPolicyDiff.v1";
@@ -7038,6 +7064,65 @@ export function createApi({
       const rightAt = Date.parse(String(right.updatedAt ?? right.createdAt ?? ""));
       if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
       return String(left.listingId ?? "").localeCompare(String(right.listingId ?? ""));
+    });
+    return rows;
+  }
+
+  function getMarketplaceProviderPublication({ tenantId, providerId } = {}) {
+    if (!(store.marketplaceProviderPublications instanceof Map)) return null;
+    const id = String(providerId ?? "").trim();
+    if (!id) return null;
+    return store.marketplaceProviderPublications.get(providerPublicationStoreKey(tenantId, id)) ?? null;
+  }
+
+  function listMarketplaceProviderPublications({
+    tenantId,
+    status = "certified",
+    providerId = null,
+    search = null,
+    toolId = null
+  } = {}) {
+    if (!(store.marketplaceProviderPublications instanceof Map)) return [];
+    const t = normalizeTenant(tenantId);
+    const statusFilter = parseMarketplaceProviderPublicationStatus(status, { allowAll: true, defaultStatus: "certified" });
+    const providerFilter = providerId && String(providerId).trim() !== "" ? String(providerId).trim() : null;
+    const searchFilter = search && String(search).trim() !== "" ? String(search).trim().toLowerCase() : null;
+    const toolFilter = toolId && String(toolId).trim() !== "" ? String(toolId).trim() : null;
+
+    const rows = [];
+    for (const row of store.marketplaceProviderPublications.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
+      const rowStatus = String(row.status ?? "draft").toLowerCase();
+      if (statusFilter !== "all" && rowStatus !== statusFilter) continue;
+      if (providerFilter && String(row.providerId ?? "") !== providerFilter) continue;
+      if (toolFilter) {
+        const tools = Array.isArray(row?.manifest?.tools) ? row.manifest.tools : [];
+        const hasTool = tools.some((tool) => String(tool?.toolId ?? "") === toolFilter);
+        if (!hasTool) continue;
+      }
+      if (searchFilter) {
+        const tools = Array.isArray(row?.manifest?.tools) ? row.manifest.tools : [];
+        const haystack = [
+          row.providerId,
+          row.description,
+          row.baseUrl,
+          row.status,
+          ...(Array.isArray(row.tags) ? row.tags : []),
+          ...tools.map((tool) => `${tool?.toolId ?? ""} ${tool?.mcpToolName ?? ""} ${tool?.description ?? ""}`)
+        ]
+          .map((value) => String(value ?? "").toLowerCase())
+          .join(" ");
+        if (!haystack.includes(searchFilter)) continue;
+      }
+      rows.push(row);
+    }
+
+    rows.sort((left, right) => {
+      const leftAt = Date.parse(String(left.updatedAt ?? left.publishedAt ?? ""));
+      const rightAt = Date.parse(String(right.updatedAt ?? right.publishedAt ?? ""));
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left.providerId ?? "").localeCompare(String(right.providerId ?? ""));
     });
     return rows;
   }
@@ -27213,6 +27298,279 @@ export function createApi({
       }
 
       const marketplaceParts = path.split("/").filter(Boolean);
+      if (marketplaceParts[0] === "marketplace" && marketplaceParts[1] === "providers") {
+        if (!(store.marketplaceProviderPublications instanceof Map)) store.marketplaceProviderPublications = new Map();
+
+        if (req.method === "POST" && marketplaceParts.length === 4 && marketplaceParts[2] === "conformance" && marketplaceParts[3] === "run") {
+          const body = await readJsonBody(req);
+
+          let manifest = null;
+          try {
+            manifest = normalizePaidToolManifestV1(body?.manifest);
+          } catch (err) {
+            return sendError(res, 400, "invalid paid tool manifest", { message: err?.message });
+          }
+
+          const providerIdFromBody = body?.providerId === undefined || body?.providerId === null ? null : String(body.providerId).trim();
+          let providerId = null;
+          try {
+            providerId = parseMarketplaceProviderId(providerIdFromBody ?? manifest.providerId, { fieldPath: "providerId" });
+          } catch (err) {
+            return sendError(res, 400, "invalid providerId", { message: err?.message });
+          }
+          if (providerId !== String(manifest.providerId)) {
+            return sendError(res, 409, "providerId must match manifest.providerId");
+          }
+
+          const baseUrl = typeof body?.baseUrl === "string" ? body.baseUrl.trim() : "";
+          if (!baseUrl) return sendError(res, 400, "baseUrl is required");
+          const urlSafety = checkUrlSafetySync(baseUrl, {
+            allowHttp: process.env.NODE_ENV !== "production",
+            allowLoopback: process.env.NODE_ENV !== "production",
+            allowPrivate: process.env.NODE_ENV !== "production"
+          });
+          if (!urlSafety.ok) {
+            return sendError(res, 400, "unsafe baseUrl", {
+              code: urlSafety.code,
+              message: urlSafety.message
+            });
+          }
+
+          const conformanceToolId = body?.toolId === undefined || body?.toolId === null ? null : String(body.toolId).trim();
+          const providerSigningPublicKeyPem =
+            typeof body?.providerSigningPublicKeyPem === "string" && body.providerSigningPublicKeyPem.trim() !== ""
+              ? body.providerSigningPublicKeyPem
+              : null;
+
+          let report = null;
+          try {
+            report = await runProviderConformanceV1({
+              providerBaseUrl: baseUrl,
+              manifest,
+              providerId,
+              conformanceToolId,
+              providerSigningPublicKeyPem,
+              settldSigner: {
+                keyId: store?.serverSigner?.keyId,
+                publicKeyPem: store?.serverSigner?.publicKeyPem,
+                privateKeyPem: store?.serverSigner?.privateKeyPem
+              },
+              fetchFn
+            });
+          } catch (err) {
+            return sendError(res, 502, "provider conformance run failed", { message: err?.message });
+          }
+          return sendJson(res, 200, { report });
+        }
+
+        if (req.method === "POST" && marketplaceParts.length === 3 && marketplaceParts[2] === "publish") {
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existingIdem = store.idempotency.get(idemStoreKey);
+            if (existingIdem) {
+              if (existingIdem.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existingIdem.statusCode, existingIdem.body);
+            }
+          }
+
+          let manifest = null;
+          try {
+            manifest = normalizePaidToolManifestV1(body?.manifest);
+          } catch (err) {
+            return sendError(res, 400, "invalid paid tool manifest", { message: err?.message });
+          }
+
+          const providerIdFromBody = body?.providerId === undefined || body?.providerId === null ? null : String(body.providerId).trim();
+          let providerId = null;
+          try {
+            providerId = parseMarketplaceProviderId(providerIdFromBody ?? manifest.providerId, { fieldPath: "providerId" });
+          } catch (err) {
+            return sendError(res, 400, "invalid providerId", { message: err?.message });
+          }
+          if (providerId !== String(manifest.providerId)) {
+            return sendError(res, 409, "providerId must match manifest.providerId");
+          }
+
+          const baseUrl = typeof body?.baseUrl === "string" ? body.baseUrl.trim() : "";
+          if (!baseUrl) return sendError(res, 400, "baseUrl is required");
+          const urlSafety = checkUrlSafetySync(baseUrl, {
+            allowHttp: process.env.NODE_ENV !== "production",
+            allowLoopback: process.env.NODE_ENV !== "production",
+            allowPrivate: process.env.NODE_ENV !== "production"
+          });
+          if (!urlSafety.ok) {
+            return sendError(res, 400, "unsafe baseUrl", {
+              code: urlSafety.code,
+              message: urlSafety.message
+            });
+          }
+
+          const runConformance = body?.runConformance !== false;
+          const conformanceToolId = body?.toolId === undefined || body?.toolId === null ? null : String(body.toolId).trim();
+          const providerSigningPublicKeyPem =
+            typeof body?.providerSigningPublicKeyPem === "string" && body.providerSigningPublicKeyPem.trim() !== ""
+              ? body.providerSigningPublicKeyPem
+              : null;
+
+          let tags = [];
+          try {
+            tags = body?.tags === undefined ? [] : normalizeMarketplaceCapabilityTagsInput(body.tags, { fieldPath: "tags" });
+          } catch (err) {
+            return sendError(res, 400, "invalid tags", { message: err?.message });
+          }
+          const description =
+            body?.description === null || body?.description === undefined || String(body.description).trim() === ""
+              ? null
+              : String(body.description).trim();
+          if (description && description.length > 4000) return sendError(res, 400, "description must be <= 4000 chars");
+          const contactUrl =
+            body?.contactUrl === null || body?.contactUrl === undefined || String(body.contactUrl).trim() === ""
+              ? null
+              : String(body.contactUrl).trim();
+          const termsUrl =
+            body?.termsUrl === null || body?.termsUrl === undefined || String(body.termsUrl).trim() === ""
+              ? null
+              : String(body.termsUrl).trim();
+
+          const existing = getMarketplaceProviderPublication({ tenantId, providerId });
+
+          let report = null;
+          if (runConformance) {
+            try {
+              report = await runProviderConformanceV1({
+                providerBaseUrl: baseUrl,
+                manifest,
+                providerId,
+                conformanceToolId,
+                providerSigningPublicKeyPem,
+                settldSigner: {
+                  keyId: store?.serverSigner?.keyId,
+                  publicKeyPem: store?.serverSigner?.publicKeyPem,
+                  privateKeyPem: store?.serverSigner?.privateKeyPem
+                },
+                fetchFn
+              });
+            } catch (err) {
+              return sendError(res, 502, "provider conformance run failed", { message: err?.message });
+            }
+          }
+
+          const nowAt = nowIso();
+          const status = runConformance ? (report?.verdict?.ok === true ? "certified" : "conformance_failed") : "draft";
+          let providerSigning = existing?.providerSigning ?? null;
+          if (providerSigningPublicKeyPem) {
+            try {
+              providerSigning = {
+                algorithm: "ed25519",
+                keyId: keyIdFromPublicKeyPem(providerSigningPublicKeyPem),
+                publicKeyPem: providerSigningPublicKeyPem
+              };
+            } catch (err) {
+              return sendError(res, 400, "invalid providerSigningPublicKeyPem", { message: err?.message });
+            }
+          }
+
+          const publication = {
+            schemaVersion: MARKETPLACE_PROVIDER_PUBLICATION_SCHEMA_VERSION,
+            publicationId: existing?.publicationId ?? createId("pub"),
+            tenantId,
+            providerId,
+            status,
+            baseUrl,
+            description,
+            tags,
+            contactUrl,
+            termsUrl,
+            manifestSchemaVersion: String(manifest.schemaVersion),
+            manifestHash: computePaidToolManifestHashV1(manifest),
+            manifest,
+            conformanceReport: report,
+            providerSigning,
+            certified: status === "certified",
+            publishedAt: existing?.publishedAt ?? nowAt,
+            certifiedAt: status === "certified" ? nowAt : null,
+            updatedAt: nowAt
+          };
+          store.marketplaceProviderPublications.set(providerPublicationStoreKey(tenantId, providerId), publication);
+          const statusCode = existing ? 200 : 201;
+          const responseBody = { publication };
+          if (idemStoreKey) {
+            await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode, body: responseBody } }]);
+          }
+          return sendJson(res, statusCode, responseBody);
+        }
+
+        if (req.method === "GET" && marketplaceParts.length === 2) {
+          let status = "certified";
+          try {
+            status = parseMarketplaceProviderPublicationStatus(url.searchParams.get("status"), {
+              allowAll: true,
+              defaultStatus: "certified"
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid provider listing status", { message: err?.message });
+          }
+          const providerId = url.searchParams.get("providerId");
+          const search = url.searchParams.get("q");
+          const toolId = url.searchParams.get("toolId");
+          const { limit, offset } = parsePagination({
+            limitRaw: url.searchParams.get("limit"),
+            offsetRaw: url.searchParams.get("offset"),
+            defaultLimit: 50,
+            maxLimit: 200
+          });
+          const rows = listMarketplaceProviderPublications({ tenantId, status, providerId, search, toolId });
+          const publications = rows.slice(offset, offset + limit).map((row) => ({
+            schemaVersion: row.schemaVersion,
+            publicationId: row.publicationId,
+            tenantId: row.tenantId,
+            providerId: row.providerId,
+            status: row.status,
+            certified: row.certified === true,
+            baseUrl: row.baseUrl,
+            description: row.description ?? null,
+            tags: Array.isArray(row.tags) ? row.tags : [],
+            toolCount: Array.isArray(row?.manifest?.tools) ? row.manifest.tools.length : 0,
+            manifestSchemaVersion: row.manifestSchemaVersion,
+            manifestHash: row.manifestHash,
+            conformance: row.conformanceReport
+              ? {
+                  schemaVersion: row.conformanceReport.schemaVersion ?? null,
+                  generatedAt: row.conformanceReport.generatedAt ?? null,
+                  verdict: row.conformanceReport.verdict ?? null
+                }
+              : null,
+            publishedAt: row.publishedAt ?? null,
+            certifiedAt: row.certifiedAt ?? null,
+            updatedAt: row.updatedAt ?? null
+          }));
+          return sendJson(res, 200, { publications, total: rows.length, limit, offset });
+        }
+
+        if (req.method === "GET" && marketplaceParts.length === 3) {
+          let providerId = null;
+          try {
+            providerId = parseMarketplaceProviderId(marketplaceParts[2], { fieldPath: "providerId" });
+          } catch (err) {
+            return sendError(res, 400, "invalid providerId", { message: err?.message });
+          }
+          const publication = getMarketplaceProviderPublication({ tenantId, providerId });
+          if (!publication) return sendError(res, 404, "provider publication not found");
+          return sendJson(res, 200, { publication });
+        }
+
+        return sendError(res, 404, "not found");
+      }
+
       if (marketplaceParts[0] === "marketplace" && marketplaceParts[1] === "capability-listings") {
         if (!(store.marketplaceCapabilityListings instanceof Map)) store.marketplaceCapabilityListings = new Map();
 

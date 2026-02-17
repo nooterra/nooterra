@@ -319,6 +319,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     financeReconciliationTriages: new Map(), // `${tenantId}\n${triageKey}` -> FinanceReconciliationTriage.v1
     marketplaceRfqs: new Map(), // `${tenantId}\n${rfqId}` -> MarketplaceRfq.v1
     marketplaceRfqBids: new Map(), // `${tenantId}\n${rfqId}` -> MarketplaceBid.v1[]
+    marketplaceProviderPublications: new Map(), // `${tenantId}\n${providerId}` -> MarketplaceProviderPublication.v1
     tenantSettlementPolicies: new Map(), // `${tenantId}\n${policyId}\n${policyVersion}` -> TenantSettlementPolicy.v1
     tenantSettlementPolicyRollouts: new Map(), // `${tenantId}\nrollout` -> TenantSettlementPolicyRollout.v1
 	    contracts: new Map(), // `${tenantId}\n${contractId}` -> contract

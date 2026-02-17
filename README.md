@@ -9,6 +9,7 @@ What you get in this repo:
 - `settld` CLI for bundle verification + a conformance pack (CI / audit evidence)
 - Runnable Node.js prototype (API + agent simulator)
 - Protocol + product docs (schemas/specs, trust anchors, warning codes, etc.)
+- Positioning and go-to-market narrative: `docs/marketing/agent-commerce-substrate.md`
 
 ## 10-minute Demo: Verified Receipt (x402 Verify-Before-Release)
 
