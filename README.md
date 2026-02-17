@@ -200,6 +200,7 @@ Ops workspaces (HTML):
 - `docs/KERNEL_V0.md`
 - `docs/KERNEL_COMPATIBLE.md`
 - `docs/ops/PAYMENTS_ALPHA_R5.md`
+- `docs/ops/X402_PILOT_WEEKLY_METRICS.md`
 - `docs/ops/ARTIFACT_VERIFICATION_STATUS.md`
 - `docs/ops/TRUST_CONFIG_WIZARD.md`
 - `docs/integrations/README.md`

@@ -106,6 +106,7 @@
     "ops:tenant:bootstrap:conformance": "node scripts/ops/bootstrap-tenant-conformance.mjs",
     "ops:money-rails:reconcile:evidence": "node scripts/ops/money-rails-reconcile-evidence.mjs",
     "ops:money-rails:chargeback:evidence": "node scripts/ops/money-rails-chargeback-evidence.mjs",
+    "ops:x402:pilot:weekly-report": "node scripts/ops/build-x402-pilot-reliability-report.mjs",
     "ops:hosted-baseline:evidence": "node scripts/ops/hosted-baseline-evidence.mjs",
     "ops:design-partner:run-packet": "node scripts/ops/design-partner-run-packet.mjs",
     "magic-link:migrate-runs-db": "node scripts/magic-link/migrate-run-records-to-db.mjs",
