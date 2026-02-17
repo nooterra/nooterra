@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 
 import { CIRCLE_RESERVE_STATUS, createCircleReserveAdapter } from "../src/core/circle-reserve-adapter.js";
 
@@ -118,6 +119,41 @@ test("circle reserve adapter: sandbox reserve maps INITIATED to reserved and sen
   assert.equal(requestBody.tokenId, "token_usdc");
   assert.equal(requestBody.feeLevel, "MEDIUM");
   assert.deepEqual(requestBody.amounts, ["5.00"]);
+});
+
+test("circle reserve adapter: sandbox reserve accepts entitySecretHex without template", async () => {
+  const entityKeypair = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const entityPublicKeyPem = entityKeypair.publicKey.export({ type: "spki", format: "pem" });
+  const { fetchFn, calls } = makeQueuedFetch([
+    jsonResponse(200, { data: { publicKey: entityPublicKeyPem } }),
+    jsonResponse(200, { data: { id: "tx_hex_1", state: "INITIATED" } })
+  ]);
+  const adapter = createCircleReserveAdapter({
+    mode: "sandbox",
+    fetchFn,
+    now: () => "2026-02-16T00:00:00.000Z",
+    config: {
+      ...baseSandboxConfig(),
+      entitySecretCiphertextProvider: null,
+      entitySecretTemplate: null,
+      entitySecretCiphertext: null,
+      entitySecretHex: "d5701969cf84e20895eb6f92e1179f182edf939f8de89555307d7f0e607cfbf2"
+    }
+  });
+
+  const reserve = await adapter.reserve({
+    tenantId: "tenant_default",
+    gateId: "gate_hex",
+    amountCents: 500,
+    currency: "USD",
+    idempotencyKey: "gate_hex"
+  });
+
+  assert.equal(reserve.status, CIRCLE_RESERVE_STATUS.RESERVED);
+  assert.equal(reserve.reserveId, "tx_hex_1");
+  assert.equal(calls.length, 2);
+  assert.ok(calls[0].url.endsWith("/v1/w3s/config/entity/publicKey"));
+  assert.ok(calls[1].url.endsWith("/v1/w3s/developer/transactions/transfer"));
 });
 
 test("circle reserve adapter: sandbox reserve rejects DENIED state", async () => {

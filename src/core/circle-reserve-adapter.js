@@ -391,19 +391,6 @@ function readCircleRuntimeConfig({
   const transferAmountField = normalizeTransferAmountField(cfg.transferAmountField ?? env.CIRCLE_TRANSFER_AMOUNT_FIELD ?? "amounts");
   const feeLevel = normalizeFeeLevel(cfg.feeLevel ?? env.CIRCLE_FEE_LEVEL ?? "MEDIUM");
 
-  const entitySecret = normalizeEntitySecretProvider({
-    entitySecretCiphertextProvider: cfg.entitySecretCiphertextProvider ?? entitySecretCiphertextProvider,
-    entitySecretCiphertext: cfg.entitySecretCiphertext ?? env.CIRCLE_ENTITY_SECRET_CIPHERTEXT ?? null,
-    entitySecretTemplate: cfg.entitySecretTemplate ?? env.CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE ?? null,
-    allowStatic: parseBooleanLike(cfg.allowStaticEntitySecretCiphertext ?? env.CIRCLE_ALLOW_STATIC_ENTITY_SECRET, false)
-  });
-  if (typeof entitySecret.get !== "function") {
-    throw makeAdapterError(
-      "CIRCLE_CONFIG_INVALID",
-      "entitySecretCiphertext provider is required in sandbox/production mode (set CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE='...{{uuid}}...')"
-    );
-  }
-
   const requestId =
     typeof cfg.requestId === "function"
       ? cfg.requestId
@@ -423,6 +410,18 @@ function readCircleRuntimeConfig({
           requestId,
           entitySecretHex
         });
+  const entitySecret = normalizeEntitySecretProvider({
+    entitySecretCiphertextProvider: cfg.entitySecretCiphertextProvider ?? entitySecretCiphertextProvider ?? dynamicEntitySecretProvider,
+    entitySecretCiphertext: cfg.entitySecretCiphertext ?? env.CIRCLE_ENTITY_SECRET_CIPHERTEXT ?? null,
+    entitySecretTemplate: cfg.entitySecretTemplate ?? env.CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE ?? null,
+    allowStatic: parseBooleanLike(cfg.allowStaticEntitySecretCiphertext ?? env.CIRCLE_ALLOW_STATIC_ENTITY_SECRET, false)
+  });
+  if (typeof entitySecret.get !== "function") {
+    throw makeAdapterError(
+      "CIRCLE_CONFIG_INVALID",
+      "entitySecretCiphertext provider is required in sandbox/production mode (set CIRCLE_ENTITY_SECRET_CIPHERTEXT_TEMPLATE='...{{uuid}}...' or CIRCLE_ENTITY_SECRET_HEX)"
+    );
+  }
 
   return {
     mode: normalizedMode,
