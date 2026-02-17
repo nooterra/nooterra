@@ -14,11 +14,14 @@ import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV
 function usage() {
   return [
     "Usage:",
-    "  node scripts/demo/mcp-paid-exa.mjs [--circle <stub|sandbox|production>]",
+    "  node scripts/demo/mcp-paid-exa.mjs [--circle <stub|sandbox|production>] [--workload <exa|weather|llm>]",
     "  node scripts/demo/mcp-paid-exa.mjs --circle=sandbox",
+    "  node scripts/demo/mcp-paid-exa.mjs --workload=weather",
+    "  node scripts/demo/mcp-paid-exa.mjs --workload=llm",
     "",
     "Environment overrides:",
     "  SETTLD_DEMO_CIRCLE_MODE=stub|sandbox|production",
+    "  SETTLD_DEMO_WORKLOAD=exa|weather|llm",
     "  SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1",
     "  SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID=<circle wallet id>"
   ].join("\n");
@@ -27,6 +30,7 @@ function usage() {
 function parseCliArgs(argv) {
   const out = {
     circleMode: null,
+    workload: null,
     help: false
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -45,6 +49,17 @@ function parseCliArgs(argv) {
     }
     if (arg.startsWith("--circle=")) {
       out.circleMode = arg.slice("--circle=".length).trim();
+      continue;
+    }
+    if (arg === "--workload") {
+      const value = String(argv[i + 1] ?? "").trim();
+      if (!value) throw new Error("--workload requires a value");
+      out.workload = value;
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--workload=")) {
+      out.workload = arg.slice("--workload=".length).trim();
       continue;
     }
     throw new Error(`unknown argument: ${arg}`);
@@ -131,6 +146,14 @@ function normalizeCircleMode(value) {
   if (raw === "sandbox") return "sandbox";
   if (raw === "production" || raw === "prod") return "production";
   throw new Error("circle mode must be stub|sandbox|production");
+}
+
+function normalizeWorkload(value) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw || raw === "exa") return "exa";
+  if (raw === "weather") return "weather";
+  if (raw === "llm") return "llm";
+  throw new Error("workload must be exa|weather|llm");
 }
 
 function readEnvString(name, fallback = null) {
@@ -262,7 +285,7 @@ async function mintApiKey({ apiUrl, opsToken, tenantId }) {
     },
     body: JSON.stringify({
       scopes: ["ops_read", "ops_write", "finance_read", "finance_write", "audit_read"],
-      description: "mcp paid exa demo"
+      description: "mcp paid tool demo"
     })
   });
   const text = await res.text();
@@ -286,8 +309,8 @@ async function runMcpToolCall({
   tenantId,
   apiKey,
   paidToolsBaseUrl,
-  query,
-  numResults = 3,
+  toolName,
+  toolArgs,
   timeoutMs = 20_000
 }) {
   const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
@@ -356,8 +379,8 @@ async function runMcpToolCall({
       capabilities: {}
     });
     const called = await rpc("tools/call", {
-      name: "settld.exa_search_paid",
-      arguments: { query, numResults }
+      name: toolName,
+      arguments: toolArgs
     });
 
     const text = called?.result?.content?.[0]?.text ?? "";
@@ -494,19 +517,48 @@ async function main() {
   const keepAlive = readBoolEnv("SETTLD_DEMO_KEEP_ALIVE", false);
   const runBatchSettlement = readBoolEnv("SETTLD_DEMO_RUN_BATCH_SETTLEMENT", false);
   const circleMode = normalizeCircleMode(cli.circleMode ?? readEnvString("SETTLD_DEMO_CIRCLE_MODE", "stub"));
+  const workload = normalizeWorkload(cli.workload ?? readEnvString("SETTLD_DEMO_WORKLOAD", "exa"));
   const externalReserveRequired = circleMode !== "stub";
   assertCircleModeInputs({ mode: circleMode });
   const opsToken = String(process.env.SETTLD_DEMO_OPS_TOKEN ?? "tok_ops").trim() || "tok_ops";
   const tenantId = String(process.env.SETTLD_TENANT_ID ?? "tenant_default").trim() || "tenant_default";
-  const query = String(process.env.SETTLD_DEMO_QUERY ?? "dentist near me chicago").trim() || "dentist near me chicago";
-  const numResults = readIntEnv("SETTLD_DEMO_NUM_RESULTS", 3);
+
+  const workloadConfig = (() => {
+    if (workload === "weather") {
+      const city = String(process.env.SETTLD_DEMO_CITY ?? "Chicago").trim() || "Chicago";
+      const unitRaw = String(process.env.SETTLD_DEMO_UNIT ?? "f").trim().toLowerCase();
+      const unit = unitRaw === "c" ? "c" : "f";
+      return {
+        toolName: "settld.weather_current_paid",
+        toolArgs: { city, unit },
+        description: `weather city=${city} unit=${unit}`
+      };
+    }
+    if (workload === "llm") {
+      const prompt = String(process.env.SETTLD_DEMO_PROMPT ?? "Summarize why deferred settlement matters for paid API calls.").trim();
+      const model = String(process.env.SETTLD_DEMO_MODEL ?? "gpt-4o-mini").trim() || "gpt-4o-mini";
+      const maxTokens = readIntEnv("SETTLD_DEMO_MAX_TOKENS", 128);
+      return {
+        toolName: "settld.llm_completion_paid",
+        toolArgs: { prompt, model, maxTokens },
+        description: `llm model=${model} maxTokens=${maxTokens}`
+      };
+    }
+    const query = String(process.env.SETTLD_DEMO_QUERY ?? "dentist near me chicago").trim() || "dentist near me chicago";
+    const numResults = readIntEnv("SETTLD_DEMO_NUM_RESULTS", 3);
+    return {
+      toolName: "settld.exa_search_paid",
+      toolArgs: { query, numResults },
+      description: `exa query=${query} numResults=${numResults}`
+    };
+  })();
 
   const now = new Date();
   const runId = now.toISOString().replaceAll(":", "").replaceAll(".", "");
   const artifactDir =
     process.env.SETTLD_DEMO_ARTIFACT_DIR && String(process.env.SETTLD_DEMO_ARTIFACT_DIR).trim() !== ""
       ? String(process.env.SETTLD_DEMO_ARTIFACT_DIR).trim()
-      : path.join("artifacts", "mcp-paid-exa", runId);
+      : path.join("artifacts", `mcp-paid-${workload}`, runId);
 
   const apiUrl = new URL(`http://127.0.0.1:${apiPort}`);
   const upstreamUrl = new URL(`http://127.0.0.1:${upstreamPort}`);
@@ -530,6 +582,9 @@ async function main() {
     ok: false,
     runId,
     artifactDir,
+    workload,
+    toolName: workloadConfig.toolName,
+    toolArgs: workloadConfig.toolArgs,
     providerId,
     circleMode,
     timestamps: { startedAt: now.toISOString(), completedAt: null }
@@ -607,8 +662,8 @@ async function main() {
       tenantId,
       apiKey,
       paidToolsBaseUrl: gatewayUrl.toString(),
-      query,
-      numResults
+      toolName: workloadConfig.toolName,
+      toolArgs: workloadConfig.toolArgs
     });
     await writeArtifactJson(artifactDir, "mcp-call.raw.json", mcp.called);
     await writeArtifactJson(artifactDir, "mcp-call.parsed.json", mcp.parsed ?? {});
@@ -685,8 +740,9 @@ async function main() {
       ...summary,
       ok: true,
       gateId,
-      query,
-      numResults,
+      workload,
+      toolName: workloadConfig.toolName,
+      toolArgs: workloadConfig.toolArgs,
       circleReserveId: reserveState.circleReserveId,
       reserveTransitions: reserveState.transitions,
       payoutDestination: reserveState.payoutDestination,
@@ -786,8 +842,10 @@ async function main() {
       ok: Object.values(passChecks).every(Boolean),
       passChecks,
       gateId,
-      query,
-      numResults,
+      workload,
+      toolName: workloadConfig.toolName,
+      toolArgs: workloadConfig.toolArgs,
+      workloadDescription: workloadConfig.description,
       circleReserveId: reserveState.circleReserveId,
       reserveTransitions: reserveState.transitions,
       payoutDestination: reserveState.payoutDestination,

@@ -20,6 +20,8 @@ npx create-settld-paid-tool my-paid-tool
 
 ```bash
 npm run demo:mcp-paid-exa
+npm run demo:mcp-paid-weather
+npm run demo:mcp-paid-llm
 ```
 
 Circle sandbox mode (real reserve path):

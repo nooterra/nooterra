@@ -355,7 +355,62 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch }) {
     };
   }
 
-  return { exaSearch, weatherCurrent };
+  async function llmCompletion({ prompt, model = "gpt-4o-mini", maxTokens = 128 } = {}) {
+    if (!normalizedBaseUrl) throw new Error("SETTLD_PAID_TOOLS_BASE_URL is required for settld.llm_completion_paid");
+    const normalizedPrompt = String(prompt ?? "").trim();
+    assertNonEmptyString(normalizedPrompt, "prompt");
+
+    const normalizedModel = String(model ?? "").trim() || "gpt-4o-mini";
+    const normalizedMaxTokensRaw = Number(maxTokens ?? 128);
+    if (!Number.isSafeInteger(normalizedMaxTokensRaw) || normalizedMaxTokensRaw < 1 || normalizedMaxTokensRaw > 512) {
+      throw new TypeError("maxTokens must be an integer between 1 and 512");
+    }
+    const normalizedMaxTokens = normalizedMaxTokensRaw;
+
+    const url = new URL("/llm/completions", normalizedBaseUrl);
+    url.searchParams.set("prompt", normalizedPrompt);
+    url.searchParams.set("model", normalizedModel);
+    url.searchParams.set("maxTokens", String(normalizedMaxTokens));
+
+    const res = await fetchWithSettldAutopay(
+      url,
+      {
+        method: "GET",
+        headers: { "x-proxy-tenant-id": tenantId }
+      },
+      { fetch: fetchImpl }
+    );
+    const text = await res.text();
+    let json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    if (!res.ok) {
+      const msg = json?.error ?? json?.message ?? text ?? `HTTP ${res.status}`;
+      const err = new Error(String(msg));
+      err.statusCode = res.status;
+      err.details = json;
+      throw err;
+    }
+
+    const headers = {};
+    for (const [k, v] of res.headers.entries()) {
+      if (k.toLowerCase().startsWith("x-settld-")) headers[k] = v;
+    }
+
+    return {
+      ok: true,
+      prompt: normalizedPrompt,
+      model: normalizedModel,
+      maxTokens: normalizedMaxTokens,
+      response: json,
+      headers
+    };
+  }
+
+  return { exaSearch, weatherCurrent, llmCompletion };
 }
 
 function buildTools() {
@@ -433,6 +488,20 @@ function buildTools() {
         properties: {
           city: { type: "string" },
           unit: { type: "string", enum: ["c", "f"], default: "c" }
+        }
+      }
+    },
+    {
+      name: "settld.llm_completion_paid",
+      description: "Execute a paid LLM completion through the x402 gateway with transparent Settld autopay.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["prompt"],
+        properties: {
+          prompt: { type: "string" },
+          model: { type: "string", default: "gpt-4o-mini" },
+          maxTokens: { type: "integer", minimum: 1, maximum: 512, default: 128 }
         }
       }
     },
@@ -596,6 +665,12 @@ async function main() {
             assertNonEmptyString(city, "city");
             const unit = args?.unit ?? "c";
             result = await paidToolsClient.weatherCurrent({ city, unit });
+          } else if (name === "settld.llm_completion_paid") {
+            const prompt = String(args?.prompt ?? "").trim();
+            assertNonEmptyString(prompt, "prompt");
+            const model = args?.model ?? "gpt-4o-mini";
+            const maxTokens = args?.maxTokens ?? 128;
+            result = await paidToolsClient.llmCompletion({ prompt, model, maxTokens });
           } else if (name === "settld.create_agreement") {
             const amountCents = Number(args?.amountCents ?? 500);
             if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new TypeError("amountCents must be a positive safe integer");

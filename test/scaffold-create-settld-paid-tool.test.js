@@ -36,6 +36,7 @@ test("create-settld-paid-tool scaffold writes runnable template files", async ()
   assert.equal(exec.code, 0, `stderr=${exec.stderr}`);
   assert.match(exec.stdout, /created=/);
   assert.match(exec.stdout, /providerId=prov_test_scaffold_1/);
+  assert.match(exec.stdout, /mode=default/);
 
   const requiredFiles = ["package.json", "README.md", ".env.example", "server.mjs"];
   for (const filename of requiredFiles) {
@@ -62,9 +63,73 @@ test("create-settld-paid-tool package bin scaffolds template", async () => {
   assert.equal(exec.code, 0, `stderr=${exec.stderr}`);
   assert.match(exec.stdout, /created=/);
   assert.match(exec.stdout, /providerId=prov_test_pkg_bin_1/);
+  assert.match(exec.stdout, /mode=default/);
 
   const pkg = JSON.parse(await readFile(path.join(outDir, "package.json"), "utf8"));
   assert.equal(pkg.type, "module");
   assert.equal(pkg.dependencies?.["@settld/provider-kit"], "latest");
   assert.equal(fs.existsSync(path.join(outDir, "server.mjs")), true);
+});
+
+test("create-settld-paid-tool --from-http writes bridge manifest + mcp bridge", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "settld-scaffold-paid-tool-http-"));
+  const outDir = path.join(tmpRoot, "paid-tool-http");
+  const exec = await runNode({
+    cwd: REPO_ROOT,
+    args: ["scripts/scaffold/create-settld-paid-tool.mjs", outDir, "--provider-id", "prov_http_1", "--from-http", "https://api.example.com"]
+  });
+  assert.equal(exec.code, 0, `stderr=${exec.stderr}`);
+  assert.match(exec.stdout, /mode=bridge_http/);
+  assert.equal(fs.existsSync(path.join(outDir, "paid-tool-manifest.json")), true);
+  assert.equal(fs.existsSync(path.join(outDir, "mcp-bridge.mjs")), true);
+  const manifest = JSON.parse(await readFile(path.join(outDir, "paid-tool-manifest.json"), "utf8"));
+  assert.equal(manifest.providerId, "prov_http_1");
+  assert.equal(manifest.upstreamBaseUrl, "https://api.example.com");
+  assert.equal(Array.isArray(manifest.tools), true);
+  assert.equal(manifest.tools.length >= 1, true);
+  const pkg = JSON.parse(await readFile(path.join(outDir, "package.json"), "utf8"));
+  assert.equal(pkg.dependencies?.["settld-api-sdk"], "latest");
+});
+
+test("create-settld-paid-tool --from-openapi generates bridge tools from spec", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "settld-scaffold-paid-tool-openapi-"));
+  const outDir = path.join(tmpRoot, "paid-tool-openapi");
+  const openApiPath = path.join(tmpRoot, "openapi.json");
+  await fs.promises.writeFile(
+    openApiPath,
+    JSON.stringify(
+      {
+        openapi: "3.0.0",
+        info: { title: "Sample API", version: "1.0.0" },
+        paths: {
+          "/weather/current": {
+            get: {
+              operationId: "getCurrentWeather",
+              summary: "Get weather"
+            }
+          },
+          "/embeddings": {
+            post: {
+              operationId: "createEmbedding",
+              summary: "Create embeddings"
+            }
+          }
+        }
+      },
+      null,
+      2
+    ),
+    "utf8"
+  );
+
+  const exec = await runNode({
+    cwd: REPO_ROOT,
+    args: ["scripts/scaffold/create-settld-paid-tool.mjs", outDir, "--provider-id", "prov_openapi_1", "--from-openapi", openApiPath]
+  });
+  assert.equal(exec.code, 0, `stderr=${exec.stderr}`);
+  assert.match(exec.stdout, /mode=bridge_openapi/);
+  const manifest = JSON.parse(await readFile(path.join(outDir, "paid-tool-manifest.json"), "utf8"));
+  const mcpToolNames = new Set((manifest.tools ?? []).map((t) => t.mcpToolName));
+  assert.equal(mcpToolNames.has("bridge.getCurrentWeather"), true);
+  assert.equal(mcpToolNames.has("bridge.createEmbedding"), true);
 });

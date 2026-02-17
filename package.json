@@ -54,6 +54,8 @@
     "acceptance:full-stack": "bash scripts/acceptance/full-stack.sh",
     "demo:delivery": "node scripts/demo/delivery-robot/generate.mjs",
     "demo:mcp-paid-exa": "node scripts/demo/mcp-paid-exa.mjs",
+    "demo:mcp-paid-weather": "node scripts/demo/mcp-paid-exa.mjs --workload=weather",
+    "demo:mcp-paid-llm": "node scripts/demo/mcp-paid-exa.mjs --workload=llm",
     "demo:ui:prep": "node scripts/demo/delivery-robot/export-ui-fixture.mjs",
     "demo:ui": "cd dashboard && npm run dev",
     "demo:build": "cd dashboard && npm run build",

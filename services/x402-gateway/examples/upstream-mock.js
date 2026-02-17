@@ -122,6 +122,17 @@ function normalizeTemperatureUnit(raw) {
   return value === "f" ? "f" : "c";
 }
 
+function sanitizePrompt(raw) {
+  const text = String(raw ?? "").trim();
+  return text || "empty prompt";
+}
+
+function normalizeMaxTokens(raw) {
+  const n = Number(raw ?? 128);
+  if (!Number.isSafeInteger(n)) return 128;
+  return Math.max(1, Math.min(512, n));
+}
+
 function citySeed(city) {
   const text = String(city ?? "");
   let sum = 0;
@@ -134,6 +145,7 @@ function citySeed(city) {
 function toolIdForRequest(req, url) {
   if (req.method === "GET" && url.pathname === "/exa/search") return "exa.search";
   if (req.method === "GET" && url.pathname === "/weather/current") return "weather.current";
+  if (req.method === "GET" && url.pathname === "/llm/completions") return "llm.completion";
   return `${String(req.method ?? "GET").toUpperCase()}:${String(url.pathname ?? "/")}`;
 }
 
@@ -181,6 +193,26 @@ function buildResponseObject(req, url) {
         temperature,
         condition: conditions[seed % conditions.length],
         observedAt: "2026-01-01T00:00:00.000Z"
+      }
+    };
+  }
+  if (req.method === "GET" && url.pathname === "/llm/completions") {
+    const prompt = sanitizePrompt(url.searchParams.get("prompt"));
+    const maxTokens = normalizeMaxTokens(url.searchParams.get("maxTokens"));
+    const model = String(url.searchParams.get("model") ?? "").trim() || "gpt-4o-mini";
+    const promptWordCount = prompt.split(/\s+/u).filter(Boolean).length;
+    const inputTokens = Math.max(1, promptWordCount * 2);
+    const outputTokens = Math.max(8, Math.min(maxTokens, 64));
+    return {
+      ok: true,
+      provider: "llm-mock",
+      model,
+      prompt,
+      outputText: `Summary: ${prompt.slice(0, 120)}`,
+      usage: {
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens
       }
     };
   }
