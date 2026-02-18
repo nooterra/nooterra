@@ -8207,6 +8207,41 @@ export function createApi({
     };
   }
 
+  function normalizeProviderQuoteSignatureStatus({
+    providerQuoteSignatureRequired = false,
+    providerQuoteSignature = null,
+    providerReasonCodes = []
+  } = {}) {
+    const required = providerQuoteSignatureRequired === true;
+    const present = providerQuoteSignature && typeof providerQuoteSignature === "object" && !Array.isArray(providerQuoteSignature);
+    const verified = required ? present && (!Array.isArray(providerReasonCodes) || providerReasonCodes.length === 0) : present;
+    const providerKeyId =
+      present && typeof providerQuoteSignature.keyId === "string" && providerQuoteSignature.keyId.trim() !== ""
+        ? providerQuoteSignature.keyId
+        : null;
+    const firstReason =
+      Array.isArray(providerReasonCodes) && providerReasonCodes.length > 0 && typeof providerReasonCodes[0] === "string"
+        ? providerReasonCodes[0]
+        : null;
+    const quoteId =
+      present && typeof providerQuoteSignature.quoteId === "string" && providerQuoteSignature.quoteId.trim() !== ""
+        ? providerQuoteSignature.quoteId
+        : null;
+    const quoteSha256 =
+      present && typeof providerQuoteSignature.quoteSha256 === "string" && /^[0-9a-f]{64}$/i.test(providerQuoteSignature.quoteSha256.trim())
+        ? providerQuoteSignature.quoteSha256.trim().toLowerCase()
+        : null;
+    return {
+      required,
+      present,
+      verified,
+      providerKeyId,
+      quoteId,
+      quoteSha256,
+      error: firstReason
+    };
+  }
+
   function normalizePolicyDecisionId(value) {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
@@ -30976,10 +31011,24 @@ export function createApi({
 	          })();
           const requestSha256 = parseEvidenceRefSha256(evidenceRefs, "http:request_sha256:");
           const responseSha256 = parseEvidenceRefSha256(evidenceRefs, "http:response_sha256:");
+          const providerSigReasonCodes = reasonCodes.filter(
+            (code) =>
+              code === "X402_PROVIDER_SIGNATURE_MISSING" ||
+              code === "X402_PROVIDER_SIGNATURE_INVALID" ||
+              code === "X402_PROVIDER_RESPONSE_HASH_MISMATCH" ||
+              code === "X402_PROVIDER_KEY_ID_MISMATCH" ||
+              code === "X402_PROVIDER_KEY_ID_UNKNOWN"
+          );
+          const providerQuoteReasonCodes = reasonCodes.filter((code) => code.startsWith("X402_PROVIDER_QUOTE_"));
           const providerSigStatus = normalizeProviderSignatureStatus({
             providerSignatureRequired: verificationSource === "provider_signature_v1",
             providerSignature: body?.providerSignature ?? null,
-            providerReasonCodes: reasonCodes
+            providerReasonCodes: providerSigReasonCodes
+          });
+          const providerQuoteSigStatus = normalizeProviderQuoteSignatureStatus({
+            providerQuoteSignatureRequired: verificationSource === "provider_signature_v1",
+            providerQuoteSignature: body?.providerQuoteSignature ?? null,
+            providerReasonCodes: providerQuoteReasonCodes
           });
           const verificationMethodHashUsed = computeVerificationMethodHash(policyDecision.verificationMethod ?? {});
           const policyDecisionFingerprint = buildPolicyDecisionFingerprint({
@@ -31034,6 +31083,7 @@ export function createApi({
               sha256: responseSha256 ?? null
             },
             providerSig: providerSigStatus,
+            providerQuoteSig: providerQuoteSigStatus,
             reserve: {
               adapter: gateAuthorization?.reserve?.adapter ?? "circle",
               mode: gateAuthorization?.reserve?.mode ?? "transfer",
@@ -31265,6 +31315,7 @@ export function createApi({
                     requestSha256: settlementBindings.request?.sha256 ?? null,
                     responseSha256: settlementBindings.response?.sha256 ?? null,
                     providerSig: settlementBindings.providerSig ?? null,
+                    providerQuoteSig: settlementBindings.providerQuoteSig ?? null,
                     policyDecisionFingerprint: settlementBindings.policyDecisionFingerprint ?? null
 		              },
 	              holdback:

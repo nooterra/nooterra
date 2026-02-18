@@ -149,6 +149,19 @@ function normalizeSettlementBindings(value, name, { allowNull = true } = {}) {
             error: normalizeNullableString(value.providerSig.error, `${name}.providerSig.error`, { max: 4000 })
           }
         : null,
+      providerQuoteSig: value.providerQuoteSig
+        ? {
+            required: normalizeNullableBoolean(value.providerQuoteSig.required, `${name}.providerQuoteSig.required`),
+            present: normalizeNullableBoolean(value.providerQuoteSig.present, `${name}.providerQuoteSig.present`),
+            verified: normalizeNullableBoolean(value.providerQuoteSig.verified, `${name}.providerQuoteSig.verified`),
+            providerKeyId: normalizeNullableString(value.providerQuoteSig.providerKeyId, `${name}.providerQuoteSig.providerKeyId`, {
+              max: 200
+            }),
+            quoteId: normalizeNullableString(value.providerQuoteSig.quoteId, `${name}.providerQuoteSig.quoteId`, { max: 200 }),
+            quoteSha256: normalizeHexHash(value.providerQuoteSig.quoteSha256, `${name}.providerQuoteSig.quoteSha256`, { allowNull: true }),
+            error: normalizeNullableString(value.providerQuoteSig.error, `${name}.providerQuoteSig.error`, { max: 4000 })
+          }
+        : null,
       reserve: value.reserve
         ? {
             adapter: normalizeNullableString(value.reserve.adapter, `${name}.reserve.adapter`, { max: 200 }),

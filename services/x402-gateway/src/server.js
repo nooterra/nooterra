@@ -45,6 +45,15 @@ function sanitizeIdSegment(text, { maxLen = 96 } = {}) {
   return safe || "unknown";
 }
 
+function parseCacheControlMaxAgeMs(value, fallbackMs) {
+  const raw = typeof value === "string" ? value : "";
+  const m = raw.match(/max-age\s*=\s*(\d+)/i);
+  if (!m) return fallbackMs;
+  const sec = Number(m[1]);
+  if (!Number.isSafeInteger(sec) || sec < 0) return fallbackMs;
+  return sec * 1000;
+}
+
 function normalizeOfferRef(value, { maxLen = 200 } = {}) {
   if (value === null || value === undefined || String(value).trim() === "") return null;
   const out = String(value).trim();
@@ -55,6 +64,18 @@ function normalizeOfferRef(value, { maxLen = 200 } = {}) {
 
 function sha256Hex(buf) {
   return crypto.createHash("sha256").update(buf).digest("hex");
+}
+
+function jwkToSpkiPem(jwk) {
+  if (!jwk || typeof jwk !== "object" || Array.isArray(jwk)) return null;
+  if (String(jwk.kty ?? "") !== "OKP" || String(jwk.crv ?? "") !== "Ed25519") return null;
+  if (typeof jwk.x !== "string" || jwk.x.trim() === "") return null;
+  try {
+    const key = crypto.createPublicKey({ key: { kty: "OKP", crv: "Ed25519", x: String(jwk.x).trim() }, format: "jwk" });
+    return key.export({ format: "pem", type: "spki" }).toString().trim();
+  } catch {
+    return null;
+  }
 }
 
 function stableIdemKey(prefix, input) {
@@ -104,6 +125,84 @@ function computeStrictRequestBindingSha256ForRetry({ reqMethod, upstreamUrl }) {
   return computeSettldPayRequestBindingSha256V1({ method, host, pathWithQuery, bodySha256: emptyBodySha256 });
 }
 
+function createProviderKeyResolver({
+  providerPublicKeyPem = null,
+  providerJwksUrl = null,
+  defaultMaxAgeMs = 300_000,
+  fetchTimeoutMs = 3_000
+} = {}) {
+  const staticPem = typeof providerPublicKeyPem === "string" && providerPublicKeyPem.trim() !== "" ? providerPublicKeyPem.trim() : null;
+  const staticKid = staticPem ? keyIdFromPublicKeyPem(staticPem) : null;
+  const jwksUrl = typeof providerJwksUrl === "string" && providerJwksUrl.trim() !== "" ? providerJwksUrl.trim() : null;
+  const normalizedDefaultMaxAgeMs = Number.isSafeInteger(Number(defaultMaxAgeMs)) && Number(defaultMaxAgeMs) > 0 ? Number(defaultMaxAgeMs) : 300_000;
+  const normalizedFetchTimeoutMs = Number.isSafeInteger(Number(fetchTimeoutMs)) && Number(fetchTimeoutMs) > 0 ? Number(fetchTimeoutMs) : 3_000;
+
+  const cache = {
+    keysById: new Map(staticKid ? [[staticKid, { publicKeyPem: staticPem, source: "static" }]] : []),
+    expiresAtMs: 0
+  };
+
+  async function refresh() {
+    if (!jwksUrl) return false;
+    const signal = typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(normalizedFetchTimeoutMs) : undefined;
+    const res = await fetch(jwksUrl, { method: "GET", ...(signal ? { signal } : {}) });
+    if (!res.ok) throw new Error(`provider jwks fetch failed (${res.status})`);
+    const payload = await res.json();
+    const rows = Array.isArray(payload?.keys) ? payload.keys : [];
+    const keysById = new Map();
+    for (const row of rows) {
+      const publicKeyPem = jwkToSpkiPem(row);
+      if (!publicKeyPem) continue;
+      const derivedKid = keyIdFromPublicKeyPem(publicKeyPem);
+      keysById.set(derivedKid, { publicKeyPem, source: "jwks", kid: derivedKid });
+      const rowKid = normalizeOfferRef(row?.kid, { maxLen: 200 });
+      if (rowKid && rowKid !== derivedKid) {
+        keysById.set(rowKid, { publicKeyPem, source: "jwks", kid: rowKid });
+      }
+    }
+    if (staticKid && staticPem && !keysById.has(staticKid)) {
+      keysById.set(staticKid, { publicKeyPem: staticPem, source: "static", kid: staticKid });
+    }
+    if (keysById.size > 0) {
+      cache.keysById = keysById;
+      cache.expiresAtMs = Date.now() + parseCacheControlMaxAgeMs(res.headers.get("cache-control"), normalizedDefaultMaxAgeMs);
+      return true;
+    }
+    if (staticKid && staticPem) {
+      cache.keysById = new Map([[staticKid, { publicKeyPem: staticPem, source: "static", kid: staticKid }]]);
+      cache.expiresAtMs = Date.now() + normalizedDefaultMaxAgeMs;
+      return true;
+    }
+    return false;
+  }
+
+  return {
+    enabled: Boolean(staticPem || jwksUrl),
+    staticKeyId: staticKid,
+    async resolveByKeyId(keyId) {
+      const wantedKeyId = normalizeOfferRef(keyId, { maxLen: 200 });
+      const nowMs = Date.now();
+      const keyFromCache = wantedKeyId ? cache.keysById.get(wantedKeyId) ?? null : null;
+      if (keyFromCache && cache.expiresAtMs > nowMs) return keyFromCache;
+      if (cache.expiresAtMs <= nowMs || (wantedKeyId && !cache.keysById.has(wantedKeyId))) {
+        try {
+          await refresh();
+        } catch {
+          // keep stale cache and/or static fallback
+        }
+      }
+      if (wantedKeyId) {
+        const resolved = cache.keysById.get(wantedKeyId);
+        if (resolved) return resolved;
+      }
+      if (staticKid && staticPem && (!wantedKeyId || wantedKeyId === staticKid)) {
+        return { publicKeyPem: staticPem, source: "static", kid: staticKid };
+      }
+      return null;
+    }
+  };
+}
+
 function parseBase64UrlJson(rawValue) {
   const raw = typeof rawValue === "string" ? rawValue.trim() : "";
   if (!raw) return null;
@@ -126,16 +225,16 @@ function parseProviderQuoteHeaders(headers) {
   };
 }
 
-function verifyProviderQuoteChallenge({
+async function verifyProviderQuoteChallenge({
   offerFields,
   amountCents,
   currency,
   requestBindingMode,
   requestBindingSha256,
-  providerPublicKeyPem,
+  providerKeyResolver,
   quoteHeaders
 } = {}) {
-  if (!providerPublicKeyPem) {
+  if (!providerKeyResolver?.enabled) {
     return { ok: true, quote: null };
   }
   const quote = quoteHeaders?.quote;
@@ -157,12 +256,21 @@ function verifyProviderQuoteChallenge({
       message: err?.message ?? "provider quote payload invalid"
     };
   }
+  const signatureKeyId = normalizeOfferRef(signature?.keyId, { maxLen: 200 });
+  const providerKey = signatureKeyId ? await providerKeyResolver.resolveByKeyId(signatureKeyId) : null;
+  if (!providerKey?.publicKeyPem) {
+    return {
+      ok: false,
+      code: "X402_PROVIDER_QUOTE_KEY_ID_UNKNOWN",
+      message: "provider quote key id is unknown"
+    };
+  }
   let signatureValid = false;
   try {
     signatureValid = verifyToolProviderQuoteSignatureV1({
       quote: normalizedQuote,
       signature,
-      publicKeyPem: providerPublicKeyPem
+      publicKeyPem: providerKey.publicKeyPem
     });
   } catch {
     signatureValid = false;
@@ -232,7 +340,16 @@ function verifyProviderQuoteChallenge({
   }
   return {
     ok: true,
-    quote: normalizedQuote
+    quote: normalizedQuote,
+    signature: {
+      schemaVersion: String(signature.schemaVersion ?? ""),
+      keyId: String(signature.keyId ?? ""),
+      signedAt: String(signature.signedAt ?? ""),
+      nonce: String(signature.nonce ?? ""),
+      payloadHash: String(signature.payloadHash ?? ""),
+      signatureBase64: String(signature.signatureBase64 ?? "")
+    },
+    key: providerKey
   };
 }
 
@@ -259,7 +376,15 @@ const DISPUTE_WINDOW_MS = readOptionalIntEnv("DISPUTE_WINDOW_MS", 3_600_000);
 const X402_AUTOFUND = readOptionalBoolEnv("X402_AUTOFUND", false);
 const BIND_HOST = readOptionalStringEnv("BIND_HOST", null);
 const X402_PROVIDER_PUBLIC_KEY_PEM = readOptionalStringEnv("X402_PROVIDER_PUBLIC_KEY_PEM", null);
-const X402_PROVIDER_KEY_ID = X402_PROVIDER_PUBLIC_KEY_PEM ? keyIdFromPublicKeyPem(X402_PROVIDER_PUBLIC_KEY_PEM) : null;
+const X402_PROVIDER_JWKS_URL = readOptionalStringEnv("X402_PROVIDER_JWKS_URL", null);
+const X402_PROVIDER_KEYSET_DEFAULT_MAX_AGE_MS = readOptionalIntEnv("X402_PROVIDER_KEYSET_DEFAULT_MAX_AGE_MS", 300_000);
+const X402_PROVIDER_KEYSET_FETCH_TIMEOUT_MS = readOptionalIntEnv("X402_PROVIDER_KEYSET_FETCH_TIMEOUT_MS", 3_000);
+const providerKeyResolver = createProviderKeyResolver({
+  providerPublicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM,
+  providerJwksUrl: X402_PROVIDER_JWKS_URL,
+  defaultMaxAgeMs: X402_PROVIDER_KEYSET_DEFAULT_MAX_AGE_MS,
+  fetchTimeoutMs: X402_PROVIDER_KEYSET_FETCH_TIMEOUT_MS
+});
 
 if (HOLDBACK_BPS < 0 || HOLDBACK_BPS > 10_000) throw new Error("HOLDBACK_BPS must be within 0..10000");
 if (DISPUTE_WINDOW_MS < 0) throw new Error("DISPUTE_WINDOW_MS must be >= 0");
@@ -328,6 +453,7 @@ async function handleProxy(req, res) {
     else headers.set(k, String(v));
   }
   const gateId = req.headers["x-settld-gate-id"] ? String(req.headers["x-settld-gate-id"]).trim() : null;
+  let providerQuoteVerification = null;
 
   const ac = new AbortController();
   req.on("close", () => ac.abort());
@@ -369,13 +495,13 @@ async function handleProxy(req, res) {
         requestBindingSha256 = computeStrictRequestBindingSha256ForRetry({ reqMethod: req.method, upstreamUrl });
       }
       const quoteHeaders = parseProviderQuoteHeaders(paymentRequiredHeaders);
-      const quoteVerified = verifyProviderQuoteChallenge({
+      const quoteVerified = await verifyProviderQuoteChallenge({
         offerFields,
         amountCents: parsedAmount.amountCents,
         currency: parsedAmount.currency,
         requestBindingMode,
         requestBindingSha256,
-        providerPublicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM,
+        providerKeyResolver,
         quoteHeaders
       });
       if (!quoteVerified.ok) {
@@ -392,6 +518,15 @@ async function handleProxy(req, res) {
         return;
       }
       const verifiedQuote = quoteVerified.quote;
+      providerQuoteVerification = quoteVerified.ok
+        ? {
+            required: providerKeyResolver.enabled,
+            verified: true,
+            quote: verifiedQuote,
+            signature: quoteVerified.signature ?? null,
+            key: quoteVerified.key ?? null
+          }
+        : null;
       let quoted = null;
       const shouldFetchQuote = quoteRequired || requestBindingMode === "strict" || Boolean(offerQuoteId);
       if (shouldFetchQuote) {
@@ -593,7 +728,8 @@ async function handleProxy(req, res) {
 
     const providerReasonCodes = [];
     let providerSignature = null;
-    if (X402_PROVIDER_PUBLIC_KEY_PEM) {
+    let providerSignaturePublicKeyPem = null;
+    if (providerKeyResolver.enabled) {
       const keyId = upstreamRes.headers.get("x-settld-provider-key-id");
       const signedAt = upstreamRes.headers.get("x-settld-provider-signed-at");
       const nonce = upstreamRes.headers.get("x-settld-provider-nonce");
@@ -602,17 +738,22 @@ async function handleProxy(req, res) {
 
       if (!keyId || !signedAt || !nonce || !signedResponseHash || !signatureBase64) {
         providerReasonCodes.push("X402_PROVIDER_SIGNATURE_MISSING");
-      } else if (X402_PROVIDER_KEY_ID && String(keyId).trim() !== X402_PROVIDER_KEY_ID) {
-        providerReasonCodes.push("X402_PROVIDER_KEY_ID_MISMATCH");
       } else if (String(signedResponseHash).trim().toLowerCase() !== respHash) {
         providerReasonCodes.push("X402_PROVIDER_RESPONSE_HASH_MISMATCH");
       } else {
         try {
+          const normalizedKeyId = String(keyId).trim();
+          const resolvedProviderKey = await providerKeyResolver.resolveByKeyId(normalizedKeyId);
+          if (!resolvedProviderKey?.publicKeyPem) {
+            providerReasonCodes.push("X402_PROVIDER_KEY_ID_UNKNOWN");
+            throw new Error("provider key id unknown");
+          }
+          providerSignaturePublicKeyPem = resolvedProviderKey.publicKeyPem;
           const payloadHash = computeToolProviderSignaturePayloadHashV1({ responseHash: respHash, nonce, signedAt });
           providerSignature = {
             schemaVersion: "ToolProviderSignature.v1",
             algorithm: "ed25519",
-            keyId: String(keyId).trim(),
+            keyId: normalizedKeyId,
             signedAt: String(signedAt).trim(),
             nonce: String(nonce).trim(),
             responseHash: respHash,
@@ -621,13 +762,15 @@ async function handleProxy(req, res) {
           };
           let ok = false;
           try {
-            ok = verifyToolProviderSignatureV1({ signature: providerSignature, publicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM });
+            ok = verifyToolProviderSignatureV1({ signature: providerSignature, publicKeyPem: providerSignaturePublicKeyPem });
           } catch {
             ok = false;
           }
           if (!ok) providerReasonCodes.push("X402_PROVIDER_SIGNATURE_INVALID");
         } catch {
-          providerReasonCodes.push("X402_PROVIDER_SIGNATURE_INVALID");
+          if (!providerReasonCodes.includes("X402_PROVIDER_KEY_ID_UNKNOWN")) {
+            providerReasonCodes.push("X402_PROVIDER_SIGNATURE_INVALID");
+          }
         }
       }
     }
@@ -652,20 +795,48 @@ async function handleProxy(req, res) {
       body: {
         gateId,
         verificationStatus:
-          upstreamRes.ok && (!X402_PROVIDER_PUBLIC_KEY_PEM || providerReasonCodes.length === 0) ? "green" : "red",
+          upstreamRes.ok && (!providerKeyResolver.enabled || providerReasonCodes.length === 0) ? "green" : "red",
         runStatus: upstreamRes.ok ? "completed" : "failed",
         policy,
         verificationMethod: {
-          mode: X402_PROVIDER_PUBLIC_KEY_PEM ? "attested" : "deterministic",
-          source: X402_PROVIDER_PUBLIC_KEY_PEM ? "provider_signature_v1" : "http_status_v1",
+          mode: providerKeyResolver.enabled ? "attested" : "deterministic",
+          source: providerKeyResolver.enabled ? "provider_signature_v1" : "http_status_v1",
           attestor: providerSignature?.keyId ?? null
         },
-        ...(providerSignature ? { providerSignature: { ...providerSignature, publicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM } } : {}),
+        ...(providerSignature && providerSignaturePublicKeyPem
+          ? { providerSignature: { ...providerSignature, publicKeyPem: providerSignaturePublicKeyPem } }
+          : {}),
+        ...(providerQuoteVerification?.quote && providerQuoteVerification?.signature
+          ? {
+              providerQuoteSignature: {
+                schemaVersion: String(providerQuoteVerification.signature.schemaVersion ?? ""),
+                keyId: String(providerQuoteVerification.signature.keyId ?? ""),
+                signedAt: String(providerQuoteVerification.signature.signedAt ?? ""),
+                nonce: String(providerQuoteVerification.signature.nonce ?? ""),
+                payloadHash: String(providerQuoteVerification.signature.payloadHash ?? ""),
+                quoteId:
+                  typeof providerQuoteVerification.quote.quoteId === "string"
+                    ? providerQuoteVerification.quote.quoteId
+                    : null,
+                quoteSha256: sha256Hex(canonicalJsonStringify(providerQuoteVerification.quote)),
+                publicKeyPem:
+                  typeof providerQuoteVerification.key?.publicKeyPem === "string"
+                    ? providerQuoteVerification.key.publicKeyPem
+                    : null
+              }
+            }
+          : {}),
         verificationCodes: providerReasonCodes,
         evidenceRefs: [
           `http:request_sha256:${requestSha256ForEvidence}`,
           `http:response_sha256:${respHash}`,
           `http:status:${upstreamRes.status}`,
+          ...(providerQuoteVerification?.quote
+            ? [
+                `provider_quote:quote_id:${String(providerQuoteVerification.quote.quoteId ?? "")}`,
+                `provider_quote:payload_sha256:${sha256Hex(canonicalJsonStringify(providerQuoteVerification.quote))}`
+              ]
+            : []),
           ...(providerSignature
             ? [
                 `provider:key_id:${providerSignature.keyId}`,
