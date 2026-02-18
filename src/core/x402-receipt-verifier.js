@@ -3,6 +3,8 @@ import { sha256Hex } from "./crypto.js";
 import { verifyToolProviderQuoteSignatureV1 } from "./provider-quote-signature.js";
 import { verifySettlementKernelArtifacts } from "./settlement-kernel.js";
 import { verifyToolProviderSignatureV1 } from "./tool-provider-signature.js";
+import { verifyX402ProviderRefundDecisionV1 } from "./x402-provider-refund-decision.js";
+import { verifyX402ReversalCommandV1 } from "./x402-reversal-command.js";
 
 export const X402_RECEIPT_VERIFICATION_REPORT_SCHEMA_VERSION = "X402ReceiptVerificationReport.v1";
 
@@ -15,6 +17,15 @@ function normalizeSha256OrNull(value) {
   const text = String(value).trim().toLowerCase();
   if (!/^[0-9a-f]{64}$/.test(text)) return null;
   return text;
+}
+
+function normalizeIsoDateTimeOrNull(value) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const ms = Date.parse(text);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString();
 }
 
 function parseEvidenceRefMap(evidenceRefs) {
@@ -297,6 +308,231 @@ function verifyProviderQuoteSignature({ receipt, bindings, verificationContext, 
   pushCheck(checks, { id: "provider_quote_signature_crypto", ok });
 }
 
+function verifyReversalEvents({ receipt, checks, errors }) {
+  const events = Array.isArray(receipt?.reversalEvents) ? receipt.reversalEvents : [];
+  if (!events.length) {
+    pushCheck(checks, { id: "reversal_event_chain", ok: true, detail: { skipped: true } });
+    return;
+  }
+  const expectedGateId = typeof receipt?.gateId === "string" && receipt.gateId.trim() !== "" ? receipt.gateId.trim() : null;
+  const expectedReceiptId = typeof receipt?.receiptId === "string" && receipt.receiptId.trim() !== "" ? receipt.receiptId.trim() : null;
+  let ok = true;
+  let previousEventHash = null;
+  for (let index = 0; index < events.length; index += 1) {
+    const event = events[index];
+    if (!isPlainObject(event)) {
+      ok = false;
+      pushIssue(errors, {
+        code: "reversal_event_invalid",
+        message: "reversal event must be an object",
+        detail: { index }
+      });
+      continue;
+    }
+    const eventId = typeof event.eventId === "string" && event.eventId.trim() !== "" ? event.eventId.trim() : `index_${index}`;
+    const eventHash = normalizeSha256OrNull(event.eventHash);
+    if (!eventHash) {
+      ok = false;
+      pushIssue(errors, {
+        code: "reversal_event_hash_missing",
+        message: "reversal event hash is missing or invalid",
+        detail: { eventId, index }
+      });
+    } else {
+      const normalizedWithoutHash = normalizeForCanonicalJson(
+        Object.fromEntries(Object.entries(event).filter(([key]) => key !== "eventHash")),
+        { path: "$" }
+      );
+      const computedHash = sha256Hex(canonicalJsonStringify(normalizedWithoutHash));
+      if (computedHash !== eventHash) {
+        ok = false;
+        pushIssue(errors, {
+          code: "reversal_event_hash_mismatch",
+          message: "reversal event hash does not match canonical event payload",
+          detail: { eventId, index, expected: computedHash, actual: eventHash }
+        });
+      }
+    }
+    const prevEventHash = normalizeSha256OrNull(event.prevEventHash);
+    if ((previousEventHash ?? null) !== (prevEventHash ?? null)) {
+      ok = false;
+      pushIssue(errors, {
+        code: "reversal_event_chain_mismatch",
+        message: "reversal event prevEventHash does not match previous event hash",
+        detail: { eventId, index, expected: previousEventHash, actual: prevEventHash }
+      });
+    }
+    if (expectedGateId && String(event.gateId ?? "") && String(event.gateId) !== expectedGateId) {
+      ok = false;
+      pushIssue(errors, {
+        code: "reversal_event_gate_mismatch",
+        message: "reversal event gateId does not match receipt gateId",
+        detail: { eventId, expected: expectedGateId, actual: event.gateId }
+      });
+    }
+    if (expectedReceiptId && String(event.receiptId ?? "") && String(event.receiptId) !== expectedReceiptId) {
+      ok = false;
+      pushIssue(errors, {
+        code: "reversal_event_receipt_mismatch",
+        message: "reversal event receiptId does not match receipt receiptId",
+        detail: { eventId, expected: expectedReceiptId, actual: event.receiptId }
+      });
+    }
+
+    const action = typeof event.action === "string" ? event.action.trim().toLowerCase() : null;
+    const command = isPlainObject(event.command) ? event.command : null;
+    const commandVerification = isPlainObject(event.commandVerification) ? event.commandVerification : null;
+    if (action || command || commandVerification) {
+      if (!command || !commandVerification) {
+        ok = false;
+        pushIssue(errors, {
+          code: "reversal_command_material_missing",
+          message: "reversal command and verification material are required for reversal event",
+          detail: { eventId, hasCommand: Boolean(command), hasCommandVerification: Boolean(commandVerification) }
+        });
+      } else {
+        const commandPublicKeyPem =
+          typeof commandVerification.publicKeyPem === "string" && commandVerification.publicKeyPem.trim() !== ""
+            ? commandVerification.publicKeyPem
+            : null;
+        if (!commandPublicKeyPem) {
+          ok = false;
+          pushIssue(errors, {
+            code: "reversal_command_key_missing",
+            message: "reversal command verification key is missing",
+            detail: { eventId }
+          });
+        } else {
+          const commandVerificationResult = verifyX402ReversalCommandV1({
+            command,
+            publicKeyPem: commandPublicKeyPem,
+            nowAt:
+              normalizeIsoDateTimeOrNull(event.occurredAt) ??
+              normalizeIsoDateTimeOrNull(receipt.updatedAt) ??
+              new Date().toISOString(),
+            expectedAction: action,
+            expectedGateId:
+              typeof event.gateId === "string" && event.gateId.trim() !== "" ? event.gateId.trim() : expectedGateId,
+            expectedReceiptId:
+              typeof event.receiptId === "string" && event.receiptId.trim() !== "" ? event.receiptId.trim() : expectedReceiptId,
+            expectedQuoteId: command?.target?.quoteId ?? null,
+            expectedRequestSha256: command?.target?.requestSha256 ?? null
+          });
+          if (!commandVerificationResult.ok) {
+            ok = false;
+            pushIssue(errors, {
+              code: "reversal_command_invalid",
+              message: "reversal command verification failed",
+              detail: { eventId, code: commandVerificationResult.code, error: commandVerificationResult.error ?? null }
+            });
+          }
+          if (commandVerification?.verified !== true) {
+            ok = false;
+            pushIssue(errors, {
+              code: "reversal_command_verification_status_invalid",
+              message: "reversal command verification record must indicate verified=true",
+              detail: { eventId, verified: commandVerification?.verified ?? null }
+            });
+          }
+          const recordedPayloadHash = normalizeSha256OrNull(commandVerification?.payloadHash);
+          if (
+            recordedPayloadHash &&
+            commandVerificationResult.ok &&
+            normalizeSha256OrNull(commandVerificationResult.payloadHash) !== recordedPayloadHash
+          ) {
+            ok = false;
+            pushIssue(errors, {
+              code: "reversal_command_payload_hash_mismatch",
+              message: "reversal command verification payload hash does not match cryptographic payload hash",
+              detail: {
+                eventId,
+                expected: commandVerificationResult.payloadHash,
+                actual: recordedPayloadHash
+              }
+            });
+          }
+        }
+      }
+    }
+
+    const providerDecision = typeof event.providerDecision === "string" ? event.providerDecision.trim().toLowerCase() : null;
+    const requiresProviderDecisionVerification = action === "resolve_refund" || providerDecision === "accepted" || providerDecision === "denied";
+    if (requiresProviderDecisionVerification) {
+      const providerDecisionArtifact = isPlainObject(event.providerDecisionArtifact) ? event.providerDecisionArtifact : null;
+      const providerDecisionVerification = isPlainObject(event.providerDecisionVerification) ? event.providerDecisionVerification : null;
+      if (!providerDecisionArtifact || !providerDecisionVerification) {
+        ok = false;
+        pushIssue(errors, {
+          code: "reversal_provider_decision_material_missing",
+          message: "provider refund decision artifact and verification are required for resolve_refund events",
+          detail: {
+            eventId,
+            hasProviderDecisionArtifact: Boolean(providerDecisionArtifact),
+            hasProviderDecisionVerification: Boolean(providerDecisionVerification)
+          }
+        });
+      } else {
+        const providerPublicKeyPem =
+          typeof providerDecisionVerification.publicKeyPem === "string" && providerDecisionVerification.publicKeyPem.trim() !== ""
+            ? providerDecisionVerification.publicKeyPem
+            : null;
+        if (!providerPublicKeyPem) {
+          ok = false;
+          pushIssue(errors, {
+            code: "reversal_provider_decision_key_missing",
+            message: "provider refund decision verification key is missing",
+            detail: { eventId }
+          });
+        } else {
+          const providerDecisionResult = verifyX402ProviderRefundDecisionV1({
+            decision: providerDecisionArtifact,
+            publicKeyPem: providerPublicKeyPem,
+            expectedReceiptId:
+              typeof event.receiptId === "string" && event.receiptId.trim() !== "" ? event.receiptId.trim() : expectedReceiptId,
+            expectedGateId:
+              typeof event.gateId === "string" && event.gateId.trim() !== "" ? event.gateId.trim() : expectedGateId,
+            expectedQuoteId: providerDecisionArtifact?.quoteId ?? null,
+            expectedRequestSha256: providerDecisionArtifact?.requestSha256 ?? null,
+            expectedDecision: providerDecision
+          });
+          if (!providerDecisionResult.ok) {
+            ok = false;
+            pushIssue(errors, {
+              code: "reversal_provider_decision_invalid",
+              message: "provider refund decision verification failed",
+              detail: { eventId, code: providerDecisionResult.code, error: providerDecisionResult.error ?? null }
+            });
+          }
+          if (providerDecisionVerification?.verified !== true) {
+            ok = false;
+            pushIssue(errors, {
+              code: "reversal_provider_decision_verification_status_invalid",
+              message: "provider refund decision verification record must indicate verified=true",
+              detail: { eventId, verified: providerDecisionVerification?.verified ?? null }
+            });
+          }
+          const recordedPayloadHash = normalizeSha256OrNull(providerDecisionVerification?.payloadHash);
+          if (recordedPayloadHash && providerDecisionResult.ok && normalizeSha256OrNull(providerDecisionResult.payloadHash) !== recordedPayloadHash) {
+            ok = false;
+            pushIssue(errors, {
+              code: "reversal_provider_decision_payload_hash_mismatch",
+              message: "provider refund decision verification payload hash does not match cryptographic payload hash",
+              detail: {
+                eventId,
+                expected: providerDecisionResult.payloadHash,
+                actual: recordedPayloadHash
+              }
+            });
+          }
+        }
+      }
+    }
+
+    previousEventHash = eventHash ?? previousEventHash;
+  }
+  pushCheck(checks, { id: "reversal_event_chain", ok, detail: { eventCount: events.length } });
+}
+
 export function verifyX402ReceiptRecord({ receipt, strict = false } = {}) {
   if (!isPlainObject(receipt)) throw new TypeError("receipt must be an object");
   if (String(receipt.schemaVersion ?? "") !== "X402ReceiptRecord.v1") {
@@ -414,6 +650,7 @@ export function verifyX402ReceiptRecord({ receipt, strict = false } = {}) {
 
   verifyProviderOutputSignature({ receipt, bindings, verificationContext, evidence, checks, warnings, errors });
   verifyProviderQuoteSignature({ receipt, bindings, verificationContext, evidence, checks, warnings, errors });
+  verifyReversalEvents({ receipt, checks, errors });
 
   const strictMode = strict === true;
   if (strictMode) {
