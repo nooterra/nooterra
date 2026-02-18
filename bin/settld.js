@@ -14,6 +14,7 @@ function usage() {
   console.error("  settld conformance kernel:list");
   console.error("  settld closepack export --agreement-hash <sha256> --out <path.zip> [--ops-token tok_ops] [--base-url http://127.0.0.1:3000] [--tenant-id tenant_default] [--protocol 1.0]");
   console.error("  settld closepack verify <path.zip> [--json-out <path.json>]");
+  console.error("  settld x402 receipt verify <receipt.json|-> [--strict] [--format json|text] [--json-out <path>]");
   console.error("  settld dev up [--no-build] [--foreground]");
   console.error("  settld dev down [--wipe]");
   console.error("  settld dev ps");
@@ -200,6 +201,18 @@ function main() {
     usage();
     // eslint-disable-next-line no-console
     console.error(`unknown closepack subcommand: ${sub}`);
+    process.exit(1);
+  }
+
+  if (cmd === "x402") {
+    const sub = argv[1] ? String(argv[1]) : "";
+    const sub2 = argv[2] ? String(argv[2]) : "";
+    if (sub === "receipt" && sub2 === "verify") {
+      return runNodeScript("scripts/x402/receipt-verify.mjs", argv.slice(3));
+    }
+    usage();
+    // eslint-disable-next-line no-console
+    console.error(`unknown x402 subcommand: ${sub}${sub2 ? ` ${sub2}` : ""}`);
     process.exit(1);
   }
 

@@ -24,6 +24,7 @@
     "packages/artifact-verify/src",
     "scripts/closepack",
     "scripts/init",
+    "scripts/x402",
     "src",
     "services/finance-sink",
     "services/x402-gateway",

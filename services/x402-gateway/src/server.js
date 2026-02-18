@@ -808,12 +808,15 @@ async function handleProxy(req, res) {
           : {}),
         ...(providerQuoteVerification?.quote && providerQuoteVerification?.signature
           ? {
+              providerQuotePayload: providerQuoteVerification.quote,
               providerQuoteSignature: {
                 schemaVersion: String(providerQuoteVerification.signature.schemaVersion ?? ""),
+                algorithm: String(providerQuoteVerification.signature.algorithm ?? ""),
                 keyId: String(providerQuoteVerification.signature.keyId ?? ""),
                 signedAt: String(providerQuoteVerification.signature.signedAt ?? ""),
                 nonce: String(providerQuoteVerification.signature.nonce ?? ""),
                 payloadHash: String(providerQuoteVerification.signature.payloadHash ?? ""),
+                signatureBase64: String(providerQuoteVerification.signature.signatureBase64 ?? ""),
                 quoteId:
                   typeof providerQuoteVerification.quote.quoteId === "string"
                     ? providerQuoteVerification.quote.quoteId

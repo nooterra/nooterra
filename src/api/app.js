@@ -31491,6 +31491,7 @@ export function createApi({
 		              evidenceRefs: enrichedEvidenceRefs,
 		              providerSignature: body?.providerSignature ?? null,
                   providerQuoteSignature: body?.providerQuoteSignature ?? null,
+                  providerQuotePayload: body?.providerQuotePayload ?? null,
 		              updatedAt: at
 		            },
 	            { path: "$" }

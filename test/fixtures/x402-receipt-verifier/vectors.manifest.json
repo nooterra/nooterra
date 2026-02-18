@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "X402ReceiptVerifierVectors.v1",
+  "vectors": [
+    {
+      "id": "valid",
+      "file": "vector-valid.json",
+      "strict": false,
+      "expectOk": true,
+      "expectErrorCodes": [],
+      "expectWarningCodes": []
+    },
+    {
+      "id": "tampered_response",
+      "file": "vector-tampered-response.json",
+      "strict": false,
+      "expectOk": false,
+      "expectErrorCodes": [
+        "response_hash_binding_mismatch",
+        "provider_signature_response_hash_mismatch"
+      ],
+      "expectWarningCodes": []
+    },
+    {
+      "id": "missing_quote_material_non_strict",
+      "file": "vector-missing-quote-material.json",
+      "strict": false,
+      "expectOk": true,
+      "expectErrorCodes": [],
+      "expectWarningCodes": [
+        "provider_quote_signature_material_missing"
+      ]
+    },
+    {
+      "id": "missing_quote_material_strict",
+      "file": "vector-missing-quote-material.json",
+      "strict": true,
+      "expectOk": false,
+      "expectErrorCodes": [
+        "strict_provider_quote_signature_material_missing"
+      ],
+      "expectWarningCodes": [
+        "provider_quote_signature_material_missing"
+      ]
+    }
+  ]
+}

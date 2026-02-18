@@ -138,6 +138,7 @@ async function main() {
     assert(cases.length > 0, "settld conformance kernel:list returned no cases");
 
     runCli(["closepack", "verify", "--help"]);
+    runCli(["x402", "receipt", "verify", "--help"]);
 
     const starterDir = path.join(outDir, "starter-capability");
     runCli(["init", "capability", "smoke-capability", "--out", starterDir]);

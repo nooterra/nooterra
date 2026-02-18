@@ -139,7 +139,8 @@ test("API e2e: x402 receipt list/get/export returns durable receipt with verific
         quoteId: quotePayload.quoteId,
         quoteSha256: computeToolProviderQuotePayloadHashV1({ quote: quotePayload }),
         publicKeyPem: providerSigner.publicKeyPem
-      }
+      },
+      providerQuotePayload: quotePayload
     }
   });
   assert.equal(verify.statusCode, 200, verify.body);
@@ -161,6 +162,8 @@ test("API e2e: x402 receipt list/get/export returns durable receipt with verific
   assert.equal(String(found?.bindings?.providerQuoteSig?.verified ?? ""), "true");
   assert.match(String(found?.bindings?.providerSig?.keyJwkThumbprintSha256 ?? ""), /^[0-9a-f]{64}$/);
   assert.match(String(found?.bindings?.providerQuoteSig?.keyJwkThumbprintSha256 ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(String(found?.providerSignature?.keyId ?? ""), String(found?.bindings?.providerSig?.providerKeyId ?? ""));
+  assert.equal(String(found?.providerQuotePayload?.quoteId ?? ""), quotePayload.quoteId);
 
   const byId = await request(api, {
     method: "GET",
@@ -183,4 +186,3 @@ test("API e2e: x402 receipt list/get/export returns durable receipt with verific
   const parsedFirst = JSON.parse(exportLines[0]);
   assert.equal(parsedFirst.schemaVersion, "X402ReceiptRecord.v1");
 });
-

@@ -1087,6 +1087,18 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       evidenceRefs: Array.isArray(gate.evidenceRefs) ? gate.evidenceRefs.slice() : [],
       verificationContext,
       bindings,
+      providerSignature:
+        gate?.providerSignature && typeof gate.providerSignature === "object" && !Array.isArray(gate.providerSignature)
+          ? gate.providerSignature
+          : null,
+      providerQuoteSignature:
+        gate?.providerQuoteSignature && typeof gate.providerQuoteSignature === "object" && !Array.isArray(gate.providerQuoteSignature)
+          ? gate.providerQuoteSignature
+          : null,
+      providerQuotePayload:
+        gate?.providerQuotePayload && typeof gate.providerQuotePayload === "object" && !Array.isArray(gate.providerQuotePayload)
+          ? gate.providerQuotePayload
+          : null,
       decisionRecord:
         decisionTrace?.decisionRecord && typeof decisionTrace.decisionRecord === "object" && !Array.isArray(decisionTrace.decisionRecord)
           ? decisionTrace.decisionRecord
