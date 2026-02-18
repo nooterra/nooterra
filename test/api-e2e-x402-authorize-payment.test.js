@@ -420,6 +420,200 @@ test("API e2e: quote-bound authorization carries spend claims into settlement bi
   assert.equal(verified.json?.decisionRecord?.bindings?.spendAuthorization?.policyFingerprint, payload.policyFingerprint);
 });
 
+test("API e2e: ops x402 wallet policy CRUD and authorize-payment policy enforcement", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_auth_policy_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_auth_policy_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 9000, idempotencyKey: "wallet_credit_x402_auth_policy_1" });
+
+  const walletPolicy = {
+    schemaVersion: "X402WalletPolicy.v1",
+    sponsorRef: "sponsor_policy_ops_1",
+    sponsorWalletRef: "wallet_policy_ops_1",
+    policyRef: "policy_ops_1",
+    policyVersion: 7,
+    status: "active",
+    maxAmountCents: 1000,
+    maxDailyAuthorizationCents: 700,
+    allowedProviderIds: [payeeAgentId],
+    allowedToolIds: ["weather_read"],
+    allowedAgentKeyIds: [],
+    allowedCurrencies: ["USD"],
+    allowedReversalActions: ["request_refund", "resolve_refund", "void_authorization"],
+    requireQuote: true,
+    requireStrictRequestBinding: true,
+    requireAgentKeyMatch: false
+  };
+  const createdPolicy = await upsertX402WalletPolicy(api, {
+    policy: walletPolicy,
+    idempotencyKey: "x402_wallet_policy_upsert_1"
+  });
+  assert.equal(createdPolicy.statusCode, 201, createdPolicy.body);
+  assert.equal(createdPolicy.json?.policy?.policyRef, walletPolicy.policyRef);
+  assert.equal(createdPolicy.json?.policy?.policyVersion, walletPolicy.policyVersion);
+  assert.equal(createdPolicy.json?.policy?.status, "active");
+  assert.match(String(createdPolicy.json?.policy?.policyFingerprint ?? ""), /^[0-9a-f]{64}$/);
+
+  const listed = await request(api, {
+    method: "GET",
+    path: `/ops/x402/wallet-policies?sponsorWalletRef=${encodeURIComponent(walletPolicy.sponsorWalletRef)}`
+  });
+  assert.equal(listed.statusCode, 200, listed.body);
+  assert.equal(Array.isArray(listed.json?.policies), true);
+  assert.equal(listed.json.policies.length, 1);
+  assert.equal(listed.json.policies[0]?.policyRef, walletPolicy.policyRef);
+
+  const fetched = await request(api, {
+    method: "GET",
+    path: `/ops/x402/wallet-policies/${encodeURIComponent(walletPolicy.sponsorWalletRef)}/${encodeURIComponent(walletPolicy.policyRef)}/${walletPolicy.policyVersion}`
+  });
+  assert.equal(fetched.statusCode, 200, fetched.body);
+  assert.equal(fetched.json?.policy?.policyRef, walletPolicy.policyRef);
+  assert.equal(fetched.json?.policy?.policyVersion, walletPolicy.policyVersion);
+
+  const gateA = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_auth_policy_1a" },
+    body: {
+      gateId: "gate_auth_policy_1a",
+      payerAgentId,
+      payeeAgentId,
+      toolId: "weather_read",
+      amountCents: 500,
+      currency: "USD",
+      agentPassport: {
+        sponsorRef: walletPolicy.sponsorRef,
+        sponsorWalletRef: walletPolicy.sponsorWalletRef,
+        agentKeyId: "agent_key_policy_1",
+        delegationRef: "delegation_policy_1",
+        policyRef: walletPolicy.policyRef,
+        policyVersion: walletPolicy.policyVersion
+      }
+    }
+  });
+  assert.equal(gateA.statusCode, 201, gateA.body);
+
+  const authWithoutQuote = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_policy_1a_noquote" },
+    body: { gateId: "gate_auth_policy_1a" }
+  });
+  assert.equal(authWithoutQuote.statusCode, 409, authWithoutQuote.body);
+  assert.equal(authWithoutQuote.json?.code, "X402_WALLET_ISSUER_DECISION_REQUIRED");
+
+  const decisionWithoutQuote = await issueWalletAuthorizationDecision(api, {
+    sponsorWalletRef: walletPolicy.sponsorWalletRef,
+    gateId: "gate_auth_policy_1a",
+    idempotencyKey: "x402_wallet_issuer_policy_1a_noquote"
+  });
+  assert.equal(decisionWithoutQuote.statusCode, 409, decisionWithoutQuote.body);
+  assert.equal(decisionWithoutQuote.json?.code, "X402_WALLET_POLICY_QUOTE_REQUIRED");
+
+  const requestBindingShaA = "e".repeat(64);
+  const quoteA = await request(api, {
+    method: "POST",
+    path: "/x402/gate/quote",
+    headers: { "x-idempotency-key": "x402_gate_quote_auth_policy_1a" },
+    body: {
+      gateId: "gate_auth_policy_1a",
+      requestBindingMode: "strict",
+      requestBindingSha256: requestBindingShaA
+    }
+  });
+  assert.equal(quoteA.statusCode, 200, quoteA.body);
+
+  const authA = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_policy_1a" },
+    body: {
+      gateId: "gate_auth_policy_1a",
+      quoteId: quoteA.json?.quote?.quoteId,
+      requestBindingMode: "strict",
+      requestBindingSha256: requestBindingShaA
+    }
+  });
+  assert.equal(authA.statusCode, 409, authA.body);
+  assert.equal(authA.json?.code, "X402_WALLET_ISSUER_DECISION_REQUIRED");
+
+  const issuerDecisionA = await issueWalletAuthorizationDecision(api, {
+    sponsorWalletRef: walletPolicy.sponsorWalletRef,
+    gateId: "gate_auth_policy_1a",
+    quoteId: quoteA.json?.quote?.quoteId,
+    requestBindingMode: "strict",
+    requestBindingSha256: requestBindingShaA,
+    idempotencyKey: "x402_wallet_issuer_policy_1a"
+  });
+  assert.equal(issuerDecisionA.statusCode, 200, issuerDecisionA.body);
+
+  const authAWithDecision = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_policy_1a_with_decision" },
+    body: {
+      gateId: "gate_auth_policy_1a",
+      quoteId: quoteA.json?.quote?.quoteId,
+      requestBindingMode: "strict",
+      requestBindingSha256: requestBindingShaA,
+      walletAuthorizationDecisionToken: issuerDecisionA.json?.walletAuthorizationDecisionToken
+    }
+  });
+  assert.equal(authAWithDecision.statusCode, 200, authAWithDecision.body);
+  const tokenPayloadA = parseSettldPayTokenV1(authAWithDecision.json?.token).payload;
+  assert.equal(tokenPayloadA.policyVersion, walletPolicy.policyVersion);
+  assert.equal(tokenPayloadA.policyFingerprint, createdPolicy.json?.policy?.policyFingerprint);
+
+  const gateB = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_auth_policy_1b" },
+    body: {
+      gateId: "gate_auth_policy_1b",
+      payerAgentId,
+      payeeAgentId,
+      toolId: "weather_read",
+      amountCents: 300,
+      currency: "USD",
+      agentPassport: {
+        sponsorRef: walletPolicy.sponsorRef,
+        sponsorWalletRef: walletPolicy.sponsorWalletRef,
+        agentKeyId: "agent_key_policy_1",
+        delegationRef: "delegation_policy_1",
+        policyRef: walletPolicy.policyRef,
+        policyVersion: walletPolicy.policyVersion
+      }
+    }
+  });
+  assert.equal(gateB.statusCode, 201, gateB.body);
+
+  const requestBindingShaB = "f".repeat(64);
+  const quoteB = await request(api, {
+    method: "POST",
+    path: "/x402/gate/quote",
+    headers: { "x-idempotency-key": "x402_gate_quote_auth_policy_1b" },
+    body: {
+      gateId: "gate_auth_policy_1b",
+      requestBindingMode: "strict",
+      requestBindingSha256: requestBindingShaB
+    }
+  });
+  assert.equal(quoteB.statusCode, 200, quoteB.body);
+
+  const issuerDecisionB = await issueWalletAuthorizationDecision(api, {
+    sponsorWalletRef: walletPolicy.sponsorWalletRef,
+    gateId: "gate_auth_policy_1b",
+    quoteId: quoteB.json?.quote?.quoteId,
+    requestBindingMode: "strict",
+    requestBindingSha256: requestBindingShaB,
+    idempotencyKey: "x402_wallet_issuer_policy_1b"
+  });
+  assert.equal(issuerDecisionB.statusCode, 409, issuerDecisionB.body);
+  assert.equal(issuerDecisionB.json?.code, "X402_WALLET_POLICY_DAILY_LIMIT_EXCEEDED");
+});
+
 test("API e2e: production-like defaults fail closed when external reserve is unavailable", async (t) => {
   const prevSettldEnv = process.env.SETTLD_ENV;
   const prevRequireReserve = process.env.X402_REQUIRE_EXTERNAL_RESERVE;
