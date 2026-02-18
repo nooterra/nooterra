@@ -47,6 +47,26 @@ function normalizeOptionalRequestBindingMode(value, name) {
   return mode;
 }
 
+function normalizeOptionalId(value, name, { max = 200 } = {}) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const out = String(value).trim();
+  if (out.length > max) throw new TypeError(`${name} must be <= ${max} chars`);
+  if (!/^[A-Za-z0-9:_-]+$/.test(out)) throw new TypeError(`${name} must match ^[A-Za-z0-9:_-]+$`);
+  return out;
+}
+
+function normalizeOptionalString(value, name, { max = 256 } = {}) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const out = String(value).trim();
+  if (out.length > max) throw new TypeError(`${name} must be <= ${max} chars`);
+  return out;
+}
+
+function normalizeOptionalPositiveSafeInt(value, name) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  return normalizePositiveSafeInt(value, name);
+}
+
 function decodeEnvelope(token) {
   const raw = assertNonEmptyString(token, "token");
   let decoded = null;
@@ -81,6 +101,17 @@ export function buildSettldPayPayloadV1({
   payeeProviderId,
   requestBindingMode = null,
   requestBindingSha256 = null,
+  quoteId = null,
+  quoteSha256 = null,
+  idempotencyKey = null,
+  nonce = null,
+  sponsorRef = null,
+  sponsorWalletRef = null,
+  agentKeyId = null,
+  delegationRef = null,
+  policyVersion = null,
+  policyFingerprint = null,
+  spendAuthorizationVersion = null,
   iat,
   exp
 } = {}) {
@@ -94,6 +125,34 @@ export function buildSettldPayPayloadV1({
   if (normalizedRequestBindingMode === "strict" && !normalizedRequestBindingSha256) {
     throw new TypeError("requestBindingSha256 is required when requestBindingMode=strict");
   }
+  const normalizedQuoteId = normalizeOptionalId(quoteId, "quoteId", { max: 200 });
+  const normalizedQuoteSha256 = normalizeOptionalHexHash(quoteSha256, "quoteSha256");
+  const normalizedIdempotencyKey = normalizeOptionalString(idempotencyKey, "idempotencyKey", { max: 256 });
+  const normalizedNonce = normalizeOptionalString(nonce, "nonce", { max: 256 });
+  const normalizedSponsorRef = normalizeOptionalId(sponsorRef, "sponsorRef", { max: 200 });
+  const normalizedSponsorWalletRef = normalizeOptionalId(sponsorWalletRef, "sponsorWalletRef", { max: 200 });
+  const normalizedAgentKeyId = normalizeOptionalId(agentKeyId, "agentKeyId", { max: 200 });
+  const normalizedDelegationRef = normalizeOptionalId(delegationRef, "delegationRef", { max: 200 });
+  const normalizedPolicyVersion = normalizeOptionalPositiveSafeInt(policyVersion, "policyVersion");
+  const normalizedPolicyFingerprint = normalizeOptionalHexHash(policyFingerprint, "policyFingerprint");
+  const normalizedSpendAuthorizationVersion = normalizeOptionalString(spendAuthorizationVersion, "spendAuthorizationVersion", {
+    max: 64
+  });
+  const hasSpendAuthorizationClaims =
+    normalizedQuoteId !== null ||
+    normalizedQuoteSha256 !== null ||
+    normalizedIdempotencyKey !== null ||
+    normalizedNonce !== null ||
+    normalizedSponsorRef !== null ||
+    normalizedSponsorWalletRef !== null ||
+    normalizedAgentKeyId !== null ||
+    normalizedDelegationRef !== null ||
+    normalizedPolicyVersion !== null ||
+    normalizedPolicyFingerprint !== null ||
+    normalizedSpendAuthorizationVersion !== null;
+  const spendAuthorizationVersionOut = hasSpendAuthorizationClaims
+    ? normalizedSpendAuthorizationVersion ?? "SpendAuthorization.v1"
+    : null;
 
   return normalizeForCanonicalJson(
     {
@@ -106,6 +165,17 @@ export function buildSettldPayPayloadV1({
       payeeProviderId: assertNonEmptyString(payeeProviderId, "payeeProviderId"),
       ...(normalizedRequestBindingMode ? { requestBindingMode: normalizedRequestBindingMode } : {}),
       ...(normalizedRequestBindingSha256 ? { requestBindingSha256: normalizedRequestBindingSha256 } : {}),
+      ...(normalizedQuoteId ? { quoteId: normalizedQuoteId } : {}),
+      ...(normalizedQuoteSha256 ? { quoteSha256: normalizedQuoteSha256 } : {}),
+      ...(normalizedIdempotencyKey ? { idempotencyKey: normalizedIdempotencyKey } : {}),
+      ...(normalizedNonce ? { nonce: normalizedNonce } : {}),
+      ...(normalizedSponsorRef ? { sponsorRef: normalizedSponsorRef } : {}),
+      ...(normalizedSponsorWalletRef ? { sponsorWalletRef: normalizedSponsorWalletRef } : {}),
+      ...(normalizedAgentKeyId ? { agentKeyId: normalizedAgentKeyId } : {}),
+      ...(normalizedDelegationRef ? { delegationRef: normalizedDelegationRef } : {}),
+      ...(normalizedPolicyVersion ? { policyVersion: normalizedPolicyVersion } : {}),
+      ...(normalizedPolicyFingerprint ? { policyFingerprint: normalizedPolicyFingerprint } : {}),
+      ...(spendAuthorizationVersionOut ? { spendAuthorizationVersion: spendAuthorizationVersionOut } : {}),
       iat: normalizedIat,
       exp: normalizedExp
     },

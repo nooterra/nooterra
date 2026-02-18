@@ -298,6 +298,7 @@ export function createApi({
   moneyRailMode = null,
   moneyRailProviderConfigs = null,
   moneyRailDefaultProviderId = null,
+  billingPlanEnforcementEnabled = null,
   billingStripeWebhookSecret = null,
   billingStripeWebhookToleranceSeconds = null,
   billingStripeCheckoutBaseUrl = null,
@@ -690,6 +691,14 @@ export function createApi({
     typeof process !== "undefined" && typeof process.env.PROXY_EVIDENCE_REQUIRE_SIZE_BYTES === "string" && process.env.PROXY_EVIDENCE_REQUIRE_SIZE_BYTES === "1";
 
   const evidenceMaxSizeBytes = parseNonNegativeIntEnv("PROXY_EVIDENCE_MAX_SIZE_BYTES", 0);
+  const effectiveBillingPlanEnforcementEnabled = (() => {
+    const raw =
+      billingPlanEnforcementEnabled ??
+      (typeof process !== "undefined"
+        ? process.env.PROXY_BILLING_PLAN_ENFORCEMENT_ENABLED ?? process.env.PROXY_BILLING_ENFORCEMENT_ENABLED
+        : null);
+    return parseBooleanLike(raw, false);
+  })();
   const effectiveBillingStripeWebhookSecret =
     billingStripeWebhookSecret !== null && billingStripeWebhookSecret !== undefined
       ? String(billingStripeWebhookSecret).trim() || null
@@ -1155,6 +1164,15 @@ export function createApi({
       x402PilotDailyLimitCents ??
       (typeof process !== "undefined" ? process.env.X402_PILOT_DAILY_LIMIT_CENTS : null);
     return normalizeOptionalNonNegativeSafeInt(raw, { fieldName: "X402_PILOT_DAILY_LIMIT_CENTS", allowNull: true });
+  })();
+  const x402QuoteTtlSecondsValue = (() => {
+    const raw = typeof process !== "undefined" ? process.env.X402_QUOTE_TTL_SECONDS : null;
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 300;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n <= 0 || n > 3600) {
+      throw new TypeError("X402_QUOTE_TTL_SECONDS must be an integer within 1..3600");
+    }
+    return n;
   })();
   const circleReserveAdapter = x402ReserveAdapter ?? createCircleReserveAdapter({ mode: x402ReserveModeValue, now: nowIso });
 
@@ -6357,6 +6375,8 @@ export function createApi({
   const MARKETPLACE_AGREEMENT_POLICY_BINDING_SCHEMA_VERSION = "MarketplaceAgreementPolicyBinding.v2";
   const AGENT_DELEGATION_LINK_SCHEMA_VERSION = "AgentDelegationLink.v1";
   const AGENT_ACTING_ON_BEHALF_OF_SCHEMA_VERSION = "AgentActingOnBehalfOf.v1";
+  const X402_AGENT_PASSPORT_SCHEMA_VERSION = "AgentPassport.v1";
+  const X402_QUOTE_SCHEMA_VERSION = "X402Quote.v1";
   const MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_ACCEPT = "marketplace.agreement.accept";
   const MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_CHANGE_ORDER = "marketplace.agreement.change_order";
   const MARKETPLACE_DELEGATION_SCOPE_AGREEMENT_CANCEL = "marketplace.agreement.cancel";
@@ -6407,6 +6427,146 @@ export function createApi({
     const value = rawValue.trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(value)) throw new TypeError(`${fieldPath} must match /^[0-9a-f]{64}$/`);
     return value;
+  }
+
+  function normalizeOptionalX402RefInput(rawValue, fieldPath, { allowNull = true, max = 200 } = {}) {
+    if (rawValue === null || rawValue === undefined || rawValue === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    if (typeof rawValue !== "string") throw new TypeError(`${fieldPath} must be a string`);
+    const value = rawValue.trim();
+    if (!value) {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    if (value.length > max) throw new TypeError(`${fieldPath} must be <= ${max} chars`);
+    if (!/^[A-Za-z0-9:_-]+$/.test(value)) throw new TypeError(`${fieldPath} must match ^[A-Za-z0-9:_-]+$`);
+    return value;
+  }
+
+  function normalizeOptionalX402PositiveSafeInt(rawValue, fieldPath, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || rawValue === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const value = Number(rawValue);
+    if (!Number.isSafeInteger(value) || value <= 0) throw new TypeError(`${fieldPath} must be a positive safe integer`);
+    return value;
+  }
+
+  function normalizeX402AgentPassportInput(rawValue, { fieldPath = "agentPassport", allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined) {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    if (typeof rawValue !== "object" || Array.isArray(rawValue)) {
+      throw new TypeError(`${fieldPath} must be an object`);
+    }
+    const schemaVersionRaw =
+      typeof rawValue.schemaVersion === "string" && rawValue.schemaVersion.trim() !== ""
+        ? rawValue.schemaVersion.trim()
+        : X402_AGENT_PASSPORT_SCHEMA_VERSION;
+    if (schemaVersionRaw !== X402_AGENT_PASSPORT_SCHEMA_VERSION) {
+      throw new TypeError(`${fieldPath}.schemaVersion must be ${X402_AGENT_PASSPORT_SCHEMA_VERSION}`);
+    }
+    const sponsorRef = normalizeOptionalX402RefInput(rawValue.sponsorRef, `${fieldPath}.sponsorRef`, { allowNull: false, max: 200 });
+    const agentKeyId = normalizeOptionalX402RefInput(rawValue.agentKeyId, `${fieldPath}.agentKeyId`, { allowNull: false, max: 200 });
+    const sponsorWalletRef = normalizeOptionalX402RefInput(rawValue.sponsorWalletRef, `${fieldPath}.sponsorWalletRef`, {
+      allowNull: true,
+      max: 200
+    });
+    const delegationRef = normalizeOptionalX402RefInput(rawValue.delegationRef, `${fieldPath}.delegationRef`, { allowNull: true, max: 200 });
+    const policyRef = normalizeOptionalX402RefInput(rawValue.policyRef, `${fieldPath}.policyRef`, { allowNull: true, max: 200 });
+    const policyVersion = normalizeOptionalX402PositiveSafeInt(rawValue.policyVersion, `${fieldPath}.policyVersion`, {
+      allowNull: true
+    });
+    const expiresAt =
+      rawValue.expiresAt === null || rawValue.expiresAt === undefined || String(rawValue.expiresAt).trim() === ""
+        ? null
+        : String(rawValue.expiresAt).trim();
+    if (expiresAt !== null && !Number.isFinite(Date.parse(expiresAt))) {
+      throw new TypeError(`${fieldPath}.expiresAt must be an ISO timestamp`);
+    }
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: X402_AGENT_PASSPORT_SCHEMA_VERSION,
+        sponsorRef,
+        ...(sponsorWalletRef ? { sponsorWalletRef } : {}),
+        agentKeyId,
+        ...(delegationRef ? { delegationRef } : {}),
+        ...(policyRef ? { policyRef } : {}),
+        ...(policyVersion ? { policyVersion } : {}),
+        ...(expiresAt ? { expiresAt } : {})
+      },
+      { path: "$" }
+    );
+  }
+
+  function buildX402QuoteRecord({
+    gateId,
+    quoteId,
+    providerId,
+    toolId = null,
+    amountCents,
+    currency,
+    requestBindingMode = null,
+    requestBindingSha256 = null,
+    quotedAt,
+    expiresAt
+  } = {}) {
+    const normalized = normalizeForCanonicalJson(
+      {
+        schemaVersion: X402_QUOTE_SCHEMA_VERSION,
+        gateId: normalizeOptionalX402RefInput(gateId, "quote.gateId", { allowNull: false, max: 200 }),
+        quoteId: normalizeOptionalX402RefInput(quoteId, "quote.quoteId", { allowNull: false, max: 200 }),
+        providerId: normalizeOptionalX402RefInput(providerId, "quote.providerId", { allowNull: false, max: 200 }),
+        ...(toolId ? { toolId: normalizeOptionalX402RefInput(toolId, "quote.toolId", { allowNull: false, max: 200 }) } : {}),
+        amountCents: normalizeOptionalX402PositiveSafeInt(amountCents, "quote.amountCents", { allowNull: false }),
+        currency: typeof currency === "string" && currency.trim() !== "" ? currency.trim().toUpperCase() : "USD",
+        ...(requestBindingMode ? { requestBindingMode: String(requestBindingMode).trim().toLowerCase() } : {}),
+        ...(requestBindingSha256
+          ? {
+              requestBindingSha256: normalizeSha256HashInput(requestBindingSha256, "quote.requestBindingSha256", { allowNull: false })
+            }
+          : {}),
+        quotedAt: String(quotedAt),
+        expiresAt: String(expiresAt)
+      },
+      { path: "$" }
+    );
+    const quoteSha256 = sha256Hex(canonicalJsonStringify(normalized));
+    return normalizeForCanonicalJson(
+      {
+        ...normalized,
+        quoteSha256
+      },
+      { path: "$" }
+    );
+  }
+
+  function buildX402AgentPassportPolicyFingerprint(passport) {
+    if (!passport || typeof passport !== "object" || Array.isArray(passport)) return null;
+    const normalized = normalizeForCanonicalJson(
+      {
+        schemaVersion: X402_AGENT_PASSPORT_SCHEMA_VERSION,
+        sponsorRef:
+          typeof passport.sponsorRef === "string" && passport.sponsorRef.trim() !== "" ? passport.sponsorRef.trim() : null,
+        sponsorWalletRef:
+          typeof passport.sponsorWalletRef === "string" && passport.sponsorWalletRef.trim() !== ""
+            ? passport.sponsorWalletRef.trim()
+            : null,
+        agentKeyId:
+          typeof passport.agentKeyId === "string" && passport.agentKeyId.trim() !== "" ? passport.agentKeyId.trim() : null,
+        delegationRef:
+          typeof passport.delegationRef === "string" && passport.delegationRef.trim() !== "" ? passport.delegationRef.trim() : null,
+        policyRef: typeof passport.policyRef === "string" && passport.policyRef.trim() !== "" ? passport.policyRef.trim() : null,
+        policyVersion: Number.isSafeInteger(Number(passport.policyVersion)) ? Number(passport.policyVersion) : null,
+        expiresAt: typeof passport.expiresAt === "string" && passport.expiresAt.trim() !== "" ? passport.expiresAt.trim() : null
+      },
+      { path: "$" }
+    );
+    return sha256Hex(canonicalJsonStringify(normalized));
   }
 
   function tenantSettlementPolicyStoreKey({ tenantId, policyId, policyVersion }) {
@@ -9740,7 +9900,7 @@ export function createApi({
     });
     const planId = resolveActiveSubscriptionPlanId(billingCfg) ?? configuredPlanId;
     const overrides = normalizeBillingPlanOverrides(billingCfg.planOverrides ?? null, { allowNull: true });
-    const hardLimitEnforced = billingCfg.hardLimitEnforced !== false;
+    const hardLimitEnforced = effectiveBillingPlanEnforcementEnabled && billingCfg.hardLimitEnforced !== false;
     return resolveBillingPlan({
       planId,
       overrides,
@@ -11591,6 +11751,7 @@ export function createApi({
     occurredAt = nowIso(),
     quantity = 1
   } = {}) {
+    if (!effectiveBillingPlanEnforcementEnabled) return;
     const normalizedQuantityRaw = Number(quantity);
     const normalizedQuantity =
       Number.isSafeInteger(normalizedQuantityRaw) && normalizedQuantityRaw > 0
@@ -17190,7 +17351,10 @@ export function createApi({
 	            scopedTokensCount: scopedTokenScopes.size,
 	            scopedTokensEmptyScopesCount: Array.from(scopedTokenScopes.values()).filter((s) => (s ? s.size === 0 : true)).length,
 	            effectiveTokensCount: opsTokenScopes.size
-	          }
+	          },
+            billing: {
+              planEnforcementEnabled: effectiveBillingPlanEnforcementEnabled
+            }
 	        };
 
         if (store?.kind === "pg" && store?.pg?.pool) {
@@ -29764,6 +29928,21 @@ export function createApi({
 	              return sendError(res, 400, "invalid providerPublicKeyPem", { message: err?.message }, { code: "SCHEMA_INVALID" });
 	            }
 	          }
+          let agentPassport = null;
+          try {
+            agentPassport = normalizeX402AgentPassportInput(body?.agentPassport ?? null, {
+              fieldPath: "agentPassport",
+              allowNull: true
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid agentPassport", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          let toolId = null;
+          try {
+            toolId = normalizeOptionalX402RefInput(body?.toolId ?? null, "toolId", { allowNull: true, max: 200 });
+          } catch (err) {
+            return sendError(res, 400, "invalid toolId", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
 
           const existingGate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
           if (existingGate && !idemStoreKey) return sendError(res, 409, "gate already exists", null, { code: "ALREADY_EXISTS" });
@@ -29823,6 +30002,8 @@ export function createApi({
 	              payeeAgentId,
 	              ...(agreementHash ? { agreementHash } : {}),
 	              ...(providerKey ? { providerKey } : {}),
+                ...(toolId ? { toolId } : {}),
+                ...(agentPassport ? { agentPassport } : {}),
 	              terms,
 	              upstream,
               authorization: {
@@ -29862,6 +30043,158 @@ export function createApi({
           }
           await store.commitTx({ at: nowAt, ops });
           return sendJson(res, 201, responseBody);
+        }
+
+        if (parts[0] === "x402" && parts[1] === "gate" && parts[2] === "quote" && parts.length === 3 && req.method === "POST") {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+
+          const gateId = typeof body?.gateId === "string" && body.gateId.trim() !== "" ? body.gateId.trim() : null;
+          if (!gateId) return sendError(res, 400, "gateId is required", null, { code: "SCHEMA_INVALID" });
+          const requestBindingModeRaw =
+            typeof body?.requestBindingMode === "string" && body.requestBindingMode.trim() !== ""
+              ? body.requestBindingMode.trim().toLowerCase()
+              : null;
+          if (requestBindingModeRaw !== null && requestBindingModeRaw !== "strict") {
+            return sendError(res, 400, "requestBindingMode must be strict when provided", null, { code: "SCHEMA_INVALID" });
+          }
+          let requestBindingSha256 = null;
+          try {
+            requestBindingSha256 = normalizeSha256HashInput(body?.requestBindingSha256 ?? null, "requestBindingSha256", { allowNull: true });
+          } catch (err) {
+            return sendError(res, 400, "invalid requestBindingSha256", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const requestBindingMode = requestBindingModeRaw ?? (requestBindingSha256 ? "strict" : null);
+          if (requestBindingMode === "strict" && !requestBindingSha256) {
+            return sendError(res, 400, "requestBindingSha256 is required when requestBindingMode=strict", null, {
+              code: "SCHEMA_INVALID"
+            });
+          }
+          let requestedProviderId = null;
+          let requestedToolId = null;
+          let requestedQuoteId = null;
+          try {
+            requestedProviderId = normalizeOptionalX402RefInput(body?.providerId ?? null, "providerId", { allowNull: true, max: 200 });
+            requestedToolId = normalizeOptionalX402RefInput(body?.toolId ?? null, "toolId", { allowNull: true, max: 200 });
+            requestedQuoteId = normalizeOptionalX402RefInput(body?.quoteId ?? null, "quoteId", { allowNull: true, max: 200 });
+          } catch (err) {
+            return sendError(res, 400, "invalid quote request fields", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const quoteTtlSecondsRaw = body?.quoteTtlSeconds;
+          let quoteTtlSeconds = x402QuoteTtlSecondsValue;
+          if (!(quoteTtlSecondsRaw === null || quoteTtlSecondsRaw === undefined || String(quoteTtlSecondsRaw).trim() === "")) {
+            const n = Number(quoteTtlSecondsRaw);
+            if (!Number.isSafeInteger(n) || n <= 0 || n > 3600) {
+              return sendError(res, 400, "quoteTtlSeconds must be an integer within 1..3600", null, { code: "SCHEMA_INVALID" });
+            }
+            quoteTtlSeconds = n;
+          }
+
+          const gate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
+          if (!gate) return sendError(res, 404, "gate not found", null, { code: "NOT_FOUND" });
+          if (String(gate.status ?? "").toLowerCase() === "resolved") {
+            return sendError(res, 409, "gate is already resolved", null, { code: "X402_GATE_TERMINAL" });
+          }
+          const runId = String(gate.runId ?? "");
+          const settlement = typeof store.getAgentRunSettlement === "function" ? await store.getAgentRunSettlement({ tenantId, runId }) : null;
+          if (!settlement) return sendError(res, 404, "settlement not found for gate", null, { code: "NOT_FOUND" });
+          const amountCents = Number(gate?.terms?.amountCents ?? settlement?.amountCents ?? 0);
+          if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return sendError(res, 409, "gate amount invalid", null, { code: "X402_GATE_INVALID" });
+          const currency =
+            typeof gate?.terms?.currency === "string" && gate.terms.currency.trim() !== ""
+              ? gate.terms.currency.trim().toUpperCase()
+              : settlement?.currency ?? "USD";
+          const providerId =
+            requestedProviderId ??
+            (typeof gate?.payeeAgentId === "string" && gate.payeeAgentId.trim() !== ""
+              ? gate.payeeAgentId.trim()
+              : typeof gate?.terms?.providerId === "string" && gate.terms.providerId.trim() !== ""
+                ? gate.terms.providerId.trim()
+                : null);
+          if (!providerId) return sendError(res, 409, "gate provider missing", null, { code: "X402_GATE_INVALID" });
+          const toolId =
+            requestedToolId ??
+            (typeof gate?.toolId === "string" && gate.toolId.trim() !== "" ? gate.toolId.trim() : null) ??
+            (typeof gate?.quote?.toolId === "string" && gate.quote.toolId.trim() !== "" ? gate.quote.toolId.trim() : null);
+
+          const nowAt = nowIso();
+          const nowMs = Date.parse(nowAt);
+          const existingQuote =
+            gate?.quote && typeof gate.quote === "object" && !Array.isArray(gate.quote) ? gate.quote : null;
+          const existingQuoteExpiresAtMs = Number.isFinite(Date.parse(String(existingQuote?.expiresAt ?? "")))
+            ? Date.parse(String(existingQuote.expiresAt))
+            : Number.NaN;
+          const existingQuoteMatches =
+            !!existingQuote &&
+            Number.isFinite(existingQuoteExpiresAtMs) &&
+            existingQuoteExpiresAtMs > nowMs &&
+            (!requestedQuoteId || String(existingQuote.quoteId ?? "") === String(requestedQuoteId)) &&
+            String(existingQuote.providerId ?? "") === String(providerId) &&
+            String(existingQuote.toolId ?? "") === String(toolId ?? "") &&
+            (requestBindingMode
+              ? String(existingQuote.requestBindingMode ?? "") === String(requestBindingMode) &&
+                String(existingQuote.requestBindingSha256 ?? "") === String(requestBindingSha256 ?? "")
+              : !existingQuote.requestBindingMode && !existingQuote.requestBindingSha256);
+          if (existingQuoteMatches) {
+            const responseBody = {
+              gateId,
+              quote: existingQuote
+            };
+            if (idemStoreKey) {
+              await store.commitTx({
+                at: nowAt,
+                ops: [{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]
+              });
+            }
+            return sendJson(res, 200, responseBody);
+          }
+
+          const expiresAt = new Date(nowMs + quoteTtlSeconds * 1000).toISOString();
+          const quote = buildX402QuoteRecord({
+            gateId,
+            quoteId: requestedQuoteId ?? createId("x402quote"),
+            providerId,
+            toolId,
+            amountCents,
+            currency,
+            requestBindingMode,
+            requestBindingSha256,
+            quotedAt: nowAt,
+            expiresAt
+          });
+          const nextGate = normalizeForCanonicalJson(
+            {
+              ...gate,
+              ...(toolId ? { toolId } : {}),
+              quote,
+              updatedAt: nowAt
+            },
+            { path: "$" }
+          );
+          const responseBody = { gateId, quote };
+          const ops = [{ kind: "X402_GATE_UPSERT", tenantId, gateId, gate: nextGate }];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await store.commitTx({ at: nowAt, ops });
+          return sendJson(res, 200, responseBody);
         }
 
         if (parts[0] === "x402" && parts[1] === "gate" && parts[2] === "authorize-payment" && parts.length === 3 && req.method === "POST") {
@@ -29905,6 +30238,12 @@ export function createApi({
             return sendError(res, 400, "requestBindingSha256 is required when requestBindingMode=strict", null, {
               code: "SCHEMA_INVALID"
             });
+          }
+          let requestedQuoteId = null;
+          try {
+            requestedQuoteId = normalizeOptionalX402RefInput(body?.quoteId ?? null, "quoteId", { allowNull: true, max: 200 });
+          } catch (err) {
+            return sendError(res, 400, "invalid quoteId", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
 
           const gate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
@@ -29966,8 +30305,55 @@ export function createApi({
             existingToken.value.trim() !== "" &&
             Number.isFinite(tokenExpiresAtMs) &&
             tokenExpiresAtMs > nowMs;
+          const existingQuote =
+            gate?.quote && typeof gate.quote === "object" && !Array.isArray(gate.quote) ? gate.quote : null;
+          const existingQuoteExpiresAtMs = Number.isFinite(Date.parse(String(existingQuote?.expiresAt ?? "")))
+            ? Date.parse(String(existingQuote.expiresAt))
+            : Number.NaN;
+          if (requestedQuoteId && !existingQuote) {
+            return sendError(res, 409, "requested quoteId was not found on gate", null, { code: "X402_QUOTE_NOT_FOUND" });
+          }
+          if (requestedQuoteId && existingQuote && String(existingQuote.quoteId ?? "") !== String(requestedQuoteId)) {
+            return sendError(res, 409, "requested quoteId does not match gate quote", null, { code: "X402_QUOTE_MISMATCH" });
+          }
+          const selectedQuote =
+            existingQuote &&
+            (!requestedQuoteId || String(existingQuote.quoteId ?? "") === String(requestedQuoteId)) &&
+            Number.isFinite(existingQuoteExpiresAtMs) &&
+            existingQuoteExpiresAtMs > nowMs
+              ? existingQuote
+              : null;
+          if (requestedQuoteId && !selectedQuote) {
+            return sendError(res, 409, "requested quote has expired", null, { code: "X402_QUOTE_EXPIRED" });
+          }
+          const quoteRequestBindingMode =
+            selectedQuote && typeof selectedQuote.requestBindingMode === "string" && selectedQuote.requestBindingMode.trim() !== ""
+              ? selectedQuote.requestBindingMode.trim().toLowerCase()
+              : null;
+          const quoteRequestBindingSha256 =
+            selectedQuote && typeof selectedQuote.requestBindingSha256 === "string" && selectedQuote.requestBindingSha256.trim() !== ""
+              ? selectedQuote.requestBindingSha256.trim().toLowerCase()
+              : null;
+          let effectiveRequestBindingMode = requestBindingMode ?? quoteRequestBindingMode ?? null;
+          let effectiveRequestBindingSha256 = requestBindingSha256 ?? quoteRequestBindingSha256 ?? null;
+          if (effectiveRequestBindingMode === "strict" && !effectiveRequestBindingSha256) {
+            return sendError(res, 409, "strict request binding requires sha256 hash", null, { code: "X402_REQUEST_BINDING_REQUIRED" });
+          }
+          if (requestBindingMode === "strict" && quoteRequestBindingMode === "strict" && quoteRequestBindingSha256) {
+            if (String(requestBindingSha256 ?? "") !== String(quoteRequestBindingSha256)) {
+              return sendError(res, 409, "request binding does not match quote binding", null, { code: "X402_QUOTE_REQUEST_BINDING_MISMATCH" });
+            }
+          }
+          const effectiveQuoteId =
+            typeof selectedQuote?.quoteId === "string" && selectedQuote.quoteId.trim() !== "" ? selectedQuote.quoteId.trim() : null;
+          const effectiveQuoteSha256 =
+            typeof selectedQuote?.quoteSha256 === "string" && selectedQuote.quoteSha256.trim() !== ""
+              ? selectedQuote.quoteSha256.trim().toLowerCase()
+              : null;
           let existingTokenRequestBindingMode = null;
           let existingTokenRequestBindingSha256 = null;
+          let existingTokenQuoteId = null;
+          let existingTokenQuoteSha256 = null;
           if (hasLiveToken) {
             try {
               const parsedToken = parseSettldPayTokenV1(existingToken.value);
@@ -29980,12 +30366,23 @@ export function createApi({
                 typeof payload.requestBindingSha256 === "string" && payload.requestBindingSha256.trim() !== ""
                   ? payload.requestBindingSha256.trim().toLowerCase()
                   : null;
+              existingTokenQuoteId =
+                typeof payload.quoteId === "string" && payload.quoteId.trim() !== "" ? payload.quoteId.trim() : null;
+              existingTokenQuoteSha256 =
+                typeof payload.quoteSha256 === "string" && payload.quoteSha256.trim() !== ""
+                  ? payload.quoteSha256.trim().toLowerCase()
+                  : null;
             } catch {}
           }
           const requestBindingMatchesLiveToken =
-            !requestBindingMode
+            !effectiveRequestBindingMode
               ? !existingTokenRequestBindingMode && !existingTokenRequestBindingSha256
-              : requestBindingMode === existingTokenRequestBindingMode && requestBindingSha256 === existingTokenRequestBindingSha256;
+              : effectiveRequestBindingMode === existingTokenRequestBindingMode &&
+                effectiveRequestBindingSha256 === existingTokenRequestBindingSha256;
+          const quoteMatchesLiveToken =
+            !effectiveQuoteId
+              ? !existingTokenQuoteId && !existingTokenQuoteSha256
+              : existingTokenQuoteId === effectiveQuoteId && (!effectiveQuoteSha256 || existingTokenQuoteSha256 === effectiveQuoteSha256);
           if (x402PilotKillSwitchValue === true) {
             return sendError(res, 409, "x402 pilot kill switch is active", null, { code: "X402_PILOT_KILL_SWITCH_ACTIVE" });
           }
@@ -30052,13 +30449,15 @@ export function createApi({
               }
             }
           }
-          if (hasLiveToken && requestBindingMatchesLiveToken) {
+          if (hasLiveToken && requestBindingMatchesLiveToken && quoteMatchesLiveToken) {
             const responseBody = {
               gateId,
               authorizationRef,
               expiresAt: new Date(tokenExpiresAtMs).toISOString(),
               token: existingToken.value,
               tokenKid: existingToken.kid ?? null,
+              quoteId: effectiveQuoteId,
+              quoteSha256: effectiveQuoteSha256,
               reserve: {
                 amountCents,
                 currency,
@@ -30175,6 +30574,27 @@ export function createApi({
             }
           }
 
+          const gateAgentPassport =
+            gate?.agentPassport && typeof gate.agentPassport === "object" && !Array.isArray(gate.agentPassport) ? gate.agentPassport : null;
+          const includeSpendAuthorizationClaims = Boolean(effectiveQuoteId);
+          const agentPassportPolicyFingerprint = buildX402AgentPassportPolicyFingerprint(gateAgentPassport);
+          const fallbackPolicyFingerprint = includeSpendAuthorizationClaims
+            ? sha256Hex(
+                canonicalJsonStringify(
+                  normalizeForCanonicalJson(
+                    {
+                      schemaVersion: "X402SpendPolicyFingerprintSeed.v1",
+                      gateId,
+                      authorizationRef,
+                      payerAgentId,
+                      payeeProviderId: String(gate?.payeeAgentId ?? ""),
+                      quoteId: effectiveQuoteId ?? null
+                    },
+                    { path: "$" }
+                  )
+                )
+              )
+            : null;
           const payload = buildSettldPayPayloadV1({
             iss: settldPayIssuerValue,
             aud: String(gate?.payeeAgentId ?? ""),
@@ -30183,7 +30603,38 @@ export function createApi({
             amountCents,
             currency,
             payeeProviderId: String(gate?.payeeAgentId ?? ""),
-            ...(requestBindingMode ? { requestBindingMode, requestBindingSha256 } : {}),
+            ...(effectiveRequestBindingMode
+              ? { requestBindingMode: effectiveRequestBindingMode, requestBindingSha256: effectiveRequestBindingSha256 }
+              : {}),
+            ...(includeSpendAuthorizationClaims
+              ? {
+                  quoteId: effectiveQuoteId,
+                  quoteSha256: effectiveQuoteSha256,
+                  idempotencyKey: `x402:${gateId}:${effectiveQuoteId}`,
+                  nonce: createId("x402nonce"),
+                  sponsorRef:
+                    (typeof gateAgentPassport?.sponsorRef === "string" && gateAgentPassport.sponsorRef.trim() !== ""
+                      ? gateAgentPassport.sponsorRef.trim()
+                      : payerAgentId) || null,
+                  sponsorWalletRef:
+                    typeof gateAgentPassport?.sponsorWalletRef === "string" && gateAgentPassport.sponsorWalletRef.trim() !== ""
+                      ? gateAgentPassport.sponsorWalletRef.trim()
+                      : null,
+                  agentKeyId:
+                    (typeof gateAgentPassport?.agentKeyId === "string" && gateAgentPassport.agentKeyId.trim() !== ""
+                      ? gateAgentPassport.agentKeyId.trim()
+                      : payerAgentId) || null,
+                  delegationRef:
+                    typeof gateAgentPassport?.delegationRef === "string" && gateAgentPassport.delegationRef.trim() !== ""
+                      ? gateAgentPassport.delegationRef.trim()
+                      : null,
+                  policyVersion:
+                    Number.isSafeInteger(Number(gateAgentPassport?.policyVersion)) && Number(gateAgentPassport.policyVersion) > 0
+                      ? Number(gateAgentPassport.policyVersion)
+                      : 1,
+                  policyFingerprint: agentPassportPolicyFingerprint ?? fallbackPolicyFingerprint
+                }
+              : {}),
             iat: nowUnix,
             exp: nowUnix + settldPayTokenTtlSecondsValue
           });
@@ -30216,6 +30667,16 @@ export function createApi({
                   reservedAt: reserve.reservedAt ?? nowAt,
                   circleTransferId: reserve.circleTransferId ?? reserve.reserveId
                 },
+                quote:
+                  selectedQuote && typeof selectedQuote === "object" && !Array.isArray(selectedQuote)
+                    ? {
+                        quoteId: effectiveQuoteId,
+                        quoteSha256: effectiveQuoteSha256,
+                        expiresAt: selectedQuote.expiresAt ?? null,
+                        requestBindingMode: selectedQuote.requestBindingMode ?? null,
+                        requestBindingSha256: selectedQuote.requestBindingSha256 ?? null
+                      }
+                    : null,
                 token: {
                   value: minted.token,
                   kid: minted.kid,
@@ -30236,6 +30697,8 @@ export function createApi({
             expiresAt,
             token: minted.token,
             tokenKid: minted.kid,
+            quoteId: effectiveQuoteId,
+            quoteSha256: effectiveQuoteSha256,
             reserve: {
               amountCents,
               currency,
@@ -30525,6 +30988,25 @@ export function createApi({
             verificationMethodHashUsed,
             policyDecision
           });
+          let tokenPayloadForBindings = null;
+          try {
+            if (typeof gateAuthorization?.token?.value === "string" && gateAuthorization.token.value.trim() !== "") {
+              const parsed = parseSettldPayTokenV1(gateAuthorization.token.value);
+              tokenPayloadForBindings = parsed?.payload && typeof parsed.payload === "object" && !Array.isArray(parsed.payload) ? parsed.payload : null;
+            }
+          } catch {}
+          const tokenQuoteId =
+            typeof tokenPayloadForBindings?.quoteId === "string" && tokenPayloadForBindings.quoteId.trim() !== ""
+              ? tokenPayloadForBindings.quoteId.trim()
+              : typeof gate?.quote?.quoteId === "string" && gate.quote.quoteId.trim() !== ""
+                ? gate.quote.quoteId.trim()
+                : null;
+          const tokenQuoteSha256 =
+            typeof tokenPayloadForBindings?.quoteSha256 === "string" && tokenPayloadForBindings.quoteSha256.trim() !== ""
+              ? tokenPayloadForBindings.quoteSha256.trim().toLowerCase()
+              : typeof gate?.quote?.quoteSha256 === "string" && gate.quote.quoteSha256.trim() !== ""
+                ? gate.quote.quoteSha256.trim().toLowerCase()
+                : null;
           const settlementBindings = {
             authorizationRef:
               typeof gateAuthorization?.authorizationRef === "string" && gateAuthorization.authorizationRef.trim() !== ""
@@ -30558,6 +31040,44 @@ export function createApi({
               reserveId: gateAuthorization?.reserve?.reserveId ?? null,
               status: gateAuthorization?.reserve?.status ?? null
             },
+            quote:
+              tokenQuoteId || tokenQuoteSha256 || gateAuthorization?.quote
+                ? {
+                    quoteId: tokenQuoteId,
+                    quoteSha256: tokenQuoteSha256,
+                    expiresAt: gateAuthorization?.quote?.expiresAt ?? gate?.quote?.expiresAt ?? null,
+                    requestBindingMode: gateAuthorization?.quote?.requestBindingMode ?? gate?.quote?.requestBindingMode ?? null,
+                    requestBindingSha256:
+                      gateAuthorization?.quote?.requestBindingSha256 ??
+                      (typeof gate?.quote?.requestBindingSha256 === "string" ? gate.quote.requestBindingSha256 : null)
+                  }
+                : null,
+            spendAuthorization:
+              tokenPayloadForBindings && typeof tokenPayloadForBindings === "object"
+                ? {
+                    spendAuthorizationVersion:
+                      typeof tokenPayloadForBindings.spendAuthorizationVersion === "string"
+                        ? tokenPayloadForBindings.spendAuthorizationVersion
+                        : null,
+                    idempotencyKey:
+                      typeof tokenPayloadForBindings.idempotencyKey === "string" ? tokenPayloadForBindings.idempotencyKey : null,
+                    nonce: typeof tokenPayloadForBindings.nonce === "string" ? tokenPayloadForBindings.nonce : null,
+                    sponsorRef: typeof tokenPayloadForBindings.sponsorRef === "string" ? tokenPayloadForBindings.sponsorRef : null,
+                    sponsorWalletRef:
+                      typeof tokenPayloadForBindings.sponsorWalletRef === "string" ? tokenPayloadForBindings.sponsorWalletRef : null,
+                    agentKeyId: typeof tokenPayloadForBindings.agentKeyId === "string" ? tokenPayloadForBindings.agentKeyId : null,
+                    delegationRef:
+                      typeof tokenPayloadForBindings.delegationRef === "string" ? tokenPayloadForBindings.delegationRef : null,
+                    policyVersion:
+                      Number.isSafeInteger(Number(tokenPayloadForBindings.policyVersion)) && Number(tokenPayloadForBindings.policyVersion) > 0
+                        ? Number(tokenPayloadForBindings.policyVersion)
+                        : null,
+                    policyFingerprint:
+                      typeof tokenPayloadForBindings.policyFingerprint === "string"
+                        ? tokenPayloadForBindings.policyFingerprint.toLowerCase()
+                        : null
+                  }
+                : null,
             policyDecisionFingerprint
           };
 

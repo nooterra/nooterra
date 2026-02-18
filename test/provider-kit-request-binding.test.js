@@ -129,3 +129,102 @@ test("provider kit strict request binding rejects changed request body", async (
   const mismatchJson = await mismatchResponse.json();
   assert.equal(mismatchJson?.code, "SETTLD_PAY_REQUEST_BINDING_MISMATCH");
 });
+
+test("provider kit required spend authorization rejects missing claims", async (t) => {
+  const settldSigner = createEd25519Keypair();
+  const providerSigner = createEd25519Keypair();
+  const providerId = "prov_actions_required";
+  const quoteId = "x402quote_required_1";
+
+  const handler = createSettldPaidNodeHttpHandler({
+    providerId,
+    priceFor: async () => ({
+      providerId,
+      toolId: "actions.send",
+      amountCents: 250,
+      currency: "USD",
+      quoteRequired: true,
+      quoteId,
+      spendAuthorizationMode: "required"
+    }),
+    execute: async () => ({
+      statusCode: 200,
+      body: { ok: true }
+    }),
+    providerPublicKeyPem: providerSigner.publicKeyPem,
+    providerPrivateKeyPem: providerSigner.privateKeyPem,
+    settldPay: {
+      pinnedOnly: true,
+      pinnedPublicKeyPem: settldSigner.publicKeyPem
+    }
+  });
+
+  const svc = await startServer(handler);
+  t.after(async () => {
+    await svc.close();
+  });
+  const requestUrl = new URL("/actions/send", svc.baseUrl);
+  const nowUnix = Math.floor(Date.now() / 1000);
+
+  const incompleteToken = mintSettldPayTokenV1({
+    payload: buildSettldPayPayloadV1({
+      iss: "settld",
+      aud: providerId,
+      gateId: "gate_required_1",
+      authorizationRef: "auth_gate_required_1",
+      amountCents: 250,
+      currency: "USD",
+      payeeProviderId: providerId,
+      quoteId,
+      iat: nowUnix,
+      exp: nowUnix + 300
+    }),
+    publicKeyPem: settldSigner.publicKeyPem,
+    privateKeyPem: settldSigner.privateKeyPem
+  }).token;
+
+  const rejected = await fetch(requestUrl, {
+    method: "POST",
+    headers: {
+      authorization: `SettldPay ${incompleteToken}`,
+      "content-type": "application/json; charset=utf-8"
+    },
+    body: JSON.stringify({ action: "send" })
+  });
+  assert.equal(rejected.status, 402);
+  const rejectedJson = await rejected.json();
+  assert.equal(rejectedJson.code, "SETTLD_PAY_SPEND_AUTH_REQUIRED");
+
+  const validToken = mintSettldPayTokenV1({
+    payload: buildSettldPayPayloadV1({
+      iss: "settld",
+      aud: providerId,
+      gateId: "gate_required_1",
+      authorizationRef: "auth_gate_required_1",
+      amountCents: 250,
+      currency: "USD",
+      payeeProviderId: providerId,
+      quoteId,
+      idempotencyKey: "x402:gate_required_1:x402quote_required_1",
+      nonce: "nonce_required_1",
+      sponsorRef: "sponsor_acme",
+      agentKeyId: "agent_key_1",
+      policyFingerprint: "a".repeat(64),
+      iat: nowUnix,
+      exp: nowUnix + 300
+    }),
+    publicKeyPem: settldSigner.publicKeyPem,
+    privateKeyPem: settldSigner.privateKeyPem
+  }).token;
+
+  const accepted = await fetch(requestUrl, {
+    method: "POST",
+    headers: {
+      authorization: `SettldPay ${validToken}`,
+      "content-type": "application/json; charset=utf-8"
+    },
+    body: JSON.stringify({ action: "send" })
+  });
+  const acceptedText = await accepted.text();
+  assert.equal(accepted.status, 200, acceptedText);
+});

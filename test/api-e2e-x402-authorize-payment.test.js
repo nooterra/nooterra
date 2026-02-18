@@ -244,6 +244,111 @@ test("API e2e: strict request binding mints request-bound token and reuses reser
   assert.equal(payloadB.requestBindingSha256, requestBindingShaB);
 });
 
+test("API e2e: quote-bound authorization carries spend claims into settlement bindings", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_auth_payer_quote_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_auth_payee_quote_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 8000, idempotencyKey: "wallet_credit_x402_auth_quote_1" });
+
+  const gateId = "gate_auth_quote_1";
+  const createGate = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_auth_quote_1" },
+    body: {
+      gateId,
+      payerAgentId,
+      payeeAgentId,
+      toolId: "mock_search",
+      amountCents: 900,
+      currency: "USD",
+      agentPassport: {
+        sponsorRef: "sponsor_acme",
+        sponsorWalletRef: "wallet_sponsor_1",
+        agentKeyId: "agent_key_1",
+        delegationRef: "delegation_1",
+        policyRef: "policy_alpha",
+        policyVersion: 3
+      }
+    }
+  });
+  assert.equal(createGate.statusCode, 201, createGate.body);
+
+  const requestBindingSha256 = "c".repeat(64);
+  const quoted = await request(api, {
+    method: "POST",
+    path: "/x402/gate/quote",
+    headers: { "x-idempotency-key": "x402_gate_quote_auth_quote_1" },
+    body: {
+      gateId,
+      requestBindingMode: "strict",
+      requestBindingSha256
+    }
+  });
+  assert.equal(quoted.statusCode, 200, quoted.body);
+  const quoteId = quoted.json?.quote?.quoteId;
+  const quoteSha256 = quoted.json?.quote?.quoteSha256;
+  assert.ok(typeof quoteId === "string" && quoteId.length > 0);
+  assert.match(String(quoteSha256 ?? ""), /^[0-9a-f]{64}$/);
+
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_auth_quote_1" },
+    body: {
+      gateId,
+      quoteId,
+      requestBindingMode: "strict",
+      requestBindingSha256
+    }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+  const payload = parseSettldPayTokenV1(authorized.json?.token).payload;
+  assert.equal(payload.requestBindingMode, "strict");
+  assert.equal(payload.requestBindingSha256, requestBindingSha256);
+  assert.equal(payload.quoteId, quoteId);
+  assert.equal(payload.quoteSha256, quoteSha256);
+  assert.ok(typeof payload.idempotencyKey === "string" && payload.idempotencyKey.length > 0);
+  assert.ok(typeof payload.nonce === "string" && payload.nonce.length > 0);
+  assert.equal(payload.sponsorRef, "sponsor_acme");
+  assert.equal(payload.agentKeyId, "agent_key_1");
+  assert.equal(payload.policyVersion, 3);
+  assert.match(String(payload.policyFingerprint ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(payload.spendAuthorizationVersion, "SpendAuthorization.v1");
+
+  const verified = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_auth_quote_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: {
+        mode: "automatic",
+        rules: {
+          autoReleaseOnGreen: true,
+          greenReleaseRatePct: 100,
+          autoReleaseOnAmber: false,
+          amberReleaseRatePct: 0,
+          autoReleaseOnRed: true,
+          redReleaseRatePct: 0
+        }
+      },
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${requestBindingSha256}`, `http:response_sha256:${"d".repeat(64)}`]
+    }
+  });
+  assert.equal(verified.statusCode, 200, verified.body);
+  assert.equal(verified.json?.decisionRecord?.bindings?.quote?.quoteId, quoteId);
+  assert.equal(verified.json?.decisionRecord?.bindings?.quote?.quoteSha256, quoteSha256);
+  assert.equal(verified.json?.decisionRecord?.bindings?.spendAuthorization?.sponsorRef, "sponsor_acme");
+  assert.equal(verified.json?.decisionRecord?.bindings?.spendAuthorization?.agentKeyId, "agent_key_1");
+  assert.equal(verified.json?.decisionRecord?.bindings?.spendAuthorization?.policyVersion, 3);
+  assert.equal(verified.json?.decisionRecord?.bindings?.spendAuthorization?.policyFingerprint, payload.policyFingerprint);
+});
+
 test("API e2e: production-like defaults fail closed when external reserve is unavailable", async (t) => {
   const prevSettldEnv = process.env.SETTLD_ENV;
   const prevRequireReserve = process.env.X402_REQUIRE_EXTERNAL_RESERVE;

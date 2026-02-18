@@ -6,6 +6,7 @@ import { Readable } from "node:stream";
 import { parseX402PaymentRequired } from "../../../src/core/x402-gate.js";
 import { canonicalJsonStringify } from "../../../src/core/canonical-json.js";
 import { keyIdFromPublicKeyPem } from "../../../src/core/crypto.js";
+import { computeSettldPayRequestBindingSha256V1 } from "../../../src/core/settld-pay-token.js";
 import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "../../../src/core/tool-provider-signature.js";
 
 function readRequiredEnv(name) {
@@ -43,6 +44,14 @@ function sanitizeIdSegment(text, { maxLen = 96 } = {}) {
   return safe || "unknown";
 }
 
+function normalizeOfferRef(value, { maxLen = 200 } = {}) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const out = String(value).trim();
+  if (out.length > maxLen) return null;
+  if (!/^[A-Za-z0-9:_-]+$/.test(out)) return null;
+  return out;
+}
+
 function sha256Hex(buf) {
   return crypto.createHash("sha256").update(buf).digest("hex");
 }
@@ -70,6 +79,28 @@ function extractAmountAndCurrency(fields) {
     .trim()
     .toUpperCase();
   return { ok: true, amountCents, currency: currency || "USD" };
+}
+
+function normalizeOfferBool(value, { fallback = false } = {}) {
+  if (value === null || value === undefined || String(value).trim() === "") return fallback;
+  const raw = String(value).trim().toLowerCase();
+  if (raw === "1" || raw === "true" || raw === "yes" || raw === "on") return true;
+  if (raw === "0" || raw === "false" || raw === "no" || raw === "off") return false;
+  return fallback;
+}
+
+function normalizeStrictRequestBindingMode(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const raw = String(value).trim().toLowerCase();
+  return raw === "strict" ? "strict" : null;
+}
+
+function computeStrictRequestBindingSha256ForRetry({ reqMethod, upstreamUrl }) {
+  const method = String(reqMethod ?? "GET").toUpperCase();
+  const host = String(upstreamUrl.host ?? "").trim().toLowerCase();
+  const pathWithQuery = `${upstreamUrl.pathname}${upstreamUrl.search}`;
+  const emptyBodySha256 = sha256Hex(Buffer.from("", "utf8"));
+  return computeSettldPayRequestBindingSha256V1({ method, host, pathWithQuery, bodySha256: emptyBodySha256 });
 }
 
 async function readBodyWithLimit(res, { maxBytes }) {
@@ -186,11 +217,61 @@ async function handleProxy(req, res) {
         res.end(JSON.stringify({ ok: false, error: "gateway_retry_requires_buffered_body", gateId }));
         return;
       }
+      const paymentRequiredHeaders = Object.fromEntries(upstreamRes.headers.entries());
+      const parsedOffer = parseX402PaymentRequired(paymentRequiredHeaders);
+      const offerFields = parsedOffer.ok && parsedOffer.fields && typeof parsedOffer.fields === "object" ? parsedOffer.fields : {};
+      const requestBindingMode = normalizeStrictRequestBindingMode(offerFields.requestBindingMode);
+      const quoteRequired = normalizeOfferBool(offerFields.quoteRequired, { fallback: false });
+      const offerQuoteId = normalizeOfferRef(offerFields.quoteId);
+      const offerProviderId = normalizeOfferRef(offerFields.providerId);
+      const offerToolId = normalizeOfferRef(offerFields.toolId);
+      let requestBindingSha256 = null;
+      if (requestBindingMode === "strict") {
+        requestBindingSha256 = computeStrictRequestBindingSha256ForRetry({ reqMethod: req.method, upstreamUrl });
+      }
+      let quoted = null;
+      const shouldFetchQuote = quoteRequired || requestBindingMode === "strict" || Boolean(offerQuoteId);
+      if (shouldFetchQuote) {
+        quoted = await settldJson("/x402/gate/quote", {
+          tenantId,
+          method: "POST",
+          idempotencyKey: stableIdemKey(
+            "x402_quote",
+            `${gateId}\n${requestBindingMode ?? "none"}\n${requestBindingSha256 ?? ""}\n${offerQuoteId ?? ""}`
+          ),
+          body: {
+            gateId,
+            ...(requestBindingMode === "strict"
+              ? {
+                  requestBindingMode: "strict",
+                  requestBindingSha256
+                }
+              : {}),
+            ...(offerProviderId ? { providerId: offerProviderId } : {}),
+            ...(offerToolId ? { toolId: offerToolId } : {}),
+            ...(offerQuoteId ? { quoteId: offerQuoteId } : {})
+          }
+        });
+      }
       const authz = await settldJson("/x402/gate/authorize-payment", {
         tenantId,
         method: "POST",
-        idempotencyKey: stableIdemKey("x402_authz", `${gateId}`),
-        body: { gateId }
+        idempotencyKey: stableIdemKey(
+          "x402_authz",
+          `${gateId}\n${requestBindingMode ?? "none"}\n${requestBindingSha256 ?? ""}\n${
+            quoted?.quote?.quoteId ?? offerQuoteId ?? ""
+          }`
+        ),
+        body: {
+          gateId,
+          ...(requestBindingMode === "strict"
+            ? {
+                requestBindingMode: "strict",
+                requestBindingSha256
+              }
+            : {}),
+          ...(quoted?.quote?.quoteId ? { quoteId: String(quoted.quote.quoteId) } : offerQuoteId ? { quoteId: offerQuoteId } : {})
+        }
       });
       const token = typeof authz?.token === "string" ? authz.token.trim() : "";
       if (!token) {
@@ -203,6 +284,11 @@ async function handleProxy(req, res) {
       headers.set("x-payment", token);
       if (typeof authz?.authorizationRef === "string" && authz.authorizationRef.trim() !== "") {
         headers.set("x-settld-authorization-ref", authz.authorizationRef.trim());
+      }
+      if (typeof authz?.quoteId === "string" && authz.quoteId.trim() !== "") {
+        headers.set("x-settld-quote-id", authz.quoteId.trim());
+      } else if (quoted?.quote?.quoteId) {
+        headers.set("x-settld-quote-id", String(quoted.quote.quoteId));
       }
       upstreamRes = await fetch(upstreamUrl, {
         method: req.method,
@@ -235,6 +321,7 @@ async function handleProxy(req, res) {
         res.end(await upstreamRes.text());
         return;
       }
+      const offeredToolId = normalizeOfferRef(parsed.fields?.toolId);
 
       const payerAgentId = derivePayerAgentId();
       const payeeAgentId = derivePayeeAgentId();
@@ -251,6 +338,7 @@ async function handleProxy(req, res) {
           ...(X402_AUTOFUND ? { autoFundPayerCents: amount.amountCents } : {}),
           holdbackBps: HOLDBACK_BPS,
           disputeWindowMs: DISPUTE_WINDOW_MS,
+          ...(offeredToolId ? { toolId: offeredToolId } : {}),
           ...(X402_PROVIDER_PUBLIC_KEY_PEM ? { providerPublicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM } : {}),
           paymentRequiredHeader: { "x-payment-required": parsed.raw }
         }
@@ -272,6 +360,8 @@ async function handleProxy(req, res) {
     }
     return;
   }
+
+  const requestSha256ForEvidence = computeStrictRequestBindingSha256ForRetry({ reqMethod: req.method, upstreamUrl });
 
   try {
     // For "paid" requests, capture a small deterministic response hash and verify before returning.
@@ -298,7 +388,7 @@ async function handleProxy(req, res) {
           },
           verificationMethod: { mode: "deterministic", source: "gateway_unverifiable_v1", attestor: null },
           verificationCodes: ["X402_GATEWAY_RESPONSE_TOO_LARGE"],
-          evidenceRefs: [`http:status:${upstreamRes.status}`]
+          evidenceRefs: [`http:request_sha256:${requestSha256ForEvidence}`, `http:status:${upstreamRes.status}`]
         }
       });
 
@@ -404,6 +494,7 @@ async function handleProxy(req, res) {
         ...(providerSignature ? { providerSignature: { ...providerSignature, publicKeyPem: X402_PROVIDER_PUBLIC_KEY_PEM } } : {}),
         verificationCodes: providerReasonCodes,
         evidenceRefs: [
+          `http:request_sha256:${requestSha256ForEvidence}`,
           `http:response_sha256:${respHash}`,
           `http:status:${upstreamRes.status}`,
           ...(providerSignature
@@ -461,7 +552,7 @@ async function handleProxy(req, res) {
           },
           verificationMethod: { mode: "deterministic", source: "gateway_error_v1", attestor: null },
           verificationCodes: ["X402_GATEWAY_ERROR"],
-          evidenceRefs: [`http:status:${upstreamRes.status}`]
+          evidenceRefs: [`http:request_sha256:${requestSha256ForEvidence}`, `http:status:${upstreamRes.status}`]
         }
       });
     } catch {}

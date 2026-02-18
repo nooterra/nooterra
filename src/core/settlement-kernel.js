@@ -157,6 +157,45 @@ function normalizeSettlementBindings(value, name, { allowNull = true } = {}) {
             status: normalizeNullableString(value.reserve.status, `${name}.reserve.status`, { max: 64 })
           }
         : null,
+      quote: value.quote
+        ? {
+            quoteId: normalizeNullableString(value.quote.quoteId, `${name}.quote.quoteId`, { max: 200 }),
+            quoteSha256: normalizeHexHash(value.quote.quoteSha256, `${name}.quote.quoteSha256`, { allowNull: true }),
+            expiresAt: value.quote.expiresAt === null || value.quote.expiresAt === undefined ? null : String(value.quote.expiresAt),
+            requestBindingMode: normalizeNullableString(value.quote.requestBindingMode, `${name}.quote.requestBindingMode`, {
+              max: 32
+            }),
+            requestBindingSha256: normalizeHexHash(value.quote.requestBindingSha256, `${name}.quote.requestBindingSha256`, {
+              allowNull: true
+            })
+          }
+        : null,
+      spendAuthorization: value.spendAuthorization
+        ? {
+            spendAuthorizationVersion: normalizeNullableString(
+              value.spendAuthorization.spendAuthorizationVersion,
+              `${name}.spendAuthorization.spendAuthorizationVersion`,
+              { max: 64 }
+            ),
+            idempotencyKey: normalizeNullableString(value.spendAuthorization.idempotencyKey, `${name}.spendAuthorization.idempotencyKey`, {
+              max: 256
+            }),
+            nonce: normalizeNullableString(value.spendAuthorization.nonce, `${name}.spendAuthorization.nonce`, { max: 256 }),
+            sponsorRef: normalizeNullableString(value.spendAuthorization.sponsorRef, `${name}.spendAuthorization.sponsorRef`, { max: 200 }),
+            sponsorWalletRef: normalizeNullableString(value.spendAuthorization.sponsorWalletRef, `${name}.spendAuthorization.sponsorWalletRef`, {
+              max: 200
+            }),
+            agentKeyId: normalizeNullableString(value.spendAuthorization.agentKeyId, `${name}.spendAuthorization.agentKeyId`, { max: 200 }),
+            delegationRef: normalizeNullableString(value.spendAuthorization.delegationRef, `${name}.spendAuthorization.delegationRef`, { max: 200 }),
+            policyVersion: normalizeNullableSafeInt(value.spendAuthorization.policyVersion, `${name}.spendAuthorization.policyVersion`, {
+              min: 1,
+              max: 1_000_000_000
+            }),
+            policyFingerprint: normalizeHexHash(value.spendAuthorization.policyFingerprint, `${name}.spendAuthorization.policyFingerprint`, {
+              allowNull: true
+            })
+          }
+        : null,
       policyDecisionFingerprint: value.policyDecisionFingerprint
         ? {
             fingerprintVersion: normalizeNullableString(

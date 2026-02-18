@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { createApi } from "../src/api/app.js";
 import { authKeyId, authKeySecret, hashAuthKeySecret } from "../src/core/auth.js";
+import { computeSettldPayRequestBindingSha256V1, parseSettldPayTokenV1 } from "../src/core/settld-pay-token.js";
 import { listenOnEphemeralLoopback } from "./lib/listen.js";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -78,7 +79,8 @@ test("x402 gateway: retries with SettldPay token and returns verified response",
     if (!hasSettldPay) {
       res.writeHead(402, {
         "content-type": "application/json; charset=utf-8",
-        "x-payment-required": "amountCents=500; currency=USD; address=mock:payee; network=mocknet"
+        "x-payment-required":
+          "amountCents=500; currency=USD; toolId=mock_search; address=mock:payee; network=mocknet; requestBindingMode=strict; quoteRequired=1"
       });
       res.end(JSON.stringify({ ok: false, code: "PAYMENT_REQUIRED" }));
       return;
@@ -154,4 +156,15 @@ test("x402 gateway: retries with SettldPay token and returns verified response",
   const paidCall = upstreamRequests.find((row) => row.authorization.toLowerCase().startsWith("settldpay "));
   assert.ok(paidCall, `expected SettldPay retry; stdout=${stdoutBuf} stderr=${stderrBuf}`);
   assert.ok(typeof paidCall.xPayment === "string" && paidCall.xPayment.length > 0);
+  const token = paidCall.authorization.slice("SettldPay ".length).trim();
+  const parsedToken = parseSettldPayTokenV1(token);
+  const expectedRequestBindingSha256 = computeSettldPayRequestBindingSha256V1({
+    method: "GET",
+    host: `127.0.0.1:${upstreamBind.port}`,
+    pathWithQuery: "/tools/search?q=dentist",
+    bodySha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  });
+  assert.equal(parsedToken.payload.requestBindingMode, "strict");
+  assert.equal(parsedToken.payload.requestBindingSha256, expectedRequestBindingSha256);
+  assert.ok(typeof parsedToken.payload.quoteId === "string" && parsedToken.payload.quoteId.length > 0);
 });

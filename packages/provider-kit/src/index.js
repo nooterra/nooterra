@@ -57,6 +57,21 @@ function normalizeRequestBindingMode(value, { fallback = "none" } = {}) {
   throw new TypeError("requestBindingMode must be none|strict");
 }
 
+function normalizeBooleanLike(value, { fallback = false } = {}) {
+  if (value === null || value === undefined || String(value).trim() === "") return fallback;
+  const raw = String(value).trim().toLowerCase();
+  if (raw === "1" || raw === "true" || raw === "yes" || raw === "on") return true;
+  if (raw === "0" || raw === "false" || raw === "no" || raw === "off") return false;
+  throw new TypeError("boolean-like value must be 1|0|true|false|yes|no|on|off");
+}
+
+function normalizeSpendAuthorizationMode(value, { fallback = "optional" } = {}) {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!raw) return fallback;
+  if (raw === "optional" || raw === "required") return raw;
+  throw new TypeError("spendAuthorizationMode must be optional|required");
+}
+
 function parseVerificationCode(err) {
   const code = typeof err?.code === "string" && err.code.trim() !== "" ? err.code.trim() : "SETTLD_PAY_VERIFICATION_ERROR";
   return code;
@@ -176,14 +191,19 @@ export function parseSettldPayAuthorizationHeader(authorizationHeaderRaw) {
 }
 
 export function buildPaymentRequiredHeaderValue(offer) {
-  return [
+  const fields = [
     `amountCents=${offer.amountCents}`,
     `currency=${offer.currency}`,
     `providerId=${offer.providerId}`,
     `toolId=${offer.toolId}`,
     `address=${offer.address}`,
-    `network=${offer.network}`
-  ].join("; ");
+    `network=${offer.network}`,
+    `requestBindingMode=${offer.requestBindingMode ?? "none"}`
+  ];
+  if (offer.quoteRequired === true) fields.push("quoteRequired=1");
+  if (typeof offer.quoteId === "string" && offer.quoteId.trim() !== "") fields.push(`quoteId=${offer.quoteId.trim()}`);
+  if (offer.spendAuthorizationMode === "required") fields.push("spendAuthorizationMode=required");
+  return fields.join("; ");
 }
 
 export function createInMemoryReplayStore({ maxKeys = 10_000 } = {}) {
@@ -325,6 +345,15 @@ function normalizeOffer({ offer, req, url, providerId, providerIdForRequest, pay
       ? "strict"
       : "none";
   const requestBindingMode = normalizeRequestBindingMode(raw.requestBindingMode, { fallback: implicitBindingMode });
+  const quoteRequired = normalizeBooleanLike(raw.quoteRequired, { fallback: false });
+  const quoteId =
+    typeof raw.quoteId === "string" && raw.quoteId.trim() !== "" ? raw.quoteId.trim() : null;
+  if (quoteId && !/^[A-Za-z0-9:_-]+$/.test(quoteId)) {
+    throw new TypeError("priceFor().quoteId must match ^[A-Za-z0-9:_-]+$");
+  }
+  const spendAuthorizationMode = normalizeSpendAuthorizationMode(raw.spendAuthorizationMode, {
+    fallback: quoteRequired ? "required" : "optional"
+  });
   const rawProviderId = typeof raw.providerId === "string" && raw.providerId.trim() !== "" ? raw.providerId.trim() : null;
   const configuredProviderId = typeof providerId === "string" && providerId.trim() !== "" ? providerId.trim() : null;
   const providerFromFn =
@@ -360,7 +389,10 @@ function normalizeOffer({ offer, req, url, providerId, providerIdForRequest, pay
     toolId,
     address,
     network,
-    requestBindingMode
+    requestBindingMode,
+    quoteRequired,
+    quoteId,
+    spendAuthorizationMode
   };
 }
 
@@ -449,6 +481,48 @@ async function verifySettldPaymentToken({ token, offer, keysetResolver, expected
         tokenCurrency: payloadCurrency
       }
     };
+  }
+
+  const payloadQuoteId = typeof payload.quoteId === "string" ? payload.quoteId.trim() : "";
+  if (offer.quoteRequired === true && !payloadQuoteId) {
+    return {
+      ok: false,
+      code: "SETTLD_PAY_QUOTE_REQUIRED",
+      message: "token is missing required quoteId"
+    };
+  }
+  if (offer.quoteId && payloadQuoteId !== offer.quoteId) {
+    return {
+      ok: false,
+      code: "SETTLD_PAY_QUOTE_MISMATCH",
+      message: "token quoteId does not match provider offer",
+      details: {
+        expectedQuoteId: offer.quoteId,
+        tokenQuoteId: payloadQuoteId || null
+      }
+    };
+  }
+
+  if (offer.spendAuthorizationMode === "required") {
+    const payloadPolicyFingerprint =
+      typeof payload.policyFingerprint === "string" ? payload.policyFingerprint.trim().toLowerCase() : "";
+    const requiredClaims = [
+      ["quoteId", payloadQuoteId],
+      ["idempotencyKey", typeof payload.idempotencyKey === "string" ? payload.idempotencyKey.trim() : ""],
+      ["nonce", typeof payload.nonce === "string" ? payload.nonce.trim() : ""],
+      ["sponsorRef", typeof payload.sponsorRef === "string" ? payload.sponsorRef.trim() : ""],
+      ["agentKeyId", typeof payload.agentKeyId === "string" ? payload.agentKeyId.trim() : ""],
+      ["policyFingerprint", /^[0-9a-f]{64}$/.test(payloadPolicyFingerprint) ? payloadPolicyFingerprint : ""]
+    ];
+    const missingClaims = requiredClaims.filter(([, v]) => !v).map(([name]) => name);
+    if (missingClaims.length > 0) {
+      return {
+        ok: false,
+        code: "SETTLD_PAY_SPEND_AUTH_REQUIRED",
+        message: "token is missing required spend-authorization claims",
+        details: { missingClaims }
+      };
+    }
   }
 
   return {
@@ -579,6 +653,7 @@ export function createSettldPaidNodeHttpHandler({
         "x-settld-provider-signature": replayExisting.signature?.signatureBase64 ?? "",
         "x-settld-provider-authorization-ref": String(payload.authorizationRef ?? ""),
         "x-settld-provider-gate-id": String(payload.gateId ?? ""),
+        "x-settld-provider-quote-id": String(payload.quoteId ?? ""),
         "x-settld-provider-token-sha256": String(verification.tokenSha256 ?? ""),
         "x-settld-keyset-source": verified.keysetSource,
         "x-settld-provider-replay": "duplicate",
@@ -640,6 +715,7 @@ export function createSettldPaidNodeHttpHandler({
       "x-settld-provider-signature": signature.signatureBase64 ?? "",
       "x-settld-provider-authorization-ref": String(payload.authorizationRef ?? ""),
       "x-settld-provider-gate-id": String(payload.gateId ?? ""),
+      "x-settld-provider-quote-id": String(payload.quoteId ?? ""),
       "x-settld-provider-token-sha256": String(verification.tokenSha256 ?? ""),
       "x-settld-keyset-source": verified.keysetSource,
       "x-settld-request-binding-mode": offer.requestBindingMode ?? "none",

@@ -276,6 +276,24 @@ test("Settlement kernel preserves x402 authorization/request/response bindings",
         reserveId: "circle_transfer_123",
         status: "reserved"
       },
+      quote: {
+        quoteId: "x402quote_1",
+        quoteSha256: "1".repeat(64),
+        expiresAt: "2026-02-08T00:10:00.000Z",
+        requestBindingMode: "strict",
+        requestBindingSha256: "2".repeat(64)
+      },
+      spendAuthorization: {
+        spendAuthorizationVersion: "SpendAuthorization.v1",
+        idempotencyKey: "x402:gate_4:x402quote_1",
+        nonce: "x402nonce_1",
+        sponsorRef: "sponsor_acme",
+        sponsorWalletRef: "wallet_sponsor_1",
+        agentKeyId: "agent_key_1",
+        delegationRef: "deleg_1",
+        policyVersion: 3,
+        policyFingerprint: "3".repeat(64)
+      },
       policyDecisionFingerprint: {
         fingerprintVersion: "PolicyDecisionFingerprint.v1",
         policyId: "policy_default_auto",
@@ -289,6 +307,8 @@ test("Settlement kernel preserves x402 authorization/request/response bindings",
   });
   assert.equal(decision.bindings.authorizationRef, "auth_gate_4");
   assert.equal(decision.bindings.request.sha256, "b".repeat(64));
+  assert.equal(decision.bindings.quote.quoteId, "x402quote_1");
+  assert.equal(decision.bindings.spendAuthorization.policyVersion, 3);
   assert.equal(decision.bindings.policyDecisionFingerprint.policyId, "policy_default_auto");
   assert.equal(decision.bindings.policyDecisionFingerprint.evaluationHash, "f".repeat(64));
 
@@ -312,5 +332,7 @@ test("Settlement kernel preserves x402 authorization/request/response bindings",
   });
   assert.equal(receipt.bindings.response.status, 200);
   assert.equal(receipt.bindings.providerSig.verified, true);
+  assert.equal(receipt.bindings.quote.requestBindingMode, "strict");
+  assert.equal(receipt.bindings.spendAuthorization.sponsorRef, "sponsor_acme");
   assert.equal(receipt.bindings.policyDecisionFingerprint.policyVersion, 7);
 });

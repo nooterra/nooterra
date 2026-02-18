@@ -650,7 +650,8 @@ test("API e2e: billing stripe checkout retries without stale customer id in live
 test("API e2e: billing hard limit blocks additional verified runs", async () => {
   const api = createApi({
     now: () => "2026-02-07T00:00:00.000Z",
-    opsTokens: ["tok_finw:finance_write"].join(";")
+    opsTokens: ["tok_finw:finance_write"].join(";"),
+    billingPlanEnforcementEnabled: true
   });
 
   const tenantId = "tenant_billing_hard_limit";
@@ -714,4 +715,83 @@ test("API e2e: billing hard limit blocks additional verified runs", async () => 
   assert.equal(secondCompletion.statusCode, 402);
   assert.equal(secondCompletion.json?.code, "BILLING_PLAN_LIMIT_EXCEEDED");
   assert.equal(secondCompletion.json?.details?.hardLimitVerifiedRunsPerMonth, 1);
+});
+
+test("API e2e: billing hard limit is disabled by default (metering remains active)", async () => {
+  const api = createApi({
+    now: () => "2026-02-07T00:00:00.000Z",
+    opsTokens: ["tok_finr:finance_read", "tok_finw:finance_write"].join(";")
+  });
+
+  const tenantId = "tenant_billing_hard_limit_default_off";
+  const payerAgentId = "agt_billing_default_off_payer";
+  const payeeAgentId = "agt_billing_default_off_payee";
+
+  const setPlan = await request(api, {
+    method: "PUT",
+    path: "/ops/finance/billing/plan",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw"
+    },
+    body: {
+      plan: "free",
+      hardLimitEnforced: true,
+      planOverrides: {
+        hardLimitVerifiedRunsPerMonth: 1,
+        includedVerifiedRunsPerMonth: 1
+      }
+    }
+  });
+  assert.equal(setPlan.statusCode, 200);
+
+  await registerAgent(api, { tenantId, agentId: payerAgentId });
+  await registerAgent(api, { tenantId, agentId: payeeAgentId });
+
+  const credit = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(payerAgentId)}/wallet/credit`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": "billing_limit_default_off_credit_1"
+    },
+    body: {
+      amountCents: 4000,
+      currency: "USD"
+    }
+  });
+  assert.equal(credit.statusCode, 201);
+
+  const firstCompletion = await createAndCompleteRun(api, {
+    tenantId,
+    payerAgentId,
+    payeeAgentId,
+    runId: "run_billing_default_off_1",
+    amountCents: 500,
+    idempotencyPrefix: "billing_default_off_run_1"
+  });
+  assert.equal(firstCompletion.statusCode, 201);
+
+  const secondCompletion = await createAndCompleteRun(api, {
+    tenantId,
+    payerAgentId,
+    payeeAgentId,
+    runId: "run_billing_default_off_2",
+    amountCents: 500,
+    idempotencyPrefix: "billing_default_off_run_2"
+  });
+  assert.equal(secondCompletion.statusCode, 201);
+
+  const summary = await request(api, {
+    method: "GET",
+    path: "/ops/finance/billing/summary?period=2026-02",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(summary.statusCode, 200);
+  assert.equal(summary.json?.usage?.verifiedRuns, 2);
+  assert.equal(summary.json?.enforcement?.hardLimitEnforced, false);
+  assert.equal(summary.json?.enforcement?.wouldBlockNextVerifiedRun, false);
 });
