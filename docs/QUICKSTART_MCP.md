@@ -91,6 +91,20 @@ Artifact bundle includes:
 - `batch-worker-state.json` (when `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`)
 - `batch-settlement.json` (when `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`)
 
+## Authority + Pinning Notes
+
+- Authority enforcement in this flow is API key scope + tenant-bound policy checks at Settld API/gateway surfaces.
+- Replay-critical settlement policy pinning is captured in `SettlementDecisionRecord.v2` (`policyHashUsed`, `verificationMethodHashUsed`), so decisions remain auditable and deterministic.
+- Receipts and exports bind the paid call to decision + settlement artifacts:
+  - `decisionId` (printed by demo and present in receipt data)
+  - `settlementReceiptId` (printed by demo and present in receipt data)
+
+Reference specs:
+
+- `docs/spec/SettlementDecisionRecord.v2.md`
+- `docs/spec/SettlementReceipt.v1.md`
+- `docs/spec/SettlementKernel.v1.md`
+
 ## Run The MCP Server
 
 Set environment variables:
