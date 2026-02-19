@@ -66,6 +66,19 @@ async function issueWalletAuthorizationDecision(
   return response;
 }
 
+async function resolveX402Escalation(api, { escalationId, action, reason = null, idempotencyKey }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/x402/gate/escalations/${encodeURIComponent(escalationId)}/resolve`,
+    headers: { "x-idempotency-key": idempotencyKey },
+    body: {
+      action,
+      ...(reason ? { reason } : {})
+    }
+  });
+  return response;
+}
+
 async function createAgreementDelegation(
   api,
   {
@@ -649,6 +662,155 @@ test("API e2e: ops x402 wallet policy CRUD and authorize-payment policy enforcem
   });
   assert.equal(issuerDecisionB.statusCode, 409, issuerDecisionB.body);
   assert.equal(issuerDecisionB.json?.code, "X402_WALLET_POLICY_DAILY_LIMIT_EXCEEDED");
+});
+
+test("API e2e: authorize-payment emits escalation and resumes with approved override", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_auth_escalation_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_auth_escalation_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 12_000, idempotencyKey: "wallet_credit_x402_auth_escalation_1" });
+
+  const walletPolicy = {
+    schemaVersion: "X402WalletPolicy.v1",
+    sponsorRef: "sponsor_escalation_ops_1",
+    sponsorWalletRef: "wallet_escalation_ops_1",
+    policyRef: "policy_escalation_1",
+    policyVersion: 1,
+    status: "active",
+    maxAmountCents: 1000,
+    maxDailyAuthorizationCents: 300,
+    allowedProviderIds: [payeeAgentId],
+    allowedToolIds: ["weather_read"],
+    allowedCurrencies: ["USD"],
+    allowedReversalActions: ["request_refund", "resolve_refund", "void_authorization"],
+    requireQuote: false,
+    requireStrictRequestBinding: false,
+    requireAgentKeyMatch: false
+  };
+  const createdPolicy = await upsertX402WalletPolicy(api, {
+    policy: walletPolicy,
+    idempotencyKey: "x402_wallet_policy_upsert_escalation_1"
+  });
+  assert.equal(createdPolicy.statusCode, 201, createdPolicy.body);
+
+  const createGateA = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_escalation_1a" },
+    body: {
+      gateId: "gate_auth_escalation_1a",
+      payerAgentId,
+      payeeAgentId,
+      toolId: "weather_read",
+      amountCents: 300,
+      currency: "USD",
+      agentPassport: {
+        sponsorRef: walletPolicy.sponsorRef,
+        sponsorWalletRef: walletPolicy.sponsorWalletRef,
+        agentKeyId: "agent_key_escalation_1",
+        delegationRef: "delegation_escalation_1",
+        policyRef: walletPolicy.policyRef,
+        policyVersion: walletPolicy.policyVersion
+      }
+    }
+  });
+  assert.equal(createGateA.statusCode, 201, createGateA.body);
+
+  const createGateB = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_escalation_1b" },
+    body: {
+      gateId: "gate_auth_escalation_1b",
+      payerAgentId,
+      payeeAgentId,
+      toolId: "weather_read",
+      amountCents: 200,
+      currency: "USD",
+      agentPassport: {
+        sponsorRef: walletPolicy.sponsorRef,
+        sponsorWalletRef: walletPolicy.sponsorWalletRef,
+        agentKeyId: "agent_key_escalation_1",
+        delegationRef: "delegation_escalation_1",
+        policyRef: walletPolicy.policyRef,
+        policyVersion: walletPolicy.policyVersion
+      }
+    }
+  });
+  assert.equal(createGateB.statusCode, 201, createGateB.body);
+
+  const issuerDecisionA = await issueWalletAuthorizationDecision(api, {
+    sponsorWalletRef: walletPolicy.sponsorWalletRef,
+    gateId: "gate_auth_escalation_1a",
+    idempotencyKey: "x402_wallet_issuer_escalation_1a"
+  });
+  assert.equal(issuerDecisionA.statusCode, 200, issuerDecisionA.body);
+
+  const issuerDecisionB = await issueWalletAuthorizationDecision(api, {
+    sponsorWalletRef: walletPolicy.sponsorWalletRef,
+    gateId: "gate_auth_escalation_1b",
+    idempotencyKey: "x402_wallet_issuer_escalation_1b"
+  });
+  assert.equal(issuerDecisionB.statusCode, 200, issuerDecisionB.body);
+
+  const authB = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_escalation_1b" },
+    body: {
+      gateId: "gate_auth_escalation_1b",
+      walletAuthorizationDecisionToken: issuerDecisionB.json?.walletAuthorizationDecisionToken
+    }
+  });
+  assert.equal(authB.statusCode, 200, authB.body);
+
+  const blockedA = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_escalation_1a_blocked" },
+    body: {
+      gateId: "gate_auth_escalation_1a",
+      walletAuthorizationDecisionToken: issuerDecisionA.json?.walletAuthorizationDecisionToken
+    }
+  });
+  assert.equal(blockedA.statusCode, 409, blockedA.body);
+  assert.equal(blockedA.json?.code, "X402_AUTHORIZATION_ESCALATION_REQUIRED");
+  const escalationId = blockedA.json?.details?.escalation?.escalationId;
+  assert.ok(typeof escalationId === "string" && escalationId.length > 0);
+
+  const escalationRead = await request(api, {
+    method: "GET",
+    path: `/x402/gate/escalations/${encodeURIComponent(escalationId)}`
+  });
+  assert.equal(escalationRead.statusCode, 200, escalationRead.body);
+  assert.equal(escalationRead.json?.escalation?.status, "pending");
+  assert.equal(escalationRead.json?.escalation?.reasonCode, "X402_WALLET_POLICY_DAILY_LIMIT_EXCEEDED");
+
+  const escalationApprove = await resolveX402Escalation(api, {
+    escalationId,
+    action: "approve",
+    reason: "one-time emergency override",
+    idempotencyKey: "x402_escalation_resolve_1a"
+  });
+  assert.equal(escalationApprove.statusCode, 200, escalationApprove.body);
+  assert.equal(escalationApprove.json?.escalation?.status, "approved");
+  assert.ok(typeof escalationApprove.json?.walletAuthorizationDecisionToken === "string");
+  assert.ok(typeof escalationApprove.json?.escalationOverrideToken === "string");
+
+  const resumedA = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_escalation_1a_resume" },
+    body: {
+      gateId: "gate_auth_escalation_1a",
+      walletAuthorizationDecisionToken: escalationApprove.json?.walletAuthorizationDecisionToken,
+      escalationOverrideToken: escalationApprove.json?.escalationOverrideToken
+    }
+  });
+  assert.equal(resumedA.statusCode, 200, resumedA.body);
+  assert.equal(resumedA.json?.gateId, "gate_auth_escalation_1a");
+  assert.equal(resumedA.json?.reserve?.status, "reserved");
 });
 
 test("API e2e: production-like defaults fail closed when external reserve is unavailable", async (t) => {

@@ -246,6 +246,11 @@ import {
   mintX402WalletIssuerDecisionTokenV1,
   verifyX402WalletIssuerDecisionTokenV1
 } from "../core/x402-wallet-issuer-decision.js";
+import {
+  buildX402EscalationOverridePayloadV1,
+  mintX402EscalationOverrideTokenV1,
+  verifyX402EscalationOverrideTokenV1
+} from "../core/x402-escalation-override.js";
 import { buildSettldPayKeysetV1 } from "../core/settld-keys.js";
 import {
   buildMarketplaceOffer,
@@ -7675,6 +7680,158 @@ export function createApi({
     return err;
   }
 
+  function toX402EscalationSummary(escalation, { events = null } = {}) {
+    if (!escalation || typeof escalation !== "object" || Array.isArray(escalation)) return null;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "X402AuthorizationEscalationSummary.v1",
+        escalationId: escalation.escalationId,
+        gateId: escalation.gateId,
+        status: escalation.status,
+        reasonCode: escalation.reasonCode ?? null,
+        reasonMessage: escalation.reasonMessage ?? null,
+        sponsorRef: escalation.sponsorRef ?? null,
+        sponsorWalletRef: escalation.sponsorWalletRef ?? null,
+        policyRef: escalation.policyRef ?? null,
+        policyVersion: escalation.policyVersion ?? null,
+        policyFingerprint: escalation.policyFingerprint ?? null,
+        amountCents: escalation.amountCents ?? null,
+        currency: escalation.currency ?? null,
+        quoteId: escalation.quoteId ?? null,
+        quoteSha256: escalation.quoteSha256 ?? null,
+        requestBindingMode: escalation.requestBindingMode ?? null,
+        requestBindingSha256: escalation.requestBindingSha256 ?? null,
+        createdAt: escalation.createdAt ?? null,
+        updatedAt: escalation.updatedAt ?? null,
+        resolvedAt: escalation.resolvedAt ?? null,
+        ...(Array.isArray(events) ? { events } : {})
+      },
+      { path: "$" }
+    );
+  }
+
+  async function createX402AuthorizationEscalation({
+    tenantId,
+    gate,
+    policy,
+    policyError,
+    amountCents,
+    currency,
+    payeeProviderId,
+    effectiveQuoteId,
+    effectiveQuoteSha256,
+    effectiveRequestBindingMode,
+    effectiveRequestBindingSha256,
+    nowAt
+  } = {}) {
+    if (!gate || typeof gate !== "object" || Array.isArray(gate)) return null;
+    if (!policy || typeof policy !== "object" || Array.isArray(policy)) return null;
+    const gateId = typeof gate.gateId === "string" && gate.gateId.trim() !== "" ? gate.gateId.trim() : null;
+    if (!gateId) return null;
+    const statusPending = "pending";
+    const reasonCode =
+      typeof policyError?.code === "string" && policyError.code.trim() !== "" ? policyError.code.trim() : "X402_WALLET_POLICY_BLOCKED";
+    const reasonMessage =
+      typeof policyError?.message === "string" && policyError.message.trim() !== ""
+        ? policyError.message.trim()
+        : "x402 wallet policy blocked authorization";
+
+    if (typeof store.listX402Escalations === "function") {
+      const pendingRows = await store.listX402Escalations({ tenantId, gateId, status: statusPending, limit: 100, offset: 0 });
+      const existingMatch = pendingRows.find((row) => {
+        if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+        if (String(row.reasonCode ?? "") !== reasonCode) return false;
+        if (String(row.quoteId ?? "") !== String(effectiveQuoteId ?? "")) return false;
+        if (String(row.requestBindingSha256 ?? "") !== String(effectiveRequestBindingSha256 ?? "")) return false;
+        return true;
+      });
+      if (existingMatch) {
+        return existingMatch;
+      }
+    }
+
+    const sponsorRef =
+      typeof policy?.sponsorRef === "string" && policy.sponsorRef.trim() !== ""
+        ? policy.sponsorRef.trim()
+        : gate?.agentPassport && typeof gate.agentPassport === "object" && !Array.isArray(gate.agentPassport)
+          ? typeof gate.agentPassport.sponsorRef === "string" && gate.agentPassport.sponsorRef.trim() !== ""
+            ? gate.agentPassport.sponsorRef.trim()
+            : null
+          : null;
+    const sponsorWalletRef =
+      typeof policy?.sponsorWalletRef === "string" && policy.sponsorWalletRef.trim() !== ""
+        ? policy.sponsorWalletRef.trim()
+        : gate?.agentPassport && typeof gate.agentPassport === "object" && !Array.isArray(gate.agentPassport)
+          ? typeof gate.agentPassport.sponsorWalletRef === "string" && gate.agentPassport.sponsorWalletRef.trim() !== ""
+            ? gate.agentPassport.sponsorWalletRef.trim()
+            : null
+          : null;
+    const policyRef = typeof policy?.policyRef === "string" && policy.policyRef.trim() !== "" ? policy.policyRef.trim() : null;
+    const policyVersion =
+      Number.isSafeInteger(Number(policy?.policyVersion)) && Number(policy.policyVersion) > 0 ? Number(policy.policyVersion) : null;
+    const policyFingerprint =
+      typeof policy?.policyFingerprint === "string" && policy.policyFingerprint.trim() !== ""
+        ? policy.policyFingerprint.trim().toLowerCase()
+        : null;
+
+    const escalationId = createId("x402esc");
+    const eventId = createId("x402escev");
+    const reasonDetails =
+      policyError?.details && typeof policyError.details === "object" && !Array.isArray(policyError.details)
+        ? normalizeForCanonicalJson(policyError.details, { path: "$.reasonDetails" })
+        : null;
+    const escalation = normalizeForCanonicalJson(
+      {
+        schemaVersion: "X402AuthorizationEscalation.v1",
+        escalationId,
+        gateId,
+        runId: gate?.runId ?? null,
+        status: statusPending,
+        reasonCode,
+        reasonMessage,
+        reasonDetails,
+        sponsorRef,
+        sponsorWalletRef,
+        policyRef,
+        policyVersion,
+        policyFingerprint,
+        amountCents,
+        currency,
+        payeeProviderId: String(payeeProviderId ?? ""),
+        quoteId: effectiveQuoteId ?? null,
+        quoteSha256: effectiveQuoteSha256 ?? null,
+        requestBindingMode: effectiveRequestBindingMode ?? null,
+        requestBindingSha256: effectiveRequestBindingSha256 ?? null,
+        createdAt: nowAt,
+        updatedAt: nowAt,
+        resolvedAt: null
+      },
+      { path: "$" }
+    );
+    const createdEvent = normalizeForCanonicalJson(
+      {
+        schemaVersion: "X402AuthorizationEscalationEvent.v1",
+        eventId,
+        escalationId,
+        gateId,
+        eventType: "created",
+        status: statusPending,
+        reasonCode,
+        reasonMessage,
+        occurredAt: nowAt
+      },
+      { path: "$" }
+    );
+    await store.commitTx({
+      at: nowAt,
+      ops: [
+        { kind: "X402_ESCALATION_UPSERT", tenantId, escalationId, escalation },
+        { kind: "X402_ESCALATION_EVENT_APPEND", tenantId, eventId, escalationId, event: createdEvent }
+      ]
+    });
+    return escalation;
+  }
+
   async function assertX402WalletPolicyForAuthorization({
     tenantId,
     gate,
@@ -10213,6 +10370,17 @@ export function createApi({
   }
 
   function normalizeX402WalletIssuerDecisionTokenInput(value, fieldPath = "walletAuthorizationDecisionToken", { allowNull = true } = {}) {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const out = String(value).trim();
+    if (out.length > 16_384) throw new TypeError(`${fieldPath} must be <= 16384 chars`);
+    if (!/^[A-Za-z0-9_-]+$/.test(out)) throw new TypeError(`${fieldPath} must be base64url token text`);
+    return out;
+  }
+
+  function normalizeX402EscalationOverrideTokenInput(value, fieldPath = "escalationOverrideToken", { allowNull = true } = {}) {
     if (value === null || value === undefined || String(value).trim() === "") {
       if (allowNull) return null;
       throw new TypeError(`${fieldPath} is required`);
@@ -32748,7 +32916,6 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid walletAuthorizationDecisionToken", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
-
           const gate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
           if (!gate) return sendError(res, 404, "gate not found", null, { code: "NOT_FOUND" });
           if (String(gate.status ?? "").toLowerCase() === "resolved") {
@@ -33102,6 +33269,315 @@ export function createApi({
               },
               { path: "$" }
             )
+          });
+        }
+
+        if (parts[0] === "x402" && parts[1] === "gate" && parts[2] === "escalations" && parts.length === 3 && req.method === "GET") {
+          if (typeof store.listX402Escalations !== "function") return sendError(res, 501, "x402 escalation listing is not supported");
+          const gateIdRaw = url.searchParams.get("gateId");
+          const statusRaw = url.searchParams.get("status");
+          const limitRaw = url.searchParams.get("limit");
+          const offsetRaw = url.searchParams.get("offset");
+          let gateId = null;
+          let status = null;
+          let limit = 200;
+          let offset = 0;
+          try {
+            gateId = normalizeOptionalX402RefInput(gateIdRaw, "gateId", { allowNull: true, max: 200 });
+            if (statusRaw !== null && statusRaw !== undefined && String(statusRaw).trim() !== "") {
+              status = String(statusRaw).trim().toLowerCase();
+              if (!["pending", "approved", "denied"].includes(status)) {
+                throw new TypeError("status must be pending|approved|denied");
+              }
+            }
+            if (limitRaw !== null && limitRaw !== undefined && String(limitRaw).trim() !== "") {
+              limit = Number(limitRaw);
+            }
+            if (offsetRaw !== null && offsetRaw !== undefined && String(offsetRaw).trim() !== "") {
+              offset = Number(offsetRaw);
+            }
+            if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 1000) throw new TypeError("limit must be an integer 1..1000");
+            if (!Number.isSafeInteger(offset) || offset < 0 || offset > 100_000) throw new TypeError("offset must be an integer 0..100000");
+          } catch (err) {
+            return sendError(res, 400, "invalid escalation query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const rows = await store.listX402Escalations({ tenantId, gateId, status, limit, offset });
+          return sendJson(res, 200, {
+            ok: true,
+            escalations: rows.map((row) => toX402EscalationSummary(row)).filter(Boolean),
+            limit,
+            offset
+          });
+        }
+
+        if (parts[0] === "x402" && parts[1] === "gate" && parts[2] === "escalations" && parts[3] && parts.length === 4 && req.method === "GET") {
+          if (typeof store.getX402Escalation !== "function") return sendError(res, 501, "x402 escalation retrieval is not supported");
+          let escalationId = null;
+          try {
+            escalationId = normalizeOptionalX402RefInput(decodePathPart(parts[3]), "escalationId", { allowNull: false, max: 200 });
+          } catch (err) {
+            return sendError(res, 400, "invalid escalationId", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const escalation = await store.getX402Escalation({ tenantId, escalationId });
+          if (!escalation) return sendError(res, 404, "escalation not found", null, { code: "NOT_FOUND" });
+          const events =
+            typeof store.listX402EscalationEvents === "function"
+              ? await store.listX402EscalationEvents({ tenantId, escalationId, limit: 1000, offset: 0 })
+              : [];
+          return sendJson(res, 200, {
+            ok: true,
+            escalation: toX402EscalationSummary(escalation, { events })
+          });
+        }
+
+        if (
+          parts[0] === "x402" &&
+          parts[1] === "gate" &&
+          parts[2] === "escalations" &&
+          parts[3] &&
+          parts[4] === "resolve" &&
+          parts.length === 5 &&
+          req.method === "POST"
+        ) {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          if (typeof store.getX402Escalation !== "function") return sendError(res, 501, "x402 escalation resolution is not supported");
+          let escalationId = null;
+          try {
+            escalationId = normalizeOptionalX402RefInput(decodePathPart(parts[3]), "escalationId", { allowNull: false, max: 200 });
+          } catch (err) {
+            return sendError(res, 400, "invalid escalationId", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const escalation = await store.getX402Escalation({ tenantId, escalationId });
+          if (!escalation) return sendError(res, 404, "escalation not found", null, { code: "NOT_FOUND" });
+          if (String(escalation.status ?? "").toLowerCase() !== "pending") {
+            return sendError(
+              res,
+              409,
+              "escalation is already resolved",
+              { escalation: toX402EscalationSummary(escalation) },
+              { code: "X402_ESCALATION_TERMINAL" }
+            );
+          }
+          const body = await readJsonBody(req);
+          const actionRaw = typeof body?.action === "string" ? body.action.trim().toLowerCase() : "";
+          if (actionRaw !== "approve" && actionRaw !== "deny") {
+            return sendError(res, 400, "invalid escalation action", null, { code: "SCHEMA_INVALID" });
+          }
+          const gateId = typeof escalation.gateId === "string" && escalation.gateId.trim() !== "" ? escalation.gateId.trim() : null;
+          if (!gateId) return sendError(res, 409, "escalation gate reference is invalid", null, { code: "X402_ESCALATION_INVALID" });
+          const gate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
+          if (!gate) return sendError(res, 404, "gate not found for escalation", null, { code: "NOT_FOUND" });
+
+          const nowAt = nowIso();
+          const nowUnix = Math.floor(Date.parse(nowAt) / 1000);
+          const reasonRaw = typeof body?.reason === "string" && body.reason.trim() !== "" ? body.reason.trim() : null;
+          const eventId = createId("x402escev");
+
+          if (actionRaw === "deny") {
+            const deniedEscalation = normalizeForCanonicalJson(
+              {
+                ...escalation,
+                status: "denied",
+                updatedAt: nowAt,
+                resolvedAt: nowAt,
+                resolution: {
+                  action: "deny",
+                  reason: reasonRaw
+                }
+              },
+              { path: "$" }
+            );
+            const deniedEvent = normalizeForCanonicalJson(
+              {
+                schemaVersion: "X402AuthorizationEscalationEvent.v1",
+                eventId,
+                escalationId,
+                gateId,
+                eventType: "denied",
+                status: "denied",
+                reasonCode: escalation.reasonCode ?? null,
+                reasonMessage: escalation.reasonMessage ?? null,
+                ...(reasonRaw ? { reason: reasonRaw } : {}),
+                occurredAt: nowAt
+              },
+              { path: "$" }
+            );
+            await store.commitTx({
+              at: nowAt,
+              ops: [
+                { kind: "X402_ESCALATION_UPSERT", tenantId, escalationId, escalation: deniedEscalation },
+                { kind: "X402_ESCALATION_EVENT_APPEND", tenantId, eventId, escalationId, event: deniedEvent }
+              ]
+            });
+            return sendJson(res, 200, { ok: true, escalation: toX402EscalationSummary(deniedEscalation) });
+          }
+
+          const policyRef =
+            typeof escalation.policyRef === "string" && escalation.policyRef.trim() !== "" ? escalation.policyRef.trim() : null;
+          const policyVersion =
+            Number.isSafeInteger(Number(escalation.policyVersion)) && Number(escalation.policyVersion) > 0
+              ? Number(escalation.policyVersion)
+              : null;
+          const policyFingerprint =
+            typeof escalation.policyFingerprint === "string" && escalation.policyFingerprint.trim() !== ""
+              ? escalation.policyFingerprint.trim().toLowerCase()
+              : null;
+          const sponsorRef =
+            typeof escalation.sponsorRef === "string" && escalation.sponsorRef.trim() !== ""
+              ? escalation.sponsorRef.trim()
+              : typeof gate?.agentPassport?.sponsorRef === "string" && gate.agentPassport.sponsorRef.trim() !== ""
+                ? gate.agentPassport.sponsorRef.trim()
+                : typeof gate?.payerAgentId === "string" && gate.payerAgentId.trim() !== ""
+                  ? gate.payerAgentId.trim()
+                  : null;
+          const sponsorWalletRef =
+            typeof escalation.sponsorWalletRef === "string" && escalation.sponsorWalletRef.trim() !== ""
+              ? escalation.sponsorWalletRef.trim()
+              : typeof gate?.agentPassport?.sponsorWalletRef === "string" && gate.agentPassport.sponsorWalletRef.trim() !== ""
+                ? gate.agentPassport.sponsorWalletRef.trim()
+                : null;
+          const amountCents = Number(escalation.amountCents ?? gate?.terms?.amountCents ?? 0);
+          const currency =
+            typeof escalation.currency === "string" && escalation.currency.trim() !== ""
+              ? escalation.currency.trim().toUpperCase()
+              : typeof gate?.terms?.currency === "string" && gate.terms.currency.trim() !== ""
+                ? gate.terms.currency.trim().toUpperCase()
+                : "USD";
+          const payeeProviderId =
+            typeof escalation.payeeProviderId === "string" && escalation.payeeProviderId.trim() !== ""
+              ? escalation.payeeProviderId.trim()
+              : typeof gate?.payeeAgentId === "string" && gate.payeeAgentId.trim() !== ""
+                ? gate.payeeAgentId.trim()
+                : typeof gate?.terms?.providerId === "string" && gate.terms.providerId.trim() !== ""
+                  ? gate.terms.providerId.trim()
+                  : null;
+          if (!policyRef || !policyVersion || !policyFingerprint || !sponsorRef || !sponsorWalletRef || !payeeProviderId) {
+            return sendError(
+              res,
+              409,
+              "escalation is missing wallet-policy bindings",
+              null,
+              { code: "X402_ESCALATION_BINDING_MISSING" }
+            );
+          }
+          if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+            return sendError(res, 409, "escalation amount is invalid", null, { code: "X402_ESCALATION_INVALID" });
+          }
+
+          const decisionPayload = buildX402WalletIssuerDecisionPayloadV1({
+            decisionId: createId("x402dec"),
+            gateId,
+            sponsorRef,
+            sponsorWalletRef,
+            policyRef,
+            policyVersion,
+            policyFingerprint,
+            amountCents,
+            currency,
+            payeeProviderId,
+            ...(typeof escalation.quoteId === "string" && escalation.quoteId.trim() !== "" ? { quoteId: escalation.quoteId.trim() } : {}),
+            ...(typeof escalation.quoteSha256 === "string" && escalation.quoteSha256.trim() !== ""
+              ? { quoteSha256: escalation.quoteSha256.trim().toLowerCase() }
+              : {}),
+            ...(typeof escalation.requestBindingMode === "string" && escalation.requestBindingMode.trim() !== ""
+              ? { requestBindingMode: escalation.requestBindingMode.trim().toLowerCase() }
+              : {}),
+            ...(typeof escalation.requestBindingSha256 === "string" && escalation.requestBindingSha256.trim() !== ""
+              ? { requestBindingSha256: escalation.requestBindingSha256.trim().toLowerCase() }
+              : {}),
+            idempotencyKey: `x402escalation:${escalationId}`,
+            nonce: createId("x402nonce"),
+            iat: nowUnix,
+            exp: nowUnix + settldPayTokenTtlSecondsValue
+          });
+          const mintedDecision = mintX402WalletIssuerDecisionTokenV1({
+            payload: decisionPayload,
+            publicKeyPem: store.serverSigner.publicKeyPem,
+            privateKeyPem: store.serverSigner.privateKeyPem
+          });
+          const overridePayload = buildX402EscalationOverridePayloadV1({
+            overrideId: createId("x402ovr"),
+            escalationId,
+            gateId,
+            sponsorRef,
+            sponsorWalletRef,
+            policyRef,
+            policyVersion,
+            policyFingerprint,
+            amountCents,
+            currency,
+            payeeProviderId,
+            ...(typeof escalation.quoteId === "string" && escalation.quoteId.trim() !== "" ? { quoteId: escalation.quoteId.trim() } : {}),
+            ...(typeof escalation.quoteSha256 === "string" && escalation.quoteSha256.trim() !== ""
+              ? { quoteSha256: escalation.quoteSha256.trim().toLowerCase() }
+              : {}),
+            ...(typeof escalation.requestBindingMode === "string" && escalation.requestBindingMode.trim() !== ""
+              ? { requestBindingMode: escalation.requestBindingMode.trim().toLowerCase() }
+              : {}),
+            ...(typeof escalation.requestBindingSha256 === "string" && escalation.requestBindingSha256.trim() !== ""
+              ? { requestBindingSha256: escalation.requestBindingSha256.trim().toLowerCase() }
+              : {}),
+            idempotencyKey: `x402escalation:${escalationId}`,
+            nonce: createId("x402nonce"),
+            iat: nowUnix,
+            exp: nowUnix + settldPayTokenTtlSecondsValue
+          });
+          const mintedOverride = mintX402EscalationOverrideTokenV1({
+            payload: overridePayload,
+            publicKeyPem: store.serverSigner.publicKeyPem,
+            privateKeyPem: store.serverSigner.privateKeyPem
+          });
+
+          const approvedEscalation = normalizeForCanonicalJson(
+            {
+              ...escalation,
+              status: "approved",
+              updatedAt: nowAt,
+              resolvedAt: nowAt,
+              resolution: {
+                action: "approve",
+                reason: reasonRaw,
+                overrideId: overridePayload.overrideId,
+                walletDecisionId: decisionPayload.decisionId,
+                overrideTokenSha256: mintedOverride.tokenSha256,
+                walletDecisionTokenSha256: mintedDecision.tokenSha256
+              }
+            },
+            { path: "$" }
+          );
+          const approvedEvent = normalizeForCanonicalJson(
+            {
+              schemaVersion: "X402AuthorizationEscalationEvent.v1",
+              eventId,
+              escalationId,
+              gateId,
+              eventType: "approved",
+              status: "approved",
+              reasonCode: escalation.reasonCode ?? null,
+              reasonMessage: escalation.reasonMessage ?? null,
+              ...(reasonRaw ? { reason: reasonRaw } : {}),
+              occurredAt: nowAt
+            },
+            { path: "$" }
+          );
+          await store.commitTx({
+            at: nowAt,
+            ops: [
+              { kind: "X402_ESCALATION_UPSERT", tenantId, escalationId, escalation: approvedEscalation },
+              { kind: "X402_ESCALATION_EVENT_APPEND", tenantId, eventId, escalationId, event: approvedEvent }
+            ]
+          });
+          return sendJson(res, 200, {
+            ok: true,
+            escalation: toX402EscalationSummary(approvedEscalation),
+            walletAuthorizationDecisionToken: mintedDecision.token,
+            escalationOverrideToken: mintedOverride.token,
+            tokenKid: mintedOverride.kid,
+            expiresAt: new Date(overridePayload.exp * 1000).toISOString(),
+            quoteId: escalation.quoteId ?? null,
+            quoteSha256: escalation.quoteSha256 ?? null,
+            requestBindingMode: escalation.requestBindingMode ?? null,
+            requestBindingSha256: escalation.requestBindingSha256 ?? null
           });
         }
 
@@ -33509,6 +33985,16 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid walletAuthorizationDecisionToken", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          let escalationOverrideToken = null;
+          try {
+            escalationOverrideToken = normalizeX402EscalationOverrideTokenInput(
+              body?.escalationOverrideToken ?? null,
+              "escalationOverrideToken",
+              { allowNull: true }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid escalationOverrideToken", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
 
           const gate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
           if (!gate) return sendError(res, 404, "gate not found", null, { code: "NOT_FOUND" });
@@ -33769,11 +34255,110 @@ export function createApi({
             }
             walletIssuerDecisionPayload = issuerDecisionVerify.payload ?? null;
           }
+          let escalationOverridePayload = null;
+          if (!hasReservedAuthorization && escalationOverrideToken) {
+            if (!resolvedWalletPolicy) {
+              return sendError(
+                res,
+                409,
+                "escalation override is not applicable for non-wallet authorization",
+                null,
+                { code: "X402_ESCALATION_OVERRIDE_NOT_APPLICABLE" }
+              );
+            }
+            const expectedSponsorRef =
+              typeof resolvedWalletPolicy?.sponsorRef === "string" && resolvedWalletPolicy.sponsorRef.trim() !== ""
+                ? resolvedWalletPolicy.sponsorRef.trim()
+                : typeof gateAgentPassport?.sponsorRef === "string" && gateAgentPassport.sponsorRef.trim() !== ""
+                  ? gateAgentPassport.sponsorRef.trim()
+                  : payerAgentId;
+            const expectedSponsorWalletRef =
+              typeof resolvedWalletPolicy?.sponsorWalletRef === "string" && resolvedWalletPolicy.sponsorWalletRef.trim() !== ""
+                ? resolvedWalletPolicy.sponsorWalletRef.trim()
+                : null;
+            const expectedPolicyRef =
+              typeof resolvedWalletPolicy?.policyRef === "string" && resolvedWalletPolicy.policyRef.trim() !== ""
+                ? resolvedWalletPolicy.policyRef.trim()
+                : null;
+            const expectedPolicyVersion =
+              Number.isSafeInteger(Number(resolvedWalletPolicy?.policyVersion)) && Number(resolvedWalletPolicy.policyVersion) > 0
+                ? Number(resolvedWalletPolicy.policyVersion)
+                : null;
+            const expectedPolicyFingerprint =
+              typeof resolvedWalletPolicy?.policyFingerprint === "string" && resolvedWalletPolicy.policyFingerprint.trim() !== ""
+                ? resolvedWalletPolicy.policyFingerprint.trim().toLowerCase()
+                : null;
+            const escalationOverrideVerify = verifyX402EscalationOverrideTokenV1({
+              token: escalationOverrideToken,
+              publicKeyPem: store.serverSigner.publicKeyPem,
+              nowUnixSeconds: nowUnix,
+              expected: {
+                gateId,
+                sponsorRef: expectedSponsorRef,
+                sponsorWalletRef: expectedSponsorWalletRef,
+                policyRef: expectedPolicyRef,
+                policyVersion: expectedPolicyVersion,
+                policyFingerprint: expectedPolicyFingerprint,
+                amountCents,
+                currency,
+                payeeProviderId: String(payeeProviderId ?? ""),
+                quoteId: effectiveQuoteId,
+                quoteSha256: effectiveQuoteSha256,
+                requestBindingMode: effectiveRequestBindingMode,
+                requestBindingSha256: effectiveRequestBindingSha256
+              }
+            });
+            if (!escalationOverrideVerify?.ok) {
+              return sendError(
+                res,
+                409,
+                "escalation override token is invalid",
+                {
+                  message: escalationOverrideVerify?.error ?? null,
+                  field: escalationOverrideVerify?.field ?? null,
+                  verifyCode: escalationOverrideVerify?.code ?? null
+                },
+                { code: escalationOverrideVerify?.code ?? "X402_ESCALATION_OVERRIDE_INVALID" }
+              );
+            }
+            const escalationIdFromToken =
+              typeof escalationOverrideVerify?.payload?.escalationId === "string" && escalationOverrideVerify.payload.escalationId.trim() !== ""
+                ? escalationOverrideVerify.payload.escalationId.trim()
+                : null;
+            if (!escalationIdFromToken) {
+              return sendError(res, 409, "escalation override missing escalationId", null, { code: "X402_ESCALATION_OVERRIDE_INVALID" });
+            }
+            const escalationRecord =
+              typeof store.getX402Escalation === "function" ? await store.getX402Escalation({ tenantId, escalationId: escalationIdFromToken }) : null;
+            if (!escalationRecord) {
+              return sendError(res, 409, "escalation override target was not found", null, { code: "X402_ESCALATION_NOT_FOUND" });
+            }
+            if (String(escalationRecord.status ?? "").toLowerCase() !== "approved") {
+              return sendError(res, 409, "escalation is not approved", null, { code: "X402_ESCALATION_NOT_APPROVED" });
+            }
+            const overrideId =
+              typeof escalationOverrideVerify?.payload?.overrideId === "string" && escalationOverrideVerify.payload.overrideId.trim() !== ""
+                ? escalationOverrideVerify.payload.overrideId.trim()
+                : null;
+            if (overrideId && typeof store.getX402EscalationOverrideUsage === "function") {
+              const usage = await store.getX402EscalationOverrideUsage({ tenantId, overrideId });
+              if (usage) {
+                return sendError(
+                  res,
+                  409,
+                  "escalation override token has already been used",
+                  { overrideId, usedAt: usage.usedAt ?? null, gateId: usage.gateId ?? null },
+                  { code: "X402_ESCALATION_OVERRIDE_REPLAYED" }
+                );
+              }
+            }
+            escalationOverridePayload = escalationOverrideVerify.payload ?? null;
+          }
           if (x402PilotKillSwitchValue === true) {
             return sendError(res, 409, "x402 pilot kill switch is active", null, { code: "X402_PILOT_KILL_SWITCH_ACTIVE" });
           }
           if (!hasReservedAuthorization) {
-            if (resolvedWalletPolicy) {
+            if (resolvedWalletPolicy && !escalationOverridePayload) {
               try {
                 await assertX402WalletPolicyForAuthorization({
                   tenantId,
@@ -33788,12 +34373,31 @@ export function createApi({
                   nowAt
                 });
               } catch (err) {
+                const escalation = await createX402AuthorizationEscalation({
+                  tenantId,
+                  gate,
+                  policy: resolvedWalletPolicy,
+                  policyError: err,
+                  amountCents,
+                  currency,
+                  payeeProviderId,
+                  effectiveQuoteId,
+                  effectiveQuoteSha256,
+                  effectiveRequestBindingMode,
+                  effectiveRequestBindingSha256,
+                  nowAt
+                });
                 return sendError(
                   res,
                   409,
-                  "x402 wallet policy blocked authorization",
-                  { message: err?.message ?? null, code: err?.code ?? null, details: err?.details ?? null },
-                  { code: err?.code ?? "X402_WALLET_POLICY_BLOCKED" }
+                  "x402 wallet policy blocked authorization and requires escalation",
+                  {
+                    message: err?.message ?? null,
+                    code: err?.code ?? null,
+                    details: err?.details ?? null,
+                    escalation: escalation ? toX402EscalationSummary(escalation) : null
+                  },
+                  { code: "X402_AUTHORIZATION_ESCALATION_REQUIRED" }
                 );
               }
             }
@@ -34185,6 +34789,31 @@ export function createApi({
           const ops = [];
           if (payerWalletChanged) ops.push({ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet });
           ops.push({ kind: "X402_GATE_UPSERT", tenantId, gateId, gate: nextGate });
+          const overrideIdForUsage =
+            typeof escalationOverridePayload?.overrideId === "string" && escalationOverridePayload.overrideId.trim() !== ""
+              ? escalationOverridePayload.overrideId.trim()
+              : null;
+          if (overrideIdForUsage) {
+            ops.push({
+              kind: "X402_ESCALATION_OVERRIDE_USAGE_PUT",
+              tenantId,
+              overrideId: overrideIdForUsage,
+              usage: normalizeForCanonicalJson(
+                {
+                  schemaVersion: "X402EscalationOverrideUsage.v1",
+                  overrideId: overrideIdForUsage,
+                  escalationId:
+                    typeof escalationOverridePayload?.escalationId === "string" && escalationOverridePayload.escalationId.trim() !== ""
+                      ? escalationOverridePayload.escalationId.trim()
+                      : null,
+                  gateId,
+                  authorizationRef,
+                  usedAt: nowAt
+                },
+                { path: "$" }
+              )
+            });
+          }
           if (idemStoreKey) {
             ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
           }

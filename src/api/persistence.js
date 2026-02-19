@@ -559,6 +559,63 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "X402_ESCALATION_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const escalation = op.escalation ?? null;
+      if (!escalation || typeof escalation !== "object" || Array.isArray(escalation)) {
+        throw new TypeError("X402_ESCALATION_UPSERT requires escalation");
+      }
+      const escalationId = escalation.escalationId ?? op.escalationId ?? null;
+      if (!escalationId) throw new TypeError("X402_ESCALATION_UPSERT requires escalation.escalationId");
+      if (!(store.x402Escalations instanceof Map)) store.x402Escalations = new Map();
+      const key = makeScopedKey({ tenantId, id: String(escalationId) });
+      store.x402Escalations.set(key, {
+        ...escalation,
+        tenantId,
+        escalationId: String(escalationId)
+      });
+      continue;
+    }
+
+    if (kind === "X402_ESCALATION_EVENT_APPEND") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const event = op.event ?? null;
+      if (!event || typeof event !== "object" || Array.isArray(event)) {
+        throw new TypeError("X402_ESCALATION_EVENT_APPEND requires event");
+      }
+      const eventId = op.eventId ?? event.eventId ?? event.id ?? null;
+      const escalationId = op.escalationId ?? event.escalationId ?? null;
+      if (!eventId) throw new TypeError("X402_ESCALATION_EVENT_APPEND requires event.eventId");
+      if (!escalationId) throw new TypeError("X402_ESCALATION_EVENT_APPEND requires event.escalationId");
+      if (!(store.x402EscalationEvents instanceof Map)) store.x402EscalationEvents = new Map();
+      const key = makeScopedKey({ tenantId, id: String(eventId) });
+      store.x402EscalationEvents.set(key, {
+        ...event,
+        tenantId,
+        eventId: String(eventId),
+        escalationId: String(escalationId)
+      });
+      continue;
+    }
+
+    if (kind === "X402_ESCALATION_OVERRIDE_USAGE_PUT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const usage = op.usage ?? null;
+      if (!usage || typeof usage !== "object" || Array.isArray(usage)) {
+        throw new TypeError("X402_ESCALATION_OVERRIDE_USAGE_PUT requires usage");
+      }
+      const overrideId = op.overrideId ?? usage.overrideId ?? null;
+      if (!overrideId) throw new TypeError("X402_ESCALATION_OVERRIDE_USAGE_PUT requires overrideId");
+      if (!(store.x402EscalationOverrideUsage instanceof Map)) store.x402EscalationOverrideUsage = new Map();
+      const key = makeScopedKey({ tenantId, id: String(overrideId) });
+      store.x402EscalationOverrideUsage.set(key, {
+        ...usage,
+        tenantId,
+        overrideId: String(overrideId)
+      });
+      continue;
+    }
+
     if (kind === "TOOL_CALL_HOLD_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
       const hold = op.hold ?? null;
