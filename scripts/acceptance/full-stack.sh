@@ -90,6 +90,9 @@ compose_down 0
 echo "acceptance: starting docker compose (profile=${ACCEPTANCE_PROFILE})"
 docker compose --profile "${ACCEPTANCE_PROFILE}" up -d --build
 
+echo "acceptance: seeding minio buckets"
+docker compose --profile init run --rm minio-init
+
 echo "acceptance: running full-stack checks"
 node scripts/acceptance/full-stack.mjs
 
