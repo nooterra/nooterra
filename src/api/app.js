@@ -251,6 +251,10 @@ import {
   buildMarketplaceAcceptance
 } from "../core/marketplace-kernel.js";
 import { computePaidToolManifestHashV1, normalizePaidToolManifestV1 } from "../core/paid-tool-manifest.js";
+import {
+  fetchProviderPublishProofJwks,
+  verifyProviderPublishProofTokenV1
+} from "../core/provider-publish-proof.js";
 import { runProviderConformanceV1 } from "../core/provider-publish-conformance.js";
 import { createArtifactWorker, deriveArtifactEnqueuesFromJobEvents } from "./workers/artifacts.js";
 import { createDeliveryWorker } from "./workers/deliveries.js";
@@ -6360,6 +6364,15 @@ export function createApi({
     return value;
   }
 
+  function parseMarketplaceProviderRef(rawValue, { fieldPath = "providerRef", allowNull = false } = {}) {
+    const value = parseMarketplaceProviderId(rawValue, { fieldPath, allowNull });
+    if (value === null) return null;
+    if (!value.startsWith("jwk:")) throw new TypeError(`${fieldPath} must start with jwk:`);
+    const thumbprint = value.slice("jwk:".length);
+    if (!/^[0-9a-f]{64}$/.test(thumbprint)) throw new TypeError(`${fieldPath} must match jwk:<sha256-hex>`);
+    return value;
+  }
+
   function parseInteractionDirection({
     fromTypeRaw,
     toTypeRaw,
@@ -8007,17 +8020,43 @@ export function createApi({
     return rows;
   }
 
-  function getMarketplaceProviderPublication({ tenantId, providerId } = {}) {
+  function getMarketplaceProviderPublication({ tenantId, providerId = null, providerRef = null } = {}) {
     if (!(store.marketplaceProviderPublications instanceof Map)) return null;
+    const t = normalizeTenant(tenantId);
+    const ref = String(providerRef ?? "").trim();
+    if (ref) {
+      const byRef = store.marketplaceProviderPublications.get(providerPublicationStoreKey(t, ref)) ?? null;
+      if (byRef) return byRef;
+    }
+
     const id = String(providerId ?? "").trim();
     if (!id) return null;
-    return store.marketplaceProviderPublications.get(providerPublicationStoreKey(tenantId, id)) ?? null;
+    const byScopedId = store.marketplaceProviderPublications.get(providerPublicationStoreKey(t, id));
+    if (byScopedId) return byScopedId;
+
+    let found = null;
+    for (const row of store.marketplaceProviderPublications.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
+      if (String(row.providerId ?? "").trim() !== id) continue;
+      if (!found) {
+        found = row;
+        continue;
+      }
+      const foundAt = Date.parse(String(found.updatedAt ?? found.publishedAt ?? ""));
+      const rowAt = Date.parse(String(row.updatedAt ?? row.publishedAt ?? ""));
+      if (Number.isFinite(rowAt) && (!Number.isFinite(foundAt) || rowAt > foundAt)) {
+        found = row;
+      }
+    }
+    return found;
   }
 
   function listMarketplaceProviderPublications({
     tenantId,
     status = "certified",
     providerId = null,
+    providerRef = null,
     search = null,
     toolId = null
   } = {}) {
@@ -8025,6 +8064,7 @@ export function createApi({
     const t = normalizeTenant(tenantId);
     const statusFilter = parseMarketplaceProviderPublicationStatus(status, { allowAll: true, defaultStatus: "certified" });
     const providerFilter = providerId && String(providerId).trim() !== "" ? String(providerId).trim() : null;
+    const providerRefFilter = providerRef && String(providerRef).trim() !== "" ? String(providerRef).trim() : null;
     const searchFilter = search && String(search).trim() !== "" ? String(search).trim().toLowerCase() : null;
     const toolFilter = toolId && String(toolId).trim() !== "" ? String(toolId).trim() : null;
 
@@ -8034,7 +8074,8 @@ export function createApi({
       if (normalizeTenant(row.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
       const rowStatus = String(row.status ?? "draft").toLowerCase();
       if (statusFilter !== "all" && rowStatus !== statusFilter) continue;
-      if (providerFilter && String(row.providerId ?? "") !== providerFilter) continue;
+      if (providerFilter && String(row.providerId ?? "") !== providerFilter && String(row.providerRef ?? "") !== providerFilter) continue;
+      if (providerRefFilter && String(row.providerRef ?? "") !== providerRefFilter) continue;
       if (toolFilter) {
         const tools = Array.isArray(row?.manifest?.tools) ? row.manifest.tools : [];
         const hasTool = tools.some((tool) => String(tool?.toolId ?? "") === toolFilter);
@@ -8044,6 +8085,7 @@ export function createApi({
         const tools = Array.isArray(row?.manifest?.tools) ? row.manifest.tools : [];
         const haystack = [
           row.providerId,
+          row.providerRef,
           row.description,
           row.baseUrl,
           row.status,
@@ -8061,7 +8103,9 @@ export function createApi({
       const leftAt = Date.parse(String(left.updatedAt ?? left.publishedAt ?? ""));
       const rightAt = Date.parse(String(right.updatedAt ?? right.publishedAt ?? ""));
       if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
-      return String(left.providerId ?? "").localeCompare(String(right.providerId ?? ""));
+      const providerIdOrder = String(left.providerId ?? "").localeCompare(String(right.providerId ?? ""));
+      if (providerIdOrder !== 0) return providerIdOrder;
+      return String(left.providerRef ?? "").localeCompare(String(right.providerRef ?? ""));
     });
     return rows;
   }
@@ -8081,6 +8125,7 @@ export function createApi({
       {
         schemaVersion: "MarketplaceProviderCertificationBadgeBinding.v1",
         providerId: publication.providerId ?? null,
+        providerRef: publication.providerRef ?? publication.providerId ?? null,
         publicationId: publication.publicationId ?? null,
         status: publication.status ?? null,
         certified: publication.certified === true,
@@ -8096,6 +8141,7 @@ export function createApi({
     return {
       schemaVersion: "MarketplaceProviderCertificationBadge.v1",
       providerId: publication.providerId ?? null,
+      providerRef: publication.providerRef ?? publication.providerId ?? null,
       publicationId: publication.publicationId ?? null,
       status: publication.status ?? null,
       certified: publication.certified === true,
@@ -8113,11 +8159,12 @@ export function createApi({
     tenantId,
     status = "certified",
     providerId = null,
+    providerRef = null,
     toolId = null,
     search = null,
     tags = null
   } = {}) {
-    const rows = listMarketplaceProviderPublications({ tenantId, status, providerId, toolId: null, search: null });
+    const rows = listMarketplaceProviderPublications({ tenantId, status, providerId, providerRef, toolId: null, search: null });
     const toolFilter = toolId && String(toolId).trim() !== "" ? String(toolId).trim() : null;
     const searchFilter = search && String(search).trim() !== "" ? String(search).trim().toLowerCase() : null;
     const requiredTags =
@@ -8149,6 +8196,7 @@ export function createApi({
         const listing = {
           schemaVersion: "MarketplaceToolListing.v1",
           providerId: row.providerId ?? null,
+          providerRef: row.providerRef ?? row.providerId ?? null,
           publicationId: row.publicationId ?? null,
           certified: row.certified === true,
           providerStatus: row.status ?? null,
@@ -8199,6 +8247,7 @@ export function createApi({
         if (searchFilter) {
           const haystack = [
             listing.providerId,
+            listing.providerRef,
             listing.toolId,
             listing.mcpToolName,
             listing.description,
@@ -8221,6 +8270,8 @@ export function createApi({
       if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
       const providerOrder = String(left.providerId ?? "").localeCompare(String(right.providerId ?? ""));
       if (providerOrder !== 0) return providerOrder;
+      const providerRefOrder = String(left.providerRef ?? "").localeCompare(String(right.providerRef ?? ""));
+      if (providerRefOrder !== 0) return providerRefOrder;
       return String(left.toolId ?? "").localeCompare(String(right.toolId ?? ""));
     });
     return out;
@@ -29107,7 +29158,80 @@ export function createApi({
               ? null
               : String(body.termsUrl).trim();
 
-          const existing = getMarketplaceProviderPublication({ tenantId, providerId });
+          const manifestHash = computePaidToolManifestHashV1(manifest);
+
+          const publishProof = typeof body?.publishProof === "string" ? body.publishProof.trim() : "";
+          if (!publishProof) return sendError(res, 400, "publishProof is required");
+          let manifestPublishProofJwksUrl = null;
+          try {
+            manifestPublishProofJwksUrl = normalizeOptionalAbsoluteUrl(manifest.publishProofJwksUrl ?? null, {
+              fieldName: "manifest.publishProofJwksUrl"
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid manifest.publishProofJwksUrl", { message: err?.message });
+          }
+          if (!manifestPublishProofJwksUrl) {
+            return sendError(res, 400, "manifest.publishProofJwksUrl is required");
+          }
+          let publishProofJwksUrl = null;
+          try {
+            publishProofJwksUrl = normalizeOptionalAbsoluteUrl(body?.publishProofJwksUrl ?? null, {
+              fieldName: "publishProofJwksUrl"
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid publishProofJwksUrl", { message: err?.message });
+          }
+          if (!publishProofJwksUrl) return sendError(res, 400, "publishProofJwksUrl is required");
+          if (publishProofJwksUrl !== manifestPublishProofJwksUrl) {
+            return sendError(res, 409, "publishProofJwksUrl must match manifest.publishProofJwksUrl", {
+              expected: manifestPublishProofJwksUrl,
+              actual: publishProofJwksUrl
+            });
+          }
+
+          const publishProofAllowUnsafeUrls = process.env.NODE_ENV !== "production";
+          const publishProofFetchFn = typeof fetchFn === "function" ? fetchFn : globalThis.fetch;
+          let publishProofVerification = null;
+          try {
+            const jwks = await fetchProviderPublishProofJwks({
+              jwksUrl: publishProofJwksUrl,
+              fetchFn: publishProofFetchFn,
+              allowHttp: publishProofAllowUnsafeUrls,
+              allowPrivate: publishProofAllowUnsafeUrls,
+              allowLoopback: publishProofAllowUnsafeUrls
+            });
+            publishProofVerification = verifyProviderPublishProofTokenV1({
+              token: publishProof,
+              jwks,
+              expectedManifestHash: manifestHash,
+              expectedProviderId: providerId
+            });
+          } catch (err) {
+            const statusCode = Number.isSafeInteger(Number(err?.statusCode)) ? Number(err.statusCode) : 400;
+            return sendError(res, statusCode, "provider publish proof verification failed", {
+              code: err?.code ?? "PROVIDER_PUBLISH_PROOF_VERIFICATION_FAILED",
+              message: err?.message ?? String(err ?? ""),
+              details: err?.details ?? null
+            });
+          }
+          if (!publishProofVerification?.ok) {
+            return sendError(res, 400, "provider publish proof verification failed", {
+              code: publishProofVerification?.code ?? "PROVIDER_PUBLISH_PROOF_INVALID",
+              message: publishProofVerification?.message ?? "publish proof verification failed",
+              expected: publishProofVerification?.expected ?? null,
+              actual: publishProofVerification?.actual ?? null,
+              kid: publishProofVerification?.kid ?? null
+            });
+          }
+
+          let providerRef = null;
+          try {
+            providerRef = parseMarketplaceProviderRef(publishProofVerification.providerRef, { fieldPath: "providerRef" });
+          } catch (err) {
+            return sendError(res, 400, "invalid providerRef", { message: err?.message });
+          }
+
+          const existing = getMarketplaceProviderPublication({ tenantId, providerRef });
 
           let report = null;
           if (runConformance) {
@@ -29150,6 +29274,7 @@ export function createApi({
             publicationId: existing?.publicationId ?? createId("pub"),
             tenantId,
             providerId,
+            providerRef,
             status,
             baseUrl,
             description,
@@ -29157,16 +29282,26 @@ export function createApi({
             contactUrl,
             termsUrl,
             manifestSchemaVersion: String(manifest.schemaVersion),
-            manifestHash: computePaidToolManifestHashV1(manifest),
+            manifestHash,
             manifest,
             conformanceReport: report,
             providerSigning,
+            publishProof: {
+              schemaVersion: "MarketplaceProviderPublishProof.v1",
+              tokenSha256: publishProofVerification.tokenSha256 ?? null,
+              keyId: publishProofVerification?.keyEvidence?.keyId ?? null,
+              keyJwkThumbprintSha256: publishProofVerification?.keyEvidence?.jwkThumbprintSha256 ?? null,
+              providerRef,
+              jwksUrl: publishProofJwksUrl,
+              verifiedAt: nowAt,
+              claims: publishProofVerification?.payload ?? null
+            },
             certified: status === "certified",
             publishedAt: existing?.publishedAt ?? nowAt,
             certifiedAt: status === "certified" ? nowAt : null,
             updatedAt: nowAt
           };
-          store.marketplaceProviderPublications.set(providerPublicationStoreKey(tenantId, providerId), publication);
+          store.marketplaceProviderPublications.set(providerPublicationStoreKey(tenantId, providerRef), publication);
           const statusCode = existing ? 200 : 201;
           const responseBody = { publication };
           if (idemStoreKey) {
@@ -29186,6 +29321,7 @@ export function createApi({
             return sendError(res, 400, "invalid provider listing status", { message: err?.message });
           }
           const providerId = url.searchParams.get("providerId");
+          const providerRef = url.searchParams.get("providerRef");
           const search = url.searchParams.get("q");
           const toolId = url.searchParams.get("toolId");
           const { limit, offset } = parsePagination({
@@ -29194,12 +29330,13 @@ export function createApi({
             defaultLimit: 50,
             maxLimit: 200
           });
-          const rows = listMarketplaceProviderPublications({ tenantId, status, providerId, search, toolId });
+          const rows = listMarketplaceProviderPublications({ tenantId, status, providerId, providerRef, search, toolId });
           const publications = rows.slice(offset, offset + limit).map((row) => ({
             schemaVersion: row.schemaVersion,
             publicationId: row.publicationId,
             tenantId: row.tenantId,
             providerId: row.providerId,
+            providerRef: row.providerRef ?? row.providerId ?? null,
             status: row.status,
             certified: row.certified === true,
             baseUrl: row.baseUrl,
@@ -29224,26 +29361,26 @@ export function createApi({
         }
 
         if (req.method === "GET" && marketplaceParts.length === 4 && marketplaceParts[3] === "badge") {
-          let providerId = null;
+          let providerRefOrId = null;
           try {
-            providerId = parseMarketplaceProviderId(marketplaceParts[2], { fieldPath: "providerId" });
+            providerRefOrId = parseMarketplaceProviderId(marketplaceParts[2], { fieldPath: "providerId" });
           } catch (err) {
             return sendError(res, 400, "invalid providerId", { message: err?.message });
           }
-          const publication = getMarketplaceProviderPublication({ tenantId, providerId });
+          const publication = getMarketplaceProviderPublication({ tenantId, providerRef: providerRefOrId, providerId: providerRefOrId });
           if (!publication) return sendError(res, 404, "provider publication not found");
           const badge = buildMarketplaceProviderCertificationBadge(publication);
           return sendJson(res, 200, { badge });
         }
 
         if (req.method === "GET" && marketplaceParts.length === 3) {
-          let providerId = null;
+          let providerRefOrId = null;
           try {
-            providerId = parseMarketplaceProviderId(marketplaceParts[2], { fieldPath: "providerId" });
+            providerRefOrId = parseMarketplaceProviderId(marketplaceParts[2], { fieldPath: "providerId" });
           } catch (err) {
             return sendError(res, 400, "invalid providerId", { message: err?.message });
           }
-          const publication = getMarketplaceProviderPublication({ tenantId, providerId });
+          const publication = getMarketplaceProviderPublication({ tenantId, providerRef: providerRefOrId, providerId: providerRefOrId });
           if (!publication) return sendError(res, 404, "provider publication not found");
           return sendJson(res, 200, { publication, certificationBadge: buildMarketplaceProviderCertificationBadge(publication) });
         }
@@ -29263,6 +29400,7 @@ export function createApi({
             return sendError(res, 400, "invalid provider listing status", { message: err?.message });
           }
           const providerId = url.searchParams.get("providerId");
+          const providerRef = url.searchParams.get("providerRef");
           const search = url.searchParams.get("q");
           const toolId = url.searchParams.get("toolId");
           const tags = url.searchParams.get("tags");
@@ -29273,7 +29411,7 @@ export function createApi({
             maxLimit: 200
           });
 
-          const rows = listMarketplaceToolListings({ tenantId, status, providerId, toolId, search, tags });
+          const rows = listMarketplaceToolListings({ tenantId, status, providerId, providerRef, toolId, search, tags });
           const tools = rows.slice(offset, offset + limit);
           return sendJson(res, 200, { tools, total: rows.length, limit, offset });
         }

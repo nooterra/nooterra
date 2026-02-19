@@ -1,7 +1,9 @@
 import { canonicalJsonStringify, normalizeForCanonicalJson } from "./canonical-json.js";
 import { sha256Hex } from "./crypto.js";
 
-export const PAID_TOOL_MANIFEST_SCHEMA_VERSION = "PaidToolManifest.v1";
+export const PAID_TOOL_MANIFEST_SCHEMA_VERSION_V1 = "PaidToolManifest.v1";
+export const PAID_TOOL_MANIFEST_SCHEMA_VERSION_V2 = "PaidToolManifest.v2";
+export const PAID_TOOL_MANIFEST_SCHEMA_VERSION = PAID_TOOL_MANIFEST_SCHEMA_VERSION_V1;
 
 function assertPlainObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -21,6 +23,83 @@ function normalizeOptionalString(value, name, { max = 2048 } = {}) {
   const text = String(value).trim();
   if (text.length > max) throw new TypeError(`${name} must be <= ${max} chars`);
   return text;
+}
+
+function normalizeOptionalAbsoluteHttpUrl(value, name) {
+  const raw = normalizeOptionalString(value, name, { max: 2048 });
+  if (!raw) return null;
+  let parsed = null;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new TypeError(`${name} must be an absolute URL`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new TypeError(`${name} must use http or https`);
+  }
+  return parsed.toString();
+}
+
+function normalizeManifestSchemaVersion(value) {
+  const text = normalizeNonEmptyString(value, "manifest.schemaVersion", { max: 64 });
+  if (text === PAID_TOOL_MANIFEST_SCHEMA_VERSION_V1 || text === PAID_TOOL_MANIFEST_SCHEMA_VERSION_V2) return text;
+  throw new TypeError(
+    `manifest.schemaVersion must be ${PAID_TOOL_MANIFEST_SCHEMA_VERSION_V1} or ${PAID_TOOL_MANIFEST_SCHEMA_VERSION_V2}`
+  );
+}
+
+function normalizeToolClass(value, name) {
+  const raw = normalizeOptionalString(value, name, { max: 32 });
+  const normalized = raw ? raw.toLowerCase() : null;
+  if (normalized === null) return null;
+  if (!["read", "compute", "action"].includes(normalized)) {
+    throw new TypeError(`${name} must be read|compute|action`);
+  }
+  return normalized;
+}
+
+function normalizeRiskLevel(value, name) {
+  const raw = normalizeOptionalString(value, name, { max: 32 });
+  if (!raw) return null;
+  const normalized = raw.toLowerCase() === "med" ? "medium" : raw.toLowerCase();
+  if (!["low", "medium", "high"].includes(normalized)) {
+    throw new TypeError(`${name} must be low|medium|high`);
+  }
+  return normalized;
+}
+
+function normalizeStringArray(value, name, { maxItems = 32, maxLen = 64 } = {}) {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) throw new TypeError(`${name} must be an array`);
+  const out = [];
+  const seen = new Set();
+  for (let i = 0; i < value.length; i += 1) {
+    const row = normalizeNonEmptyString(value[i], `${name}[${i}]`, { max: maxLen }).toLowerCase();
+    if (seen.has(row)) continue;
+    seen.add(row);
+    out.push(row);
+    if (out.length > maxItems) throw new TypeError(`${name} must contain <= ${maxItems} items`);
+  }
+  return out;
+}
+
+function normalizeRequiredSignatures(value, name) {
+  const allowed = new Set(["quote", "output", "refund_decision"]);
+  const out = normalizeStringArray(value, name, { maxItems: 8, maxLen: 32 });
+  for (const item of out) {
+    if (!allowed.has(item)) throw new TypeError(`${name} contains unsupported value: ${item}`);
+  }
+  return out;
+}
+
+function normalizeRequestBinding(value, name) {
+  const raw = normalizeOptionalString(value, name, { max: 32 });
+  if (!raw) return null;
+  const normalized = raw.toLowerCase();
+  if (!["strict", "recommended", "none"].includes(normalized)) {
+    throw new TypeError(`${name} must be strict|recommended|none`);
+  }
+  return normalized;
 }
 
 function normalizeHttpMethod(value, name) {
@@ -57,7 +136,25 @@ function normalizePricing(rawPricing, defaults, fieldPath) {
   return normalizeForCanonicalJson({ amountCents, currency }, { path: "$" });
 }
 
-function normalizeTool(rawTool, defaults, { index }) {
+function normalizeToolSecurity(rawSecurity, defaults, fieldPath) {
+  const security = rawSecurity && typeof rawSecurity === "object" && !Array.isArray(rawSecurity) ? rawSecurity : {};
+  const requiredSignatures = normalizeRequiredSignatures(
+    security.requiredSignatures ?? security.required_signatures ?? defaults.requiredSignatures ?? [],
+    `${fieldPath}.requiredSignatures`
+  );
+  const requestBinding =
+    normalizeRequestBinding(security.requestBinding ?? security.request_binding ?? defaults.requestBinding, `${fieldPath}.requestBinding`) ??
+    "recommended";
+  return normalizeForCanonicalJson(
+    {
+      requiredSignatures,
+      requestBinding
+    },
+    { path: "$" }
+  );
+}
+
+function normalizeTool(rawTool, defaults, { index, schemaVersion }) {
   assertPlainObject(rawTool, `tools[${index}]`);
   const toolId = normalizeNonEmptyString(rawTool.toolId, `tools[${index}].toolId`, { max: 128 });
   const mcpToolName = normalizeOptionalString(rawTool.mcpToolName, `tools[${index}].mcpToolName`, { max: 180 });
@@ -83,6 +180,22 @@ function normalizeTool(rawTool, defaults, { index }) {
       ? normalizeForCanonicalJson(rawTool.metadata, { path: "$" })
       : null;
 
+  const isV2 = schemaVersion === PAID_TOOL_MANIFEST_SCHEMA_VERSION_V2;
+  const toolClass = normalizeToolClass(
+    rawTool.toolClass ?? rawTool.tool_class ?? defaults.toolClass ?? null,
+    `tools[${index}].toolClass`
+  );
+  const riskLevel = normalizeRiskLevel(
+    rawTool.riskLevel ?? rawTool.risk_level ?? defaults.riskLevel ?? null,
+    `tools[${index}].riskLevel`
+  );
+  const capabilityTags = normalizeStringArray(
+    rawTool.capabilityTags ?? rawTool.capability_tags ?? rawTool.tags ?? [],
+    `tools[${index}].capabilityTags`,
+    { maxItems: 64, maxLen: 80 }
+  );
+  const security = normalizeToolSecurity(rawTool.security ?? null, defaults, `tools[${index}].security`);
+
   return normalizeForCanonicalJson(
     {
       toolId,
@@ -95,7 +208,15 @@ function normalizeTool(rawTool, defaults, { index }) {
       idempotency,
       signatureMode,
       auth,
-      metadata
+      metadata,
+      ...(isV2
+        ? {
+            toolClass: toolClass ?? "read",
+            riskLevel: riskLevel ?? "low",
+            capabilityTags,
+            security
+          }
+        : {})
     },
     { path: "$" }
   );
@@ -103,12 +224,14 @@ function normalizeTool(rawTool, defaults, { index }) {
 
 export function normalizePaidToolManifestV1(manifestInput) {
   assertPlainObject(manifestInput, "manifest");
-  const schemaVersion = normalizeNonEmptyString(manifestInput.schemaVersion, "manifest.schemaVersion", { max: 64 });
-  if (schemaVersion !== PAID_TOOL_MANIFEST_SCHEMA_VERSION) {
-    throw new TypeError(`manifest.schemaVersion must be ${PAID_TOOL_MANIFEST_SCHEMA_VERSION}`);
-  }
+  const schemaVersion = normalizeManifestSchemaVersion(manifestInput.schemaVersion);
+  const isV2 = schemaVersion === PAID_TOOL_MANIFEST_SCHEMA_VERSION_V2;
   const providerId = normalizeNonEmptyString(manifestInput.providerId, "manifest.providerId", { max: 160 });
   const upstreamBaseUrl = normalizeOptionalString(manifestInput.upstreamBaseUrl, "manifest.upstreamBaseUrl", { max: 2048 });
+  const publishProofJwksUrl = normalizeOptionalAbsoluteHttpUrl(
+    manifestInput.publishProofJwksUrl,
+    "manifest.publishProofJwksUrl"
+  );
   const sourceOpenApiPath = normalizeOptionalString(manifestInput.sourceOpenApiPath, "manifest.sourceOpenApiPath", { max: 2048 });
 
   const defaultsRaw =
@@ -120,7 +243,22 @@ export function normalizePaidToolManifestV1(manifestInput) {
       amountCents: normalizePositiveSafeInt(defaultsRaw.amountCents ?? 500, "manifest.defaults.amountCents"),
       currency: normalizeCurrency(defaultsRaw.currency ?? "USD", "manifest.defaults.currency"),
       idempotency: normalizeOptionalString(defaultsRaw.idempotency, "manifest.defaults.idempotency", { max: 64 }) ?? "idempotent",
-      signatureMode: normalizeOptionalString(defaultsRaw.signatureMode, "manifest.defaults.signatureMode", { max: 64 }) ?? "required"
+      signatureMode: normalizeOptionalString(defaultsRaw.signatureMode, "manifest.defaults.signatureMode", { max: 64 }) ?? "required",
+      ...(isV2
+        ? {
+            toolClass: normalizeToolClass(defaultsRaw.toolClass ?? defaultsRaw.tool_class ?? null, "manifest.defaults.toolClass") ?? "read",
+            riskLevel: normalizeRiskLevel(defaultsRaw.riskLevel ?? defaultsRaw.risk_level ?? null, "manifest.defaults.riskLevel") ?? "low",
+            requiredSignatures: normalizeRequiredSignatures(
+              defaultsRaw.requiredSignatures ?? defaultsRaw.required_signatures ?? ["output"],
+              "manifest.defaults.requiredSignatures"
+            ),
+            requestBinding:
+              normalizeRequestBinding(
+                defaultsRaw.requestBinding ?? defaultsRaw.request_binding ?? null,
+                "manifest.defaults.requestBinding"
+              ) ?? "recommended"
+          }
+        : {})
     },
     { path: "$" }
   );
@@ -134,7 +272,7 @@ export function normalizePaidToolManifestV1(manifestInput) {
   if (!Array.isArray(manifestInput.tools) || manifestInput.tools.length === 0) {
     throw new TypeError("manifest.tools must be a non-empty array");
   }
-  const tools = manifestInput.tools.map((row, index) => normalizeTool(row, defaults, { index }));
+  const tools = manifestInput.tools.map((row, index) => normalizeTool(row, defaults, { index, schemaVersion }));
   const seenToolIds = new Set();
   const seenPaidPaths = new Set();
   for (const tool of tools) {
@@ -144,14 +282,22 @@ export function normalizePaidToolManifestV1(manifestInput) {
     seenPaidPaths.add(tool.paidPath);
   }
 
+  const capabilityTags = normalizeStringArray(
+    manifestInput.capabilityTags ?? manifestInput.capability_tags ?? manifestInput.tags ?? [],
+    "manifest.capabilityTags",
+    { maxItems: 64, maxLen: 80 }
+  );
+
   return normalizeForCanonicalJson(
     {
-      schemaVersion: PAID_TOOL_MANIFEST_SCHEMA_VERSION,
+      schemaVersion,
       providerId,
       upstreamBaseUrl,
+      publishProofJwksUrl,
       sourceOpenApiPath,
       defaults,
-      tools
+      tools,
+      ...(isV2 ? { capabilityTags } : {})
     },
     { path: "$" }
   );

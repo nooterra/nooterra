@@ -7396,6 +7396,7 @@
         "required": [
           "schemaVersion",
           "providerId",
+          "providerRef",
           "publicationId",
           "status",
           "certified",
@@ -7413,6 +7414,9 @@
             ]
           },
           "providerId": {
+            "type": "string"
+          },
+          "providerRef": {
             "type": "string"
           },
           "publicationId": {
@@ -7507,6 +7511,7 @@
           "publicationId",
           "tenantId",
           "providerId",
+          "providerRef",
           "status",
           "certified",
           "baseUrl",
@@ -7532,6 +7537,10 @@
           },
           "providerId": {
             "type": "string"
+          },
+          "providerRef": {
+            "type": "string",
+            "nullable": true
           },
           "status": {
             "type": "string",
@@ -7616,6 +7625,7 @@
             "required": [
               "schemaVersion",
               "providerId",
+              "providerRef",
               "publicationId",
               "status",
               "certified",
@@ -7633,6 +7643,9 @@
                 ]
               },
               "providerId": {
+                "type": "string"
+              },
+              "providerRef": {
                 "type": "string"
               },
               "publicationId": {
@@ -7743,6 +7756,7 @@
         "required": [
           "schemaVersion",
           "providerId",
+          "providerRef",
           "publicationId",
           "certified",
           "providerStatus",
@@ -7764,6 +7778,10 @@
           },
           "providerId": {
             "type": "string"
+          },
+          "providerRef": {
+            "type": "string",
+            "nullable": true
           },
           "publicationId": {
             "type": "string"
@@ -7864,6 +7882,7 @@
             "required": [
               "schemaVersion",
               "providerId",
+              "providerRef",
               "publicationId",
               "status",
               "certified",
@@ -7881,6 +7900,9 @@
                 ]
               },
               "providerId": {
+                "type": "string"
+              },
+              "providerRef": {
                 "type": "string"
               },
               "publicationId": {
@@ -17112,6 +17134,14 @@
             }
           },
           {
+            "name": "providerRef",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "toolId",
             "in": "query",
             "required": false,
@@ -17180,6 +17210,7 @@
                           "publicationId",
                           "tenantId",
                           "providerId",
+                          "providerRef",
                           "status",
                           "certified",
                           "baseUrl",
@@ -17205,6 +17236,10 @@
                           },
                           "providerId": {
                             "type": "string"
+                          },
+                          "providerRef": {
+                            "type": "string",
+                            "nullable": true
                           },
                           "status": {
                             "type": "string",
@@ -17289,6 +17324,7 @@
                             "required": [
                               "schemaVersion",
                               "providerId",
+                              "providerRef",
                               "publicationId",
                               "status",
                               "certified",
@@ -17306,6 +17342,9 @@
                                 ]
                               },
                               "providerId": {
+                                "type": "string"
+                              },
+                              "providerRef": {
                                 "type": "string"
                               },
                               "publicationId": {
@@ -17507,6 +17546,14 @@
             }
           },
           {
+            "name": "providerRef",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "toolId",
             "in": "query",
             "required": false,
@@ -17582,6 +17629,7 @@
                         "required": [
                           "schemaVersion",
                           "providerId",
+                          "providerRef",
                           "publicationId",
                           "certified",
                           "providerStatus",
@@ -17603,6 +17651,10 @@
                           },
                           "providerId": {
                             "type": "string"
+                          },
+                          "providerRef": {
+                            "type": "string",
+                            "nullable": true
                           },
                           "publicationId": {
                             "type": "string"
@@ -17703,6 +17755,7 @@
                             "required": [
                               "schemaVersion",
                               "providerId",
+                              "providerRef",
                               "publicationId",
                               "status",
                               "certified",
@@ -17720,6 +17773,9 @@
                                 ]
                               },
                               "providerId": {
+                                "type": "string"
+                              },
+                              "providerRef": {
                                 "type": "string"
                               },
                               "publicationId": {
@@ -17920,7 +17976,9 @@
                 "additionalProperties": false,
                 "required": [
                   "baseUrl",
-                  "manifest"
+                  "manifest",
+                  "publishProof",
+                  "publishProofJwksUrl"
                 ],
                 "properties": {
                   "providerId": {
@@ -17937,6 +17995,12 @@
                   "providerSigningPublicKeyPem": {
                     "type": "string",
                     "nullable": true
+                  },
+                  "publishProof": {
+                    "type": "string"
+                  },
+                  "publishProofJwksUrl": {
+                    "type": "string"
                   },
                   "runConformance": {
                     "type": "boolean",
@@ -18308,6 +18372,7 @@
                       "required": [
                         "schemaVersion",
                         "providerId",
+                        "providerRef",
                         "publicationId",
                         "status",
                         "certified",
@@ -18325,6 +18390,9 @@
                           ]
                         },
                         "providerId": {
+                          "type": "string"
+                        },
+                        "providerRef": {
                           "type": "string"
                         },
                         "publicationId": {
@@ -18527,6 +18595,7 @@
                       "required": [
                         "schemaVersion",
                         "providerId",
+                        "providerRef",
                         "publicationId",
                         "status",
                         "certified",
@@ -18544,6 +18613,9 @@
                           ]
                         },
                         "providerId": {
+                          "type": "string"
+                        },
+                        "providerRef": {
                           "type": "string"
                         },
                         "publicationId": {

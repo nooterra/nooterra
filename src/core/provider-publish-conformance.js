@@ -4,6 +4,7 @@ import { normalizePaidToolManifestV1, validatePaidToolManifestV1 } from "./paid-
 import { buildSettldPayPayloadV1, computeSettldPayRequestBindingSha256V1, mintSettldPayTokenV1 } from "./settld-pay-token.js";
 import { parseX402PaymentRequired } from "./x402-gate.js";
 import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "./tool-provider-signature.js";
+import { checkUrlSafety } from "./url-safety.js";
 
 export const PROVIDER_CONFORMANCE_REPORT_SCHEMA_VERSION = "ProviderConformanceReport.v1";
 
@@ -38,14 +39,46 @@ function toHeaderObject(headers) {
   return out;
 }
 
-async function resolveProviderSigningPublicKeyPem({ providerSigningPublicKeyPem, providerBaseUrl, fetchFn, timeoutMs }) {
+function conformanceUrlSafetyOptions() {
+  const allowUnsafe = process.env.NODE_ENV !== "production";
+  return {
+    allowHttp: allowUnsafe,
+    allowPrivate: allowUnsafe,
+    allowLoopback: allowUnsafe,
+    allowedSchemes: ["https"]
+  };
+}
+
+async function assertConformanceUrlSafe(urlLike, options) {
+  const target = typeof urlLike === "string" ? urlLike : new URL(urlLike).toString();
+  const safe = await checkUrlSafety(target, options);
+  if (!safe.ok) {
+    throw new Error(`unsafe conformance URL (${safe.code}): ${safe.message}`);
+  }
+  return safe;
+}
+
+async function fetchConformanceUrl({ fetchFn, url, init, safetyOptions }) {
+  await assertConformanceUrlSafe(url, safetyOptions);
+  return fetchFn(url, {
+    ...(init && typeof init === "object" ? init : {}),
+    redirect: "error"
+  });
+}
+
+async function resolveProviderSigningPublicKeyPem({ providerSigningPublicKeyPem, providerBaseUrl, fetchFn, timeoutMs, safetyOptions }) {
   const inlinePem = normalizeNonEmptyPem(providerSigningPublicKeyPem);
   if (inlinePem) {
     return inlinePem;
   }
   const url = new URL("/settld/provider-key", providerBaseUrl);
   const signal = typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(timeoutMs) : undefined;
-  const response = await fetchFn(url, { method: "GET", signal });
+  const response = await fetchConformanceUrl({
+    fetchFn,
+    url,
+    init: { method: "GET", signal },
+    safetyOptions
+  });
   if (!response.ok) {
     const text = await response.text();
     throw new Error(`provider signing key lookup failed (${response.status}): ${text || "unknown"}`);
@@ -135,6 +168,7 @@ export async function runProviderConformanceV1({
 
   const fetchImpl = typeof fetchFn === "function" ? fetchFn : globalThis.fetch;
   if (typeof fetchImpl !== "function") throw new TypeError("fetch implementation is required");
+  const urlSafetyOptions = conformanceUrlSafetyOptions();
 
   const signerPublicKeyPem = normalizeOptionalString(settldSigner?.publicKeyPem);
   const signerKeyId = normalizeOptionalString(settldSigner?.keyId);
@@ -177,6 +211,36 @@ export async function runProviderConformanceV1({
     return report;
   }
 
+  let baseUrlSafety = null;
+  try {
+    baseUrlSafety = await checkUrlSafety(safeBaseUrl, urlSafetyOptions);
+  } catch (err) {
+    baseUrlSafety = {
+      ok: false,
+      code: "URL_SAFETY_CHECK_FAILED",
+      message: err?.message ?? String(err ?? "")
+    };
+  }
+  if (!baseUrlSafety?.ok) {
+    const report = {
+      schemaVersion: PROVIDER_CONFORMANCE_REPORT_SCHEMA_VERSION,
+      generatedAt: new Date().toISOString(),
+      startedAt: reportStartedAt,
+      providerBaseUrl: safeBaseUrl,
+      providerId: normalizeOptionalString(providerId ?? manifest.providerId),
+      checks: [
+        buildCheck("manifest_valid", true),
+        buildCheck("provider_base_url_valid", true),
+        buildCheck("provider_base_url_safe", false, {
+          code: baseUrlSafety?.code ?? null,
+          message: baseUrlSafety?.message ?? "unsafe providerBaseUrl"
+        })
+      ]
+    };
+    report.verdict = evaluateChecks(report.checks);
+    return report;
+  }
+
   const effectiveProviderId = normalizeOptionalString(providerId) ?? String(manifest.providerId);
   const tool = pickConformanceTool({ manifest, toolId: conformanceToolId });
   if (!tool) {
@@ -198,14 +262,30 @@ export async function runProviderConformanceV1({
 
   checks.push(buildCheck("manifest_valid", true));
   checks.push(buildCheck("provider_base_url_valid", true));
+  checks.push(
+    buildCheck("provider_base_url_safe", true, {
+      code: baseUrlSafety?.code ?? null
+    })
+  );
   checks.push(buildCheck("conformance_tool_selected", true, { toolId: tool.toolId, method: tool.method, paidPath: tool.paidPath }));
 
   const requestUrl = new URL(tool.paidPath, safeBaseUrl);
   const toolIdempotency = typeof tool?.idempotency === "string" ? tool.idempotency.trim().toLowerCase() : "";
-  const strictRequestBindingRequired = toolIdempotency === "non_idempotent" || toolIdempotency === "side_effecting";
+  const toolClass = typeof tool?.toolClass === "string" ? tool.toolClass.trim().toLowerCase() : "";
+  const toolRiskLevel = typeof tool?.riskLevel === "string" ? tool.riskLevel.trim().toLowerCase() : "";
+  const strictRequestBindingRequired =
+    toolIdempotency === "non_idempotent" ||
+    toolIdempotency === "side_effecting" ||
+    toolClass === "action" ||
+    toolRiskLevel === "high";
   const unpaidReqInit = requestInitForMethod(tool.method);
   const unpaidSignal = typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(timeoutMs) : undefined;
-  const unpaidResponse = await fetchImpl(requestUrl, { ...unpaidReqInit, signal: unpaidSignal });
+  const unpaidResponse = await fetchConformanceUrl({
+    fetchFn: fetchImpl,
+    url: requestUrl,
+    init: { ...unpaidReqInit, signal: unpaidSignal },
+    safetyOptions: urlSafetyOptions
+  });
   checks.push(
     buildCheck("unpaid_returns_402", unpaidResponse.status === 402, {
       statusCode: unpaidResponse.status
@@ -288,9 +368,14 @@ export async function runProviderConformanceV1({
   const token = mintSettldPayTokenV1(mintArgs).token;
 
   const paidSignal = typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(timeoutMs) : undefined;
-  const paidResponse = await fetchImpl(requestUrl, {
-    ...requestInitForMethod(tool.method, token),
-    signal: paidSignal
+  const paidResponse = await fetchConformanceUrl({
+    fetchFn: fetchImpl,
+    url: requestUrl,
+    init: {
+      ...requestInitForMethod(tool.method, token),
+      signal: paidSignal
+    },
+    safetyOptions: urlSafetyOptions
   });
   const paidPaymentError = headerValue(paidResponse.headers, "x-settld-payment-error");
   checks.push(
@@ -310,6 +395,8 @@ export async function runProviderConformanceV1({
         : true,
       {
         required: strictRequestBindingRequired,
+        toolClass: toolClass || null,
+        toolRiskLevel: toolRiskLevel || null,
         observedMode: requestBindingModeHeader,
         observedSha256Present: Boolean(requestBindingSha256Header),
         observedSha256: requestBindingSha256Header,
@@ -351,7 +438,8 @@ export async function runProviderConformanceV1({
       providerSigningPublicKeyPem,
       providerBaseUrl: safeBaseUrl,
       fetchFn: fetchImpl,
-      timeoutMs
+      timeoutMs,
+      safetyOptions: urlSafetyOptions
     });
     checks.push(buildCheck("provider_public_key_resolved", true));
   } catch (err) {
@@ -397,9 +485,14 @@ export async function runProviderConformanceV1({
   checks.push(buildCheck("provider_signature_verifies", signatureVerified, signatureVerifyDetails));
 
   const replaySignal = typeof AbortSignal?.timeout === "function" ? AbortSignal.timeout(timeoutMs) : undefined;
-  const replayResponse = await fetchImpl(requestUrl, {
-    ...requestInitForMethod(tool.method, token),
-    signal: replaySignal
+  const replayResponse = await fetchConformanceUrl({
+    fetchFn: fetchImpl,
+    url: requestUrl,
+    init: {
+      ...requestInitForMethod(tool.method, token),
+      signal: replaySignal
+    },
+    safetyOptions: urlSafetyOptions
   });
   const replayHeader = headerValue(replayResponse.headers, "x-settld-provider-replay");
   const replayPaymentError = headerValue(replayResponse.headers, "x-settld-payment-error");

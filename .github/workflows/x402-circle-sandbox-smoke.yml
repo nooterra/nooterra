@@ -92,6 +92,13 @@ jobs:
             --max-provider-sig-fail-rate 0.01 \
             --min-settlement-success-rate 0.98
 
+      - name: Enforce receipt export + offline verifier checkpoint
+        run: |
+          set -euo pipefail
+          npm run ops:x402:receipt:sample-check -- \
+            --artifact-root artifacts/mcp-paid-exa \
+            --out artifacts/ops/x402-receipt-sample-check.json
+
       - name: Upload Circle smoke artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -101,4 +108,5 @@ jobs:
             artifacts/gates/x402-circle-sandbox-smoke.json
             artifacts/mcp-paid-exa
             artifacts/ops/x402-pilot-reliability-report.json
+            artifacts/ops/x402-receipt-sample-check.json
           if-no-files-found: warn

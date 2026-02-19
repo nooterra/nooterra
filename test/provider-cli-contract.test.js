@@ -6,6 +6,11 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
 
+import { createEd25519Keypair, keyIdFromPublicKeyPem } from "../src/core/crypto.js";
+import { buildSettldPayKeysetV1 } from "../src/core/settld-keys.js";
+import { computePaidToolManifestHashV1 } from "../src/core/paid-tool-manifest.js";
+import { verifyProviderPublishProofTokenV1 } from "../src/core/provider-publish-proof.js";
+
 async function listenServer(server, { host = "127.0.0.1" } = {}) {
   await new Promise((resolve) => server.listen(0, host, resolve));
   const addr = server.address();
@@ -60,6 +65,7 @@ test("provider:publish emits machine-readable failure and writes publication/con
         schemaVersion: "PaidToolManifest.v1",
         providerId: "prov_cli_failure",
         upstreamBaseUrl: "https://provider.example",
+        publishProofJwksUrl: "https://provider.example/.well-known/jwks.json",
         defaults: {
           currency: "USD",
           amountCents: 500,
@@ -89,7 +95,7 @@ test("provider:publish emits machine-readable failure and writes publication/con
       let body = "";
       for await (const chunk of req) body += chunk;
       const parsed = JSON.parse(body);
-      assert.equal(parsed.providerId, null);
+      assert.equal(parsed.providerId, "prov_cli_failure");
       assert.equal(parsed.baseUrl, "http://127.0.0.1:9402");
       res.writeHead(201, { "content-type": "application/json; charset=utf-8" });
       res.end(
@@ -124,6 +130,10 @@ test("provider:publish emits machine-readable failure and writes publication/con
     manifestPath,
     "--base-url",
     "http://127.0.0.1:9402",
+    "--publish-proof",
+    "proof_dummy",
+    "--publish-proof-jwks-url",
+    "https://provider.example/.well-known/jwks.json",
     "--api-url",
     addr.url,
     "--api-key",
@@ -236,4 +246,119 @@ test("provider:conformance emits machine-readable failure and exits non-zero by 
   const report = JSON.parse(reportRaw);
   assert.equal(report.verdict?.ok, false);
   assert.equal(report.verdict?.requiredChecks, 8);
+});
+
+test("provider:publish auto-mints publish proof when key material is provided", async (t) => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-provider-publish-auto-mint-cli-"));
+  const manifestPath = path.join(tempDir, "manifest.json");
+  const privateKeyPath = path.join(tempDir, "identity.ed25519.private.pem");
+
+  const keypair = createEd25519Keypair();
+  const publishProofKid = keyIdFromPublicKeyPem(keypair.publicKeyPem);
+  const publishProofJwks = buildSettldPayKeysetV1({
+    activeKey: { keyId: publishProofKid, publicKeyPem: keypair.publicKeyPem },
+    refreshedAt: new Date().toISOString()
+  });
+  const publishProofJwksUrl = "https://provider.example/.well-known/provider-publish-jwks.json";
+
+  await fs.writeFile(privateKeyPath, keypair.privateKeyPem, { mode: 0o600 });
+  await fs.writeFile(
+    manifestPath,
+    `${JSON.stringify(
+      {
+        schemaVersion: "PaidToolManifest.v1",
+        providerId: "prov_cli_auto",
+        upstreamBaseUrl: "https://provider.example",
+        publishProofJwksUrl,
+        defaults: {
+          currency: "USD",
+          amountCents: 500,
+          idempotency: "idempotent",
+          signatureMode: "required"
+        },
+        tools: [
+          {
+            toolId: "bridge.search",
+            mcpToolName: "bridge.search",
+            description: "search",
+            method: "GET",
+            upstreamPath: "/search",
+            paidPath: "/tool/search",
+            pricing: { amountCents: 500, currency: "USD" },
+            auth: { mode: "none" }
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`
+  );
+
+  const server = http.createServer(async (req, res) => {
+    if (req.method === "POST" && req.url === "/marketplace/providers/publish") {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      const parsed = JSON.parse(body);
+      assert.equal(parsed.providerId, "prov_cli_auto");
+      assert.equal(parsed.publishProofJwksUrl, publishProofJwksUrl);
+      assert.equal(typeof parsed.publishProof, "string");
+      assert.ok(parsed.publishProof.length > 32);
+
+      const verified = verifyProviderPublishProofTokenV1({
+        token: parsed.publishProof,
+        jwks: publishProofJwks,
+        expectedManifestHash: computePaidToolManifestHashV1(parsed.manifest),
+        expectedProviderId: "prov_cli_auto"
+      });
+      assert.equal(verified.ok, true, verified);
+      assert.equal(verified.kid, publishProofKid);
+
+      res.writeHead(201, { "content-type": "application/json; charset=utf-8" });
+      res.end(
+        JSON.stringify({
+          publication: {
+            schemaVersion: "MarketplaceProviderPublication.v1",
+            publicationId: "pub_cli_auto_1",
+            providerId: "prov_cli_auto",
+            providerRef: verified.providerRef,
+            status: "certified",
+            certified: true,
+            manifestHash: computePaidToolManifestHashV1(parsed.manifest),
+            conformanceReport: {
+              schemaVersion: "ProviderConformanceReport.v1",
+              verdict: { ok: true, requiredChecks: 12, passedChecks: 12 }
+            }
+          }
+        })
+      );
+      return;
+    }
+    res.writeHead(404, { "content-type": "application/json; charset=utf-8" });
+    res.end(JSON.stringify({ error: "not_found" }));
+  });
+  const addr = await listenServer(server);
+  t.after(async () => {
+    await closeServer(server);
+  });
+
+  const run = await runNode([
+    "scripts/provider/publish.mjs",
+    "--manifest",
+    manifestPath,
+    "--base-url",
+    "http://127.0.0.1:9402",
+    "--publish-proof-key-file",
+    privateKeyPath,
+    "--api-url",
+    addr.url,
+    "--api-key",
+    "sk_test_cli"
+  ]);
+  assert.equal(run.code, 0, run.stderr || run.stdout);
+  const output = parseSingleJson(run.stdout);
+  assert.equal(output.ok, true);
+  assert.equal(output.providerId, "prov_cli_auto");
+  assert.equal(output.publishProofMode, "auto_minted");
+  assert.equal(output.publishProofKid, publishProofKid);
+  assert.match(String(output.publishProofTokenSha256 ?? ""), /^[0-9a-f]{64}$/);
 });

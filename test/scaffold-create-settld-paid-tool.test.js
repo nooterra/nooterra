@@ -83,8 +83,10 @@ test("create-settld-paid-tool --from-http writes bridge manifest + mcp bridge", 
   assert.equal(fs.existsSync(path.join(outDir, "paid-tool-manifest.json")), true);
   assert.equal(fs.existsSync(path.join(outDir, "mcp-bridge.mjs")), true);
   const manifest = JSON.parse(await readFile(path.join(outDir, "paid-tool-manifest.json"), "utf8"));
+  assert.equal(manifest.schemaVersion, "PaidToolManifest.v2");
   assert.equal(manifest.providerId, "prov_http_1");
   assert.equal(manifest.upstreamBaseUrl, "https://api.example.com");
+  assert.equal(manifest.publishProofJwksUrl, "https://api.example.com/.well-known/provider-publish-jwks.json");
   assert.equal(Array.isArray(manifest.tools), true);
   assert.equal(manifest.tools.length >= 1, true);
   const pkg = JSON.parse(await readFile(path.join(outDir, "package.json"), "utf8"));
@@ -129,6 +131,8 @@ test("create-settld-paid-tool --from-openapi generates bridge tools from spec", 
   assert.equal(exec.code, 0, `stderr=${exec.stderr}`);
   assert.match(exec.stdout, /mode=bridge_openapi/);
   const manifest = JSON.parse(await readFile(path.join(outDir, "paid-tool-manifest.json"), "utf8"));
+  assert.equal(manifest.schemaVersion, "PaidToolManifest.v2");
+  assert.equal(manifest.publishProofJwksUrl, "http://127.0.0.1:8080/.well-known/provider-publish-jwks.json");
   const mcpToolNames = new Set((manifest.tools ?? []).map((t) => t.mcpToolName));
   assert.equal(mcpToolNames.has("bridge.getCurrentWeather"), true);
   assert.equal(mcpToolNames.has("bridge.createEmbedding"), true);

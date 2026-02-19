@@ -96,16 +96,30 @@ function toToolIdFromMethodPath(method, routePath) {
   return sanitizeIdSegment(`${String(method ?? "GET").toLowerCase()}_${String(routePath ?? "/").replaceAll("/", "_")}`, { maxLen: 80 });
 }
 
+function defaultPublishProofJwksUrl(upstreamBaseUrl) {
+  try {
+    return new URL("/.well-known/provider-publish-jwks.json", String(upstreamBaseUrl ?? "")).toString();
+  } catch {
+    return "https://provider.example/.well-known/provider-publish-jwks.json";
+  }
+}
+
 function buildDefaultBridgeManifest({ providerId, upstreamBaseUrl }) {
   return {
-    schemaVersion: "PaidToolManifest.v1",
+    schemaVersion: "PaidToolManifest.v2",
     providerId,
     upstreamBaseUrl,
+    publishProofJwksUrl: defaultPublishProofJwksUrl(upstreamBaseUrl),
+    capabilityTags: ["api_bridge"],
     defaults: {
       currency: "USD",
       amountCents: 500,
       idempotency: "idempotent",
-      signatureMode: "required"
+      signatureMode: "required",
+      toolClass: "read",
+      riskLevel: "low",
+      requiredSignatures: ["output"],
+      requestBinding: "recommended"
     },
     tools: [
       {
@@ -116,7 +130,14 @@ function buildDefaultBridgeManifest({ providerId, upstreamBaseUrl }) {
         upstreamPath: "/",
         paidPath: "/tool/get_root",
         pricing: { amountCents: 500, currency: "USD" },
-        auth: { mode: "none" }
+        auth: { mode: "none" },
+        toolClass: "read",
+        riskLevel: "low",
+        capabilityTags: ["http_get", "discovery"],
+        security: {
+          requiredSignatures: ["output"],
+          requestBinding: "recommended"
+        }
       }
     ]
   };
@@ -156,6 +177,8 @@ function buildBridgeManifestFromOpenApi({ providerId, upstreamBaseUrl, openApiSp
           : typeof op.description === "string" && op.description.trim() !== ""
             ? op.description.trim().split(/\r?\n/u)[0]
             : `${method} ${routePath}`;
+      const inferredToolClass = method === "GET" ? "read" : "action";
+      const inferredRiskLevel = inferredToolClass === "action" ? "medium" : "low";
       tools.push({
         toolId,
         mcpToolName,
@@ -164,7 +187,14 @@ function buildBridgeManifestFromOpenApi({ providerId, upstreamBaseUrl, openApiSp
         upstreamPath: routePath,
         paidPath: `/tool/${toolId}`,
         pricing: { amountCents: 500, currency: "USD" },
-        auth: { mode: "none" }
+        auth: { mode: "none" },
+        toolClass: inferredToolClass,
+        riskLevel: inferredRiskLevel,
+        capabilityTags: [`method_${method.toLowerCase()}`],
+        security: {
+          requiredSignatures: ["output"],
+          requestBinding: inferredToolClass === "action" ? "strict" : "recommended"
+        }
       });
       if (tools.length >= 24) break;
     }
@@ -172,15 +202,21 @@ function buildBridgeManifestFromOpenApi({ providerId, upstreamBaseUrl, openApiSp
   }
 
   return {
-    schemaVersion: "PaidToolManifest.v1",
+    schemaVersion: "PaidToolManifest.v2",
     providerId,
     upstreamBaseUrl,
+    publishProofJwksUrl: defaultPublishProofJwksUrl(upstreamBaseUrl),
     sourceOpenApiPath: openApiSpecPath,
+    capabilityTags: ["api_bridge", "openapi_generated"],
     defaults: {
       currency: "USD",
       amountCents: 500,
       idempotency: "idempotent",
-      signatureMode: "required"
+      signatureMode: "required",
+      toolClass: "read",
+      riskLevel: "low",
+      requiredSignatures: ["output"],
+      requestBinding: "recommended"
     },
     tools: tools.length > 0 ? tools : buildDefaultBridgeManifest({ providerId, upstreamBaseUrl }).tools
   };
