@@ -9497,6 +9497,9 @@ export function createApi({
       return n;
     };
     return {
+      receiptId: parseNullableTrimmed(url.searchParams.get("receipt_id") ?? url.searchParams.get("receiptId")),
+      runId: parseNullableTrimmed(url.searchParams.get("run_id") ?? url.searchParams.get("runId")),
+      agreementId: parseNullableTrimmed(url.searchParams.get("agreement_id") ?? url.searchParams.get("agreementId")),
       agentId: parseNullableTrimmed(url.searchParams.get("agent_id") ?? url.searchParams.get("agentId")),
       sponsorId: parseNullableTrimmed(url.searchParams.get("sponsor_id") ?? url.searchParams.get("sponsorId")),
       sponsorWalletRef: parseNullableTrimmed(url.searchParams.get("sponsor_wallet_ref") ?? url.searchParams.get("sponsorWalletRef")),
@@ -9508,6 +9511,21 @@ export function createApi({
       limit: parsePositiveInt(url.searchParams.get("limit"), 200, { name: "limit" }),
       offset: parseNonNegativeInt(url.searchParams.get("offset"), 0, { name: "offset" })
     };
+  }
+
+  function matchX402ReceiptQuery(receipt, query) {
+    if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) return false;
+    if (!query || typeof query !== "object" || Array.isArray(query)) return true;
+    if (query.receiptId && String(receipt.receiptId ?? "") !== String(query.receiptId)) return false;
+    if (query.runId && String(receipt.runId ?? "") !== String(query.runId)) return false;
+    if (query.agreementId) {
+      const agreementId =
+        receipt?.decisionRecord && typeof receipt.decisionRecord === "object" && !Array.isArray(receipt.decisionRecord)
+          ? String(receipt.decisionRecord.agreementId ?? "")
+          : "";
+      if (agreementId !== String(query.agreementId)) return false;
+    }
+    return true;
   }
 
   function normalizeX402WalletIssuerDecisionTokenInput(value, fieldPath = "walletAuthorizationDecisionToken", { allowNull = true } = {}) {
@@ -20633,6 +20651,8 @@ export function createApi({
           const initialOpsToken = typeof url.searchParams.get("opsToken") === "string" ? url.searchParams.get("opsToken") : "";
           const initialRunId = typeof url.searchParams.get("runId") === "string" ? url.searchParams.get("runId") : "";
           const initialAgreementHash = typeof url.searchParams.get("agreementHash") === "string" ? url.searchParams.get("agreementHash") : "";
+          const initialAgreementId = typeof url.searchParams.get("agreementId") === "string" ? url.searchParams.get("agreementId") : "";
+          const initialReceiptId = typeof url.searchParams.get("receiptId") === "string" ? url.searchParams.get("receiptId") : "";
           const html = [
             "<!doctype html>",
             "<html><head><meta charset=\"utf-8\"/>",
@@ -20671,6 +20691,11 @@ export function createApi({
             "<div class=\"field small\"><button id=\"loadRunBtn\">Load run chain</button></div>",
             "</div>",
             "<div class=\"row\" style=\"margin-top:10px\">",
+            "<div class=\"field\"><div class=\"muted\">agreementId (hash)</div><input id=\"agreementIdInput\" placeholder=\"agreement hash from decisionRecord\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">receiptId</div><input id=\"receiptIdInput\" placeholder=\"rcpt_...\"/></div>",
+            "<div class=\"field small\"><button id=\"loadReceiptBtn\">Load receipt</button></div>",
+            "</div>",
+            "<div class=\"row\" style=\"margin-top:10px\">",
             "<div class=\"field\"><div class=\"muted\">Agreement</div><pre id=\"runAgreement\" class=\"mono\">{}</pre></div>",
             "</div>",
             "<div class=\"row\" style=\"margin-top:10px\">",
@@ -20685,6 +20710,18 @@ export function createApi({
 	            "<div class=\"row\" style=\"margin-top:10px\">",
 	            "<div class=\"field\"><div class=\"muted\">Replay evaluate</div><pre id=\"runReplayEvaluate\" class=\"mono\">{}</pre></div>",
 	            "</div>",
+              "<div class=\"row\" style=\"margin-top:10px\">",
+              "<div class=\"field\"><div class=\"muted\">Receipt record</div><pre id=\"receiptRecord\" class=\"mono\">{}</pre></div>",
+              "</div>",
+              "<div class=\"row\" style=\"margin-top:10px\">",
+              "<div class=\"field\"><div class=\"muted\">DecisionRecord</div><pre id=\"receiptDecisionRecord\" class=\"mono\">{}</pre></div>",
+              "</div>",
+              "<div class=\"row\" style=\"margin-top:10px\">",
+              "<div class=\"field\"><div class=\"muted\">SettlementReceipt</div><pre id=\"receiptSettlementReceipt\" class=\"mono\">{}</pre></div>",
+              "</div>",
+              "<div class=\"row\" style=\"margin-top:10px\">",
+              "<div class=\"field\"><div class=\"muted\">Evidence / Work ledger links</div><pre id=\"receiptLinks\" class=\"mono\">{}</pre></div>",
+              "</div>",
 	            "</section>",
             "<section class=\"card\">",
             "<h2>Tool Call Agreement</h2>",
@@ -20714,20 +20751,32 @@ export function createApi({
             "</section>",
             "</div>",
             "<script>",
-            `const INITIAL = ${JSON.stringify({ tenantId, opsToken: initialOpsToken, protocol: protocolPolicy.current, runId: initialRunId, agreementHash: initialAgreementHash })};`,
+            `const INITIAL = ${JSON.stringify({
+              tenantId,
+              opsToken: initialOpsToken,
+              protocol: protocolPolicy.current,
+              runId: initialRunId,
+              agreementHash: initialAgreementHash,
+              agreementId: initialAgreementId,
+              receiptId: initialReceiptId
+            })};`,
             "function byId(id){ return document.getElementById(id); }",
             "function setText(id, text){ const el = byId(id); if(el) el.textContent = String(text ?? ''); }",
             "function setStatus(id, text, kind){ const el = byId(id); if(!el) return; el.className = 'status' + (kind ? (' ' + kind) : ''); el.textContent = String(text ?? ''); }",
             "function headers(){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; return h; }",
             "async function requestJson(path, { method='GET', body=null } = {}){ const res = await fetch(path, { method, headers: { ...headers(), ...(body !== null ? { 'content-type': 'application/json', 'x-settld-protocol': String(byId('protocolInput').value || '').trim() || INITIAL.protocol } : {}) }, body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
 	            "async function loadRun(){ const runId = String(byId('runIdInput').value || '').trim(); if(!runId){ setStatus('workspaceStatus','runId is required.','bad'); return; } setStatus('workspaceStatus',`Loading run ${runId}...`,''); try { const [ag, st, cs, rp, re] = await Promise.all([ requestJson(`/runs/${encodeURIComponent(runId)}/agreement`), requestJson(`/runs/${encodeURIComponent(runId)}/settlement`), requestJson(`/runs/${encodeURIComponent(runId)}/arbitration/cases`), requestJson(`/runs/${encodeURIComponent(runId)}/settlement/policy-replay`), requestJson(`/runs/${encodeURIComponent(runId)}/settlement/replay-evaluate`) ]); setText('runAgreement', JSON.stringify(ag, null, 2)); setText('runSettlement', JSON.stringify(st, null, 2)); setText('runCases', JSON.stringify(cs, null, 2)); setText('runReplay', JSON.stringify(rp, null, 2)); setText('runReplayEvaluate', JSON.stringify(re, null, 2)); const match = rp && rp.matchesStoredDecision === true; const kernelOk = re && re.comparisons && re.comparisons.kernelBindingsValid === true; setStatus('workspaceStatus', `Loaded run. policyReplay.matchesStoredDecision=${match}; replayEvaluate.kernelBindingsValid=${kernelOk}.`, (match && kernelOk) ? 'good' : 'warn'); } catch (err){ setStatus('workspaceStatus', `Run load failed: ${err.message}`, 'bad'); } }",
+            "async function loadReceipt(){ const receiptId = String(byId('receiptIdInput').value || '').trim(); const runId = String(byId('runIdInput').value || '').trim(); const agreementId = String(byId('agreementIdInput').value || '').trim(); if(!receiptId && !runId && !agreementId){ setStatus('workspaceStatus','receiptId, runId, or agreementId is required.','bad'); return; } setStatus('workspaceStatus','Loading receipt explorer...',''); try { let receipt = null; if(receiptId){ const out = await requestJson(`/x402/receipts/${encodeURIComponent(receiptId)}`); receipt = out && out.receipt ? out.receipt : null; } else { const qs = new URLSearchParams({ limit: '20' }); if(runId) qs.set('runId', runId); if(agreementId) qs.set('agreementId', agreementId); const list = await requestJson(`/x402/receipts?${qs.toString()}`); const rows = list && Array.isArray(list.receipts) ? list.receipts : []; if(!rows.length) throw new Error('No receipts matched query.'); receipt = rows[0]; if(receipt && receipt.receiptId && !receiptId){ byId('receiptIdInput').value = String(receipt.receiptId); } } if(!receipt){ throw new Error('Receipt not found.'); } const decisionRecord = receipt && receipt.decisionRecord ? receipt.decisionRecord : null; const settlementReceipt = receipt && receipt.settlementReceipt ? receipt.settlementReceipt : null; if(decisionRecord && decisionRecord.agreementId){ byId('agreementIdInput').value = String(decisionRecord.agreementId); } const links = { evidenceRefs: Array.isArray(receipt.evidenceRefs) ? receipt.evidenceRefs : [], workLedgerHead: decisionRecord && decisionRecord.workRef ? { runLastEventId: decisionRecord.workRef.runLastEventId || null, runLastChainHash: decisionRecord.workRef.runLastChainHash || null, resolutionEventId: decisionRecord.workRef.resolutionEventId || null } : null }; setText('receiptRecord', JSON.stringify(receipt, null, 2)); setText('receiptDecisionRecord', JSON.stringify(decisionRecord || {}, null, 2)); setText('receiptSettlementReceipt', JSON.stringify(settlementReceipt || {}, null, 2)); setText('receiptLinks', JSON.stringify(links, null, 2)); setStatus('workspaceStatus', `Loaded receipt ${String(receipt.receiptId || 'unknown')}.`, 'good'); } catch (err){ setStatus('workspaceStatus', `Receipt load failed: ${err.message}`, 'bad'); } }",
             "async function loadToolCall(){ const agreementHash = String(byId('agreementHashInput').value || '').trim(); if(!agreementHash){ setStatus('workspaceStatus','agreementHash is required.','bad'); return; } setStatus('workspaceStatus',`Loading tool-call ${agreementHash}...`,''); try { const qs = new URLSearchParams({ agreementHash }); const [holds, cases, replay] = await Promise.all([ requestJson(`/ops/tool-calls/holds?${qs.toString()}`), requestJson(`/tool-calls/arbitration/cases?${qs.toString()}`), requestJson(`/ops/tool-calls/replay-evaluate?${qs.toString()}`) ]); setText('toolCallHolds', JSON.stringify(holds, null, 2)); setText('toolCallCases', JSON.stringify(cases, null, 2)); setText('toolCallReplayEvaluate', JSON.stringify(replay, null, 2)); const adjustmentId = `sadj_agmt_${agreementHash}_holdback`; try { const adj = await requestJson(`/ops/settlement-adjustments/${encodeURIComponent(adjustmentId)}`); setText('toolCallAdjustment', JSON.stringify(adj, null, 2)); } catch (err){ setText('toolCallAdjustment', JSON.stringify({ ok:false, message: String(err.message || err) }, null, 2)); } const caseRows = cases && Array.isArray(cases.cases) ? cases.cases : []; const closed = caseRows.find((row)=>String(row && row.status ? row.status : '').toLowerCase()==='closed') || caseRows[0] || null; if(closed && closed.caseId){ const revRaw = Number(closed.revision || 1); const rev = Number.isSafeInteger(revRaw) && revRaw > 1 ? revRaw : 1; const caseArtId = rev > 1 ? `arbitration_case_${closed.caseId}_r${rev}` : `arbitration_case_${closed.caseId}`; try { const art = await requestJson(`/artifacts/${encodeURIComponent(caseArtId)}`); setText('toolCallCaseArtifact', JSON.stringify(art, null, 2)); } catch (err){ setText('toolCallCaseArtifact', JSON.stringify({ ok:false, message: String(err.message || err), artifactId: caseArtId }, null, 2)); } const verdictId = closed.verdictId ? String(closed.verdictId) : ''; if(verdictId){ const verdictArtId = `arbitration_verdict_${verdictId}`; try { const art2 = await requestJson(`/artifacts/${encodeURIComponent(verdictArtId)}`); setText('toolCallVerdictArtifact', JSON.stringify(art2, null, 2)); } catch (err){ setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message: String(err.message || err), artifactId: verdictArtId }, null, 2)); } } else { setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message:'no verdictId on case (open or missing)' }, null, 2)); } } else { setText('toolCallCaseArtifact', JSON.stringify({ ok:false, message:'no cases found' }, null, 2)); setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message:'no cases found' }, null, 2)); } const consistent = replay && replay.comparisons && replay.comparisons.chainConsistent === true; setStatus('workspaceStatus', `Loaded tool-call chain. replayEvaluate.chainConsistent=${consistent}.`, consistent ? 'good' : 'warn'); } catch (err){ setStatus('workspaceStatus', `Tool-call load failed: ${err.message}`, 'bad'); } }",
             "byId('tenantIdInput').value = String(INITIAL.tenantId || 'tenant_default');",
             "byId('opsTokenInput').value = String(INITIAL.opsToken || '');",
             "byId('protocolInput').value = String(INITIAL.protocol || '');",
             "byId('runIdInput').value = String(INITIAL.runId || '');",
             "byId('agreementHashInput').value = String(INITIAL.agreementHash || '');",
+            "byId('agreementIdInput').value = String(INITIAL.agreementId || '');",
+            "byId('receiptIdInput').value = String(INITIAL.receiptId || '');",
             "byId('loadRunBtn').addEventListener('click', ()=>loadRun());",
+            "byId('loadReceiptBtn').addEventListener('click', ()=>loadReceipt());",
             "byId('loadToolCallBtn').addEventListener('click', ()=>loadToolCall());",
             "</script>",
             "</div></body></html>"
@@ -25087,6 +25136,7 @@ export function createApi({
                   };
             const receipts = Array.isArray(page?.receipts) ? page.receipts : [];
             const rows = receipts
+              .filter((receipt) => matchX402ReceiptQuery(receipt, query))
               .map((receipt) => toX402FinanceReceiptExportRow(receipt))
               .filter((row) => Boolean(row))
               .filter((row) => {
@@ -25216,6 +25266,7 @@ export function createApi({
             }
 
             const rows = allReceipts
+              .filter((receipt) => matchX402ReceiptQuery(receipt, query))
               .map((receipt) => toX402FinanceReceiptExportRow(receipt))
               .filter((row) => Boolean(row))
               .filter((row) => {
@@ -31608,44 +31659,23 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid receipt export query", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
-          const exportPage =
-            typeof store.listX402ReceiptsPage === "function"
-              ? await store.listX402ReceiptsPage({
-                  tenantId,
-                  agentId: query.agentId,
-                  sponsorId: query.sponsorId,
-                  sponsorWalletRef: query.sponsorWalletRef,
-                  toolId: query.toolId,
-                  state: query.state,
-                  from: query.from,
-                  to: query.to,
-                  cursor: query.cursor,
-                  limit: Math.min(5000, query.limit),
-                  offset: query.offset
-                })
-              : {
-                  receipts: await store.listX402Receipts({
-                    tenantId,
-                    agentId: query.agentId,
-                    sponsorId: query.sponsorId,
-                    sponsorWalletRef: query.sponsorWalletRef,
-                    toolId: query.toolId,
-                    state: query.state,
-                    from: query.from,
-                    to: query.to,
-                    limit: Math.min(5000, query.limit),
-                    offset: query.offset
-                  }),
-                  nextCursor: null
-                };
-          const rows = Array.isArray(exportPage?.receipts) ? exportPage.receipts : [];
+          const baseRows = await store.listX402Receipts({
+            tenantId,
+            agentId: query.agentId,
+            sponsorId: query.sponsorId,
+            sponsorWalletRef: query.sponsorWalletRef,
+            toolId: query.toolId,
+            state: query.state,
+            from: query.from,
+            to: query.to,
+            limit: 50_000,
+            offset: 0
+          });
+          const rows = (Array.isArray(baseRows) ? baseRows : []).filter((row) => matchX402ReceiptQuery(row, query));
           const ndjson = rows.map((row) => JSON.stringify(row)).join("\n");
           res.statusCode = 200;
           res.setHeader("content-type", "application/x-ndjson; charset=utf-8");
           res.setHeader("cache-control", "no-store");
-          if (typeof exportPage?.nextCursor === "string" && exportPage.nextCursor.trim() !== "") {
-            res.setHeader("x-next-cursor", exportPage.nextCursor.trim());
-          }
           res.end(ndjson ? `${ndjson}\n` : "");
           return;
         }
@@ -31666,38 +31696,39 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid receipt query", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
-          const page =
-            typeof store.listX402ReceiptsPage === "function"
-              ? await store.listX402ReceiptsPage({
-                  tenantId,
-                  agentId: query.agentId,
-                  sponsorId: query.sponsorId,
-                  sponsorWalletRef: query.sponsorWalletRef,
-                  toolId: query.toolId,
-                  state: query.state,
-                  from: query.from,
-                  to: query.to,
-                  cursor: query.cursor,
-                  limit: query.limit,
-                  offset: query.offset
-                })
-              : {
-                  receipts: await store.listX402Receipts({
-                    tenantId,
-                    agentId: query.agentId,
-                    sponsorId: query.sponsorId,
-                    sponsorWalletRef: query.sponsorWalletRef,
-                    toolId: query.toolId,
-                    state: query.state,
-                    from: query.from,
-                    to: query.to,
-                    limit: query.limit,
-                    offset: query.offset
-                  }),
-                  nextCursor: null
-                };
-          const receipts = Array.isArray(page?.receipts) ? page.receipts : [];
-          return sendJson(res, 200, { receipts, limit: query.limit, offset: query.offset, nextCursor: page?.nextCursor ?? null });
+          const hasDirectLookupFilters = Boolean(query.receiptId || query.runId || query.agreementId);
+          if (!hasDirectLookupFilters && typeof store.listX402ReceiptsPage === "function") {
+            const page = await store.listX402ReceiptsPage({
+              tenantId,
+              agentId: query.agentId,
+              sponsorId: query.sponsorId,
+              sponsorWalletRef: query.sponsorWalletRef,
+              toolId: query.toolId,
+              state: query.state,
+              from: query.from,
+              to: query.to,
+              cursor: query.cursor,
+              limit: query.limit,
+              offset: query.offset
+            });
+            const receipts = Array.isArray(page?.receipts) ? page.receipts : [];
+            return sendJson(res, 200, { receipts, limit: query.limit, offset: query.offset, nextCursor: page?.nextCursor ?? null });
+          }
+          const allRows = await store.listX402Receipts({
+            tenantId,
+            agentId: query.agentId,
+            sponsorId: query.sponsorId,
+            sponsorWalletRef: query.sponsorWalletRef,
+            toolId: query.toolId,
+            state: query.state,
+            from: query.from,
+            to: query.to,
+            limit: 50_000,
+            offset: 0
+          });
+          const filteredRows = (Array.isArray(allRows) ? allRows : []).filter((row) => matchX402ReceiptQuery(row, query));
+          const receipts = filteredRows.slice(query.offset, query.offset + query.limit);
+          return sendJson(res, 200, { receipts, limit: query.limit, offset: query.offset, nextCursor: null, total: filteredRows.length });
         }
 
         if (parts[0] === "x402" && parts[1] === "wallets" && parts.length === 2 && req.method === "POST") {

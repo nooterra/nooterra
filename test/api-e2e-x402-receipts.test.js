@@ -50,6 +50,7 @@ async function createVerifiedReceipt({
   quoteId,
   requestHashSeed,
   responseProviderTag,
+  agreementHash = null,
   idSuffix
 }) {
   const created = await request(api, {
@@ -62,7 +63,8 @@ async function createVerifiedReceipt({
       payeeAgentId,
       amountCents,
       currency: "USD",
-      toolId: "mock_search"
+      toolId: "mock_search",
+      ...(agreementHash ? { agreementHash } : {})
     }
   });
   assert.equal(created.statusCode, 201, created.body);
@@ -168,6 +170,7 @@ test("API e2e: x402 receipt list/get/export returns durable receipt with verific
     quoteId: "x402quote_receipt_1",
     requestHashSeed: "b".repeat(64),
     responseProviderTag: "mock_receipts_1",
+    agreementHash: "1".repeat(64),
     idSuffix: 1
   });
   const second = await createVerifiedReceipt({
@@ -180,6 +183,7 @@ test("API e2e: x402 receipt list/get/export returns durable receipt with verific
     quoteId: "x402quote_receipt_2",
     requestHashSeed: "c".repeat(64),
     responseProviderTag: "mock_receipts_2",
+    agreementHash: "2".repeat(64),
     idSuffix: 2
   });
   const receiptId = first.receiptId;
@@ -228,10 +232,40 @@ test("API e2e: x402 receipt list/get/export returns durable receipt with verific
   });
   assert.equal(byId.statusCode, 200, byId.body);
   assert.equal(byId.json?.receipt?.receiptId, receiptId);
+  const firstRunId = String(byId.json?.receipt?.runId ?? "");
+  assert.ok(firstRunId.length > 0);
+  const firstAgreementId = String(byId.json?.receipt?.decisionRecord?.agreementId ?? "");
+  assert.equal(firstAgreementId, "1".repeat(64));
+
+  const byReceiptQuery = await request(api, {
+    method: "GET",
+    path: `/x402/receipts?receiptId=${encodeURIComponent(receiptId)}&limit=10`
+  });
+  assert.equal(byReceiptQuery.statusCode, 200, byReceiptQuery.body);
+  assert.equal(byReceiptQuery.json?.total, 1);
+  assert.equal(Array.isArray(byReceiptQuery.json?.receipts), true);
+  assert.equal(byReceiptQuery.json.receipts.length, 1);
+  assert.equal(byReceiptQuery.json.receipts[0]?.receiptId, receiptId);
+
+  const byRunQuery = await request(api, {
+    method: "GET",
+    path: `/x402/receipts?runId=${encodeURIComponent(firstRunId)}&limit=10`
+  });
+  assert.equal(byRunQuery.statusCode, 200, byRunQuery.body);
+  assert.equal(byRunQuery.json?.total, 1);
+  assert.equal(byRunQuery.json?.receipts?.[0]?.runId, firstRunId);
+
+  const byAgreementQuery = await request(api, {
+    method: "GET",
+    path: `/x402/receipts?agreementId=${encodeURIComponent(firstAgreementId)}&limit=10`
+  });
+  assert.equal(byAgreementQuery.statusCode, 200, byAgreementQuery.body);
+  assert.equal(byAgreementQuery.json?.total, 1);
+  assert.equal(byAgreementQuery.json?.receipts?.[0]?.decisionRecord?.agreementId, firstAgreementId);
 
   const exported = await request(api, {
     method: "GET",
-    path: "/x402/receipts/export?limit=10"
+    path: `/x402/receipts/export?limit=10&receiptId=${encodeURIComponent(receiptId)}`
   });
   assert.equal(exported.statusCode, 200, exported.body);
   const exportText = exported.body;
@@ -241,7 +275,9 @@ test("API e2e: x402 receipt list/get/export returns durable receipt with verific
     .filter(Boolean);
   assert.ok(exportLines.length >= 1);
   const parsedFirst = JSON.parse(exportLines[0]);
+  assert.equal(exportLines.length, 1);
   assert.equal(parsedFirst.schemaVersion, "X402ReceiptRecord.v1");
+  assert.equal(parsedFirst.receiptId, receiptId);
   assert.ok(
     exported.headers &&
       (typeof exported.headers["x-next-cursor"] === "undefined" || typeof exported.headers["x-next-cursor"] === "string")
