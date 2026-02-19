@@ -1,6 +1,15 @@
 #!/usr/bin/env node
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+
+import { keyIdFromPublicKeyPem, sha256Hex } from "../../src/core/crypto.js";
+import { computePaidToolManifestHashV1, normalizePaidToolManifestV1 } from "../../src/core/paid-tool-manifest.js";
+import {
+  PROVIDER_PUBLISH_PROOF_AUDIENCE,
+  PROVIDER_PUBLISH_PROOF_TYPE,
+  mintProviderPublishProofTokenV1
+} from "../../src/core/provider-publish-proof.js";
 
 function usage() {
   return [
@@ -15,6 +24,14 @@ function usage() {
     "  --tool-id <toolId>           Conformance tool id override",
     "  --provider-key-file <path>   Provider signing public key PEM file",
     "  --provider-key-pem <pem>     Provider signing public key PEM inline",
+    "  --publish-proof <jws>        Provider publish proof JWS token (manual mode)",
+    "  --publish-proof-jwks-url <url> Provider JWKS URL (must match manifest.publishProofJwksUrl)",
+    "  --jwks-url <url>             Alias for --publish-proof-jwks-url",
+    "  --publish-proof-key-file <path> Ed25519 private key (PEM or JWK JSON) for auto-mint mode",
+    "  --publish-proof-key-pem <pem> Inline Ed25519 private key for auto-mint mode",
+    "  --key <path>                 Alias for --publish-proof-key-file",
+    "  --kid <kid>                  Optional key id (default: derived from key)",
+    "  --expires-in <seconds>       Publish proof TTL in seconds (default: 300)",
     "  --description <text>         Provider description",
     "  --contact-url <url>          Provider contact/support URL",
     "  --terms-url <url>            Provider terms URL",
@@ -38,6 +55,16 @@ function parseArgs(argv) {
     toolId: null,
     providerKeyFile: null,
     providerKeyPem: null,
+    publishProof: process.env.SETTLD_PROVIDER_PUBLISH_PROOF || null,
+    publishProofJwksUrl: process.env.SETTLD_PROVIDER_PUBLISH_PROOF_JWKS_URL || null,
+    publishProofKeyFile: process.env.SETTLD_PROVIDER_PUBLISH_PROOF_KEY_FILE || null,
+    publishProofKeyPem: process.env.SETTLD_PROVIDER_PUBLISH_PROOF_KEY_PEM || null,
+    publishProofKid: process.env.SETTLD_PROVIDER_PUBLISH_PROOF_KID || null,
+    publishProofExpiresInSeconds:
+      process.env.SETTLD_PROVIDER_PUBLISH_PROOF_EXPIRES_IN &&
+      String(process.env.SETTLD_PROVIDER_PUBLISH_PROOF_EXPIRES_IN).trim() !== ""
+        ? Number(process.env.SETTLD_PROVIDER_PUBLISH_PROOF_EXPIRES_IN)
+        : 300,
     description: null,
     contactUrl: null,
     termsUrl: null,
@@ -63,6 +90,13 @@ function parseArgs(argv) {
     else if (arg === "--tool-id") out.toolId = String(argv[++i] ?? "").trim();
     else if (arg === "--provider-key-file") out.providerKeyFile = String(argv[++i] ?? "").trim();
     else if (arg === "--provider-key-pem") out.providerKeyPem = String(argv[++i] ?? "").trim();
+    else if (arg === "--publish-proof") out.publishProof = String(argv[++i] ?? "").trim();
+    else if (arg === "--publish-proof-jwks-url") out.publishProofJwksUrl = String(argv[++i] ?? "").trim();
+    else if (arg === "--jwks-url") out.publishProofJwksUrl = String(argv[++i] ?? "").trim();
+    else if (arg === "--publish-proof-key-file" || arg === "--key") out.publishProofKeyFile = String(argv[++i] ?? "").trim();
+    else if (arg === "--publish-proof-key-pem") out.publishProofKeyPem = String(argv[++i] ?? "").trim();
+    else if (arg === "--kid") out.publishProofKid = String(argv[++i] ?? "").trim();
+    else if (arg === "--expires-in") out.publishProofExpiresInSeconds = Number(argv[++i] ?? "");
     else if (arg === "--description") out.description = String(argv[++i] ?? "").trim();
     else if (arg === "--contact-url") out.contactUrl = String(argv[++i] ?? "").trim();
     else if (arg === "--terms-url") out.termsUrl = String(argv[++i] ?? "").trim();
@@ -78,6 +112,9 @@ function parseArgs(argv) {
   if (!out.help) {
     if (!out.manifestPath) throw new Error("--manifest is required");
     if (!out.baseUrl) throw new Error("--base-url is required");
+    if (!Number.isSafeInteger(Number(out.publishProofExpiresInSeconds)) || Number(out.publishProofExpiresInSeconds) <= 0) {
+      throw new Error("--expires-in must be a positive integer");
+    }
   }
   return out;
 }
@@ -95,6 +132,42 @@ function resolveProviderKeyPem({ inlinePem, filePath }) {
     return fs.readFileSync(resolved, "utf8");
   }
   return null;
+}
+
+function resolvePrivateKeyPem({ inlinePem, filePath }) {
+  let raw = null;
+  if (typeof inlinePem === "string" && inlinePem.trim() !== "") raw = inlinePem.trim();
+  else if (typeof filePath === "string" && filePath.trim() !== "") {
+    const resolved = path.resolve(process.cwd(), filePath);
+    raw = fs.readFileSync(resolved, "utf8").trim();
+  }
+  if (!raw) return null;
+
+  if (raw.startsWith("{")) {
+    let jwk = null;
+    try {
+      jwk = JSON.parse(raw);
+    } catch (err) {
+      throw makeCliError("PROVIDER_PUBLISH_INVALID_PRIVATE_KEY", "failed to parse JWK JSON private key", { message: err?.message ?? String(err ?? "") });
+    }
+    try {
+      return crypto.createPrivateKey({ key: jwk, format: "jwk" }).export({ format: "pem", type: "pkcs8" }).toString();
+    } catch (err) {
+      throw makeCliError("PROVIDER_PUBLISH_INVALID_PRIVATE_KEY", "invalid JWK private key", { message: err?.message ?? String(err ?? "") });
+    }
+  }
+
+  return raw;
+}
+
+function derivePublicKeyPemFromPrivateKeyPem(privateKeyPem) {
+  try {
+    return crypto.createPublicKey(crypto.createPrivateKey(privateKeyPem)).export({ format: "pem", type: "spki" }).toString();
+  } catch (err) {
+    throw makeCliError("PROVIDER_PUBLISH_INVALID_PRIVATE_KEY", "failed to derive public key from private key", {
+      message: err?.message ?? String(err ?? "")
+    });
+  }
 }
 
 function writeJsonFile(filePath, value) {
@@ -131,6 +204,108 @@ function makeCliError(code, message, details = null) {
   return err;
 }
 
+function normalizeOptionalAbsoluteUrl(value, fieldName) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  let parsed = null;
+  try {
+    parsed = new URL(String(value).trim());
+  } catch {
+    throw makeCliError("PROVIDER_PUBLISH_INVALID_URL", `${fieldName} must be an absolute URL`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw makeCliError("PROVIDER_PUBLISH_INVALID_URL", `${fieldName} must use http or https`);
+  }
+  return parsed.toString();
+}
+
+function buildPublishProofInput({ args, manifest, providerId }) {
+  const manifestPublishProofJwksUrl = normalizeOptionalAbsoluteUrl(
+    manifest?.publishProofJwksUrl ?? null,
+    "manifest.publishProofJwksUrl"
+  );
+  if (!manifestPublishProofJwksUrl) {
+    throw makeCliError(
+      "PROVIDER_PUBLISH_MISSING_MANIFEST_PUBLISH_PROOF_JWKS_URL",
+      "manifest.publishProofJwksUrl is required"
+    );
+  }
+  const cliPublishProofJwksUrl = normalizeOptionalAbsoluteUrl(args.publishProofJwksUrl ?? null, "publishProofJwksUrl");
+  if (cliPublishProofJwksUrl && cliPublishProofJwksUrl !== manifestPublishProofJwksUrl) {
+    throw makeCliError(
+      "PROVIDER_PUBLISH_JWKS_URL_MISMATCH",
+      "--publish-proof-jwks-url must match manifest.publishProofJwksUrl",
+      {
+        expected: manifestPublishProofJwksUrl,
+        actual: cliPublishProofJwksUrl
+      }
+    );
+  }
+  const publishProofJwksUrl = cliPublishProofJwksUrl || manifestPublishProofJwksUrl;
+  if (!publishProofJwksUrl) {
+    throw makeCliError(
+      "PROVIDER_PUBLISH_MISSING_PUBLISH_PROOF_JWKS_URL",
+      "publish proof requires --publish-proof-jwks-url (or --jwks-url)"
+    );
+  }
+
+  const manualPublishProof = typeof args.publishProof === "string" && args.publishProof.trim() !== "" ? args.publishProof.trim() : null;
+  if (manualPublishProof) {
+    return {
+      publishProof: manualPublishProof,
+      publishProofJwksUrl,
+      mode: "manual",
+      publishProofKid: null,
+      publishProofTokenSha256: sha256Hex(manualPublishProof)
+    };
+  }
+
+  const privateKeyPem = resolvePrivateKeyPem({
+    inlinePem: args.publishProofKeyPem,
+    filePath: args.publishProofKeyFile
+  });
+  if (!privateKeyPem) {
+    throw makeCliError(
+      "PROVIDER_PUBLISH_MISSING_PUBLISH_PROOF",
+      "provide --publish-proof (manual) or --publish-proof-key-file/--key (auto-mint)"
+    );
+  }
+
+  const publicKeyPem = derivePublicKeyPemFromPrivateKeyPem(privateKeyPem);
+  const derivedKid = keyIdFromPublicKeyPem(publicKeyPem);
+  const normalizedKid =
+    typeof args.publishProofKid === "string" && args.publishProofKid.trim() !== "" ? args.publishProofKid.trim() : derivedKid;
+  if (normalizedKid !== derivedKid) {
+    throw makeCliError("PROVIDER_PUBLISH_KID_MISMATCH", "--kid does not match the provided private key", {
+      expectedKid: derivedKid,
+      actualKid: normalizedKid
+    });
+  }
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const ttlSec = Number(args.publishProofExpiresInSeconds);
+  const manifestHash = computePaidToolManifestHashV1(manifest);
+  const minted = mintProviderPublishProofTokenV1({
+    payload: {
+      aud: PROVIDER_PUBLISH_PROOF_AUDIENCE,
+      typ: PROVIDER_PUBLISH_PROOF_TYPE,
+      manifestHash,
+      providerId,
+      iat: nowSec,
+      exp: nowSec + ttlSec
+    },
+    keyId: normalizedKid,
+    publicKeyPem,
+    privateKeyPem
+  });
+  return {
+    publishProof: minted.token,
+    publishProofJwksUrl,
+    mode: "auto_minted",
+    publishProofKid: minted.kid ?? normalizedKid,
+    publishProofTokenSha256: minted.tokenSha256 ?? sha256Hex(minted.token)
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
@@ -139,8 +314,20 @@ async function main() {
   }
   if (!args.apiKey) throw makeCliError("PROVIDER_PUBLISH_MISSING_API_KEY", "SETTLD_API_KEY or --api-key is required");
 
-  const manifest = readJson(args.manifestPath);
+  const manifest = normalizePaidToolManifestV1(readJson(args.manifestPath));
+  const effectiveProviderId = args.providerId || manifest.providerId;
+  if (effectiveProviderId !== String(manifest.providerId)) {
+    throw makeCliError("PROVIDER_PUBLISH_PROVIDER_ID_MISMATCH", "--provider-id must match manifest.providerId", {
+      providerId: effectiveProviderId,
+      manifestProviderId: manifest.providerId
+    });
+  }
   const providerSigningPublicKeyPem = resolveProviderKeyPem({ inlinePem: args.providerKeyPem, filePath: args.providerKeyFile });
+  const publishProofInput = buildPublishProofInput({
+    args,
+    manifest,
+    providerId: effectiveProviderId
+  });
 
   const response = await fetch(new URL("/marketplace/providers/publish", args.apiUrl), {
     method: "POST",
@@ -150,10 +337,12 @@ async function main() {
       "content-type": "application/json; charset=utf-8"
     },
     body: JSON.stringify({
-      providerId: args.providerId || null,
+      providerId: effectiveProviderId || null,
       baseUrl: args.baseUrl,
       toolId: args.toolId || null,
       providerSigningPublicKeyPem,
+      publishProof: publishProofInput.publishProof,
+      publishProofJwksUrl: publishProofInput.publishProofJwksUrl,
       runConformance: args.runConformance,
       description: args.description,
       contactUrl: args.contactUrl,
@@ -192,6 +381,10 @@ async function main() {
 
   const summary = {
     ...toPublicationSummary(publication),
+    providerRef: publication?.providerRef ?? null,
+    publishProofMode: publishProofInput.mode,
+    publishProofKid: publishProofInput.publishProofKid ?? null,
+    publishProofTokenSha256: publishProofInput.publishProofTokenSha256 ?? null,
     conformanceVerdict: conformanceReport?.verdict ?? null,
     publicationJsonOut: args.jsonOut ? path.resolve(process.cwd(), args.jsonOut) : null,
     conformanceJsonOut: conformanceOutPath ?? null

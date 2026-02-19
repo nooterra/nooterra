@@ -10,6 +10,7 @@ import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
 import { sha256Hex } from "../../src/core/crypto.js";
 import { verifySettldPayTokenV1 } from "../../src/core/settld-pay-token.js";
 import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "../../src/core/tool-provider-signature.js";
+import { verifyX402ReceiptRecord } from "../../src/core/x402-receipt-verifier.js";
 
 function usage() {
   return [
@@ -438,6 +439,85 @@ async function runMcpToolCall({
 
 async function writeArtifactJson(dir, filename, value) {
   await writeFile(path.join(dir, filename), JSON.stringify(value, null, 2) + "\n", "utf8");
+}
+
+function parseJsonLines(text) {
+  return String(text ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
+
+function reportCheckOk(report, checkId) {
+  const checks = Array.isArray(report?.checks) ? report.checks : [];
+  const row = checks.find((item) => item && item.id === checkId);
+  return row?.ok === true;
+}
+
+function receiptVerificationCoreOk(report) {
+  return (
+    reportCheckOk(report, "settlement_kernel_artifacts") &&
+    reportCheckOk(report, "request_hash_binding") &&
+    reportCheckOk(report, "response_hash_binding") &&
+    reportCheckOk(report, "provider_output_signature_crypto")
+  );
+}
+
+async function exportAndVerifyReceiptSample({
+  artifactDir,
+  apiUrl,
+  apiKey,
+  tenantId
+}) {
+  const exportRes = await fetch(new URL("/x402/receipts/export?limit=25", apiUrl), {
+    method: "GET",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "x-proxy-tenant-id": tenantId,
+      "x-settld-protocol": "1.0",
+      accept: "application/json"
+    }
+  });
+  const exportBody = await exportRes.text();
+  if (!exportRes.ok) {
+    throw new Error(`x402 receipt export failed: HTTP ${exportRes.status} ${sanitize(exportBody).slice(0, 300)}`);
+  }
+
+  const exportPath = path.join(artifactDir, "x402-receipts.export.jsonl");
+  const normalizedExportBody = exportBody.endsWith("\n") ? exportBody : `${exportBody}\n`;
+  await writeFile(exportPath, normalizedExportBody, "utf8");
+
+  const receipts = parseJsonLines(exportBody);
+  const sampleReceipt = receipts[0] ?? null;
+  const sampleVerification =
+    sampleReceipt && typeof sampleReceipt === "object" && !Array.isArray(sampleReceipt)
+      ? {
+          nonStrict: verifyX402ReceiptRecord({ receipt: sampleReceipt, strict: false }),
+          strict: verifyX402ReceiptRecord({ receipt: sampleReceipt, strict: true })
+        }
+      : null;
+
+  const verificationArtifact = {
+    schemaVersion: "X402ReceiptSampleVerification.v1",
+    generatedAt: new Date().toISOString(),
+    exportPath: "x402-receipts.export.jsonl",
+    exportedReceiptCount: receipts.length,
+    sampleReceiptId: typeof sampleReceipt?.receiptId === "string" ? sampleReceipt.receiptId : null,
+    sampleVerification,
+    sampleVerificationCoreOk: receiptVerificationCoreOk(sampleVerification?.nonStrict)
+  };
+  await writeArtifactJson(artifactDir, "x402-receipts.sample-verification.json", verificationArtifact);
+
+  return {
+    ok:
+      receipts.length > 0 &&
+      receiptVerificationCoreOk(sampleVerification?.nonStrict),
+    nonStrictOk: Boolean(sampleVerification?.nonStrict?.ok),
+    strictOk: Boolean(sampleVerification?.strict?.ok),
+    exportedReceiptCount: receipts.length,
+    sampleReceiptId: verificationArtifact.sampleReceiptId
+  };
 }
 
 async function runBatchSettlementDemo({
@@ -897,6 +977,13 @@ async function main() {
       replayCounters
     });
 
+    const receiptExport = await exportAndVerifyReceiptSample({
+      artifactDir,
+      apiUrl,
+      apiKey,
+      tenantId
+    });
+
     const batchSettlement = await runBatchSettlementDemo({
       artifactDir,
       providerId,
@@ -910,6 +997,8 @@ async function main() {
       providerSignature: providerSignatureVerification.ok === true,
       tokenVerified: tokenVerification.ok === true,
       batchSettlement: batchSettlement.ok === true,
+      receiptExport: receiptExport.ok === true,
+      receiptVerifier: receiptExport.ok === true,
       reserveTracked:
         typeof reserveState?.circleReserveId === "string" &&
         reserveState.circleReserveId.trim() !== "" &&
@@ -931,6 +1020,7 @@ async function main() {
       payoutDestination: reserveState.payoutDestination,
       replayCounters,
       replayProbe,
+      receiptExport,
       batchSettlement,
       artifactFiles: [
         "mcp-call.raw.json",
@@ -941,6 +1031,8 @@ async function main() {
         "provider-signature-verification.json",
         "settld-pay-token-verification.json",
         "provider-replay-probe.json",
+        "x402-receipts.export.jsonl",
+        "x402-receipts.sample-verification.json",
         ...(runBatchSettlement ? ["batch-payout-registry.json", "batch-worker-state.json", "batch-settlement.json"] : [])
       ],
       timestamps: {
