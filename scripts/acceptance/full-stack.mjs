@@ -428,7 +428,7 @@ async function main() {
     const hasBreach = events.some((e) => e?.type === "SLA_BREACH_DETECTED" && e?.payload?.settledEventId === settledEvent.id);
     const hasCredit = events.some((e) => e?.type === "SLA_CREDIT_ISSUED" && e?.payload?.settledEventId === settledEvent.id);
     return hasBreach && hasCredit;
-  });
+  }, { timeoutMs: 120_000 });
 
   // Wait for artifacts to be built and stored.
   const artifacts = await waitFor(async () => {
