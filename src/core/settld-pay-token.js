@@ -109,6 +109,10 @@ export function buildSettldPayPayloadV1({
   sponsorWalletRef = null,
   agentKeyId = null,
   delegationRef = null,
+  rootDelegationRef = null,
+  rootDelegationHash = null,
+  effectiveDelegationRef = null,
+  effectiveDelegationHash = null,
   policyVersion = null,
   policyFingerprint = null,
   spendAuthorizationVersion = null,
@@ -133,6 +137,10 @@ export function buildSettldPayPayloadV1({
   const normalizedSponsorWalletRef = normalizeOptionalId(sponsorWalletRef, "sponsorWalletRef", { max: 200 });
   const normalizedAgentKeyId = normalizeOptionalId(agentKeyId, "agentKeyId", { max: 200 });
   const normalizedDelegationRef = normalizeOptionalId(delegationRef, "delegationRef", { max: 200 });
+  const normalizedRootDelegationRef = normalizeOptionalId(rootDelegationRef, "rootDelegationRef", { max: 200 });
+  const normalizedRootDelegationHash = normalizeOptionalHexHash(rootDelegationHash, "rootDelegationHash");
+  const normalizedEffectiveDelegationRef = normalizeOptionalId(effectiveDelegationRef, "effectiveDelegationRef", { max: 200 });
+  const normalizedEffectiveDelegationHash = normalizeOptionalHexHash(effectiveDelegationHash, "effectiveDelegationHash");
   const normalizedPolicyVersion = normalizeOptionalPositiveSafeInt(policyVersion, "policyVersion");
   const normalizedPolicyFingerprint = normalizeOptionalHexHash(policyFingerprint, "policyFingerprint");
   const normalizedSpendAuthorizationVersion = normalizeOptionalString(spendAuthorizationVersion, "spendAuthorizationVersion", {
@@ -147,6 +155,10 @@ export function buildSettldPayPayloadV1({
     normalizedSponsorWalletRef !== null ||
     normalizedAgentKeyId !== null ||
     normalizedDelegationRef !== null ||
+    normalizedRootDelegationRef !== null ||
+    normalizedRootDelegationHash !== null ||
+    normalizedEffectiveDelegationRef !== null ||
+    normalizedEffectiveDelegationHash !== null ||
     normalizedPolicyVersion !== null ||
     normalizedPolicyFingerprint !== null ||
     normalizedSpendAuthorizationVersion !== null;
@@ -173,6 +185,10 @@ export function buildSettldPayPayloadV1({
       ...(normalizedSponsorWalletRef ? { sponsorWalletRef: normalizedSponsorWalletRef } : {}),
       ...(normalizedAgentKeyId ? { agentKeyId: normalizedAgentKeyId } : {}),
       ...(normalizedDelegationRef ? { delegationRef: normalizedDelegationRef } : {}),
+      ...(normalizedRootDelegationRef ? { rootDelegationRef: normalizedRootDelegationRef } : {}),
+      ...(normalizedRootDelegationHash ? { rootDelegationHash: normalizedRootDelegationHash } : {}),
+      ...(normalizedEffectiveDelegationRef ? { effectiveDelegationRef: normalizedEffectiveDelegationRef } : {}),
+      ...(normalizedEffectiveDelegationHash ? { effectiveDelegationHash: normalizedEffectiveDelegationHash } : {}),
       ...(normalizedPolicyVersion ? { policyVersion: normalizedPolicyVersion } : {}),
       ...(normalizedPolicyFingerprint ? { policyFingerprint: normalizedPolicyFingerprint } : {}),
       ...(spendAuthorizationVersionOut ? { spendAuthorizationVersion: spendAuthorizationVersionOut } : {}),

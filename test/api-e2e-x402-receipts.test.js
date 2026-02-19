@@ -29,6 +29,39 @@ async function registerAgent(api, { agentId }) {
   return agentId;
 }
 
+async function createAgreementDelegation(
+  api,
+  {
+    parentAgreementHash,
+    delegationId,
+    childAgreementHash,
+    delegatorAgentId,
+    delegateeAgentId,
+    budgetCapCents,
+    delegationDepth,
+    maxDelegationDepth,
+    idempotencyKey
+  }
+) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/agreements/${encodeURIComponent(parentAgreementHash)}/delegations`,
+    headers: { "x-idempotency-key": idempotencyKey },
+    body: {
+      delegationId,
+      childAgreementHash,
+      delegatorAgentId,
+      delegateeAgentId,
+      budgetCapCents,
+      currency: "USD",
+      delegationDepth,
+      maxDelegationDepth
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  return response.json?.delegation ?? null;
+}
+
 async function creditWallet(api, { agentId, amountCents, idempotencyKey }) {
   const response = await request(api, {
     method: "POST",
@@ -51,6 +84,8 @@ async function createVerifiedReceipt({
   requestHashSeed,
   responseProviderTag,
   agreementHash = null,
+  agentPassport = null,
+  walletAuthorizationSponsorWalletRef = null,
   idSuffix
 }) {
   const created = await request(api, {
@@ -64,16 +99,33 @@ async function createVerifiedReceipt({
       amountCents,
       currency: "USD",
       toolId: "mock_search",
+      ...(agentPassport ? { agentPassport } : {}),
       ...(agreementHash ? { agreementHash } : {})
     }
   });
   assert.equal(created.statusCode, 201, created.body);
 
+  let walletAuthorizationDecisionToken = null;
+  if (walletAuthorizationSponsorWalletRef) {
+    const issuedDecision = await request(api, {
+      method: "POST",
+      path: `/x402/wallets/${encodeURIComponent(walletAuthorizationSponsorWalletRef)}/authorize`,
+      headers: { "x-idempotency-key": `x402_wallet_authorize_receipt_${idSuffix}` },
+      body: { gateId }
+    });
+    assert.equal(issuedDecision.statusCode, 200, issuedDecision.body);
+    walletAuthorizationDecisionToken = issuedDecision.json?.walletAuthorizationDecisionToken ?? null;
+    assert.ok(typeof walletAuthorizationDecisionToken === "string" && walletAuthorizationDecisionToken.length > 0);
+  }
+
   const authorized = await request(api, {
     method: "POST",
     path: "/x402/gate/authorize-payment",
     headers: { "x-idempotency-key": `x402_gate_authz_receipt_${idSuffix}` },
-    body: { gateId }
+    body: {
+      gateId,
+      ...(walletAuthorizationDecisionToken ? { walletAuthorizationDecisionToken } : {})
+    }
   });
   assert.equal(authorized.statusCode, 200, authorized.body);
 
@@ -278,8 +330,154 @@ test("API e2e: x402 receipt list/get/export returns durable receipt with verific
   assert.equal(exportLines.length, 1);
   assert.equal(parsedFirst.schemaVersion, "X402ReceiptRecord.v1");
   assert.equal(parsedFirst.receiptId, receiptId);
+  assert.equal(
+    parsedFirst.bindings?.spendAuthorization?.effectiveDelegationRef,
+    parsedFirst.bindings?.spendAuthorization?.delegationRef
+  );
+  assert.equal(parsedFirst.bindings?.spendAuthorization?.rootDelegationRef ?? null, null);
+  assert.equal(parsedFirst.bindings?.spendAuthorization?.rootDelegationHash ?? null, null);
+  assert.equal(parsedFirst.bindings?.spendAuthorization?.effectiveDelegationHash ?? null, null);
   assert.ok(
     exported.headers &&
       (typeof exported.headers["x-next-cursor"] === "undefined" || typeof exported.headers["x-next-cursor"] === "string")
   );
+});
+
+test("API e2e: x402 receipt export carries non-null delegation lineage bindings for wallet-bound lineage calls", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const principalAgentId = await registerAgent(api, { agentId: "agt_x402_receipt_lineage_principal_1" });
+  const managerAgentId = await registerAgent(api, { agentId: "agt_x402_receipt_lineage_manager_1" });
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_receipt_lineage_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_receipt_lineage_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 6000, idempotencyKey: "wallet_credit_x402_receipt_lineage_1" });
+
+  const sponsorRef = "sponsor_x402_receipt_lineage_1";
+  const sponsorWalletRef = "x402wallet_receipt_lineage_1";
+  const createdWallet = await request(api, {
+    method: "POST",
+    path: "/x402/wallets",
+    headers: { "x-idempotency-key": "x402_wallet_receipt_lineage_create_1" },
+    body: {
+      sponsorRef,
+      sponsorWalletRef,
+      policy: {
+        policyRef: "lineage_default",
+        policyVersion: 1,
+        maxAmountCents: 1500,
+        maxDailyAuthorizationCents: 4000,
+        allowedProviderIds: [payeeAgentId],
+        allowedToolIds: ["mock_search"],
+        allowedCurrencies: ["USD"],
+        requireQuote: false,
+        requireStrictRequestBinding: false,
+        requireAgentKeyMatch: false
+      }
+    }
+  });
+  assert.equal(createdWallet.statusCode, 201, createdWallet.body);
+
+  const rootAgreementHash = sha256Hex("agreement_x402_receipt_lineage_root_1");
+  const middleAgreementHash = sha256Hex("agreement_x402_receipt_lineage_middle_1");
+  const leafAgreementHash = sha256Hex("agreement_x402_receipt_lineage_leaf_1");
+  const rootDelegation = await createAgreementDelegation(api, {
+    parentAgreementHash: rootAgreementHash,
+    delegationId: "dlg_x402_receipt_lineage_root_1",
+    childAgreementHash: middleAgreementHash,
+    delegatorAgentId: principalAgentId,
+    delegateeAgentId: managerAgentId,
+    budgetCapCents: 3000,
+    delegationDepth: 0,
+    maxDelegationDepth: 2,
+    idempotencyKey: "agreement_x402_receipt_lineage_root_1"
+  });
+  const leafDelegation = await createAgreementDelegation(api, {
+    parentAgreementHash: middleAgreementHash,
+    delegationId: "dlg_x402_receipt_lineage_leaf_1",
+    childAgreementHash: leafAgreementHash,
+    delegatorAgentId: managerAgentId,
+    delegateeAgentId: payerAgentId,
+    budgetCapCents: 2500,
+    delegationDepth: 1,
+    maxDelegationDepth: 2,
+    idempotencyKey: "agreement_x402_receipt_lineage_leaf_1"
+  });
+  assert.ok(rootDelegation?.delegationHash);
+  assert.ok(leafDelegation?.delegationHash);
+
+  const nowIso = new Date().toISOString();
+  const providerSigner = createEd25519Keypair();
+  const lineageReceipt = await createVerifiedReceipt({
+    api,
+    gateId: "gate_receipt_lineage_1",
+    amountCents: 650,
+    payerAgentId,
+    payeeAgentId,
+    providerSigner,
+    quoteId: "x402quote_receipt_lineage_1",
+    requestHashSeed: "9".repeat(64),
+    responseProviderTag: "mock_receipts_lineage_1",
+    idSuffix: 11,
+    walletAuthorizationSponsorWalletRef: sponsorWalletRef,
+    agentPassport: {
+      schemaVersion: "AgentPassport.v1",
+      passportId: "passport_x402_receipt_lineage_1",
+      agentId: payerAgentId,
+      tenantId: "tenant_default",
+      principalRef: {
+        principalType: "service",
+        principalId: sponsorRef
+      },
+      identityAnchors: {
+        jwksUri: "https://example.com/.well-known/jwks.json",
+        activeKeyId: "agent_key_x402_receipt_lineage_1",
+        keysetHash: sha256Hex("x402_receipt_lineage_keyset_1")
+      },
+      delegationRoot: {
+        rootGrantId: "dlg_x402_receipt_lineage_root_1",
+        rootGrantHash: rootDelegation.delegationHash,
+        issuedAt: nowIso,
+        expiresAt: null,
+        revokedAt: null
+      },
+      policyEnvelope: {
+        maxPerCallCents: 1500,
+        maxDailyCents: 4000,
+        allowedRiskClasses: ["read"],
+        requireApprovalAboveCents: null,
+        allowlistRefs: ["lineage_default"]
+      },
+      status: "active",
+      metadata: {
+        x402: {
+          sponsorWalletRef,
+          policyRef: "lineage_default",
+          policyVersion: 1,
+          delegationRef: "dlg_x402_receipt_lineage_leaf_1",
+          delegationDepth: 1,
+          maxDelegationDepth: 2
+        }
+      },
+      createdAt: nowIso,
+      updatedAt: nowIso
+    }
+  });
+
+  const exported = await request(api, {
+    method: "GET",
+    path: `/x402/receipts/export?limit=10&receiptId=${encodeURIComponent(lineageReceipt.receiptId)}`
+  });
+  assert.equal(exported.statusCode, 200, exported.body);
+  const exportLines = String(exported.body)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  assert.equal(exportLines.length, 1);
+  const row = JSON.parse(exportLines[0]);
+  assert.equal(row.receiptId, lineageReceipt.receiptId);
+  assert.equal(row.bindings?.spendAuthorization?.delegationRef, "dlg_x402_receipt_lineage_leaf_1");
+  assert.equal(row.bindings?.spendAuthorization?.effectiveDelegationRef, "dlg_x402_receipt_lineage_leaf_1");
+  assert.equal(row.bindings?.spendAuthorization?.effectiveDelegationHash, leafDelegation.delegationHash);
+  assert.equal(row.bindings?.spendAuthorization?.rootDelegationRef, "dlg_x402_receipt_lineage_root_1");
+  assert.equal(row.bindings?.spendAuthorization?.rootDelegationHash, rootDelegation.delegationHash);
 });

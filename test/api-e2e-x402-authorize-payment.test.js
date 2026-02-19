@@ -66,6 +66,39 @@ async function issueWalletAuthorizationDecision(
   return response;
 }
 
+async function createAgreementDelegation(
+  api,
+  {
+    parentAgreementHash,
+    delegationId,
+    childAgreementHash,
+    delegatorAgentId,
+    delegateeAgentId,
+    budgetCapCents,
+    delegationDepth,
+    maxDelegationDepth,
+    idempotencyKey
+  }
+) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/agreements/${encodeURIComponent(parentAgreementHash)}/delegations`,
+    headers: { "x-idempotency-key": idempotencyKey },
+    body: {
+      delegationId,
+      childAgreementHash,
+      delegatorAgentId,
+      delegateeAgentId,
+      budgetCapCents,
+      currency: "USD",
+      delegationDepth,
+      maxDelegationDepth
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  return response.json?.delegation ?? null;
+}
+
 test("API e2e: x402 authorize-payment is idempotent and token verifies via keyset", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 
@@ -895,4 +928,246 @@ test("API e2e: x402 wallet policy enforces max delegation depth fail-closed", as
   });
   assert.equal(settlementRead.statusCode, 200, settlementRead.body);
   assert.equal(settlementRead.json?.settlement?.status, "locked");
+});
+
+test("API e2e: AgentPassport.v1 lineage resolver enforces revoked/expired/depth with stable codes", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const principalAgentId = await registerAgent(api, { agentId: "agt_x402_auth_lineage_principal_1" });
+  const managerAgentId = await registerAgent(api, { agentId: "agt_x402_auth_lineage_manager_1" });
+  const payer = await registerAgent(api, { agentId: "agt_x402_auth_lineage_payer_1" });
+  const payee = await registerAgent(api, { agentId: "agt_x402_auth_lineage_payee_1" });
+  await creditWallet(api, { agentId: payer, amountCents: 9000, idempotencyKey: "wallet_credit_x402_auth_lineage_1" });
+
+  const sponsorRef = "sponsor_lineage_1";
+  const sponsorWalletRef = "wallet_lineage_1";
+  const policyRef = "policy_lineage_1";
+  const policyVersion = 1;
+  const policyUpsert = await upsertX402WalletPolicy(api, {
+    policy: {
+      schemaVersion: "X402WalletPolicy.v1",
+      sponsorRef,
+      sponsorWalletRef,
+      policyRef,
+      policyVersion,
+      status: "active",
+      allowedProviderIds: [payee],
+      allowedToolIds: ["weather_read"],
+      requireQuote: false,
+      requireStrictRequestBinding: false,
+      requireAgentKeyMatch: false
+    },
+    idempotencyKey: "x402_wallet_policy_upsert_lineage_1"
+  });
+  assert.equal(policyUpsert.statusCode, 201, policyUpsert.body);
+
+  const rootAgreementHash = sha256Hex("agreement_lineage_root_1");
+  const middleAgreementHash = sha256Hex("agreement_lineage_middle_1");
+  const leafAgreementHash = sha256Hex("agreement_lineage_leaf_1");
+
+  const rootDelegation = await createAgreementDelegation(api, {
+    parentAgreementHash: rootAgreementHash,
+    delegationId: "dlg_lineage_root_1",
+    childAgreementHash: middleAgreementHash,
+    delegatorAgentId: principalAgentId,
+    delegateeAgentId: managerAgentId,
+    budgetCapCents: 5000,
+    delegationDepth: 0,
+    maxDelegationDepth: 2,
+    idempotencyKey: "agreement_delegation_lineage_root_1"
+  });
+  const leafDelegation = await createAgreementDelegation(api, {
+    parentAgreementHash: middleAgreementHash,
+    delegationId: "dlg_lineage_leaf_1",
+    childAgreementHash: leafAgreementHash,
+    delegatorAgentId: managerAgentId,
+    delegateeAgentId: payer,
+    budgetCapCents: 3000,
+    delegationDepth: 1,
+    maxDelegationDepth: 2,
+    idempotencyKey: "agreement_delegation_lineage_leaf_1"
+  });
+  assert.ok(rootDelegation?.delegationHash);
+  assert.ok(leafDelegation?.delegationHash);
+
+  const nowIso = new Date().toISOString();
+  const passportBase = {
+    schemaVersion: "AgentPassport.v1",
+    passportId: "passport_lineage_1",
+    agentId: payer,
+    tenantId: "tenant_default",
+    principalRef: {
+      principalType: "service",
+      principalId: sponsorRef
+    },
+    identityAnchors: {
+      jwksUri: "https://example.com/.well-known/jwks.json",
+      activeKeyId: "agent_key_lineage_1",
+      keysetHash: sha256Hex("lineage_keyset_1")
+    },
+    delegationRoot: {
+      rootGrantId: "dlg_lineage_root_1",
+      rootGrantHash: rootDelegation.delegationHash,
+      issuedAt: nowIso,
+      expiresAt: null,
+      revokedAt: null
+    },
+    policyEnvelope: {
+      maxPerCallCents: 2000,
+      maxDailyCents: 10000,
+      allowedRiskClasses: ["read"],
+      requireApprovalAboveCents: null,
+      allowlistRefs: [policyRef]
+    },
+    status: "active",
+    metadata: {
+      x402: {
+        sponsorWalletRef,
+        policyRef,
+        policyVersion,
+        delegationRef: "dlg_lineage_leaf_1",
+        delegationDepth: 1,
+        maxDelegationDepth: 2
+      }
+    },
+    createdAt: nowIso,
+    updatedAt: nowIso
+  };
+
+  const createGate = async (gateId, agentPassport, idempotencyKey) =>
+    await request(api, {
+      method: "POST",
+      path: "/x402/gate/create",
+      headers: { "x-idempotency-key": idempotencyKey },
+      body: {
+        gateId,
+        payerAgentId: payer,
+        payeeAgentId: payee,
+        toolId: "weather_read",
+        amountCents: 450,
+        currency: "USD",
+        agentPassport
+      }
+    });
+
+  const validGateId = "gate_auth_lineage_valid_1";
+  const createValid = await createGate(validGateId, passportBase, "x402_gate_create_auth_lineage_valid_1");
+  assert.equal(createValid.statusCode, 201, createValid.body);
+  const validIssuerDecision = await issueWalletAuthorizationDecision(api, {
+    sponsorWalletRef,
+    gateId: validGateId,
+    idempotencyKey: "x402_wallet_issuer_lineage_valid_1"
+  });
+  assert.equal(validIssuerDecision.statusCode, 200, validIssuerDecision.body);
+  const validAuthorize = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_lineage_valid_1" },
+    body: {
+      gateId: validGateId,
+      walletAuthorizationDecisionToken: validIssuerDecision.json?.walletAuthorizationDecisionToken
+    }
+  });
+  assert.equal(validAuthorize.statusCode, 200, validAuthorize.body);
+  const validTokenPayload = parseSettldPayTokenV1(validAuthorize.json?.token ?? "").payload;
+  assert.equal(validTokenPayload.delegationRef, "dlg_lineage_leaf_1");
+  assert.equal(validTokenPayload.rootDelegationRef, "dlg_lineage_root_1");
+  assert.equal(validTokenPayload.rootDelegationHash, rootDelegation.delegationHash);
+  assert.equal(validTokenPayload.effectiveDelegationRef, "dlg_lineage_leaf_1");
+  assert.equal(validTokenPayload.effectiveDelegationHash, leafDelegation.delegationHash);
+
+  const validRequestSha256 = sha256Hex("GET\nexample.com\n/tools/weather?city=seattle\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  const validResponseSha256 = sha256Hex("{\"tempC\":12,\"ok\":true}");
+  const validVerify = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_lineage_valid_1" },
+    body: {
+      gateId: validGateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: {
+        mode: "automatic",
+        rules: {
+          autoReleaseOnGreen: true,
+          greenReleaseRatePct: 100,
+          autoReleaseOnAmber: false,
+          amberReleaseRatePct: 0,
+          autoReleaseOnRed: true,
+          redReleaseRatePct: 0
+        }
+      },
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${validRequestSha256}`, `http:response_sha256:${validResponseSha256}`]
+    }
+  });
+  assert.equal(validVerify.statusCode, 200, validVerify.body);
+  assert.equal(validVerify.json?.settlement?.status, "released");
+  assert.equal(validVerify.json?.decisionRecord?.bindings?.spendAuthorization?.delegationRef, "dlg_lineage_leaf_1");
+  assert.equal(validVerify.json?.decisionRecord?.bindings?.spendAuthorization?.rootDelegationRef, "dlg_lineage_root_1");
+  assert.equal(validVerify.json?.decisionRecord?.bindings?.spendAuthorization?.rootDelegationHash, rootDelegation.delegationHash);
+  assert.equal(validVerify.json?.decisionRecord?.bindings?.spendAuthorization?.effectiveDelegationRef, "dlg_lineage_leaf_1");
+  assert.equal(validVerify.json?.decisionRecord?.bindings?.spendAuthorization?.effectiveDelegationHash, leafDelegation.delegationHash);
+  assert.equal(validVerify.json?.settlementReceipt?.bindings?.spendAuthorization?.rootDelegationRef, "dlg_lineage_root_1");
+  assert.equal(validVerify.json?.settlementReceipt?.bindings?.spendAuthorization?.effectiveDelegationRef, "dlg_lineage_leaf_1");
+
+  const expiredGateId = "gate_auth_lineage_expired_1";
+  const expiredPassport = {
+    ...passportBase,
+    delegationRoot: {
+      ...passportBase.delegationRoot,
+      expiresAt: "2000-01-01T00:00:00.000Z"
+    },
+    updatedAt: new Date().toISOString()
+  };
+  const createExpired = await createGate(expiredGateId, expiredPassport, "x402_gate_create_auth_lineage_expired_1");
+  assert.equal(createExpired.statusCode, 201, createExpired.body);
+  const expiredDecision = await issueWalletAuthorizationDecision(api, {
+    sponsorWalletRef,
+    gateId: expiredGateId,
+    idempotencyKey: "x402_wallet_issuer_lineage_expired_1"
+  });
+  assert.equal(expiredDecision.statusCode, 409, expiredDecision.body);
+  assert.equal(expiredDecision.json?.code, "X402_DELEGATION_EXPIRED");
+
+  const revokedGateId = "gate_auth_lineage_revoked_1";
+  const revokedPassport = {
+    ...passportBase,
+    delegationRoot: {
+      ...passportBase.delegationRoot,
+      revokedAt: "2000-01-01T00:00:00.000Z"
+    },
+    updatedAt: new Date().toISOString()
+  };
+  const createRevoked = await createGate(revokedGateId, revokedPassport, "x402_gate_create_auth_lineage_revoked_1");
+  assert.equal(createRevoked.statusCode, 201, createRevoked.body);
+  const revokedDecision = await issueWalletAuthorizationDecision(api, {
+    sponsorWalletRef,
+    gateId: revokedGateId,
+    idempotencyKey: "x402_wallet_issuer_lineage_revoked_1"
+  });
+  assert.equal(revokedDecision.statusCode, 409, revokedDecision.body);
+  assert.equal(revokedDecision.json?.code, "X402_DELEGATION_REVOKED");
+
+  const depthGateId = "gate_auth_lineage_depth_1";
+  const depthPassport = {
+    ...passportBase,
+    metadata: {
+      x402: {
+        ...passportBase.metadata.x402,
+        delegationDepth: 2,
+        maxDelegationDepth: 2
+      }
+    },
+    updatedAt: new Date().toISOString()
+  };
+  const createDepth = await createGate(depthGateId, depthPassport, "x402_gate_create_auth_lineage_depth_1");
+  assert.equal(createDepth.statusCode, 201, createDepth.body);
+  const depthDecision = await issueWalletAuthorizationDecision(api, {
+    sponsorWalletRef,
+    gateId: depthGateId,
+    idempotencyKey: "x402_wallet_issuer_lineage_depth_1"
+  });
+  assert.equal(depthDecision.statusCode, 409, depthDecision.body);
+  assert.equal(depthDecision.json?.code, "X402_DELEGATION_DEPTH_EXCEEDED");
 });

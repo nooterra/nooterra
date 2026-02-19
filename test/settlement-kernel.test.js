@@ -302,6 +302,10 @@ test("Settlement kernel preserves x402 authorization/request/response bindings",
         sponsorWalletRef: "wallet_sponsor_1",
         agentKeyId: "agent_key_1",
         delegationRef: "deleg_1",
+        rootDelegationRef: "deleg_root_1",
+        rootDelegationHash: "4".repeat(64),
+        effectiveDelegationRef: "deleg_1",
+        effectiveDelegationHash: "5".repeat(64),
         policyVersion: 3,
         policyFingerprint: "3".repeat(64)
       },
@@ -321,6 +325,8 @@ test("Settlement kernel preserves x402 authorization/request/response bindings",
   assert.equal(decision.bindings.quote.quoteId, "x402quote_1");
   assert.equal(decision.bindings.providerQuoteSig.quoteId, "x402quote_1");
   assert.equal(decision.bindings.spendAuthorization.policyVersion, 3);
+  assert.equal(decision.bindings.spendAuthorization.rootDelegationRef, "deleg_root_1");
+  assert.equal(decision.bindings.spendAuthorization.effectiveDelegationRef, "deleg_1");
   assert.equal(decision.bindings.policyDecisionFingerprint.policyId, "policy_default_auto");
   assert.equal(decision.bindings.policyDecisionFingerprint.evaluationHash, "f".repeat(64));
 
@@ -349,5 +355,7 @@ test("Settlement kernel preserves x402 authorization/request/response bindings",
   assert.equal(receipt.bindings.providerQuoteSig.keyJwkThumbprintSha256, "8".repeat(64));
   assert.equal(receipt.bindings.quote.requestBindingMode, "strict");
   assert.equal(receipt.bindings.spendAuthorization.sponsorRef, "sponsor_acme");
+  assert.equal(receipt.bindings.spendAuthorization.rootDelegationHash, "4".repeat(64));
+  assert.equal(receipt.bindings.spendAuthorization.effectiveDelegationHash, "5".repeat(64));
   assert.equal(receipt.bindings.policyDecisionFingerprint.policyVersion, 7);
 });

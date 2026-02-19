@@ -105,6 +105,7 @@ import { buildFundingHoldV1, FUNDING_HOLD_STATUS, resolveFundingHoldV1, validate
 import { buildSettlementAdjustmentV1, SETTLEMENT_ADJUSTMENT_KIND, validateSettlementAdjustmentV1 } from "../core/settlement-adjustment.js";
 import {
   AGREEMENT_DELEGATION_SCHEMA_VERSION,
+  AGREEMENT_DELEGATION_STATUS,
   buildAgreementDelegationV1,
   cascadeSettlementCheck,
   refundUnwindCheck,
@@ -6523,6 +6524,22 @@ export function createApi({
     return value;
   }
 
+  function normalizeX402AgentPassportPrincipalTypeInput(rawValue, fieldPath) {
+    const value = typeof rawValue === "string" ? rawValue.trim().toLowerCase() : "";
+    if (value !== "human" && value !== "business" && value !== "service" && value !== "dao") {
+      throw new TypeError(`${fieldPath} must be human|business|service|dao`);
+    }
+    return value;
+  }
+
+  function normalizeX402AgentPassportStatusInput(rawValue, fieldPath) {
+    const value = typeof rawValue === "string" ? rawValue.trim().toLowerCase() : "";
+    if (value !== "active" && value !== "suspended" && value !== "revoked") {
+      throw new TypeError(`${fieldPath} must be active|suspended|revoked`);
+    }
+    return value;
+  }
+
   function normalizeX402AgentPassportInput(rawValue, { fieldPath = "agentPassport", allowNull = true } = {}) {
     if (rawValue === null || rawValue === undefined) {
       if (allowNull) return null;
@@ -6537,6 +6554,305 @@ export function createApi({
         : X402_AGENT_PASSPORT_SCHEMA_VERSION;
     if (schemaVersionRaw !== X402_AGENT_PASSPORT_SCHEMA_VERSION) {
       throw new TypeError(`${fieldPath}.schemaVersion must be ${X402_AGENT_PASSPORT_SCHEMA_VERSION}`);
+    }
+    const hasProtocolEnvelopeFields =
+      Object.prototype.hasOwnProperty.call(rawValue, "passportId") ||
+      Object.prototype.hasOwnProperty.call(rawValue, "principalRef") ||
+      Object.prototype.hasOwnProperty.call(rawValue, "identityAnchors") ||
+      Object.prototype.hasOwnProperty.call(rawValue, "delegationRoot") ||
+      Object.prototype.hasOwnProperty.call(rawValue, "policyEnvelope");
+    if (hasProtocolEnvelopeFields) {
+      const passportId = normalizeOptionalX402RefInput(rawValue.passportId, `${fieldPath}.passportId`, {
+        allowNull: false,
+        max: 200
+      });
+      const agentId = normalizeOptionalX402RefInput(rawValue.agentId, `${fieldPath}.agentId`, {
+        allowNull: false,
+        max: 200
+      });
+      const tenantId = normalizeOptionalX402RefInput(rawValue.tenantId, `${fieldPath}.tenantId`, {
+        allowNull: false,
+        max: 200
+      });
+      const principalRefRaw = rawValue.principalRef;
+      if (!principalRefRaw || typeof principalRefRaw !== "object" || Array.isArray(principalRefRaw)) {
+        throw new TypeError(`${fieldPath}.principalRef must be an object`);
+      }
+      const principalRef = normalizeForCanonicalJson(
+        {
+          principalType: normalizeX402AgentPassportPrincipalTypeInput(
+            principalRefRaw.principalType,
+            `${fieldPath}.principalRef.principalType`
+          ),
+          principalId: normalizeOptionalX402RefInput(principalRefRaw.principalId, `${fieldPath}.principalRef.principalId`, {
+            allowNull: false,
+            max: 200
+          }),
+          ...(typeof principalRefRaw.jurisdiction === "string" && principalRefRaw.jurisdiction.trim() !== ""
+            ? { jurisdiction: String(principalRefRaw.jurisdiction).trim().slice(0, 64) }
+            : {})
+        },
+        { path: "$" }
+      );
+      const identityAnchorsRaw = rawValue.identityAnchors;
+      if (!identityAnchorsRaw || typeof identityAnchorsRaw !== "object" || Array.isArray(identityAnchorsRaw)) {
+        throw new TypeError(`${fieldPath}.identityAnchors must be an object`);
+      }
+      const jwksUri =
+        typeof identityAnchorsRaw.jwksUri === "string" && identityAnchorsRaw.jwksUri.trim() !== ""
+          ? identityAnchorsRaw.jwksUri.trim()
+          : null;
+      if (!jwksUri || !/^https:\/\//.test(jwksUri)) {
+        throw new TypeError(`${fieldPath}.identityAnchors.jwksUri must be an https URL`);
+      }
+      const identityAnchors = normalizeForCanonicalJson(
+        {
+          ...(typeof identityAnchorsRaw.did === "string" && identityAnchorsRaw.did.trim() !== ""
+            ? { did: identityAnchorsRaw.did.trim().slice(0, 512) }
+            : {}),
+          jwksUri,
+          activeKeyId: normalizeOptionalX402RefInput(
+            identityAnchorsRaw.activeKeyId,
+            `${fieldPath}.identityAnchors.activeKeyId`,
+            { allowNull: false, max: 200 }
+          ),
+          keysetHash: normalizeSha256HashInput(identityAnchorsRaw.keysetHash, `${fieldPath}.identityAnchors.keysetHash`, {
+            allowNull: false
+          })
+        },
+        { path: "$" }
+      );
+      const delegationRootRaw = rawValue.delegationRoot;
+      if (!delegationRootRaw || typeof delegationRootRaw !== "object" || Array.isArray(delegationRootRaw)) {
+        throw new TypeError(`${fieldPath}.delegationRoot must be an object`);
+      }
+      const delegationRootIssuedAt =
+        typeof delegationRootRaw.issuedAt === "string" && delegationRootRaw.issuedAt.trim() !== ""
+          ? delegationRootRaw.issuedAt.trim()
+          : null;
+      if (!delegationRootIssuedAt || !Number.isFinite(Date.parse(delegationRootIssuedAt))) {
+        throw new TypeError(`${fieldPath}.delegationRoot.issuedAt must be an ISO timestamp`);
+      }
+      const delegationRootExpiresAt =
+        delegationRootRaw.expiresAt === null || delegationRootRaw.expiresAt === undefined || delegationRootRaw.expiresAt === ""
+          ? null
+          : typeof delegationRootRaw.expiresAt === "string" && delegationRootRaw.expiresAt.trim() !== ""
+            ? delegationRootRaw.expiresAt.trim()
+            : (() => {
+                throw new TypeError(`${fieldPath}.delegationRoot.expiresAt must be an ISO timestamp or null`);
+              })();
+      if (delegationRootExpiresAt !== null && !Number.isFinite(Date.parse(delegationRootExpiresAt))) {
+        throw new TypeError(`${fieldPath}.delegationRoot.expiresAt must be an ISO timestamp`);
+      }
+      const delegationRootRevokedAt =
+        delegationRootRaw.revokedAt === null || delegationRootRaw.revokedAt === undefined || delegationRootRaw.revokedAt === ""
+          ? null
+          : typeof delegationRootRaw.revokedAt === "string" && delegationRootRaw.revokedAt.trim() !== ""
+            ? delegationRootRaw.revokedAt.trim()
+            : (() => {
+                throw new TypeError(`${fieldPath}.delegationRoot.revokedAt must be an ISO timestamp or null`);
+              })();
+      if (delegationRootRevokedAt !== null && !Number.isFinite(Date.parse(delegationRootRevokedAt))) {
+        throw new TypeError(`${fieldPath}.delegationRoot.revokedAt must be an ISO timestamp`);
+      }
+      const delegationRoot = normalizeForCanonicalJson(
+        {
+          rootGrantId: normalizeOptionalX402RefInput(delegationRootRaw.rootGrantId, `${fieldPath}.delegationRoot.rootGrantId`, {
+            allowNull: false,
+            max: 200
+          }),
+          rootGrantHash: normalizeSha256HashInput(delegationRootRaw.rootGrantHash, `${fieldPath}.delegationRoot.rootGrantHash`, {
+            allowNull: false
+          }),
+          issuedAt: delegationRootIssuedAt,
+          expiresAt: delegationRootExpiresAt,
+          revokedAt: delegationRootRevokedAt
+        },
+        { path: "$" }
+      );
+      const policyEnvelopeRaw = rawValue.policyEnvelope;
+      if (!policyEnvelopeRaw || typeof policyEnvelopeRaw !== "object" || Array.isArray(policyEnvelopeRaw)) {
+        throw new TypeError(`${fieldPath}.policyEnvelope must be an object`);
+      }
+      const allowedRiskClassesRaw = Array.isArray(policyEnvelopeRaw.allowedRiskClasses) ? policyEnvelopeRaw.allowedRiskClasses : null;
+      if (!allowedRiskClassesRaw || allowedRiskClassesRaw.length === 0) {
+        throw new TypeError(`${fieldPath}.policyEnvelope.allowedRiskClasses must be a non-empty array`);
+      }
+      const allowedRiskClasses = [];
+      const seenRisk = new Set();
+      for (const entry of allowedRiskClassesRaw) {
+        const value = typeof entry === "string" ? entry.trim().toLowerCase() : "";
+        if (value !== "read" && value !== "compute" && value !== "action" && value !== "financial") {
+          throw new TypeError(`${fieldPath}.policyEnvelope.allowedRiskClasses values must be read|compute|action|financial`);
+        }
+        if (seenRisk.has(value)) continue;
+        seenRisk.add(value);
+        allowedRiskClasses.push(value);
+      }
+      const maxPerCallCents = normalizeOptionalNonNegativeSafeInt(policyEnvelopeRaw.maxPerCallCents ?? null, {
+        fieldName: `${fieldPath}.policyEnvelope.maxPerCallCents`,
+        allowNull: false
+      });
+      const maxDailyCents = normalizeOptionalNonNegativeSafeInt(policyEnvelopeRaw.maxDailyCents ?? null, {
+        fieldName: `${fieldPath}.policyEnvelope.maxDailyCents`,
+        allowNull: false
+      });
+      const requireApprovalAboveCents =
+        policyEnvelopeRaw.requireApprovalAboveCents === null || policyEnvelopeRaw.requireApprovalAboveCents === undefined
+          ? null
+          : normalizeOptionalNonNegativeSafeInt(policyEnvelopeRaw.requireApprovalAboveCents, {
+              fieldName: `${fieldPath}.policyEnvelope.requireApprovalAboveCents`,
+              allowNull: false
+            });
+      const allowlistRefsRaw = Array.isArray(policyEnvelopeRaw.allowlistRefs) ? policyEnvelopeRaw.allowlistRefs : [];
+      const allowlistRefs = [];
+      const seenAllowlistRefs = new Set();
+      for (const ref of allowlistRefsRaw) {
+        const normalizedRef = normalizeOptionalX402RefInput(ref, `${fieldPath}.policyEnvelope.allowlistRefs`, {
+          allowNull: true,
+          max: 200
+        });
+        if (!normalizedRef || seenAllowlistRefs.has(normalizedRef)) continue;
+        seenAllowlistRefs.add(normalizedRef);
+        allowlistRefs.push(normalizedRef);
+      }
+      const policyEnvelope = normalizeForCanonicalJson(
+        {
+          maxPerCallCents,
+          maxDailyCents,
+          allowedRiskClasses,
+          requireApprovalAboveCents,
+          ...(allowlistRefs.length > 0 ? { allowlistRefs } : {})
+        },
+        { path: "$" }
+      );
+      const status = normalizeX402AgentPassportStatusInput(rawValue.status, `${fieldPath}.status`);
+      const createdAt = typeof rawValue.createdAt === "string" && rawValue.createdAt.trim() !== "" ? rawValue.createdAt.trim() : null;
+      if (!createdAt || !Number.isFinite(Date.parse(createdAt))) {
+        throw new TypeError(`${fieldPath}.createdAt must be an ISO timestamp`);
+      }
+      const updatedAt = typeof rawValue.updatedAt === "string" && rawValue.updatedAt.trim() !== "" ? rawValue.updatedAt.trim() : null;
+      if (!updatedAt || !Number.isFinite(Date.parse(updatedAt))) {
+        throw new TypeError(`${fieldPath}.updatedAt must be an ISO timestamp`);
+      }
+      const metadata =
+        rawValue.metadata === null || rawValue.metadata === undefined
+          ? null
+          : typeof rawValue.metadata === "object" && !Array.isArray(rawValue.metadata)
+            ? normalizeForCanonicalJson(rawValue.metadata, { path: "$.metadata" })
+            : (() => {
+                throw new TypeError(`${fieldPath}.metadata must be an object or null`);
+              })();
+      const capabilityCredentialsRaw = Array.isArray(rawValue.capabilityCredentials) ? rawValue.capabilityCredentials : [];
+      const capabilityCredentials = capabilityCredentialsRaw.map((entry, index) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          throw new TypeError(`${fieldPath}.capabilityCredentials[${index}] must be an object`);
+        }
+        const issuedAt = typeof entry.issuedAt === "string" && entry.issuedAt.trim() !== "" ? entry.issuedAt.trim() : null;
+        if (!issuedAt || !Number.isFinite(Date.parse(issuedAt))) {
+          throw new TypeError(`${fieldPath}.capabilityCredentials[${index}].issuedAt must be an ISO timestamp`);
+        }
+        const expiresAt =
+          entry.expiresAt === null || entry.expiresAt === undefined || entry.expiresAt === ""
+            ? null
+            : typeof entry.expiresAt === "string" && entry.expiresAt.trim() !== ""
+              ? entry.expiresAt.trim()
+              : (() => {
+                  throw new TypeError(`${fieldPath}.capabilityCredentials[${index}].expiresAt must be an ISO timestamp or null`);
+                })();
+        if (expiresAt !== null && !Number.isFinite(Date.parse(expiresAt))) {
+          throw new TypeError(`${fieldPath}.capabilityCredentials[${index}].expiresAt must be an ISO timestamp`);
+        }
+        return normalizeForCanonicalJson(
+          {
+            credentialType: normalizeOptionalX402RefInput(
+              entry.credentialType,
+              `${fieldPath}.capabilityCredentials[${index}].credentialType`,
+              { allowNull: false, max: 120 }
+            ),
+            issuer: normalizeOptionalX402RefInput(entry.issuer, `${fieldPath}.capabilityCredentials[${index}].issuer`, {
+              allowNull: false,
+              max: 200
+            }),
+            credentialRef: normalizeOptionalX402RefInput(
+              entry.credentialRef,
+              `${fieldPath}.capabilityCredentials[${index}].credentialRef`,
+              { allowNull: false, max: 512 }
+            ),
+            credentialHash: normalizeSha256HashInput(
+              entry.credentialHash,
+              `${fieldPath}.capabilityCredentials[${index}].credentialHash`,
+              { allowNull: false }
+            ),
+            issuedAt,
+            expiresAt
+          },
+          { path: "$" }
+        );
+      });
+      const x402Metadata =
+        metadata && typeof metadata === "object" && !Array.isArray(metadata) && metadata.x402 && typeof metadata.x402 === "object" && !Array.isArray(metadata.x402)
+          ? metadata.x402
+          : null;
+      const x402DelegationRef = normalizeOptionalX402RefInput(x402Metadata?.delegationRef ?? null, `${fieldPath}.metadata.x402.delegationRef`, {
+        allowNull: true,
+        max: 200
+      });
+      const sponsorWalletRef = normalizeOptionalX402RefInput(x402Metadata?.sponsorWalletRef ?? null, `${fieldPath}.metadata.x402.sponsorWalletRef`, {
+        allowNull: true,
+        max: 200
+      });
+      const policyRef = normalizeOptionalX402RefInput(x402Metadata?.policyRef ?? null, `${fieldPath}.metadata.x402.policyRef`, {
+        allowNull: true,
+        max: 200
+      });
+      const policyVersion = normalizeOptionalX402PositiveSafeInt(x402Metadata?.policyVersion ?? null, `${fieldPath}.metadata.x402.policyVersion`, {
+        allowNull: true
+      });
+      const delegationDepth = normalizeOptionalNonNegativeSafeInt(x402Metadata?.delegationDepth ?? null, {
+        fieldName: `${fieldPath}.metadata.x402.delegationDepth`,
+        allowNull: true
+      });
+      const maxDelegationDepthRaw = normalizeOptionalNonNegativeSafeInt(x402Metadata?.maxDelegationDepth ?? null, {
+        fieldName: `${fieldPath}.metadata.x402.maxDelegationDepth`,
+        allowNull: true
+      });
+      if (maxDelegationDepthRaw !== null && delegationDepth === null) {
+        throw new TypeError(`${fieldPath}.metadata.x402.delegationDepth is required when maxDelegationDepth is provided`);
+      }
+      const maxDelegationDepth = delegationDepth === null ? null : maxDelegationDepthRaw ?? delegationDepth;
+      if (delegationDepth !== null && maxDelegationDepth !== null && delegationDepth > maxDelegationDepth) {
+        throw new TypeError(`${fieldPath}.metadata.x402.delegationDepth must be <= maxDelegationDepth`);
+      }
+      return normalizeForCanonicalJson(
+        {
+          schemaVersion: X402_AGENT_PASSPORT_SCHEMA_VERSION,
+          passportId,
+          agentId,
+          tenantId,
+          principalRef,
+          identityAnchors,
+          delegationRoot,
+          ...(capabilityCredentials.length > 0 ? { capabilityCredentials } : {}),
+          policyEnvelope,
+          status,
+          ...(metadata ? { metadata } : {}),
+          createdAt,
+          updatedAt,
+          // Backward-compatible x402 aliases used by wallet-policy and token minting surfaces.
+          sponsorRef: principalRef.principalId,
+          ...(sponsorWalletRef ? { sponsorWalletRef } : {}),
+          agentKeyId: identityAnchors.activeKeyId,
+          delegationRef: x402DelegationRef ?? delegationRoot.rootGrantId,
+          ...(policyRef ? { policyRef } : {}),
+          ...(policyVersion ? { policyVersion } : {}),
+          ...(delegationDepth !== null ? { delegationDepth } : {}),
+          ...(maxDelegationDepth !== null ? { maxDelegationDepth } : {}),
+          ...(delegationRoot.expiresAt ? { expiresAt: delegationRoot.expiresAt } : {}),
+          lineageRequired: true
+        },
+        { path: "$" }
+      );
     }
     const sponsorRef = normalizeOptionalX402RefInput(rawValue.sponsorRef, `${fieldPath}.sponsorRef`, { allowNull: false, max: 200 });
     const agentKeyId = normalizeOptionalX402RefInput(rawValue.agentKeyId, `${fieldPath}.agentKeyId`, { allowNull: false, max: 200 });
@@ -6655,7 +6971,8 @@ export function createApi({
           Number.isSafeInteger(Number(passport.maxDelegationDepth)) && Number(passport.maxDelegationDepth) >= 0
             ? Number(passport.maxDelegationDepth)
             : null,
-        expiresAt: typeof passport.expiresAt === "string" && passport.expiresAt.trim() !== "" ? passport.expiresAt.trim() : null
+        expiresAt: typeof passport.expiresAt === "string" && passport.expiresAt.trim() !== "" ? passport.expiresAt.trim() : null,
+        lineageRequired: passport.lineageRequired === true
       },
       { path: "$" }
     );
@@ -6665,6 +6982,7 @@ export function createApi({
   function deriveX402AuthorityGrantRef({ gateId, gateAgentPassport = null, gateAuthorization = null, tokenPayload = null } = {}) {
     const fallback = `authority_${sha256Hex(String(gateId ?? "")).slice(0, 24)}`;
     const candidates = [
+      tokenPayload?.effectiveDelegationRef,
       tokenPayload?.delegationRef,
       gateAgentPassport?.delegationRef,
       gateAuthorization?.authorityGrantRef
@@ -6678,6 +6996,69 @@ export function createApi({
       }
     }
     return fallback;
+  }
+
+  function normalizeOptionalX402DelegationHashForBinding(rawValue) {
+    try {
+      return normalizeSha256HashInput(rawValue ?? null, "delegationHash", { allowNull: true });
+    } catch {
+      return null;
+    }
+  }
+
+  function normalizeOptionalX402DelegationRefForBinding(rawValue) {
+    try {
+      return normalizeOptionalX402RefInput(rawValue ?? null, "delegationRef", { allowNull: true, max: 200 });
+    } catch {
+      return null;
+    }
+  }
+
+  function resolveX402DelegationBindingRefs({
+    authorityGrantRef = null,
+    gateAgentPassport = null,
+    gateAuthorization = null,
+    tokenPayload = null,
+    resolvedDelegationLineage = null
+  } = {}) {
+    const authLineage =
+      gateAuthorization?.delegationLineage && typeof gateAuthorization.delegationLineage === "object" && !Array.isArray(gateAuthorization.delegationLineage)
+        ? gateAuthorization.delegationLineage
+        : null;
+    const passportDelegationRoot =
+      gateAgentPassport?.delegationRoot && typeof gateAgentPassport.delegationRoot === "object" && !Array.isArray(gateAgentPassport.delegationRoot)
+        ? gateAgentPassport.delegationRoot
+        : null;
+    const effectiveDelegationRef =
+      normalizeOptionalX402DelegationRefForBinding(resolvedDelegationLineage?.leafDelegationId ?? null) ??
+      normalizeOptionalX402DelegationRefForBinding(tokenPayload?.effectiveDelegationRef ?? null) ??
+      normalizeOptionalX402DelegationRefForBinding(tokenPayload?.delegationRef ?? null) ??
+      normalizeOptionalX402DelegationRefForBinding(authLineage?.effectiveDelegationRef ?? null) ??
+      normalizeOptionalX402DelegationRefForBinding(authorityGrantRef ?? null) ??
+      normalizeOptionalX402DelegationRefForBinding(gateAgentPassport?.delegationRef ?? null);
+    const effectiveDelegationHash =
+      normalizeOptionalX402DelegationHashForBinding(resolvedDelegationLineage?.leafDelegationHash ?? null) ??
+      normalizeOptionalX402DelegationHashForBinding(tokenPayload?.effectiveDelegationHash ?? null) ??
+      normalizeOptionalX402DelegationHashForBinding(authLineage?.effectiveDelegationHash ?? null);
+    const rootDelegationRef =
+      normalizeOptionalX402DelegationRefForBinding(resolvedDelegationLineage?.rootDelegationId ?? null) ??
+      normalizeOptionalX402DelegationRefForBinding(tokenPayload?.rootDelegationRef ?? null) ??
+      normalizeOptionalX402DelegationRefForBinding(authLineage?.rootDelegationRef ?? null) ??
+      normalizeOptionalX402DelegationRefForBinding(passportDelegationRoot?.rootGrantId ?? null);
+    const rootDelegationHash =
+      normalizeOptionalX402DelegationHashForBinding(resolvedDelegationLineage?.rootDelegationHash ?? null) ??
+      normalizeOptionalX402DelegationHashForBinding(tokenPayload?.rootDelegationHash ?? null) ??
+      normalizeOptionalX402DelegationHashForBinding(authLineage?.rootDelegationHash ?? null) ??
+      normalizeOptionalX402DelegationHashForBinding(passportDelegationRoot?.rootGrantHash ?? null);
+    return normalizeForCanonicalJson(
+      {
+        effectiveDelegationRef,
+        effectiveDelegationHash,
+        rootDelegationRef,
+        rootDelegationHash
+      },
+      { path: "$" }
+    );
   }
 
   function normalizeX402WalletPolicyStatusInput(rawValue, { fieldPath = "status", allowNull = false } = {}) {
@@ -7502,6 +7883,309 @@ export function createApi({
       };
     }
     return { policy, sponsorWalletRef };
+  }
+
+  function buildX402DelegationLineageError(code, message, details = null) {
+    const err = new Error(message);
+    err.code = code;
+    if (details !== null && details !== undefined) err.details = details;
+    return err;
+  }
+
+  function x402AgentPassportRequiresDelegationLineage(passport) {
+    if (!passport || typeof passport !== "object" || Array.isArray(passport)) return false;
+    if (passport.lineageRequired === true) return true;
+    return Boolean(passport.delegationRoot && typeof passport.delegationRoot === "object" && !Array.isArray(passport.delegationRoot));
+  }
+
+  async function resolveX402DelegationLineageForAuthorization({
+    tenantId,
+    gate,
+    gateAgentPassport,
+    nowAt
+  } = {}) {
+    if (!x402AgentPassportRequiresDelegationLineage(gateAgentPassport)) {
+      return { lineage: null };
+    }
+    const atIso = typeof nowAt === "string" && nowAt.trim() !== "" ? nowAt.trim() : nowIso();
+    const nowMs = Date.parse(atIso);
+    if (!Number.isFinite(nowMs)) {
+      throw buildX402DelegationLineageError("X402_DELEGATION_TIME_INVALID", "authorization timestamp must be an ISO timestamp");
+    }
+    const delegationRef = normalizeOptionalX402RefInput(gateAgentPassport?.delegationRef ?? null, "agentPassport.delegationRef", {
+      allowNull: true,
+      max: 200
+    });
+    if (!delegationRef) {
+      throw buildX402DelegationLineageError(
+        "X402_DELEGATION_REFERENCE_REQUIRED",
+        "agent passport requires delegationRef for lineage verification"
+      );
+    }
+    const passportExpiresAt =
+      typeof gateAgentPassport?.expiresAt === "string" && gateAgentPassport.expiresAt.trim() !== ""
+        ? gateAgentPassport.expiresAt.trim()
+        : null;
+    if (passportExpiresAt && Number.isFinite(Date.parse(passportExpiresAt)) && Date.parse(passportExpiresAt) <= nowMs) {
+      throw buildX402DelegationLineageError(
+        "X402_DELEGATION_EXPIRED",
+        "delegation authority is expired",
+        { delegationRef, expiresAt: passportExpiresAt }
+      );
+    }
+    const delegationRoot =
+      gateAgentPassport?.delegationRoot && typeof gateAgentPassport.delegationRoot === "object" && !Array.isArray(gateAgentPassport.delegationRoot)
+        ? gateAgentPassport.delegationRoot
+        : null;
+    const rootRevokedAt =
+      delegationRoot && typeof delegationRoot.revokedAt === "string" && delegationRoot.revokedAt.trim() !== ""
+        ? delegationRoot.revokedAt.trim()
+        : null;
+    if (rootRevokedAt && Number.isFinite(Date.parse(rootRevokedAt)) && Date.parse(rootRevokedAt) <= nowMs) {
+      throw buildX402DelegationLineageError(
+        "X402_DELEGATION_REVOKED",
+        "delegation root has been revoked",
+        { delegationRef, revokedAt: rootRevokedAt }
+      );
+    }
+    const rootExpiresAt =
+      delegationRoot && typeof delegationRoot.expiresAt === "string" && delegationRoot.expiresAt.trim() !== ""
+        ? delegationRoot.expiresAt.trim()
+        : null;
+    if (rootExpiresAt && Number.isFinite(Date.parse(rootExpiresAt)) && Date.parse(rootExpiresAt) <= nowMs) {
+      throw buildX402DelegationLineageError(
+        "X402_DELEGATION_EXPIRED",
+        "delegation root is expired",
+        { delegationRef, expiresAt: rootExpiresAt }
+      );
+    }
+
+    if (typeof store.getAgreementDelegation !== "function" || typeof store.listAgreementDelegations !== "function") {
+      throw buildX402DelegationLineageError(
+        "X402_DELEGATION_RESOLVER_UNAVAILABLE",
+        "delegation lineage resolver is unavailable for this store"
+      );
+    }
+
+    const leafDelegation = await store.getAgreementDelegation({ tenantId, delegationId: delegationRef });
+    if (!leafDelegation) {
+      throw buildX402DelegationLineageError("X402_DELEGATION_NOT_FOUND", "delegationRef was not found", { delegationRef });
+    }
+    try {
+      validateAgreementDelegationV1(leafDelegation);
+    } catch (err) {
+      throw buildX402DelegationLineageError(
+        "X402_DELEGATION_SCHEMA_INVALID",
+        "delegation record failed schema validation",
+        { delegationRef, message: err?.message ?? null }
+      );
+    }
+    const leafStatus = String(leafDelegation.status ?? "").trim().toLowerCase();
+    if (leafStatus === AGREEMENT_DELEGATION_STATUS.REVOKED) {
+      throw buildX402DelegationLineageError("X402_DELEGATION_REVOKED", "delegation has been revoked", {
+        delegationRef,
+        status: leafStatus
+      });
+    }
+    if (leafStatus !== AGREEMENT_DELEGATION_STATUS.ACTIVE) {
+      throw buildX402DelegationLineageError("X402_DELEGATION_INACTIVE", "delegation is not active", {
+        delegationRef,
+        status: leafStatus
+      });
+    }
+
+    const leafDepth = Number(leafDelegation.delegationDepth);
+    const leafMaxDepth = Number(leafDelegation.maxDelegationDepth);
+    const passportDepth =
+      Number.isSafeInteger(Number(gateAgentPassport?.delegationDepth)) && Number(gateAgentPassport.delegationDepth) >= 0
+        ? Number(gateAgentPassport.delegationDepth)
+        : null;
+    const passportMaxDepth =
+      Number.isSafeInteger(Number(gateAgentPassport?.maxDelegationDepth)) && Number(gateAgentPassport.maxDelegationDepth) >= 0
+        ? Number(gateAgentPassport.maxDelegationDepth)
+        : null;
+    if (!Number.isSafeInteger(leafDepth) || leafDepth < 0 || !Number.isSafeInteger(leafMaxDepth) || leafMaxDepth < 0) {
+      throw buildX402DelegationLineageError("X402_DELEGATION_SCHEMA_INVALID", "delegation depth metadata is invalid", { delegationRef });
+    }
+    if (leafDepth > leafMaxDepth) {
+      throw buildX402DelegationLineageError("X402_DELEGATION_DEPTH_EXCEEDED", "delegation depth exceeds delegation max depth", {
+        delegationRef,
+        delegationDepth: leafDepth,
+        maxDelegationDepth: leafMaxDepth
+      });
+    }
+    if (passportDepth !== null && passportDepth !== leafDepth) {
+      throw buildX402DelegationLineageError(
+        "X402_DELEGATION_DEPTH_EXCEEDED",
+        "agent passport delegation depth does not match delegation lineage depth",
+        { delegationRef, delegationDepth: leafDepth, passportDelegationDepth: passportDepth }
+      );
+    }
+    const effectiveMaxDepth = passportMaxDepth !== null ? passportMaxDepth : leafMaxDepth;
+    if (leafDepth > effectiveMaxDepth) {
+      throw buildX402DelegationLineageError("X402_DELEGATION_DEPTH_EXCEEDED", "delegation depth exceeds authorized max depth", {
+        delegationRef,
+        delegationDepth: leafDepth,
+        maxDelegationDepth: effectiveMaxDepth
+      });
+    }
+    const gatePayerAgentId =
+      typeof gate?.payerAgentId === "string" && gate.payerAgentId.trim() !== "" ? gate.payerAgentId.trim() : null;
+    if (gatePayerAgentId && String(leafDelegation.delegateeAgentId ?? "") !== gatePayerAgentId) {
+      throw buildX402DelegationLineageError(
+        "X402_DELEGATION_ACTOR_MISMATCH",
+        "delegation delegatee does not match gate payer",
+        {
+          delegationRef,
+          delegateeAgentId: leafDelegation.delegateeAgentId ?? null,
+          payerAgentId: gatePayerAgentId
+        }
+      );
+    }
+
+    const seenDelegationIds = new Set();
+    const lineageLeafToRoot = [];
+    let cursor = leafDelegation;
+    for (let hop = 0; hop < 256; hop += 1) {
+      const delegationId = String(cursor?.delegationId ?? "").trim();
+      if (!delegationId) {
+        throw buildX402DelegationLineageError("X402_DELEGATION_SCHEMA_INVALID", "delegationId is missing in lineage", { delegationRef });
+      }
+      if (seenDelegationIds.has(delegationId)) {
+        throw buildX402DelegationLineageError("X402_DELEGATION_LINEAGE_CYCLE", "delegation lineage contains a cycle", {
+          delegationRef,
+          delegationId
+        });
+      }
+      seenDelegationIds.add(delegationId);
+      lineageLeafToRoot.push(cursor);
+
+      const parentAgreementHash =
+        typeof cursor.parentAgreementHash === "string" && cursor.parentAgreementHash.trim() !== ""
+          ? cursor.parentAgreementHash.trim().toLowerCase()
+          : null;
+      if (!parentAgreementHash) break;
+      const rows = await store.listAgreementDelegations({
+        tenantId,
+        childAgreementHash: parentAgreementHash,
+        status: null,
+        limit: 1000,
+        offset: 0
+      });
+      const candidates = (Array.isArray(rows) ? rows : []).filter((row) => {
+        if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+        const status = String(row.status ?? "").trim().toLowerCase();
+        return status !== AGREEMENT_DELEGATION_STATUS.REVOKED;
+      });
+      if (candidates.length === 0) break;
+      if (candidates.length > 1) {
+        throw buildX402DelegationLineageError("X402_DELEGATION_LINEAGE_AMBIGUOUS", "delegation lineage has multiple parents", {
+          delegationRef,
+          childAgreementHash: parentAgreementHash,
+          candidateDelegationIds: candidates.map((row) => row.delegationId ?? null)
+        });
+      }
+      const parentDelegation = candidates[0];
+      try {
+        validateAgreementDelegationV1(parentDelegation);
+      } catch (err) {
+        throw buildX402DelegationLineageError(
+          "X402_DELEGATION_SCHEMA_INVALID",
+          "ancestor delegation record failed schema validation",
+          { delegationRef, delegationId: parentDelegation?.delegationId ?? null, message: err?.message ?? null }
+        );
+      }
+      const parentStatus = String(parentDelegation.status ?? "").trim().toLowerCase();
+      if (parentStatus !== AGREEMENT_DELEGATION_STATUS.ACTIVE) {
+        throw buildX402DelegationLineageError(
+          parentStatus === AGREEMENT_DELEGATION_STATUS.REVOKED ? "X402_DELEGATION_REVOKED" : "X402_DELEGATION_INACTIVE",
+          "ancestor delegation is not active",
+          { delegationRef, delegationId: parentDelegation?.delegationId ?? null, status: parentStatus }
+        );
+      }
+      if (String(parentDelegation.delegateeAgentId ?? "") !== String(cursor.delegatorAgentId ?? "")) {
+        throw buildX402DelegationLineageError(
+          "X402_DELEGATION_LINEAGE_AGENT_MISMATCH",
+          "delegation lineage has an agent continuity mismatch",
+          {
+            delegationRef,
+            parentDelegationId: parentDelegation?.delegationId ?? null,
+            expectedDelegateeAgentId: cursor.delegatorAgentId ?? null,
+            actualDelegateeAgentId: parentDelegation?.delegateeAgentId ?? null
+          }
+        );
+      }
+      cursor = parentDelegation;
+      if (hop === 255) {
+        throw buildX402DelegationLineageError("X402_DELEGATION_LINEAGE_DEPTH_LIMIT", "delegation lineage traversal exceeded depth limit", {
+          delegationRef
+        });
+      }
+    }
+
+    const lineageRootToLeaf = [...lineageLeafToRoot].reverse();
+    const rootDelegation = lineageRootToLeaf[0] ?? null;
+    if (!rootDelegation) {
+      throw buildX402DelegationLineageError("X402_DELEGATION_LINEAGE_EMPTY", "delegation lineage did not resolve");
+    }
+    const rootGrantId =
+      delegationRoot && typeof delegationRoot.rootGrantId === "string" && delegationRoot.rootGrantId.trim() !== ""
+        ? delegationRoot.rootGrantId.trim()
+        : null;
+    if (rootGrantId && String(rootDelegation.delegationId ?? "") !== rootGrantId) {
+      throw buildX402DelegationLineageError("X402_DELEGATION_ROOT_MISMATCH", "delegation rootGrantId does not match resolved lineage root", {
+        delegationRef,
+        rootGrantId,
+        resolvedRootDelegationId: rootDelegation.delegationId ?? null
+      });
+    }
+    const rootGrantHash =
+      delegationRoot && typeof delegationRoot.rootGrantHash === "string" && delegationRoot.rootGrantHash.trim() !== ""
+        ? delegationRoot.rootGrantHash.trim().toLowerCase()
+        : null;
+    if (rootGrantHash && String(rootDelegation.delegationHash ?? "").toLowerCase() !== rootGrantHash) {
+      throw buildX402DelegationLineageError(
+        "X402_DELEGATION_ROOT_HASH_MISMATCH",
+        "delegation rootGrantHash does not match resolved lineage root hash",
+        {
+          delegationRef,
+          rootGrantHash,
+          resolvedRootGrantHash: rootDelegation.delegationHash ?? null
+        }
+      );
+    }
+
+    const lineage = normalizeForCanonicalJson(
+      {
+        schemaVersion: "X402DelegationLineageResolution.v1",
+        delegationRef,
+        rootDelegationId: rootDelegation.delegationId,
+        rootDelegationHash: rootDelegation.delegationHash,
+        leafDelegationId: leafDelegation.delegationId,
+        leafDelegationHash: leafDelegation.delegationHash,
+        delegationDepth: leafDepth,
+        maxDelegationDepth: effectiveMaxDepth,
+        chainLength: lineageRootToLeaf.length,
+        lineage: lineageRootToLeaf.map((row) =>
+          normalizeForCanonicalJson(
+            {
+              delegationId: row.delegationId,
+              delegationHash: row.delegationHash,
+              parentAgreementHash: row.parentAgreementHash,
+              childAgreementHash: row.childAgreementHash,
+              delegatorAgentId: row.delegatorAgentId,
+              delegateeAgentId: row.delegateeAgentId,
+              delegationDepth: row.delegationDepth,
+              maxDelegationDepth: row.maxDelegationDepth,
+              status: row.status
+            },
+            { path: "$" }
+          )
+        )
+      },
+      { path: "$" }
+    );
+    return { lineage };
   }
 
   function tenantSettlementPolicyStoreKey({ tenantId, policyId, policyVersion }) {
@@ -32116,6 +32800,24 @@ export function createApi({
           if (!resolvedWalletPolicy) {
             return sendError(res, 404, "x402 wallet policy not found", null, { code: "X402_WALLET_POLICY_NOT_FOUND" });
           }
+          if (x402AgentPassportRequiresDelegationLineage(gateAgentPassport)) {
+            try {
+              await resolveX402DelegationLineageForAuthorization({
+                tenantId,
+                gate,
+                gateAgentPassport,
+                nowAt: nowIso()
+              });
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "x402 delegation lineage blocked authorization",
+                { message: err?.message ?? null, code: err?.code ?? null, details: err?.details ?? null },
+                { code: err?.code ?? "X402_DELEGATION_LINEAGE_INVALID" }
+              );
+            }
+          }
           const payeeProviderId =
             typeof gate?.payeeAgentId === "string" && gate.payeeAgentId.trim() !== ""
               ? gate.payeeAgentId.trim()
@@ -32954,6 +33656,7 @@ export function createApi({
               ? !existingTokenQuoteId && !existingTokenQuoteSha256
               : existingTokenQuoteId === effectiveQuoteId && (!effectiveQuoteSha256 || existingTokenQuoteSha256 === effectiveQuoteSha256);
           let resolvedWalletPolicy = null;
+          let resolvedDelegationLineage = null;
           if (gateAgentPassport) {
             const walletPolicyResolution = await resolveX402WalletPolicyForPassport({
               tenantId,
@@ -32972,6 +33675,25 @@ export function createApi({
               );
             }
             resolvedWalletPolicy = walletPolicyResolution?.policy ?? null;
+            if (!hasReservedAuthorization && x402AgentPassportRequiresDelegationLineage(gateAgentPassport)) {
+              try {
+                const lineageResolution = await resolveX402DelegationLineageForAuthorization({
+                  tenantId,
+                  gate,
+                  gateAgentPassport,
+                  nowAt
+                });
+                resolvedDelegationLineage = lineageResolution?.lineage ?? null;
+              } catch (err) {
+                return sendError(
+                  res,
+                  409,
+                  "x402 delegation lineage blocked authorization",
+                  { message: err?.message ?? null, code: err?.code ?? null, details: err?.details ?? null },
+                  { code: err?.code ?? "X402_DELEGATION_LINEAGE_INVALID" }
+                );
+              }
+            }
           }
           let walletIssuerDecisionPayload = null;
           if (!hasReservedAuthorization && resolvedWalletPolicy) {
@@ -33257,11 +33979,32 @@ export function createApi({
           }
 
           const includeSpendAuthorizationClaims = Boolean(effectiveQuoteId || resolvedWalletPolicy || gateAgentPassport);
-          const authorityGrantRef = deriveX402AuthorityGrantRef({
-            gateId,
+          const authorityGrantRef =
+            typeof resolvedDelegationLineage?.leafDelegationId === "string" && resolvedDelegationLineage.leafDelegationId.trim() !== ""
+              ? resolvedDelegationLineage.leafDelegationId.trim()
+              : deriveX402AuthorityGrantRef({
+                  gateId,
+                  gateAgentPassport,
+                  gateAuthorization: existingAuthorization
+                });
+          const delegationBindingRefs = resolveX402DelegationBindingRefs({
+            authorityGrantRef,
             gateAgentPassport,
-            gateAuthorization: existingAuthorization
+            gateAuthorization: existingAuthorization,
+            resolvedDelegationLineage
           });
+          const effectiveAuthorityGrantRef = delegationBindingRefs.effectiveDelegationRef ?? authorityGrantRef;
+          const hasDelegationBindingRefs = Object.values(delegationBindingRefs).some((value) => value !== null && value !== undefined);
+          const authorizationDelegationLineage =
+            hasDelegationBindingRefs || resolvedDelegationLineage
+              ? normalizeForCanonicalJson(
+                  {
+                    ...delegationBindingRefs,
+                    ...(resolvedDelegationLineage ? { resolution: resolvedDelegationLineage } : {})
+                  },
+                  { path: "$" }
+                )
+              : null;
           const walletPolicyFingerprint =
             resolvedWalletPolicy &&
             typeof resolvedWalletPolicy.policyFingerprint === "string" &&
@@ -33348,7 +34091,11 @@ export function createApi({
                     (typeof gateAgentPassport?.agentKeyId === "string" && gateAgentPassport.agentKeyId.trim() !== ""
                       ? gateAgentPassport.agentKeyId.trim()
                       : payerAgentId) || null,
-                  delegationRef: authorityGrantRef,
+                  delegationRef: effectiveAuthorityGrantRef,
+                  rootDelegationRef: delegationBindingRefs.rootDelegationRef,
+                  rootDelegationHash: delegationBindingRefs.rootDelegationHash,
+                  effectiveDelegationRef: delegationBindingRefs.effectiveDelegationRef,
+                  effectiveDelegationHash: delegationBindingRefs.effectiveDelegationHash,
                   policyVersion:
                     Number.isSafeInteger(Number(walletIssuerDecisionPayload?.policyVersion)) && Number(walletIssuerDecisionPayload.policyVersion) > 0
                       ? Number(walletIssuerDecisionPayload.policyVersion)
@@ -33377,7 +34124,8 @@ export function createApi({
                 schemaVersion: "X402GateAuthorization.v1",
                 authorizationRef,
                 status: "reserved",
-                authorityGrantRef,
+                authorityGrantRef: effectiveAuthorityGrantRef,
+                ...(authorizationDelegationLineage ? { delegationLineage: authorizationDelegationLineage } : {}),
                 walletEscrow: {
                   status: walletEscrowLocked ? "locked" : "unlocked",
                   amountCents,
@@ -33771,6 +34519,12 @@ export function createApi({
             gateAuthorization,
             tokenPayload: tokenPayloadForBindings
           });
+          const delegationBindingRefs = resolveX402DelegationBindingRefs({
+            authorityGrantRef,
+            gateAgentPassport: gate?.agentPassport ?? null,
+            gateAuthorization,
+            tokenPayload: tokenPayloadForBindings
+          });
           const spendAuthorizationSource =
             tokenPayloadForBindings && typeof tokenPayloadForBindings === "object" && !Array.isArray(tokenPayloadForBindings)
               ? tokenPayloadForBindings
@@ -33835,7 +34589,11 @@ export function createApi({
                     sponsorWalletRef:
                       typeof spendAuthorizationSource.sponsorWalletRef === "string" ? spendAuthorizationSource.sponsorWalletRef : null,
                     agentKeyId: typeof spendAuthorizationSource.agentKeyId === "string" ? spendAuthorizationSource.agentKeyId : null,
-                    delegationRef: authorityGrantRef,
+                    delegationRef: delegationBindingRefs.effectiveDelegationRef ?? authorityGrantRef,
+                    rootDelegationRef: delegationBindingRefs.rootDelegationRef,
+                    rootDelegationHash: delegationBindingRefs.rootDelegationHash,
+                    effectiveDelegationRef: delegationBindingRefs.effectiveDelegationRef,
+                    effectiveDelegationHash: delegationBindingRefs.effectiveDelegationHash,
                     policyVersion:
                       Number.isSafeInteger(Number(spendAuthorizationSource.policyVersion)) && Number(spendAuthorizationSource.policyVersion) > 0
                         ? Number(spendAuthorizationSource.policyVersion)
