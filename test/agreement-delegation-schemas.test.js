@@ -11,7 +11,11 @@ import {
   buildAgreementDelegationV1,
   validateAgreementDelegationV1,
   cascadeSettlementCheck,
-  refundUnwindCheck
+  refundUnwindCheck,
+  cascadeSettlementExecute,
+  cascadeUnwindExecute,
+  refundUnwindExecute,
+  summarizeAgreementDelegationLedgerV1
 } from "../src/core/agreement-delegation.js";
 
 function isPlainObject(value) {
@@ -185,3 +189,182 @@ test("depth enforcement: delegationDepth > maxDelegationDepth throws", () => {
   });
 });
 
+test("cascadeUnwindExecute: 3-hop child failure unwinds to root idempotently and preserves ledger invariant", () => {
+  const at = "2026-02-01T00:00:00.000Z";
+  const resolvedAt = "2026-02-01T00:10:00.000Z";
+  const A = "a".repeat(64);
+  const B = "b".repeat(64);
+  const C = "c".repeat(64);
+  const d1 = buildAgreementDelegationV1({
+    delegationId: "dlg_ab",
+    tenantId: "tenant_test",
+    parentAgreementHash: A,
+    childAgreementHash: B,
+    delegatorAgentId: "agt_1",
+    delegateeAgentId: "agt_2",
+    budgetCapCents: 100,
+    currency: "USD",
+    delegationDepth: 1,
+    maxDelegationDepth: 3,
+    ancestorChain: [A],
+    createdAt: at
+  });
+  const d2 = buildAgreementDelegationV1({
+    delegationId: "dlg_bc",
+    tenantId: "tenant_test",
+    parentAgreementHash: B,
+    childAgreementHash: C,
+    delegatorAgentId: "agt_2",
+    delegateeAgentId: "agt_3",
+    budgetCapCents: 100,
+    currency: "USD",
+    delegationDepth: 2,
+    maxDelegationDepth: 3,
+    ancestorChain: [A, B],
+    createdAt: at
+  });
+
+  const first = cascadeUnwindExecute({
+    delegations: [d1, d2],
+    fromChildHash: C,
+    resolvedAt,
+    metadata: { reason: "child_failed" }
+  });
+  assert.equal(first.ok, true);
+  assert.equal(first.kind, "cascade_unwind_execute_v1");
+  assert.deepEqual(
+    first.operations.map((row) => [row.delegationId, row.result, row.fromStatus, row.toStatus]),
+    [
+      ["dlg_bc", "applied", "active", "revoked"],
+      ["dlg_ab", "applied", "active", "revoked"]
+    ]
+  );
+  assert.equal(first.stats.applied, 2);
+  assert.equal(first.stats.noop, 0);
+  assert.equal(first.ledger.invariant.ok, true);
+  assert.equal(first.ledger.revokedCount, 2);
+
+  const second = cascadeUnwindExecute({
+    delegations: first.delegations,
+    fromChildHash: C,
+    resolvedAt,
+    metadata: { reason: "child_failed" }
+  });
+  assert.equal(second.ok, true);
+  assert.equal(second.stats.attempted, 0);
+  assert.equal(second.stats.applied, 0);
+  assert.equal(second.stats.noop, 0);
+  assert.equal(second.ledger.invariant.ok, true);
+  assert.equal(second.ledger.revokedCount, 2);
+  assert.equal(second.ledger.totalDelegations, 2);
+});
+
+test("cascadeSettlementExecute marks chain settled and retries are no-op", () => {
+  const at = "2026-02-01T00:00:00.000Z";
+  const resolvedAt = "2026-02-01T00:10:00.000Z";
+  const A = "d".repeat(64);
+  const B = "e".repeat(64);
+  const C = "f".repeat(64);
+  const d1 = buildAgreementDelegationV1({
+    delegationId: "dlg_de",
+    tenantId: "tenant_test",
+    parentAgreementHash: A,
+    childAgreementHash: B,
+    delegatorAgentId: "agt_4",
+    delegateeAgentId: "agt_5",
+    budgetCapCents: 200,
+    currency: "USD",
+    delegationDepth: 1,
+    maxDelegationDepth: 3,
+    ancestorChain: [A],
+    createdAt: at
+  });
+  const d2 = buildAgreementDelegationV1({
+    delegationId: "dlg_ef",
+    tenantId: "tenant_test",
+    parentAgreementHash: B,
+    childAgreementHash: C,
+    delegatorAgentId: "agt_5",
+    delegateeAgentId: "agt_6",
+    budgetCapCents: 150,
+    currency: "USD",
+    delegationDepth: 2,
+    maxDelegationDepth: 3,
+    ancestorChain: [A, B],
+    createdAt: at
+  });
+
+  const settled = cascadeSettlementExecute({
+    delegations: [d1, d2],
+    fromChildHash: C,
+    resolvedAt
+  });
+  assert.equal(settled.stats.applied, 2);
+  assert.equal(settled.ledger.settledCount, 2);
+  assert.equal(settled.ledger.invariant.ok, true);
+
+  const retry = cascadeSettlementExecute({
+    delegations: settled.delegations,
+    fromChildHash: C,
+    resolvedAt
+  });
+  assert.equal(retry.stats.applied, 0);
+  assert.equal(retry.stats.noop, 2);
+  assert.equal(retry.ledger.settledCount, 2);
+  assert.equal(retry.ledger.invariant.ok, true);
+});
+
+test("refundUnwindExecute applies deterministic top-down revoke order", () => {
+  const at = "2026-02-01T00:00:00.000Z";
+  const resolvedAt = "2026-02-01T00:15:00.000Z";
+  const A = "1".repeat(64);
+  const B = "2".repeat(64);
+  const C = "3".repeat(64);
+  const d1 = buildAgreementDelegationV1({
+    delegationId: "dlg_12",
+    tenantId: "tenant_test",
+    parentAgreementHash: A,
+    childAgreementHash: B,
+    delegatorAgentId: "agt_1",
+    delegateeAgentId: "agt_2",
+    budgetCapCents: 100,
+    currency: "USD",
+    delegationDepth: 1,
+    maxDelegationDepth: 3,
+    ancestorChain: [A],
+    createdAt: at
+  });
+  const d2 = buildAgreementDelegationV1({
+    delegationId: "dlg_23",
+    tenantId: "tenant_test",
+    parentAgreementHash: B,
+    childAgreementHash: C,
+    delegatorAgentId: "agt_2",
+    delegateeAgentId: "agt_3",
+    budgetCapCents: 100,
+    currency: "USD",
+    delegationDepth: 2,
+    maxDelegationDepth: 3,
+    ancestorChain: [A, B],
+    createdAt: at
+  });
+
+  const out = refundUnwindExecute({
+    delegations: [d2, d1],
+    fromParentHash: A,
+    resolvedAt,
+    metadata: { cause: "refund" }
+  });
+  assert.equal(out.ok, true);
+  assert.deepEqual(
+    out.operations.map((row) => row.delegationId),
+    ["dlg_12", "dlg_23"]
+  );
+  assert.equal(out.stats.applied, 2);
+  assert.equal(out.ledger.revokedCount, 2);
+  assert.equal(out.ledger.invariant.ok, true);
+
+  const summary = summarizeAgreementDelegationLedgerV1({ delegations: out.delegations });
+  assert.equal(summary.revokedCount, 2);
+  assert.equal(summary.invariant.ok, true);
+});

@@ -255,6 +255,175 @@ function indexDelegations(delegations) {
   return { byChild, childrenByParent };
 }
 
+function indexDelegationsById(delegations) {
+  const byId = new Map();
+  for (const delegation of Array.isArray(delegations) ? delegations : []) {
+    if (!delegation || typeof delegation !== "object" || Array.isArray(delegation)) continue;
+    const delegationId = typeof delegation.delegationId === "string" ? delegation.delegationId.trim() : "";
+    if (!delegationId) continue;
+    if (byId.has(delegationId)) {
+      const err = new Error("duplicate delegationId in input set");
+      err.code = "AGREEMENT_DELEGATION_DUPLICATE_ID";
+      err.delegationId = delegationId;
+      throw err;
+    }
+    byId.set(delegationId, delegation);
+  }
+  return byId;
+}
+
+export function summarizeAgreementDelegationLedgerV1({ delegations } = {}) {
+  const summary = {
+    schemaVersion: "AgreementDelegationLedger.v1",
+    totalDelegations: 0,
+    activeCount: 0,
+    settledCount: 0,
+    revokedCount: 0,
+    terminalCount: 0,
+    unresolvedCount: 0,
+    countsByStatus: {
+      [AGREEMENT_DELEGATION_STATUS.ACTIVE]: 0,
+      [AGREEMENT_DELEGATION_STATUS.SETTLED]: 0,
+      [AGREEMENT_DELEGATION_STATUS.REVOKED]: 0
+    },
+    invariant: {
+      ok: true,
+      code: "AGREEMENT_DELEGATION_LEDGER_INVARIANT_OK",
+      message: "active+settled+revoked equals total"
+    }
+  };
+  for (const delegation of Array.isArray(delegations) ? delegations : []) {
+    if (!delegation || typeof delegation !== "object" || Array.isArray(delegation)) continue;
+    summary.totalDelegations += 1;
+    const status = String(delegation.status ?? "").trim().toLowerCase();
+    if (status === AGREEMENT_DELEGATION_STATUS.ACTIVE) {
+      summary.activeCount += 1;
+      summary.unresolvedCount += 1;
+      summary.countsByStatus[AGREEMENT_DELEGATION_STATUS.ACTIVE] += 1;
+    } else if (status === AGREEMENT_DELEGATION_STATUS.SETTLED) {
+      summary.settledCount += 1;
+      summary.terminalCount += 1;
+      summary.countsByStatus[AGREEMENT_DELEGATION_STATUS.SETTLED] += 1;
+    } else if (status === AGREEMENT_DELEGATION_STATUS.REVOKED) {
+      summary.revokedCount += 1;
+      summary.terminalCount += 1;
+      summary.countsByStatus[AGREEMENT_DELEGATION_STATUS.REVOKED] += 1;
+    } else {
+      summary.invariant = {
+        ok: false,
+        code: "AGREEMENT_DELEGATION_STATUS_UNKNOWN",
+        message: "delegation has unsupported status"
+      };
+    }
+  }
+  if (summary.totalDelegations !== summary.activeCount + summary.settledCount + summary.revokedCount) {
+    summary.invariant = {
+      ok: false,
+      code: "AGREEMENT_DELEGATION_LEDGER_IMBALANCED",
+      message: "active+settled+revoked must equal totalDelegations"
+    };
+  }
+  return normalizeForCanonicalJson(summary, { path: "$" });
+}
+
+function applyDelegationResolutionPlan({
+  delegations,
+  edges,
+  targetStatus,
+  resolvedAt = null,
+  metadata = null,
+  resultKind
+} = {}) {
+  const nextStatus = normalizeStatus(targetStatus, "targetStatus");
+  if (nextStatus === AGREEMENT_DELEGATION_STATUS.ACTIVE) {
+    throw new TypeError("targetStatus must be settled|revoked");
+  }
+  const byId = indexDelegationsById(delegations);
+  const updates = new Map();
+  const operations = [];
+  const at = resolvedAt ?? new Date().toISOString();
+  assertIsoDate(at, "resolvedAt");
+
+  for (const edge of Array.isArray(edges) ? edges : []) {
+    const delegationId = typeof edge?.delegationId === "string" ? edge.delegationId.trim() : "";
+    if (!delegationId) {
+      const err = new Error("delegationId is required on plan edge");
+      err.code = "AGREEMENT_DELEGATION_PLAN_EDGE_ID_REQUIRED";
+      throw err;
+    }
+    const current = updates.get(delegationId) ?? byId.get(delegationId) ?? null;
+    if (!current) {
+      const err = new Error("plan references unknown delegationId");
+      err.code = "AGREEMENT_DELEGATION_PLAN_EDGE_NOT_FOUND";
+      err.delegationId = delegationId;
+      throw err;
+    }
+    const currentStatus = String(current.status ?? "").trim().toLowerCase();
+    if (currentStatus !== AGREEMENT_DELEGATION_STATUS.ACTIVE && currentStatus !== nextStatus) {
+      const err = new Error("delegation already resolved with conflicting terminal status");
+      err.code = "AGREEMENT_DELEGATION_TERMINAL_CONFLICT";
+      err.delegationId = delegationId;
+      err.currentStatus = currentStatus;
+      err.targetStatus = nextStatus;
+      throw err;
+    }
+
+    if (currentStatus === nextStatus) {
+      operations.push({
+        delegationId,
+        result: "noop",
+        fromStatus: currentStatus,
+        toStatus: nextStatus
+      });
+      continue;
+    }
+
+    const nextDelegation = resolveAgreementDelegationV1({
+      delegation: current,
+      status: nextStatus,
+      resolvedAt: at,
+      metadata
+    });
+    updates.set(delegationId, nextDelegation);
+    operations.push({
+      delegationId,
+      result: "applied",
+      fromStatus: currentStatus,
+      toStatus: nextStatus
+    });
+  }
+
+  const nextDelegations = [];
+  for (const delegation of Array.isArray(delegations) ? delegations : []) {
+    if (!delegation || typeof delegation !== "object" || Array.isArray(delegation)) continue;
+    const delegationId = typeof delegation.delegationId === "string" ? delegation.delegationId.trim() : "";
+    if (!delegationId) continue;
+    nextDelegations.push(updates.get(delegationId) ?? delegation);
+  }
+
+  const applied = operations.filter((row) => row.result === "applied").length;
+  const noop = operations.filter((row) => row.result === "noop").length;
+  const ledger = summarizeAgreementDelegationLedgerV1({ delegations: nextDelegations });
+
+  return normalizeForCanonicalJson(
+    {
+      ok: true,
+      kind: resultKind,
+      targetStatus: nextStatus,
+      resolvedAt: at,
+      operations,
+      stats: {
+        attempted: operations.length,
+        applied,
+        noop
+      },
+      ledger,
+      delegations: nextDelegations
+    },
+    { path: "$" }
+  );
+}
+
 // Read-only: returns a deterministic "plan" for the caller to execute.
 export function cascadeSettlementCheck({ delegations, fromChildHash } = {}) {
   const start = normalizeHexHash(fromChildHash, "fromChildHash");
@@ -322,3 +491,59 @@ export function refundUnwindCheck({ delegations, fromParentHash } = {}) {
   );
 }
 
+export function cascadeSettlementExecute({ delegations, fromChildHash, resolvedAt = null, metadata = null } = {}) {
+  const plan = cascadeSettlementCheck({ delegations, fromChildHash });
+  const result = applyDelegationResolutionPlan({
+    delegations,
+    edges: plan.edges,
+    targetStatus: AGREEMENT_DELEGATION_STATUS.SETTLED,
+    resolvedAt,
+    metadata,
+    resultKind: "cascade_settlement_execute_v1"
+  });
+  return normalizeForCanonicalJson(
+    {
+      ...result,
+      plan
+    },
+    { path: "$" }
+  );
+}
+
+export function cascadeUnwindExecute({ delegations, fromChildHash, resolvedAt = null, metadata = null } = {}) {
+  const plan = cascadeSettlementCheck({ delegations, fromChildHash });
+  const result = applyDelegationResolutionPlan({
+    delegations,
+    edges: plan.edges,
+    targetStatus: AGREEMENT_DELEGATION_STATUS.REVOKED,
+    resolvedAt,
+    metadata,
+    resultKind: "cascade_unwind_execute_v1"
+  });
+  return normalizeForCanonicalJson(
+    {
+      ...result,
+      plan
+    },
+    { path: "$" }
+  );
+}
+
+export function refundUnwindExecute({ delegations, fromParentHash, resolvedAt = null, metadata = null } = {}) {
+  const plan = refundUnwindCheck({ delegations, fromParentHash });
+  const result = applyDelegationResolutionPlan({
+    delegations,
+    edges: plan.edges,
+    targetStatus: AGREEMENT_DELEGATION_STATUS.REVOKED,
+    resolvedAt,
+    metadata,
+    resultKind: "refund_unwind_execute_v1"
+  });
+  return normalizeForCanonicalJson(
+    {
+      ...result,
+      plan
+    },
+    { path: "$" }
+  );
+}

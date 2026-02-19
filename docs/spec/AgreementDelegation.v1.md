@@ -82,6 +82,23 @@ When those checks fail, implementations SHOULD return a stable `code` that is su
 - `AGREEMENT_DELEGATION_CYCLE` — A cycle was detected in the parent-chain for the bound agreement.
 - `AGREEMENT_DELEGATION_MULTIPLE_PARENTS` — Multiple parents were found for the same `childAgreementHash` (graph is not a function).
 
+## Deterministic execution plans (idempotent)
+
+Settld exposes deterministic traversal plans for execution:
+
+- `cascadeSettlementCheck(fromChildHash)` returns a bottom-up parent chain.
+- `refundUnwindCheck(fromParentHash)` returns a top-down child chain.
+
+Execution helpers apply those plans idempotently:
+
+- Release execution resolves traversed delegations to `status=settled`.
+- Unwind execution resolves traversed delegations to `status=revoked`.
+- Re-running the same execution against already-resolved delegations is a no-op.
+
+Implementations SHOULD reject conflicting terminal transitions (for example attempting `settled` on a delegation already `revoked`) and preserve a simple ledger invariant:
+
+- `active + settled + revoked == total`.
+
 ## Lifecycle semantics
 
 `AgreementDelegation.v1` is intended to be created as `status=active` and later resolved:
