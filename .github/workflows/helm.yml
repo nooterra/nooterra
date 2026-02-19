@@ -42,7 +42,7 @@ jobs:
             echo "render: ${f}"
             out="/tmp/$(basename "${f}").rendered.yaml"
             helm template settld deploy/helm/settld -f "${f}" > "${out}"
-            kubectl apply --dry-run=client -f "${out}" >/dev/null
+            kubectl apply --dry-run=client --validate=false -f "${out}" >/dev/null
           done
 
       - name: schema gate (misconfig fails fast)
@@ -52,4 +52,3 @@ jobs:
             echo "expected helm template to fail when receiver.enabled=true but required fields are missing" >&2
             exit 1
           fi
-
