@@ -8,6 +8,7 @@ function usage() {
   // eslint-disable-next-line no-console
   console.error("usage:");
   console.error("  settld --version");
+  console.error("  settld setup [--help]");
   console.error("  settld conformance test [--case <id>] [--bin settld-verify] [--node-bin <path/to/settld-verify.js>] [--keep-temp]");
   console.error("  settld conformance list");
   console.error("  settld conformance kernel --ops-token <tok_opsw> [--base-url http://127.0.0.1:3000] [--tenant-id tenant_default] [--protocol 1.0] [--case <id>]");
@@ -27,6 +28,11 @@ function usage() {
   console.error("  settld dev logs [--follow] [--service api]");
   console.error("  settld dev info");
   console.error("  settld init capability <name> [--out <dir>] [--force]");
+  console.error("");
+  console.error("onboarding:");
+  console.error("  settld setup");
+  console.error("  settld setup --help");
+  console.error("  settld dev up");
 }
 
 function repoRoot() {
@@ -96,6 +102,10 @@ function main() {
     // eslint-disable-next-line no-console
     console.log(readVersion() ?? "unknown");
     process.exit(0);
+  }
+
+  if (cmd === "setup") {
+    return runNodeScript("scripts/setup/wizard.mjs", argv.slice(1));
   }
 
   if (cmd === "conformance") {

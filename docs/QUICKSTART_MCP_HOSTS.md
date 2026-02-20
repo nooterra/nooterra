@@ -10,7 +10,25 @@ For core MCP flow details and paid-tool artifacts, see `docs/QUICKSTART_MCP.md`.
 - Settld API reachable (`http://127.0.0.1:3000` for local or your hosted API)
 - A tenant-scoped Settld API key (`keyId.secret` format)
 
-Export env once in your shell:
+## 1) Run Setup Wizard (Recommended)
+
+Use the first-class guided flow:
+
+```bash
+settld setup
+```
+
+This is the primary path for setting MCP env and host wiring.
+
+Sanity check after setup:
+
+```bash
+npm run mcp:probe
+```
+
+## 2) Canonical MCP Server Definition (Manual Fallback)
+
+If you skip `settld setup`, export env once in your shell:
 
 ```bash
 export SETTLD_BASE_URL='http://127.0.0.1:3000'
@@ -18,14 +36,6 @@ export SETTLD_TENANT_ID='tenant_default'
 export SETTLD_API_KEY='sk_live_xxx.yyy'
 export SETTLD_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402'
 ```
-
-Sanity check the server before wiring any host:
-
-```bash
-npm run mcp:probe
-```
-
-## 1) Canonical MCP Server Definition
 
 Most hosts that support MCP stdio need a command, args, and env.
 Use this as your default server config:
@@ -55,7 +65,7 @@ Then point the host at:
 - MCP endpoint: `http://127.0.0.1:8787/rpc`
 - Health endpoint: `http://127.0.0.1:8787/healthz`
 
-## 2) Claude
+## 3) Claude
 
 1. Open Claude MCP settings.
 2. Add a new MCP server using the canonical config above.
@@ -69,7 +79,7 @@ Expected behavior:
 - First paid call triggers x402 challenge/authorize/retry automatically in the MCP wrapper.
 - Tool result includes Settld verification/settlement headers.
 
-## 3) Cursor
+## 4) Cursor
 
 1. Open Cursor MCP settings.
 2. Add an MCP server using the same canonical stdio definition.
@@ -82,7 +92,7 @@ Expected behavior:
 
 - Paid tool returns response body plus `x-settld-*` headers captured by the tool bridge.
 
-## 4) Codex
+## 5) Codex
 
 1. Open Codex MCP/tooling configuration.
 2. Register Settld with the canonical stdio definition.
@@ -95,7 +105,7 @@ Expected behavior:
 
 - Paid call resolves through the same x402 autopay flow.
 
-## 5) OpenClaw
+## 6) OpenClaw
 
 For OpenClaw, package Settld as a skill that declares MCP setup instructions.
 Reference skill payload:
@@ -117,7 +127,7 @@ You can test locally first with:
 npm run mcp:probe -- --call settld.about '{}'
 ```
 
-## 6) 5-Minute Validation Checklist
+## 7) 5-Minute Validation Checklist
 
 0. (CI/local gate) run hosted-style smoke once:
 
@@ -133,7 +143,7 @@ npm run test:ci:mcp-host-smoke
    - `artifacts/mcp-paid-exa/.../summary.json`
    - `artifacts/mcp-paid-weather/.../summary.json`
 
-## 7) Troubleshooting
+## 8) Troubleshooting
 
 - `SETTLD_API_KEY must be a non-empty string`
   - API key not injected into MCP server env.
