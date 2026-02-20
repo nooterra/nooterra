@@ -1,13 +1,33 @@
 import PageFrame from "../components/PageFrame.jsx";
+import { docsLinks } from "../config/links.js";
 import { buttonClasses } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.jsx";
 
 const principles = [
-  "Autonomy requires layered primitives, not isolated features",
-  "Trust comes from deterministic evidence, not vendor claims",
-  "Policy and safety must be programmable and enforceable",
-  "Scale comes from standards, wrappers, and shared contracts"
+  "Autonomy requires layered primitives, not isolated features.",
+  "Trust comes from deterministic evidence, not vendor claims.",
+  "Policy and safety must be programmable and enforceable.",
+  "Scale comes from standards, wrappers, and shared contracts."
+];
+
+const roadmapTracks = [
+  {
+    title: "Shipping Now",
+    items: [
+      "Delegated authority + policy-bounded execution",
+      "Escalation routing + deterministic state transitions",
+      "Durable evidence + offline verification"
+    ]
+  },
+  {
+    title: "Next Buildout",
+    items: [
+      "Universal wrappers for API, MCP, and workflow surfaces",
+      "Capability and resolver primitives for orchestration",
+      "Lifecycle primitives for succession and risk transfer"
+    ]
+  }
 ];
 
 export default function CompanyPage() {
@@ -18,17 +38,17 @@ export default function CompanyPage() {
           <CardHeader>
             <Badge variant="accent" className="w-fit">Company</Badge>
             <CardTitle className="text-[clamp(2.1rem,5.3vw,3.8rem)] leading-[1] tracking-[-0.02em]">
-              We are building the primitive substrate for autonomous AI systems.
+              We are building the primitive substrate for autonomous systems.
             </CardTitle>
             <p className="max-w-4xl text-lg leading-relaxed text-[#354152]">
-              The next decade is not just AI spending money. It is AI agents coordinating identity, authority, work,
-              verification, and operations at scale. Settld is building that underlying primitive stack.
+              This is not only agent commerce. It is the full operational primitive layer for identity, authority,
+              execution, evidence, and operations in the autonomous era.
             </p>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-3">
-              <a className={buttonClasses({ size: "lg" })} href="/docs/ops">Operations docs</a>
-              <a className={buttonClasses({ variant: "outline", size: "lg" })} href="/docs">Docs</a>
+              <a className={buttonClasses({ size: "lg" })} href={docsLinks.ops}>Operations docs</a>
+              <a className={buttonClasses({ variant: "outline", size: "lg" })} href="/pilot">Request pilot</a>
             </div>
           </CardContent>
         </Card>
@@ -39,7 +59,26 @@ export default function CompanyPage() {
           {principles.map((principle) => (
             <Card key={principle}>
               <CardContent className="p-6">
-                <p className="text-base font-medium leading-relaxed text-[#354152]">{principle}</p>
+                <p className="text-base font-semibold leading-relaxed text-[#1f1f1f]">{principle}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      <section className="section-shell">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {roadmapTracks.map((track) => (
+            <Card key={track.title}>
+              <CardHeader>
+                <CardTitle className="text-2xl">{track.title}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="tight-list mt-0">
+                  {track.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
               </CardContent>
             </Card>
           ))}
@@ -48,3 +87,4 @@ export default function CompanyPage() {
     </PageFrame>
   );
 }
+

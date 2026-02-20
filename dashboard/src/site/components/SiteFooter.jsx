@@ -1,3 +1,5 @@
+import { docsLinks } from "../config/links.js";
+
 const footerLogoUrl =
   typeof import.meta !== "undefined" && import.meta.env?.VITE_BRAND_LOGO_URL
     ? String(import.meta.env.VITE_BRAND_LOGO_URL).trim()
@@ -18,7 +20,7 @@ export default function SiteFooter() {
       <div className="footer-links">
         <a href="/product">Product</a>
         <a href="/developers">Developers</a>
-        <a href="/docs">Docs</a>
+        <a href={docsLinks.home}>Docs</a>
         <a href="/security">Security</a>
         <a href="/company">Company</a>
       </div>

@@ -5,6 +5,7 @@ import PageFrame from "../components/PageFrame.jsx";
 import { auth0Enabled } from "../auth/auth0-config.js";
 import { fetchBuyerMe, logoutBuyerSession } from "../auth/client.js";
 import { clearSession, readSession, subscribeSession, writeSession } from "../auth/session.js";
+import { docsLinks } from "../config/links.js";
 import { Badge } from "../components/ui/badge.jsx";
 import { buttonClasses } from "../components/ui/button.jsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../components/ui/card.jsx";
@@ -18,7 +19,7 @@ const modules = [
   {
     title: "Protocol and Quickstart",
     copy: "Review production integration steps, API contracts, and rollout guidance.",
-    href: "/docs/quickstart"
+    href: docsLinks.quickstart
   },
   {
     title: "Policy and Wallet Controls",

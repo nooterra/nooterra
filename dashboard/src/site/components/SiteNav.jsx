@@ -5,11 +5,12 @@ import { auth0Enabled } from "../auth/auth0-config.js";
 import { fetchBuyerMe, logoutBuyerSession } from "../auth/client.js";
 import { clearSession, readSession, subscribeSession, writeSession } from "../auth/session.js";
 import { buttonClasses } from "./ui/button.jsx";
+import { docsLinks } from "../config/links.js";
 
 const links = [
   { href: "/product", label: "Product" },
   { href: "/developers", label: "Developers" },
-  { href: "/docs", label: "Docs" },
+  { href: docsLinks.home, label: "Docs" },
   { href: "/security", label: "Security" },
   { href: "/company", label: "Company" }
 ];
@@ -72,13 +73,13 @@ function Auth0NavActions() {
     );
   }
   return (
-    <>
-      <a className={buttonClasses({ variant: "outline" })} href="/pilot">Request pilot</a>
-      <a className={buttonClasses()} href="/docs/integrations">Start with MCP</a>
-      <button type="button" className={buttonClasses({ variant: "ghost", className: "px-2" })} onClick={() => loginWithRedirect()}>
-        Log in
-      </button>
-    </>
+      <>
+        <a className={buttonClasses({ variant: "outline" })} href="/pilot">Request pilot</a>
+        <a className={buttonClasses()} href={docsLinks.integrations}>Start with MCP</a>
+        <button type="button" className={buttonClasses({ variant: "ghost", className: "px-2" })} onClick={() => loginWithRedirect()}>
+          Log in
+        </button>
+      </>
   );
 }
 
@@ -144,7 +145,7 @@ function LegacyNavActions() {
       ) : (
         <>
           <a className={buttonClasses({ variant: "outline" })} href="/pilot">Request pilot</a>
-          <a className={buttonClasses()} href="/docs/integrations">Start with MCP</a>
+          <a className={buttonClasses()} href={docsLinks.integrations}>Start with MCP</a>
           <a className={buttonClasses({ variant: "ghost", className: "px-2" })} href="/login">Log in</a>
         </>
       )}

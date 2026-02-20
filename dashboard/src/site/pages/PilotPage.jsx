@@ -1,4 +1,5 @@
 import PageFrame from "../components/PageFrame.jsx";
+import { docsLinks } from "../config/links.js";
 import { buttonClasses } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.jsx";
@@ -39,7 +40,7 @@ export default function PilotPage() {
               >
                 Email pilot request
               </a>
-              <a className={buttonClasses({ variant: "outline", size: "lg" })} href="/docs/integrations">
+              <a className={buttonClasses({ variant: "outline", size: "lg" })} href={docsLinks.integrations}>
                 Start with MCP docs
               </a>
             </div>

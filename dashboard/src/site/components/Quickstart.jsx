@@ -1,3 +1,5 @@
+import { docsLinks } from "../config/links.js";
+
 const commands = [
   "npm run dev:api",
   "npx settld dev:sdk:key --print-only",
@@ -37,7 +39,7 @@ export default function Quickstart() {
             ))}
           </ul>
           <div className="hero-actions">
-            <a className="btn btn-solid" href="/docs/quickstart">
+            <a className="btn btn-solid" href={docsLinks.quickstart}>
               Open quickstart docs
             </a>
             <a className="btn btn-ghost" href="/operator">

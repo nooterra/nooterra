@@ -1,117 +1,159 @@
-import { useMemo, useState } from "react";
-
+import PageFrame from "../components/PageFrame.jsx";
+import { docsLinks } from "../config/links.js";
+import { buttonClasses } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.jsx";
-import { Input } from "../components/ui/input.jsx";
-import DocsShell from "./docs/DocsShell.jsx";
-import { docsEndpointGroups, docsSections } from "./docs/docsContent.js";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs.jsx";
 
-const rolePaths = [
+const docsPaths = [
   {
-    title: "I want to plug into an agent host",
-    copy: "Use MCP and host-specific integration guidance for Codex, Claude, Cursor, and OpenClaw.",
-    href: "/docs/integrations",
-    badge: "MCP"
+    title: "Quickstart",
+    summary: "Run first verified flow from authority to offline verification.",
+    href: docsLinks.quickstart,
+    badge: "Getting Started"
   },
   {
-    title: "I want to run the first verified flow",
-    copy: "Bring up runtime, execute first bounded action, and verify evidence offline.",
-    href: "/docs/quickstart",
-    badge: "Quickstart"
+    title: "Integrations",
+    summary: "MCP host patterns for Codex, Claude, Cursor, and OpenClaw.",
+    href: docsLinks.integrations,
+    badge: "Reference"
   },
   {
-    title: "I need security and operations controls",
-    copy: "Review trust boundaries, key rotation, incident modes, and production runbooks.",
-    href: "/docs/security",
-    badge: "Security"
+    title: "API Surface",
+    summary: "Authorization, verification, receipts, reversal, and lifecycle endpoints.",
+    href: docsLinks.api,
+    badge: "Reference"
+  },
+  {
+    title: "Security Model",
+    summary: "Cryptographic guarantees, replay defense, and trust boundaries.",
+    href: docsLinks.security,
+    badge: "Reference"
+  },
+  {
+    title: "Operations",
+    summary: "Production runbooks, key management, and incident procedures.",
+    href: docsLinks.ops,
+    badge: "Runbook"
+  },
+  {
+    title: "Control Plane Architecture",
+    summary: "Primitive layers and deterministic state-machine model.",
+    href: docsLinks.architecture,
+    badge: "Architecture"
   }
 ];
 
-function includesQuery(row, query) {
-  const haystack = [row.title, row.summary, ...(Array.isArray(row.tags) ? row.tags : [])].join(" ").toLowerCase();
-  return haystack.includes(query);
+const roleTracks = {
+  founder: {
+    title: "Founder / Product Lead",
+    copy: "Understand what ships now, what’s next, and how to scope a production pilot.",
+    links: [docsLinks.quickstart, docsLinks.roadmap, docsLinks.faq]
+  },
+  engineer: {
+    title: "Engineer",
+    copy: "Integrate quickly, then harden with deterministic verification and control loops.",
+    links: [docsLinks.integrations, docsLinks.api, docsLinks.architecture]
+  },
+  security: {
+    title: "Security / Compliance",
+    copy: "Review trust boundaries, controls, and incident runbooks before cutover.",
+    links: [docsLinks.security, docsLinks.ops, docsLinks.incidents]
+  }
+};
+
+function formatLink(link) {
+  if (link.includes("/quickstart/")) return "Open Quickstart";
+  if (link.includes("/integrations/")) return "Open Integrations";
+  if (link.includes("/api-surface/")) return "Open API Surface";
+  if (link.includes("/control-plane/")) return "Open Architecture";
+  if (link.includes("/security-model/")) return "Open Security Model";
+  if (link.includes("/operations/")) return "Open Operations";
+  if (link.includes("/incidents/")) return "Open Incident Runbook";
+  if (link.includes("/roadmap/")) return "Open Roadmap";
+  if (link.includes("/faq/")) return "Open FAQ";
+  return "Open Doc";
 }
 
 export default function DocsPage() {
-  const [query, setQuery] = useState("");
-
-  const q = String(query ?? "").trim().toLowerCase();
-  const sectionRows = useMemo(() => {
-    if (!q) return docsSections;
-    return docsSections.filter((row) => includesQuery(row, q));
-  }, [q]);
-
-  const endpointRows = useMemo(() => {
-    const all = docsEndpointGroups.flatMap((group) =>
-      group.rows.map((row) => ({ ...row, groupTitle: group.title }))
-    );
-    if (!q) return all;
-    return all.filter((row) => `${row.method} ${row.path} ${row.purpose} ${row.groupTitle}`.toLowerCase().includes(q));
-  }, [q]);
-
   return (
-    <DocsShell
-      title="Documentation that gets teams to production."
-      subtitle="Pick a path, run the integration, and harden controls with deterministic verification."
-    >
-      <article className="docs-section-card">
-        <h2>Start by Goal</h2>
-        <p>Choose the exact path you need instead of reading docs linearly.</p>
+    <PageFrame>
+      <section className="section-shell">
+        <Card className="bg-gradient-to-br from-[rgba(255,253,248,0.96)] to-[rgba(248,241,230,0.92)]">
+          <CardHeader>
+            <Badge variant="accent" className="w-fit">Docs</Badge>
+            <CardTitle className="text-[clamp(2.1rem,5.2vw,3.7rem)] leading-[1] tracking-[-0.02em]">
+              Production docs for autonomous systems teams.
+            </CardTitle>
+            <p className="max-w-4xl text-lg leading-relaxed text-[#354152]">
+              Settld docs are hosted on MkDocs. Use this page as your routing layer by role, then jump directly into the right section.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-3">
+              <a className={buttonClasses({ size: "lg" })} href={docsLinks.home}>Open full docs</a>
+              <a className={buttonClasses({ variant: "outline", size: "lg" })} href={docsLinks.integrations}>Start with MCP</a>
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="section-shell">
+        <Card>
+          <CardHeader>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#7f2f1f]">Start by Role</p>
+            <CardTitle className="text-[clamp(1.7rem,3.8vw,2.6rem)] leading-tight tracking-[-0.02em]">
+              Find your path in one click.
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="engineer" className="w-full">
+              <TabsList>
+                <TabsTrigger value="founder">Founder</TabsTrigger>
+                <TabsTrigger value="engineer">Engineer</TabsTrigger>
+                <TabsTrigger value="security">Security</TabsTrigger>
+              </TabsList>
+              {Object.entries(roleTracks).map(([key, track]) => (
+                <TabsContent key={key} value={key}>
+                  <Card className="border-[#e1d8c8] bg-[rgba(255,255,255,0.74)] shadow-none">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-2xl">{track.title}</CardTitle>
+                      <p className="text-base text-[#354152]">{track.copy}</p>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-3">
+                        {track.links.map((link) => (
+                          <a key={link} className={buttonClasses({ variant: "outline", size: "sm" })} href={link}>
+                            {formatLink(link)}
+                          </a>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              ))}
+            </Tabs>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="section-shell">
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {rolePaths.map((path) => (
+          {docsPaths.map((path) => (
             <Card key={path.title}>
               <CardHeader>
                 <Badge variant="accent" className="w-fit">{path.badge}</Badge>
-                <CardTitle className="text-xl leading-snug">{path.title}</CardTitle>
+                <CardTitle className="text-2xl">{path.title}</CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm leading-relaxed text-[#354152]">{path.copy}</p>
+                <p className="text-sm leading-relaxed text-[#354152]">{path.summary}</p>
                 <a className="mt-4 inline-block font-semibold text-[#7f2f1f]" href={path.href}>Open path</a>
               </CardContent>
             </Card>
           ))}
         </div>
-      </article>
-
-      <article className="docs-section-card">
-        <h2>Docs Search</h2>
-        <p>Search guides, endpoint surfaces, and runbook content.</p>
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search docs, endpoints, commands..."
-          className="docs-search-input"
-        />
-      </article>
-
-      <article className="docs-section-card">
-        <h2>Guides</h2>
-        <p>Structured references across architecture, integrations, API, security, and operations.</p>
-        <div className="docs-card-grid">
-          {sectionRows.map((section) => (
-            <a key={section.slug} href={section.href} className="docs-ref-card">
-              <strong>{section.title}</strong>
-              <span>{section.summary}</span>
-            </a>
-          ))}
-          {!sectionRows.length ? <p className="operator-muted">No guide matches that query.</p> : null}
-        </div>
-      </article>
-
-      <article className="docs-section-card">
-        <h2>Endpoint Index</h2>
-        <p>High-signal API surface used by production workflows.</p>
-        <div className="docs-endpoint-grid">
-          {endpointRows.map((row) => (
-            <div key={`${row.method}-${row.path}`} className="docs-endpoint-row">
-              <code className="docs-method">{row.method}</code>
-              <code className="docs-path">{row.path}</code>
-              <span>{row.purpose}</span>
-            </div>
-          ))}
-          {!endpointRows.length ? <p className="operator-muted">No endpoint matches that query.</p> : null}
-        </div>
-      </article>
-    </DocsShell>
+      </section>
+    </PageFrame>
   );
 }
+

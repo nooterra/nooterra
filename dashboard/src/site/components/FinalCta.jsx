@@ -1,5 +1,6 @@
 import { buttonClasses } from "./ui/button.jsx";
 import { Card } from "./ui/card.jsx";
+import { docsLinks } from "../config/links.js";
 
 export default function FinalCta() {
   return (
@@ -14,7 +15,7 @@ export default function FinalCta() {
           primitive stack.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
-          <a className={buttonClasses({ className: "bg-[#f7f2ea] text-[#1f1f1f] hover:bg-white" })} href="/docs/integrations">
+          <a className={buttonClasses({ className: "bg-[#f7f2ea] text-[#1f1f1f] hover:bg-white" })} href={docsLinks.integrations}>
             Start with MCP
           </a>
           <a

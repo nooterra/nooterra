@@ -1,45 +1,87 @@
-import { Card } from "./ui/card.jsx";
+import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.jsx";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs.jsx";
 
-const pillars = [
-  {
-    title: "Don't trust. Verify.",
-    copy: "Hallucinations are expensive. Settld holds funds until provider agents prove the work happened with cryptographic verification."
+const primitiveDetail = {
+  identity: {
+    title: "Identity + Delegation",
+    copy: "Bounded authority for sponsors, agents, and operators with explicit lineage and revocation.",
+    bullets: [
+      "Delegation lineage checks before execution",
+      "Policy scopes and capability allowlists",
+      "Lifecycle-aware expiry and revocation"
+    ]
   },
-  {
-    title: "Total autonomy. Total control.",
-    copy: "When an agent hits policy boundaries, execution pauses and a secure signed override flow routes to the human principal."
+  execution: {
+    title: "Execution + Escalation",
+    copy: "Deterministic command flow with policy gates and signed human overrides when needed.",
+    bullets: [
+      "Quote -> authorize -> execute -> verify",
+      "Suspend/resume state for blocked actions",
+      "One-time cryptographic override tokens"
+    ]
   },
-  {
-    title: "Graceful exits. Built in.",
-    copy: "When delegations expire or balances drain, Settld freezes state, unwinds liabilities, and archives agents deterministically."
+  economics: {
+    title: "Economics + Unwind",
+    copy: "Bounded spend and deterministic unwind logic when agents become invalid or insolvent.",
+    bullets: [
+      "Replay-safe bounded authorizations",
+      "Automatic freeze and pending state unwind",
+      "Reversal dispatch with retry and dead-letter safety"
+    ]
   },
-  {
-    title: "Truth in a zip file.",
-    copy: "Export full transaction lineage and verify signatures, escrows, and proofs offline without depending on Settld runtime."
+  evidence: {
+    title: "Evidence + Verification",
+    copy: "Portable proof artifacts for audit, dispute resolution, and offline independent verification.",
+    bullets: [
+      "Immutable receipts + append-only timeline",
+      "Closepack export with offline verifier path",
+      "Proof-gated settlement for digital labor"
+    ]
   }
-];
+};
 
 export default function KernelNow() {
   return (
     <section id="platform" className="section-shell">
-      <div className="mb-6 max-w-4xl">
-        <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7f2f1f]">Core Capabilities</p>
-        <h2 className="text-[clamp(1.9rem,4.4vw,3.2rem)] font-bold leading-tight tracking-[-0.02em] text-[#1b2430]">
-          Freedom for agents. Trust for operators.
-        </h2>
-        <p className="mt-4 text-lg leading-relaxed text-[#354152]">
-          The primitives required for real-world autonomous systems, from proof-driven execution to deterministic
-          escalation and lifecycle controls.
-        </p>
-      </div>
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {pillars.map((pillar) => (
-          <Card key={pillar.title}>
-            <h3 className="text-2xl font-bold leading-tight tracking-[-0.01em] text-[#1b2430]">{pillar.title}</h3>
-            <p className="mt-3 text-base leading-relaxed text-[#354152]">{pillar.copy}</p>
-          </Card>
-        ))}
-      </div>
+      <Card>
+        <CardHeader>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#7f2f1f]">Core Capabilities</p>
+          <CardTitle className="text-[clamp(1.9rem,4.4vw,3.2rem)] leading-tight tracking-[-0.02em]">
+            Freedom for agents. Trust for operators.
+          </CardTitle>
+          <p className="text-lg leading-relaxed text-[#354152]">
+            The primitives required for real-world autonomous systems, delivered as one deterministic control plane.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue="identity" className="w-full">
+            <TabsList>
+              <TabsTrigger value="identity">Identity</TabsTrigger>
+              <TabsTrigger value="execution">Execution</TabsTrigger>
+              <TabsTrigger value="economics">Economics</TabsTrigger>
+              <TabsTrigger value="evidence">Evidence</TabsTrigger>
+            </TabsList>
+            {Object.entries(primitiveDetail).map(([key, section]) => (
+              <TabsContent key={key} value={key}>
+                <Card className="border-[#e1d8c8] bg-[rgba(255,255,255,0.74)] shadow-none">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-2xl">{section.title}</CardTitle>
+                    <p className="text-base text-[#354152]">{section.copy}</p>
+                  </CardHeader>
+                  <CardContent>
+                    <ul className="tight-list mt-0">
+                      {section.bullets.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            ))}
+          </Tabs>
+        </CardContent>
+      </Card>
     </section>
   );
 }
+

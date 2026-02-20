@@ -1,3 +1,5 @@
+import { docsLinks } from "../config/links.js";
+
 const timeline = [
   "[00:00] start local stack + mint ops token",
   "[00:18] run kernel conformance pack",
@@ -22,7 +24,7 @@ export default function DemoRecording() {
           ))}
         </div>
         <div className="hero-actions">
-          <a className="btn btn-solid" href="/docs/quickstart">
+          <a className="btn btn-solid" href={docsLinks.quickstart}>
             Open quickstart docs
           </a>
           <a className="btn btn-ghost" href="#quickstart">
