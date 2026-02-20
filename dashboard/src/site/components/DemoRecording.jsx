@@ -22,8 +22,8 @@ export default function DemoRecording() {
           ))}
         </div>
         <div className="hero-actions">
-          <a className="btn btn-solid" href="/demo">
-            Open interactive demo
+          <a className="btn btn-solid" href="/docs/quickstart">
+            Open quickstart docs
           </a>
           <a className="btn btn-ghost" href="#quickstart">
             Reproduce commands

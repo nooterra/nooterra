@@ -1,4 +1,3 @@
-import DemoApp from "./DemoApp.jsx";
 import SiteShell from "./site/SiteShell.jsx";
 import PricingPage from "./site/PricingPage.jsx";
 import OperatorDashboard from "./operator/OperatorDashboard.jsx";
@@ -34,14 +33,12 @@ function getRouteMode() {
   if (path === "/login") return "login";
   if (path === "/signup") return "signup";
   if (path === "/app") return "app";
-  if (url.searchParams.get("demo") === "1" || url.hash === "#demo" || path === "/demo") return "demo";
   return "home";
 }
 
 export default function App() {
   const mode = getRouteMode();
   if (mode === "operator") return <OperatorDashboard />;
-  if (mode === "demo") return <DemoApp />;
   if (mode === "pricing") return <PricingPage />;
   if (mode === "product") return <ProductPage />;
   if (mode === "developers") return <DevelopersPage />;

@@ -1,27 +1,13 @@
-const statements = [
-  "Policy-bound autonomy for every agent action.",
-  "Cryptographic evidence that survives disputes and audits.",
-  "One control plane across identity, execution, and operations."
-];
-
 export default function Hero() {
   return (
     <section className="section-shell hero" id="hero">
       <div className="hero-copy">
-        <p className="eyebrow">Infrastructure for the Agent Era</p>
-        <h1>Run autonomous agents in production without giving up control.</h1>
+        <p className="eyebrow">Built for the Agent Economy</p>
+        <h1>When Agents Run the Work, Settld Runs the Rules.</h1>
         <p className="hero-sub">
-          Settld is the foundational primitive stack for agent systems: delegated authority, policy enforcement,
-          execution controls, durable evidence, and operator escalation in one deterministic platform.
+          The production control plane for autonomous systems: identity, policy, execution, evidence, and operations with
+          deterministic guarantees.
         </p>
-
-        <div className="statement-grid">
-          {statements.map((line) => (
-            <article className="statement-card" key={line}>
-              <p>{line}</p>
-            </article>
-          ))}
-        </div>
 
         <div className="hero-actions">
           <a className="btn btn-solid" href="/signup">

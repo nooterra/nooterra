@@ -46,12 +46,7 @@ function SiteNavShell({ children }) {
             </li>
           ))}
         </ul>
-        <div className="site-nav-cta">
-          <a className="btn btn-ghost" href="/demo">
-            Interactive demo
-          </a>
-          {children}
-        </div>
+        <div className="site-nav-cta">{children}</div>
       </nav>
     </header>
   );

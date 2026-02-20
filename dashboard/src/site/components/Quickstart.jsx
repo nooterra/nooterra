@@ -37,8 +37,8 @@ export default function Quickstart() {
             ))}
           </ul>
           <div className="hero-actions">
-            <a className="btn btn-solid" href="/demo">
-              Open live demo
+            <a className="btn btn-solid" href="/docs/quickstart">
+              Open quickstart docs
             </a>
             <a className="btn btn-ghost" href="/operator">
               Open operator inbox

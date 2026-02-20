@@ -1,7 +1,7 @@
 const items = [
-  "Identity, delegation, and policy primitives for autonomous agents",
-  "Execution, escalation, and coordination controls with replay safety",
-  "Evidence, verification, and runbooks for compliance-grade operations"
+  "Govern autonomous agents with hard policy boundaries.",
+  "Settle execution with cryptographic proof, not trust.",
+  "Operate at scale with replayable evidence and deterministic workflows."
 ];
 
 export default function SocialProofStrip() {

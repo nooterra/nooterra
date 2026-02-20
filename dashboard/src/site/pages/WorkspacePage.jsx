@@ -13,9 +13,9 @@ const modules = [
     href: "/operator"
   },
   {
-    title: "Live Runtime Demo",
-    copy: "Replay deterministic settlement flows, artifacts, and dispute outcomes.",
-    href: "/demo"
+    title: "Protocol and Quickstart",
+    copy: "Review production integration steps, API contracts, and rollout guidance.",
+    href: "/docs/quickstart"
   },
   {
     title: "Policy and Wallet Controls",
