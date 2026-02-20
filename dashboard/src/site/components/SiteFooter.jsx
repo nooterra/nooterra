@@ -22,6 +22,7 @@ export default function SiteFooter() {
         <a href="/developers">Developers</a>
         <a href={docsLinks.home}>Docs</a>
         <a href="/security">Security</a>
+        <a href="/proof">Proof</a>
         <a href="/company">Company</a>
       </div>
     </footer>

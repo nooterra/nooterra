@@ -12,6 +12,7 @@ const links = [
   { href: "/developers", label: "Developers" },
   { href: docsLinks.home, label: "Docs" },
   { href: "/security", label: "Security" },
+  { href: "/proof", label: "Proof" },
   { href: "/company", label: "Company" }
 ];
 

@@ -5,6 +5,7 @@ import OperatorDashboard from "./operator/OperatorDashboard.jsx";
 import ProductPage from "./site/pages/ProductPage.jsx";
 import DevelopersPage from "./site/pages/DevelopersPage.jsx";
 import SecurityPage from "./site/pages/SecurityPage.jsx";
+import ProofPage from "./site/pages/ProofPage.jsx";
 import CompanyPage from "./site/pages/CompanyPage.jsx";
 import PilotPage from "./site/pages/PilotPage.jsx";
 import DocsPage from "./site/pages/DocsPage.jsx";
@@ -38,6 +39,7 @@ function getRouteMode() {
   if (path === "/docs/security") return "docs_security";
   if (path === "/docs/ops") return "docs_ops";
   if (path === "/security") return "security";
+  if (path === "/proof") return "proof";
   if (path === "/company") return "company";
   if (path === "/pilot") return "pilot";
   if (path === "/login") return "login";
@@ -59,6 +61,7 @@ export default function App() {
   if (mode === "docs_security") return <ExternalRedirect href={docsLinks.security} />;
   if (mode === "docs_ops") return <ExternalRedirect href={docsLinks.ops} />;
   if (mode === "security") return <SecurityPage />;
+  if (mode === "proof") return <ProofPage />;
   if (mode === "company") return <CompanyPage />;
   if (mode === "pilot") return <PilotPage />;
   if (mode === "login") return <AuthPage mode="login" />;

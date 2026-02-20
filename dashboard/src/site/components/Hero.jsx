@@ -31,6 +31,9 @@ export default function Hero() {
           <a className={buttonClasses({ variant: "outline", size: "lg" })} href="/pilot">
             Request pilot
           </a>
+          <a className={buttonClasses({ variant: "ghost", size: "lg" })} href="/proof">
+            See proof
+          </a>
         </div>
       </div>
     </section>
