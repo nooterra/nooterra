@@ -38,27 +38,28 @@ jobs:
             const requiredJobName = "kernel_v0_ship_gate";
 
             const runs = await github.paginate(
-              github.rest.actions.listWorkflowRuns,
+              github.rest.actions.listWorkflowRunsForRepo,
               {
                 owner,
                 repo,
-                workflow_id: "tests.yml",
-                head_sha: sha,
                 branch: "main",
                 event: "push",
                 status: "completed",
                 per_page: 100
               }
             );
+            const testsRuns = runs.filter(
+              (run) => run.path === ".github/workflows/tests.yml" && run.head_sha === sha
+            );
 
-            if (!runs.length) {
+            if (!testsRuns.length) {
               core.setFailed(
                 `No completed tests.yml push run on main found for commit ${sha}. Release is blocked until main ship gate runs.`
               );
               return;
             }
 
-            const passingRun = runs.find((run) => run.conclusion === "success");
+            const passingRun = testsRuns.find((run) => run.conclusion === "success");
             if (!passingRun) {
               core.setFailed(
                 `Found tests.yml run(s) for ${sha}, but none concluded success. Release is blocked.`
