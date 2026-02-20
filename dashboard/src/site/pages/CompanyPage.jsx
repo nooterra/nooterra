@@ -19,7 +19,7 @@ export default function CompanyPage() {
         </p>
         <div className="hero-actions">
           <a className="btn btn-solid" href="/docs/ops">Operations docs</a>
-          <a className="btn btn-ghost" href="/pricing">Pricing</a>
+          <a className="btn btn-ghost" href="/docs">Docs</a>
         </div>
       </section>
 

@@ -3,8 +3,12 @@ import DocsShell from "./DocsShell.jsx";
 const surfaces = [
   {
     title: "MCP Surface",
-    copy: "Expose Settld primitives as MCP tools so agent hosts can call quote, authorize, verify, and receipt workflows directly.",
-    commands: ["npx settld init capability my-capability", "scripts/mcp/settld-mcp-server.mjs"]
+    copy: "Expose Settld primitives as MCP tools so agent hosts call quote, authorize, verify, escalation, and receipt flows directly.",
+    commands: [
+      "npx settld init capability my-capability",
+      "scripts/mcp/settld-mcp-server.mjs",
+      "npx settld mcp probe"
+    ]
   },
   {
     title: "SDK Surface",
@@ -31,6 +35,13 @@ const rollout = [
   "Introduce lifecycle automation (insolvency sweep + unwind + reversal) before scale-up."
 ];
 
+const hostProfiles = [
+  "Codex Agent: connect Settld MCP server and call tools in agent workflows.",
+  "Claude Code/Desktop: register Settld MCP endpoint and route paid tool calls through policy gates.",
+  "Cursor: connect the same MCP server for shared integration behavior.",
+  "OpenClaw/ClawHub: ship a skill wrapper that installs/configures the Settld MCP runtime."
+];
+
 export default function DocsIntegrationsPage() {
   return (
     <DocsShell
@@ -53,6 +64,15 @@ export default function DocsIntegrationsPage() {
         <h2>Production Rollout Sequence</h2>
         <ul className="tight-list">
           {rollout.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </article>
+
+      <article className="docs-section-card">
+        <h2>Agent Host Profiles</h2>
+        <ul className="tight-list">
+          {hostProfiles.map((item) => (
             <li key={item}>{item}</li>
           ))}
         </ul>

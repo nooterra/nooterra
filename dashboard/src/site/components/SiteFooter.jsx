@@ -20,7 +20,6 @@ export default function SiteFooter() {
         <a href="/developers">Developers</a>
         <a href="/docs">Docs</a>
         <a href="/security">Security</a>
-        <a href="/pricing">Access</a>
         <a href="/company">Company</a>
       </div>
     </footer>

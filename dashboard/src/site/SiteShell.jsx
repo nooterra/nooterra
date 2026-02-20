@@ -2,7 +2,6 @@ import SiteNav from "./components/SiteNav.jsx";
 import Hero from "./components/Hero.jsx";
 import SocialProofStrip from "./components/SocialProofStrip.jsx";
 import KernelNow from "./components/KernelNow.jsx";
-import PricingStrip from "./components/PricingStrip.jsx";
 import Vision from "./components/Vision.jsx";
 import FinalCta from "./components/FinalCta.jsx";
 import SiteFooter from "./components/SiteFooter.jsx";
@@ -18,7 +17,6 @@ export default function SiteShell() {
         <Hero />
         <SocialProofStrip />
         <KernelNow />
-        <PricingStrip />
         <Vision />
         <FinalCta />
       </main>

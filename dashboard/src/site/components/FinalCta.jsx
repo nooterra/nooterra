@@ -2,10 +2,11 @@ export default function FinalCta() {
   return (
     <section className="section-shell">
       <div className="section-highlight cta-banner">
-        <p className="eyebrow">Ready to Launch</p>
-        <h2>Build autonomous systems on primitives you can actually trust.</h2>
+        <p className="eyebrow">Footer Call to Action</p>
+        <h2>Uncompromising infrastructure. Unmetered access.</h2>
         <p className="cta-copy">
-          Start free, ship fast, and harden across identity, policy, execution, evidence, and operations as you scale.
+          We are focused on systemic hardening, not basis points. Build on Settld now, free while we complete the full
+          primitive stack.
         </p>
         <div className="hero-actions">
           <a className="btn btn-solid" href="/signup">

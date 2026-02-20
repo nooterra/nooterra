@@ -1,5 +1,4 @@
 import SiteShell from "./site/SiteShell.jsx";
-import PricingPage from "./site/PricingPage.jsx";
 import OperatorDashboard from "./operator/OperatorDashboard.jsx";
 import ProductPage from "./site/pages/ProductPage.jsx";
 import DevelopersPage from "./site/pages/DevelopersPage.jsx";
@@ -22,7 +21,6 @@ function getRouteMode() {
   const url = new URL(window.location.href);
 
   if (path === "/operator" || url.searchParams.get("operator") === "1") return "operator";
-  if (path === "/pricing") return "pricing";
   if (path === "/product") return "product";
   if (path === "/developers") return "developers";
   if (path === "/docs") return "docs";
@@ -43,7 +41,6 @@ function getRouteMode() {
 export default function App() {
   const mode = getRouteMode();
   if (mode === "operator") return <OperatorDashboard />;
-  if (mode === "pricing") return <PricingPage />;
   if (mode === "product") return <ProductPage />;
   if (mode === "developers") return <DevelopersPage />;
   if (mode === "docs") return <DocsPage />;

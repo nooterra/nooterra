@@ -1,19 +1,19 @@
 const pillars = [
   {
-    title: "Identity and Authority",
-    copy: "Agent, sponsor, and operator identities are explicit, signed, and policy-constrained."
+    title: "Don't trust. Verify.",
+    copy: "Hallucinations are expensive. Settld holds funds until provider agents prove the work happened with cryptographic verification."
   },
   {
-    title: "Execution and Coordination",
-    copy: "Command flows, escalation paths, and state transitions are deterministic and replay-protected."
+    title: "Total autonomy. Total control.",
+    copy: "When an agent hits policy boundaries, execution pauses and a secure signed override flow routes to the human principal."
   },
   {
-    title: "Economics and Settlement",
-    copy: "Spend authorization, reversals, disputes, and reconciliation remain bounded and auditable."
+    title: "Graceful exits. Built in.",
+    copy: "When delegations expire or balances drain, Settld freezes state, unwinds liabilities, and archives agents deterministically."
   },
   {
-    title: "Evidence and Verification",
-    copy: "Receipts, timelines, and closepacks are immutable, portable, and independently verifiable."
+    title: "Truth in a zip file.",
+    copy: "Export full transaction lineage and verify signatures, escrows, and proofs offline without depending on Settld runtime."
   }
 ];
 
@@ -21,13 +21,14 @@ export default function KernelNow() {
   return (
     <section id="platform" className="section-shell">
       <div className="section-heading">
-        <p className="eyebrow">Platform</p>
-        <h2>A full primitive layer for autonomous systems.</h2>
+        <p className="eyebrow">Core Capabilities</p>
+        <h2>Freedom for agents. Trust for operators.</h2>
         <p>
-          Settld unifies identity, authority, execution, settlement, and verification primitives into one coherent control plane.
+          The primitives required for real-world autonomous systems, from proof-driven execution to deterministic
+          escalation and lifecycle controls.
         </p>
       </div>
-      <div className="pillar-grid">
+      <div className="future-grid">
         {pillars.map((pillar) => (
           <article key={pillar.title} className="pillar-card">
             <h3>{pillar.title}</h3>

@@ -10,7 +10,6 @@ const links = [
   { href: "/developers", label: "Developers" },
   { href: "/docs", label: "Docs" },
   { href: "/security", label: "Security" },
-  { href: "/pricing", label: "Access" },
   { href: "/company", label: "Company" }
 ];
 
@@ -81,7 +80,7 @@ function Auth0NavActions() {
         className="btn btn-solid"
         onClick={() => loginWithRedirect({ authorizationParams: { screen_hint: "signup" } })}
       >
-        Start free
+        Get started
       </button>
     </>
   );
@@ -152,7 +151,7 @@ function LegacyNavActions() {
             Sign in
           </a>
           <a className="btn btn-solid" href="/signup">
-            Start free
+            Get started
           </a>
         </>
       )}
