@@ -6,6 +6,7 @@ import ProductPage from "./site/pages/ProductPage.jsx";
 import DevelopersPage from "./site/pages/DevelopersPage.jsx";
 import SecurityPage from "./site/pages/SecurityPage.jsx";
 import CompanyPage from "./site/pages/CompanyPage.jsx";
+import DocsPage from "./site/pages/DocsPage.jsx";
 import AuthPage from "./site/pages/AuthPage.jsx";
 import WorkspacePage from "./site/pages/WorkspacePage.jsx";
 
@@ -19,6 +20,7 @@ function getRouteMode() {
   if (path === "/pricing") return "pricing";
   if (path === "/product") return "product";
   if (path === "/developers") return "developers";
+  if (path === "/docs") return "docs";
   if (path === "/security") return "security";
   if (path === "/company") return "company";
   if (path === "/login") return "login";
@@ -35,6 +37,7 @@ export default function App() {
   if (mode === "pricing") return <PricingPage />;
   if (mode === "product") return <ProductPage />;
   if (mode === "developers") return <DevelopersPage />;
+  if (mode === "docs") return <DocsPage />;
   if (mode === "security") return <SecurityPage />;
   if (mode === "company") return <CompanyPage />;
   if (mode === "login") return <AuthPage mode="login" />;

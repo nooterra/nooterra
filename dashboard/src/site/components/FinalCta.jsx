@@ -11,8 +11,8 @@ export default function FinalCta() {
           <a className="btn btn-solid" href="/signup">
             Create workspace
           </a>
-          <a className="btn btn-ghost" href="/product">
-            Explore product
+          <a className="btn btn-ghost" href="/docs">
+            Open docs
           </a>
         </div>
       </div>

@@ -10,6 +10,7 @@ export default function SiteFooter() {
       <div className="footer-links">
         <a href="/product">Product</a>
         <a href="/developers">Developers</a>
+        <a href="/docs">Docs</a>
         <a href="/security">Security</a>
         <a href="/pricing">Pricing</a>
         <a href="/company">Company</a>

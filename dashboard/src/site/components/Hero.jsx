@@ -33,8 +33,8 @@ export default function Hero() {
           <a className="btn btn-solid" href="/signup">
             Launch your workspace
           </a>
-          <a className="btn btn-ghost" href="/product">
-            Explore product
+          <a className="btn btn-ghost" href="/docs">
+            Read docs
           </a>
         </div>
       </div>

@@ -8,6 +8,7 @@ import { clearSession, readSession, subscribeSession, writeSession } from "../au
 const links = [
   { href: "/product", label: "Product" },
   { href: "/developers", label: "Developers" },
+  { href: "/docs", label: "Docs" },
   { href: "/security", label: "Security" },
   { href: "/pricing", label: "Pricing" },
   { href: "/company", label: "Company" }
