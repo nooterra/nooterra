@@ -15,6 +15,12 @@ function usage() {
   console.error("  settld closepack export --agreement-hash <sha256> --out <path.zip> [--ops-token tok_ops] [--base-url http://127.0.0.1:3000] [--tenant-id tenant_default] [--protocol 1.0]");
   console.error("  settld closepack verify <path.zip> [--json-out <path.json>]");
   console.error("  settld x402 receipt verify <receipt.json|-> [--strict] [--format json|text] [--json-out <path>]");
+  console.error("  settld profile list [--format json|text] [--json-out <path>]");
+  console.error("  settld profile init <profile-id> [--out <path>] [--force] [--format json|text] [--json-out <path>]");
+  console.error("  settld profile validate <profile.json|-> [--format json|text] [--json-out <path>]");
+  console.error(
+    "  settld profile simulate <profile.json|-> [--scenario <scenario.json|->|--scenario-json <json>] [--format json|text] [--json-out <path>]"
+  );
   console.error("  settld dev up [--no-build] [--foreground]");
   console.error("  settld dev down [--wipe]");
   console.error("  settld dev ps");
@@ -214,6 +220,10 @@ function main() {
     // eslint-disable-next-line no-console
     console.error(`unknown x402 subcommand: ${sub}${sub2 ? ` ${sub2}` : ""}`);
     process.exit(1);
+  }
+
+  if (cmd === "profile") {
+    return runNodeScript("scripts/profile/cli.mjs", argv.slice(1));
   }
 
   usage();
