@@ -1,29 +1,15 @@
-const proofStats = [
-  {
-    value: "30",
-    label: "conformance cases",
-    detail: "Portable verifier oracle in v1 pack"
-  },
-  {
-    value: "3",
-    label: "active lighthouse accounts",
-    detail: "Paid-production or production-active tracker status"
-  },
-  {
-    value: "2/2",
-    label: "go-live checks passing",
-    detail: "Latest gate report dated Feb 9, 2026"
-  }
+const items = [
+  "Built for API tools, MCP tools, and paid data providers",
+  "Works with delegated sponsor wallets and policy caps",
+  "Designed for finance, risk, and compliance review"
 ];
 
 export default function SocialProofStrip() {
   return (
-    <section className="section-shell proof-metrics" aria-label="Credibility metrics">
-      {proofStats.map((item) => (
-        <article key={item.label} className="proof-metric-card">
-          <p className="proof-metric-value">{item.value}</p>
-          <p className="proof-metric-label">{item.label}</p>
-          <p className="proof-metric-detail">{item.detail}</p>
+    <section className="section-shell compact-strip" aria-label="Audience fit">
+      {items.map((item) => (
+        <article key={item} className="compact-pill">
+          <p>{item}</p>
         </article>
       ))}
     </section>

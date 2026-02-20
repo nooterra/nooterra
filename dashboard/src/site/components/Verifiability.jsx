@@ -1,43 +1,30 @@
 export default function Verifiability() {
   return (
-    <section id="security" className="section-shell split-section">
+    <section className="section-shell split-section">
       <article className="panel panel-strong">
-        <p className="eyebrow">Offline Verification</p>
-        <h2>Verify without trust.</h2>
+        <p className="eyebrow">Audit-Grade Evidence</p>
+        <h2>Not just logs. Portable proof artifacts.</h2>
         <p>
-          Closepacks are portable bundles you can hand to auditors, customers, or counterparties. Offline verification
-          checks signature integrity, binding invariants, dispute lineage, policy pinning, and deterministic adjustment
-          semantics.
+          Export closepacks with signed quote bindings, auth claims, execution hashes, and settlement timeline.
+          Auditors can replay and validate without relying on live provider systems.
         </p>
-        <div className="mini-code" role="region" aria-label="Closepack command snippet">
-          <code>npx settld closepack export --agreement-hash &lt;hash&gt; --out closepack.zip</code>
+        <div className="mini-code">
+          <code>npx settld closepack export --receipt-id rcpt_123</code>
           <code>npx settld closepack verify closepack.zip</code>
         </div>
-        <a className="text-link" href="/kernel-v0/">
-          Closepack format and verification rules
-        </a>
       </article>
       <article className="panel">
-        <p className="eyebrow">Replay Integrity</p>
-        <h3>Replayable by design</h3>
+        <p className="eyebrow">Operator Safety</p>
+        <h3>Human escalation built into autonomous spend.</h3>
         <p>
-          Recompute evaluation against stored policy and verifier references. Replay endpoints compare recomputation
-          against stored SettlementDecisionRecord.v2 fields including policy hash pinning and normalization version.
+          When policy blocks execution, agents suspend with full context. Operators approve or deny overrides through
+          signed commands with replay protection.
         </p>
-        <dl className="metric-list">
-          <div>
-            <dt>Replay outcome</dt>
-            <dd>MATCH / MISMATCH with issue codes</dd>
-          </div>
-          <div>
-            <dt>Verifier pinning</dt>
-            <dd>verifierRef + verificationMethodHashUsed</dd>
-          </div>
-          <div>
-            <dt>Dispute legitimacy</dt>
-            <dd>Signed DisputeOpenEnvelope for non-admin opens</dd>
-          </div>
-        </dl>
+        <ul className="tight-list">
+          <li>Signed escalation events + webhook delivery</li>
+          <li>One-time override tokens with expiry and reason</li>
+          <li>Automatic unwind path for insolvent or expired agents</li>
+        </ul>
       </article>
     </section>
   );

@@ -1,52 +1,44 @@
-const chain = [
+const flow = [
   {
-    title: "Manifest",
-    detail: "Provider publishes a signed description of the capability and verifier hints.",
-    artifacts: "ToolManifest",
+    stage: "01",
+    title: "Quote",
+    copy: "Provider returns a signed quote bound to request semantics and price limits."
   },
   {
-    title: "Agreement",
-    detail: "Payer signs terms, authority context, and an input commitment.",
-    artifacts: "ToolCallAgreement",
+    stage: "02",
+    title: "Authorize",
+    copy: "Sponsor wallet issuer mints bounded spend authorization with nonce, expiry, and idempotency."
   },
   {
-    title: "Hold",
-    detail: "Funds lock before execution under challenge-window semantics.",
-    artifacts: "FundingHold",
+    stage: "03",
+    title: "Execute",
+    copy: "Paid call runs only after policy and signature checks pass."
   },
   {
-    title: "Evidence",
-    detail: "Provider signs what happened and binds it to callId + inputHash.",
-    artifacts: "ToolCallEvidence",
+    stage: "04",
+    title: "Receipt",
+    copy: "Gateway persists immutable receipt snapshot plus append-only event timeline."
   },
   {
-    title: "Decision + Receipt",
-    detail: "Verifier evaluates and the kernel emits portable decision + receipt artifacts.",
-    artifacts: "SettlementDecisionRecord, SettlementReceipt",
-  },
-  {
-    title: "Dispute + Adjustment",
-    detail: "A case freezes release; a verdict routes only held funds via deterministic adjustment.",
-    artifacts: "DisputeOpenEnvelope, ArbitrationCase, ArbitrationVerdict, SettlementAdjustment",
-  },
+    stage: "05",
+    title: "Verify",
+    copy: "Teams export closepacks and verify signatures and lineage offline, independent of Settld runtime."
+  }
 ];
 
 export default function ChainFlow() {
   return (
-    <section id="protocol" className="section-shell">
+    <section id="workflow" className="section-shell section-highlight">
       <div className="section-heading">
-        <p className="eyebrow">Canonical Transaction Chain</p>
-        <h2>One transaction. Deterministic artifacts.</h2>
+        <p className="eyebrow">Workflow</p>
+        <h2>Deterministic path from intent to enforceable settlement.</h2>
       </div>
-      <ol className="chain-grid">
-        {chain.map((step, index) => (
-          <li key={step.title} className="chain-card">
-            <p className="chain-index">{String(index + 1).padStart(2, "0")}</p>
+      <ol className="flow-grid">
+        {flow.map((step) => (
+          <li key={step.title} className="flow-card">
+            <p className="flow-stage">{step.stage}</p>
             <h3>{step.title}</h3>
-            <p>{step.detail}</p>
-            <p className="chain-artifacts">
-              Artifacts: <code>{step.artifacts}</code>
-            </p>
+            <p>{step.copy}</p>
           </li>
         ))}
       </ol>

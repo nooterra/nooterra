@@ -1,3 +1,5 @@
+import SiteNav from "./components/SiteNav.jsx";
+import SiteFooter from "./components/SiteFooter.jsx";
 import { blendedMonthlyCost, pricingPlans, valueEventPricing } from "./pricingData.js";
 
 function money(value) {
@@ -16,40 +18,44 @@ export default function PricingPage() {
   });
 
   return (
-    <div className="site-root">
-      <div className="site-bg-grid" aria-hidden="true" />
-      <div className="site-bg-glow" aria-hidden="true" />
-      <main className="section-shell">
-        <section className="section-highlight pricing-hero">
-          <p className="eyebrow">Pricing</p>
-          <h1>Pricing that scales with settled value.</h1>
-          <p className="hero-sub">
-            Subscription covers platform access. Revenue scales with settled volume, so pricing aligns with money
-            movement and dispute exposure.
-          </p>
-          <div className="hero-actions">
-            <a className="btn btn-solid" href="/#quickstart">
-              Start building
-            </a>
-            <a className="btn btn-ghost" href="/">
-              Back to homepage
-            </a>
+    <div className="site-root" id="top">
+      <div className="site-bg-texture" aria-hidden="true" />
+      <div className="site-bg-orb site-bg-orb-a" aria-hidden="true" />
+      <div className="site-bg-orb site-bg-orb-b" aria-hidden="true" />
+      <SiteNav />
+      <main>
+        <section className="section-shell">
+          <div className="section-highlight pricing-hero">
+            <p className="eyebrow">Pricing</p>
+            <h1>Predictable platform fees. Variable cost tied to verified value.</h1>
+            <p className="hero-sub">
+              Settld pricing is designed for agent operations: low-friction start, clear unit economics, and audit-ready
+              line items as volume scales.
+            </p>
+            <div className="hero-actions">
+              <a className="btn btn-solid" href="#plans">
+                Compare plans
+              </a>
+              <a className="btn btn-ghost" href="/#developers">
+                Run quickstart
+              </a>
+            </div>
           </div>
         </section>
 
-        <section className="section-shell">
+        <section className="section-shell" id="plans">
           <div className="price-grid">
             {pricingPlans.map((plan) => (
               <article key={plan.id} className={`price-card ${plan.recommended ? "price-card-recommended" : ""}`}>
-                <p className="eyebrow">{plan.recommended ? "Most common" : "Plan"}</p>
+                <p className="price-plan-label">{plan.recommended ? "Recommended" : "Plan"}</p>
                 <h2>{plan.name}</h2>
                 <p className="price-note">
                   {plan.monthlyUsd === null ? "Custom annual contract" : `${money(plan.monthlyUsd)} / month`}
                 </p>
-                <p>
+                <p className="price-fee">
                   {plan.settledFeePercent === null
-                    ? "Negotiated settled-volume fee."
-                    : `${plan.settledFeePercent}% settled-volume fee.`}
+                    ? "Negotiated settlement fee"
+                    : `${plan.settledFeePercent}% settled volume fee`}
                 </p>
                 <ul className="tight-list">
                   {plan.includes.map((item) => (
@@ -64,25 +70,31 @@ export default function PricingPage() {
         <section className="section-shell split-section">
           <article className="panel panel-strong">
             <p className="eyebrow">Worked Example</p>
-            <h2>Growth at $500k settled volume/month</h2>
+            <h2>Growth plan at $500k/month settled volume</h2>
             <p>
-              {money(599)} base + {money(2250)} volume fee = <strong>{growthExample ? money(growthExample) : "n/a"}</strong>{" "}
-              blended monthly.
+              Base platform fee: <strong>{money(599)}</strong>
             </p>
-            <p className="hero-note">This matches the economics in your planning docs for growth-stage accounts.</p>
+            <p>
+              Settlement fee: <strong>{money(2250)}</strong>
+            </p>
+            <p>
+              Blended monthly total: <strong>{growthExample ? money(growthExample) : "n/a"}</strong>
+            </p>
           </article>
+
           <article className="panel">
-            <p className="eyebrow">Value Event Pricing</p>
-            <h3>Metered line items</h3>
+            <p className="eyebrow">Metered Value Events</p>
+            <h3>Line items exposed for finance review</h3>
             <ul className="tight-list">
               {valueEventPricing.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
-            <p className="hero-note">Invoices expose these as explicit line items for audit and reconciliation.</p>
+            <p className="hero-note">Receipts and exports map directly to these billing dimensions.</p>
           </article>
         </section>
       </main>
+      <SiteFooter />
     </div>
   );
 }

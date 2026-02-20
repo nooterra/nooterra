@@ -1,19 +1,18 @@
 const links = [
-  { href: "/kernel-v0/", label: "Kernel v0" },
-  { href: "#product", label: "Product" },
+  { href: "/#platform", label: "Platform" },
+  { href: "/#workflow", label: "Workflow" },
+  { href: "/#developers", label: "Developers" },
   { href: "/pricing", label: "Pricing" },
-  { href: "#developers", label: "Quickstart" },
-  { href: "#protocol", label: "Protocol" },
-  { href: "#changelog", label: "Changelog" },
-  { href: "#security", label: "Security" },
+  { href: "/#faq", label: "FAQ" }
 ];
 
 export default function SiteNav() {
   return (
     <header className="site-nav-wrap">
       <nav className="site-nav" aria-label="Primary">
-        <a href="#top" className="brand-mark" id="top">
-          <span className="brand-mark-core">SETTLD</span>
+        <a href="/" className="brand-mark" aria-label="Settld home">
+          <span className="brand-mark-core">Settld</span>
+          <span className="brand-mark-sub">Economic rails for autonomous agents</span>
         </a>
         <ul className="site-links">
           {links.map((link) => (
@@ -24,10 +23,10 @@ export default function SiteNav() {
         </ul>
         <div className="site-nav-cta">
           <a className="btn btn-ghost" href="/demo">
-            Live demo
+            Interactive demo
           </a>
-          <a className="btn btn-solid" href="/pricing">
-            Start building
+          <a className="btn btn-solid" href="/#developers">
+            Start integration
           </a>
         </div>
       </nav>

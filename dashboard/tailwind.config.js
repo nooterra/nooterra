@@ -5,17 +5,16 @@ export default {
     extend: {
       colors: {
         settld: {
-          dark: "#0a0a0f",
-          card: "#12121a",
-          border: "#1e1e2e",
-          accent: "#6366f1",
-          success: "#22c55e",
-          warning: "#f59e0b",
-          error: "#ef4444"
+          dark: "#111a23",
+          card: "#172430",
+          border: "#2b4050",
+          accent: "#cb7a5f",
+          success: "#4fa784",
+          warning: "#d6a253",
+          error: "#d16557"
         }
       }
     }
   },
   plugins: []
 };
-

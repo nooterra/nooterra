@@ -1,37 +1,37 @@
-const liveNow = [
-  "Signed capability manifests and authority bounds",
-  "Agreements committed by callId + inputHash",
-  "Funding holds, holdbacks, and challenge windows",
-  "Dispute-open signer proof (envelope artifact)",
-  "Deterministic verifier plugins (approve or reject)",
-  "SettlementDecisionRecord v2 pins policy hash used",
-  "Arbitration verdict -> deterministic holdback adjustment",
-  "Closepack export + offline verification",
+const pillars = [
+  {
+    title: "Delegated Authority",
+    copy: "Sponsors define budgets, risk classes, and allowlists. Agents receive bounded authorizations instead of blank-check wallets."
+  },
+  {
+    title: "Cryptographic Execution",
+    copy: "Quotes, signatures, and evidence bindings are validated at settlement time, with replay and tamper checks built in."
+  },
+  {
+    title: "Durable Accounting",
+    copy: "Receipts and reversal events are immutable, queryable, exportable, and independently verifiable offline."
+  }
 ];
 
 export default function KernelNow() {
   return (
-    <section id="product" className="section-shell section-highlight">
-      <div>
-        <p className="eyebrow">What Exists Today</p>
-        <h2>Kernel v0 is live now.</h2>
+    <section id="platform" className="section-shell">
+      <div className="section-heading">
+        <p className="eyebrow">Platform</p>
+        <h2>One economic control plane for agent actions.</h2>
         <p>
-          Settld ships one canonical transaction atom, paid capability calls, with enforceable outcomes. Every major
-          claim is tied to artifacts, replay, and conformance.
+          Settld replaces bespoke payment glue with a deterministic loop from quote to settlement, including dispute
+          and refund lifecycle handling.
         </p>
       </div>
-      <div className="check-grid" role="list" aria-label="Kernel live now features">
-        {liveNow.map((item) => (
-          <article key={item} role="listitem" className="check-card">
-            <p>{item}</p>
+      <div className="pillar-grid">
+        {pillars.map((pillar) => (
+          <article key={pillar.title} className="pillar-card">
+            <h3>{pillar.title}</h3>
+            <p>{pillar.copy}</p>
           </article>
         ))}
       </div>
-      <p className="section-linkline">
-        <a className="text-link" href="/kernel-v0/">
-          Inspect kernel artifacts
-        </a>
-      </p>
     </section>
   );
 }

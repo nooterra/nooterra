@@ -1,35 +1,35 @@
-const shippingNow = [
-  "Kernel v0 artifact chain and settlement loop",
-  "Conformance, replay, and offline closepacks",
-  "Self-serve pricing, SDKs, and onboarding surfaces",
+const now = [
+  "Quote-bound authorization and receipt durability",
+  "Escalation, replay defense, and reversal lifecycle",
+  "Offline verification for audits and dispute resolution"
 ];
 
-const nextLayers = [
-  "Hosted baseline hardening and operational controls",
-  "Real-money settlement adapters with reconciliation",
-  "Live customer dashboard over production API",
+const next = [
+  "Universal paid wrappers with OpenAPI import",
+  "Policy-aware tool resolver for autonomous selection",
+  "Expanded adapter rails for payouts and procurement"
 ];
 
 export default function Vision() {
   return (
-    <section className="section-shell section-highlight">
+    <section className="section-shell">
       <div className="section-heading">
-        <p className="eyebrow">Roadmap</p>
-        <h2>Shipping now vs next layers.</h2>
+        <p className="eyebrow">Roadmap Focus</p>
+        <h2>Ship the rails. Then scale the network.</h2>
       </div>
       <div className="future-grid">
         <article className="future-card">
-          <h3>Shipping now</h3>
+          <h3>Live today</h3>
           <ul className="tight-list">
-            {shippingNow.map((item) => (
+            {now.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
         </article>
         <article className="future-card">
-          <h3>Next layers</h3>
+          <h3>Next platform wave</h3>
           <ul className="tight-list">
-            {nextLayers.map((item) => (
+            {next.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
