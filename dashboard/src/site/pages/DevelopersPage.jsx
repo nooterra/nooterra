@@ -2,16 +2,16 @@ import PageFrame from "../components/PageFrame.jsx";
 
 const phases = [
   {
-    title: "Phase 1: First verified transaction",
-    copy: "Run local stack, issue API key, execute one paid call, verify receipt offline."
+    title: "Phase 1: First verified primitive chain",
+    copy: "Run local stack, issue authority, execute bounded action, verify artifacts offline."
   },
   {
-    title: "Phase 2: Production policy guardrails",
-    copy: "Define wallet budgets, allowlists, risk classes, and escalation paths."
+    title: "Phase 2: Production guardrails",
+    copy: "Define policy classes, allowlists, authority scopes, and escalation paths."
   },
   {
-    title: "Phase 3: Provider scale",
-    copy: "Onboard paid tools with wrappers/manifests and enforce conformance before listing."
+    title: "Phase 3: Ecosystem scale",
+    copy: "Onboard tools and capabilities with wrappers/manifests and enforce conformance before listing."
   }
 ];
 
@@ -20,10 +20,10 @@ export default function DevelopersPage() {
     <PageFrame>
       <section className="section-shell page-hero">
         <p className="eyebrow">Developers</p>
-        <h1>From first API call to production-grade autonomous commerce.</h1>
+        <h1>From first API call to production-grade autonomous systems.</h1>
         <p>
-          Build fast with SDK and MCP flows, then harden policy and settlement behavior with deterministic proofs,
-          receipts, and replay controls.
+          Build fast with SDK and MCP flows, then harden identity, policy, execution, and verification behavior with
+          deterministic controls.
         </p>
         <div className="hero-actions">
           <a className="btn btn-solid" href="/docs/quickstart">Start quickstart</a>

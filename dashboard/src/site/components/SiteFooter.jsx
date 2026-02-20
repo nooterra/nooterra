@@ -4,7 +4,7 @@ export default function SiteFooter() {
       <div>
         <p className="footer-brand">Settld</p>
         <p>
-          Build autonomous commerce with delegated authority, cryptographic verification, and finance-grade settlement evidence.
+          Build autonomous systems with deterministic primitives across identity, policy, execution, evidence, and operations.
         </p>
       </div>
       <div className="footer-links">
@@ -12,7 +12,7 @@ export default function SiteFooter() {
         <a href="/developers">Developers</a>
         <a href="/docs">Docs</a>
         <a href="/security">Security</a>
-        <a href="/pricing">Pricing</a>
+        <a href="/pricing">Access</a>
         <a href="/company">Company</a>
       </div>
     </footer>

@@ -1,15 +1,19 @@
 const pillars = [
   {
-    title: "Delegated Authority",
-    copy: "Sponsors define budgets, risk classes, and allowlists. Agents receive bounded authorizations instead of blank-check wallets."
+    title: "Identity and Authority",
+    copy: "Agent, sponsor, and operator identities are explicit, signed, and policy-constrained."
   },
   {
-    title: "Cryptographic Execution",
-    copy: "Quotes, signatures, and evidence bindings are validated at settlement time, with replay and tamper checks built in."
+    title: "Execution and Coordination",
+    copy: "Command flows, escalation paths, and state transitions are deterministic and replay-protected."
   },
   {
-    title: "Durable Accounting",
-    copy: "Receipts and reversal events are immutable, queryable, exportable, and independently verifiable offline."
+    title: "Economics and Settlement",
+    copy: "Spend authorization, reversals, disputes, and reconciliation remain bounded and auditable."
+  },
+  {
+    title: "Evidence and Verification",
+    copy: "Receipts, timelines, and closepacks are immutable, portable, and independently verifiable."
   }
 ];
 
@@ -18,10 +22,9 @@ export default function KernelNow() {
     <section id="platform" className="section-shell">
       <div className="section-heading">
         <p className="eyebrow">Platform</p>
-        <h2>One economic control plane for agent actions.</h2>
+        <h2>A full primitive layer for autonomous systems.</h2>
         <p>
-          Settld replaces bespoke payment glue with a deterministic loop from quote to settlement, including dispute
-          and refund lifecycle handling.
+          Settld unifies identity, authority, execution, settlement, and verification primitives into one coherent control plane.
         </p>
       </div>
       <div className="pillar-grid">

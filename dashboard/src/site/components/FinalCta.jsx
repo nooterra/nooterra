@@ -3,9 +3,9 @@ export default function FinalCta() {
     <section className="section-shell">
       <div className="section-highlight cta-banner">
         <p className="eyebrow">Ready to Launch</p>
-        <h2>Turn agent actions into enforceable economic events.</h2>
+        <h2>Build autonomous systems on primitives you can actually trust.</h2>
         <p className="cta-copy">
-          Ship autonomous spend with bounded authority, durable receipts, and proof-driven dispute handling.
+          Start free, ship fast, and harden across identity, policy, execution, evidence, and operations as you scale.
         </p>
         <div className="hero-actions">
           <a className="btn btn-solid" href="/signup">

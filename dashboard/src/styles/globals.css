@@ -115,6 +115,33 @@ body {
   flex-direction: column;
 }
 
+.brand-mark-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.brand-mark-logo {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.brand-mark-logo-fallback {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: linear-gradient(140deg, var(--brand-700), var(--brand-500));
+  color: #fff6ed;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Fraunces", Georgia, serif;
+  font-weight: 700;
+  font-size: 0.94rem;
+}
+
 .brand-mark-core {
   font-family: "Fraunces", Georgia, serif;
   font-size: 1.28rem;

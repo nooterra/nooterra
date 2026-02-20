@@ -2,16 +2,16 @@ import PageFrame from "../components/PageFrame.jsx";
 
 const pillars = [
   {
-    title: "Delegated Spend Authority",
-    copy: "Sponsors set hard budgets and policy constraints. Agents can execute autonomously, but only inside verifiable limits."
+    title: "Identity + Delegation Primitives",
+    copy: "Sponsor, agent, and operator authority is explicit, programmable, and scope-bounded."
   },
   {
-    title: "Cryptographic Execution Loop",
-    copy: "Every paid call is quote-bound, authorization-bound, and evidence-bound. No blind spending, no unverifiable outputs."
+    title: "Execution + Coordination Primitives",
+    copy: "Actions, escalations, and command transitions are deterministic, signed, and replay-safe."
   },
   {
-    title: "Finance-Ready Settlement Record",
-    copy: "Durable receipts, reversals, and exports are queryable and offline-verifiable for reconciliation and audits."
+    title: "Evidence + Verification Primitives",
+    copy: "Durable receipts, reversals, exports, and closepacks are portable and independently verifiable."
   }
 ];
 
@@ -27,10 +27,10 @@ export default function ProductPage() {
     <PageFrame>
       <section className="section-shell page-hero">
         <p className="eyebrow">Product</p>
-        <h1>Economic infrastructure for autonomous agents.</h1>
+        <h1>Primitive infrastructure for autonomous systems.</h1>
         <p>
-          Settld gives agents the ability to transact like real operators while preserving sponsor control,
-          cryptographic trust, and accounting-grade evidence.
+          Settld is building the end-to-end primitive layer across identity, policy, execution, coordination,
+          economics, and verification. Payment is one primitive, not the full product boundary.
         </p>
         <div className="hero-actions">
           <a className="btn btn-solid" href="/docs">Open docs</a>
@@ -52,7 +52,7 @@ export default function ProductPage() {
       <section className="section-shell section-highlight">
         <div className="section-heading">
           <p className="eyebrow">Where Teams Start</p>
-          <h2>Ship autonomous spend in high-signal lanes first.</h2>
+          <h2>Launch in constrained lanes, then expand primitive coverage.</h2>
         </div>
         <ul className="tight-list">
           {lanes.map((lane) => (

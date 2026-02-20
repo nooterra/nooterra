@@ -12,9 +12,9 @@ export default function PricingStrip() {
   return (
     <section id="pricing" className="section-shell section-highlight">
       <div className="section-heading">
-        <p className="eyebrow">Pricing</p>
-        <h2>Start free, scale with verified value.</h2>
-        <p>Each plan includes the core trust rails. Paid tiers add operational throughput and support depth.</p>
+        <p className="eyebrow">Access</p>
+        <h2>Free while we build the full primitive stack.</h2>
+        <p>We are prioritizing adoption, real usage, and hardening over monetization right now.</p>
       </div>
       <div className="price-grid">
         {pricingPlans.map((plan) => (
@@ -30,7 +30,7 @@ export default function PricingStrip() {
       </div>
       <p className="section-linkline">
         <a className="text-link" href="/pricing">
-          View full plan breakdown and metered line items
+          View access policy and rollout notes
         </a>
       </p>
     </section>

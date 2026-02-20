@@ -1,10 +1,10 @@
 import PageFrame from "../components/PageFrame.jsx";
 
 const principles = [
-  "Agents act under delegated sponsor authority",
-  "Trust is evidence, not intent",
-  "Settlement must be durable and independently verifiable",
-  "Scale should come from standards and wrappers, not bespoke glue"
+  "Autonomy requires layered primitives, not isolated features",
+  "Trust comes from deterministic evidence, not vendor claims",
+  "Policy and safety must be programmable and enforceable",
+  "Scale comes from standards, wrappers, and shared contracts"
 ];
 
 export default function CompanyPage() {
@@ -12,10 +12,10 @@ export default function CompanyPage() {
     <PageFrame>
       <section className="section-shell page-hero">
         <p className="eyebrow">Company</p>
-        <h1>We are building the economic execution layer for AI.</h1>
+        <h1>We are building the primitive substrate for autonomous AI systems.</h1>
         <p>
-          The next decade of software will be autonomous systems spending money, buying services, and coordinating
-          real work. Settld is the trust and settlement substrate behind that economy.
+          The next decade is not just AI spending money. It is AI agents coordinating identity, authority, work,
+          verification, and operations at scale. Settld is building that underlying primitive stack.
         </p>
         <div className="hero-actions">
           <a className="btn btn-solid" href="/docs/ops">Operations docs</a>

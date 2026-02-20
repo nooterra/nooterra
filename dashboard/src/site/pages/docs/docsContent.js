@@ -3,7 +3,7 @@ export const docsSections = [
     slug: "quickstart",
     href: "/docs/quickstart",
     title: "Quickstart",
-    summary: "Run the first production-style quote -> authorize -> execute -> verify loop.",
+    summary: "Run your first production-style primitive chain from authority to verification.",
     tags: ["onboarding", "sdk", "first-run"],
     commands: ["npm run dev:api", "npx settld dev:sdk:key --print-only", "npx settld sdk:first-run"]
   },
@@ -23,7 +23,7 @@ export const docsSections = [
     slug: "security",
     href: "/docs/security",
     title: "Security Model",
-    summary: "Cryptographic guarantees, replay defense, key management, and verification evidence.",
+    summary: "Cryptographic guarantees, replay defense, key management, identity trust, and verification evidence.",
     tags: ["security", "signatures", "offline-verify"],
     commands: ["npx settld closepack export --receipt-id rcpt_123", "npx settld closepack verify closepack.zip"]
   },
@@ -31,7 +31,7 @@ export const docsSections = [
     slug: "ops",
     href: "/docs/ops",
     title: "Operations",
-    summary: "Deploy, monitor, rotate keys, handle escalation queues, and run release gates.",
+    summary: "Deploy, monitor, rotate keys, handle escalation queues, and run release/safety gates.",
     tags: ["ops", "deploy", "runbook"],
     commands: ["npm run test:ops:go-live-gate", "npm run ops:x402:pilot:weekly-report", "npm run keys:rotate"]
   }
@@ -67,4 +67,3 @@ export const docsEndpointGroups = [
 export function findDocsSection(slug) {
   return docsSections.find((row) => row.slug === slug) ?? null;
 }
-

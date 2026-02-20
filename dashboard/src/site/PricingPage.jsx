@@ -1,6 +1,6 @@
 import SiteNav from "./components/SiteNav.jsx";
 import SiteFooter from "./components/SiteFooter.jsx";
-import { blendedMonthlyCost, pricingPlans, valueEventPricing } from "./pricingData.js";
+import { pricingPlans, valueEventPricing } from "./pricingData.js";
 
 function money(value) {
   return new Intl.NumberFormat("en-US", {
@@ -11,12 +11,6 @@ function money(value) {
 }
 
 export default function PricingPage() {
-  const growthExample = blendedMonthlyCost({
-    monthlyBaseUsd: 599,
-    settledVolumeUsd: 500000,
-    settledFeePercent: 0.45
-  });
-
   return (
     <div className="site-root" id="top">
       <div className="site-bg-texture" aria-hidden="true" />
@@ -26,18 +20,18 @@ export default function PricingPage() {
       <main>
         <section className="section-shell">
           <div className="section-highlight pricing-hero">
-            <p className="eyebrow">Pricing</p>
-            <h1>Predictable platform fees. Variable cost tied to verified value.</h1>
+            <p className="eyebrow">Access Policy</p>
+            <h1>Settld is currently free while we ship the full primitive stack.</h1>
             <p className="hero-sub">
-              Settld pricing is designed for agent operations: low-friction start, clear unit economics, and audit-ready
-              line items as volume scales.
+              Right now the goal is ecosystem adoption, hard reliability data, and production proof loops across
+              identity, policy, settlement, verification, and orchestration primitives.
             </p>
             <div className="hero-actions">
               <a className="btn btn-solid" href="#plans">
-                Compare plans
+                See access terms
               </a>
-              <a className="btn btn-ghost" href="/developers">
-                Integration guide
+              <a className="btn btn-ghost" href="/docs">
+                Read docs
               </a>
             </div>
           </div>
@@ -47,16 +41,10 @@ export default function PricingPage() {
           <div className="price-grid">
             {pricingPlans.map((plan) => (
               <article key={plan.id} className={`price-card ${plan.recommended ? "price-card-recommended" : ""}`}>
-                <p className="price-plan-label">{plan.recommended ? "Recommended" : "Plan"}</p>
+                <p className="price-plan-label">Plan</p>
                 <h2>{plan.name}</h2>
-                <p className="price-note">
-                  {plan.monthlyUsd === null ? "Custom annual contract" : `${money(plan.monthlyUsd)} / month`}
-                </p>
-                <p className="price-fee">
-                  {plan.settledFeePercent === null
-                    ? "Negotiated settlement fee"
-                    : `${plan.settledFeePercent}% settled volume fee`}
-                </p>
+                <p className="price-note">{money(plan.monthlyUsd)} / month</p>
+                <p className="price-fee">{plan.settledFeePercent}% settled volume fee</p>
                 <ul className="tight-list">
                   {plan.includes.map((item) => (
                     <li key={item}>{item}</li>
@@ -69,28 +57,28 @@ export default function PricingPage() {
 
         <section className="section-shell split-section">
           <article className="panel panel-strong">
-            <p className="eyebrow">Worked Example</p>
-            <h2>Growth plan at $500k/month settled volume</h2>
+            <p className="eyebrow">Current Status</p>
+            <h2>Open buildout period</h2>
             <p>
-              Base platform fee: <strong>{money(599)}</strong>
+              Platform fee: <strong>{money(0)}</strong>
             </p>
             <p>
-              Settlement fee: <strong>{money(2250)}</strong>
+              Settled volume fee: <strong>0%</strong>
             </p>
             <p>
-              Blended monthly total: <strong>{growthExample ? money(growthExample) : "n/a"}</strong>
+              Goal: <strong>maximize adoption while finishing all primitives.</strong>
             </p>
           </article>
 
           <article className="panel">
-            <p className="eyebrow">Metered Value Events</p>
-            <h3>Line items exposed for finance review</h3>
+            <p className="eyebrow">Policy Notes</p>
+            <h3>What this means right now</h3>
             <ul className="tight-list">
               {valueEventPricing.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
-            <p className="hero-note">Receipts and exports map directly to these billing dimensions.</p>
+            <p className="hero-note">Commercial packaging can be introduced once production primitives stabilize.</p>
           </article>
         </section>
       </main>

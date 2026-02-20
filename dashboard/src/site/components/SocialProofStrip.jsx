@@ -1,7 +1,7 @@
 const items = [
-  "Built for API tools, MCP tools, and paid data providers",
-  "Works with delegated sponsor wallets and policy caps",
-  "Designed for finance, risk, and compliance review"
+  "Identity, delegation, and policy primitives for autonomous agents",
+  "Execution, escalation, and coordination controls with replay safety",
+  "Evidence, verification, and runbooks for compliance-grade operations"
 ];
 
 export default function SocialProofStrip() {

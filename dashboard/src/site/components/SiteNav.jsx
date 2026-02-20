@@ -10,17 +10,34 @@ const links = [
   { href: "/developers", label: "Developers" },
   { href: "/docs", label: "Docs" },
   { href: "/security", label: "Security" },
-  { href: "/pricing", label: "Pricing" },
+  { href: "/pricing", label: "Access" },
   { href: "/company", label: "Company" }
 ];
+
+const logoUrl =
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_BRAND_LOGO_URL
+    ? String(import.meta.env.VITE_BRAND_LOGO_URL).trim()
+    : "";
+
+const brandSubtitle =
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_BRAND_SUBTITLE
+    ? String(import.meta.env.VITE_BRAND_SUBTITLE).trim()
+    : "Foundational Primitives for Autonomous Systems";
 
 function SiteNavShell({ children }) {
   return (
     <header className="site-nav-wrap">
       <nav className="site-nav" aria-label="Primary">
         <a href="/" className="brand-mark" aria-label="Settld home">
-          <span className="brand-mark-core">Settld</span>
-          <span className="brand-mark-sub">Autonomous Commerce Infrastructure</span>
+          <span className="brand-mark-row">
+            {logoUrl ? (
+              <img src={logoUrl} alt="" className="brand-mark-logo" />
+            ) : (
+              <span className="brand-mark-logo-fallback" aria-hidden="true">S</span>
+            )}
+            <span className="brand-mark-core">Settld</span>
+          </span>
+          <span className="brand-mark-sub">{brandSubtitle}</span>
         </a>
         <ul className="site-links">
           {links.map((link) => (

@@ -1,13 +1,13 @@
 const now = [
-  "Quote-bound authorization and receipt durability",
-  "Escalation, replay defense, and reversal lifecycle",
-  "Offline verification for audits and dispute resolution"
+  "Delegated authority + policy-bounded execution",
+  "Escalation routing + deterministic state transitions",
+  "Durable evidence + offline verification and reconciliation"
 ];
 
 const next = [
-  "Universal paid wrappers with OpenAPI import",
-  "Policy-aware tool resolver for autonomous selection",
-  "Expanded adapter rails for payouts and procurement"
+  "Universal wrappers for API, MCP, SaaS, and workflow surfaces",
+  "Capability and resolver primitives for autonomous orchestration",
+  "Lifecycle primitives for insolvency, succession, and risk transfer"
 ];
 
 export default function Vision() {
@@ -15,7 +15,7 @@ export default function Vision() {
     <section className="section-shell">
       <div className="section-heading">
         <p className="eyebrow">Roadmap Focus</p>
-        <h2>Ship the rails. Then scale the network.</h2>
+        <h2>Ship every primitive needed for a real autonomous ecosystem.</h2>
       </div>
       <div className="future-grid">
         <article className="future-card">

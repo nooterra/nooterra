@@ -1,24 +1,24 @@
 const statements = [
-  "Agents should be able to buy what they need.",
-  "Sponsors should be able to set hard limits.",
-  "Providers should be able to trust settlement outcomes."
+  "Identity and authority must be explicit and programmable.",
+  "Execution and coordination must be policy-bounded and replay-safe.",
+  "Evidence and verification must survive audits without platform trust."
 ];
 
 const stats = [
-  { value: "5x", label: "faster integration cycles" },
-  { value: "0", label: "manual receipt reconstruction" },
-  { value: "1", label: "deterministic economic loop" }
+  { value: "7+", label: "primitive layers in active buildout" },
+  { value: "1", label: "deterministic command-to-evidence graph" },
+  { value: "0", label: "required trust in live runtime for audits" }
 ];
 
 export default function Hero() {
   return (
     <section className="section-shell hero" id="hero">
       <div className="hero-copy">
-        <p className="eyebrow">The Economic Layer for AI Agents</p>
-        <h1>Make autonomous agents economically useful at production scale.</h1>
+        <p className="eyebrow">Foundational Primitive Stack</p>
+        <h1>Build the full operating substrate for autonomous AI systems.</h1>
         <p className="hero-sub">
-          Settld turns paid agent actions into enforceable transactions: quote-bound authorization, verified execution,
-          immutable receipts, and operator-grade control when policy boundaries are hit.
+          Settld is not only payment rails. It is evolving into the primitive layer for delegated authority,
+          trustworthy execution, coordination safety, durable evidence, and programmable operations across the agent stack.
         </p>
 
         <div className="statement-grid">
@@ -40,13 +40,13 @@ export default function Hero() {
       </div>
 
       <aside className="hero-proof-panel" aria-label="Proof loop preview">
-        <p className="eyebrow">Proof Loop</p>
-        <h2>Every paid call becomes verifiable evidence.</h2>
+        <p className="eyebrow">Deterministic Control Loop</p>
+        <h2>Every critical agent action becomes verifiable system evidence.</h2>
         <div className="mini-code" role="region" aria-label="Command preview">
-          <code>npx settld conformance kernel --ops-token tok_ops</code>
-          <code>npx settld closepack export --receipt-id rcpt_123</code>
-          <code>npx settld closepack verify closepack.zip</code>
-          <code>status: ENFORCEABLE</code>
+          <code>authorize -&gt; execute -&gt; receipt -&gt; verify</code>
+          <code>escalate -&gt; override/deny -&gt; append timeline</code>
+          <code>export -&gt; offline verify -&gt; reconcile</code>
+          <code>status: AUDITABLE + REPLAYABLE</code>
         </div>
         <div className="hero-stats" aria-label="Execution outcomes">
           {stats.map((stat) => (
