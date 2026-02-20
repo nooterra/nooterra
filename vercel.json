@@ -1,5 +1,6 @@
 {
   "installCommand": "bash scripts/vercel/install-mkdocs.sh",
   "buildCommand": "bash scripts/vercel/build-mkdocs.sh",
+  "ignoreCommand": "bash scripts/vercel/ignore-mkdocs.sh",
   "outputDirectory": "mkdocs/site"
 }
