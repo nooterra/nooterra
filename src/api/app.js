@@ -1797,19 +1797,17 @@ export function createApi({
   }
 
   function classifyOutboxDebugRowState(row) {
-    const processedAt =
-      typeof row?.processed_at === "string" && row.processed_at.trim() !== ""
-        ? row.processed_at.trim()
-        : typeof row?.processedAt === "string" && row.processedAt.trim() !== ""
-          ? row.processedAt.trim()
-          : null;
+    const processedAtRaw = row?.processed_at ?? row?.processedAt ?? null;
+    const hasProcessedAt =
+      (typeof processedAtRaw === "string" && processedAtRaw.trim() !== "") ||
+      (processedAtRaw instanceof Date && Number.isFinite(processedAtRaw.getTime()));
     const lastError =
       typeof row?.last_error === "string" && row.last_error.trim() !== ""
         ? row.last_error.trim()
         : typeof row?.lastError === "string" && row.lastError.trim() !== ""
           ? row.lastError.trim()
           : null;
-    if (!processedAt) return "pending";
+    if (!hasProcessedAt) return "pending";
     if (typeof lastError === "string" && lastError.startsWith("DLQ:")) return "dlq";
     return "processed";
   }
