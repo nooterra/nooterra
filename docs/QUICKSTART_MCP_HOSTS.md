@@ -119,6 +119,12 @@ npm run mcp:probe -- --call settld.about '{}'
 
 ## 6) 5-Minute Validation Checklist
 
+0. (CI/local gate) run hosted-style smoke once:
+
+```bash
+npm run test:ci:mcp-host-smoke
+```
+
 1. `npm run mcp:probe` passes locally.
 2. Host discovers Settld tools (`tools/list` includes `settld.*`).
 3. `settld.about` succeeds.

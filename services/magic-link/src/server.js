@@ -802,6 +802,10 @@ const paymentTriggerMaxAttempts = Number.parseInt(String(process.env.MAGIC_LINK_
 const paymentTriggerRetryBackoffMs = Number.parseInt(String(process.env.MAGIC_LINK_PAYMENT_TRIGGER_RETRY_BACKOFF_MS ?? "5000"), 10);
 const settingsKey = getSettingsKeyFromEnv();
 const migrateOnStartup = String(process.env.MAGIC_LINK_MIGRATE_ON_STARTUP ?? "1").trim() !== "0";
+const settldApiBaseUrlRaw = process.env.MAGIC_LINK_SETTLD_API_BASE_URL ? String(process.env.MAGIC_LINK_SETTLD_API_BASE_URL).trim() : "";
+const settldApiBaseUrl = settldApiBaseUrlRaw ? normalizeHttpUrl(settldApiBaseUrlRaw) : null;
+const settldOpsToken = process.env.MAGIC_LINK_SETTLD_OPS_TOKEN ? String(process.env.MAGIC_LINK_SETTLD_OPS_TOKEN).trim() : "";
+const settldProtocol = String(process.env.MAGIC_LINK_SETTLD_PROTOCOL ?? "1.0").trim() || "1.0";
 
 const smtpHost = process.env.MAGIC_LINK_SMTP_HOST ? String(process.env.MAGIC_LINK_SMTP_HOST).trim() : "";
 const smtpPort = Number.parseInt(String(process.env.MAGIC_LINK_SMTP_PORT ?? "587"), 10);
@@ -924,6 +928,11 @@ if (publicBaseUrl !== null && publicBaseUrl !== "") {
   // eslint-disable-next-line no-new
   new URL(publicBaseUrl);
 }
+if (settldApiBaseUrlRaw && !settldApiBaseUrl) throw new Error("MAGIC_LINK_SETTLD_API_BASE_URL must be a valid http(s) URL");
+if ((settldApiBaseUrl && !settldOpsToken) || (!settldApiBaseUrl && settldOpsToken)) {
+  throw new Error("MAGIC_LINK_SETTLD_API_BASE_URL and MAGIC_LINK_SETTLD_OPS_TOKEN must be set together");
+}
+if (!settldProtocol) throw new Error("MAGIC_LINK_SETTLD_PROTOCOL must be a non-empty string");
 
 function parseSessionKeyHex(raw) {
   const s = String(raw ?? "").trim();
@@ -1015,6 +1024,7 @@ const verifyWorkerPath = fileURLToPath(new URL("./verify-worker.js", import.meta
 const samplesDir = fileURLToPath(new URL("../assets/samples/", import.meta.url));
 const sampleZipCache = new Map(); // key -> Buffer
 const repoRootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+const mcpServerScriptPath = path.join(repoRootDir, "scripts", "mcp", "settld-mcp-server.mjs");
 
 async function readRepoFileUtf8BestEffort(relPath) {
   try {
@@ -1063,7 +1073,8 @@ function tenantRateLimits(tenantSettings) {
     uploadsPerHour: uploadsPerHourDefault,
     verificationViewsPerHour: 1000,
     decisionsPerHour: 300,
-    otpRequestsPerHour: 300
+    otpRequestsPerHour: 300,
+    conformanceRunsPerHour: 12
   };
   const cfg = ts?.rateLimits && typeof ts.rateLimits === "object" && !Array.isArray(ts.rateLimits) ? ts.rateLimits : {};
   const pick = (field) => {
@@ -1074,7 +1085,8 @@ function tenantRateLimits(tenantSettings) {
     uploadsPerHour: pick("uploadsPerHour"),
     verificationViewsPerHour: pick("verificationViewsPerHour"),
     decisionsPerHour: pick("decisionsPerHour"),
-    otpRequestsPerHour: pick("otpRequestsPerHour")
+    otpRequestsPerHour: pick("otpRequestsPerHour"),
+    conformanceRunsPerHour: pick("conformanceRunsPerHour")
   };
 }
 
@@ -1305,6 +1317,153 @@ async function stripeApiPostJson({ endpoint, formData }) {
   }
   if (!json || typeof json !== "object" || Array.isArray(json)) throw new Error("Stripe API returned invalid JSON");
   return json;
+}
+
+async function callSettldTenantBootstrap({ tenantId, payload, idempotencyKey = null } = {}) {
+  if (!settldApiBaseUrl || !settldOpsToken) {
+    return {
+      ok: false,
+      statusCode: 503,
+      code: "RUNTIME_BOOTSTRAP_UNCONFIGURED",
+      message: "runtime bootstrap is not configured on this control plane"
+    };
+  }
+  const target = new URL("/ops/tenants/bootstrap", `${settldApiBaseUrl}/`);
+  const headers = {
+    "content-type": "application/json",
+    "x-proxy-tenant-id": String(tenantId),
+    "x-proxy-ops-token": settldOpsToken,
+    "x-settld-protocol": settldProtocol
+  };
+  if (idempotencyKey) headers["x-idempotency-key"] = String(idempotencyKey);
+
+  let response = null;
+  let text = "";
+  try {
+    response = await fetch(target, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload ?? {})
+    });
+    text = await response.text();
+  } catch (err) {
+    return {
+      ok: false,
+      statusCode: 502,
+      code: "RUNTIME_BOOTSTRAP_UPSTREAM_UNREACHABLE",
+      message: err?.message ?? "unable to reach Settld API"
+    };
+  }
+
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+  if (!response.ok) {
+    const message =
+      (json && typeof json?.message === "string" && json.message) ||
+      (json && typeof json?.error === "string" && json.error) ||
+      safeTruncate(text, { max: 800 }) ||
+      `Settld bootstrap failed (${response.status})`;
+    return {
+      ok: false,
+      statusCode: response.status,
+      code: (json && typeof json?.code === "string" && json.code) || "RUNTIME_BOOTSTRAP_FAILED",
+      message
+    };
+  }
+  if (!json || typeof json !== "object" || Array.isArray(json)) {
+    return {
+      ok: false,
+      statusCode: 502,
+      code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+      message: "Settld bootstrap returned invalid JSON"
+    };
+  }
+  return { ok: true, response: json };
+}
+
+async function callSettldTenantApi({
+  apiBaseUrl = settldApiBaseUrl,
+  tenantId,
+  apiKey,
+  method,
+  pathname,
+  body = undefined,
+  idempotencyKey = null,
+  expectedPrevChainHash = null
+} = {}) {
+  if (!apiBaseUrl || !apiKey) {
+    return {
+      ok: false,
+      statusCode: 503,
+      code: "SETTLD_API_UNCONFIGURED",
+      message: "Settld API base URL or API key is missing"
+    };
+  }
+
+  const target = new URL(pathname, `${apiBaseUrl}/`);
+  const headers = {
+    "x-proxy-tenant-id": String(tenantId),
+    "x-settld-protocol": settldProtocol,
+    authorization: `Bearer ${String(apiKey)}`
+  };
+  if (body !== undefined) headers["content-type"] = "application/json";
+  if (idempotencyKey) headers["x-idempotency-key"] = String(idempotencyKey);
+  if (expectedPrevChainHash) headers["x-proxy-expected-prev-chain-hash"] = String(expectedPrevChainHash);
+
+  let response = null;
+  let text = "";
+  try {
+    response = await fetch(target, {
+      method: String(method || "GET").toUpperCase(),
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+    text = await response.text();
+  } catch (err) {
+    return {
+      ok: false,
+      statusCode: 502,
+      code: "SETTLD_API_UNREACHABLE",
+      message: err?.message ?? "unable to reach Settld API"
+    };
+  }
+
+  let json = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+
+  if (!response.ok) {
+    const message =
+      (json && typeof json?.message === "string" && json.message) ||
+      (json && typeof json?.error === "string" && json.error) ||
+      safeTruncate(text, { max: 800 }) ||
+      `Settld API call failed (${response.status})`;
+    return {
+      ok: false,
+      statusCode: response.status,
+      code: (json && typeof json?.code === "string" && json.code) || "SETTLD_API_CALL_FAILED",
+      message,
+      response: json
+    };
+  }
+
+  if (!json || typeof json !== "object" || Array.isArray(json)) {
+    return {
+      ok: false,
+      statusCode: 502,
+      code: "SETTLD_API_INVALID_RESPONSE",
+      message: "Settld API returned invalid JSON"
+    };
+  }
+
+  return { ok: true, response: json };
 }
 
 async function setTenantPlanBySystem({ tenantId, plan, actorMethod = "system", reason = null, eventId = null } = {}) {
@@ -1617,6 +1776,146 @@ async function runVerifyWorker({ dir, strict, hashConcurrency, timeoutMs, env })
     return { ok: true, result: parsed };
   } catch (err) {
     return { ok: false, error: "HOSTED_VERIFY_INVALID_JSON", detail: { message: err?.message ?? String(err ?? ""), stdout: safeTruncate(outText, { max: 10_000 }) } };
+  }
+}
+
+async function runMcpInitializeToolsListSmoke({ env, timeoutMs = 10_000 } = {}) {
+  const child = spawn(process.execPath, [mcpServerScriptPath], {
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, ...(env ?? {}) }
+  });
+  let spawnError = null;
+  child.on("error", (err) => {
+    spawnError = err;
+  });
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+
+  const pending = new Map();
+  let stdoutBuf = "";
+  let stderrBuf = "";
+  const onStdout = (chunk) => {
+    stdoutBuf += String(chunk);
+    for (;;) {
+      const idx = stdoutBuf.indexOf("\n");
+      if (idx === -1) break;
+      const line = stdoutBuf.slice(0, idx).trim();
+      stdoutBuf = stdoutBuf.slice(idx + 1);
+      if (!line) continue;
+      let msg = null;
+      try {
+        msg = JSON.parse(line);
+      } catch {
+        msg = null;
+      }
+      if (!msg || msg.id === undefined || msg.id === null) continue;
+      const key = String(msg.id);
+      const item = pending.get(key);
+      if (!item) continue;
+      pending.delete(key);
+      clearTimeout(item.timeout);
+      item.resolve(msg);
+    }
+  };
+  const onStderr = (chunk) => {
+    stderrBuf += String(chunk);
+  };
+  child.stdout.on("data", onStdout);
+  child.stderr.on("data", onStderr);
+
+  const rpc = async (method, params = {}) => {
+    if (spawnError) throw spawnError;
+    const id = `ml_mcp_${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
+    const payload = { jsonrpc: "2.0", id, method, params };
+    child.stdin.write(JSON.stringify(payload) + "\n");
+    return await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        reject(new Error(`timeout waiting for ${method}`));
+      }, timeoutMs).unref?.();
+      pending.set(id, { resolve, reject, timeout });
+    });
+  };
+
+  const closeChild = async () => {
+    if (!child.killed) {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // ignore
+      }
+    }
+    await new Promise((resolve) => {
+      const t = setTimeout(() => resolve(), 500);
+      child.once("exit", () => {
+        clearTimeout(t);
+        resolve();
+      });
+    });
+  };
+
+  try {
+    const init = await rpc("initialize", {
+      protocolVersion: "2024-11-05",
+      clientInfo: { name: "magic-link-onboarding", version: "1" },
+      capabilities: {}
+    });
+    if (init?.error) {
+      return {
+        ok: false,
+        error: "MCP_INITIALIZE_FAILED",
+        detail: {
+          code: init.error?.code ?? null,
+          message: init.error?.message ?? "initialize failed"
+        }
+      };
+    }
+    const list = await rpc("tools/list", {});
+    if (list?.error) {
+      return {
+        ok: false,
+        error: "MCP_TOOLS_LIST_FAILED",
+        detail: {
+          code: list.error?.code ?? null,
+          message: list.error?.message ?? "tools/list failed"
+        }
+      };
+    }
+    const tools = Array.isArray(list?.result?.tools) ? list.result.tools : [];
+    const toolNames = tools
+      .map((t) => (t && typeof t.name === "string" ? t.name.trim() : ""))
+      .filter(Boolean)
+      .slice(0, 25);
+    return {
+      ok: true,
+      smoke: {
+        initialized: true,
+        serverInfo: init?.result?.serverInfo ?? null,
+        toolsCount: tools.length,
+        sampleTools: toolNames
+      }
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: "MCP_SMOKE_TEST_FAILED",
+      detail: {
+        message: err?.message ?? "mcp smoke test failed",
+        stderr: safeTruncate(stderrBuf, { max: 4_000 })
+      }
+    };
+  } finally {
+    for (const item of pending.values()) {
+      clearTimeout(item.timeout);
+      try {
+        item.reject(new Error("mcp process closed"));
+      } catch {
+        // ignore
+      }
+    }
+    pending.clear();
+    await closeChild();
   }
 }
 
@@ -4214,6 +4513,7 @@ async function handleTenantCreate(req, res) {
     ok: true,
     tenantId,
     onboardingUrl: `/v1/tenants/${tenantId}/onboarding`,
+    runtimeBootstrapUrl: `/v1/tenants/${tenantId}/onboarding/runtime-bootstrap`,
     integrationsUrl: `/v1/tenants/${tenantId}/integrations`,
     settlementPoliciesUrl: `/v1/tenants/${tenantId}/settlement-policies`,
     metricsUrl: `/v1/tenants/${tenantId}/onboarding-metrics`,
@@ -4294,6 +4594,1077 @@ async function handleTenantOnboardingMetrics(req, res, tenantId, url) {
     onboardingEmailSequence,
     generatedAt: nowIso()
   });
+}
+
+async function handleTenantRuntimeBootstrap(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 100_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (json === null) json = {};
+  if (!isPlainObject(json)) return sendJson(res, 400, { ok: false, code: "INVALID_REQUEST", message: "body must be an object" });
+
+  const paidToolsBaseUrlRaw = typeof json.paidToolsBaseUrl === "string" ? json.paidToolsBaseUrl.trim() : "";
+  const paidToolsBaseUrl = paidToolsBaseUrlRaw ? normalizeHttpUrl(paidToolsBaseUrlRaw) : null;
+  if (paidToolsBaseUrlRaw && !paidToolsBaseUrl) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_PAID_TOOLS_BASE_URL", message: "paidToolsBaseUrl must be a valid http(s) URL" });
+  }
+
+  const requestPayload = { ...json };
+  delete requestPayload.paidToolsBaseUrl;
+
+  const idempotencyKey = req.headers["x-idempotency-key"] ? String(req.headers["x-idempotency-key"]).trim() : "";
+  const upstream = await callSettldTenantBootstrap({
+    tenantId,
+    payload: requestPayload,
+    idempotencyKey: idempotencyKey || null
+  });
+  if (!upstream.ok) return sendJson(res, upstream.statusCode ?? 502, { ok: false, code: upstream.code, message: upstream.message });
+
+  const bootstrap = upstream.response?.bootstrap;
+  if (!isPlainObject(bootstrap)) {
+    return sendJson(res, 502, {
+      ok: false,
+      code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+      message: "Settld bootstrap response missing bootstrap payload"
+    });
+  }
+
+  const apiBaseUrl = typeof bootstrap.apiBaseUrl === "string" && bootstrap.apiBaseUrl.trim() ? bootstrap.apiBaseUrl.trim() : settldApiBaseUrl;
+  const apiKeyToken = typeof bootstrap?.apiKey?.token === "string" && bootstrap.apiKey.token.trim() ? bootstrap.apiKey.token.trim() : null;
+  const mcpEnv = {};
+  if (apiBaseUrl) mcpEnv.SETTLD_BASE_URL = apiBaseUrl;
+  mcpEnv.SETTLD_TENANT_ID = tenantId;
+  if (apiKeyToken) mcpEnv.SETTLD_API_KEY = apiKeyToken;
+  if (paidToolsBaseUrl) mcpEnv.SETTLD_PAID_TOOLS_BASE_URL = paidToolsBaseUrl;
+  const mcp = {
+    schemaVersion: "SettldMcpServerConfig.v1",
+    command: "npx",
+    args: ["-y", "settld-mcp"],
+    env: mcpEnv
+  };
+  const mcpConfigJson = {
+    mcpServers: {
+      settld: {
+        command: mcp.command,
+        args: mcp.args,
+        env: mcp.env
+      }
+    }
+  };
+
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_RUNTIME_BOOTSTRAP_ISSUED",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "tenant",
+        targetId: tenantId,
+        details: {
+          apiBaseUrl: apiBaseUrl ?? null,
+          apiKeyId: typeof bootstrap?.apiKey?.keyId === "string" ? bootstrap.apiKey.keyId : null,
+          paidToolsBaseUrl: paidToolsBaseUrl ?? null
+        }
+      }
+    });
+  } catch {
+    // ignore audit write failures for bootstrap convenience endpoint
+  }
+
+  return sendJson(res, 201, {
+    ok: true,
+    schemaVersion: "MagicLinkRuntimeBootstrap.v1",
+    tenantId,
+    bootstrap,
+    mcp,
+    mcpConfigJson
+  });
+}
+
+async function handleTenantRuntimeBootstrapSmokeTest(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 100_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (json === null) json = {};
+  if (!isPlainObject(json)) return sendJson(res, 400, { ok: false, code: "INVALID_REQUEST", message: "body must be an object" });
+
+  const envRaw = isPlainObject(json?.env) ? json.env : isPlainObject(json?.mcp?.env) ? json.mcp.env : null;
+  if (!envRaw) return sendJson(res, 400, { ok: false, code: "ENV_REQUIRED", message: "env object is required" });
+
+  const required = ["SETTLD_BASE_URL", "SETTLD_TENANT_ID", "SETTLD_API_KEY"];
+  const env = {};
+  for (const key of required) {
+    const value = typeof envRaw[key] === "string" ? envRaw[key].trim() : "";
+    if (!value) return sendJson(res, 400, { ok: false, code: "ENV_INVALID", message: `${key} is required` });
+    env[key] = value;
+  }
+  if (!normalizeHttpUrl(env.SETTLD_BASE_URL)) {
+    return sendJson(res, 400, { ok: false, code: "ENV_INVALID", message: "SETTLD_BASE_URL must be a valid http(s) URL" });
+  }
+  if (env.SETTLD_TENANT_ID !== tenantId) {
+    return sendJson(res, 400, { ok: false, code: "ENV_INVALID", message: "SETTLD_TENANT_ID must match tenant path" });
+  }
+  const paidToolsBaseUrl = typeof envRaw.SETTLD_PAID_TOOLS_BASE_URL === "string" ? envRaw.SETTLD_PAID_TOOLS_BASE_URL.trim() : "";
+  if (paidToolsBaseUrl) {
+    const normalized = normalizeHttpUrl(paidToolsBaseUrl);
+    if (!normalized) return sendJson(res, 400, { ok: false, code: "ENV_INVALID", message: "SETTLD_PAID_TOOLS_BASE_URL must be a valid http(s) URL" });
+    env.SETTLD_PAID_TOOLS_BASE_URL = normalized;
+  }
+  env.SETTLD_PROTOCOL = settldProtocol;
+
+  const timeoutMsRaw = Number.parseInt(String(json.timeoutMs ?? "10000"), 10);
+  const timeoutMs = Number.isInteger(timeoutMsRaw) && timeoutMsRaw >= 1000 && timeoutMsRaw <= 30000 ? timeoutMsRaw : 10000;
+  const smoke = await runMcpInitializeToolsListSmoke({ env, timeoutMs });
+  if (!smoke.ok) {
+    return sendJson(res, 502, {
+      ok: false,
+      code: smoke.error ?? "MCP_SMOKE_TEST_FAILED",
+      message: smoke?.detail?.message ?? "mcp smoke test failed",
+      detail: smoke.detail ?? null
+    });
+  }
+
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_RUNTIME_MCP_SMOKE_TESTED",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "tenant",
+        targetId: tenantId,
+        details: {
+          toolsCount: Number.isInteger(smoke.smoke?.toolsCount) ? smoke.smoke.toolsCount : null,
+          initialized: Boolean(smoke.smoke?.initialized)
+        }
+      }
+    });
+  } catch {
+    // ignore audit write failures for smoke-test helper endpoint
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    schemaVersion: "MagicLinkRuntimeBootstrapSmokeTest.v1",
+    tenantId,
+    smoke: smoke.smoke
+  });
+}
+
+function firstPaidCallStepId(prefix, step) {
+  return `${String(prefix)}_${String(step)}`;
+}
+
+function tenantFirstPaidCallHistoryPath({ tenantId }) {
+  return path.join(dataDir, "tenants", tenantId, "onboarding_first_paid_calls.json");
+}
+
+function defaultTenantFirstPaidCallHistory({ tenantId }) {
+  return {
+    schemaVersion: "MagicLinkFirstPaidCallHistory.v1",
+    tenantId,
+    updatedAt: null,
+    attempts: []
+  };
+}
+
+function normalizeFirstPaidCallAttemptRow(input) {
+  if (!isPlainObject(input)) return null;
+  const attemptId = typeof input.attemptId === "string" && input.attemptId.trim() ? safeTruncate(input.attemptId.trim(), { max: 120 }) : null;
+  if (!attemptId) return null;
+  const normalizeIso = (value) => {
+    if (typeof value !== "string" || !value.trim()) return null;
+    const ms = Date.parse(value);
+    if (!Number.isFinite(ms)) return null;
+    return new Date(ms).toISOString();
+  };
+  const startedAt = normalizeIso(input.startedAt) ?? nowIso();
+  const completedAt = normalizeIso(input.completedAt);
+  const status = (() => {
+    const raw = typeof input.status === "string" ? input.status.trim().toLowerCase() : "";
+    if (raw === "passed" || raw === "completed" || raw === "degraded" || raw === "failed") return raw;
+    return "completed";
+  })();
+  const ids = isPlainObject(input.ids) ? {
+    posterAgentId: typeof input.ids.posterAgentId === "string" ? input.ids.posterAgentId : null,
+    bidderAgentId: typeof input.ids.bidderAgentId === "string" ? input.ids.bidderAgentId : null,
+    rfqId: typeof input.ids.rfqId === "string" ? input.ids.rfqId : null,
+    bidId: typeof input.ids.bidId === "string" ? input.ids.bidId : null,
+    runId: typeof input.ids.runId === "string" ? input.ids.runId : null
+  } : null;
+  const verificationStatus =
+    typeof input.verificationStatus === "string" && input.verificationStatus.trim()
+      ? input.verificationStatus.trim().toLowerCase()
+      : null;
+  const settlementStatus =
+    typeof input.settlementStatus === "string" && input.settlementStatus.trim()
+      ? input.settlementStatus.trim().toLowerCase()
+      : null;
+  const config = isPlainObject(input.config) ? {
+    payerCreditAmountCents: Number.isSafeInteger(Number(input.config.payerCreditAmountCents))
+      ? Number(input.config.payerCreditAmountCents)
+      : null,
+    budgetCents: Number.isSafeInteger(Number(input.config.budgetCents))
+      ? Number(input.config.budgetCents)
+      : null,
+    bidAmountCents: Number.isSafeInteger(Number(input.config.bidAmountCents))
+      ? Number(input.config.bidAmountCents)
+      : null,
+    currency:
+      typeof input.config.currency === "string" && input.config.currency.trim()
+        ? input.config.currency.trim().toUpperCase()
+        : null,
+    source:
+      typeof input.config.source === "string" && input.config.source.trim()
+        ? safeTruncate(input.config.source.trim(), { max: 64 })
+        : "manual"
+  } : null;
+  const error = isPlainObject(input.error)
+    ? {
+        code: typeof input.error.code === "string" ? safeTruncate(input.error.code, { max: 80 }) : null,
+        step: typeof input.error.step === "string" ? safeTruncate(input.error.step, { max: 80 }) : null,
+        message: typeof input.error.message === "string" ? safeTruncate(input.error.message, { max: 500 }) : null
+      }
+    : null;
+  return {
+    schemaVersion: "MagicLinkFirstPaidCallAttempt.v1",
+    attemptId,
+    startedAt,
+    completedAt,
+    status,
+    ids,
+    verificationStatus,
+    settlementStatus,
+    config,
+    error
+  };
+}
+
+async function loadTenantFirstPaidCallHistoryBestEffort({ tenantId }) {
+  const fp = tenantFirstPaidCallHistoryPath({ tenantId });
+  try {
+    const raw = JSON.parse(await fs.readFile(fp, "utf8"));
+    if (!isPlainObject(raw)) return defaultTenantFirstPaidCallHistory({ tenantId });
+    const rows = Array.isArray(raw.attempts) ? raw.attempts : [];
+    const attempts = rows.map((row) => normalizeFirstPaidCallAttemptRow(row)).filter(Boolean).slice(-100);
+    const updatedAt = typeof raw.updatedAt === "string" && Number.isFinite(Date.parse(raw.updatedAt)) ? raw.updatedAt : null;
+    return {
+      schemaVersion: "MagicLinkFirstPaidCallHistory.v1",
+      tenantId,
+      updatedAt,
+      attempts
+    };
+  } catch {
+    return defaultTenantFirstPaidCallHistory({ tenantId });
+  }
+}
+
+async function saveTenantFirstPaidCallHistory({ tenantId, history }) {
+  const fp = tenantFirstPaidCallHistoryPath({ tenantId });
+  await fs.mkdir(path.dirname(fp), { recursive: true });
+  await fs.writeFile(fp, JSON.stringify(history, null, 2) + "\n", "utf8");
+}
+
+async function appendTenantFirstPaidCallAttempt({ tenantId, attempt }) {
+  const history = await loadTenantFirstPaidCallHistoryBestEffort({ tenantId });
+  const normalized = normalizeFirstPaidCallAttemptRow(attempt);
+  if (!normalized) return history;
+  const attempts = [...history.attempts, normalized].slice(-100);
+  const next = {
+    schemaVersion: "MagicLinkFirstPaidCallHistory.v1",
+    tenantId,
+    updatedAt: nowIso(),
+    attempts
+  };
+  await saveTenantFirstPaidCallHistory({ tenantId, history: next });
+  return next;
+}
+
+function tenantConformanceIdempotencyPath({ tenantId, idempotencyKey }) {
+  const keyHash = sha256Hex(String(idempotencyKey ?? ""));
+  return path.join(dataDir, "tenants", tenantId, "onboarding_conformance_idempotency", `${keyHash}.json`);
+}
+
+async function loadTenantConformanceIdempotentResultBestEffort({ tenantId, idempotencyKey }) {
+  const fp = tenantConformanceIdempotencyPath({ tenantId, idempotencyKey });
+  try {
+    const raw = JSON.parse(await fs.readFile(fp, "utf8"));
+    if (!isPlainObject(raw)) return null;
+    return {
+      schemaVersion: "MagicLinkRuntimeConformanceIdempotency.v1",
+      tenantId,
+      idempotencyKeyHash: typeof raw.idempotencyKeyHash === "string" ? raw.idempotencyKeyHash : null,
+      createdAt: typeof raw.createdAt === "string" ? raw.createdAt : null,
+      statusCode: Number.isInteger(raw.statusCode) ? raw.statusCode : 200,
+      response: isPlainObject(raw.response) ? raw.response : null
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function saveTenantConformanceIdempotentResult({ tenantId, idempotencyKey, statusCode = 200, response }) {
+  const fp = tenantConformanceIdempotencyPath({ tenantId, idempotencyKey });
+  await fs.mkdir(path.dirname(fp), { recursive: true });
+  const record = {
+    schemaVersion: "MagicLinkRuntimeConformanceIdempotency.v1",
+    tenantId,
+    idempotencyKeyHash: sha256Hex(String(idempotencyKey ?? "")),
+    createdAt: nowIso(),
+    statusCode: Number.isInteger(statusCode) ? statusCode : 200,
+    response: isPlainObject(response) ? response : null
+  };
+  await fs.writeFile(fp, JSON.stringify(record, null, 2) + "\n", "utf8");
+  return record;
+}
+
+function firstPaidCallExtractVerificationStatus(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  if (typeof payload.verificationStatus === "string" && payload.verificationStatus.trim()) return payload.verificationStatus.trim().toLowerCase();
+  if (
+    payload.verification &&
+    typeof payload.verification === "object" &&
+    !Array.isArray(payload.verification) &&
+    typeof payload.verification.verificationStatus === "string" &&
+    payload.verification.verificationStatus.trim()
+  ) {
+    return payload.verification.verificationStatus.trim().toLowerCase();
+  }
+  return null;
+}
+
+function firstPaidCallExtractSettlementStatus(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  if (typeof payload.status === "string" && payload.status.trim()) return payload.status.trim().toLowerCase();
+  if (
+    payload.settlement &&
+    typeof payload.settlement === "object" &&
+    !Array.isArray(payload.settlement) &&
+    typeof payload.settlement.status === "string" &&
+    payload.settlement.status.trim()
+  ) {
+    return payload.settlement.status.trim().toLowerCase();
+  }
+  return null;
+}
+
+async function runTenantFirstPaidCallFlow({
+  tenantId,
+  runtimeApiKey,
+  payerCreditAmountCents,
+  budgetCents,
+  bidAmountCents,
+  currency,
+  flowPrefix = null
+} = {}) {
+  const prefix = flowPrefix && String(flowPrefix).trim()
+    ? String(flowPrefix).trim()
+    : `ml_first_paid_${Date.now().toString(16)}_${crypto.randomBytes(3).toString("hex")}`;
+  const agentSuffix = prefix.slice(-16);
+  const runRequest = async ({ step, method, pathname, body = undefined, expectedPrevChainHash = null }) => {
+    const result = await callSettldTenantApi({
+      apiBaseUrl: settldApiBaseUrl,
+      tenantId,
+      apiKey: runtimeApiKey,
+      method,
+      pathname,
+      body,
+      idempotencyKey: firstPaidCallStepId(prefix, step),
+      expectedPrevChainHash
+    });
+    if (!result.ok) {
+      return {
+        ok: false,
+        statusCode: result.statusCode ?? 502,
+        code: result.code ?? "SETTLD_API_CALL_FAILED",
+        step,
+        message: `step ${step} failed: ${result.message ?? "request failed"}`
+      };
+    }
+    return { ok: true, response: result.response };
+  };
+
+  const posterKeypair = crypto.generateKeyPairSync("ed25519");
+  const bidderKeypair = crypto.generateKeyPairSync("ed25519");
+  const posterPublicKeyPem = posterKeypair.publicKey.export({ type: "spki", format: "pem" }).toString("utf8");
+  const bidderPublicKeyPem = bidderKeypair.publicKey.export({ type: "spki", format: "pem" }).toString("utf8");
+  const posterAgentId = `agt_ml_poster_${agentSuffix}`;
+  const bidderAgentId = `agt_ml_bidder_${agentSuffix}`;
+  const rfqId = `rfq_ml_${agentSuffix}`;
+  const bidId = `bid_ml_${agentSuffix}`;
+
+  const posterRegistration = await runRequest({
+    step: "register_poster",
+    method: "POST",
+    pathname: "/agents/register",
+    body: {
+      agentId: posterAgentId,
+      displayName: "Magic Link Poster Agent",
+      owner: { ownerType: "service", ownerId: "svc_magic_link_onboarding" },
+      capabilities: ["request"],
+      publicKeyPem: posterPublicKeyPem
+    }
+  });
+  if (!posterRegistration.ok) return posterRegistration;
+
+  const bidderRegistration = await runRequest({
+    step: "register_bidder",
+    method: "POST",
+    pathname: "/agents/register",
+    body: {
+      agentId: bidderAgentId,
+      displayName: "Magic Link Bidder Agent",
+      owner: { ownerType: "service", ownerId: "svc_magic_link_onboarding" },
+      capabilities: ["execute", "deliver"],
+      publicKeyPem: bidderPublicKeyPem
+    }
+  });
+  if (!bidderRegistration.ok) return bidderRegistration;
+
+  const credit = await runRequest({
+    step: "credit_wallet",
+    method: "POST",
+    pathname: `/agents/${encodeURIComponent(posterAgentId)}/wallet/credit`,
+    body: {
+      amountCents: payerCreditAmountCents,
+      currency
+    }
+  });
+  if (!credit.ok) return credit;
+
+  const rfq = await runRequest({
+    step: "create_rfq",
+    method: "POST",
+    pathname: "/marketplace/rfqs",
+    body: {
+      rfqId,
+      title: "Magic Link first paid call",
+      capability: "general",
+      posterAgentId,
+      budgetCents,
+      currency
+    }
+  });
+  if (!rfq.ok) return rfq;
+
+  const bid = await runRequest({
+    step: "submit_bid",
+    method: "POST",
+    pathname: `/marketplace/rfqs/${encodeURIComponent(rfqId)}/bids`,
+    body: {
+      bidId,
+      bidderAgentId,
+      amountCents: bidAmountCents,
+      currency,
+      etaSeconds: 600
+    }
+  });
+  if (!bid.ok) return bid;
+
+  const accepted = await runRequest({
+    step: "accept_bid",
+    method: "POST",
+    pathname: `/marketplace/rfqs/${encodeURIComponent(rfqId)}/accept`,
+    body: {
+      bidId,
+      acceptedByAgentId: posterAgentId,
+      settlement: {
+        payerAgentId: posterAgentId,
+        amountCents: bidAmountCents,
+        currency
+      }
+    }
+  });
+  if (!accepted.ok) return accepted;
+
+  const runId = typeof accepted.response?.run?.runId === "string" ? accepted.response.run.runId.trim() : "";
+  const lastChainHash = typeof accepted.response?.run?.lastChainHash === "string" ? accepted.response.run.lastChainHash.trim() : "";
+  if (!runId || !lastChainHash) {
+    return {
+      ok: false,
+      code: "SETTLD_API_INVALID_RESPONSE",
+      statusCode: 502,
+      step: "accept_bid",
+      message: "accept response missing runId or lastChainHash"
+    };
+  }
+
+  const runCompleted = await runRequest({
+    step: "run_completed",
+    method: "POST",
+    pathname: `/agents/${encodeURIComponent(bidderAgentId)}/runs/${encodeURIComponent(runId)}/events`,
+    expectedPrevChainHash: lastChainHash,
+    body: {
+      type: "RUN_COMPLETED",
+      actor: { type: "agent", id: bidderAgentId },
+      payload: {
+        outputRef: `evidence://${runId}/result.json`,
+        metrics: { settlementReleaseRatePct: 100, latencyMs: 350 }
+      }
+    }
+  });
+  if (!runCompleted.ok) return runCompleted;
+
+  const verification = await callSettldTenantApi({
+    apiBaseUrl: settldApiBaseUrl,
+    tenantId,
+    apiKey: runtimeApiKey,
+    method: "GET",
+    pathname: `/runs/${encodeURIComponent(runId)}/verification`
+  });
+  if (!verification.ok) {
+    return {
+      ok: false,
+      step: "verification",
+      statusCode: verification.statusCode ?? 502,
+      code: verification.code ?? "SETTLD_API_CALL_FAILED",
+      message: `step verification failed: ${verification.message ?? "request failed"}`
+    };
+  }
+
+  const settlement = await callSettldTenantApi({
+    apiBaseUrl: settldApiBaseUrl,
+    tenantId,
+    apiKey: runtimeApiKey,
+    method: "GET",
+    pathname: `/runs/${encodeURIComponent(runId)}/settlement`
+  });
+  if (!settlement.ok) {
+    return {
+      ok: false,
+      step: "settlement",
+      statusCode: settlement.statusCode ?? 502,
+      code: settlement.code ?? "SETTLD_API_CALL_FAILED",
+      message: `step settlement failed: ${settlement.message ?? "request failed"}`
+    };
+  }
+
+  const verificationStatus = firstPaidCallExtractVerificationStatus(verification.response);
+  const settlementStatus = firstPaidCallExtractSettlementStatus(settlement.response);
+
+  return {
+    ok: true,
+    ids: {
+      posterAgentId,
+      bidderAgentId,
+      rfqId,
+      bidId,
+      runId
+    },
+    verificationStatus,
+    settlementStatus,
+    verification: verification.response,
+    settlement: settlement.response
+  };
+}
+
+async function handleTenantFirstPaidCallHistory(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+  const history = await loadTenantFirstPaidCallHistoryBestEffort({ tenantId });
+  return sendJson(res, 200, { ok: true, ...history });
+}
+
+async function handleTenantFirstPaidCall(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 40_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (json === null) json = {};
+  if (!isPlainObject(json)) return sendJson(res, 400, { ok: false, code: "INVALID_REQUEST", message: "body must be an object" });
+
+  const replayAttemptId =
+    typeof json.replayAttemptId === "string" && json.replayAttemptId.trim()
+      ? json.replayAttemptId.trim()
+      : null;
+  if (replayAttemptId) {
+    const history = await loadTenantFirstPaidCallHistoryBestEffort({ tenantId });
+    const attempt = history.attempts.find((row) => row.attemptId === replayAttemptId) ?? null;
+    if (!attempt) return sendJson(res, 404, { ok: false, code: "ATTEMPT_NOT_FOUND", message: "first paid call attempt not found" });
+    return sendJson(res, 200, {
+      ok: true,
+      schemaVersion: "MagicLinkFirstPaidCall.v1",
+      tenantId,
+      replayed: true,
+      attemptId: attempt.attemptId,
+      ids: attempt.ids ?? null,
+      verificationStatus: attempt.verificationStatus ?? null,
+      settlementStatus: attempt.settlementStatus ?? null,
+      attempt
+    });
+  }
+
+  const toPositiveInt = (value, fallback) => {
+    if (value === undefined || value === null || value === "") return fallback;
+    const parsed = Number.parseInt(String(value), 10);
+    if (!Number.isSafeInteger(parsed) || parsed <= 0) return null;
+    return parsed;
+  };
+
+  const payerCreditAmountCents = toPositiveInt(json.payerCreditAmountCents, 2_500);
+  const budgetCents = toPositiveInt(json.budgetCents, 1_200);
+  const bidAmountCents = toPositiveInt(json.bidAmountCents, 1_100);
+  if (!payerCreditAmountCents || !budgetCents || !bidAmountCents) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "INVALID_AMOUNT",
+      message: "payerCreditAmountCents, budgetCents, and bidAmountCents must be positive integers"
+    });
+  }
+  if (bidAmountCents > budgetCents) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_AMOUNT", message: "bidAmountCents must be <= budgetCents" });
+  }
+
+  const currencyRaw = typeof json.currency === "string" ? json.currency.trim().toUpperCase() : "USD";
+  const currency = currencyRaw || "USD";
+  if (!/^[A-Z]{3}$/.test(currency)) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_CURRENCY", message: "currency must be a 3-letter ISO code" });
+  }
+
+  const attemptId = `fpc_${Date.now().toString(16)}_${crypto.randomBytes(3).toString("hex")}`;
+  const startedAt = nowIso();
+  const config = { payerCreditAmountCents, budgetCents, bidAmountCents, currency, source: "manual" };
+
+  const bootstrap = await callSettldTenantBootstrap({
+    tenantId,
+    payload: {
+      apiKey: {
+        create: true,
+        description: "magic-link first paid call runtime key"
+      }
+    }
+  });
+  if (!bootstrap.ok) {
+    await appendTenantFirstPaidCallAttempt({
+      tenantId,
+      attempt: {
+        attemptId,
+        startedAt,
+        completedAt: nowIso(),
+        status: "failed",
+        config,
+        error: { code: bootstrap.code ?? "RUNTIME_BOOTSTRAP_FAILED", step: "bootstrap", message: bootstrap.message ?? "bootstrap failed" }
+      }
+    });
+    return sendJson(res, bootstrap.statusCode ?? 502, { ok: false, code: bootstrap.code, message: bootstrap.message, attemptId });
+  }
+
+  const runtimeApiKey = typeof bootstrap.response?.bootstrap?.apiKey?.token === "string"
+    ? bootstrap.response.bootstrap.apiKey.token.trim()
+    : "";
+  if (!runtimeApiKey) {
+    await appendTenantFirstPaidCallAttempt({
+      tenantId,
+      attempt: {
+        attemptId,
+        startedAt,
+        completedAt: nowIso(),
+        status: "failed",
+        config,
+        error: {
+          code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+          step: "bootstrap",
+          message: "Settld bootstrap response missing runtime API key token"
+        }
+      }
+    });
+    return sendJson(res, 502, {
+      ok: false,
+      code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+      message: "Settld bootstrap response missing runtime API key token",
+      attemptId
+    });
+  }
+
+  const flow = await runTenantFirstPaidCallFlow({
+    tenantId,
+    runtimeApiKey,
+    payerCreditAmountCents,
+    budgetCents,
+    bidAmountCents,
+    currency,
+    flowPrefix: attemptId
+  });
+
+  if (!flow.ok) {
+    await appendTenantFirstPaidCallAttempt({
+      tenantId,
+      attempt: {
+        attemptId,
+        startedAt,
+        completedAt: nowIso(),
+        status: "failed",
+        config,
+        error: { code: flow.code ?? "SETTLD_API_CALL_FAILED", step: flow.step ?? null, message: flow.message ?? "flow failed" }
+      }
+    });
+    try {
+      await appendAuditRecord({
+        dataDir,
+        tenantId,
+        record: {
+          at: nowIso(),
+          action: "TENANT_RUNTIME_FIRST_PAID_CALL_FAILED",
+          actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+          targetType: "tenant",
+          targetId: tenantId,
+          details: { attemptId, code: flow.code ?? null, step: flow.step ?? null, message: flow.message ?? null }
+        }
+      });
+    } catch {
+      // ignore
+    }
+    return sendJson(res, flow.statusCode ?? 502, { ok: false, code: flow.code, message: flow.message, attemptId });
+  }
+
+  const verificationPassed = flow.verificationStatus === "green";
+  await markTenantOnboardingProgress({
+    dataDir,
+    tenantId,
+    isSample: false,
+    verificationOk: verificationPassed
+  });
+
+  const status = verificationPassed && flow.settlementStatus === "released" ? "passed" : "degraded";
+  const history = await appendTenantFirstPaidCallAttempt({
+    tenantId,
+    attempt: {
+      attemptId,
+      startedAt,
+      completedAt: nowIso(),
+      status,
+      ids: flow.ids,
+      verificationStatus: flow.verificationStatus,
+      settlementStatus: flow.settlementStatus,
+      config,
+      error: null
+    }
+  });
+
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_RUNTIME_FIRST_PAID_CALL_COMPLETED",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "run",
+        targetId: flow.ids.runId,
+        details: {
+          attemptId,
+          posterAgentId: flow.ids.posterAgentId,
+          bidderAgentId: flow.ids.bidderAgentId,
+          rfqId: flow.ids.rfqId,
+          bidId: flow.ids.bidId,
+          verificationStatus: flow.verificationStatus ?? null,
+          settlementStatus: flow.settlementStatus ?? null
+        }
+      }
+    });
+  } catch {
+    // ignore audit write failures for onboarding convenience endpoint
+  }
+
+  return sendJson(res, 200, {
+    ok: true,
+    schemaVersion: "MagicLinkFirstPaidCall.v1",
+    tenantId,
+    replayed: false,
+    attemptId,
+    ids: flow.ids,
+    verificationStatus: flow.verificationStatus,
+    settlementStatus: flow.settlementStatus,
+    verification: flow.verification,
+    settlement: flow.settlement,
+    history: {
+      updatedAt: history.updatedAt,
+      count: Array.isArray(history.attempts) ? history.attempts.length : 0
+    }
+  });
+}
+
+async function handleTenantRuntimeConformanceMatrix(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 40_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (json === null) json = {};
+  if (!isPlainObject(json)) return sendJson(res, 400, { ok: false, code: "INVALID_REQUEST", message: "body must be an object" });
+
+  const idempotencyHeader = req.headers["x-idempotency-key"] ? String(req.headers["x-idempotency-key"]).trim() : "";
+  const idempotencyBody = typeof json.idempotencyKey === "string" ? json.idempotencyKey.trim() : "";
+  const idempotencyKey = idempotencyHeader || idempotencyBody || null;
+  if (idempotencyKey && (idempotencyKey.length > 160 || /[\r\n]/.test(idempotencyKey))) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_IDEMPOTENCY_KEY", message: "idempotencyKey must be <= 160 chars and single-line" });
+  }
+  if (idempotencyKey) {
+    const existing = await loadTenantConformanceIdempotentResultBestEffort({ tenantId, idempotencyKey });
+    if (existing?.response) {
+      const cached = {
+        ...existing.response,
+        idempotency: {
+          keyHash: existing.idempotencyKeyHash,
+          reused: true,
+          createdAt: existing.createdAt
+        }
+      };
+      return sendJson(res, Number.isInteger(existing.statusCode) ? existing.statusCode : 200, cached);
+    }
+  }
+
+  const tenantSettings = await loadTenantSettings({ dataDir, tenantId });
+  const limits = tenantRateLimits(tenantSettings);
+  const rl = applyRateLimit({ req, tenantId, tenantSettings, category: "conformance", limitPerHour: limits.conformanceRunsPerHour });
+  if (!rl.ok) {
+    metrics.incCounter("quota_rejects_total", { tenantId, reason: "rate_limit" }, 1);
+    metrics.incCounter("rate_limit_events_total", { tenantId, category: "conformance", scope: rl.scope ?? "tenant" }, 1);
+    res.setHeader("retry-after", String(rl.retryAfterSeconds ?? 60));
+    return sendJson(res, 429, {
+      ok: false,
+      code: "RATE_LIMITED",
+      message: "rate limit exceeded",
+      retryAfterSeconds: rl.retryAfterSeconds ?? null,
+      scope: rl.scope ?? null
+    });
+  }
+
+  const targetsRaw = Array.isArray(json.targets) ? json.targets : ["codex", "claude", "openhands"];
+  const targets = [...new Set(
+    targetsRaw
+      .map((row) => String(row ?? "").trim().toLowerCase())
+      .filter((row) => row === "codex" || row === "claude" || row === "openhands")
+  )];
+  if (!targets.length) return sendJson(res, 400, { ok: false, code: "INVALID_TARGETS", message: "targets must include codex|claude|openhands" });
+
+  const matrixRunId = `mx_${Date.now().toString(16)}_${crypto.randomBytes(3).toString("hex")}`;
+  const checks = [];
+  let mcpEnv = null;
+  let runtimeApiKey = null;
+  let paidFlow = null;
+
+  const bootstrap = await callSettldTenantBootstrap({
+    tenantId,
+    payload: {
+      apiKey: {
+        create: true,
+        description: "magic-link conformance matrix runtime key"
+      }
+    }
+  });
+  if (bootstrap.ok) {
+    const apiBaseUrl = typeof bootstrap.response?.bootstrap?.apiBaseUrl === "string" && bootstrap.response.bootstrap.apiBaseUrl.trim()
+      ? bootstrap.response.bootstrap.apiBaseUrl.trim()
+      : settldApiBaseUrl;
+    runtimeApiKey = typeof bootstrap.response?.bootstrap?.apiKey?.token === "string" ? bootstrap.response.bootstrap.apiKey.token.trim() : "";
+    mcpEnv = {
+      SETTLD_BASE_URL: apiBaseUrl,
+      SETTLD_TENANT_ID: tenantId,
+      SETTLD_API_KEY: runtimeApiKey,
+      SETTLD_PROTOCOL: settldProtocol
+    };
+    checks.push({
+      checkId: "runtime_bootstrap",
+      status: runtimeApiKey ? "pass" : "fail",
+      detail: {
+        apiKeyId: typeof bootstrap.response?.bootstrap?.apiKey?.keyId === "string" ? bootstrap.response.bootstrap.apiKey.keyId : null
+      }
+    });
+  } else {
+    checks.push({
+      checkId: "runtime_bootstrap",
+      status: "fail",
+      detail: { code: bootstrap.code ?? null, message: bootstrap.message ?? null }
+    });
+  }
+
+  let smoke = null;
+  if (runtimeApiKey && mcpEnv) {
+    smoke = await runMcpInitializeToolsListSmoke({ env: mcpEnv, timeoutMs: 10_000 });
+    checks.push({
+      checkId: "mcp_smoke",
+      status: smoke.ok ? "pass" : "fail",
+      detail: smoke.ok
+        ? { toolsCount: smoke.smoke?.toolsCount ?? null, sampleTools: smoke.smoke?.sampleTools ?? [] }
+        : { code: smoke.error ?? null, message: smoke?.detail?.message ?? null }
+    });
+  } else {
+    checks.push({
+      checkId: "mcp_smoke",
+      status: "fail",
+      detail: { code: "RUNTIME_NOT_READY", message: "runtime bootstrap did not return API key" }
+    });
+  }
+
+  if (runtimeApiKey && smoke?.ok) {
+    const flow = await runTenantFirstPaidCallFlow({
+      tenantId,
+      runtimeApiKey,
+      payerCreditAmountCents: 2_500,
+      budgetCents: 1_200,
+      bidAmountCents: 1_100,
+      currency: "USD",
+      flowPrefix: matrixRunId
+    });
+    if (flow.ok) {
+      paidFlow = flow;
+      const verificationPassed = flow.verificationStatus === "green";
+      const settlementReleased = flow.settlementStatus === "released";
+      checks.push({
+        checkId: "first_paid_call",
+        status: verificationPassed && settlementReleased ? "pass" : "fail",
+        detail: {
+          runId: flow.ids?.runId ?? null,
+          verificationStatus: flow.verificationStatus ?? null,
+          settlementStatus: flow.settlementStatus ?? null
+        }
+      });
+      await markTenantOnboardingProgress({
+        dataDir,
+        tenantId,
+        isSample: false,
+        verificationOk: verificationPassed
+      });
+      await appendTenantFirstPaidCallAttempt({
+        tenantId,
+        attempt: {
+          attemptId: matrixRunId,
+          startedAt: nowIso(),
+          completedAt: nowIso(),
+          status: verificationPassed && settlementReleased ? "passed" : "degraded",
+          ids: flow.ids,
+          verificationStatus: flow.verificationStatus,
+          settlementStatus: flow.settlementStatus,
+          config: {
+            payerCreditAmountCents: 2_500,
+            budgetCents: 1_200,
+            bidAmountCents: 1_100,
+            currency: "USD",
+            source: "conformance_matrix"
+          }
+        }
+      });
+    } else {
+      checks.push({
+        checkId: "first_paid_call",
+        status: "fail",
+        detail: { code: flow.code ?? null, step: flow.step ?? null, message: flow.message ?? null }
+      });
+    }
+  } else {
+    checks.push({
+      checkId: "first_paid_call",
+      status: "fail",
+      detail: { code: "RUNTIME_NOT_READY", message: "MCP smoke must pass before first paid call check" }
+    });
+  }
+
+  const checkById = new Map(checks.map((row) => [row.checkId, row]));
+  const bootstrapOk = checkById.get("runtime_bootstrap")?.status === "pass";
+  const smokeOk = checkById.get("mcp_smoke")?.status === "pass";
+  const paidOk = checkById.get("first_paid_call")?.status === "pass";
+  const targetRows = targets.map((target) => ({
+    target,
+    status: bootstrapOk && smokeOk && paidOk ? "pass" : "fail",
+    config: target === "openhands"
+      ? {
+          env: mcpEnv
+            ? Object.entries(mcpEnv).map(([k, v]) => `export ${k}=${JSON.stringify(String(v))}`).join("\n")
+            : null
+        }
+      : {
+          mcpServers: mcpEnv
+            ? { settld: { command: "npx", args: ["-y", "settld-mcp"], env: mcpEnv } }
+            : null
+        }
+  }));
+
+  const matrix = {
+    schemaVersion: "MagicLinkRuntimeConformanceMatrix.v1",
+    tenantId,
+    runId: matrixRunId,
+    generatedAt: nowIso(),
+    checks,
+    targets: targetRows,
+    ready: bootstrapOk && smokeOk && paidOk,
+    firstPaidCall: paidFlow
+      ? {
+          ids: paidFlow.ids,
+          verificationStatus: paidFlow.verificationStatus,
+          settlementStatus: paidFlow.settlementStatus
+        }
+      : null
+  };
+
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "TENANT_RUNTIME_CONFORMANCE_MATRIX_RUN",
+        actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+        targetType: "tenant",
+        targetId: tenantId,
+        details: {
+          runId: matrixRunId,
+          ready: matrix.ready,
+          checks: checks.map((row) => ({ checkId: row.checkId, status: row.status }))
+        }
+      }
+    });
+  } catch {
+    // ignore audit write failures for conformance helper endpoint
+  }
+
+  const responseBody = {
+    ok: true,
+    matrix,
+    idempotency: {
+      keyHash: idempotencyKey ? sha256Hex(String(idempotencyKey)) : null,
+      reused: false,
+      createdAt: nowIso()
+    }
+  };
+  if (idempotencyKey) {
+    try {
+      await saveTenantConformanceIdempotentResult({
+        tenantId,
+        idempotencyKey,
+        statusCode: 200,
+        response: responseBody
+      });
+    } catch {
+      // ignore idempotency persistence failures
+    }
+  }
+
+  return sendJson(res, 200, responseBody);
 }
 
 async function handleTenantOnboardingEvent(req, res, tenantId) {
@@ -7850,13 +9221,53 @@ async function handleTenantOnboardingPage(req, res, tenantId, url) {
     "</section>",
     "<section class=\"card\">",
     "<h2>Step 5. First settlement checklist</h2>",
-    "<div class=\"muted\">Follow this guided sequence to reach a verified first settlement and buyer handoff.</div>",
+    "<div class=\"muted\">Follow this guided sequence to reach a verified first settlement and buyer handoff. Step 7 successful attempts also satisfy the first verified milestone.</div>",
     "<div id=\"checklistSummary\" class=\"status\" style=\"margin-top:8px\">Loading checklist…</div>",
     "<div id=\"firstSettlementChecklist\" class=\"checklist\"></div>",
     "<div class=\"row\" style=\"margin-top:8px\">",
     "<button class=\"btn ghost\" id=\"refreshChecklistBtn\">Refresh checklist</button>",
     `<a class="btn ghost" href="/v1/tenants/${encodeURIComponent(tenantId)}/analytics/dashboard?month=${encodeURIComponent(month)}" target="_blank" rel="noreferrer">Open analytics dashboard</a>`,
     "</div>",
+    "</section>",
+    "<section class=\"card\">",
+    "<h2>Step 6. Runtime bootstrap (MCP)</h2>",
+    "<div class=\"muted\">Generate a bounded runtime key and copy MCP config/env exports for your local agent runtime.</div>",
+    "<div class=\"row\" style=\"margin-top:8px\">",
+    "<div class=\"field\"><div class=\"muted\">API key ID (optional)</div><input id=\"runtimeApiKeyId\" placeholder=\"ak_mcp_runtime\"/></div>",
+    "<div class=\"field\"><div class=\"muted\">Scopes (comma separated, optional)</div><input id=\"runtimeScopes\" value=\"\" placeholder=\"Leave blank for defaults (recommended)\"/></div>",
+    "<div class=\"field\"><div class=\"muted\">Paid tools base URL (optional)</div><input id=\"runtimePaidToolsBaseUrl\" placeholder=\"https://paid.tools.settld.work\"/></div>",
+    "</div>",
+    "<div class=\"row\" style=\"margin-top:8px\">",
+    "<button class=\"btn\" id=\"runtimeBootstrapBtn\">Generate runtime config</button>",
+    "<button class=\"btn secondary\" id=\"runtimeSmokeBtn\">Run MCP smoke test</button>",
+    "<button class=\"btn ghost\" id=\"copyMcpConfigBtn\">Copy MCP config</button>",
+    "<button class=\"btn ghost\" id=\"copyEnvExportsBtn\">Copy env exports</button>",
+    "</div>",
+    "<div id=\"runtimeBootstrapStatus\" class=\"status\" style=\"margin-top:8px\">Runtime bootstrap not generated yet.</div>",
+    "<div id=\"runtimeSmokeStatus\" class=\"status\" style=\"margin-top:8px\">MCP smoke test not run yet.</div>",
+    "<div class=\"row\" style=\"margin-top:8px\">",
+    "<div class=\"field\"><div class=\"muted\">MCP config JSON</div><pre id=\"runtimeMcpConfig\" class=\"mono\" style=\"white-space:pre-wrap;background:#0b1020;color:#f8fafc;border-radius:12px;padding:10px;max-height:220px;overflow:auto\">{}</pre></div>",
+    "<div class=\"field\"><div class=\"muted\">Environment exports</div><pre id=\"runtimeEnvExports\" class=\"mono\" style=\"white-space:pre-wrap;background:#0b1020;color:#f8fafc;border-radius:12px;padding:10px;max-height:220px;overflow:auto\"># none</pre></div>",
+    "</div>",
+    "</section>",
+    "<section class=\"card\">",
+    "<h2>Step 7. First live paid call</h2>",
+    "<div class=\"muted\">Run an end-to-end paid marketplace flow (register, fund, RFQ, bid, accept, settle, verify), persist attempts, and replay prior runs.</div>",
+    "<div class=\"row\" style=\"margin-top:8px\">",
+    "<button class=\"btn\" id=\"firstPaidCallBtn\">Run first paid call</button>",
+    "<button class=\"btn ghost\" id=\"firstPaidCallHistoryBtn\">Refresh history</button>",
+    "<button class=\"btn ghost\" id=\"firstPaidCallReplayBtn\">Replay selected</button>",
+    "</div>",
+    "<div class=\"row\" style=\"margin-top:8px\">",
+    "<div class=\"field\"><div class=\"muted\">Attempt history</div><select id=\"firstPaidCallHistorySelect\"><option value=\"\">No attempts yet</option></select></div>",
+    "</div>",
+    "<div id=\"firstPaidCallStatus\" class=\"status\" style=\"margin-top:8px\">First paid call not run yet.</div>",
+    "<pre id=\"firstPaidCallOutput\" class=\"mono\" style=\"white-space:pre-wrap;background:#0b1020;color:#f8fafc;border-radius:12px;padding:10px;max-height:240px;overflow:auto;margin-top:8px\">{}</pre>",
+    "<div class=\"row\" style=\"margin-top:8px\">",
+    "<button class=\"btn\" id=\"runtimeConformanceBtn\">Run conformance matrix</button>",
+    "</div>",
+    "<div id=\"runtimeConformanceStatus\" class=\"status\" style=\"margin-top:8px\">Conformance matrix not run yet.</div>",
+    "<pre id=\"runtimeConformanceOutput\" class=\"mono\" style=\"white-space:pre-wrap;background:#0b1020;color:#f8fafc;border-radius:12px;padding:10px;max-height:220px;overflow:auto;margin-top:8px\">{}</pre>",
     "</section>",
     "<section class=\"card\">",
     "<h2>Ops exports</h2>",
@@ -7871,9 +9282,10 @@ async function handleTenantOnboardingPage(req, res, tenantId, url) {
     "</div>",
     "<script>",
     `const tenantId = ${JSON.stringify(tenantId)};`,
-    "const state = { templates: [], selectedTemplate: null, renderedTemplate: null, token: null, onboardingMetrics: null };",
+    "const state = { templates: [], selectedTemplate: null, renderedTemplate: null, token: null, onboardingMetrics: null, runtimeBootstrap: null, runtimeSmoke: null, firstPaidCall: null, firstPaidHistory: null, runtimeConformance: null };",
     "function setText(id, text){ const el=document.getElementById(id); if(el) el.textContent=String(text||''); }",
     "function setHtml(id, html){ const el=document.getElementById(id); if(el) el.innerHTML=String(html||''); }",
+    "async function copyText(value){ const txt=String(value||''); if(!txt) return false; try{ await navigator.clipboard.writeText(txt); return true; } catch { return false; } }",
     "function b64urlJson(obj){ return btoa(unescape(encodeURIComponent(JSON.stringify(obj)))).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,''); }",
     "function getPath(obj, path){ const parts=String(path||'').split('.').filter(Boolean); let cur=obj; for(const p of parts){ if(!cur||typeof cur!=='object') return undefined; cur=cur[p]; } return cur; }",
     "function setPath(obj, path, value){ const parts=String(path||'').split('.').filter(Boolean); if(!parts.length) return; let cur=obj; for(let i=0;i<parts.length-1;i+=1){ const key=parts[i]; if(!cur[key]||typeof cur[key]!=='object'||Array.isArray(cur[key])) cur[key]={}; cur=cur[key]; } cur[parts[parts.length-1]]=value; }",
@@ -7882,11 +9294,21 @@ async function handleTenantOnboardingPage(req, res, tenantId, url) {
     "async function postJson(url, body){ const res=await fetch(url,{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify(body||{})}); const txt=await res.text(); let j=null; try{ j=txt?JSON.parse(txt):null; }catch{} if(!res.ok) throw new Error((j&&j.message)||txt||('HTTP '+res.status)); return j; }",
     "async function trackOnboardingEvent(eventType, metadata){ try{ await postJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/events`, { eventType, source: 'onboarding_ui', metadata: metadata||null }); } catch{} }",
     "const checklistStages=[{ key:'wizard_viewed', label:'Open onboarding wizard' },{ key:'template_selected', label:'Select SLA template' },{ key:'template_validated', label:'Validate template configuration' },{ key:'artifact_generated', label:'Generate first artifact (sample or real)' },{ key:'real_upload_generated', label:'Run real vendor upload' },{ key:'first_verified', label:'Get first verified result' },{ key:'buyer_link_shared', label:'Share buyer link' }];",
-    "const nextActionByStage={ wizard_viewed:'Open onboarding wizard.', template_selected:'Select an SLA template in Step 1.', template_validated:'Validate configuration in Step 2.', artifact_generated:'Upload a sample or bundle in Step 3.', real_upload_generated:'Run a real vendor upload in Step 3.', first_verified:'Produce a passing verification result.', buyer_link_shared:'Copy/share buyer link in Step 4.' };",
+    "const nextActionByStage={ wizard_viewed:'Open onboarding wizard.', template_selected:'Select an SLA template in Step 1.', template_validated:'Validate configuration in Step 2.', artifact_generated:'Upload a sample or bundle in Step 3.', real_upload_generated:'Run a real vendor upload in Step 3 or complete Step 7 paid flow.', first_verified:'Complete Step 7 first paid call (or another successful real upload) so history shows a passed attempt.', buyer_link_shared:'Copy/share buyer link in Step 4.' };",
     "function funnelStageMap(metrics){ const stages=metrics&&metrics.funnel&&Array.isArray(metrics.funnel.stages)?metrics.funnel.stages:[]; const map=new Map(); for(const s of stages){ const key=String(s&&s.stageKey?s.stageKey:'').trim(); if(!key) continue; map.set(key,s); } return map; }",
     "function formatIsoShort(value){ if(!value) return 'pending'; const ms=Date.parse(String(value)); if(!Number.isFinite(ms)) return 'pending'; return new Date(ms).toISOString().replace('T',' ').slice(0,16)+'Z'; }",
     "function renderChecklist(metrics){ const host=document.getElementById('firstSettlementChecklist'); const summary=document.getElementById('checklistSummary'); if(!host||!summary) return; const map=funnelStageMap(metrics); const funnel=metrics&&metrics.funnel&&typeof metrics.funnel==='object'?metrics.funnel:{}; const rows=checklistStages.map((item, idx)=>{ const stage=map.get(item.key)||null; const reached=Boolean(stage&&stage.reached); const at=stage&&stage.at?formatIsoShort(stage.at):'pending'; return `<div class=\\\"check-item ${reached?'good':'pending'}\\\"><div><div class=\\\"label\\\">${idx+1}. ${item.label}</div><div class=\\\"meta\\\">${reached?('completed '+at):'pending'}</div></div><div class=\\\"meta\\\">${reached?'done':'todo'}</div></div>`; }); setHtml('firstSettlementChecklist', rows.join('')); const reachedStages=Number.isFinite(Number(funnel.reachedStages))?Number(funnel.reachedStages):checklistStages.length-rows.filter((r)=>r.includes('todo')).length; const totalStages=Number.isFinite(Number(funnel.totalStages))?Number(funnel.totalStages):checklistStages.length; const completionPct=Number.isFinite(Number(funnel.completionPct))?Number(funnel.completionPct):0; const nextStageKey=funnel&&typeof funnel.nextStageKey==='string'&&funnel.nextStageKey.trim()?funnel.nextStageKey.trim():null; const nextAction=nextStageKey?(nextActionByStage[nextStageKey]||`Complete ${nextStageKey}.`):'Checklist complete. Continue with operations and monitoring.'; summary.className='status '+(nextStageKey?'warn':'good'); summary.textContent=`Checklist ${reachedStages}/${totalStages} complete (${completionPct}%). ${nextAction}`; }",
     "async function refreshChecklist(){ try{ const j=await getJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding-metrics`); state.onboardingMetrics=j; renderChecklist(j); } catch(e){ const summary=document.getElementById('checklistSummary'); if(summary){ summary.className='status bad'; summary.textContent='Checklist unavailable: '+e.message; } } }",
+    "function renderRuntimeBootstrap(out){ const status=document.getElementById('runtimeBootstrapStatus'); const smoke=document.getElementById('runtimeSmokeStatus'); const mcp=document.getElementById('runtimeMcpConfig'); const env=document.getElementById('runtimeEnvExports'); if(!status||!mcp||!env) return; if(!out||typeof out!=='object'){ status.className='status'; status.textContent='Runtime bootstrap not generated yet.'; if(smoke){ smoke.className='status'; smoke.textContent='MCP smoke test not run yet.'; } mcp.textContent='{}'; env.textContent='# none'; return; } const keyId=out&&out.bootstrap&&out.bootstrap.apiKey&&out.bootstrap.apiKey.keyId?String(out.bootstrap.apiKey.keyId):'n/a'; status.className='status good'; status.textContent=`Runtime config ready. API key: ${keyId}`; if(smoke){ smoke.className='status'; smoke.textContent='MCP smoke test not run yet.'; } mcp.textContent=JSON.stringify(out.mcpConfigJson||{}, null, 2); env.textContent=String(out&&out.bootstrap&&out.bootstrap.exportCommands?out.bootstrap.exportCommands:'# none'); }",
+    "async function generateRuntimeBootstrap(){ const status=document.getElementById('runtimeBootstrapStatus'); status.className='status'; status.textContent='Generating runtime bootstrap…'; const keyId=String(document.getElementById('runtimeApiKeyId').value||'').trim(); const scopesRaw=String(document.getElementById('runtimeScopes').value||'').trim(); const paidToolsBaseUrl=String(document.getElementById('runtimePaidToolsBaseUrl').value||'').trim(); const scopes=scopesRaw?scopesRaw.split(',').map((s)=>s.trim()).filter(Boolean):[]; const body={ apiKey: { create:true, description:'magic-link runtime bootstrap' } }; if(keyId) body.apiKey.keyId=keyId; if(scopes.length) body.apiKey.scopes=scopes; if(paidToolsBaseUrl) body.paidToolsBaseUrl=paidToolsBaseUrl; try{ const out=await postJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/runtime-bootstrap`, body); state.runtimeBootstrap=out; renderRuntimeBootstrap(out); trackOnboardingEvent('runtime_bootstrap_generated', { apiKeyId: keyId||null, scopesCount: scopes.length, hasPaidToolsBaseUrl: Boolean(paidToolsBaseUrl) }); } catch(e){ status.className='status bad'; status.textContent='Runtime bootstrap failed: '+e.message; } }",
+    "async function runRuntimeSmokeTest(){ const status=document.getElementById('runtimeSmokeStatus'); if(!status) return; if(!state.runtimeBootstrap||!state.runtimeBootstrap.mcp||!state.runtimeBootstrap.mcp.env){ status.className='status bad'; status.textContent='Generate runtime config first.'; return; } status.className='status'; status.textContent='Running MCP smoke test…'; try{ const out=await postJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/runtime-bootstrap/smoke-test`, { env: state.runtimeBootstrap.mcp.env }); state.runtimeSmoke=out&&out.smoke?out.smoke:null; const count=Number.isFinite(Number(out&&out.smoke&&out.smoke.toolsCount))?Number(out.smoke.toolsCount):0; const sample=Array.isArray(out&&out.smoke&&out.smoke.sampleTools)?out.smoke.sampleTools.slice(0,5).join(', '):''; status.className='status good'; status.textContent=`MCP smoke passed. tools=${count}${sample?(' ['+sample+']'):''}`; trackOnboardingEvent('runtime_smoke_test_passed', { toolsCount: count }); } catch(e){ status.className='status bad'; status.textContent='MCP smoke failed: '+e.message; trackOnboardingEvent('runtime_smoke_test_failed', { message: String(e&&e.message?e.message:'failed') }); } }",
+    "function renderFirstPaidCall(out){ const status=document.getElementById('firstPaidCallStatus'); const pre=document.getElementById('firstPaidCallOutput'); if(!status||!pre) return; if(!out||typeof out!=='object'){ status.className='status'; status.textContent='First paid call not run yet.'; pre.textContent='{}'; return; } const verificationStatus=String(out&&out.verificationStatus?out.verificationStatus:'unknown'); const settlementStatus=String(out&&out.settlementStatus?out.settlementStatus:'unknown'); const runId=String(out&&out.ids&&out.ids.runId?out.ids.runId:'n/a'); const attemptId=String(out&&out.attemptId?out.attemptId:'n/a'); const ok=verificationStatus==='green'&&settlementStatus==='released'; status.className='status '+(ok?'good':'warn'); status.textContent=`First paid call ${ok?'completed':'finished'}: attempt=${attemptId} run=${runId} verification=${verificationStatus} settlement=${settlementStatus}`; pre.textContent=JSON.stringify(out, null, 2); }",
+    "function renderFirstPaidHistory(history){ const select=document.getElementById('firstPaidCallHistorySelect'); if(!select) return; const attempts=Array.isArray(history&&history.attempts)?history.attempts:[]; const current=String(select.value||''); select.innerHTML=''; if(!attempts.length){ const o=document.createElement('option'); o.value=''; o.textContent='No attempts yet'; select.appendChild(o); return; } attempts.slice().reverse().forEach((row)=>{ const attemptId=String(row&&row.attemptId?row.attemptId:''); if(!attemptId) return; const status=String(row&&row.status?row.status:'unknown'); const runId=String(row&&row.ids&&row.ids.runId?row.ids.runId:'n/a'); const started=String(row&&row.startedAt?row.startedAt:'').replace('T',' ').slice(0,16); const o=document.createElement('option'); o.value=attemptId; o.textContent=`${started} | ${status} | run=${runId} | ${attemptId}`; if(current&&current===attemptId) o.selected=true; select.appendChild(o); }); if(!select.value && select.options.length) select.value=select.options[0].value; }",
+    "async function refreshFirstPaidHistory(){ try{ const out=await getJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call/history`); state.firstPaidHistory=out; renderFirstPaidHistory(out); } catch{} }",
+    "async function runFirstPaidCall(){ const status=document.getElementById('firstPaidCallStatus'); if(!status) return; status.className='status'; status.textContent='Running first paid call…'; try{ const out=await postJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call`, {}); state.firstPaidCall=out; renderFirstPaidCall(out); await refreshFirstPaidHistory(); await refreshChecklist(); } catch(e){ status.className='status bad'; status.textContent='First paid call failed: '+e.message; } }",
+    "async function replayFirstPaidCall(){ const status=document.getElementById('firstPaidCallStatus'); const select=document.getElementById('firstPaidCallHistorySelect'); if(!status||!select) return; const attemptId=String(select.value||'').trim(); if(!attemptId){ status.className='status bad'; status.textContent='Select an attempt to replay.'; return; } status.className='status'; status.textContent='Replaying stored first paid call attempt…'; try{ const out=await postJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call`, { replayAttemptId: attemptId }); state.firstPaidCall=out; renderFirstPaidCall(out); } catch(e){ status.className='status bad'; status.textContent='Replay failed: '+e.message; } }",
+    "function renderRuntimeConformance(out){ const status=document.getElementById('runtimeConformanceStatus'); const pre=document.getElementById('runtimeConformanceOutput'); if(!status||!pre) return; if(!out||typeof out!=='object'){ status.className='status'; status.textContent='Conformance matrix not run yet.'; pre.textContent='{}'; return; } const matrix=out&&out.matrix&&typeof out.matrix==='object'?out.matrix:null; const ready=Boolean(matrix&&matrix.ready); const runId=String(matrix&&matrix.runId?matrix.runId:'n/a'); const checks=Array.isArray(matrix&&matrix.checks)?matrix.checks:[]; const failed=checks.filter((c)=>String(c&&c.status||'').toLowerCase()!=='pass').map((c)=>String(c&&c.checkId||'unknown')); status.className='status '+(ready?'good':'warn'); status.textContent=ready?`Conformance passed. run=${runId}`:`Conformance incomplete. run=${runId}. failed=${failed.join(', ')||'unknown'}`; pre.textContent=JSON.stringify(out, null, 2); }",
+    "async function runRuntimeConformance(){ const status=document.getElementById('runtimeConformanceStatus'); if(!status) return; status.className='status'; status.textContent='Running conformance matrix…'; try{ const out=await postJson(`/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/conformance-matrix`, { targets:['codex','claude','openhands'] }); state.runtimeConformance=out; renderRuntimeConformance(out); await refreshFirstPaidHistory(); await refreshChecklist(); } catch(e){ status.className='status bad'; status.textContent='Conformance run failed: '+e.message; } }",
     "function statusFromVerify(v){ const ok=!!(v&&v.ok); const verificationOk=!!(v&&v.verificationOk); const warnings=Array.isArray(v&&v.warnings)?v.warnings:[]; if(!ok||!verificationOk) return 'red'; if(warnings.length) return 'amber'; return 'green'; }",
     "function summarizeTemplate(t){ if(!t) return 'None selected'; return `${t.templateId} (${t.vertical})`; }",
     "function renderTemplateCards(){",
@@ -8047,6 +9469,14 @@ async function handleTenantOnboardingPage(req, res, tenantId, url) {
     "document.getElementById('uploadBundleBtn').addEventListener('click', uploadBundleFromFile);",
     "document.getElementById('uploadSampleGood').addEventListener('click', ()=>uploadSample('known-good'));",
     "document.getElementById('uploadSampleBad').addEventListener('click', ()=>uploadSample('known-bad'));",
+    "document.getElementById('runtimeBootstrapBtn').addEventListener('click', ()=>generateRuntimeBootstrap());",
+    "document.getElementById('runtimeSmokeBtn').addEventListener('click', ()=>runRuntimeSmokeTest());",
+    "document.getElementById('firstPaidCallBtn').addEventListener('click', ()=>runFirstPaidCall());",
+    "document.getElementById('firstPaidCallHistoryBtn').addEventListener('click', ()=>refreshFirstPaidHistory());",
+    "document.getElementById('firstPaidCallReplayBtn').addEventListener('click', ()=>replayFirstPaidCall());",
+    "document.getElementById('runtimeConformanceBtn').addEventListener('click', ()=>runRuntimeConformance());",
+    "document.getElementById('copyMcpConfigBtn').addEventListener('click', async()=>{ const text=document.getElementById('runtimeMcpConfig').textContent||''; const ok=await copyText(text); setText('runtimeBootstrapStatus', ok?'MCP config copied.':'Copy failed.'); });",
+    "document.getElementById('copyEnvExportsBtn').addEventListener('click', async()=>{ const text=document.getElementById('runtimeEnvExports').textContent||''; const ok=await copyText(text); setText('runtimeBootstrapStatus', ok?'Env exports copied.':'Copy failed.'); });",
     "document.getElementById('buyerOpenLink').addEventListener('click', ()=>{ if(state.token){ trackOnboardingEvent('buyer_link_opened', { token: state.token }); } });",
     "document.getElementById('buyerCopyLink').addEventListener('click', async()=>{",
     "  if(!state.token){ setText('decisionState','Generate an artifact first.'); return; }",
@@ -8056,6 +9486,10 @@ async function handleTenantOnboardingPage(req, res, tenantId, url) {
     "});",
     "document.getElementById('refreshChecklistBtn').addEventListener('click', ()=>refreshChecklist());",
     "trackOnboardingEvent('wizard_viewed', { path: window.location.pathname }).finally(()=>refreshChecklist());",
+    "renderRuntimeBootstrap(null);",
+    "renderFirstPaidCall(null);",
+    "renderRuntimeConformance(null);",
+    "refreshFirstPaidHistory();",
     "loadTemplates();",
     "</script>",
     "</body></html>"
@@ -13230,6 +14664,41 @@ export async function magicLinkHandler(req, res) {
     if (tenantOnboardingMetricsMatch) {
       const tenantId = tenantOnboardingMetricsMatch[1];
       if (method === "GET") return await handleTenantOnboardingMetrics(req, res, tenantId, url);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantRuntimeBootstrapMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/onboarding\/runtime-bootstrap$/.exec(pathname);
+    if (tenantRuntimeBootstrapMatch) {
+      const tenantId = tenantRuntimeBootstrapMatch[1];
+      if (method === "POST") return await handleTenantRuntimeBootstrap(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantRuntimeBootstrapSmokeMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/onboarding\/runtime-bootstrap\/smoke-test$/.exec(pathname);
+    if (tenantRuntimeBootstrapSmokeMatch) {
+      const tenantId = tenantRuntimeBootstrapSmokeMatch[1];
+      if (method === "POST") return await handleTenantRuntimeBootstrapSmokeTest(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantFirstPaidCallMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/onboarding\/first-paid-call$/.exec(pathname);
+    if (tenantFirstPaidCallMatch) {
+      const tenantId = tenantFirstPaidCallMatch[1];
+      if (method === "POST") return await handleTenantFirstPaidCall(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantFirstPaidCallHistoryMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/onboarding\/first-paid-call\/history$/.exec(pathname);
+    if (tenantFirstPaidCallHistoryMatch) {
+      const tenantId = tenantFirstPaidCallHistoryMatch[1];
+      if (method === "GET") return await handleTenantFirstPaidCallHistory(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantRuntimeConformanceMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/onboarding\/conformance-matrix$/.exec(pathname);
+    if (tenantRuntimeConformanceMatch) {
+      const tenantId = tenantRuntimeConformanceMatch[1];
+      if (method === "POST") return await handleTenantRuntimeConformanceMatrix(req, res, tenantId);
       return sendText(res, 405, "method not allowed\n");
     }
 

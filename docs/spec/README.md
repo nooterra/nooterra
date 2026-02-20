@@ -71,6 +71,7 @@ These specs are written so an independent implementer can build a verifier witho
 - `WARNINGS.md` — warning codes (closed set) and semantics.
 - `ERRORS.md` — error codes (stable identifiers) and semantics.
 - `PRODUCER_ERRORS.md` — producer/tooling error codes (stable identifiers) and semantics.
+- `x402-error-codes.v1.txt` — stable x402 authorize-payment / execution-intent API error codes.
 - `STRICTNESS.md` — strict vs non-strict verification contract.
 - `TRUST_ANCHORS.md` — verifier trust anchors and out-of-band key injection.
 - `TOOL_PROVENANCE.md` — tool version/commit derivation rules.

@@ -42,6 +42,7 @@ nav:
       - Integrations: reference/integrations.md
   - Runbooks:
       - Operations: runbooks/operations.md
+      - Onboarding Runtime Loop: runbooks/onboarding-runtime.md
       - Incident Response: runbooks/incidents.md
       - Key Management: runbooks/key-management.md
   - Roadmap: roadmap.md

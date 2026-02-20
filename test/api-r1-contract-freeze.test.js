@@ -42,6 +42,7 @@ test("R1 API contract freeze: required operations remain published", () => {
   assertOperation(spec, "/ops/payouts/{partyId}/{period}/enqueue", "post", { scopes: ["finance_write"] });
   assertOperation(spec, "/ops/money-rails/{providerId}/operations/{operationId}", "get", { scopes: ["finance_read"] });
   assertOperation(spec, "/ops/money-rails/{providerId}/operations/{operationId}/cancel", "post", { scopes: ["finance_write"] });
+  assertOperation(spec, "/x402/gate/authorize-payment", "post");
 });
 
 test("R1 API contract freeze: dispute lifecycle semantics remain encoded", () => {
@@ -94,4 +95,16 @@ test("R1 API contract freeze: dispute lifecycle semantics remain encoded", () =>
     Object.prototype.hasOwnProperty.call(disputeCloseRequest.properties ?? {}, "resolution"),
     "dispute close request must support structured resolution payloads"
   );
+});
+
+test("R1 API contract freeze: x402 authorize-payment publishes known execution-intent error codes", () => {
+  const spec = buildOpenApiSpec();
+  const operation = spec?.paths?.["/x402/gate/authorize-payment"]?.post ?? null;
+  assert.ok(operation, "missing POST /x402/gate/authorize-payment");
+
+  const knownConflictCodes = operation?.responses?.["409"]?.["x-settld-known-error-codes"] ?? [];
+  assert.ok(Array.isArray(knownConflictCodes), "x402 authorize-payment 409 must expose known error codes");
+  assert.ok(knownConflictCodes.includes("X402_EXECUTION_INTENT_REQUIRED"));
+  assert.ok(knownConflictCodes.includes("X402_EXECUTION_INTENT_IDEMPOTENCY_MISMATCH"));
+  assert.ok(knownConflictCodes.includes("X402_EXECUTION_INTENT_CONFLICT"));
 });

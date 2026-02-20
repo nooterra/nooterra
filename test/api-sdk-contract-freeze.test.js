@@ -18,6 +18,7 @@ test("api-sdk contract freeze: manual-review + dispute lifecycle methods and typ
 
   assert.equal(typeof client.getRunSettlementPolicyReplay, "function");
   assert.equal(typeof client.resolveRunSettlement, "function");
+  assert.equal(typeof client.x402GateAuthorizePayment, "function");
   assert.equal(typeof client.openRunDispute, "function");
   assert.equal(typeof client.submitRunDisputeEvidence, "function");
   assert.equal(typeof client.escalateRunDispute, "function");
@@ -36,6 +37,11 @@ test("api-sdk contract freeze: manual-review + dispute lifecycle methods and typ
   const dts = readFile("packages/api-sdk/src/index.d.ts");
   assert.match(dts, /manual_review_required/);
   assert.match(dts, /manual_resolved/);
+  assert.match(dts, /x402GateAuthorizePayment\(/);
+  assert.match(dts, /X402ExecutionIntentErrorCode/);
+  assert.match(dts, /X402_EXECUTION_INTENT_REQUIRED/);
+  assert.match(dts, /X402_EXECUTION_INTENT_IDEMPOTENCY_MISMATCH/);
+  assert.match(dts, /X402_EXECUTION_INTENT_CONFLICT/);
   assert.match(dts, /disputeWindowDays\?: number/);
   assert.match(dts, /disputeWindowEndsAt\?: string \| null/);
   assert.match(dts, /openRunDispute\(/);
@@ -56,6 +62,7 @@ test("api-sdk contract freeze: manual-review + dispute lifecycle methods and typ
   const jsClient = readFile("packages/api-sdk/src/client.js");
   assert.match(jsClient, /\/runs\/\$\{encodeURIComponent\(runId\)\}\/settlement\/policy-replay/);
   assert.match(jsClient, /\/runs\/\$\{encodeURIComponent\(runId\)\}\/settlement\/resolve/);
+  assert.match(jsClient, /\/x402\/gate\/authorize-payment/);
   assert.match(jsClient, /\/runs\/\$\{encodeURIComponent\(runId\)\}\/dispute\/open/);
   assert.match(jsClient, /\/runs\/\$\{encodeURIComponent\(runId\)\}\/dispute\/evidence/);
   assert.match(jsClient, /\/runs\/\$\{encodeURIComponent\(runId\)\}\/dispute\/escalate/);

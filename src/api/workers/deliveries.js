@@ -112,6 +112,30 @@ export function createDeliveryWorker({
     return list.find((d) => d.destinationId === destinationId) ?? null;
   }
 
+  async function recordWebhookEndpointDeliveryResult({
+    tenantId,
+    destinationId,
+    deliveredAt = nowIso(),
+    success,
+    failureReason = null,
+    statusCode = null
+  } = {}) {
+    if (typeof store.recordX402WebhookEndpointDeliveryResult !== "function") return;
+    if (typeof destinationId !== "string" || destinationId.trim() === "") return;
+    try {
+      await store.recordX402WebhookEndpointDeliveryResult({
+        tenantId,
+        destinationId,
+        deliveredAt,
+        success,
+        failureReason,
+        statusCode
+      });
+    } catch {
+      // best effort; delivery processing should not fail because health tracking failed
+    }
+  }
+
   function safeKeySegment(value) {
     return String(value ?? "")
       .trim()
@@ -243,9 +267,14 @@ export function createDeliveryWorker({
         failureReason: failureReasonForSecretError(err)
       };
     }
+    const previousSecrets = Array.isArray(dest.previousSecrets)
+      ? dest.previousSecrets.filter((value) => typeof value === "string" && value.trim() !== "")
+      : [];
 
     const timestamp = nowIso();
-    const signature = hmacSignArtifact({ secret, timestamp, bodyJson: artifact });
+    const allSecrets = [secret, ...previousSecrets.filter((candidate) => candidate !== secret)];
+    const signatures = allSecrets.map((activeSecret) => hmacSignArtifact({ secret: activeSecret, timestamp, bodyJson: artifact }));
+    const signatureHeader = signatures.length > 1 ? signatures.map((value) => `v1=${value}`).join(",") : signatures[0];
     const body = canonicalJsonStringify(artifact);
 
     let res;
@@ -264,7 +293,9 @@ export function createDeliveryWorker({
             "x-proxy-artifact-hash": String(delivery.artifactHash ?? ""),
             "x-proxy-order-key": headerSafeValue(delivery.orderKey ?? ""),
             "x-proxy-timestamp": timestamp,
-            "x-proxy-signature": signature
+            "x-proxy-signature": signatureHeader,
+            "x-settld-timestamp": timestamp,
+            "x-settld-signature": signatureHeader
           },
           body
         },
@@ -341,6 +372,14 @@ export function createDeliveryWorker({
                 attempts
               });
               if (result.ok) {
+                await recordWebhookEndpointDeliveryResult({
+                  tenantId: t,
+                  destinationId: String(delivery.destinationId ?? ""),
+                  deliveredAt: nowIso(),
+                  success: true,
+                  failureReason: null,
+                  statusCode: result.status ?? null
+                });
                 const expiresAt = expiresAtForState({ tenantId: t, state: "delivered", at: nowIso() });
                 await store.updateDeliveryAttempt({
                   tenantId: t,
@@ -366,6 +405,14 @@ export function createDeliveryWorker({
                 continue;
               }
 
+              await recordWebhookEndpointDeliveryResult({
+                tenantId: t,
+                destinationId: String(delivery.destinationId ?? ""),
+                deliveredAt: nowIso(),
+                success: false,
+                failureReason: result.failureReason ?? result.error ?? "failed",
+                statusCode: result.status ?? null
+              });
               if (attempts >= maxAttempts) {
                 const expiresAt = expiresAtForState({ tenantId: t, state: "failed", at: nowIso() });
                 await store.updateDeliveryAttempt({
@@ -429,6 +476,14 @@ export function createDeliveryWorker({
               processed.push({ id: delivery.id, status: "retrying", nextAttemptAt });
             } catch (err) {
               const lastError = typeof err?.message === "string" && err.message.trim() ? err.message : String(err ?? "delivery failed");
+              await recordWebhookEndpointDeliveryResult({
+                tenantId: t,
+                destinationId: String(delivery.destinationId ?? ""),
+                deliveredAt: nowIso(),
+                success: false,
+                failureReason: "exception",
+                statusCode: null
+              });
               try {
                 store.metrics?.incCounter?.("delivery_attempt_total", { destinationType: "unknown" }, 1);
               } catch {}
@@ -537,6 +592,14 @@ export function createDeliveryWorker({
 	          attempts
 	        });
 	        if (result.ok) {
+	          await recordWebhookEndpointDeliveryResult({
+	            tenantId: t,
+	            destinationId: String(d.destinationId ?? ""),
+	            deliveredAt: nowIso(),
+	            success: true,
+	            failureReason: null,
+	            statusCode: result.status ?? null
+	          });
 	          d.state = "delivered";
 	          d.deliveredAt = nowIso();
           d.expiresAt = expiresAtForState({ tenantId: t, state: "delivered", at: d.deliveredAt });
@@ -557,6 +620,14 @@ export function createDeliveryWorker({
 	          continue;
 	        }
 
+	        await recordWebhookEndpointDeliveryResult({
+	          tenantId: t,
+	          destinationId: String(d.destinationId ?? ""),
+	          deliveredAt: nowIso(),
+	          success: false,
+	          failureReason: result.failureReason ?? result.error ?? "failed",
+	          statusCode: result.status ?? null
+	        });
 	        d.lastStatus = result.status;
 	        d.lastError = result.error;
 	        if (attempts >= maxAttempts) {
@@ -608,6 +679,14 @@ export function createDeliveryWorker({
 	        store.deliveries.set(key, d);
 	      } catch (err) {
 	        d.lastError = typeof err?.message === "string" ? err.message : String(err);
+	        await recordWebhookEndpointDeliveryResult({
+	          tenantId: t,
+	          destinationId: String(d.destinationId ?? ""),
+	          deliveredAt: nowIso(),
+	          success: false,
+	          failureReason: "exception",
+	          statusCode: null
+	        });
 	        try {
 	          store.metrics?.incCounter?.("delivery_attempt_total", { destinationType: "unknown" }, 1);
 	        } catch {}

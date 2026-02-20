@@ -67,6 +67,118 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const X402ExecutionProofV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["protocol", "publicSignals", "proofData"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["X402ExecutionProof.v1"] },
+      protocol: { type: "string", enum: ["groth16", "plonk", "stark"] },
+      publicSignals: { type: "array", items: {} },
+      proofData: { type: "object", additionalProperties: true },
+      verificationKey: { type: "object", nullable: true, additionalProperties: true },
+      verificationKeyRef: { type: "string", nullable: true },
+      statementHashSha256: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
+      inputDigestSha256: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
+      outputDigestSha256: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true }
+    }
+  };
+
+  const X402GateVerifyRequest = {
+    type: "object",
+    additionalProperties: true,
+    required: ["gateId"],
+    properties: {
+      gateId: { type: "string" },
+      proof: { ...X402ExecutionProofV1, nullable: true }
+    }
+  };
+
+  const X402GateAuthorizePaymentRequest = {
+    type: "object",
+    additionalProperties: true,
+    required: ["gateId"],
+    properties: {
+      gateId: { type: "string" },
+      quoteId: { type: "string", nullable: true },
+      requestBindingMode: { type: "string", enum: ["strict"], nullable: true },
+      requestBindingSha256: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
+      walletAuthorizationDecisionToken: { type: "string", nullable: true },
+      escalationOverrideToken: { type: "string", nullable: true },
+      executionIntent: {
+        type: "object",
+        nullable: true,
+        additionalProperties: true,
+        description: "ExecutionIntent.v1 payload bound to authorize-payment preconditions."
+      }
+    }
+  };
+
+  const X402AuthorizePaymentTaErrorCodes = Object.freeze([
+    "X402_EXECUTION_INTENT_REQUIRED",
+    "X402_EXECUTION_INTENT_IDEMPOTENCY_MISMATCH",
+    "X402_EXECUTION_INTENT_CONFLICT"
+  ]);
+
+  const X402AuthorizePaymentBadRequestKnownErrorCodes = Object.freeze([
+    "SCHEMA_INVALID",
+    "X402_EXECUTION_INTENT_HASH_MISMATCH"
+  ]);
+
+  const X402AuthorizePaymentConflictKnownErrorCodes = Object.freeze([
+    ...X402AuthorizePaymentTaErrorCodes,
+    "X402_EXECUTION_INTENT_INVALID",
+    "X402_EXECUTION_INTENT_TIME_INVALID",
+    "X402_EXECUTION_INTENT_TENANT_MISMATCH",
+    "X402_EXECUTION_INTENT_AGENT_MISMATCH",
+    "X402_EXECUTION_INTENT_SIDE_EFFECTING_REQUIRED",
+    "X402_EXECUTION_INTENT_REQUEST_BINDING_REQUIRED",
+    "X402_EXECUTION_INTENT_REQUEST_MISMATCH",
+    "X402_EXECUTION_INTENT_SPEND_LIMIT_EXCEEDED",
+    "X402_EXECUTION_INTENT_CURRENCY_MISMATCH",
+    "X402_EXECUTION_INTENT_RUN_MISMATCH",
+    "X402_EXECUTION_INTENT_AGREEMENT_MISMATCH",
+    "X402_EXECUTION_INTENT_QUOTE_MISMATCH",
+    "X402_EXECUTION_INTENT_POLICY_VERSION_MISMATCH",
+    "X402_EXECUTION_INTENT_POLICY_HASH_MISMATCH",
+    "X402_EXECUTION_INTENT_EXPIRES_AT_INVALID",
+    "X402_EXECUTION_INTENT_EXPIRED"
+  ]);
+
+  function errorResponseWithKnownCodes(knownCodes) {
+    return {
+      allOf: [
+        ErrorResponse,
+        {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            code: {
+              anyOf: [{ type: "string", enum: [...knownCodes] }, { type: "string" }],
+              description: "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+            }
+          }
+        }
+      ]
+    };
+  }
+
+  const X402ZkVerificationKeyV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "verificationKeyId", "protocol", "verificationKey", "createdAt", "updatedAt"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["X402ZkVerificationKey.v1"] },
+      verificationKeyId: { type: "string" },
+      protocol: { type: "string", enum: ["groth16", "plonk", "stark"] },
+      verificationKey: { type: "object", additionalProperties: true },
+      providerRef: { type: "string", nullable: true },
+      metadata: { type: "object", additionalProperties: true, nullable: true },
+      createdAt: { type: "string", format: "date-time" },
+      updatedAt: { type: "string", format: "date-time" }
+    }
+  };
+
   const JobCreateRequest = {
     type: "object",
     additionalProperties: false,
@@ -6416,6 +6528,248 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
             409: { description: "Preconditions failed", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/x402/gate/authorize-payment": {
+        post: {
+          summary: "Authorize payment for an x402 gate",
+          description:
+            "Uses strict preconditions (including optional ExecutionIntent.v1 binding) before minting or reusing an authorization token.",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: X402GateAuthorizePaymentRequest
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: {
+              description: "Bad Request",
+              "x-settld-known-error-codes": [...X402AuthorizePaymentBadRequestKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402AuthorizePaymentBadRequestKnownErrorCodes)
+                }
+              }
+            },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: {
+              description: "Conflict",
+              "x-settld-known-error-codes": [...X402AuthorizePaymentConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402AuthorizePaymentConflictKnownErrorCodes)
+                }
+              }
+            }
+          }
+        }
+      },
+      "/x402/gate/verify": {
+        post: {
+          summary: "Verify x402 gated execution and settle escrow",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: X402GateVerifyRequest
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/x402/zk/verification-keys": {
+        post: {
+          summary: "Register an immutable x402 zk verification key",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["verificationKey"],
+                  properties: {
+                    verificationKey: X402ZkVerificationKeyV1
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            201: { description: "Created", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        get: {
+          summary: "List x402 zk verification keys",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "protocol", in: "query", required: false, schema: { type: "string", enum: ["groth16", "plonk", "stark"] } },
+            { name: "providerRef", in: "query", required: false, schema: { type: "string" } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 2000, default: 200 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0, maximum: 100000, default: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/x402/zk/verification-keys/{verificationKeyId}": {
+        get: {
+          summary: "Get x402 zk verification key by id",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "verificationKeyId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/x402/webhooks/endpoints": {
+        post: {
+          summary: "Register an x402 principal webhook endpoint (secret returned once)",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["url", "events"],
+                  properties: {
+                    url: { type: "string", format: "uri", example: "https://principal.example.com/webhooks/settld" },
+                    events: {
+                      type: "array",
+                      minItems: 1,
+                      items: {
+                        type: "string",
+                        enum: ["x402.escalation.created", "x402.escalation.approved", "x402.escalation.denied"]
+                      }
+                    },
+                    description: { type: "string", maxLength: 300 },
+                    status: { type: "string", enum: ["active", "disabled"], default: "active" }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: { description: "Created", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        get: {
+          summary: "List x402 webhook endpoints",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "status", in: "query", required: false, schema: { type: "string", enum: ["active", "disabled", "revoked"] } },
+            {
+              name: "event",
+              in: "query",
+              required: false,
+              schema: { type: "string", enum: ["x402.escalation.created", "x402.escalation.approved", "x402.escalation.denied"] }
+            },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 1000, default: 200 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0, maximum: 100000, default: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/x402/webhooks/endpoints/{endpointId}": {
+        get: {
+          summary: "Get x402 webhook endpoint",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "endpointId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        delete: {
+          summary: "Revoke x402 webhook endpoint",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            IdempotencyHeader,
+            { name: "endpointId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/x402/webhooks/endpoints/{endpointId}/rotate-secret": {
+        post: {
+          summary: "Rotate x402 webhook endpoint secret (returns new secret once)",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "endpointId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    gracePeriodSeconds: { type: "integer", minimum: 1, maximum: 604800, default: 86400 }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },

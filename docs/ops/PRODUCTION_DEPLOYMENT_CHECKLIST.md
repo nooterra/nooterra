@@ -59,10 +59,20 @@ node --test \
   test/demo-mcp-paid-exa.test.js
 ```
 
-2. Run host quickstart validation from `docs/QUICKSTART_MCP_HOSTS.md` for:
+2. Run the hosted-style MCP smoke gate (API + magic-link bootstrap + MCP probe):
+
+```bash
+npm run test:ci:mcp-host-smoke
+```
+
+This emits a machine-readable report at:
+
+`artifacts/ops/mcp-host-smoke.json`
+
+3. Run host quickstart validation from `docs/QUICKSTART_MCP_HOSTS.md` for:
    Claude, Cursor, Codex, and OpenClaw.
 
-3. Update `docs/ops/MCP_COMPATIBILITY_MATRIX.md` with pass/fail + date.
+4. Update `docs/ops/MCP_COMPATIBILITY_MATRIX.md` with pass/fail + date.
 
 ## Phase 5: Paid call + receipt proof
 

@@ -24,4 +24,5 @@ Track real host compatibility evidence here. Update on every major host release 
 | Cursor | TBD | stdio | TBD | TBD | TBD | |
 | Codex | TBD | stdio | TBD | TBD | TBD | |
 | OpenClaw | TBD | stdio | TBD | TBD | TBD | |
+| Generic MCP host bootstrap path | local CI smoke | stdio | green | 2026-02-20 | `npm run test:ci:mcp-host-smoke` | Boots API + magic-link, generates runtime MCP env, runs `mcp:probe`, and calls `settld.about`; report at `artifacts/ops/mcp-host-smoke.json`. |
 | Generic MCP HTTP client | local repo test harness | HTTP bridge | green | 2026-02-20 | `node --test test/mcp-stdio-spike.test.js test/mcp-http-gateway.test.js test/mcp-paid-exa-tool.test.js test/mcp-paid-weather-tool.test.js test/mcp-paid-llm-tool.test.js test/demo-mcp-paid-exa.test.js` | 9/9 passing in local CI-style run |

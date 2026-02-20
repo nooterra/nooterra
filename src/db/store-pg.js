@@ -159,10 +159,14 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.agreementDelegations.clear();
     if (!(store.x402Gates instanceof Map)) store.x402Gates = new Map();
     store.x402Gates.clear();
+    if (!(store.x402AgentLifecycles instanceof Map)) store.x402AgentLifecycles = new Map();
+    store.x402AgentLifecycles.clear();
     if (!(store.x402Receipts instanceof Map)) store.x402Receipts = new Map();
     store.x402Receipts.clear();
     if (!(store.x402WalletPolicies instanceof Map)) store.x402WalletPolicies = new Map();
     store.x402WalletPolicies.clear();
+    if (!(store.x402ZkVerificationKeys instanceof Map)) store.x402ZkVerificationKeys = new Map();
+    store.x402ZkVerificationKeys.clear();
     if (!(store.x402ReversalEvents instanceof Map)) store.x402ReversalEvents = new Map();
     store.x402ReversalEvents.clear();
     if (!(store.x402ReversalNonceUsage instanceof Map)) store.x402ReversalNonceUsage = new Map();
@@ -208,6 +212,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           gateId: snap?.gateId ?? String(id)
         });
       }
+      if (type === "x402_agent_lifecycle") {
+        store.x402AgentLifecycles.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          agentId: snap?.agentId ?? String(id)
+        });
+      }
       if (type === "x402_receipt") {
         store.x402Receipts.set(key, {
           ...snap,
@@ -230,6 +241,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
             policyVersion
           });
         }
+      }
+      if (type === "x402_zk_verification_key") {
+        store.x402ZkVerificationKeys.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          verificationKeyId: snap?.verificationKeyId ?? String(id)
+        });
       }
       if (type === "x402_reversal_event") {
         store.x402ReversalEvents.set(key, {
@@ -1284,6 +1302,40 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     );
   }
 
+  async function persistX402AgentLifecycle(client, { tenantId, agentId, agentLifecycle }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!agentLifecycle || typeof agentLifecycle !== "object" || Array.isArray(agentLifecycle)) {
+      throw new TypeError("agentLifecycle is required");
+    }
+    const normalizedAgentId =
+      agentId ? String(agentId) : agentLifecycle.agentId ? String(agentLifecycle.agentId) : null;
+    if (!normalizedAgentId) throw new TypeError("agentId is required");
+    const status = String(agentLifecycle.status ?? "").trim().toLowerCase();
+    if (status !== "active" && status !== "frozen" && status !== "archived") {
+      throw new TypeError("agentLifecycle.status must be active|frozen|archived");
+    }
+
+    const updatedAt = parseIsoOrNull(agentLifecycle.updatedAt) ?? new Date().toISOString();
+    const normalizedAgentLifecycle = {
+      ...agentLifecycle,
+      tenantId,
+      agentId: normalizedAgentId,
+      status,
+      updatedAt
+    };
+
+    await client.query(
+      `
+        INSERT INTO snapshots (tenant_id, aggregate_type, aggregate_id, seq, at_chain_hash, snapshot_json, updated_at)
+        VALUES ($1, 'x402_agent_lifecycle', $2, 0, NULL, $3, $4)
+        ON CONFLICT (tenant_id, aggregate_type, aggregate_id) DO UPDATE SET
+          snapshot_json = EXCLUDED.snapshot_json,
+          updated_at = EXCLUDED.updated_at
+      `,
+      [tenantId, normalizedAgentId, JSON.stringify(normalizedAgentLifecycle), updatedAt]
+    );
+  }
+
   async function persistX402Receipt(client, { tenantId, receiptId, receipt }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
@@ -1374,6 +1426,62 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       `,
       [tenantId, aggregateId, JSON.stringify(normalizedPolicy), updatedAt]
     );
+  }
+
+  async function persistX402ZkVerificationKey(client, { tenantId, verificationKeyId, verificationKey }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!verificationKey || typeof verificationKey !== "object" || Array.isArray(verificationKey)) {
+      throw new TypeError("verificationKey is required");
+    }
+    const normalizedVerificationKeyId =
+      verificationKeyId && String(verificationKeyId).trim() !== ""
+        ? String(verificationKeyId).trim()
+        : verificationKey.verificationKeyId && String(verificationKey.verificationKeyId).trim() !== ""
+          ? String(verificationKey.verificationKeyId).trim()
+          : null;
+    if (!normalizedVerificationKeyId) throw new TypeError("verificationKeyId is required");
+    const createdAt =
+      parseIsoOrNull(verificationKey.createdAt) ??
+      parseIsoOrNull(verificationKey.updatedAt) ??
+      new Date().toISOString();
+    const normalizedVerificationKey = {
+      ...verificationKey,
+      tenantId,
+      verificationKeyId: normalizedVerificationKeyId,
+      createdAt,
+      updatedAt: createdAt
+    };
+
+    const inserted = await client.query(
+      `
+        INSERT INTO snapshots (tenant_id, aggregate_type, aggregate_id, seq, at_chain_hash, snapshot_json, updated_at)
+        VALUES ($1, 'x402_zk_verification_key', $2, 0, NULL, $3, $4)
+        ON CONFLICT (tenant_id, aggregate_type, aggregate_id) DO NOTHING
+        RETURNING aggregate_id
+      `,
+      [tenantId, normalizedVerificationKeyId, JSON.stringify(normalizedVerificationKey), createdAt]
+    );
+    if (inserted.rows.length > 0) return;
+
+    const existing = await client.query(
+      `
+        SELECT snapshot_json
+        FROM snapshots
+        WHERE tenant_id = $1 AND aggregate_type = 'x402_zk_verification_key' AND aggregate_id = $2
+        LIMIT 1
+      `,
+      [tenantId, normalizedVerificationKeyId]
+    );
+    if (!existing.rows.length) return;
+
+    const existingCanonical = canonicalJsonStringify(existing.rows[0]?.snapshot_json ?? null);
+    const incomingCanonical = canonicalJsonStringify(normalizedVerificationKey);
+    if (existingCanonical !== incomingCanonical) {
+      const err = new Error("x402 zk verification key is immutable and cannot be changed");
+      err.code = "X402_ZK_VERIFICATION_KEY_IMMUTABLE";
+      err.verificationKeyId = normalizedVerificationKeyId;
+      throw err;
+    }
   }
 
   async function persistX402ReversalEvent(client, { tenantId, gateId, eventId, event }) {
@@ -1968,8 +2076,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "ARBITRATION_CASE_UPSERT",
       "AGREEMENT_DELEGATION_UPSERT",
       "X402_GATE_UPSERT",
+      "X402_AGENT_LIFECYCLE_UPSERT",
       "X402_RECEIPT_PUT",
       "X402_WALLET_POLICY_UPSERT",
+      "X402_ZK_VERIFICATION_KEY_PUT",
       "X402_REVERSAL_EVENT_APPEND",
       "X402_REVERSAL_NONCE_PUT",
       "X402_REVERSAL_COMMAND_PUT",
@@ -2804,6 +2914,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? op.gate?.tenantId ?? DEFAULT_TENANT_ID);
           await persistX402Gate(client, { tenantId, gateId: op.gateId, gate: op.gate });
         }
+        if (op.kind === "X402_AGENT_LIFECYCLE_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.agentLifecycle?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistX402AgentLifecycle(client, { tenantId, agentId: op.agentId, agentLifecycle: op.agentLifecycle });
+        }
         if (op.kind === "X402_RECEIPT_PUT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.receipt?.tenantId ?? DEFAULT_TENANT_ID);
           await persistX402Receipt(client, { tenantId, receiptId: op.receiptId, receipt: op.receipt });
@@ -2811,6 +2925,14 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
         if (op.kind === "X402_WALLET_POLICY_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.policy?.tenantId ?? DEFAULT_TENANT_ID);
           await persistX402WalletPolicy(client, { tenantId, policy: op.policy });
+        }
+        if (op.kind === "X402_ZK_VERIFICATION_KEY_PUT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.verificationKey?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistX402ZkVerificationKey(client, {
+            tenantId,
+            verificationKeyId: op.verificationKeyId,
+            verificationKey: op.verificationKey
+          });
         }
         if (op.kind === "X402_REVERSAL_EVENT_APPEND") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.event?.tenantId ?? DEFAULT_TENANT_ID);
@@ -6996,17 +7118,37 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     topic = null,
     tenantId = null,
     includeProcessed = false,
+    state = null,
     limit = 50
   } = {}) {
     const safeLimit = Number.isSafeInteger(Number(limit)) ? Number(limit) : 50;
     if (safeLimit <= 0 || safeLimit > 500) throw new TypeError("limit must be a safe integer between 1 and 500");
     const t = typeof topic === "string" && topic.trim() ? topic.trim() : null;
     const tenant = typeof tenantId === "string" && tenantId.trim() ? normalizeTenantId(tenantId) : null;
-    const processedClause = includeProcessed ? "" : "AND processed_at IS NULL";
+    const normalizedState = typeof state === "string" && state.trim() ? state.trim().toLowerCase() : null;
+    if (
+      normalizedState !== null &&
+      normalizedState !== "pending" &&
+      normalizedState !== "processed" &&
+      normalizedState !== "dlq" &&
+      normalizedState !== "all"
+    ) {
+      throw new TypeError("state must be one of pending|processed|dlq|all");
+    }
 
     return await withTx({ statementTimeoutMs: workerStatementTimeoutMs }, async (client) => {
       const params = [];
-      let where = `WHERE 1=1 ${processedClause}`;
+      let where = `WHERE 1=1`;
+      if (normalizedState === "pending") {
+        where += ` AND processed_at IS NULL`;
+      } else if (normalizedState === "processed") {
+        where += ` AND processed_at IS NOT NULL AND (last_error IS NULL OR last_error NOT LIKE 'DLQ:%')`;
+      } else if (normalizedState === "dlq") {
+        where += ` AND processed_at IS NOT NULL AND last_error LIKE 'DLQ:%'`;
+      } else if (normalizedState !== "all" && !includeProcessed) {
+        // Backward compatibility when state is omitted.
+        where += ` AND processed_at IS NULL`;
+      }
       if (t) {
         params.push(String(t));
         where += ` AND topic = $${params.length}`;

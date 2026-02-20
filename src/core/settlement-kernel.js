@@ -233,6 +233,30 @@ function normalizeSettlementBindings(value, name, { allowNull = true } = {}) {
             })
           }
         : null,
+      executionIntent: value.executionIntent
+        ? {
+            schemaVersion: normalizeNullableString(value.executionIntent.schemaVersion, `${name}.executionIntent.schemaVersion`, { max: 64 }),
+            intentId: normalizeNullableString(value.executionIntent.intentId, `${name}.executionIntent.intentId`, { max: 200 }),
+            intentHash: normalizeHexHash(value.executionIntent.intentHash, `${name}.executionIntent.intentHash`, { allowNull: true }),
+            idempotencyKey: normalizeNullableString(value.executionIntent.idempotencyKey, `${name}.executionIntent.idempotencyKey`, {
+              max: 256
+            }),
+            nonce: normalizeNullableString(value.executionIntent.nonce, `${name}.executionIntent.nonce`, { max: 256 }),
+            expiresAt:
+              value.executionIntent.expiresAt === null || value.executionIntent.expiresAt === undefined
+                ? null
+                : String(value.executionIntent.expiresAt),
+            requestSha256: normalizeHexHash(value.executionIntent.requestSha256, `${name}.executionIntent.requestSha256`, {
+              allowNull: true
+            }),
+            policyHash: normalizeHexHash(value.executionIntent.policyHash, `${name}.executionIntent.policyHash`, { allowNull: true }),
+            verificationMethodHash: normalizeHexHash(
+              value.executionIntent.verificationMethodHash,
+              `${name}.executionIntent.verificationMethodHash`,
+              { allowNull: true }
+            )
+          }
+        : null,
       policyDecisionFingerprint: value.policyDecisionFingerprint
         ? {
             fingerprintVersion: normalizeNullableString(

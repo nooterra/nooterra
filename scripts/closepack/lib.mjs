@@ -15,6 +15,7 @@ import {
   SETTLEMENT_ADJUSTMENT_KIND,
   validateSettlementAdjustmentV1
 } from "../../src/core/settlement-adjustment.js";
+import { verifyX402ExecutionProofV1 } from "../../src/core/zk-verifier.js";
 import { unzipToTempSafe } from "../../packages/artifact-verify/src/safe-unzip.js";
 
 const CLOSEPACK_SCHEMA_VERSION = "KernelToolCallClosePack.v0";
@@ -210,6 +211,25 @@ function appendFile(files, filepath, jsonObject) {
   files.set(filepath, encodeJson(normalizeForCanonicalJson(jsonObject, { path: "$" })));
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function extractX402ReceiptZkEvidence(receipt) {
+  if (!isPlainObject(receipt)) return null;
+  if (isPlainObject(receipt.zkProof)) return receipt.zkProof;
+  if (isPlainObject(receipt.bindings?.zkProof)) return receipt.bindings.zkProof;
+  return null;
+}
+
+function canonicalJsonEquals(left, right) {
+  if (!isPlainObject(left) || !isPlainObject(right)) return false;
+  return (
+    canonicalJsonStringify(normalizeForCanonicalJson(left, { path: "$" })) ===
+    canonicalJsonStringify(normalizeForCanonicalJson(right, { path: "$" }))
+  );
+}
+
 function extractArtifactHash(artifact) {
   return typeof artifact?.artifactHash === "string" && artifact.artifactHash.trim() !== "" ? artifact.artifactHash.trim().toLowerCase() : null;
 }
@@ -279,6 +299,40 @@ export async function exportToolCallClosepack({
     method: "GET",
     pathname: `/ops/tool-calls/replay-evaluate?agreementHash=${encodeURIComponent(normalizedAgreementHash)}`
   });
+  let x402Receipt = null;
+  try {
+    const receiptList = await requestJson({
+      ...requestContext,
+      method: "GET",
+      pathname: `/x402/receipts?agreementId=${encodeURIComponent(normalizedAgreementHash)}&limit=1`
+    });
+    const receipts = Array.isArray(receiptList?.receipts) ? receiptList.receipts : [];
+    x402Receipt = receipts[0] ?? null;
+  } catch (err) {
+    addIssue(issues, {
+      code: "CLOSEPACK_X402_RECEIPT_FETCH_FAILED",
+      severity: "warning",
+      message: "failed to fetch x402 receipt for agreementHash",
+      details: { message: err?.message ?? String(err ?? "") }
+    });
+    x402Receipt = null;
+  }
+  const x402ZkEvidence = extractX402ReceiptZkEvidence(x402Receipt);
+  const x402ZkProtocol =
+    typeof x402ZkEvidence?.protocol === "string" && x402ZkEvidence.protocol.trim() !== ""
+      ? x402ZkEvidence.protocol.trim().toLowerCase()
+      : null;
+  const x402ZkPublicSignals = Array.isArray(x402ZkEvidence?.publicSignals) ? x402ZkEvidence.publicSignals : [];
+  const x402ZkProofData =
+    x402ZkEvidence?.proofData && typeof x402ZkEvidence.proofData === "object" && !Array.isArray(x402ZkEvidence.proofData)
+      ? x402ZkEvidence.proofData
+      : null;
+  const x402ZkVerificationKey =
+    x402ZkEvidence?.verificationKey &&
+    typeof x402ZkEvidence.verificationKey === "object" &&
+    !Array.isArray(x402ZkEvidence.verificationKey)
+      ? x402ZkEvidence.verificationKey
+      : null;
 
   const adjustmentId = deterministicAdjustmentId(normalizedAgreementHash);
   const adjustmentResponse = await requestJson({
@@ -432,11 +486,20 @@ export async function exportToolCallClosepack({
         agreementHash: normalizedAgreementHash,
         receiptHash: String(hold?.receiptHash ?? ""),
         holdHash: String(hold?.holdHash ?? ""),
+        x402ReceiptId:
+          typeof x402Receipt?.receiptId === "string" && x402Receipt.receiptId.trim() !== "" ? x402Receipt.receiptId.trim() : null,
         caseId: arbitrationCase?.caseId ?? null,
         adjustmentId
       },
       files: {
         hold: "state/funding_hold.json",
+        x402Receipt: x402Receipt ? "state/x402_receipt.json" : null,
+        x402ZkProof:
+          x402ZkProofData && typeof x402ZkProofData === "object" && x402ZkProtocol ? "evidence/zk/proof.json" : null,
+        x402ZkPublicSignals:
+          Array.isArray(x402ZkPublicSignals) && x402ZkPublicSignals.length > 0 && x402ZkProtocol ? "evidence/zk/public.json" : null,
+        x402ZkVerificationKey:
+          x402ZkVerificationKey && typeof x402ZkVerificationKey === "object" && x402ZkProtocol ? "evidence/zk/verification_key.json" : null,
         arbitrationCase: arbitrationCase ? "state/arbitration_case.json" : null,
         settlementAdjustment: settlementAdjustment ? "state/settlement_adjustment.json" : null,
         reputationEvents: reputationEvents.length > 0 ? "state/reputation_events.json" : null,
@@ -465,6 +528,30 @@ export async function exportToolCallClosepack({
   const files = new Map();
   appendFile(files, "closepack.json", closepack);
   appendFile(files, "state/funding_hold.json", hold);
+  if (x402Receipt && typeof x402Receipt === "object" && !Array.isArray(x402Receipt)) {
+    appendFile(files, "state/x402_receipt.json", x402Receipt);
+  }
+  if (x402ZkProofData && typeof x402ZkProofData === "object" && !Array.isArray(x402ZkProofData) && x402ZkProtocol) {
+    appendFile(files, "evidence/zk/proof.json", {
+      schemaVersion: "X402ExecutionProofData.v1",
+      protocol: x402ZkProtocol,
+      proofData: x402ZkProofData
+    });
+  }
+  if (Array.isArray(x402ZkPublicSignals) && x402ZkPublicSignals.length > 0 && x402ZkProtocol) {
+    appendFile(files, "evidence/zk/public.json", {
+      schemaVersion: "X402ExecutionProofPublicSignals.v1",
+      protocol: x402ZkProtocol,
+      publicSignals: x402ZkPublicSignals
+    });
+  }
+  if (x402ZkVerificationKey && typeof x402ZkVerificationKey === "object" && !Array.isArray(x402ZkVerificationKey) && x402ZkProtocol) {
+    appendFile(files, "evidence/zk/verification_key.json", {
+      schemaVersion: "X402ExecutionProofVerificationKey.v1",
+      protocol: x402ZkProtocol,
+      verificationKey: x402ZkVerificationKey
+    });
+  }
   if (arbitrationCase) appendFile(files, "state/arbitration_case.json", arbitrationCase);
   if (settlementAdjustment) appendFile(files, "state/settlement_adjustment.json", settlementAdjustment);
   if (reputationEvents.length > 0) {
@@ -627,6 +714,41 @@ export async function verifyToolCallClosepackZip({ zipPath } = {}) {
       }
       reputationEvents = [];
       reputationEnvelope = null;
+    }
+    const x402ReceiptPath = path.join(tmpDir, "state", "x402_receipt.json");
+    let x402Receipt = null;
+    try {
+      x402Receipt = await readJsonFile(x402ReceiptPath);
+    } catch (err) {
+      if (String(closepack?.files?.x402Receipt ?? "").trim() !== "") {
+        addIssue(issues, {
+          code: "CLOSEPACK_X402_RECEIPT_MISSING",
+          message: "state/x402_receipt.json is missing or invalid",
+          details: { message: err?.message ?? String(err ?? "") }
+        });
+      }
+      x402Receipt = null;
+    }
+    const x402ZkProofPath = path.join(tmpDir, "evidence", "zk", "proof.json");
+    const x402ZkPublicSignalsPath = path.join(tmpDir, "evidence", "zk", "public.json");
+    const x402ZkVerificationKeyPath = path.join(tmpDir, "evidence", "zk", "verification_key.json");
+    let x402ZkProofFile = null;
+    let x402ZkPublicSignalsFile = null;
+    let x402ZkVerificationKeyFile = null;
+    try {
+      x402ZkProofFile = await readJsonFile(x402ZkProofPath);
+    } catch {
+      x402ZkProofFile = null;
+    }
+    try {
+      x402ZkPublicSignalsFile = await readJsonFile(x402ZkPublicSignalsPath);
+    } catch {
+      x402ZkPublicSignalsFile = null;
+    }
+    try {
+      x402ZkVerificationKeyFile = await readJsonFile(x402ZkVerificationKeyPath);
+    } catch {
+      x402ZkVerificationKeyFile = null;
     }
 
     if (hold && agreementHash && String(hold.agreementHash ?? "").toLowerCase() !== agreementHash) {
@@ -1038,6 +1160,167 @@ export async function verifyToolCallClosepackZip({ zipPath } = {}) {
       });
     }
 
+    let x402ZkVerification = null;
+    if (x402Receipt && isPlainObject(x402Receipt)) {
+      const receiptZkEvidence = extractX402ReceiptZkEvidence(x402Receipt);
+      if (receiptZkEvidence && isPlainObject(receiptZkEvidence)) {
+        const required = receiptZkEvidence.required === true;
+        const protocolFromReceipt =
+          typeof receiptZkEvidence.protocol === "string" && receiptZkEvidence.protocol.trim() !== ""
+            ? receiptZkEvidence.protocol.trim().toLowerCase()
+            : null;
+        const proofDataFromReceipt =
+          receiptZkEvidence.proofData && typeof receiptZkEvidence.proofData === "object" && !Array.isArray(receiptZkEvidence.proofData)
+            ? receiptZkEvidence.proofData
+            : null;
+        const publicSignalsFromReceipt = Array.isArray(receiptZkEvidence.publicSignals) ? receiptZkEvidence.publicSignals : null;
+        const verificationKeyFromReceipt =
+          receiptZkEvidence.verificationKey &&
+          typeof receiptZkEvidence.verificationKey === "object" &&
+          !Array.isArray(receiptZkEvidence.verificationKey)
+            ? receiptZkEvidence.verificationKey
+            : null;
+        const verificationKeyRefFromReceipt =
+          typeof receiptZkEvidence.verificationKeyRef === "string" && receiptZkEvidence.verificationKeyRef.trim() !== ""
+            ? receiptZkEvidence.verificationKeyRef.trim()
+            : null;
+
+        const protocolFromFiles =
+          typeof x402ZkProofFile?.protocol === "string" && x402ZkProofFile.protocol.trim() !== ""
+            ? x402ZkProofFile.protocol.trim().toLowerCase()
+            : typeof x402ZkPublicSignalsFile?.protocol === "string" && x402ZkPublicSignalsFile.protocol.trim() !== ""
+              ? x402ZkPublicSignalsFile.protocol.trim().toLowerCase()
+              : typeof x402ZkVerificationKeyFile?.protocol === "string" && x402ZkVerificationKeyFile.protocol.trim() !== ""
+                ? x402ZkVerificationKeyFile.protocol.trim().toLowerCase()
+                : null;
+        const protocol = protocolFromReceipt ?? protocolFromFiles;
+
+        const proofDataFromFiles =
+          x402ZkProofFile?.proofData && typeof x402ZkProofFile.proofData === "object" && !Array.isArray(x402ZkProofFile.proofData)
+            ? x402ZkProofFile.proofData
+            : null;
+        const publicSignalsFromFiles = Array.isArray(x402ZkPublicSignalsFile?.publicSignals) ? x402ZkPublicSignalsFile.publicSignals : null;
+        const verificationKeyFromFiles =
+          x402ZkVerificationKeyFile?.verificationKey &&
+          typeof x402ZkVerificationKeyFile.verificationKey === "object" &&
+          !Array.isArray(x402ZkVerificationKeyFile.verificationKey)
+            ? x402ZkVerificationKeyFile.verificationKey
+            : null;
+
+        if (proofDataFromReceipt && proofDataFromFiles && !canonicalJsonEquals(proofDataFromReceipt, proofDataFromFiles)) {
+          addIssue(issues, {
+            code: "CLOSEPACK_X402_ZK_PROOF_MISMATCH",
+            message: "x402 zk proof in receipt and evidence/zk/proof.json do not match"
+          });
+        }
+        if (
+          Array.isArray(publicSignalsFromReceipt) &&
+          Array.isArray(publicSignalsFromFiles) &&
+          canonicalJsonStringify(normalizeForCanonicalJson(publicSignalsFromReceipt, { path: "$" })) !==
+            canonicalJsonStringify(normalizeForCanonicalJson(publicSignalsFromFiles, { path: "$" }))
+        ) {
+          addIssue(issues, {
+            code: "CLOSEPACK_X402_ZK_PUBLIC_SIGNALS_MISMATCH",
+            message: "x402 zk publicSignals in receipt and evidence/zk/public.json do not match"
+          });
+        }
+        if (verificationKeyFromReceipt && verificationKeyFromFiles && !canonicalJsonEquals(verificationKeyFromReceipt, verificationKeyFromFiles)) {
+          addIssue(issues, {
+            code: "CLOSEPACK_X402_ZK_VERIFICATION_KEY_MISMATCH",
+            message: "x402 zk verification key in receipt and evidence/zk/verification_key.json do not match"
+          });
+        }
+
+        const proofData = proofDataFromFiles ?? proofDataFromReceipt;
+        const publicSignals = publicSignalsFromFiles ?? publicSignalsFromReceipt;
+        const verificationKey = verificationKeyFromFiles ?? verificationKeyFromReceipt;
+        const statementHashSha256 =
+          typeof receiptZkEvidence.statementHashSha256 === "string" && receiptZkEvidence.statementHashSha256.trim() !== ""
+            ? receiptZkEvidence.statementHashSha256.trim().toLowerCase()
+            : typeof x402Receipt?.bindings?.quote?.quoteSha256 === "string" && x402Receipt.bindings.quote.quoteSha256.trim() !== ""
+              ? x402Receipt.bindings.quote.quoteSha256.trim().toLowerCase()
+              : null;
+        const inputDigestSha256 =
+          typeof receiptZkEvidence.inputDigestSha256 === "string" && receiptZkEvidence.inputDigestSha256.trim() !== ""
+            ? receiptZkEvidence.inputDigestSha256.trim().toLowerCase()
+            : typeof x402Receipt?.bindings?.request?.sha256 === "string" && x402Receipt.bindings.request.sha256.trim() !== ""
+              ? x402Receipt.bindings.request.sha256.trim().toLowerCase()
+              : null;
+        const outputDigestSha256 =
+          typeof receiptZkEvidence.outputDigestSha256 === "string" && receiptZkEvidence.outputDigestSha256.trim() !== ""
+            ? receiptZkEvidence.outputDigestSha256.trim().toLowerCase()
+            : typeof x402Receipt?.bindings?.response?.sha256 === "string" && x402Receipt.bindings.response.sha256.trim() !== ""
+              ? x402Receipt.bindings.response.sha256.trim().toLowerCase()
+              : null;
+        const hasProofMaterial =
+          typeof protocol === "string" &&
+          protocol.trim() !== "" &&
+          Array.isArray(publicSignals) &&
+          proofData &&
+          typeof proofData === "object" &&
+          !Array.isArray(proofData);
+
+        if (!hasProofMaterial) {
+          if (required) {
+            addIssue(issues, {
+              code: "CLOSEPACK_X402_ZK_PROOF_MISSING",
+              message: "required x402 zk proof material is missing from closepack",
+              details: {
+                hasProtocol: Boolean(protocol),
+                hasPublicSignals: Array.isArray(publicSignals),
+                hasProofData: Boolean(proofData)
+              }
+            });
+          }
+        } else {
+          x402ZkVerification = await verifyX402ExecutionProofV1({
+            proof: {
+              protocol,
+              publicSignals,
+              proofData,
+              ...(verificationKey ? { verificationKey } : {}),
+              ...(verificationKeyRefFromReceipt ? { verificationKeyRef: verificationKeyRefFromReceipt } : {}),
+              ...(statementHashSha256 ? { statementHashSha256 } : {}),
+              ...(inputDigestSha256 ? { inputDigestSha256 } : {}),
+              ...(outputDigestSha256 ? { outputDigestSha256 } : {})
+            },
+            verificationKey,
+            expectedVerificationKeyRef: verificationKeyRefFromReceipt,
+            requiredProtocol: protocol,
+            expectedBindings: {
+              statementHashSha256,
+              inputDigestSha256,
+              outputDigestSha256
+            },
+            requireBindings: required
+          });
+          if (x402ZkVerification?.verified !== true) {
+            if (required) {
+              addIssue(issues, {
+                code: "CLOSEPACK_X402_ZK_PROOF_INVALID",
+                message: "required x402 zk proof failed offline verification",
+                details: {
+                  status: x402ZkVerification?.status ?? null,
+                  code: x402ZkVerification?.code ?? null,
+                  message: x402ZkVerification?.message ?? null
+                }
+              });
+            } else {
+              addIssue(issues, {
+                code: "CLOSEPACK_X402_ZK_PROOF_OPTIONAL_UNVERIFIED",
+                severity: "warning",
+                message: "optional x402 zk proof did not verify offline",
+                details: {
+                  status: x402ZkVerification?.status ?? null,
+                  code: x402ZkVerification?.code ?? null
+                }
+              });
+            }
+          }
+        }
+      }
+    }
+
     const errorCount = issues.filter((issue) => issue.severity !== "warning").length;
     return {
       schemaVersion: VERIFY_REPORT_SCHEMA_VERSION,
@@ -1056,6 +1339,9 @@ export async function verifyToolCallClosepackZip({ zipPath } = {}) {
         holdHash: hold?.holdHash ?? null,
         caseId: arbitrationCase?.caseId ?? null,
         adjustmentId: settlementAdjustment?.adjustmentId ?? null,
+        x402ReceiptId:
+          typeof x402Receipt?.receiptId === "string" && x402Receipt.receiptId.trim() !== "" ? x402Receipt.receiptId.trim() : null,
+        x402ZkVerified: x402ZkVerification?.verified === true,
         artifacts: artifacts.length,
         identities: identities.length,
         reputationEvents: reputationEvents.length

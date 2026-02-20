@@ -24,9 +24,33 @@ export type RequestOptions = {
   signal?: AbortSignal;
 };
 
+export type X402ExecutionIntentErrorCode =
+  | "X402_EXECUTION_INTENT_REQUIRED"
+  | "X402_EXECUTION_INTENT_IDEMPOTENCY_MISMATCH"
+  | "X402_EXECUTION_INTENT_CONFLICT"
+  | "X402_EXECUTION_INTENT_HASH_MISMATCH"
+  | "X402_EXECUTION_INTENT_INVALID"
+  | "X402_EXECUTION_INTENT_TIME_INVALID"
+  | "X402_EXECUTION_INTENT_TENANT_MISMATCH"
+  | "X402_EXECUTION_INTENT_AGENT_MISMATCH"
+  | "X402_EXECUTION_INTENT_SIDE_EFFECTING_REQUIRED"
+  | "X402_EXECUTION_INTENT_REQUEST_BINDING_REQUIRED"
+  | "X402_EXECUTION_INTENT_REQUEST_MISMATCH"
+  | "X402_EXECUTION_INTENT_SPEND_LIMIT_EXCEEDED"
+  | "X402_EXECUTION_INTENT_CURRENCY_MISMATCH"
+  | "X402_EXECUTION_INTENT_RUN_MISMATCH"
+  | "X402_EXECUTION_INTENT_AGREEMENT_MISMATCH"
+  | "X402_EXECUTION_INTENT_QUOTE_MISMATCH"
+  | "X402_EXECUTION_INTENT_POLICY_VERSION_MISMATCH"
+  | "X402_EXECUTION_INTENT_POLICY_HASH_MISMATCH"
+  | "X402_EXECUTION_INTENT_EXPIRES_AT_INVALID"
+  | "X402_EXECUTION_INTENT_EXPIRED";
+
+export type SettldApiErrorCode = X402ExecutionIntentErrorCode | "SCHEMA_INVALID" | (string & {});
+
 export type SettldError = {
   status: number;
-  code?: string | null;
+  code?: SettldApiErrorCode | null;
   message: string;
   details?: unknown;
   requestId?: string | null;
@@ -45,6 +69,46 @@ export declare function fetchWithSettldAutopay(
   init?: RequestInit,
   opts?: SettldAutopayFetchOptions
 ): Promise<Response>;
+
+export type SettldWebhookSignatureVerifyOptions = {
+  toleranceSeconds?: number;
+  timestamp?: string | number | null;
+  nowMs?: number;
+};
+
+export type SettldWebhookMiddlewareOptions = {
+  toleranceSeconds?: number;
+  signatureHeaderName?: string;
+  timestampHeaderName?: string;
+};
+
+export type SettldWebhookSecretResolver = string | ((req: unknown) => string | Promise<string>);
+
+export declare class SettldWebhookSignatureError extends Error {
+  code: string;
+}
+
+export declare class SettldWebhookSignatureHeaderError extends SettldWebhookSignatureError {}
+
+export declare class SettldWebhookTimestampToleranceError extends SettldWebhookSignatureError {
+  timestamp: string | null;
+  toleranceSeconds: number | null;
+  nowMs: number | null;
+}
+
+export declare class SettldWebhookNoMatchingSignatureError extends SettldWebhookSignatureError {}
+
+export declare function verifySettldWebhookSignature(
+  rawBody: string | Uint8Array | ArrayBuffer,
+  signatureHeader: string,
+  secret: string,
+  optionsOrTolerance?: number | SettldWebhookSignatureVerifyOptions
+): true;
+
+export declare function verifySettldWebhook(
+  secretOrResolver: SettldWebhookSecretResolver,
+  optionsOrTolerance?: number | SettldWebhookMiddlewareOptions
+): (req: any, res: any, next: (err?: unknown) => void) => void;
 
 export type InteractionEntityType = "agent" | "human" | "robot" | "machine";
 
@@ -790,11 +854,22 @@ export type TenantTrustGraphDiffQuery = {
   includeUnchanged?: boolean;
 };
 
+export type X402GateAuthorizePaymentRequest = {
+  gateId: string;
+  quoteId?: string | null;
+  requestBindingMode?: "strict" | null;
+  requestBindingSha256?: string | null;
+  walletAuthorizationDecisionToken?: string | null;
+  escalationOverrideToken?: string | null;
+  executionIntent?: Record<string, unknown> | null;
+} & Record<string, unknown>;
+
 export class SettldClient {
   constructor(opts: SettldClientOptions);
 
   capabilities(opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
   openApi(opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  x402GateAuthorizePayment(body: X402GateAuthorizePaymentRequest, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
 
   createJob(body: { templateId: string } & Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
   getJob(jobId: string, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
