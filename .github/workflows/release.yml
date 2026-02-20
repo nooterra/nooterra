@@ -502,6 +502,20 @@ jobs:
       - if: ${{ steps.npm_publish_guard.outputs.skip != 'true' }}
         run: npm ci
 
+      - name: Decide scoped npm publish mode
+        if: ${{ steps.npm_publish_guard.outputs.skip != 'true' }}
+        id: npm_scope_mode
+        env:
+          NPM_SCOPE_SETTLD_PUBLISH: ${{ secrets.NPM_SCOPE_SETTLD_PUBLISH }}
+        run: |
+          if [[ "${NPM_SCOPE_SETTLD_PUBLISH}" == "true" ]]; then
+            echo "provider_kit=true" >> "$GITHUB_OUTPUT"
+            echo "Scoped npm publish enabled for @settld/provider-kit."
+          else
+            echo "provider_kit=false" >> "$GITHUB_OUTPUT"
+            echo "Scoped npm publish disabled; @settld/provider-kit will be skipped."
+          fi
+
       - name: Stamp npm package versions for publish
         if: ${{ steps.npm_publish_guard.outputs.skip != 'true' }}
         run: |
@@ -533,7 +547,11 @@ jobs:
           }
           publish_if_missing "."
           publish_if_missing "packages/api-sdk"
-          publish_if_missing "packages/provider-kit"
+          if [[ "${{ steps.npm_scope_mode.outputs.provider_kit }}" == "true" ]]; then
+            publish_if_missing "packages/provider-kit"
+          else
+            echo "Skipping scoped publish for @settld/provider-kit (NPM_SCOPE_SETTLD_PUBLISH != true)."
+          fi
           publish_if_missing "packages/create-settld-paid-tool"
 
       - name: Smoke npm registry install (npx, no-clone)
@@ -562,8 +580,12 @@ jobs:
           wait_for_cmd "npm view settld@${VERSION} version > /tmp/settld-npm-view-version.txt"
           test "$(tr -d '\r\n' < /tmp/settld-npm-view-version.txt)" = "${VERSION}"
 
-          wait_for_cmd "npm view @settld/provider-kit@${VERSION} version > /tmp/provider-kit-npm-view-version.txt"
-          test "$(tr -d '\r\n' < /tmp/provider-kit-npm-view-version.txt)" = "${VERSION}"
+          if [[ "${PROVIDER_KIT_EXPECTED}" == "true" ]]; then
+            wait_for_cmd "npm view @settld/provider-kit@${VERSION} version > /tmp/provider-kit-npm-view-version.txt"
+            test "$(tr -d '\r\n' < /tmp/provider-kit-npm-view-version.txt)" = "${VERSION}"
+          else
+            echo "Skipping provider-kit npm view smoke (scoped publish disabled)."
+          fi
 
           wait_for_cmd "npm view create-settld-paid-tool@${VERSION} version > /tmp/create-settld-paid-tool-npm-view-version.txt"
           test "$(tr -d '\r\n' < /tmp/create-settld-paid-tool-npm-view-version.txt)" = "${VERSION}"
@@ -597,27 +619,34 @@ jobs:
 
           node -e '
             const fs = require("node:fs");
+            const providerKitExpected = process.env.PROVIDER_KIT_EXPECTED === "true";
+            const commands = [
+              { cmd: "npm view settld@<version> version", ok: true }
+            ];
+            if (providerKitExpected) {
+              commands.push({ cmd: "npm view @settld/provider-kit@<version> version", ok: true });
+            }
+            commands.push(
+              { cmd: "npm view create-settld-paid-tool@<version> version", ok: true },
+              { cmd: "npm exec --yes --package settld@<version> -- settld --version", ok: true },
+              { cmd: "npm exec --yes --package settld@<version> -- settld conformance kernel:list", ok: true },
+              { cmd: "npm exec --yes --package settld@<version> -- settld --help (contains closepack verify)", ok: true },
+              { cmd: "npm exec --yes --package settld@<version> -- settld init capability smoke-cap --out /tmp/settld-registry-starter", ok: true },
+              { cmd: "npm exec --yes --package create-settld-paid-tool@<version> -- create-settld-paid-tool --help", ok: true },
+              { cmd: "npm exec --yes --package create-settld-paid-tool@<version> -- create-settld-paid-tool /tmp/settld-registry-paid-tool", ok: true }
+            );
             const payload = {
               schemaVersion: "NpmPostpublishSmoke.v1",
               package: "settld",
               version: process.env.VERSION || null,
               checkedAt: new Date().toISOString(),
-              commands: [
-                { cmd: "npm view settld@<version> version", ok: true },
-                { cmd: "npm view @settld/provider-kit@<version> version", ok: true },
-                { cmd: "npm view create-settld-paid-tool@<version> version", ok: true },
-                { cmd: "npm exec --yes --package settld@<version> -- settld --version", ok: true },
-                { cmd: "npm exec --yes --package settld@<version> -- settld conformance kernel:list", ok: true },
-                { cmd: "npm exec --yes --package settld@<version> -- settld --help (contains closepack verify)", ok: true },
-                { cmd: "npm exec --yes --package settld@<version> -- settld init capability smoke-cap --out /tmp/settld-registry-starter", ok: true },
-                { cmd: "npm exec --yes --package create-settld-paid-tool@<version> -- create-settld-paid-tool --help", ok: true },
-                { cmd: "npm exec --yes --package create-settld-paid-tool@<version> -- create-settld-paid-tool /tmp/settld-registry-paid-tool", ok: true }
-              ]
+              commands
             };
             fs.writeFileSync("/tmp/npm-postpublish-smoke.json", JSON.stringify(payload, null, 2));
           '
         env:
           VERSION: ${{ steps.v.outputs.version }}
+          PROVIDER_KIT_EXPECTED: ${{ steps.npm_scope_mode.outputs.provider_kit }}
 
       - name: Upload npm postpublish smoke artifacts
         if: always()
