@@ -109,6 +109,27 @@ jobs:
           test/mcp-paid-weather-tool.test.js
           test/demo-mcp-paid-exa.test.js
 
+  kernel_v0_ship_gate:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run Kernel v0 ship gate
+        run: node scripts/ci/run-kernel-v0-ship-gate.mjs
+      - name: Upload ship gate artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-v0-ship-gate-${{ github.run_id }}
+          path: artifacts/gates/kernel-v0-ship-gate.json
+          if-no-files-found: warn
+
   flake_budget_guard:
     runs-on: ubuntu-latest
     timeout-minutes: 5
