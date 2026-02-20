@@ -72,7 +72,7 @@ jobs:
               {
                 owner,
                 repo,
-                workflow_run_id: passingRun.id,
+                run_id: passingRun.id,
                 per_page: 100
               }
             );
