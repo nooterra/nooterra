@@ -1,5 +1,5 @@
 import PageFrame from "../components/PageFrame.jsx";
-import { docsLinks } from "../config/links.js";
+import { docsLinks, ossLinks } from "../config/links.js";
 import { buttonClasses } from "../components/ui/button.jsx";
 import { Badge } from "../components/ui/badge.jsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.jsx";
@@ -48,7 +48,7 @@ export default function CompanyPage() {
           <CardContent>
             <div className="flex flex-wrap gap-3">
               <a className={buttonClasses({ size: "lg" })} href={docsLinks.ops}>Operations docs</a>
-              <a className={buttonClasses({ variant: "outline", size: "lg" })} href="/pilot">Request pilot</a>
+              <a className={buttonClasses({ variant: "outline", size: "lg" })} href={ossLinks.repo}>View GitHub</a>
             </div>
           </CardContent>
         </Card>
@@ -87,4 +87,3 @@ export default function CompanyPage() {
     </PageFrame>
   );
 }
-

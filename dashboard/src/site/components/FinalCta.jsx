@@ -1,6 +1,6 @@
 import { buttonClasses } from "./ui/button.jsx";
 import { Card } from "./ui/card.jsx";
-import { docsLinks } from "../config/links.js";
+import { docsLinks, ossLinks } from "../config/links.js";
 
 export default function FinalCta() {
   return (
@@ -23,9 +23,9 @@ export default function FinalCta() {
               variant: "outline",
               className: "border-[#b5968a] bg-transparent text-[#f7f2ea] hover:bg-[#3a3531]"
             })}
-            href="/pilot"
+            href={ossLinks.repo}
           >
-            Request pilot
+            Contribute on GitHub
           </a>
         </div>
       </Card>

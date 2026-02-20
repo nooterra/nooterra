@@ -47,7 +47,7 @@ const docsPaths = [
 const roleTracks = {
   founder: {
     title: "Founder / Product Lead",
-    copy: "Understand what ships now, what’s next, and how to scope a production pilot.",
+    copy: "Understand what ships now, what’s next, and how to scope an open-source rollout.",
     links: [docsLinks.quickstart, docsLinks.roadmap, docsLinks.faq]
   },
   engineer: {
@@ -156,4 +156,3 @@ export default function DocsPage() {
     </PageFrame>
   );
 }
-

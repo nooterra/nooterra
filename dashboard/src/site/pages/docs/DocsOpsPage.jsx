@@ -11,7 +11,7 @@ const deployChecklist = [
 const operations = [
   {
     title: "Daily",
-    commands: ["npm run ops:x402:pilot:weekly-report", "npm run ops:x402:receipt:sample-check"]
+    commands: ["npm run ops:x402:receipt:sample-check", "npm run test:ops:go-live-gate"]
   },
   {
     title: "Release",

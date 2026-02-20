@@ -49,7 +49,7 @@ export const docsSections = [
     title: "Operations",
     summary: "Deploy, monitor, rotate keys, handle escalation queues, and run release/safety gates.",
     tags: ["ops", "deploy", "runbook"],
-    commands: ["npm run test:ops:go-live-gate", "npm run ops:x402:pilot:weekly-report", "npm run keys:rotate"]
+    commands: ["npm run test:ops:go-live-gate", "npm run ops:x402:receipt:sample-check", "npm run keys:rotate"]
   }
 ];
 

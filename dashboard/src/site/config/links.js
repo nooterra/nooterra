@@ -4,6 +4,16 @@ const rawDocsBase =
     : "https://docs.settld.work";
 
 export const docsBaseUrl = rawDocsBase.replace(/\/+$/, "");
+const rawGithubRepo =
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_GITHUB_REPO_URL
+    ? String(import.meta.env.VITE_GITHUB_REPO_URL).trim()
+    : "https://github.com/aidenlippert/settld";
+
+export const ossLinks = {
+  repo: rawGithubRepo.replace(/\/+$/, ""),
+  issues: `${rawGithubRepo.replace(/\/+$/, "")}/issues`,
+  discussions: `${rawGithubRepo.replace(/\/+$/, "")}/discussions`
+};
 
 export const docsLinks = {
   home: `${docsBaseUrl}/`,
@@ -18,4 +28,3 @@ export const docsLinks = {
   roadmap: `${docsBaseUrl}/roadmap/`,
   faq: `${docsBaseUrl}/faq/`
 };
-

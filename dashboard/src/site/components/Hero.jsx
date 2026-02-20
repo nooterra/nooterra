@@ -1,5 +1,5 @@
 import { buttonClasses } from "./ui/button.jsx";
-import { docsLinks } from "../config/links.js";
+import { docsLinks, ossLinks } from "../config/links.js";
 import { Badge } from "./ui/badge.jsx";
 
 export default function Hero() {
@@ -28,11 +28,8 @@ export default function Hero() {
           <a className={buttonClasses({ size: "lg" })} href={docsLinks.integrations}>
             Start with MCP
           </a>
-          <a className={buttonClasses({ variant: "outline", size: "lg" })} href="/pilot">
-            Request pilot
-          </a>
-          <a className={buttonClasses({ variant: "ghost", size: "lg" })} href="/proof">
-            See proof
+          <a className={buttonClasses({ variant: "outline", size: "lg" })} href={ossLinks.repo}>
+            View GitHub
           </a>
         </div>
       </div>
