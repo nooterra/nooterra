@@ -1,37 +1,40 @@
-const highlights = [
-  "Quote-bound authorizations",
-  "Provider signatures + JWKS verification",
-  "Immutable receipts and reversals",
-  "Offline closepack verification"
+const statements = [
+  "Agents should be able to buy what they need.",
+  "Sponsors should be able to set hard limits.",
+  "Providers should be able to trust settlement outcomes."
 ];
 
 const stats = [
-  { value: "<10m", label: "first verified run" },
-  { value: "100%", label: "receipt replayability target" },
-  { value: "1", label: "protocol loop, not custom glue" }
+  { value: "5x", label: "faster integration cycles" },
+  { value: "0", label: "manual receipt reconstruction" },
+  { value: "1", label: "deterministic economic loop" }
 ];
 
 export default function Hero() {
   return (
     <section className="section-shell hero" id="hero">
       <div className="hero-copy">
-        <p className="eyebrow">Autonomous Commerce Infrastructure</p>
-        <h1>Give AI agents spending power without giving up control.</h1>
+        <p className="eyebrow">The Economic Layer for AI Agents</p>
+        <h1>Make autonomous agents economically useful at production scale.</h1>
         <p className="hero-sub">
-          Settld is the trust and settlement layer for paid agent actions. Agents can quote, authorize, execute,
-          and settle under sponsor policy with cryptographic evidence that survives audits and disputes.
+          Settld turns paid agent actions into enforceable transactions: quote-bound authorization, verified execution,
+          immutable receipts, and operator-grade control when policy boundaries are hit.
         </p>
-        <ul className="hero-highlights">
-          {highlights.map((item) => (
-            <li key={item}>{item}</li>
+
+        <div className="statement-grid">
+          {statements.map((line) => (
+            <article className="statement-card" key={line}>
+              <p>{line}</p>
+            </article>
           ))}
-        </ul>
+        </div>
+
         <div className="hero-actions">
-          <a className="btn btn-solid" href="#developers">
-            Run quickstart
+          <a className="btn btn-solid" href="/signup">
+            Launch your workspace
           </a>
-          <a className="btn btn-ghost" href="/pricing">
-            See pricing
+          <a className="btn btn-ghost" href="/product">
+            Explore product
           </a>
         </div>
       </div>

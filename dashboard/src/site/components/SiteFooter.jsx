@@ -4,14 +4,15 @@ export default function SiteFooter() {
       <div>
         <p className="footer-brand">Settld</p>
         <p>
-          Economic infrastructure for AI agents to transact under delegated authority with cryptographic accountability.
+          Build autonomous commerce with delegated authority, cryptographic verification, and finance-grade settlement evidence.
         </p>
       </div>
       <div className="footer-links">
-        <a href="/kernel-v0/">Kernel docs</a>
+        <a href="/product">Product</a>
+        <a href="/developers">Developers</a>
+        <a href="/security">Security</a>
         <a href="/pricing">Pricing</a>
-        <a href="/demo">Demo</a>
-        <a href="/operator">Operator</a>
+        <a href="/company">Company</a>
       </div>
     </footer>
   );

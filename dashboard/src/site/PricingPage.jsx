@@ -36,8 +36,8 @@ export default function PricingPage() {
               <a className="btn btn-solid" href="#plans">
                 Compare plans
               </a>
-              <a className="btn btn-ghost" href="/#developers">
-                Run quickstart
+              <a className="btn btn-ghost" href="/developers">
+                Integration guide
               </a>
             </div>
           </div>

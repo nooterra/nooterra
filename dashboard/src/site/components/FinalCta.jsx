@@ -8,11 +8,11 @@ export default function FinalCta() {
           Ship autonomous spend with bounded authority, durable receipts, and proof-driven dispute handling.
         </p>
         <div className="hero-actions">
-          <a className="btn btn-solid" href="#developers">
-            Start integration
+          <a className="btn btn-solid" href="/signup">
+            Create workspace
           </a>
-          <a className="btn btn-ghost" href="/kernel-v0/">
-            Read protocol docs
+          <a className="btn btn-ghost" href="/product">
+            Explore product
           </a>
         </div>
       </div>

@@ -39,6 +39,40 @@ npm run demo:ui
 
 By default the UI runs on `http://127.0.0.1:5173` (so it doesn’t conflict with the Settld API on port 3000).
 
+## Operator Inbox
+
+The escalation operator surface is available at:
+
+- `http://127.0.0.1:5173/operator`
+
+It uses live API calls to:
+
+- `GET /x402/gate/escalations`
+- `GET /x402/gate/escalations/:id`
+- `POST /x402/gate/escalations/:id/resolve`
+
+Configure API base URL, tenant, protocol, and bearer key in the page header.
+
+For local dev, default API base URL is `"/__settld"` which is proxied by Vite to `http://127.0.0.1:3000`.
+This avoids browser CORS issues between ports `5173` and `3000`.
+
+## Site Auth (OTP)
+
+The website now includes `/login`, `/signup`, and `/app` backed by buyer OTP session APIs:
+
+- `POST /v1/tenants/:tenantId/buyer/login/otp`
+- `POST /v1/tenants/:tenantId/buyer/login`
+- `GET /v1/buyer/me`
+- `POST /v1/buyer/logout`
+
+Set these Vite env vars for production:
+
+- `VITE_SETTLD_API_BASE_URL` (example: `https://api.settld.work`)
+- `VITE_SETTLD_TENANT_ID` (example: `tenant_default`)
+
+Important: buyer sessions are issued as `HttpOnly` cookies. The clean production setup is same-site app+API
+(for example `settld.work` and `api.settld.work` behind the same trusted domain policy / reverse proxy).
+
 ## Data sources
 
 At runtime the UI tries, in order:
