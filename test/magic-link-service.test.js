@@ -718,7 +718,8 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     MAGIC_LINK_BILLING_STRIPE_SECRET_KEY: "sk_test_mock",
     MAGIC_LINK_BILLING_STRIPE_WEBHOOK_SECRET: "whsec_mock",
     MAGIC_LINK_BILLING_STRIPE_PRICE_ID_GROWTH: "price_growth_mock",
-    MAGIC_LINK_BILLING_STRIPE_PRICE_ID_SCALE: "price_scale_mock"
+    MAGIC_LINK_BILLING_STRIPE_PRICE_ID_SCALE: "price_scale_mock",
+    MAGIC_LINK_PUBLIC_SIGNUP_ENABLED: "1"
   });
 
   await t.after(async () => {
@@ -3678,11 +3679,92 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const adminSettingsJson = JSON.parse(adminSettingsRes._body().toString("utf8"));
     assert.equal(adminSettingsJson.ok, true);
 
+    const viewerUsersRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/users`,
+      headers: { cookie: viewer.cookieHeader },
+      bodyChunks: []
+    });
+    assert.equal(viewerUsersRes.statusCode, 403);
+
+    const upsertUserBody = Buffer.from(
+      JSON.stringify({
+        email: "ops@buyer.example",
+        role: "approver",
+        fullName: "Ops Approver",
+        company: "Buyer Inc"
+      }),
+      "utf8"
+    );
+    const upsertUserRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/users`,
+      headers: {
+        cookie: admin.cookieHeader,
+        "content-type": "application/json",
+        "content-length": String(upsertUserBody.length)
+      },
+      bodyChunks: [upsertUserBody]
+    });
+    assert.equal(upsertUserRes.statusCode, 200, upsertUserRes._body().toString("utf8"));
+    const upsertUserJson = JSON.parse(upsertUserRes._body().toString("utf8"));
+    assert.equal(upsertUserJson.ok, true);
+    assert.equal(upsertUserJson.user.email, "ops@buyer.example");
+    assert.equal(upsertUserJson.user.role, "approver");
+
+    const usersRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/users`,
+      headers: { cookie: admin.cookieHeader },
+      bodyChunks: []
+    });
+    assert.equal(usersRes.statusCode, 200, usersRes._body().toString("utf8"));
+    const usersJson = JSON.parse(usersRes._body().toString("utf8"));
+    assert.equal(usersJson.ok, true);
+    assert.ok(Array.isArray(usersJson.users));
+    assert.ok(usersJson.users.some((row) => row.email === "admin@buyer.example" && row.role === "admin"));
+    assert.ok(usersJson.users.some((row) => row.email === "ops@buyer.example" && row.role === "approver"));
+
     const logoutRes = await runReq({ method: "POST", url: "/v1/buyer/logout", headers: { cookie: admin.cookieHeader }, bodyChunks: [] });
     assert.equal(logoutRes.statusCode, 200, logoutRes._body().toString("utf8"));
     assert.ok(String(logoutRes.getHeader("set-cookie")).includes("Max-Age=0"));
     const meAfterLogout = await runReq({ method: "GET", url: "/v1/buyer/me", headers: {}, bodyChunks: [] });
     assert.equal(meAfterLogout.statusCode, 401);
+  });
+
+  await t.test("public signup: creates tenant, admin role, and OTP", async () => {
+    const signupBody = Buffer.from(
+      JSON.stringify({
+        company: "Nova Robotics",
+        fullName: "Founder",
+        email: "founder@nova.example"
+      }),
+      "utf8"
+    );
+    const signupRes = await runReq({
+      method: "POST",
+      url: "/v1/public/signup",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(signupBody.length)
+      },
+      bodyChunks: [signupBody]
+    });
+    assert.equal(signupRes.statusCode, 201, signupRes._body().toString("utf8"));
+    const signupJson = JSON.parse(signupRes._body().toString("utf8"));
+    assert.equal(signupJson.ok, true);
+    assert.equal(signupJson.email, "founder@nova.example");
+    assert.equal(signupJson.otpIssued, true);
+    assert.ok(typeof signupJson.tenantId === "string" && signupJson.tenantId.length > 0);
+    const tenantId = signupJson.tenantId;
+
+    const settings = await loadTenantSettings({ dataDir, tenantId });
+    assert.ok(Array.isArray(settings.buyerAuthEmailDomains));
+    assert.ok(settings.buyerAuthEmailDomains.includes("nova.example"));
+    assert.equal(settings.buyerUserRoles?.["founder@nova.example"], "admin");
+
+    const code = await readBuyerOtpOutboxCode({ tenantId, email: "founder@nova.example" });
+    assert.match(String(code), /^[0-9]{6}$/);
   });
 
   await t.test("analytics + trust graph: aggregates by vendor and contract", async () => {

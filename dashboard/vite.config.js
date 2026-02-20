@@ -5,6 +5,10 @@ const proxyTarget =
   typeof process !== "undefined" && typeof process.env.VITE_SETTLD_API_PROXY_TARGET === "string" && process.env.VITE_SETTLD_API_PROXY_TARGET.trim() !== ""
     ? process.env.VITE_SETTLD_API_PROXY_TARGET.trim()
     : "http://127.0.0.1:3000";
+const authProxyTarget =
+  typeof process !== "undefined" && typeof process.env.VITE_SETTLD_AUTH_PROXY_TARGET === "string" && process.env.VITE_SETTLD_AUTH_PROXY_TARGET.trim() !== ""
+    ? process.env.VITE_SETTLD_AUTH_PROXY_TARGET.trim()
+    : "http://127.0.0.1:8787";
 
 export default defineConfig({
   plugins: [react()],
@@ -18,6 +22,11 @@ export default defineConfig({
         target: proxyTarget,
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/__settld/, "")
+      },
+      "/__magic": {
+        target: authProxyTarget,
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/__magic/, "")
       }
     }
   }

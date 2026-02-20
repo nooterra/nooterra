@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 
 import PageFrame from "../components/PageFrame.jsx";
-import { fetchBuyerMe, getAuthDefaults, requestBuyerOtp, verifyBuyerOtp } from "../auth/client.js";
+import { createPublicWorkspace, fetchBuyerMe, getAuthDefaults, requestBuyerOtp, verifyBuyerOtp } from "../auth/client.js";
 import { writeSession } from "../auth/session.js";
 
 function titleFor(mode) {
@@ -27,6 +27,7 @@ export default function AuthPage({ mode = "login" }) {
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [signupComplete, setSignupComplete] = useState(false);
 
   const isSignup = mode === "signup";
   const emailOk = useMemo(() => {
@@ -36,7 +37,7 @@ export default function AuthPage({ mode = "login" }) {
     const emailOk = /.+@.+\..+/.test(String(email));
     if (!emailOk) return false;
     if (isSignup && String(company).trim().length < 2) return false;
-    if (String(tenantId).trim().length < 2) return false;
+    if (!isSignup && String(tenantId).trim().length < 2) return false;
     if (String(apiBaseUrl).trim().length < 1) return false;
     return true;
   }, [apiBaseUrl, company, email, isSignup, tenantId]);
@@ -57,9 +58,22 @@ export default function AuthPage({ mode = "login" }) {
     }
     try {
       setLoading(true);
+      let resolvedTenantId = String(tenantId).trim();
+      if (isSignup && !signupComplete) {
+        const signup = await createPublicWorkspace({
+          apiBaseUrl,
+          company,
+          email,
+          fullName,
+          tenantId: resolvedTenantId
+        });
+        resolvedTenantId = typeof signup?.tenantId === "string" && signup.tenantId.trim() ? signup.tenantId.trim() : resolvedTenantId;
+        if (resolvedTenantId) setTenantId(resolvedTenantId);
+        setSignupComplete(true);
+      }
       const issued = await requestBuyerOtp({
         apiBaseUrl,
-        tenantId,
+        tenantId: resolvedTenantId,
         email
       });
       setOtpSent(true);
@@ -145,8 +159,8 @@ export default function AuthPage({ mode = "login" }) {
             </label>
 
             <label>
-              <span>Tenant ID</span>
-              <input value={tenantId} onChange={(e) => setTenantId(e.target.value)} placeholder="tenant_default" required />
+              <span>Tenant ID {isSignup ? "(optional, auto-generated if blank)" : ""}</span>
+              <input value={tenantId} onChange={(e) => setTenantId(e.target.value)} placeholder="tenant_default" required={!isSignup} />
             </label>
 
             <label>

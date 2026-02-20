@@ -60,15 +60,41 @@ This avoids browser CORS issues between ports `5173` and `3000`.
 
 The website now includes `/login`, `/signup`, and `/app` backed by buyer OTP session APIs:
 
+- `POST /v1/public/signup` (self-serve tenant + admin bootstrap; gated by `MAGIC_LINK_PUBLIC_SIGNUP_ENABLED=1`)
 - `POST /v1/tenants/:tenantId/buyer/login/otp`
 - `POST /v1/tenants/:tenantId/buyer/login`
 - `GET /v1/buyer/me`
 - `POST /v1/buyer/logout`
+- `GET/POST /v1/tenants/:tenantId/buyer/users` (admin-managed user list/upsert)
 
 Set these Vite env vars for production:
 
-- `VITE_SETTLD_API_BASE_URL` (example: `https://api.settld.work`)
-- `VITE_SETTLD_TENANT_ID` (example: `tenant_default`)
+- `VITE_SETTLD_AUTH_BASE_URL` (example: `https://auth.settld.work`)
+- `VITE_SETTLD_AUTH_TENANT_ID` (optional default tenant)
+- `VITE_SETTLD_API_BASE_URL` (for `/operator`, example: `https://api.settld.work`)
+
+Local dev expected setup (two backends):
+
+```bash
+# terminal 1: core x402/operator api
+npm run dev:api
+
+# terminal 2: magic-link auth api
+MAGIC_LINK_PUBLIC_SIGNUP_ENABLED=1 npm run dev:magic-link
+
+# terminal 3: website
+cd dashboard && npm run dev
+```
+
+Vite proxies by default:
+
+- `/__settld` -> `http://127.0.0.1:3000`
+- `/__magic` -> `http://127.0.0.1:8787`
+
+You can override with:
+
+- `VITE_SETTLD_API_PROXY_TARGET`
+- `VITE_SETTLD_AUTH_PROXY_TARGET`
 
 Important: buyer sessions are issued as `HttpOnly` cookies. The clean production setup is same-site app+API
 (for example `settld.work` and `api.settld.work` behind the same trusted domain policy / reverse proxy).

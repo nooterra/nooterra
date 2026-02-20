@@ -1,15 +1,17 @@
-const DEFAULT_API_BASE_URL =
-  typeof import.meta !== "undefined" && import.meta.env?.VITE_SETTLD_API_BASE_URL
-    ? String(import.meta.env.VITE_SETTLD_API_BASE_URL).trim()
-    : "/__settld";
+const DEFAULT_AUTH_BASE_URL =
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_SETTLD_AUTH_BASE_URL
+    ? String(import.meta.env.VITE_SETTLD_AUTH_BASE_URL).trim()
+    : "/__magic";
 
 const DEFAULT_TENANT_ID =
-  typeof import.meta !== "undefined" && import.meta.env?.VITE_SETTLD_TENANT_ID
-    ? String(import.meta.env.VITE_SETTLD_TENANT_ID).trim()
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_SETTLD_AUTH_TENANT_ID
+    ? String(import.meta.env.VITE_SETTLD_AUTH_TENANT_ID).trim()
+    : typeof import.meta !== "undefined" && import.meta.env?.VITE_SETTLD_TENANT_ID
+      ? String(import.meta.env.VITE_SETTLD_TENANT_ID).trim()
     : "tenant_default";
 
 function sanitizeBaseUrl(baseUrl = "") {
-  const normalized = String(baseUrl ?? "").trim() || DEFAULT_API_BASE_URL;
+  const normalized = String(baseUrl ?? "").trim() || DEFAULT_AUTH_BASE_URL;
   return normalized.replace(/\/$/, "");
 }
 
@@ -59,9 +61,23 @@ async function requestJson({ baseUrl, pathname, method = "GET", body } = {}) {
 
 export function getAuthDefaults() {
   return {
-    apiBaseUrl: sanitizeBaseUrl(DEFAULT_API_BASE_URL),
+    apiBaseUrl: sanitizeBaseUrl(DEFAULT_AUTH_BASE_URL),
     tenantId: normalizeTenantId(DEFAULT_TENANT_ID)
   };
+}
+
+export async function createPublicWorkspace({ apiBaseUrl, company, email, fullName = "", tenantId = "" } = {}) {
+  return requestJson({
+    baseUrl: apiBaseUrl,
+    pathname: "/v1/public/signup",
+    method: "POST",
+    body: {
+      company: String(company ?? "").trim(),
+      email: String(email ?? "").trim().toLowerCase(),
+      fullName: String(fullName ?? "").trim(),
+      tenantId: String(tenantId ?? "").trim() || undefined
+    }
+  });
 }
 
 export async function requestBuyerOtp({ apiBaseUrl, tenantId, email }) {

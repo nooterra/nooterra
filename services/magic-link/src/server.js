@@ -47,6 +47,7 @@ import { appendAuditRecord } from "./audit-log.js";
 import { authenticateIngestKey, createIngestKey, revokeIngestKey } from "./ingest-keys.js";
 import { issueDecisionOtp, verifyAndConsumeDecisionOtp } from "./decision-otp.js";
 import { createBuyerSessionToken, issueBuyerOtp, verifyAndConsumeBuyerOtp, verifyBuyerSessionToken } from "./buyer-auth.js";
+import { listBuyerUsers, upsertBuyerUser } from "./buyer-users.js";
 import { checkAndMigrateDataDir, MAGIC_LINK_DATA_FORMAT_VERSION_CURRENT } from "./storage-format.js";
 import { effectiveRetentionDaysForRun, normalizePolicyProfileForEnforcement, policyHashHex, resolvePolicyForRun } from "./policy.js";
 import { garbageCollectTenantByRetention } from "./retention-gc.js";
@@ -793,6 +794,7 @@ const buyerOtpTtlSeconds = Number.parseInt(String(process.env.MAGIC_LINK_BUYER_O
 const buyerOtpMaxAttempts = Number.parseInt(String(process.env.MAGIC_LINK_BUYER_OTP_MAX_ATTEMPTS ?? "10"), 10);
 const buyerOtpDeliveryMode = String(process.env.MAGIC_LINK_BUYER_OTP_DELIVERY_MODE ?? "record").trim().toLowerCase();
 const buyerSessionTtlSeconds = Number.parseInt(String(process.env.MAGIC_LINK_BUYER_SESSION_TTL_SECONDS ?? String(24 * 3600)), 10);
+const publicSignupEnabled = String(process.env.MAGIC_LINK_PUBLIC_SIGNUP_ENABLED ?? "0").trim() === "1";
 const onboardingEmailSequenceEnabled = String(process.env.MAGIC_LINK_ONBOARDING_EMAIL_SEQUENCE_ENABLED ?? "1").trim() !== "0";
 const onboardingEmailSequenceDeliveryModeRaw = String(process.env.MAGIC_LINK_ONBOARDING_EMAIL_DELIVERY_MODE ?? "").trim().toLowerCase();
 const paymentTriggerRetryIntervalMs = Number.parseInt(String(process.env.MAGIC_LINK_PAYMENT_TRIGGER_RETRY_INTERVAL_MS ?? "2000"), 10);
@@ -8136,6 +8138,18 @@ async function handleBuyerLogin(req, res, tenantId) {
 
   const role = resolveBuyerRole({ tenantSettings, email });
   try {
+    await upsertBuyerUser({
+      dataDir,
+      tenantId,
+      email,
+      role,
+      status: "active",
+      lastLoginAt: nowIso()
+    });
+  } catch {
+    // best effort
+  }
+  try {
     await appendAuditRecord({
       dataDir,
       tenantId,
@@ -8168,6 +8182,222 @@ async function handleBuyerLogout(req, res) {
     }
   }
   return sendJson(res, 200, { ok: true });
+}
+
+function normalizeBuyerRoleForApi(value) {
+  const role = String(value ?? "").trim().toLowerCase();
+  if (role === "admin" || role === "approver" || role === "viewer") return role;
+  return null;
+}
+
+async function handlePublicSignup(req, res) {
+  if (!publicSignupEnabled) {
+    return sendJson(res, 403, { ok: false, code: "SIGNUP_DISABLED", message: "public signup is disabled" });
+  }
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 20_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (!json || typeof json !== "object" || Array.isArray(json)) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_REQUEST", message: "body must be an object" });
+  }
+
+  const email = normalizeEmailLower(json?.email ?? json?.contactEmail ?? null);
+  if (!email) return sendJson(res, 400, { ok: false, code: "INVALID_EMAIL", message: "email is required" });
+  const companyName = typeof json?.company === "string" && json.company.trim()
+    ? json.company.trim()
+    : typeof json?.name === "string" && json.name.trim()
+      ? json.name.trim()
+      : null;
+  if (!companyName) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_COMPANY", message: "company (or name) is required" });
+  }
+
+  let tenantId = null;
+  if (json.tenantId !== undefined && json.tenantId !== null) {
+    const parsed = parseTenantIdParam(json.tenantId);
+    if (!parsed.ok) return sendJson(res, 400, { ok: false, code: "INVALID_TENANT", message: parsed.error });
+    tenantId = parsed.tenantId;
+  } else {
+    let attempts = 0;
+    while (attempts < 10 && !tenantId) {
+      attempts += 1;
+      const candidate = generateTenantIdFromName(companyName);
+      // eslint-disable-next-line no-await-in-loop
+      const existing = await loadTenantProfileBestEffort({ dataDir, tenantId: candidate });
+      if (!existing) tenantId = candidate;
+    }
+    if (!tenantId) {
+      return sendJson(res, 500, { ok: false, code: "TENANT_ID_GENERATION_FAILED", message: "failed to generate tenantId" });
+    }
+  }
+
+  const created = await createTenantProfile({
+    dataDir,
+    tenantId,
+    name: companyName,
+    contactEmail: email,
+    billingEmail: email
+  });
+  if (!created.ok) {
+    const status = created.code === "TENANT_EXISTS" ? 409 : 400;
+    return sendJson(res, status, { ok: false, code: created.code ?? "SIGNUP_FAILED", message: created.error ?? "failed to create tenant" });
+  }
+
+  const domain = domainFromEmail(email);
+  const currentSettings = await loadTenantSettings({ dataDir, tenantId });
+  const currentDomains = Array.isArray(currentSettings?.buyerAuthEmailDomains)
+    ? currentSettings.buyerAuthEmailDomains.map((d) => String(d ?? "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const domains = domain && !currentDomains.includes(domain) ? [...currentDomains, domain] : currentDomains;
+  const currentRoles = isPlainObject(currentSettings?.buyerUserRoles) ? { ...currentSettings.buyerUserRoles } : {};
+  currentRoles[email] = "admin";
+  const patched = applyTenantSettingsPatch({
+    currentSettings,
+    patch: { buyerAuthEmailDomains: domains, buyerUserRoles: currentRoles },
+    settingsKey
+  });
+  if (!patched.ok) {
+    return sendJson(res, 400, { ok: false, code: "INVALID_SETTINGS", message: patched.error ?? "invalid settings" });
+  }
+  const relay = ensureDefaultEventRelayWebhook({ settings: patched.settings, tenantId });
+  await saveTenantSettings({ dataDir, tenantId, settings: relay.settings, settingsKey });
+  await upsertBuyerUser({
+    dataDir,
+    tenantId,
+    email,
+    role: "admin",
+    fullName: typeof json?.fullName === "string" ? json.fullName : "",
+    company: companyName,
+    status: "active"
+  });
+
+  const issued = await issueBuyerOtp({ dataDir, tenantId, email, ttlSeconds: buyerOtpTtlSeconds, deliveryMode: buyerOtpDeliveryMode, smtp: smtpConfig });
+  if (!issued.ok) {
+    return sendJson(res, 202, {
+      ok: true,
+      tenantId,
+      email,
+      otpIssued: false,
+      warning: issued.error ?? "OTP_FAILED",
+      message: issued.message ?? "tenant created, otp issue failed"
+    });
+  }
+
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "PUBLIC_SIGNUP",
+        actor: { method: "public_signup", email, role: "admin" },
+        targetType: "tenant",
+        targetId: tenantId,
+        details: { companyName, expiresAt: issued.expiresAt }
+      }
+    });
+  } catch {
+    // ignore
+  }
+
+  return sendJson(res, 201, { ok: true, tenantId, email, otpIssued: true, expiresAt: issued.expiresAt });
+}
+
+async function handleBuyerUsersList(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+  const users = await listBuyerUsers({ dataDir, tenantId });
+  const settings = await loadTenantSettings({ dataDir, tenantId });
+  const roles = isPlainObject(settings?.buyerUserRoles) ? settings.buyerUserRoles : {};
+  const byEmail = new Map(users.map((row) => [String(row.email).toLowerCase(), row]));
+  for (const [rawEmail, rawRole] of Object.entries(roles)) {
+    const email = normalizeEmailLower(rawEmail);
+    const role = normalizeBuyerRoleForApi(rawRole) ?? "viewer";
+    if (!email) continue;
+    if (byEmail.has(email)) {
+      const row = byEmail.get(email);
+      if (row.role !== role) row.role = role;
+      continue;
+    }
+    byEmail.set(email, {
+      email,
+      role,
+      fullName: "",
+      company: "",
+      status: "invited",
+      createdAt: null,
+      updatedAt: null,
+      lastLoginAt: null
+    });
+  }
+  const merged = [...byEmail.values()].sort((a, b) => cmpString(a.email, b.email));
+  return sendJson(res, 200, { ok: true, tenantId, users: merged });
+}
+
+async function handleBuyerUsersUpsert(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+  let json;
+  try {
+    json = await readJsonBody(req, { maxBytes: 20_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (!json || typeof json !== "object" || Array.isArray(json)) return sendJson(res, 400, { ok: false, code: "INVALID_REQUEST", message: "body must be an object" });
+  const email = normalizeEmailLower(json?.email ?? null);
+  if (!email) return sendJson(res, 400, { ok: false, code: "INVALID_EMAIL", message: "email is required" });
+  const role = normalizeBuyerRoleForApi(json?.role ?? "viewer");
+  if (!role) return sendJson(res, 400, { ok: false, code: "INVALID_ROLE", message: "role must be admin|approver|viewer" });
+
+  const currentSettings = await loadTenantSettings({ dataDir, tenantId });
+  const currentDomains = Array.isArray(currentSettings?.buyerAuthEmailDomains)
+    ? currentSettings.buyerAuthEmailDomains.map((d) => String(d ?? "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const domain = domainFromEmail(email);
+  const domains = domain && !currentDomains.includes(domain) ? [...currentDomains, domain] : currentDomains;
+  const roles = isPlainObject(currentSettings?.buyerUserRoles) ? { ...currentSettings.buyerUserRoles } : {};
+  roles[email] = role;
+  const patched = applyTenantSettingsPatch({
+    currentSettings,
+    patch: { buyerAuthEmailDomains: domains, buyerUserRoles: roles },
+    settingsKey
+  });
+  if (!patched.ok) return sendJson(res, 400, { ok: false, code: "INVALID_SETTINGS", message: patched.error ?? "invalid settings" });
+  await saveTenantSettings({ dataDir, tenantId, settings: patched.settings, settingsKey });
+
+  const user = await upsertBuyerUser({
+    dataDir,
+    tenantId,
+    email,
+    role,
+    fullName: typeof json?.fullName === "string" ? json.fullName : "",
+    company: typeof json?.company === "string" ? json.company : "",
+    status: typeof json?.status === "string" && json.status.trim() ? json.status.trim() : "active"
+  });
+  try {
+    await appendAuditRecord({
+      dataDir,
+      tenantId,
+      record: {
+        at: nowIso(),
+        action: "BUYER_USER_UPSERT",
+        actor: {
+          method: auth.principal?.method ?? "unknown",
+          email: auth.principal?.email ?? null,
+          role: auth.principal?.role ?? "admin"
+        },
+        targetType: "buyer_user",
+        targetId: email,
+        details: { role }
+      }
+    });
+  } catch {
+    // ignore
+  }
+  return sendJson(res, 200, { ok: true, tenantId, user });
 }
 
 async function handleTenantUsageGet(req, res, tenantId, url) {
@@ -12920,6 +13150,7 @@ export async function magicLinkHandler(req, res) {
     if (method === "GET" && pathname === "/v1/inbox") return await handleInbox(req, res, url);
     if (method === "GET" && pathname === "/v1/buyer/me") return await handleBuyerMe(req, res);
     if (method === "POST" && pathname === "/v1/buyer/logout") return await handleBuyerLogout(req, res);
+    if (method === "POST" && pathname === "/v1/public/signup") return await handlePublicSignup(req, res);
     if (method === "POST" && pathname === "/v1/tenants") return await handleTenantCreate(req, res);
     if (method === "POST" && pathname === "/v1/billing/stripe/webhook") return await handleStripeBillingWebhook(req, res);
 
@@ -12941,6 +13172,14 @@ export async function magicLinkHandler(req, res) {
     if (buyerLoginMatch) {
       const tenantId = buyerLoginMatch[1];
       if (method === "POST") return await handleBuyerLogin(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const buyerUsersMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/buyer\/users$/.exec(pathname);
+    if (buyerUsersMatch) {
+      const tenantId = buyerUsersMatch[1];
+      if (method === "GET") return await handleBuyerUsersList(req, res, tenantId);
+      if (method === "POST") return await handleBuyerUsersUpsert(req, res, tenantId);
       return sendText(res, 405, "method not allowed\n");
     }
 
