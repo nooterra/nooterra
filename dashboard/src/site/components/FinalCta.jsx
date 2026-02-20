@@ -1,22 +1,33 @@
+import { buttonClasses } from "./ui/button.jsx";
+import { Card } from "./ui/card.jsx";
+
 export default function FinalCta() {
   return (
     <section className="section-shell">
-      <div className="section-highlight cta-banner">
-        <p className="eyebrow">Footer Call to Action</p>
-        <h2>Uncompromising infrastructure. Unmetered access.</h2>
-        <p className="cta-copy">
+      <Card className="bg-gradient-to-br from-[#1f1f1f] to-[#292522] text-[#f7f2ea] shadow-[0_18px_45px_rgba(0,0,0,0.3)]">
+        <p className="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[#e2c0b5]">Footer Call to Action</p>
+        <h2 className="text-[clamp(2rem,5vw,3.4rem)] font-bold leading-[1] tracking-[-0.02em]">
+          Uncompromising infrastructure. Unmetered access.
+        </h2>
+        <p className="mt-4 max-w-3xl text-lg leading-relaxed text-[#efe5da]">
           We are focused on systemic hardening, not basis points. Build on Settld now, free while we complete the full
           primitive stack.
         </p>
-        <div className="hero-actions">
-          <a className="btn btn-solid" href="/signup">
+        <div className="mt-8 flex flex-wrap gap-3">
+          <a className={buttonClasses({ className: "bg-[#f7f2ea] text-[#1f1f1f] hover:bg-white" })} href="/signup">
             Create workspace
           </a>
-          <a className="btn btn-ghost" href="/docs">
+          <a
+            className={buttonClasses({
+              variant: "outline",
+              className: "border-[#b5968a] bg-transparent text-[#f7f2ea] hover:bg-[#3a3531]"
+            })}
+            href="/docs"
+          >
             Open docs
           </a>
         </div>
-      </div>
+      </Card>
     </section>
   );
 }

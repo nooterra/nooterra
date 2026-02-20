@@ -4,6 +4,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { auth0Enabled } from "../auth/auth0-config.js";
 import { fetchBuyerMe, logoutBuyerSession } from "../auth/client.js";
 import { clearSession, readSession, subscribeSession, writeSession } from "../auth/session.js";
+import { buttonClasses } from "./ui/button.jsx";
 
 const links = [
   { href: "/product", label: "Product" },
@@ -57,12 +58,12 @@ function Auth0NavActions() {
   if (isAuthenticated) {
     return (
       <>
-        <a className="btn btn-solid" href="/app">
+        <a className={buttonClasses()} href="/app">
           Open workspace
         </a>
         <button
           type="button"
-          className="btn btn-ghost"
+          className={buttonClasses({ variant: "outline" })}
           onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
         >
           Sign out
@@ -72,12 +73,12 @@ function Auth0NavActions() {
   }
   return (
     <>
-      <button type="button" className="btn btn-ghost" onClick={() => loginWithRedirect()}>
+      <button type="button" className={buttonClasses({ variant: "outline" })} onClick={() => loginWithRedirect()}>
         Sign in
       </button>
       <button
         type="button"
-        className="btn btn-solid"
+        className={buttonClasses()}
         onClick={() => loginWithRedirect({ authorizationParams: { screen_hint: "signup" } })}
       >
         Get started
@@ -138,19 +139,19 @@ function LegacyNavActions() {
     <>
       {session ? (
         <>
-          <a className="btn btn-solid" href="/app">
+          <a className={buttonClasses()} href="/app">
             Open workspace
           </a>
-          <button type="button" className="btn btn-ghost" onClick={onSignOut}>
+          <button type="button" className={buttonClasses({ variant: "outline" })} onClick={onSignOut}>
             Sign out
           </button>
         </>
       ) : (
         <>
-          <a className="btn btn-ghost" href="/login">
+          <a className={buttonClasses({ variant: "outline" })} href="/login">
             Sign in
           </a>
-          <a className="btn btn-solid" href="/signup">
+          <a className={buttonClasses()} href="/signup">
             Get started
           </a>
         </>
