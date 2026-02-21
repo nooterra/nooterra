@@ -110,6 +110,38 @@ function readMetric(summary, metricName, key) {
   return null;
 }
 
+function resolveThroughputReportPath(cwd = process.cwd(), env = process.env) {
+  return resolve(cwd, env.THROUGHPUT_REPORT_PATH || "artifacts/throughput/10x-drill-summary.json");
+}
+
+function toFailureSummary(err) {
+  return {
+    message: err?.message ?? String(err),
+    code: typeof err?.code === "string" ? err.code : null
+  };
+}
+
+async function writeFailureReport({ reportPath, runConfig = null, error }) {
+  await mkdir(dirname(reportPath), { recursive: true });
+  const report = {
+    schemaVersion: "ThroughputDrill10xReport.v1",
+    generatedAt: new Date().toISOString(),
+    mode: "error",
+    runConfig,
+    metrics: null,
+    checks: {
+      scriptCompleted: false
+    },
+    failure: toFailureSummary(error),
+    verdict: {
+      ok: false,
+      reason: "execution_error"
+    }
+  };
+  await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n", "utf8");
+  process.stdout.write(`wrote throughput report: ${reportPath}\n`);
+}
+
 async function main() {
   const baseJobsPerMinPerTenant = parseIntEnv("BASELINE_JOBS_PER_MIN_PER_TENANT", 10, { min: 1 });
   const multiplier = parseIntEnv("THROUGHPUT_MULTIPLIER", 10, { min: 1 });
@@ -127,7 +159,7 @@ async function main() {
   const dryRun = parseBoolEnv("DRY_RUN", false);
   const allowDockerFallback = parseBoolEnv("ALLOW_DOCKER_K6_FALLBACK", true);
 
-  const reportPath = resolve(process.cwd(), process.env.THROUGHPUT_REPORT_PATH || "artifacts/throughput/10x-drill-summary.json");
+  const reportPath = resolveThroughputReportPath(process.cwd(), process.env);
   const summaryPath = resolve(process.cwd(), process.env.THROUGHPUT_K6_SUMMARY_PATH || "artifacts/throughput/10x-drill-k6-summary.json");
   await mkdir(dirname(reportPath), { recursive: true });
   await mkdir(dirname(summaryPath), { recursive: true });
@@ -199,7 +231,36 @@ async function main() {
   );
   const completedAt = Date.now();
 
-  const summary = JSON.parse(await readFile(summaryPath, "utf8"));
+  let summary;
+  try {
+    summary = JSON.parse(await readFile(summaryPath, "utf8"));
+  } catch (err) {
+    const report = {
+      schemaVersion: "ThroughputDrill10xReport.v1",
+      generatedAt: new Date().toISOString(),
+      mode: "error",
+      runConfig,
+      metrics: null,
+      checks: {
+        k6ExitCodeZero: exitCode === 0,
+        k6SummaryPresent: false
+      },
+      failure: {
+        message: `k6 runner exited with code ${exitCode} before writing summary export`,
+        code: typeof err?.code === "string" ? err.code : null
+      },
+      verdict: {
+        ok: false,
+        reason: "k6_summary_missing",
+        k6ExitCode: exitCode,
+        summaryPath
+      }
+    };
+    await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n", "utf8");
+    process.stdout.write(`wrote throughput report: ${reportPath}\n`);
+    process.exitCode = 1;
+    return;
+  }
   const p95 = readMetric(summary, "http_req_duration", "p(95)");
   const failureRate = readMetric(summary, "http_req_failed", "rate") ?? readMetric(summary, "http_req_failed", "value");
   const rejectedCount = readMetric(summary, "ingest_rejected_requests_total", "count") ?? 0;
@@ -241,6 +302,17 @@ async function main() {
 }
 
 main().catch((err) => {
-  process.stderr.write(`${err?.stack || err?.message || String(err)}\n`);
-  process.exit(1);
+  const reportPath = resolveThroughputReportPath(process.cwd(), process.env);
+  writeFailureReport({
+    reportPath,
+    runConfig: null,
+    error: err
+  })
+    .catch((writeErr) => {
+      process.stderr.write(`${writeErr?.stack || writeErr?.message || String(writeErr)}\n`);
+    })
+    .finally(() => {
+      process.stderr.write(`${err?.stack || err?.message || String(err)}\n`);
+      process.exit(1);
+    });
 });
