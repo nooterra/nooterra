@@ -18,6 +18,9 @@ function usage() {
   console.error("  settld x402 receipt verify <receipt.json|-> [--strict] [--format json|text] [--json-out <path>]");
   console.error("  settld profile list [--format json|text] [--json-out <path>]");
   console.error("  settld profile init <profile-id> [--out <path>] [--force] [--format json|text] [--json-out <path>]");
+  console.error(
+    "  settld profile wizard [--template <profile-id>] [--non-interactive] [--profile-id <id>] [--name <text>] [--vertical <text>] [--description <text>] [--currency <code>] [--per-request-usd-cents <int>] [--monthly-usd-cents <int>] [--providers <csv>] [--tools <csv>] [--out <path>] [--force] [--format json|text] [--json-out <path>]"
+  );
   console.error("  settld profile validate <profile.json|-> [--format json|text] [--json-out <path>]");
   console.error(
     "  settld profile simulate <profile.json|-> [--scenario <scenario.json|->|--scenario-json <json>] [--format json|text] [--json-out <path>]"

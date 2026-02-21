@@ -1,17 +1,23 @@
 #!/usr/bin/env node
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface } from "node:readline/promises";
+import { spawn } from "node:child_process";
 
 const MODE_OPTIONS = new Set(["local", "manual", "bootstrap"]);
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const DEFAULT_HOST_CONFIG_PATH = path.join(SCRIPT_DIR, "host-config.mjs");
+const DEFAULT_PROFILE_ID = "engineering-spend";
+const DEFAULT_SMOKE_TIMEOUT_MS = 30000;
 
 function usage() {
   const text = [
     "usage:",
-    "  node scripts/setup/wizard.mjs [--non-interactive] [--mode local|manual|bootstrap] [--host <name>] [--base-url <url>] [--tenant-id <id>] [--api-key <key>] [--magic-link-api-key <key>] [--bootstrap-key-id <id>] [--bootstrap-scopes <csv>] [--idempotency-key <key>] [--config-path <path>] [--dry-run] [--host-config <path>]"
+    "  node scripts/setup/wizard.mjs [--non-interactive] [--mode local|manual|bootstrap] [--host <name>] [--base-url <url>] [--tenant-id <id>] [--api-key <key>] [--magic-link-api-key <key>] [--bootstrap-key-id <id>] [--bootstrap-scopes <csv>] [--idempotency-key <key>] [--config-path <path>] [--dry-run] [--host-config <path>] [--profile-id <id>|--profile-file <path>|--skip-profile-apply] [--smoke] [--smoke-timeout-ms <ms>]"
   ].join("\n");
   process.stderr.write(text + "\n");
 }
@@ -37,6 +43,11 @@ export function parseArgs(argv) {
     configPath: null,
     dryRun: false,
     hostConfigPath: DEFAULT_HOST_CONFIG_PATH,
+    profileId: null,
+    profileFile: null,
+    skipProfileApply: false,
+    smoke: false,
+    smokeTimeoutMs: DEFAULT_SMOKE_TIMEOUT_MS,
     nonInteractive: false,
     help: false
   };
@@ -112,6 +123,32 @@ export function parseArgs(argv) {
       i = parsed.nextIndex;
       continue;
     }
+    if (arg === "--profile-id" || arg === "--profile" || arg.startsWith("--profile-id=") || arg.startsWith("--profile=")) {
+      const parsed = readArgValue(argv, i, arg);
+      out.profileId = parsed.value.trim();
+      i = parsed.nextIndex;
+      continue;
+    }
+    if (arg === "--profile-file" || arg.startsWith("--profile-file=")) {
+      const parsed = readArgValue(argv, i, arg);
+      out.profileFile = parsed.value.trim();
+      i = parsed.nextIndex;
+      continue;
+    }
+    if (arg === "--skip-profile-apply" || arg === "--no-profile") {
+      out.skipProfileApply = true;
+      continue;
+    }
+    if (arg === "--smoke") {
+      out.smoke = true;
+      continue;
+    }
+    if (arg === "--smoke-timeout-ms" || arg.startsWith("--smoke-timeout-ms=")) {
+      const parsed = readArgValue(argv, i, arg);
+      out.smokeTimeoutMs = Number(parsed.value);
+      i = parsed.nextIndex;
+      continue;
+    }
     if (arg === "--dry-run") {
       out.dryRun = true;
       continue;
@@ -133,6 +170,15 @@ export function parseArgs(argv) {
   }
   if (out.configPath && !path.isAbsolute(out.configPath)) {
     out.configPath = path.resolve(process.cwd(), out.configPath);
+  }
+  if (out.profileFile && !path.isAbsolute(out.profileFile)) {
+    out.profileFile = path.resolve(process.cwd(), out.profileFile);
+  }
+  if (out.profileId && out.profileFile) {
+    throw new Error("choose one of --profile-id/--profile or --profile-file");
+  }
+  if (!Number.isSafeInteger(out.smokeTimeoutMs) || out.smokeTimeoutMs < 1000) {
+    throw new Error("--smoke-timeout-ms must be an integer >= 1000");
   }
   return out;
 }
@@ -313,6 +359,14 @@ async function promptLine(rl, label, { required = true, defaultValue = null } = 
   throw new Error(`${label} is required`);
 }
 
+function parseYesNo(value, { defaultValue = true } = {}) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return defaultValue;
+  if (["y", "yes", "true", "1"].includes(normalized)) return true;
+  if (["n", "no", "false", "0"].includes(normalized)) return false;
+  return defaultValue;
+}
+
 async function resolveRuntimeConfig({ args, hostHelper, interactive, stdin = process.stdin, stdout = process.stdout }) {
   const base = {
     mode: args.mode ?? "",
@@ -323,7 +377,12 @@ async function resolveRuntimeConfig({ args, hostHelper, interactive, stdin = pro
     magicLinkApiKey: args.magicLinkApiKey ?? "",
     bootstrapKeyId: args.bootstrapKeyId ?? "",
     bootstrapScopesRaw: args.bootstrapScopesRaw ?? "",
-    idempotencyKey: args.idempotencyKey ?? ""
+    idempotencyKey: args.idempotencyKey ?? "",
+    profileId: args.profileId ?? "",
+    profileFile: args.profileFile ?? "",
+    skipProfileApply: Boolean(args.skipProfileApply),
+    smoke: Boolean(args.smoke),
+    smokeTimeoutMs: args.smokeTimeoutMs ?? DEFAULT_SMOKE_TIMEOUT_MS
   };
 
   let rl = null;
@@ -372,6 +431,24 @@ async function resolveRuntimeConfig({ args, hostHelper, interactive, stdin = pro
       } else if (!base.apiKey) {
         base.apiKey = await promptLine(rl, "Settld API key");
       }
+      if (!base.skipProfileApply && !base.profileFile && !base.profileId) {
+        const shouldApply = parseYesNo(
+          await promptLine(rl, "Apply starter policy profile now? (y/n)", { required: false, defaultValue: "y" }),
+          { defaultValue: true }
+        );
+        base.skipProfileApply = !shouldApply;
+      }
+      if (!base.skipProfileApply && !base.profileFile && !base.profileId) {
+        base.profileId = await promptLine(rl, "Starter profile ID", {
+          required: true,
+          defaultValue: DEFAULT_PROFILE_ID
+        });
+      }
+      if (!base.smoke) {
+        base.smoke = parseYesNo(await promptLine(rl, "Run MCP smoke check now? (y/n)", { required: false, defaultValue: "y" }), {
+          defaultValue: true
+        });
+      }
       return base;
     }
 
@@ -408,6 +485,149 @@ async function resolveRuntimeConfig({ args, hostHelper, interactive, stdin = pro
   } finally {
     if (rl) rl.close();
   }
+}
+
+function parseJsonOrNull(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function summarizeText(value, max = 500) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 3)}...`;
+}
+
+async function runCommandCapture({ cmd, args = [], cwd = REPO_ROOT, env = process.env } = {}) {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      cwd,
+      env,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    child.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
+    child.stderr.on("data", (chunk) => stderrChunks.push(chunk));
+    child.on("error", reject);
+    child.on("close", (code, signal) => {
+      resolve({
+        code: typeof code === "number" ? code : 1,
+        signal: signal ?? null,
+        stdout: Buffer.concat(stdoutChunks).toString("utf8"),
+        stderr: Buffer.concat(stderrChunks).toString("utf8")
+      });
+    });
+  });
+}
+
+function buildSettldCliArgs(args) {
+  const scriptPath = path.join(REPO_ROOT, "bin", "settld.js");
+  return [scriptPath, ...args];
+}
+
+async function runSettldCli(args, { env = process.env } = {}) {
+  return await runCommandCapture({
+    cmd: process.execPath,
+    args: buildSettldCliArgs(args),
+    cwd: REPO_ROOT,
+    env
+  });
+}
+
+async function runProfileApplyAutomation({
+  env,
+  profileId,
+  profileFile,
+  dryRun,
+  stdout = process.stdout
+} = {}) {
+  let tempDir = null;
+  let selectedProfilePath = profileFile ? path.resolve(profileFile) : null;
+  let selectedProfileId = profileId || null;
+  try {
+    if (!selectedProfilePath) {
+      selectedProfileId = selectedProfileId || DEFAULT_PROFILE_ID;
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-setup-profile-"));
+      selectedProfilePath = path.join(tempDir, `${selectedProfileId}.profile.json`);
+      const initResult = await runSettldCli(
+        ["profile", "init", selectedProfileId, "--out", selectedProfilePath, "--force", "--format", "json"],
+        { env: process.env }
+      );
+      if (initResult.code !== 0) {
+        throw new Error(`profile init failed: ${summarizeText(initResult.stderr || initResult.stdout)}`);
+      }
+    }
+
+    const applyArgs = [
+      "profile",
+      "apply",
+      selectedProfilePath,
+      "--base-url",
+      env.SETTLD_BASE_URL,
+      "--tenant-id",
+      env.SETTLD_TENANT_ID,
+      "--api-key",
+      env.SETTLD_API_KEY,
+      "--format",
+      "json"
+    ];
+    if (dryRun) applyArgs.push("--dry-run");
+    const applyResult = await runSettldCli(applyArgs, { env: process.env });
+    if (applyResult.code !== 0) {
+      throw new Error(`profile apply failed: ${summarizeText(applyResult.stderr || applyResult.stdout)}`);
+    }
+    const parsed = parseJsonOrNull(applyResult.stdout);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("profile apply did not return valid JSON output");
+    }
+    const resolvedProfileId = String(parsed.profileId ?? selectedProfileId ?? "").trim() || null;
+    if (!resolvedProfileId) {
+      throw new Error("profile apply output missing profileId");
+    }
+    stdout.write(`Profile apply ${dryRun ? "dry-run" : "live"} complete: ${resolvedProfileId}\n`);
+    return {
+      ran: true,
+      dryRun: Boolean(dryRun),
+      profileId: resolvedProfileId,
+      profilePath: selectedProfilePath,
+      ok: parsed.ok === true,
+      stepCount: Array.isArray(parsed.steps) ? parsed.steps.length : 0
+    };
+  } finally {
+    if (tempDir) {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
+  }
+}
+
+async function runMcpSmokeCheck({ env, timeoutMs = DEFAULT_SMOKE_TIMEOUT_MS, stdout = process.stdout } = {}) {
+  const scriptPath = path.join(REPO_ROOT, "scripts", "mcp", "probe.mjs");
+  const result = await runCommandCapture({
+    cmd: process.execPath,
+    args: [scriptPath, "--call", "settld.about", "{}"],
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      ...env,
+      MCP_PROBE_TIMEOUT_MS: String(timeoutMs)
+    }
+  });
+  if (result.code !== 0) {
+    throw new Error(`mcp smoke failed: ${summarizeText(result.stderr || result.stdout)}`);
+  }
+  stdout.write("MCP smoke check passed: settld.about\n");
+  return {
+    ran: true,
+    ok: true,
+    timeoutMs
+  };
 }
 
 async function requestRuntimeBootstrap({
@@ -496,7 +716,16 @@ function formatEnvExportLines(env) {
   return keys.map((key) => `export ${key}=${shellQuote(env[key])}`);
 }
 
-function printOutput({ stdout = process.stdout, mode, host, env, helperPath, hostConfigResult = null }) {
+function printOutput({
+  stdout = process.stdout,
+  mode,
+  host,
+  env,
+  helperPath,
+  hostConfigResult = null,
+  profileApplyResult = null,
+  smokeResult = null
+}) {
   const lines = [];
   lines.push("Settld setup complete.");
   lines.push(`Mode: ${mode}`);
@@ -511,10 +740,21 @@ function printOutput({ stdout = process.stdout, mode, host, env, helperPath, hos
   lines.push("");
   lines.push("Environment exports:");
   for (const line of formatEnvExportLines(env)) lines.push(line);
+  if (profileApplyResult && typeof profileApplyResult === "object" && profileApplyResult.ran) {
+    lines.push("");
+    lines.push(
+      `Profile apply: ${profileApplyResult.ok ? "ok" : "error"} (${profileApplyResult.dryRun ? "dry-run" : "live"}, profile=${profileApplyResult.profileId})`
+    );
+  }
+  if (smokeResult && typeof smokeResult === "object" && smokeResult.ran) {
+    lines.push("");
+    lines.push(`MCP smoke: ${smokeResult.ok ? "pass" : "fail"} (timeoutMs=${smokeResult.timeoutMs})`);
+  }
   lines.push("");
   lines.push("Next steps:");
   lines.push("1. Run the export lines in your shell.");
   lines.push("2. Verify connectivity with: npm run mcp:probe -- --call settld.about '{}'");
+  lines.push("3. Optional policy deploy: settld profile apply <profile.json>");
   stdout.write(lines.join("\n") + "\n");
 }
 
@@ -554,6 +794,24 @@ export async function runWizard({
       apiKey: config.apiKey
     });
   }
+  let profileApplyResult = null;
+  if (!config.skipProfileApply && (config.profileFile || config.profileId)) {
+    profileApplyResult = await runProfileApplyAutomation({
+      env,
+      profileId: config.profileId || null,
+      profileFile: config.profileFile || null,
+      dryRun: args.dryRun,
+      stdout
+    });
+  }
+  let smokeResult = null;
+  if (config.smoke) {
+    smokeResult = await runMcpSmokeCheck({
+      env,
+      timeoutMs: config.smokeTimeoutMs ?? DEFAULT_SMOKE_TIMEOUT_MS,
+      stdout
+    });
+  }
   const hostConfigResult = await hostHelper.applyHostConfig({
     host: config.host,
     env,
@@ -569,8 +827,17 @@ export async function runWizard({
       stdout.write(`Host config already up to date: ${hostConfigResult.configPath}\n`);
     }
   }
-  printOutput({ stdout, mode: config.mode, host: config.host, env, helperPath: hostHelper.path, hostConfigResult });
-  return { ok: true, code: 0, env };
+  printOutput({
+    stdout,
+    mode: config.mode,
+    host: config.host,
+    env,
+    helperPath: hostHelper.path,
+    hostConfigResult,
+    profileApplyResult,
+    smokeResult
+  });
+  return { ok: true, code: 0, env, profileApplyResult, smokeResult };
 }
 
 export async function main(argv = process.argv.slice(2)) {
