@@ -1,0 +1,69 @@
+name: production-cutover-gate
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-cutover-gate
+  cancel-in-progress: false
+
+jobs:
+  production_cutover_gate_live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: production_cutover_gate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      - name: Validate production gate environment secrets
+        env:
+          PROD_BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          PROD_TENANT_ID: ${{ secrets.PROD_TENANT_ID }}
+          PROD_OPS_TOKEN: ${{ secrets.PROD_OPS_TOKEN }}
+          PROD_PROTOCOL: ${{ secrets.PROD_PROTOCOL }}
+        run: |
+          set -euo pipefail
+          for key in PROD_BASE_URL PROD_TENANT_ID PROD_OPS_TOKEN; do
+            if [[ -z "${!key:-}" ]]; then
+              echo "missing required environment secret: $key" >&2
+              exit 1
+            fi
+          done
+          if [[ -z "${PROD_PROTOCOL:-}" ]]; then
+            echo "PROD_PROTOCOL not set; defaulting to 1.0"
+          fi
+
+      - name: Run production cutover gate (live)
+        env:
+          PROD_BASE_URL: ${{ secrets.PROD_BASE_URL }}
+          PROD_TENANT_ID: ${{ secrets.PROD_TENANT_ID }}
+          PROD_OPS_TOKEN: ${{ secrets.PROD_OPS_TOKEN }}
+          PROD_PROTOCOL: ${{ secrets.PROD_PROTOCOL }}
+        run: |
+          set -euo pipefail
+          npm run -s test:ops:production-cutover-gate -- \
+            --mode live \
+            --base-url "$PROD_BASE_URL" \
+            --tenant-id "$PROD_TENANT_ID" \
+            --ops-token "$PROD_OPS_TOKEN" \
+            --protocol "${PROD_PROTOCOL:-1.0}" \
+            --report artifacts/gates/production-cutover-gate-prod.json
+
+      - name: Upload production cutover gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-cutover-gate-live-${{ github.run_id }}
+          path: |
+            artifacts/gates/production-cutover-gate-prod.json
+            artifacts/ops/mcp-host-cert-matrix.json
+            artifacts/ops/x402-hitl-smoke.json
+          if-no-files-found: warn
