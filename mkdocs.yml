@@ -32,6 +32,8 @@ nav:
       - Quickstart: guides/quickstart.md
       - Local Environment: guides/local-environment.md
       - First Production Cutover: guides/production-cutover.md
+      - Policy Packs: guides/policy-packs.md
+      - MCP Host Certification: guides/mcp-host-certification.md
   - Architecture:
       - Control Plane: architecture/control-plane.md
       - State Machines: architecture/state-machines.md
