@@ -22,6 +22,8 @@ settld setup --yes --mode manual --host cursor --base-url http://127.0.0.1:3000 
 settld setup --yes --mode manual --host openclaw --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_live_xxx.yyy --profile-id engineering-spend --smoke
 ```
 
+Setup automatically injects `SETTLD_PAID_TOOLS_AGENT_PASSPORT` into host MCP config so paid tool calls carry policy-bound passport context by default.
+
 Useful flags:
 
 - `--skip-profile-apply` for host setup only
