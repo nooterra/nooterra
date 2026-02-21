@@ -498,35 +498,63 @@ async function main() {
   lastChainHash = book.json.job.lastChainHash;
 
   async function postServerJobEvent(type, payload, idempotencyKey) {
-    const r = await httpJson({
-      baseUrl: API_BASE_URL,
-      method: "POST",
-      path: `/jobs/${jobId}/events`,
-      headers: { ...headersBase, "x-idempotency-key": idempotencyKey, "x-proxy-expected-prev-chain-hash": lastChainHash },
-      body: { type, actor: { type: "system", id: "proxy" }, payload }
-    });
-    assert.equal(r.status, 201, r.text);
-    lastChainHash = r.json.job.lastChainHash;
-    return r.json.event;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const r = await httpJson({
+        baseUrl: API_BASE_URL,
+        method: "POST",
+        path: `/jobs/${jobId}/events`,
+        headers: { ...headersBase, "x-idempotency-key": idempotencyKey, "x-proxy-expected-prev-chain-hash": lastChainHash },
+        body: { type, actor: { type: "system", id: "proxy" }, payload }
+      });
+      if (r.status === 201) {
+        lastChainHash = r.json.job.lastChainHash;
+        return r.json.event;
+      }
+      if (r.status === 409) {
+        const latest = await httpJson({ baseUrl: API_BASE_URL, method: "GET", path: `/jobs/${jobId}/events`, headers: headersBase });
+        const events = Array.isArray(latest.json?.events) ? latest.json.events : [];
+        const tailHash = events.length ? events[events.length - 1]?.chainHash ?? null : null;
+        if (typeof tailHash === "string" && tailHash.trim()) {
+          lastChainHash = tailHash;
+          continue;
+        }
+      }
+      assert.equal(r.status, 201, r.text);
+    }
+    throw new Error(`failed to append server event ${type} after retry`);
   }
 
   async function postRobotJobEvent(type, payload) {
-    const draft = createChainedEvent({ streamId: jobId, type, actor: { type: "robot", id: robotId }, payload });
-    const finalized = finalizeChainedEvent({
-      event: draft,
-      prevChainHash: lastChainHash,
-      signer: { keyId: robotKeyId, privateKeyPem: robotPrivateKeyPem }
-    });
-    const r = await httpJson({
-      baseUrl: API_BASE_URL,
-      method: "POST",
-      path: `/jobs/${jobId}/events`,
-      headers: { ...headersBase, "x-idempotency-key": `robot_evt_${jobId}_${type}` },
-      body: finalized
-    });
-    assert.equal(r.status, 201, r.text);
-    lastChainHash = r.json.job.lastChainHash;
-    return r.json.event;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const draft = createChainedEvent({ streamId: jobId, type, actor: { type: "robot", id: robotId }, payload });
+      const finalized = finalizeChainedEvent({
+        event: draft,
+        prevChainHash: lastChainHash,
+        signer: { keyId: robotKeyId, privateKeyPem: robotPrivateKeyPem }
+      });
+      const r = await httpJson({
+        baseUrl: API_BASE_URL,
+        method: "POST",
+        path: `/jobs/${jobId}/events`,
+        headers: { ...headersBase, "x-idempotency-key": `robot_evt_${jobId}_${type}` },
+        body: finalized
+      });
+      if (r.status === 201) {
+        lastChainHash = r.json.job.lastChainHash;
+        return r.json.event;
+      }
+      if (r.status === 409) {
+        const latest = await httpJson({ baseUrl: API_BASE_URL, method: "GET", path: `/jobs/${jobId}/events`, headers: headersBase });
+        const events = Array.isArray(latest.json?.events) ? latest.json.events : [];
+        const tailHash = events.length ? events[events.length - 1]?.chainHash ?? null : null;
+        if (typeof tailHash === "string" && tailHash.trim()) {
+          lastChainHash = tailHash;
+          continue;
+        }
+      }
+      assert.equal(r.status, 201, r.text);
+    }
+    throw new Error(`failed to append robot event ${type} after retry`);
   }
 
   await postServerJobEvent("MATCHED", { robotId }, `m_${jobId}`);

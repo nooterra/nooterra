@@ -1,44 +1,36 @@
 const faqs = [
   {
-    q: "How does pricing work?",
-    a: "Plans combine a monthly platform fee with a settled-volume fee. Builder starts at $99/month + 0.75%; Growth starts at $599/month + 0.45%."
+    q: "Can agents spend autonomously with Settld?",
+    a: "Yes, within delegated policy limits. Sponsors set budgets and constraints, then agents execute paid calls only when authorization and binding checks pass."
   },
   {
-    q: "Can we verify settlements without Settld infrastructure?",
-    a: "Yes. Closepacks are designed for offline verification, including signatures, bindings, and deterministic replay checks."
+    q: "What can we buy first?",
+    a: "The strongest lane today is APIs, data, compute, and MCP tools through integrated providers or generic wrappers."
   },
   {
-    q: "How do disputes work?",
-    a: "Disputes open signed envelope artifacts, freeze relevant holds, and resolve through deterministic verdict and adjustment paths."
+    q: "How do disputes and refunds work?",
+    a: "Every transaction has an append-only event timeline with reversal states, signed decisions, and idempotent handling for retries."
   },
   {
-    q: "What SDKs are available?",
-    a: "JavaScript and Python API SDKs are available, plus CLI tooling for production, verification, conformance, and closepack workflows."
+    q: "Can finance teams reconcile this?",
+    a: "Yes. Receipts are durable, queryable, and exportable as JSONL for reconciliation pipelines and controls."
   },
   {
-    q: "How long does integration take?",
-    a: "Most teams can run their first verified flow in under 10 minutes using the quickstart and conformance command."
+    q: "Do we need to trust Settld servers forever?",
+    a: "No. Closepacks let third parties verify signatures and lineage offline, independent of runtime infrastructure."
   },
   {
-    q: "Is this a payment network?",
-    a: "No. Settld is an enforcement and settlement control layer. Payment rails are adapters integrated behind deterministic policy and evidence checks."
-  },
-  {
-    q: "What does replayable mean in practice?",
-    a: "You can recompute decisions against stored policy and verifier references, then compare computed vs recorded outcomes with explicit mismatch codes."
-  },
-  {
-    q: "Is Settld open?",
-    a: "Protocol objects, schemas, and conformance vectors are open. Hosted control-plane features are delivered as product surfaces."
+    q: "How fast can we integrate?",
+    a: "Most teams can run a local verified flow in minutes, then harden policy and onboarding for production over staged rollouts."
   }
 ];
 
 export default function FaqSection() {
   return (
-    <section className="section-shell">
+    <section id="faq" className="section-shell">
       <div className="section-heading">
         <p className="eyebrow">FAQ</p>
-        <h2>Direct answers for launch decisions.</h2>
+        <h2>Questions teams ask before production rollout.</h2>
       </div>
       <div className="faq-list">
         {faqs.map((item) => (

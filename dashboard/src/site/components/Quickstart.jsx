@@ -1,42 +1,49 @@
-const steps = [
-  "npx settld dev up",
-  "npx settld init capability my-capability",
-  "npx settld conformance kernel --ops-token tok_ops",
+import { docsLinks } from "../config/links.js";
+
+const commands = [
+  "npm run dev:api",
+  "npx settld dev:sdk:key --print-only",
+  "npx settld sdk:first-run"
+];
+
+const outputs = [
+  "A paid execution run with quote + authorization evidence",
+  "A durable receipt linked to settlement state",
+  "Offline verification output with explicit status and issue codes"
 ];
 
 export default function Quickstart() {
   return (
-    <section id="developers" className="section-shell section-highlight">
+    <section id="developers" className="section-shell">
       <div className="section-heading" id="quickstart">
-        <p className="eyebrow">Quickstart</p>
-        <h2>Try it now in one command.</h2>
-        <p>Run the conformance pack locally, then compare to the live interactive demo.</p>
+        <p className="eyebrow">Developer Quickstart</p>
+        <h2>Run your first trusted paid call in minutes.</h2>
+        <p>Start local, validate the full economic loop, then connect production providers incrementally.</p>
       </div>
       <div className="quickstart-grid">
         <article className="panel panel-strong">
           <h3>Commands</h3>
           <ol className="command-list">
-            {steps.map((step) => (
-              <li key={step}>
-                <code>{step}</code>
+            {commands.map((command) => (
+              <li key={command}>
+                <code>{command}</code>
               </li>
             ))}
           </ol>
         </article>
         <article className="panel">
-          <h3>Expected output</h3>
+          <h3>Expected outcome</h3>
           <ul className="tight-list">
-            <li>Kernel artifact chain rendered in Explorer</li>
-            <li>Replay result with deterministic comparison details</li>
-            <li>Closepack verify report with explicit issue codes</li>
-            <li>Conformance report that can be attached to releases</li>
+            {outputs.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
           </ul>
           <div className="hero-actions">
-            <a className="btn btn-solid" href="/demo">
-              Open interactive demo
+            <a className="btn btn-solid" href={docsLinks.quickstart}>
+              Open quickstart docs
             </a>
-            <a className="btn btn-ghost" href="/kernel-v0/">
-              Protocol details
+            <a className="btn btn-ghost" href="/operator">
+              Open operator inbox
             </a>
           </div>
         </article>

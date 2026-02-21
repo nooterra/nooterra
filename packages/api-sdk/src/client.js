@@ -169,6 +169,12 @@ export class SettldClient {
     return this.request("GET", "/openapi.json", opts);
   }
 
+  x402GateAuthorizePayment(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.gateId, "body.gateId");
+    return this.request("POST", "/x402/gate/authorize-payment", { ...opts, body });
+  }
+
   createJob(body, opts) {
     if (!body || typeof body !== "object") throw new TypeError("body is required");
     return this.request("POST", "/jobs", { ...opts, body });

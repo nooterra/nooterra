@@ -101,22 +101,22 @@
   "jobProof": {
     "manifestHash": "14e8197d32fc7eeb95c7e49c0b23443776b410617ae30e3f1f05539fad520b25",
     "headAttestationHash": "53e67250dbe0611c26beac8142bf0c18deab49f790719f4f6876f39d7abc5e34",
-    "verificationReportHash": "93122fb5c4848d4a785217faede173bf3ce7f0d8340de4da5e339b4da5481944"
+    "verificationReportHash": "26c1a86d6d2cd95b03e11a5e04f14dfd851161201e0aeab475f765163b0f90b3"
   },
   "monthProof": {
     "manifestHash": "40850cbc9e3b797dd660a525e7c53902af36abad61c88ea4b1b0a5e05176282f",
     "headAttestationHash": "25f6dba998fd0ee1b0fd41ed987583235778fb4e5fdbcd6eed4df8b8acd1a61d",
-    "verificationReportHash": "430d54209b9cf8e750edb921ba8f7113fc2641b41f2e2482497c8a1c15a28da2"
+    "verificationReportHash": "148df6274a67dca0aa994268b7d2ab46a4181bf7973d90693bc3bc04729e2d77"
   },
   "financePack": {
-    "manifestHash": "769a0df040516d84c55d30f8cf355aac31a4e75c1dad196752c64fc9072b91eb",
-    "headAttestationHash": "61eb103ae05d44052de21f9ac603e1144468edc316f4ced6bf6f423dfe77b064",
-    "verificationReportHash": "99e42c89b16180f34530b717390189efaace3471fb4cbcbacd712a4dc2c76733"
+    "manifestHash": "1951e7cd252652ffda2dd9977f5342fff18220db920af28d55c09dd68f6e6305",
+    "headAttestationHash": "582faa5df50903502608f7ea6e4e2ef640b3aa645820701c437bf363f74c8c7e",
+    "verificationReportHash": "eb8c38884393363f2995a91931102c482af7bd7db9f8ec6381794c6e4735356b"
   },
   "invoice": {
-    "manifestHash": "62678ed9973295dffe0f791527ae19b45380d069e68e4262f342948f28303721",
-    "headAttestationHash": "70711a21bcffe3467cf8e07f627dabe6ff098e2e47f9f18c2a6643b6c5ae8d60",
-    "verificationReportHash": "06cf848b42f3a2bd08fdac317b5b62b73f5e162521aafd3e531452a7ba08a602"
+    "manifestHash": "78f617434544888467841251c9a83fb094fe49dfe567298b4193f8b5878cb36a",
+    "headAttestationHash": "577abed90b2b1b82d8ff044c36b6271b17750d8504585ecace8ce92da1fae8cc",
+    "verificationReportHash": "0a0d17ba9eae2328ffb436a589e4d7b00fa13f4676b00c1e421bd9a37ca0d583"
   },
   "agentIdentity": {
     "schemaVersion": "AgentIdentity.v1",
@@ -163,8 +163,8 @@
     "schemaVersion": "SettlementDecisionRecord.v2",
     "decisionId": "dec_run_vectors_0001_auto_v2",
     "decisionStatus": "auto_resolved",
-    "canonicalJson": "{\"agreementId\":\"agr_vectors_0001\",\"decidedAt\":\"2026-02-01T00:02:00.000Z\",\"decisionHash\":\"1cb8ac692c1be71bddfd5f34f0cc2b89bfc99224c4e2a187632351c2a7ff2c8b\",\"decisionId\":\"dec_run_vectors_0001_auto_v2\",\"decisionMode\":\"automatic\",\"decisionReason\":null,\"decisionStatus\":\"auto_resolved\",\"policyHashUsed\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"policyNormalizationVersion\":\"v1\",\"policyRef\":{\"policyHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"verificationMethodHash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"SettlementDecisionRecord.v2\",\"settlementId\":\"setl_run_vectors_0001\",\"tenantId\":\"tenant_vectors\",\"verificationMethodHashUsed\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"verificationStatus\":\"green\",\"verifierRef\":{\"modality\":\"deterministic\",\"verifierHash\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"verifierId\":\"settld.policy-engine\",\"verifierVersion\":\"v1\"},\"workRef\":{\"resolutionEventId\":\"ev_run_vectors_0003\",\"runLastChainHash\":\"ch_run_vectors_0003\",\"runLastEventId\":\"ev_run_vectors_0003\",\"runStatus\":\"completed\"}}",
-    "sha256": "ecee0a898872e22ea1e76b756733a056730709c6493a1721c4edf8d41347ffee"
+    "canonicalJson": "{\"agreementId\":\"agr_vectors_0001\",\"decidedAt\":\"2026-02-01T00:02:00.000Z\",\"decisionHash\":\"af53a2d3bdb30d57cab7b471d886add81d43cd158bacf720a0040703197de022\",\"decisionId\":\"dec_run_vectors_0001_auto_v2\",\"decisionMode\":\"automatic\",\"decisionReason\":null,\"decisionStatus\":\"auto_resolved\",\"policyHashUsed\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"policyNormalizationVersion\":\"v1\",\"policyRef\":{\"policyHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"verificationMethodHash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"profileHashUsed\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"SettlementDecisionRecord.v2\",\"settlementId\":\"setl_run_vectors_0001\",\"tenantId\":\"tenant_vectors\",\"verificationMethodHashUsed\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"verificationStatus\":\"green\",\"verifierRef\":{\"modality\":\"deterministic\",\"verifierHash\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"verifierId\":\"settld.policy-engine\",\"verifierVersion\":\"v1\"},\"workRef\":{\"resolutionEventId\":\"ev_run_vectors_0003\",\"runLastChainHash\":\"ch_run_vectors_0003\",\"runLastEventId\":\"ev_run_vectors_0003\",\"runStatus\":\"completed\"}}",
+    "sha256": "9dbf27048a1e27be3f917d7110373358a14af9b89124ba6512dfa232d0d3f6c5"
   },
   "settlementReceipt": {
     "schemaVersion": "SettlementReceipt.v1",

@@ -1,16 +1,29 @@
+import { docsLinks, ossLinks } from "../config/links.js";
+
+const footerLogoUrl =
+  typeof import.meta !== "undefined" && import.meta.env?.VITE_BRAND_LOGO_URL
+    ? String(import.meta.env.VITE_BRAND_LOGO_URL).trim()
+    : "/brand/settld-logo.png";
+
 export default function SiteFooter() {
   return (
     <footer className="site-footer">
       <div>
-        <p className="footer-brand">Settld Kernel v0</p>
-        <p>Tool calls become enforceable transactions with replay, dispute workflows, and offline verification.</p>
+        <div className="footer-brand-row">
+          <img src={footerLogoUrl} alt="" className="footer-brand-logo" />
+          <p className="footer-brand">Settld</p>
+        </div>
+        <p>
+          Build autonomous systems with deterministic primitives across identity, policy, execution, evidence, and operations.
+        </p>
       </div>
       <div className="footer-links">
-        <a href="/kernel-v0/">Kernel v0</a>
-        <a href="/kernel-compatible/">Kernel Compatible</a>
-        <a href="#quickstart">Quickstart</a>
-        <a href="/pricing">Pricing</a>
-        <a href="/demo">Demo</a>
+        <a href="/product">Product</a>
+        <a href="/developers">Developers</a>
+        <a href={docsLinks.home}>Docs</a>
+        <a href="/security">Security</a>
+        <a href={ossLinks.repo}>GitHub</a>
+        <a href="/company">Company</a>
       </div>
     </footer>
   );

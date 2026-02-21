@@ -1,6 +1,6 @@
 {
   "name": "settld-magic-link-cli",
-  "version": "0.0.0",
+  "version": "0.1.5",
   "private": true,
   "type": "module",
   "engines": {
@@ -13,4 +13,3 @@
     "bin"
   ]
 }
-

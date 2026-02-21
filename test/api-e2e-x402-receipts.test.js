@@ -86,6 +86,7 @@ async function createVerifiedReceipt({
   agreementHash = null,
   agentPassport = null,
   walletAuthorizationSponsorWalletRef = null,
+  proof = null,
   idSuffix
 }) {
   const created = await request(api, {
@@ -184,6 +185,7 @@ async function createVerifiedReceipt({
       },
       verificationMethod: { mode: "attested", source: "provider_signature_v1" },
       evidenceRefs: [`http:request_sha256:${requestHashSeed}`, `http:response_sha256:${responseHash}`],
+      ...(proof && typeof proof === "object" && !Array.isArray(proof) ? { proof } : {}),
       providerSignature: {
         ...responseSig,
         publicKeyPem: providerSigner.publicKeyPem
@@ -222,6 +224,14 @@ test("API e2e: x402 receipt list/get/export returns durable receipt with verific
     quoteId: "x402quote_receipt_1",
     requestHashSeed: "b".repeat(64),
     responseProviderTag: "mock_receipts_1",
+    proof: {
+      protocol: "stark",
+      publicSignals: ["signal_1"],
+      proofData: { proof: "optional_stark_proof_material" },
+      statementHashSha256: "1".repeat(64),
+      inputDigestSha256: "b".repeat(64),
+      outputDigestSha256: "2".repeat(64)
+    },
     agreementHash: "1".repeat(64),
     idSuffix: 1
   });
@@ -337,6 +347,10 @@ test("API e2e: x402 receipt list/get/export returns durable receipt with verific
   assert.equal(parsedFirst.bindings?.spendAuthorization?.rootDelegationRef ?? null, null);
   assert.equal(parsedFirst.bindings?.spendAuthorization?.rootDelegationHash ?? null, null);
   assert.equal(parsedFirst.bindings?.spendAuthorization?.effectiveDelegationHash ?? null, null);
+  assert.equal(parsedFirst.zkProof?.present, true);
+  assert.equal(parsedFirst.zkProof?.protocol, "stark");
+  assert.equal(parsedFirst.zkProof?.verification?.status, "unsupported_protocol");
+  assert.deepEqual(parsedFirst.zkProof?.publicSignals ?? [], ["signal_1"]);
   assert.ok(
     exported.headers &&
       (typeof exported.headers["x-next-cursor"] === "undefined" || typeof exported.headers["x-next-cursor"] === "string")
@@ -480,4 +494,7 @@ test("API e2e: x402 receipt export carries non-null delegation lineage bindings 
   assert.equal(row.bindings?.spendAuthorization?.effectiveDelegationHash, leafDelegation.delegationHash);
   assert.equal(row.bindings?.spendAuthorization?.rootDelegationRef, "dlg_x402_receipt_lineage_root_1");
   assert.equal(row.bindings?.spendAuthorization?.rootDelegationHash, rootDelegation.delegationHash);
+  assert.equal(row.bindings?.spendAuthorization?.delegationDepth, 1);
+  assert.equal(row.bindings?.spendAuthorization?.maxDelegationDepth, 2);
+  assert.equal(row.bindings?.spendAuthorization?.delegationChainLength, 2);
 });

@@ -6,6 +6,7 @@ cd "$(dirname "$0")/../.."
 PROBLEM_TESTS=(
   "test/api-python-sdk-first-paid-task-smoke.test.js"
   "test/api-python-sdk-first-verified-run-smoke.test.js"
+  "test/magic-link-onboarding-live-contract.test.js"
   "test/magic-link-service.test.js"
   "test/mcp-http-gateway.test.js"
   "test/mcp-stdio-spike.test.js"

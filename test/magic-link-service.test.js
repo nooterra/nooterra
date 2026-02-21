@@ -128,6 +128,306 @@ const stripeMockServer = http.createServer((req, res) => {
     res.end(JSON.stringify({ error: { message: "not_found" } }));
   });
 });
+
+const settldOpsBootstrapRequests = [];
+const settldOpsBootstrapState = { nextErrorStatus: null, nextErrorBody: null };
+const settldOpsApiRequests = [];
+const settldOpsFlowState = {
+  walletBalances: new Map(),
+  runs: new Map()
+};
+const settldOpsMockServer = http.createServer((req, res) => {
+  const chunks = [];
+  req.on("data", (d) => chunks.push(d));
+  req.on("end", () => {
+    const parsedUrl = new URL(req.url ?? "/", "http://127.0.0.1");
+    const pathname = parsedUrl.pathname;
+    const raw = Buffer.concat(chunks).toString("utf8");
+    let body = null;
+    try {
+      body = raw ? JSON.parse(raw) : {};
+    } catch {
+      res.statusCode = 400;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ ok: false, code: "INVALID_JSON", message: "invalid json" }));
+      return;
+    }
+
+    const tenantId = String(req.headers["x-proxy-tenant-id"] ?? "").trim() || "tenant_unknown";
+    const protocol = String(req.headers["x-settld-protocol"] ?? "").trim();
+    const requestRecord = {
+      method: String(req.method ?? "GET").toUpperCase(),
+      pathname,
+      tenantId,
+      protocol,
+      authorization: String(req.headers.authorization ?? "").trim() || null,
+      expectedPrevChainHash: String(req.headers["x-proxy-expected-prev-chain-hash"] ?? "").trim() || null,
+      idempotencyKey: String(req.headers["x-idempotency-key"] ?? "").trim() || null,
+      body
+    };
+    settldOpsApiRequests.push(requestRecord);
+
+    if (req.method === "POST" && pathname === "/ops/tenants/bootstrap") {
+      const opsToken = String(req.headers["x-proxy-ops-token"] ?? "").trim();
+      settldOpsBootstrapRequests.push({
+        tenantId,
+        protocol,
+        opsToken,
+        idempotencyKey: requestRecord.idempotencyKey,
+        body
+      });
+
+      if (Number.isInteger(settldOpsBootstrapState.nextErrorStatus)) {
+        const status = settldOpsBootstrapState.nextErrorStatus;
+        const errBody = settldOpsBootstrapState.nextErrorBody ?? { ok: false, code: "UPSTREAM_FAILURE", message: "mock upstream failure" };
+        settldOpsBootstrapState.nextErrorStatus = null;
+        settldOpsBootstrapState.nextErrorBody = null;
+        res.statusCode = status;
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.end(JSON.stringify(errBody));
+        return;
+      }
+
+      const requestedScopes = Array.isArray(body?.apiKey?.scopes) ? body.apiKey.scopes.filter((s) => typeof s === "string" && s.trim()) : [];
+      const scopes = requestedScopes.length ? requestedScopes : ["runs:write", "runs:read"];
+      const keyId = typeof body?.apiKey?.keyId === "string" && body.apiKey.keyId.trim() ? body.apiKey.keyId.trim() : "ak_runtime";
+      const token = `${keyId}.secret_runtime`;
+      const apiBaseUrl = "https://api.mock.settld.work";
+      const env = {
+        SETTLD_TENANT_ID: tenantId,
+        SETTLD_BASE_URL: apiBaseUrl,
+        SETTLD_API_KEY: token
+      };
+      const exportCommands = Object.entries(env)
+        .map(([name, value]) => `export ${name}=${JSON.stringify(String(value))}`)
+        .join("\n");
+      res.statusCode = 201;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(
+        JSON.stringify({
+          tenantId,
+          bootstrap: {
+            tenantId,
+            apiBaseUrl,
+            apiKey: {
+              keyId,
+              token,
+              scopes,
+              expiresAt: null,
+              description: "tenant bootstrap"
+            },
+            env,
+            exportCommands
+          }
+        })
+      );
+      return;
+    }
+
+    const authHeader = String(req.headers.authorization ?? "").trim();
+    if (!authHeader || !/^Bearer\s+/.test(authHeader)) {
+      res.statusCode = 401;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ ok: false, code: "UNAUTHORIZED", message: "missing bearer token" }));
+      return;
+    }
+    if (!tenantId) {
+      res.statusCode = 400;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ ok: false, code: "TENANT_REQUIRED", message: "x-proxy-tenant-id is required" }));
+      return;
+    }
+
+    const sendJson = (status, payload) => {
+      res.statusCode = status;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify(payload));
+    };
+
+    if (req.method === "POST" && pathname === "/agents/register") {
+      const agentId = typeof body?.agentId === "string" && body.agentId.trim() ? body.agentId.trim() : `agt_${crypto.randomBytes(4).toString("hex")}`;
+      sendJson(201, {
+        ok: true,
+        agentIdentity: { agentId },
+        agent: {
+          agentId,
+          displayName: typeof body?.displayName === "string" ? body.displayName : null
+        }
+      });
+      return;
+    }
+
+    const walletCreditMatch = /^\/agents\/([^/]+)\/wallet\/credit$/.exec(pathname);
+    if (req.method === "POST" && walletCreditMatch) {
+      const agentId = decodeURIComponent(walletCreditMatch[1]);
+      const amountCents = Number.parseInt(String(body?.amountCents ?? ""), 10);
+      const currency = typeof body?.currency === "string" && body.currency.trim() ? body.currency.trim().toUpperCase() : "USD";
+      if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+        sendJson(400, { ok: false, code: "INVALID_AMOUNT", message: "amountCents must be positive" });
+        return;
+      }
+      const key = `${tenantId}:${agentId}:${currency}`;
+      const prior = Number(settldOpsFlowState.walletBalances.get(key) ?? 0);
+      const next = prior + amountCents;
+      settldOpsFlowState.walletBalances.set(key, next);
+      sendJson(200, {
+        ok: true,
+        wallet: {
+          agentId,
+          currency,
+          balanceCents: next,
+          availableCents: next
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/marketplace/rfqs") {
+      const rfqId = typeof body?.rfqId === "string" && body.rfqId.trim() ? body.rfqId.trim() : `rfq_${crypto.randomBytes(4).toString("hex")}`;
+      sendJson(201, {
+        ok: true,
+        rfq: {
+          rfqId,
+          title: typeof body?.title === "string" ? body.title : null,
+          capability: typeof body?.capability === "string" ? body.capability : null,
+          posterAgentId: typeof body?.posterAgentId === "string" ? body.posterAgentId : null,
+          budgetCents: body?.budgetCents ?? null,
+          currency: typeof body?.currency === "string" ? body.currency : "USD",
+          status: "open"
+        }
+      });
+      return;
+    }
+
+    const rfqBidMatch = /^\/marketplace\/rfqs\/([^/]+)\/bids$/.exec(pathname);
+    if (req.method === "POST" && rfqBidMatch) {
+      const rfqId = decodeURIComponent(rfqBidMatch[1]);
+      const bidId = typeof body?.bidId === "string" && body.bidId.trim() ? body.bidId.trim() : `bid_${crypto.randomBytes(4).toString("hex")}`;
+      sendJson(201, {
+        ok: true,
+        bid: {
+          bidId,
+          rfqId,
+          bidderAgentId: typeof body?.bidderAgentId === "string" ? body.bidderAgentId : null,
+          amountCents: body?.amountCents ?? null,
+          currency: typeof body?.currency === "string" ? body.currency : "USD",
+          etaSeconds: body?.etaSeconds ?? null,
+          status: "submitted"
+        }
+      });
+      return;
+    }
+
+    const rfqAcceptMatch = /^\/marketplace\/rfqs\/([^/]+)\/accept$/.exec(pathname);
+    if (req.method === "POST" && rfqAcceptMatch) {
+      const rfqId = decodeURIComponent(rfqAcceptMatch[1]);
+      const runId = `run_${rfqId}_${crypto.randomBytes(3).toString("hex")}`;
+      const lastChainHash = crypto.createHash("sha256").update(`${tenantId}:${runId}:0`, "utf8").digest("hex");
+      settldOpsFlowState.runs.set(runId, {
+        runId,
+        tenantId,
+        status: "running",
+        verificationStatus: "amber",
+        settlementStatus: "pending",
+        lastChainHash
+      });
+      sendJson(200, {
+        ok: true,
+        run: {
+          runId,
+          status: "running",
+          lastChainHash
+        },
+        settlement: {
+          status: "pending"
+        },
+        acceptance: {
+          rfqId,
+          bidId: typeof body?.bidId === "string" ? body.bidId : null
+        }
+      });
+      return;
+    }
+
+    const runEventMatch = /^\/agents\/([^/]+)\/runs\/([^/]+)\/events$/.exec(pathname);
+    if (req.method === "POST" && runEventMatch) {
+      const runId = decodeURIComponent(runEventMatch[2]);
+      const runState = settldOpsFlowState.runs.get(runId);
+      if (!runState) {
+        sendJson(404, { ok: false, code: "RUN_NOT_FOUND", message: "run not found" });
+        return;
+      }
+      const expectedPrev = String(req.headers["x-proxy-expected-prev-chain-hash"] ?? "").trim().toLowerCase();
+      if (!expectedPrev || expectedPrev !== String(runState.lastChainHash).toLowerCase()) {
+        sendJson(409, { ok: false, code: "PREV_CHAIN_HASH_MISMATCH", message: "expected previous chain hash mismatch" });
+        return;
+      }
+      const nextChainHash = crypto.createHash("sha256").update(`${runState.lastChainHash}:${String(body?.type ?? "EVENT")}`, "utf8").digest("hex");
+      runState.status = "completed";
+      runState.verificationStatus = "green";
+      runState.settlementStatus = "released";
+      runState.lastChainHash = nextChainHash;
+      settldOpsFlowState.runs.set(runId, runState);
+      sendJson(200, {
+        ok: true,
+        event: {
+          eventId: `evt_${crypto.randomBytes(4).toString("hex")}`,
+          type: typeof body?.type === "string" ? body.type : "RUN_COMPLETED"
+        },
+        run: {
+          runId,
+          status: runState.status,
+          lastChainHash: runState.lastChainHash
+        },
+        settlement: {
+          status: runState.settlementStatus
+        }
+      });
+      return;
+    }
+
+    const runVerificationMatch = /^\/runs\/([^/]+)\/verification$/.exec(pathname);
+    if (req.method === "GET" && runVerificationMatch) {
+      const runId = decodeURIComponent(runVerificationMatch[1]);
+      const runState = settldOpsFlowState.runs.get(runId);
+      if (!runState) {
+        sendJson(404, { ok: false, code: "RUN_NOT_FOUND", message: "run not found" });
+        return;
+      }
+      sendJson(200, {
+        ok: true,
+        runId,
+        verification: {
+          verificationStatus: runState.verificationStatus,
+          warnings: [],
+          errors: []
+        }
+      });
+      return;
+    }
+
+    const runSettlementMatch = /^\/runs\/([^/]+)\/settlement$/.exec(pathname);
+    if (req.method === "GET" && runSettlementMatch) {
+      const runId = decodeURIComponent(runSettlementMatch[1]);
+      const runState = settldOpsFlowState.runs.get(runId);
+      if (!runState) {
+        sendJson(404, { ok: false, code: "RUN_NOT_FOUND", message: "run not found" });
+        return;
+      }
+      sendJson(200, {
+        ok: true,
+        runId,
+        settlement: {
+          status: runState.settlementStatus
+        }
+      });
+      return;
+    }
+
+    sendJson(404, { ok: false, error: "not_found" });
+  });
+});
+
 function applyEnv(envPatch) {
   const prev = {};
   for (const [key, value] of Object.entries(envPatch ?? {})) {
@@ -309,6 +609,103 @@ async function setTenantPlan({ tenantId, plan }) {
   const json = JSON.parse(res._body().toString("utf8"));
   assert.equal(json.ok, true);
   return json;
+}
+
+async function postTenantRuntimeBootstrap({ tenantId, body = {}, headers = {} } = {}) {
+  const buf = Buffer.from(JSON.stringify(body ?? {}), "utf8");
+  const mergedHeaders = {
+    "x-api-key": "test_key",
+    "content-type": "application/json",
+    "content-length": String(buf.length),
+    ...headers
+  };
+  const res = await runReq({
+    method: "POST",
+    url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/runtime-bootstrap`,
+    headers: mergedHeaders,
+    bodyChunks: [buf]
+  });
+  return {
+    statusCode: res.statusCode,
+    json: res._body().length ? JSON.parse(res._body().toString("utf8")) : null
+  };
+}
+
+async function postTenantRuntimeBootstrapSmokeTest({ tenantId, body = {}, headers = {} } = {}) {
+  const buf = Buffer.from(JSON.stringify(body ?? {}), "utf8");
+  const mergedHeaders = {
+    "x-api-key": "test_key",
+    "content-type": "application/json",
+    "content-length": String(buf.length),
+    ...headers
+  };
+  const res = await runReq({
+    method: "POST",
+    url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/runtime-bootstrap/smoke-test`,
+    headers: mergedHeaders,
+    bodyChunks: [buf]
+  });
+  return {
+    statusCode: res.statusCode,
+    json: res._body().length ? JSON.parse(res._body().toString("utf8")) : null
+  };
+}
+
+async function postTenantFirstPaidCall({ tenantId, body = {}, headers = {} } = {}) {
+  const buf = Buffer.from(JSON.stringify(body ?? {}), "utf8");
+  const mergedHeaders = {
+    "x-api-key": "test_key",
+    "content-type": "application/json",
+    "content-length": String(buf.length),
+    ...headers
+  };
+  const res = await runReq({
+    method: "POST",
+    url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call`,
+    headers: mergedHeaders,
+    bodyChunks: [buf]
+  });
+  return {
+    statusCode: res.statusCode,
+    json: res._body().length ? JSON.parse(res._body().toString("utf8")) : null
+  };
+}
+
+async function getTenantFirstPaidCallHistory({ tenantId, headers = {} } = {}) {
+  const mergedHeaders = {
+    "x-api-key": "test_key",
+    ...headers
+  };
+  const res = await runReq({
+    method: "GET",
+    url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/first-paid-call/history`,
+    headers: mergedHeaders,
+    bodyChunks: []
+  });
+  return {
+    statusCode: res.statusCode,
+    json: res._body().length ? JSON.parse(res._body().toString("utf8")) : null
+  };
+}
+
+async function postTenantRuntimeConformanceMatrix({ tenantId, body = {}, headers = {} } = {}) {
+  const buf = Buffer.from(JSON.stringify(body ?? {}), "utf8");
+  const mergedHeaders = {
+    "x-api-key": "test_key",
+    "content-type": "application/json",
+    "content-length": String(buf.length),
+    ...headers
+  };
+  const res = await runReq({
+    method: "POST",
+    url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/conformance-matrix`,
+    headers: mergedHeaders,
+    bodyChunks: [buf]
+  });
+  return {
+    statusCode: res.statusCode,
+    json: res._body().length ? JSON.parse(res._body().toString("utf8")) : null
+  };
 }
 
 async function getTenantBillingInvoiceRes({ tenantId, month = null, format = null } = {}) {
@@ -635,11 +1032,19 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
   let stripePort = null;
   let relayPort = null;
   let alertPort = null;
+  let settldOpsPort = null;
+  settldOpsBootstrapRequests.length = 0;
+  settldOpsBootstrapState.nextErrorStatus = null;
+  settldOpsBootstrapState.nextErrorBody = null;
+  settldOpsApiRequests.length = 0;
+  settldOpsFlowState.walletBalances.clear();
+  settldOpsFlowState.runs.clear();
   try {
     ({ port: oauthPort } = await listenOnEphemeralLoopback(oauthMockServer, { hosts: ["127.0.0.1"] }));
     ({ port: stripePort } = await listenOnEphemeralLoopback(stripeMockServer, { hosts: ["127.0.0.1"] }));
     ({ port: relayPort } = await listenOnEphemeralLoopback(defaultRelayServer, { hosts: ["127.0.0.1"] }));
     ({ port: alertPort } = await listenOnEphemeralLoopback(deadLetterAlertServer, { hosts: ["127.0.0.1"] }));
+    ({ port: settldOpsPort } = await listenOnEphemeralLoopback(settldOpsMockServer, { hosts: ["127.0.0.1"] }));
   } catch (err) {
     const cause = err?.cause ?? err;
     if (cause?.code === "EPERM" || cause?.code === "EACCES") {
@@ -653,6 +1058,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
         await closeIfListening(stripeMockServer);
         await closeIfListening(defaultRelayServer);
         await closeIfListening(deadLetterAlertServer);
+        await closeIfListening(settldOpsMockServer);
       } catch {
         // ignore
       }
@@ -718,7 +1124,11 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     MAGIC_LINK_BILLING_STRIPE_SECRET_KEY: "sk_test_mock",
     MAGIC_LINK_BILLING_STRIPE_WEBHOOK_SECRET: "whsec_mock",
     MAGIC_LINK_BILLING_STRIPE_PRICE_ID_GROWTH: "price_growth_mock",
-    MAGIC_LINK_BILLING_STRIPE_PRICE_ID_SCALE: "price_scale_mock"
+    MAGIC_LINK_BILLING_STRIPE_PRICE_ID_SCALE: "price_scale_mock",
+    MAGIC_LINK_PUBLIC_SIGNUP_ENABLED: "1",
+    MAGIC_LINK_SETTLD_API_BASE_URL: `http://127.0.0.1:${settldOpsPort}`,
+    MAGIC_LINK_SETTLD_OPS_TOKEN: "ops_token_magic_link",
+    MAGIC_LINK_SETTLD_PROTOCOL: "1.0"
   });
 
   await t.after(async () => {
@@ -731,6 +1141,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     await closeIfListening(stripeMockServer);
     await closeIfListening(defaultRelayServer);
     await closeIfListening(deadLetterAlertServer);
+    await closeIfListening(settldOpsMockServer);
     await fs.rm(dataDir, { recursive: true, force: true });
     dataDir = null;
     magicLinkHandler = null;
@@ -789,6 +1200,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     });
     assert.equal(created.tenantId, tenantId);
     assert.equal(created.onboardingUrl, `/v1/tenants/${tenantId}/onboarding`);
+    assert.equal(created.runtimeBootstrapUrl, `/v1/tenants/${tenantId}/onboarding/runtime-bootstrap`);
     assert.equal(created.integrationsUrl, `/v1/tenants/${tenantId}/integrations`);
     assert.equal(created.settlementPoliciesUrl, `/v1/tenants/${tenantId}/settlement-policies`);
     assert.equal(created.metricsUrl, `/v1/tenants/${tenantId}/onboarding-metrics`);
@@ -801,6 +1213,270 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(relay.enabled, true);
     assert.deepEqual([...(relay.events ?? [])].sort(), ["decision.approved", "decision.held", "verification.completed", "verification.failed"]);
     assert.ok(typeof relay.secret === "string" && relay.secret.startsWith("enc:v1:"));
+  });
+
+  await t.test("tenant onboarding runtime bootstrap: returns MCP config and forwards bootstrap request", async () => {
+    const tenantId = "tenant_runtime_bootstrap";
+    await createTenant({
+      tenantId,
+      name: "Runtime Bootstrap Tenant",
+      contactEmail: "ops+runtime@example.com",
+      billingEmail: "billing+runtime@example.com"
+    });
+
+    const out = await postTenantRuntimeBootstrap({
+      tenantId,
+      headers: { "x-idempotency-key": "idem_runtime_bootstrap" },
+      body: {
+        apiKey: {
+          keyId: "ak_runtime_test",
+          scopes: ["runs:write", "runs:read", "inbox:read"]
+        },
+        paidToolsBaseUrl: "https://paid.tools.settld.work"
+      }
+    });
+    assert.equal(out.statusCode, 201, JSON.stringify(out.json));
+    assert.equal(out.json?.ok, true);
+    assert.equal(out.json?.schemaVersion, "MagicLinkRuntimeBootstrap.v1");
+    assert.equal(out.json?.tenantId, tenantId);
+    assert.equal(out.json?.bootstrap?.apiKey?.keyId, "ak_runtime_test");
+    assert.equal(out.json?.bootstrap?.apiKey?.token, "ak_runtime_test.secret_runtime");
+    assert.equal(out.json?.mcp?.command, "npx");
+    assert.deepEqual(out.json?.mcp?.args, ["-y", "settld-mcp"]);
+    assert.equal(out.json?.mcp?.env?.SETTLD_TENANT_ID, tenantId);
+    assert.equal(out.json?.mcp?.env?.SETTLD_API_KEY, "ak_runtime_test.secret_runtime");
+    assert.equal(out.json?.mcp?.env?.SETTLD_BASE_URL, "https://api.mock.settld.work");
+    assert.equal(out.json?.mcp?.env?.SETTLD_PAID_TOOLS_BASE_URL, "https://paid.tools.settld.work/");
+    assert.equal(out.json?.mcpConfigJson?.mcpServers?.settld?.command, "npx");
+
+    const reqRecord = settldOpsBootstrapRequests[settldOpsBootstrapRequests.length - 1];
+    assert.ok(reqRecord);
+    assert.equal(reqRecord.tenantId, tenantId);
+    assert.equal(reqRecord.protocol, "1.0");
+    assert.equal(reqRecord.opsToken, "ops_token_magic_link");
+    assert.equal(reqRecord.idempotencyKey, "idem_runtime_bootstrap");
+    assert.equal(reqRecord.body?.apiKey?.keyId, "ak_runtime_test");
+    assert.equal(reqRecord.body?.paidToolsBaseUrl, undefined);
+
+    const auditFp = path.join(dataDir, "audit", tenantId, `${monthKeyUtcNow()}.jsonl`);
+    const auditRaw = await fs.readFile(auditFp, "utf8");
+    assert.match(auditRaw, /TENANT_RUNTIME_BOOTSTRAP_ISSUED/);
+  });
+
+  await t.test("tenant onboarding runtime bootstrap smoke-test: initialize + tools/list", async () => {
+    const tenantId = "tenant_runtime_bootstrap_smoke";
+    await createTenant({
+      tenantId,
+      name: "Runtime Bootstrap Smoke Tenant",
+      contactEmail: "ops+runtime-smoke@example.com",
+      billingEmail: "billing+runtime-smoke@example.com"
+    });
+    const bootstrapOut = await postTenantRuntimeBootstrap({
+      tenantId,
+      body: {
+        apiKey: {
+          keyId: "ak_runtime_smoke",
+          scopes: ["runs:write", "runs:read"]
+        }
+      }
+    });
+    assert.equal(bootstrapOut.statusCode, 201, JSON.stringify(bootstrapOut.json));
+    const env = bootstrapOut.json?.mcp?.env;
+    assert.ok(env && typeof env === "object");
+
+    const smoke = await postTenantRuntimeBootstrapSmokeTest({ tenantId, body: { env } });
+    assert.equal(smoke.statusCode, 200, JSON.stringify(smoke.json));
+    assert.equal(smoke.json?.ok, true);
+    assert.equal(smoke.json?.schemaVersion, "MagicLinkRuntimeBootstrapSmokeTest.v1");
+    assert.equal(smoke.json?.tenantId, tenantId);
+    assert.equal(smoke.json?.smoke?.initialized, true);
+    assert.equal(smoke.json?.smoke?.serverInfo?.name, "settld-mcp-spike");
+    assert.ok(Number.isFinite(Number(smoke.json?.smoke?.toolsCount)));
+    assert.ok(Number(smoke.json?.smoke?.toolsCount) > 0);
+    assert.ok(Array.isArray(smoke.json?.smoke?.sampleTools));
+  });
+
+  await t.test("tenant onboarding first paid call: executes full paid flow and returns green/released statuses", async () => {
+    const tenantId = "tenant_runtime_first_paid_call";
+    await createTenant({
+      tenantId,
+      name: "Runtime First Paid Call Tenant",
+      contactEmail: "ops+runtime-first-paid@example.com",
+      billingEmail: "billing+runtime-first-paid@example.com"
+    });
+
+    const out = await postTenantFirstPaidCall({ tenantId });
+    assert.equal(out.statusCode, 200, JSON.stringify(out.json));
+    assert.equal(out.json?.ok, true);
+    assert.equal(out.json?.schemaVersion, "MagicLinkFirstPaidCall.v1");
+    assert.equal(out.json?.tenantId, tenantId);
+    assert.match(String(out.json?.ids?.posterAgentId ?? ""), /^agt_ml_poster_/);
+    assert.match(String(out.json?.ids?.bidderAgentId ?? ""), /^agt_ml_bidder_/);
+    assert.match(String(out.json?.ids?.rfqId ?? ""), /^rfq_ml_/);
+    assert.match(String(out.json?.ids?.bidId ?? ""), /^bid_ml_/);
+    assert.match(String(out.json?.ids?.runId ?? ""), /^run_/);
+    assert.ok(typeof out.json?.attemptId === "string" && out.json.attemptId.length > 0);
+    assert.equal(out.json?.verificationStatus, "green");
+    assert.equal(out.json?.settlementStatus, "released");
+
+    const history = await getTenantFirstPaidCallHistory({ tenantId });
+    assert.equal(history.statusCode, 200, JSON.stringify(history.json));
+    assert.equal(history.json?.ok, true);
+    assert.equal(history.json?.schemaVersion, "MagicLinkFirstPaidCallHistory.v1");
+    assert.equal(history.json?.tenantId, tenantId);
+    assert.ok(Array.isArray(history.json?.attempts));
+    assert.ok(history.json.attempts.length >= 1);
+    const latestAttempt = history.json.attempts[history.json.attempts.length - 1];
+    assert.equal(latestAttempt?.attemptId, out.json?.attemptId);
+    assert.equal(latestAttempt?.status, "passed");
+    assert.equal(latestAttempt?.verificationStatus, "green");
+    assert.equal(latestAttempt?.settlementStatus, "released");
+
+    const replay = await postTenantFirstPaidCall({
+      tenantId,
+      body: { replayAttemptId: out.json?.attemptId }
+    });
+    assert.equal(replay.statusCode, 200, JSON.stringify(replay.json));
+    assert.equal(replay.json?.ok, true);
+    assert.equal(replay.json?.replayed, true);
+    assert.equal(replay.json?.attemptId, out.json?.attemptId);
+    assert.equal(replay.json?.verificationStatus, "green");
+    assert.equal(replay.json?.settlementStatus, "released");
+
+    const metricsRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding-metrics`,
+      headers: { "x-api-key": "test_key" },
+      bodyChunks: []
+    });
+    assert.equal(metricsRes.statusCode, 200, metricsRes._body().toString("utf8"));
+    const metrics = JSON.parse(metricsRes._body().toString("utf8"));
+    assert.ok(typeof metrics?.firstUploadAt === "string" && metrics.firstUploadAt.length > 0);
+    assert.ok(typeof metrics?.firstVerifiedAt === "string" && metrics.firstVerifiedAt.length > 0);
+    const firstVerifiedStage = Array.isArray(metrics?.funnel?.stages)
+      ? metrics.funnel.stages.find((row) => row?.stageKey === "first_verified")
+      : null;
+    assert.equal(Boolean(firstVerifiedStage?.reached), true);
+
+    const runCompletedReq = [...settldOpsApiRequests].reverse().find((row) => row.pathname.includes("/events"));
+    assert.ok(runCompletedReq, "expected run-completed event request");
+    assert.ok(typeof runCompletedReq?.expectedPrevChainHash === "string" && runCompletedReq.expectedPrevChainHash.length > 0);
+
+    const auditFp = path.join(dataDir, "audit", tenantId, `${monthKeyUtcNow()}.jsonl`);
+    const auditRaw = await fs.readFile(auditFp, "utf8");
+    assert.match(auditRaw, /TENANT_RUNTIME_FIRST_PAID_CALL_COMPLETED/);
+  });
+
+  await t.test("tenant runtime conformance matrix: bootstrap + smoke + first paid flow for runtime targets", async () => {
+    const tenantId = "tenant_runtime_conformance";
+    await createTenant({
+      tenantId,
+      name: "Runtime Conformance Tenant",
+      contactEmail: "ops+runtime-conformance@example.com",
+      billingEmail: "billing+runtime-conformance@example.com"
+    });
+
+    const out = await postTenantRuntimeConformanceMatrix({
+      tenantId,
+      body: { targets: ["codex", "claude", "cursor", "openclaw"] }
+    });
+    assert.equal(out.statusCode, 200, JSON.stringify(out.json));
+    assert.equal(out.json?.ok, true);
+    assert.equal(out.json?.matrix?.schemaVersion, "MagicLinkRuntimeConformanceMatrix.v1");
+    assert.equal(out.json?.matrix?.tenantId, tenantId);
+    assert.equal(out.json?.matrix?.ready, true);
+    assert.ok(Array.isArray(out.json?.matrix?.checks));
+    assert.ok(out.json.matrix.checks.some((row) => row?.checkId === "runtime_bootstrap" && row?.status === "pass"));
+    assert.ok(out.json.matrix.checks.some((row) => row?.checkId === "mcp_smoke" && row?.status === "pass"));
+    assert.ok(out.json.matrix.checks.some((row) => row?.checkId === "first_paid_call" && row?.status === "pass"));
+    assert.ok(Array.isArray(out.json?.matrix?.targets));
+    assert.ok(out.json.matrix.targets.length >= 3);
+    const targetNames = out.json.matrix.targets.map((row) => row?.target).filter(Boolean);
+    assert.ok(targetNames.includes("cursor"));
+    assert.ok(targetNames.includes("openclaw"));
+    assert.equal(out.json?.idempotency?.reused, false);
+
+    const history = await getTenantFirstPaidCallHistory({ tenantId });
+    assert.equal(history.statusCode, 200, JSON.stringify(history.json));
+    assert.ok(Array.isArray(history.json?.attempts));
+    assert.ok(history.json.attempts.some((row) => row?.attemptId === out.json?.matrix?.runId));
+
+    const idem = await postTenantRuntimeConformanceMatrix({
+      tenantId,
+      headers: { "x-idempotency-key": "matrix_idem_1" },
+      body: { targets: ["codex"] }
+    });
+    assert.equal(idem.statusCode, 200, JSON.stringify(idem.json));
+    assert.equal(idem.json?.ok, true);
+    assert.equal(idem.json?.idempotency?.reused, false);
+    const idemRunId = idem.json?.matrix?.runId;
+    assert.ok(typeof idemRunId === "string" && idemRunId.length > 0);
+
+    const idemReplay = await postTenantRuntimeConformanceMatrix({
+      tenantId,
+      headers: { "x-idempotency-key": "matrix_idem_1" },
+      body: { targets: ["codex"] }
+    });
+    assert.equal(idemReplay.statusCode, 200, JSON.stringify(idemReplay.json));
+    assert.equal(idemReplay.json?.ok, true);
+    assert.equal(idemReplay.json?.idempotency?.reused, true);
+    assert.equal(idemReplay.json?.matrix?.runId, idemRunId);
+
+    const auditFp = path.join(dataDir, "audit", tenantId, `${monthKeyUtcNow()}.jsonl`);
+    const auditRaw = await fs.readFile(auditFp, "utf8");
+    assert.match(auditRaw, /TENANT_RUNTIME_CONFORMANCE_MATRIX_RUN/);
+  });
+
+  await t.test("tenant runtime conformance matrix: rate limit guard returns 429 after limit", async () => {
+    const tenantId = "tenant_runtime_conformance_rl";
+    await createTenant({
+      tenantId,
+      name: "Runtime Conformance RL Tenant",
+      contactEmail: "ops+runtime-conformance-rl@example.com",
+      billingEmail: "billing+runtime-conformance-rl@example.com"
+    });
+    await putTenantSettings({
+      tenantId,
+      patch: { rateLimits: { conformanceRunsPerHour: 1 } }
+    });
+
+    const first = await postTenantRuntimeConformanceMatrix({
+      tenantId,
+      body: { targets: ["codex"] }
+    });
+    assert.equal(first.statusCode, 200, JSON.stringify(first.json));
+    assert.equal(first.json?.ok, true);
+
+    const second = await postTenantRuntimeConformanceMatrix({
+      tenantId,
+      body: { targets: ["codex"] }
+    });
+    assert.equal(second.statusCode, 429, JSON.stringify(second.json));
+    assert.equal(second.json?.ok, false);
+    assert.equal(second.json?.code, "RATE_LIMITED");
+    assert.ok(Number(second.json?.retryAfterSeconds) > 0);
+  });
+
+  await t.test("tenant onboarding runtime bootstrap: propagates upstream failure", async () => {
+    const tenantId = "tenant_runtime_bootstrap_fail";
+    await createTenant({
+      tenantId,
+      name: "Runtime Bootstrap Failure Tenant",
+      contactEmail: "ops+runtime-fail@example.com",
+      billingEmail: "billing+runtime-fail@example.com"
+    });
+
+    settldOpsBootstrapState.nextErrorStatus = 502;
+    settldOpsBootstrapState.nextErrorBody = {
+      ok: false,
+      code: "BOOTSTRAP_DOWN",
+      message: "ops unavailable"
+    };
+    const out = await postTenantRuntimeBootstrap({ tenantId, body: {} });
+    assert.equal(out.statusCode, 502, JSON.stringify(out.json));
+    assert.equal(out.json?.ok, false);
+    assert.equal(out.json?.code, "BOOTSTRAP_DOWN");
+    assert.match(String(out.json?.message ?? ""), /ops unavailable/);
   });
 
   await t.test("integrations UI: connect/disconnect Slack + Zapier with test-send and delivery health", async () => {
@@ -1521,9 +2197,24 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const pageBody = page._body().toString("utf8");
     assert.match(pageBody, /Verify Cloud Onboarding/);
     assert.match(pageBody, /Step 5\. First settlement checklist/);
+    assert.match(pageBody, /Step 6\. Runtime bootstrap \(MCP\)/);
+    assert.match(pageBody, /Step 7\. First live paid call/);
     assert.match(pageBody, /id="checklistSummary"/);
     assert.match(pageBody, /id="firstSettlementChecklist"/);
     assert.match(pageBody, /id="refreshChecklistBtn"/);
+    assert.match(pageBody, /id="runtimeBootstrapBtn"/);
+    assert.match(pageBody, /id="runtimeSmokeBtn"/);
+    assert.match(pageBody, /id="runtimeMcpConfig"/);
+    assert.match(pageBody, /id="runtimeEnvExports"/);
+    assert.match(pageBody, /id="firstPaidCallBtn"/);
+    assert.match(pageBody, /id="firstPaidCallHistoryBtn"/);
+    assert.match(pageBody, /id="firstPaidCallReplayBtn"/);
+    assert.match(pageBody, /id="firstPaidCallHistorySelect"/);
+    assert.match(pageBody, /id="firstPaidCallStatus"/);
+    assert.match(pageBody, /id="firstPaidCallOutput"/);
+    assert.match(pageBody, /id="runtimeConformanceBtn"/);
+    assert.match(pageBody, /id="runtimeConformanceStatus"/);
+    assert.match(pageBody, /id="runtimeConformanceOutput"/);
 
     const templates = await runReq({ method: "GET", url: "/v1/tenants/tenant_a/sla-templates", headers: { "x-api-key": "test_key" }, bodyChunks: [] });
     assert.equal(templates.statusCode, 200, templates._body().toString("utf8"));
@@ -1722,9 +2413,13 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const onboardingHtml = onboardingPage._body().toString("utf8");
     assert.match(onboardingHtml, /Verify Cloud Onboarding/);
     assert.match(onboardingHtml, /Step 5\. First settlement checklist/);
+    assert.match(onboardingHtml, /Step 6\. Runtime bootstrap \(MCP\)/);
+    assert.match(onboardingHtml, /Step 7\. First live paid call/);
     assert.match(onboardingHtml, /id="checklistSummary"/);
     assert.match(onboardingHtml, /id="firstSettlementChecklist"/);
     assert.match(onboardingHtml, /id="refreshChecklistBtn"/);
+    assert.match(onboardingHtml, /id="firstPaidCallHistorySelect"/);
+    assert.match(onboardingHtml, /id="runtimeConformanceBtn"/);
 
     async function postOnboardingEvent(eventType, metadata = null) {
       const body = Buffer.from(JSON.stringify({ eventType, metadata }), "utf8");
@@ -3678,11 +4373,92 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const adminSettingsJson = JSON.parse(adminSettingsRes._body().toString("utf8"));
     assert.equal(adminSettingsJson.ok, true);
 
+    const viewerUsersRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/users`,
+      headers: { cookie: viewer.cookieHeader },
+      bodyChunks: []
+    });
+    assert.equal(viewerUsersRes.statusCode, 403);
+
+    const upsertUserBody = Buffer.from(
+      JSON.stringify({
+        email: "ops@buyer.example",
+        role: "approver",
+        fullName: "Ops Approver",
+        company: "Buyer Inc"
+      }),
+      "utf8"
+    );
+    const upsertUserRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/users`,
+      headers: {
+        cookie: admin.cookieHeader,
+        "content-type": "application/json",
+        "content-length": String(upsertUserBody.length)
+      },
+      bodyChunks: [upsertUserBody]
+    });
+    assert.equal(upsertUserRes.statusCode, 200, upsertUserRes._body().toString("utf8"));
+    const upsertUserJson = JSON.parse(upsertUserRes._body().toString("utf8"));
+    assert.equal(upsertUserJson.ok, true);
+    assert.equal(upsertUserJson.user.email, "ops@buyer.example");
+    assert.equal(upsertUserJson.user.role, "approver");
+
+    const usersRes = await runReq({
+      method: "GET",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/users`,
+      headers: { cookie: admin.cookieHeader },
+      bodyChunks: []
+    });
+    assert.equal(usersRes.statusCode, 200, usersRes._body().toString("utf8"));
+    const usersJson = JSON.parse(usersRes._body().toString("utf8"));
+    assert.equal(usersJson.ok, true);
+    assert.ok(Array.isArray(usersJson.users));
+    assert.ok(usersJson.users.some((row) => row.email === "admin@buyer.example" && row.role === "admin"));
+    assert.ok(usersJson.users.some((row) => row.email === "ops@buyer.example" && row.role === "approver"));
+
     const logoutRes = await runReq({ method: "POST", url: "/v1/buyer/logout", headers: { cookie: admin.cookieHeader }, bodyChunks: [] });
     assert.equal(logoutRes.statusCode, 200, logoutRes._body().toString("utf8"));
     assert.ok(String(logoutRes.getHeader("set-cookie")).includes("Max-Age=0"));
     const meAfterLogout = await runReq({ method: "GET", url: "/v1/buyer/me", headers: {}, bodyChunks: [] });
     assert.equal(meAfterLogout.statusCode, 401);
+  });
+
+  await t.test("public signup: creates tenant, admin role, and OTP", async () => {
+    const signupBody = Buffer.from(
+      JSON.stringify({
+        company: "Nova Robotics",
+        fullName: "Founder",
+        email: "founder@nova.example"
+      }),
+      "utf8"
+    );
+    const signupRes = await runReq({
+      method: "POST",
+      url: "/v1/public/signup",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(signupBody.length)
+      },
+      bodyChunks: [signupBody]
+    });
+    assert.equal(signupRes.statusCode, 201, signupRes._body().toString("utf8"));
+    const signupJson = JSON.parse(signupRes._body().toString("utf8"));
+    assert.equal(signupJson.ok, true);
+    assert.equal(signupJson.email, "founder@nova.example");
+    assert.equal(signupJson.otpIssued, true);
+    assert.ok(typeof signupJson.tenantId === "string" && signupJson.tenantId.length > 0);
+    const tenantId = signupJson.tenantId;
+
+    const settings = await loadTenantSettings({ dataDir, tenantId });
+    assert.ok(Array.isArray(settings.buyerAuthEmailDomains));
+    assert.ok(settings.buyerAuthEmailDomains.includes("nova.example"));
+    assert.equal(settings.buyerUserRoles?.["founder@nova.example"], "admin");
+
+    const code = await readBuyerOtpOutboxCode({ tenantId, email: "founder@nova.example" });
+    assert.match(String(code), /^[0-9]{6}$/);
   });
 
   await t.test("analytics + trust graph: aggregates by vendor and contract", async () => {

@@ -1,31 +1,18 @@
-const proofStats = [
-  {
-    value: "30",
-    label: "conformance cases",
-    detail: "Portable verifier oracle in v1 pack"
-  },
-  {
-    value: "3",
-    label: "active lighthouse accounts",
-    detail: "Paid-production or production-active tracker status"
-  },
-  {
-    value: "2/2",
-    label: "go-live checks passing",
-    detail: "Latest gate report dated Feb 9, 2026"
-  }
-];
+import { Card } from "./ui/card.jsx";
 
 export default function SocialProofStrip() {
   return (
-    <section className="section-shell proof-metrics" aria-label="Credibility metrics">
-      {proofStats.map((item) => (
-        <article key={item.label} className="proof-metric-card">
-          <p className="proof-metric-value">{item.value}</p>
-          <p className="proof-metric-label">{item.label}</p>
-          <p className="proof-metric-detail">{item.detail}</p>
-        </article>
-      ))}
+    <section className="section-shell" aria-label="Autonomy and authority">
+      <Card className="bg-gradient-to-br from-[rgba(255,253,248,0.96)] to-[rgba(248,241,230,0.92)]">
+        <p className="mb-3 text-xs font-bold uppercase tracking-[0.18em] text-[#7f2f1f]">The Paradigm Shift</p>
+        <h2 className="text-[clamp(1.8rem,4vw,3rem)] font-bold leading-tight tracking-[-0.02em] text-[#1b2430]">
+          Autonomy demands authority.
+        </h2>
+        <p className="mt-4 max-w-4xl text-lg leading-relaxed text-[#354152]">
+          Giving an AI a credit card is a liability. Giving it a Settld wallet is a strategy. We bind every agent to
+          hard, cryptographic rules. It can negotiate. It can spend. But it cannot break policy.
+        </p>
+      </Card>
     </section>
   );
 }

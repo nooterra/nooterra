@@ -313,9 +313,15 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     x402Gates: new Map(), // `${tenantId}\n${gateId}` -> X402 gate record (internal API surface)
     x402Receipts: new Map(), // `${tenantId}\n${receiptId}` -> immutable X402ReceiptRecord.v1 base record
     x402WalletPolicies: new Map(), // `${tenantId}\n${sponsorWalletRef}::${policyRef}::${policyVersion}` -> X402WalletPolicy.v1
+    x402ZkVerificationKeys: new Map(), // `${tenantId}\n${verificationKeyId}` -> X402ZkVerificationKey.v1
     x402ReversalEvents: new Map(), // `${tenantId}\n${eventId}` -> X402GateReversalEvent.v1
     x402ReversalNonceUsage: new Map(), // `${tenantId}\n${sponsorRef}\n${nonce}` -> X402ReversalNonceUsage.v1
     x402ReversalCommandUsage: new Map(), // `${tenantId}\n${commandId}` -> X402ReversalCommandUsage.v1
+    x402Escalations: new Map(), // `${tenantId}\n${escalationId}` -> X402AuthorizationEscalation.v1
+    x402EscalationEvents: new Map(), // `${tenantId}\n${eventId}` -> X402AuthorizationEscalationEvent.v1
+    x402EscalationOverrideUsage: new Map(), // `${tenantId}\n${overrideId}` -> X402EscalationOverrideUsage.v1
+    x402AgentLifecycles: new Map(), // `${tenantId}\n${agentId}` -> X402AgentLifecycle.v1
+    x402WebhookEndpoints: new Map(), // `${tenantId}\n${endpointId}` -> X402WebhookEndpoint.v1
     toolCallHolds: new Map(), // `${tenantId}\n${holdHash}` -> FundingHold.v1 snapshot
     settlementAdjustments: new Map(), // `${tenantId}\n${adjustmentId}` -> SettlementAdjustment.v1 snapshot
     moneyRailOperations: new Map(), // `${tenantId}\n${providerId}\n${operationId}` -> MoneyRailOperation.v1
@@ -350,6 +356,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     monthCloseCursor: 0,
     artifactCursor: 0,
     deliveryCursor: 0,
+    x402WinddownReversalCursor: 0,
     persistence: persistenceDir ? createFileTxLog({ dir: persistenceDir }) : null
   };
 
@@ -1004,6 +1011,39 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     return store.x402Gates.get(key) ?? null;
   };
 
+  store.putX402AgentLifecycle = async function putX402AgentLifecycle({ tenantId = DEFAULT_TENANT_ID, agentLifecycle, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!agentLifecycle || typeof agentLifecycle !== "object" || Array.isArray(agentLifecycle)) {
+      throw new TypeError("agentLifecycle is required");
+    }
+    const agentId = typeof agentLifecycle.agentId === "string" ? agentLifecycle.agentId.trim() : "";
+    if (!agentId) throw new TypeError("agentLifecycle.agentId is required");
+    const status = typeof agentLifecycle.status === "string" ? agentLifecycle.status.trim().toLowerCase() : "";
+    if (status !== "active" && status !== "frozen" && status !== "archived") {
+      throw new TypeError("agentLifecycle.status must be active|frozen|archived");
+    }
+    const at = agentLifecycle.updatedAt ?? agentLifecycle.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [
+        {
+          kind: "X402_AGENT_LIFECYCLE_UPSERT",
+          tenantId,
+          agentId,
+          agentLifecycle: { ...agentLifecycle, tenantId, agentId, status }
+        }
+      ],
+      audit
+    });
+    return store.x402AgentLifecycles.get(makeScopedKey({ tenantId, id: agentId })) ?? null;
+  };
+
+  store.getX402AgentLifecycle = async function getX402AgentLifecycle({ tenantId = DEFAULT_TENANT_ID, agentId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof agentId !== "string" || agentId.trim() === "") throw new TypeError("agentId is required");
+    return store.x402AgentLifecycles.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
+  };
+
   function x402WalletPolicyStoreKey({ tenantId, sponsorWalletRef, policyRef, policyVersion }) {
     const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     const normalizedSponsorWalletRef = typeof sponsorWalletRef === "string" ? sponsorWalletRef.trim() : "";
@@ -1018,6 +1058,20 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       tenantId: normalizedTenantId,
       id: `${normalizedSponsorWalletRef}::${normalizedPolicyRef}::${normalizedPolicyVersion}`
     });
+  }
+
+  function x402WebhookEndpointStoreKey({ tenantId, endpointId }) {
+    const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedEndpointId = typeof endpointId === "string" ? endpointId.trim() : "";
+    if (!normalizedEndpointId) throw new TypeError("endpointId is required");
+    return makeScopedKey({ tenantId: normalizedTenantId, id: normalizedEndpointId });
+  }
+
+  function x402ZkVerificationKeyStoreKey({ tenantId, verificationKeyId }) {
+    const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedVerificationKeyId = typeof verificationKeyId === "string" ? verificationKeyId.trim() : "";
+    if (!normalizedVerificationKeyId) throw new TypeError("verificationKeyId is required");
+    return makeScopedKey({ tenantId: normalizedTenantId, id: normalizedVerificationKeyId });
   }
 
   store.putX402WalletPolicy = async function putX402WalletPolicy({ tenantId = DEFAULT_TENANT_ID, policy, audit = null } = {}) {
@@ -1106,6 +1160,189 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       return Number(right?.policyVersion ?? 0) - Number(left?.policyVersion ?? 0);
     });
     return out.slice(offset, offset + Math.min(1000, limit));
+  };
+
+  store.putX402ZkVerificationKey = async function putX402ZkVerificationKey({
+    tenantId = DEFAULT_TENANT_ID,
+    verificationKey,
+    audit = null
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!verificationKey || typeof verificationKey !== "object" || Array.isArray(verificationKey)) {
+      throw new TypeError("verificationKey is required");
+    }
+    const verificationKeyId = typeof verificationKey.verificationKeyId === "string" ? verificationKey.verificationKeyId.trim() : "";
+    if (!verificationKeyId) throw new TypeError("verificationKey.verificationKeyId is required");
+    const key = x402ZkVerificationKeyStoreKey({ tenantId, verificationKeyId });
+    const at = verificationKey.updatedAt ?? verificationKey.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [
+        {
+          kind: "X402_ZK_VERIFICATION_KEY_PUT",
+          tenantId,
+          verificationKeyId,
+          verificationKey: { ...verificationKey, tenantId, verificationKeyId }
+        }
+      ],
+      audit
+    });
+    return store.x402ZkVerificationKeys.get(key) ?? null;
+  };
+
+  store.getX402ZkVerificationKey = async function getX402ZkVerificationKey({
+    tenantId = DEFAULT_TENANT_ID,
+    verificationKeyId
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    return store.x402ZkVerificationKeys.get(x402ZkVerificationKeyStoreKey({ tenantId, verificationKeyId })) ?? null;
+  };
+
+  store.listX402ZkVerificationKeys = async function listX402ZkVerificationKeys({
+    tenantId = DEFAULT_TENANT_ID,
+    protocol = null,
+    providerRef = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (protocol !== null && (typeof protocol !== "string" || protocol.trim() === "")) {
+      throw new TypeError("protocol must be null or a non-empty string");
+    }
+    if (providerRef !== null && (typeof providerRef !== "string" || providerRef.trim() === "")) {
+      throw new TypeError("providerRef must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const protocolFilter = protocol ? protocol.trim().toLowerCase() : null;
+    const providerRefFilter = providerRef ? providerRef.trim() : null;
+    const out = [];
+    for (const row of store.x402ZkVerificationKeys.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (protocolFilter && String(row.protocol ?? "").trim().toLowerCase() !== protocolFilter) continue;
+      if (providerRefFilter && String(row.providerRef ?? "") !== providerRefFilter) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.createdAt ?? ""))) ? Date.parse(String(left.createdAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.createdAt ?? ""))) ? Date.parse(String(right.createdAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left?.verificationKeyId ?? "").localeCompare(String(right?.verificationKeyId ?? ""));
+    });
+    return out.slice(offset, offset + Math.min(1000, limit));
+  };
+
+  store.putX402WebhookEndpoint = async function putX402WebhookEndpoint({ tenantId = DEFAULT_TENANT_ID, endpoint, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!endpoint || typeof endpoint !== "object" || Array.isArray(endpoint)) throw new TypeError("endpoint is required");
+    const endpointId = typeof endpoint.endpointId === "string" ? endpoint.endpointId.trim() : "";
+    if (!endpointId) throw new TypeError("endpoint.endpointId is required");
+    const at = endpoint.updatedAt ?? endpoint.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "X402_WEBHOOK_ENDPOINT_UPSERT", tenantId, endpointId, endpoint: { ...endpoint, tenantId, endpointId } }],
+      audit
+    });
+    return store.x402WebhookEndpoints.get(x402WebhookEndpointStoreKey({ tenantId, endpointId })) ?? null;
+  };
+
+  store.getX402WebhookEndpoint = async function getX402WebhookEndpoint({ tenantId = DEFAULT_TENANT_ID, endpointId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    return store.x402WebhookEndpoints.get(x402WebhookEndpointStoreKey({ tenantId, endpointId })) ?? null;
+  };
+
+  store.listX402WebhookEndpoints = async function listX402WebhookEndpoints({
+    tenantId = DEFAULT_TENANT_ID,
+    endpointId = null,
+    destinationId = null,
+    status = null,
+    event = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (endpointId !== null && (typeof endpointId !== "string" || endpointId.trim() === "")) {
+      throw new TypeError("endpointId must be null or a non-empty string");
+    }
+    if (destinationId !== null && (typeof destinationId !== "string" || destinationId.trim() === "")) {
+      throw new TypeError("destinationId must be null or a non-empty string");
+    }
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) {
+      throw new TypeError("status must be null or a non-empty string");
+    }
+    if (event !== null && (typeof event !== "string" || event.trim() === "")) {
+      throw new TypeError("event must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const endpointFilter = endpointId ? endpointId.trim() : null;
+    const destinationFilter = destinationId ? destinationId.trim() : null;
+    const statusFilter = status ? status.trim().toLowerCase() : null;
+    const eventFilter = event ? event.trim().toLowerCase() : null;
+    const out = [];
+    for (const row of store.x402WebhookEndpoints.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (endpointFilter && String(row.endpointId ?? "") !== endpointFilter) continue;
+      if (destinationFilter && String(row.destinationId ?? "") !== destinationFilter) continue;
+      if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      if (eventFilter) {
+        const events = Array.isArray(row.events) ? row.events.map((value) => String(value).trim().toLowerCase()) : [];
+        if (!events.includes(eventFilter)) continue;
+      }
+      out.push(row);
+    }
+    out.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.updatedAt ?? ""))) ? Date.parse(String(left.updatedAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.updatedAt ?? ""))) ? Date.parse(String(right.updatedAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      return String(left?.endpointId ?? "").localeCompare(String(right?.endpointId ?? ""));
+    });
+    return out.slice(offset, offset + Math.min(1000, limit));
+  };
+
+  store.recordX402WebhookEndpointDeliveryResult = async function recordX402WebhookEndpointDeliveryResult({
+    tenantId = DEFAULT_TENANT_ID,
+    destinationId,
+    deliveredAt = new Date().toISOString(),
+    success,
+    failureReason = null,
+    statusCode = null,
+    autoDisableThreshold = null,
+    audit = null
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof destinationId !== "string" || destinationId.trim() === "") throw new TypeError("destinationId is required");
+    const matched = await store.listX402WebhookEndpoints({ tenantId, destinationId: destinationId.trim(), limit: 1, offset: 0 });
+    const endpoint = Array.isArray(matched) && matched.length > 0 ? matched[0] : null;
+    if (!endpoint) return null;
+    if (String(endpoint.status ?? "").toLowerCase() === "revoked") return endpoint;
+    const thresholdRaw = autoDisableThreshold ?? store.x402WebhookAutoDisableFailures ?? 10;
+    const threshold = Number.isSafeInteger(Number(thresholdRaw)) && Number(thresholdRaw) > 0 ? Number(thresholdRaw) : 10;
+    const next = {
+      ...endpoint,
+      updatedAt: deliveredAt,
+      lastDeliveryAt: deliveredAt
+    };
+    if (success) {
+      next.consecutiveFailures = 0;
+      next.lastFailureReason = null;
+      next.lastFailureAt = null;
+      next.lastFailureStatusCode = null;
+    } else {
+      const prevFailures = Number.isSafeInteger(Number(endpoint.consecutiveFailures)) ? Number(endpoint.consecutiveFailures) : 0;
+      next.consecutiveFailures = prevFailures + 1;
+      next.lastFailureReason = failureReason ? String(failureReason) : "delivery_failed";
+      next.lastFailureAt = deliveredAt;
+      next.lastFailureStatusCode = Number.isSafeInteger(Number(statusCode)) ? Number(statusCode) : null;
+      if (String(endpoint.status ?? "").toLowerCase() === "active" && next.consecutiveFailures >= threshold) {
+        next.status = "disabled";
+        next.disabledAt = deliveredAt;
+      }
+    }
+    return store.putX402WebhookEndpoint({ tenantId, endpoint: next, audit });
   };
 
   function x402ReversalNonceStoreKey({ tenantId, sponsorRef, nonce }) {
@@ -1223,6 +1460,139 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     tenantId = normalizeTenantId(tenantId);
     if (typeof commandId !== "string" || commandId.trim() === "") throw new TypeError("commandId is required");
     return store.x402ReversalCommandUsage.get(makeScopedKey({ tenantId, id: commandId.trim() })) ?? null;
+  };
+
+  store.putX402Escalation = async function putX402Escalation({ tenantId = DEFAULT_TENANT_ID, escalation, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!escalation || typeof escalation !== "object" || Array.isArray(escalation)) throw new TypeError("escalation is required");
+    const escalationId = typeof escalation.escalationId === "string" ? escalation.escalationId.trim() : "";
+    if (!escalationId) throw new TypeError("escalation.escalationId is required");
+    const at = escalation.updatedAt ?? escalation.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "X402_ESCALATION_UPSERT", tenantId, escalationId, escalation: { ...escalation, tenantId, escalationId } }],
+      audit
+    });
+    return store.x402Escalations.get(makeScopedKey({ tenantId, id: escalationId })) ?? null;
+  };
+
+  store.getX402Escalation = async function getX402Escalation({ tenantId = DEFAULT_TENANT_ID, escalationId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof escalationId !== "string" || escalationId.trim() === "") throw new TypeError("escalationId is required");
+    return store.x402Escalations.get(makeScopedKey({ tenantId, id: escalationId.trim() })) ?? null;
+  };
+
+  store.listX402Escalations = async function listX402Escalations({
+    tenantId = DEFAULT_TENANT_ID,
+    gateId = null,
+    agentId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (gateId !== null && (typeof gateId !== "string" || gateId.trim() === "")) throw new TypeError("gateId must be null or a non-empty string");
+    if (agentId !== null && (typeof agentId !== "string" || agentId.trim() === "")) throw new TypeError("agentId must be null or a non-empty string");
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const normalizedGateId = gateId ? gateId.trim() : null;
+    const normalizedAgentId = agentId ? agentId.trim() : null;
+    const normalizedStatus = status ? status.trim().toLowerCase() : null;
+    const out = [];
+    for (const row of store.x402Escalations.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (normalizedGateId && String(row.gateId ?? "") !== normalizedGateId) continue;
+      if (
+        normalizedAgentId &&
+        String(
+          row.requesterAgentId ??
+            row.payerAgentId ??
+            null
+        ).trim() !== normalizedAgentId
+      ) {
+        continue;
+      }
+      if (normalizedStatus && String(row.status ?? "").toLowerCase() !== normalizedStatus) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => {
+      const leftMs = Number.isFinite(Date.parse(String(left?.updatedAt ?? ""))) ? Date.parse(String(left.updatedAt)) : Number.NaN;
+      const rightMs = Number.isFinite(Date.parse(String(right?.updatedAt ?? ""))) ? Date.parse(String(right.updatedAt)) : Number.NaN;
+      if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && leftMs !== rightMs) return rightMs - leftMs;
+      return String(left?.escalationId ?? "").localeCompare(String(right?.escalationId ?? ""));
+    });
+    return out.slice(offset, offset + Math.min(1000, limit));
+  };
+
+  store.appendX402EscalationEvent = async function appendX402EscalationEvent({ tenantId = DEFAULT_TENANT_ID, event, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!event || typeof event !== "object" || Array.isArray(event)) throw new TypeError("event is required");
+    const eventId = typeof event.eventId === "string" ? event.eventId.trim() : "";
+    const escalationId = typeof event.escalationId === "string" ? event.escalationId.trim() : "";
+    if (!eventId) throw new TypeError("event.eventId is required");
+    if (!escalationId) throw new TypeError("event.escalationId is required");
+    const at = event.occurredAt ?? event.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "X402_ESCALATION_EVENT_APPEND", tenantId, eventId, escalationId, event: { ...event, tenantId, eventId, escalationId } }],
+      audit
+    });
+    return store.x402EscalationEvents.get(makeScopedKey({ tenantId, id: eventId })) ?? null;
+  };
+
+  store.listX402EscalationEvents = async function listX402EscalationEvents({
+    tenantId = DEFAULT_TENANT_ID,
+    escalationId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (escalationId !== null && (typeof escalationId !== "string" || escalationId.trim() === "")) {
+      throw new TypeError("escalationId must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const normalizedEscalationId = escalationId ? escalationId.trim() : null;
+    const out = [];
+    for (const row of store.x402EscalationEvents.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (normalizedEscalationId && String(row.escalationId ?? "") !== normalizedEscalationId) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => {
+      const leftMs = Number.isFinite(Date.parse(String(left?.occurredAt ?? ""))) ? Date.parse(String(left.occurredAt)) : Number.NaN;
+      const rightMs = Number.isFinite(Date.parse(String(right?.occurredAt ?? ""))) ? Date.parse(String(right.occurredAt)) : Number.NaN;
+      if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && leftMs !== rightMs) return leftMs - rightMs;
+      return String(left?.eventId ?? "").localeCompare(String(right?.eventId ?? ""));
+    });
+    return out.slice(offset, offset + Math.min(1000, limit));
+  };
+
+  store.putX402EscalationOverrideUsage = async function putX402EscalationOverrideUsage({ tenantId = DEFAULT_TENANT_ID, usage, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!usage || typeof usage !== "object" || Array.isArray(usage)) throw new TypeError("usage is required");
+    const overrideId = typeof usage.overrideId === "string" ? usage.overrideId.trim() : "";
+    if (!overrideId) throw new TypeError("usage.overrideId is required");
+    const at = usage.usedAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "X402_ESCALATION_OVERRIDE_USAGE_PUT", tenantId, overrideId, usage: { ...usage, tenantId, overrideId } }],
+      audit
+    });
+    return store.x402EscalationOverrideUsage.get(makeScopedKey({ tenantId, id: overrideId })) ?? null;
+  };
+
+  store.getX402EscalationOverrideUsage = async function getX402EscalationOverrideUsage({
+    tenantId = DEFAULT_TENANT_ID,
+    overrideId
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof overrideId !== "string" || overrideId.trim() === "") throw new TypeError("overrideId is required");
+    return store.x402EscalationOverrideUsage.get(makeScopedKey({ tenantId, id: overrideId.trim() })) ?? null;
   };
 
   function x402ReceiptStoreKey({ tenantId, receiptId }) {
@@ -1356,6 +1726,10 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       providerQuotePayload:
         gate?.providerQuotePayload && typeof gate.providerQuotePayload === "object" && !Array.isArray(gate.providerQuotePayload)
           ? gate.providerQuotePayload
+          : null,
+      zkProof:
+        gate?.zkProof && typeof gate.zkProof === "object" && !Array.isArray(gate.zkProof)
+          ? gate.zkProof
           : null,
       decisionRecord:
         decisionTrace?.decisionRecord && typeof decisionTrace.decisionRecord === "object" && !Array.isArray(decisionTrace.decisionRecord)

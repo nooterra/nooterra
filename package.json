@@ -1,11 +1,11 @@
 {
   "name": "settld",
-  "version": "0.0.0",
+  "version": "0.1.5",
   "description": "Settld kernel CLI and local control-plane tooling",
   "private": false,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": "20.x"
   },
   "publishConfig": {
     "access": "public"
@@ -100,9 +100,11 @@
     "test:ops:throughput:incident": "node scripts/ci/run-10x-throughput-incident-rehearsal.mjs",
     "test:ops:go-live-gate": "node scripts/ci/run-go-live-gate.mjs",
     "test:ops:kernel-v0-launch-gate": "node scripts/ci/check-kernel-v0-launch-gate.mjs",
+    "test:ops:kernel-v0-ship-gate": "node scripts/ci/run-kernel-v0-ship-gate.mjs",
     "test:ops:self-serve-gate": "node scripts/ci/run-self-serve-launch-gate.mjs",
     "test:ops:self-serve-benchmark": "node scripts/ci/build-self-serve-benchmark-report.mjs",
     "test:ops:launch-cutover-packet": "node scripts/ci/build-launch-cutover-packet.mjs",
+    "test:ci:mcp-host-smoke": "node scripts/ci/run-mcp-host-smoke.mjs",
     "test:x402:circle:sandbox:batch-e2e": "node --test test/circle-sandbox-batch-settlement-e2e.test.js",
     "test:x402:circle:sandbox:smoke": "node scripts/ci/run-circle-sandbox-smoke.mjs",
     "test:ci:runtime-import-smoke": "node scripts/ci/runtime-import-smoke.mjs",
@@ -121,7 +123,8 @@
     "audit:packet": "node scripts/audit/build-audit-packet.mjs"
   },
   "dependencies": {
-    "pg": "^8.11.5"
+    "pg": "^8.11.5",
+    "snarkjs": "^0.7.6"
   },
   "devDependencies": {
     "ajv": "^8.17.1"

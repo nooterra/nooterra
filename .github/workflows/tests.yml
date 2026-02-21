@@ -73,6 +73,19 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres
 
+  magic_link_onboarding_live_contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run magic-link onboarding live contract gate
+        run: node --test test/magic-link-onboarding-live-contract.test.js
+
   x402_quickstart_smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -108,6 +121,47 @@ jobs:
           test/mcp-paid-exa-tool.test.js
           test/mcp-paid-weather-tool.test.js
           test/demo-mcp-paid-exa.test.js
+
+  mcp_host_smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run MCP host smoke gate
+        run: npm run -s test:ci:mcp-host-smoke
+      - name: Upload MCP host smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-host-smoke-${{ github.run_id }}
+          path: artifacts/ops/mcp-host-smoke.json
+          if-no-files-found: warn
+
+  kernel_v0_ship_gate:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run Kernel v0 ship gate
+        run: node scripts/ci/run-kernel-v0-ship-gate.mjs
+      - name: Upload ship gate artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-v0-ship-gate-${{ github.run_id }}
+          path: artifacts/gates/kernel-v0-ship-gate.json
+          if-no-files-found: warn
 
   flake_budget_guard:
     runs-on: ubuntu-latest

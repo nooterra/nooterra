@@ -8,6 +8,49 @@ import { configForLog, loadConfig } from "../core/config.js";
 const cfg = loadConfig({ mode: "api" });
 logger.info("config.effective", { config: configForLog(cfg) });
 
+const corsAllowOriginsEnv =
+  typeof process !== "undefined" && typeof process.env.PROXY_CORS_ALLOW_ORIGINS === "string"
+    ? process.env.PROXY_CORS_ALLOW_ORIGINS
+    : "";
+const corsAllowOrigins = new Set(
+  corsAllowOriginsEnv
+    .split(",")
+    .map((row) => row.trim())
+    .filter((row) => row !== "")
+);
+const DEV_CORS_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+
+function resolveCorsOrigin(originHeader) {
+  if (typeof originHeader !== "string" || originHeader.trim() === "") return null;
+  const origin = originHeader.trim();
+  if (corsAllowOrigins.has("*")) return "*";
+  if (corsAllowOrigins.has(origin)) return origin;
+  if (DEV_CORS_ORIGIN_RE.test(origin)) return origin;
+  return null;
+}
+
+function applyCorsHeaders(req, res) {
+  const allowOrigin = resolveCorsOrigin(req.headers?.origin);
+  if (!allowOrigin) return false;
+  res.setHeader("access-control-allow-origin", allowOrigin);
+  res.setHeader("vary", "origin");
+  res.setHeader("access-control-allow-methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.setHeader(
+    "access-control-allow-headers",
+    [
+      "authorization",
+      "content-type",
+      "idempotency-key",
+      "x-proxy-tenant-id",
+      "x-proxy-ops-token",
+      "x-request-id",
+      "x-settld-protocol"
+    ].join(", ")
+  );
+  res.setHeader("access-control-max-age", "600");
+  return true;
+}
+
 let store;
 if (cfg.store.mode === "pg") {
   store = await createPgStore({
@@ -22,7 +65,15 @@ const api = createApi({ store });
 const { handle } = api;
 
 const port = cfg.api.port;
-const server = http.createServer(handle);
+const server = http.createServer((req, res) => {
+  applyCorsHeaders(req, res);
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+  return handle(req, res);
+});
 const bindHostRaw = typeof process !== "undefined" ? (process.env.PROXY_BIND_HOST ?? process.env.BIND_HOST ?? "") : "";
 const bindHost = typeof bindHostRaw === "string" && bindHostRaw.trim() !== "" ? bindHostRaw.trim() : null;
 if (bindHost) {
@@ -72,6 +123,12 @@ async function runAutotickOnce() {
     }
     if (typeof api.tickX402Holdbacks === "function") {
       await api.tickX402Holdbacks({ maxMessages: autotickMaxMessages });
+    }
+    if (typeof api.tickX402InsolvencySweep === "function") {
+      await api.tickX402InsolvencySweep({ maxMessages: autotickMaxMessages });
+    }
+    if (typeof api.tickX402WinddownReversals === "function") {
+      await api.tickX402WinddownReversals({ maxMessages: autotickMaxMessages });
     }
     if (typeof api.tickBillingStripeSync === "function") {
       await api.tickBillingStripeSync({ maxRows: autotickMaxMessages });

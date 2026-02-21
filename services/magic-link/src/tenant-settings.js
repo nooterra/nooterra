@@ -154,7 +154,13 @@ export function defaultTenantSettings() {
     paymentTriggers: { enabled: false, deliveryMode: "record", webhookUrl: null, webhookSecret: null },
     decisionAuthEmailDomains: [],
     settlementDecisionSigner: null,
-    rateLimits: { uploadsPerHour: 100, verificationViewsPerHour: 1000, decisionsPerHour: 300, otpRequestsPerHour: 300 },
+    rateLimits: {
+      uploadsPerHour: 100,
+      verificationViewsPerHour: 1000,
+      decisionsPerHour: 300,
+      otpRequestsPerHour: 300,
+      conformanceRunsPerHour: 12
+    },
     webhooks: [],
     artifactStorage: { storeBundleZip: true, storePdf: true, precomputeMonthlyAuditPackets: false },
     archiveExportSink: null
@@ -179,6 +185,9 @@ export function resolveTenantEntitlements({ settings, defaultBilling = null } = 
   const decisionsPerHour = Number.isInteger(source?.rateLimits?.decisionsPerHour)
     ? source.rateLimits.decisionsPerHour
     : defaultTenantSettings().rateLimits.decisionsPerHour;
+  const conformanceRunsPerHour = Number.isInteger(source?.rateLimits?.conformanceRunsPerHour)
+    ? source.rateLimits.conformanceRunsPerHour
+    : defaultTenantSettings().rateLimits.conformanceRunsPerHour;
 
   const baseSubscriptionCents = Number(String(base?.billing?.subscriptionCents ?? ""));
   const basePerVerificationCents = Number(String(base?.billing?.pricePerVerificationCents ?? ""));
@@ -207,7 +216,8 @@ export function resolveTenantEntitlements({ settings, defaultBilling = null } = 
     rateLimits: {
       uploadsPerHour,
       verificationViewsPerHour,
-      decisionsPerHour
+      decisionsPerHour,
+      conformanceRunsPerHour
     },
     billing: {
       subscriptionCents,
@@ -536,7 +546,7 @@ function normalizeRateLimits(value, { current } = {}) {
 
   const base = { ...defaultTenantSettings().rateLimits, ...(isPlainObject(current) ? current : {}) };
   const out = {};
-  for (const field of ["uploadsPerHour", "verificationViewsPerHour", "decisionsPerHour", "otpRequestsPerHour"]) {
+  for (const field of ["uploadsPerHour", "verificationViewsPerHour", "decisionsPerHour", "otpRequestsPerHour", "conformanceRunsPerHour"]) {
     const raw = value[field] === undefined ? base[field] : value[field];
     const n = Number.parseInt(String(raw ?? ""), 10);
     if (!Number.isInteger(n) || n < 0 || n > 1_000_000) return { ok: false, error: `rateLimits.${field} must be an integer 0..1000000` };
