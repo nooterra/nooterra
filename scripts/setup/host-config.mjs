@@ -7,6 +7,8 @@ import { pathToFileURL } from "node:url";
 export const SUPPORTED_HOSTS = Object.freeze(["codex", "claude", "cursor", "openclaw"]);
 
 const SUMMARY_SCHEMA_VERSION = "SettldHostConfigSetupResult.v1";
+const X402_AGENT_PASSPORT_SCHEMA_VERSION = "X402AgentPassport.v1";
+const REF_VALUE_PATTERN = /^[A-Za-z0-9:_-]+$/;
 
 function isPlainObject(value) {
   return Boolean(
@@ -202,6 +204,99 @@ function normalizeHttpUrl(value, { stripRootTrailingSlash = true } = {}) {
   return out;
 }
 
+function normalizePassportRef(value, fieldPath, { required = false } = {}) {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    if (required) throw new Error(`${fieldPath} must be a non-empty string`);
+    return null;
+  }
+  const normalized = String(value).trim();
+  if (!REF_VALUE_PATTERN.test(normalized)) {
+    throw new Error(`${fieldPath} must match ^[A-Za-z0-9:_-]+$`);
+  }
+  return normalized;
+}
+
+function normalizeOptionalPositiveSafeInteger(value, fieldPath, { allowNull = true } = {}) {
+  if (value === null || value === undefined || value === "") {
+    if (allowNull) return null;
+    throw new Error(`${fieldPath} must be a positive integer`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new Error(`${fieldPath} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function normalizeOptionalNonNegativeSafeInteger(value, fieldPath, { allowNull = true } = {}) {
+  if (value === null || value === undefined || value === "") {
+    if (allowNull) return null;
+    throw new Error(`${fieldPath} must be a non-negative integer`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${fieldPath} must be a non-negative integer`);
+  }
+  return parsed;
+}
+
+function parsePaidToolsAgentPassportFromEnv(env) {
+  const rawValue = env.SETTLD_PAID_TOOLS_AGENT_PASSPORT;
+  if (rawValue === null || rawValue === undefined) return null;
+  let parsed;
+  if (typeof rawValue === "string") {
+    const text = rawValue.trim();
+    if (!text) return null;
+    try {
+      parsed = JSON.parse(text);
+    } catch (err) {
+      throw new Error(`SETTLD_PAID_TOOLS_AGENT_PASSPORT must be valid JSON: ${err?.message ?? "parse failed"}`);
+    }
+  } else {
+    parsed = rawValue;
+  }
+  if (!isPlainObject(parsed)) {
+    throw new Error("SETTLD_PAID_TOOLS_AGENT_PASSPORT must decode to a JSON object");
+  }
+
+  const schemaVersionRaw =
+    typeof parsed.schemaVersion === "string" && parsed.schemaVersion.trim() ? parsed.schemaVersion.trim() : X402_AGENT_PASSPORT_SCHEMA_VERSION;
+  if (schemaVersionRaw !== X402_AGENT_PASSPORT_SCHEMA_VERSION) {
+    throw new Error(`SETTLD_PAID_TOOLS_AGENT_PASSPORT.schemaVersion must be ${X402_AGENT_PASSPORT_SCHEMA_VERSION}`);
+  }
+
+  const sponsorRef = normalizePassportRef(parsed.sponsorRef, "SETTLD_PAID_TOOLS_AGENT_PASSPORT.sponsorRef", { required: true });
+  const sponsorWalletRef = normalizePassportRef(parsed.sponsorWalletRef, "SETTLD_PAID_TOOLS_AGENT_PASSPORT.sponsorWalletRef", {
+    required: false
+  });
+  const agentKeyId = normalizePassportRef(parsed.agentKeyId, "SETTLD_PAID_TOOLS_AGENT_PASSPORT.agentKeyId", { required: true });
+  const policyRef = normalizePassportRef(parsed.policyRef, "SETTLD_PAID_TOOLS_AGENT_PASSPORT.policyRef", { required: false });
+  const policyVersion = normalizeOptionalPositiveSafeInteger(parsed.policyVersion, "SETTLD_PAID_TOOLS_AGENT_PASSPORT.policyVersion", {
+    allowNull: true
+  });
+  let delegationDepth = normalizeOptionalNonNegativeSafeInteger(
+    parsed.delegationDepth,
+    "SETTLD_PAID_TOOLS_AGENT_PASSPORT.delegationDepth",
+    { allowNull: true }
+  );
+
+  const hasPolicyTuple = sponsorWalletRef !== null || policyRef !== null || policyVersion !== null;
+  if (hasPolicyTuple && (sponsorWalletRef === null || policyRef === null || policyVersion === null)) {
+    throw new Error("SETTLD_PAID_TOOLS_AGENT_PASSPORT must include sponsorWalletRef + policyRef + policyVersion together");
+  }
+  if (hasPolicyTuple && delegationDepth === null) delegationDepth = 0;
+
+  return JSON.stringify({
+    schemaVersion: X402_AGENT_PASSPORT_SCHEMA_VERSION,
+    sponsorRef,
+    ...(sponsorWalletRef ? { sponsorWalletRef } : {}),
+    agentKeyId,
+    ...(policyRef ? { policyRef } : {}),
+    ...(policyVersion ? { policyVersion } : {}),
+    ...(delegationDepth !== null ? { delegationDepth } : {})
+  });
+}
+
 function parseMcpArgsFromEnv(env) {
   const argsJson = typeof env.SETTLD_MCP_ARGS_JSON === "string" ? env.SETTLD_MCP_ARGS_JSON.trim() : "";
   if (!argsJson) return ["-y", "settld-mcp"];
@@ -249,6 +344,15 @@ export function buildSettldMcpServerConfig({ env = process.env } = {}) {
     throw err;
   }
 
+  let paidToolsAgentPassport = null;
+  try {
+    paidToolsAgentPassport = parsePaidToolsAgentPassportFromEnv(env);
+  } catch (cause) {
+    const err = new Error(cause?.message ?? "SETTLD_PAID_TOOLS_AGENT_PASSPORT is invalid");
+    err.code = "INVALID_ENV";
+    throw err;
+  }
+
   const command = typeof env.SETTLD_MCP_COMMAND === "string" && env.SETTLD_MCP_COMMAND.trim() ? env.SETTLD_MCP_COMMAND.trim() : "npx";
   const args = parseMcpArgsFromEnv(env);
 
@@ -259,6 +363,9 @@ export function buildSettldMcpServerConfig({ env = process.env } = {}) {
   };
   if (paidToolsBaseUrl) {
     serverEnv.SETTLD_PAID_TOOLS_BASE_URL = paidToolsBaseUrl;
+  }
+  if (paidToolsAgentPassport) {
+    serverEnv.SETTLD_PAID_TOOLS_AGENT_PASSPORT = paidToolsAgentPassport;
   }
 
   return {
@@ -409,7 +516,7 @@ function usage() {
     "",
     "notes:",
     "  - Required env vars: SETTLD_BASE_URL, SETTLD_TENANT_ID, SETTLD_API_KEY",
-    "  - Optional env vars: SETTLD_PAID_TOOLS_BASE_URL, SETTLD_MCP_COMMAND, SETTLD_MCP_ARGS_JSON",
+    "  - Optional env vars: SETTLD_PAID_TOOLS_BASE_URL, SETTLD_PAID_TOOLS_AGENT_PASSPORT, SETTLD_MCP_COMMAND, SETTLD_MCP_ARGS_JSON",
     "  - If --config-path is omitted, host-specific candidate paths are auto-detected"
   ].join("\n");
 }

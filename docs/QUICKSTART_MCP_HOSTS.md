@@ -16,6 +16,7 @@ Each command below does all of this:
 
 - writes Settld MCP config for the selected host
 - sets runtime env values for that host config
+- auto-generates `SETTLD_PAID_TOOLS_AGENT_PASSPORT` for paid tool policy binding
 - applies starter policy profile `engineering-spend`
 - runs a smoke check (`settld.about`)
 
@@ -100,6 +101,7 @@ export SETTLD_BASE_URL='http://127.0.0.1:3000'
 export SETTLD_TENANT_ID='tenant_default'
 export SETTLD_API_KEY='sk_live_xxx.yyy'
 export SETTLD_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402'
+export SETTLD_PAID_TOOLS_AGENT_PASSPORT='{"schemaVersion":"X402AgentPassport.v1","sponsorRef":"sponsor_default","sponsorWalletRef":"wallet_engineering-spend","agentKeyId":"sk_live_xxx","policyRef":"engineering-spend","policyVersion":1,"delegationDepth":0}'
 ```
 
 Default MCP stdio server definition:
@@ -113,7 +115,8 @@ Default MCP stdio server definition:
     "SETTLD_BASE_URL": "http://127.0.0.1:3000",
     "SETTLD_TENANT_ID": "tenant_default",
     "SETTLD_API_KEY": "sk_live_xxx.yyy",
-    "SETTLD_PAID_TOOLS_BASE_URL": "http://127.0.0.1:8402"
+    "SETTLD_PAID_TOOLS_BASE_URL": "http://127.0.0.1:8402",
+    "SETTLD_PAID_TOOLS_AGENT_PASSPORT": "{\"schemaVersion\":\"X402AgentPassport.v1\",\"sponsorRef\":\"sponsor_default\",\"sponsorWalletRef\":\"wallet_engineering-spend\",\"agentKeyId\":\"sk_live_xxx\",\"policyRef\":\"engineering-spend\",\"policyVersion\":1,\"delegationDepth\":0}"
   }
 }
 ```
@@ -167,3 +170,5 @@ npm run test:ci:mcp-host-smoke
   - Install Node 20+ and ensure `npx` is in `PATH`, or use HTTP bridge mode.
 - Paid tool call fails with gateway/connectivity errors
   - Check `SETTLD_PAID_TOOLS_BASE_URL` and confirm the gateway is running.
+- Paid tool call fails with policy/passport validation errors
+  - Re-run `settld setup` so the host MCP config gets a fresh `SETTLD_PAID_TOOLS_AGENT_PASSPORT`.

@@ -15,6 +15,8 @@ Non-interactive setup (manual mode):
 ./bin/settld.js setup --yes --mode manual --host codex --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_runtime_apply --profile-id engineering-spend
 ```
 
+`settld setup` now also emits `SETTLD_PAID_TOOLS_AGENT_PASSPORT` automatically, so paid MCP tools run with policy-bound passport context without manual JSON editing.
+
 Bootstrap mode (same flow, runtime key minted by onboarding endpoint):
 
 ```bash

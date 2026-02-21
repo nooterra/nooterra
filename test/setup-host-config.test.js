@@ -117,6 +117,48 @@ test("openclaw falls back to root host-equivalent shape when no server map exist
   assert.equal(merged.config.env.SETTLD_PAID_TOOLS_BASE_URL, "http://127.0.0.1:8402");
 });
 
+test("buildSettldMcpServerConfig includes normalized paid-tools agent passport when provided", () => {
+  const server = buildSettldMcpServerConfig({
+    env: baseEnv({
+      SETTLD_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
+        schemaVersion: "X402AgentPassport.v1",
+        sponsorRef: "sponsor_default",
+        sponsorWalletRef: "wallet_engineering-spend",
+        agentKeyId: "agent_key_default",
+        policyRef: "engineering-spend",
+        policyVersion: 1,
+        delegationDepth: 0
+      })
+    })
+  });
+  assert.equal(typeof server.env.SETTLD_PAID_TOOLS_AGENT_PASSPORT, "string");
+  const parsed = JSON.parse(server.env.SETTLD_PAID_TOOLS_AGENT_PASSPORT);
+  assert.equal(parsed.schemaVersion, "X402AgentPassport.v1");
+  assert.equal(parsed.sponsorRef, "sponsor_default");
+  assert.equal(parsed.sponsorWalletRef, "wallet_engineering-spend");
+  assert.equal(parsed.agentKeyId, "agent_key_default");
+  assert.equal(parsed.policyRef, "engineering-spend");
+  assert.equal(parsed.policyVersion, 1);
+  assert.equal(parsed.delegationDepth, 0);
+});
+
+test("buildSettldMcpServerConfig rejects malformed paid-tools passport policy tuple", () => {
+  assert.throws(
+    () =>
+      buildSettldMcpServerConfig({
+        env: baseEnv({
+          SETTLD_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
+            schemaVersion: "X402AgentPassport.v1",
+            sponsorRef: "sponsor_default",
+            agentKeyId: "agent_key_default",
+            sponsorWalletRef: "wallet_only_without_policy"
+          })
+        })
+      }),
+    /must include sponsorWalletRef \+ policyRef \+ policyVersion together/
+  );
+});
+
 test("dry-run does not modify config file", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-host-config-test-"));
   try {
@@ -160,7 +202,18 @@ test("runHostConfigSetup writes once and then becomes idempotent", async () => {
     const first = await runHostConfigSetup({
       host: "claude",
       configPath,
-      env: baseEnv({ SETTLD_PAID_TOOLS_BASE_URL: "https://paid.tools.settld.work" })
+      env: baseEnv({
+        SETTLD_PAID_TOOLS_BASE_URL: "https://paid.tools.settld.work",
+        SETTLD_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
+          schemaVersion: "X402AgentPassport.v1",
+          sponsorRef: "sponsor_default",
+          sponsorWalletRef: "wallet_engineering-spend",
+          agentKeyId: "agent_key_default",
+          policyRef: "engineering-spend",
+          policyVersion: 1,
+          delegationDepth: 0
+        })
+      })
     });
 
     assert.equal(first.ok, true);
@@ -173,11 +226,23 @@ test("runHostConfigSetup writes once and then becomes idempotent", async () => {
     assert.equal(written.mcpServers?.settld?.command, "npx");
     assert.deepEqual(written.mcpServers?.settld?.args, ["-y", "settld-mcp"]);
     assert.equal(written.mcpServers?.settld?.env?.SETTLD_API_KEY, "sk_test_id.secret");
+    assert.equal(typeof written.mcpServers?.settld?.env?.SETTLD_PAID_TOOLS_AGENT_PASSPORT, "string");
 
     const second = await runHostConfigSetup({
       host: "claude",
       configPath,
-      env: baseEnv({ SETTLD_PAID_TOOLS_BASE_URL: "https://paid.tools.settld.work" })
+      env: baseEnv({
+        SETTLD_PAID_TOOLS_BASE_URL: "https://paid.tools.settld.work",
+        SETTLD_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
+          schemaVersion: "X402AgentPassport.v1",
+          sponsorRef: "sponsor_default",
+          sponsorWalletRef: "wallet_engineering-spend",
+          agentKeyId: "agent_key_default",
+          policyRef: "engineering-spend",
+          policyVersion: 1,
+          delegationDepth: 0
+        })
+      })
     });
 
     assert.equal(second.ok, true);

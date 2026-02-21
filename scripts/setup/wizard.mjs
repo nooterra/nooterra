@@ -13,6 +13,8 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const DEFAULT_HOST_CONFIG_PATH = path.join(SCRIPT_DIR, "host-config.mjs");
 const DEFAULT_PROFILE_ID = "engineering-spend";
 const DEFAULT_SMOKE_TIMEOUT_MS = 30000;
+const X402_AGENT_PASSPORT_SCHEMA_VERSION = "X402AgentPassport.v1";
+const REF_VALUE_PATTERN = /^[A-Za-z0-9:_-]+$/;
 
 function usage() {
   const text = [
@@ -504,6 +506,116 @@ function summarizeText(value, max = 500) {
   return `${text.slice(0, max - 3)}...`;
 }
 
+function normalizeRefToken(value) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  if (!normalized) return null;
+  if (!REF_VALUE_PATTERN.test(normalized)) return null;
+  return normalized;
+}
+
+function parsePositiveSafeInteger(value) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return null;
+  return parsed;
+}
+
+function parseNonNegativeSafeInteger(value) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return null;
+  return parsed;
+}
+
+function parseApiKeyId(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const dot = raw.indexOf(".");
+  const keyId = dot > 0 ? raw.slice(0, dot) : raw;
+  return normalizeRefToken(keyId);
+}
+
+function parseOptionalPassportObject(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") {
+    const raw = value.trim();
+    if (!raw) return null;
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value;
+}
+
+function pickPassportTarget(profileApplyResult) {
+  const target = profileApplyResult?.target;
+  if (!target || typeof target !== "object" || Array.isArray(target)) return null;
+  return target;
+}
+
+function buildPaidToolsAgentPassport({ env, profileApplyResult = null, profileIdHint = null } = {}) {
+  const existingPassport = parseOptionalPassportObject(env.SETTLD_PAID_TOOLS_AGENT_PASSPORT ?? null);
+  const target = pickPassportTarget(profileApplyResult);
+
+  const profileRef = normalizeRefToken(target?.policyRef) || normalizeRefToken(profileApplyResult?.profileId) || normalizeRefToken(profileIdHint) || DEFAULT_PROFILE_ID;
+  const sponsorRef = normalizeRefToken(target?.sponsorRef) || normalizeRefToken(env.SETTLD_SPONSOR_REF) || normalizeRefToken(existingPassport?.sponsorRef) || "sponsor_default";
+  const sponsorWalletRef =
+    normalizeRefToken(target?.sponsorWalletRef) ||
+    normalizeRefToken(env.SETTLD_SPONSOR_WALLET_REF) ||
+    normalizeRefToken(env.SETTLD_RUNTIME_WALLET_REF) ||
+    normalizeRefToken(existingPassport?.sponsorWalletRef) ||
+    `wallet_${profileRef}`;
+  const policyRef = normalizeRefToken(target?.policyRef) || normalizeRefToken(env.SETTLD_POLICY_REF) || normalizeRefToken(existingPassport?.policyRef) || profileRef;
+  const policyVersion =
+    parsePositiveSafeInteger(target?.policyVersion) ||
+    parsePositiveSafeInteger(env.SETTLD_POLICY_VERSION) ||
+    parsePositiveSafeInteger(existingPassport?.policyVersion) ||
+    1;
+  const agentKeyId =
+    normalizeRefToken(env.SETTLD_AGENT_KEY_ID) ||
+    normalizeRefToken(existingPassport?.agentKeyId) ||
+    parseApiKeyId(env.SETTLD_API_KEY) ||
+    "agent_key_default";
+  const delegationDepth = parseNonNegativeSafeInteger(existingPassport?.delegationDepth) ?? 0;
+
+  return JSON.stringify({
+    schemaVersion: X402_AGENT_PASSPORT_SCHEMA_VERSION,
+    sponsorRef,
+    sponsorWalletRef,
+    agentKeyId,
+    policyRef,
+    policyVersion,
+    delegationDepth
+  });
+}
+
+function normalizeBootstrapPassportEnvValue(value) {
+  const parsed = parseOptionalPassportObject(value);
+  if (!parsed) return null;
+  return JSON.stringify(parsed);
+}
+
+function extractApplyTarget(parsed) {
+  const target = parsed?.target;
+  if (!target || typeof target !== "object" || Array.isArray(target)) return null;
+  const sponsorRef = normalizeRefToken(target.sponsorRef);
+  const sponsorWalletRef = normalizeRefToken(target.sponsorWalletRef);
+  const policyRef = normalizeRefToken(target.policyRef);
+  const policyVersion = parsePositiveSafeInteger(target.policyVersion);
+  if (!sponsorRef && !sponsorWalletRef && !policyRef && !policyVersion) return null;
+  return {
+    ...(sponsorRef ? { sponsorRef } : {}),
+    ...(sponsorWalletRef ? { sponsorWalletRef } : {}),
+    ...(policyRef ? { policyRef } : {}),
+    ...(policyVersion ? { policyVersion } : {})
+  };
+}
+
 async function runCommandCapture({ cmd, args = [], cwd = REPO_ROOT, env = process.env } = {}) {
   return await new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
@@ -598,7 +710,8 @@ async function runProfileApplyAutomation({
       profileId: resolvedProfileId,
       profilePath: selectedProfilePath,
       ok: parsed.ok === true,
-      stepCount: Array.isArray(parsed.steps) ? parsed.steps.length : 0
+      stepCount: Array.isArray(parsed.steps) ? parsed.steps.length : 0,
+      target: extractApplyTarget(parsed)
     };
   } finally {
     if (tempDir) {
@@ -698,6 +811,8 @@ export function extractBootstrapMcpEnv(responseBody) {
   }
   const paidToolsBase = typeof env.SETTLD_PAID_TOOLS_BASE_URL === "string" ? env.SETTLD_PAID_TOOLS_BASE_URL.trim() : "";
   if (paidToolsBase) out.SETTLD_PAID_TOOLS_BASE_URL = paidToolsBase;
+  const paidToolsPassport = normalizeBootstrapPassportEnvValue(env.SETTLD_PAID_TOOLS_AGENT_PASSPORT ?? null);
+  if (paidToolsPassport) out.SETTLD_PAID_TOOLS_AGENT_PASSPORT = paidToolsPassport;
   return out;
 }
 
@@ -804,6 +919,11 @@ export async function runWizard({
       stdout
     });
   }
+  env.SETTLD_PAID_TOOLS_AGENT_PASSPORT = buildPaidToolsAgentPassport({
+    env,
+    profileApplyResult,
+    profileIdHint: config.profileId || DEFAULT_PROFILE_ID
+  });
   let smokeResult = null;
   if (config.smoke) {
     smokeResult = await runMcpSmokeCheck({

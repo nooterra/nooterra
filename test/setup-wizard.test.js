@@ -133,7 +133,16 @@ test("setup wizard: extractBootstrapMcpEnv validates and normalizes bootstrap en
         SETTLD_BASE_URL: "https://api.mock.settld.work",
         SETTLD_TENANT_ID: "tenant_runtime",
         SETTLD_API_KEY: "ak_runtime.secret",
-        SETTLD_PAID_TOOLS_BASE_URL: "https://paid.tools.settld.work/"
+        SETTLD_PAID_TOOLS_BASE_URL: "https://paid.tools.settld.work/",
+        SETTLD_PAID_TOOLS_AGENT_PASSPORT: {
+          schemaVersion: "X402AgentPassport.v1",
+          sponsorRef: "sponsor_default",
+          sponsorWalletRef: "wallet_runtime",
+          agentKeyId: "ak_runtime",
+          policyRef: "engineering-spend",
+          policyVersion: 1,
+          delegationDepth: 0
+        }
       }
     }
   });
@@ -141,6 +150,12 @@ test("setup wizard: extractBootstrapMcpEnv validates and normalizes bootstrap en
   assert.equal(env.SETTLD_TENANT_ID, "tenant_runtime");
   assert.equal(env.SETTLD_API_KEY, "ak_runtime.secret");
   assert.equal(env.SETTLD_PAID_TOOLS_BASE_URL, "https://paid.tools.settld.work/");
+  assert.equal(typeof env.SETTLD_PAID_TOOLS_AGENT_PASSPORT, "string");
+  const passport = JSON.parse(env.SETTLD_PAID_TOOLS_AGENT_PASSPORT);
+  assert.equal(passport.schemaVersion, "X402AgentPassport.v1");
+  assert.equal(passport.policyRef, "engineering-spend");
+  assert.equal(passport.policyVersion, 1);
+  assert.equal(passport.agentKeyId, "ak_runtime");
 
   assert.throws(
     () =>
@@ -174,6 +189,7 @@ test("setup wizard: non-interactive manual mode prints export commands", async (
     assert.match(out.stdout, /export SETTLD_BASE_URL='http:\/\/127\.0\.0\.1:3999'/);
     assert.match(out.stdout, /export SETTLD_TENANT_ID='tenant_manual'/);
     assert.match(out.stdout, /export SETTLD_API_KEY='ak_manual_secret'/);
+    assert.match(out.stdout, /export SETTLD_PAID_TOOLS_AGENT_PASSPORT='/);
     assert.match(out.stdout, /Next steps:/);
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
@@ -444,6 +460,7 @@ test("setup wizard: non-interactive bootstrap mode calls runtime endpoint and us
     assert.match(out.stdout, /export SETTLD_TENANT_ID='tenant_bootstrap'/);
     assert.match(out.stdout, /export SETTLD_API_KEY='ak_runtime\.secret'/);
     assert.match(out.stdout, /export SETTLD_PAID_TOOLS_BASE_URL='https:\/\/paid\.runtime\.test\/'/);
+    assert.match(out.stdout, /export SETTLD_PAID_TOOLS_AGENT_PASSPORT='/);
 
     assert.equal(requests.length, 1);
     assert.equal(requests[0].method, "POST");

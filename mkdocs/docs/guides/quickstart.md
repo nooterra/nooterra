@@ -10,7 +10,7 @@ Use this guide to onboard a host and create a policy with the fewest steps.
 
 ## 2) One-command host setup
 
-Each command below sets host MCP config, applies starter policy profile `engineering-spend`, and runs a smoke check.
+Each command below sets host MCP config, auto-generates `SETTLD_PAID_TOOLS_AGENT_PASSPORT`, applies starter policy profile `engineering-spend`, and runs a smoke check.
 
 ### Codex
 
