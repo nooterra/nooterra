@@ -145,6 +145,18 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     "X402_EXECUTION_INTENT_EXPIRED"
   ]);
 
+  const X402GateVerifyBadRequestKnownErrorCodes = Object.freeze(["SCHEMA_INVALID"]);
+
+  const X402GateVerifyConflictKnownErrorCodes = Object.freeze([
+    "X402_INVALID_VERIFICATION_KEY_REF",
+    "X402_MISSING_REQUIRED_PROOF",
+    "X402_INVALID_CRYPTOGRAPHIC_PROOF",
+    "X402_SPEND_AUTH_POLICY_FINGERPRINT_MISMATCH",
+    "X402_REQUEST_BINDING_REQUIRED",
+    "X402_REQUEST_BINDING_EVIDENCE_REQUIRED",
+    "X402_REQUEST_BINDING_EVIDENCE_MISMATCH"
+  ]);
+
   function errorResponseWithKnownCodes(knownCodes) {
     return {
       allOf: [
@@ -6585,9 +6597,25 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
-            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            400: {
+              description: "Bad Request",
+              "x-settld-known-error-codes": [...X402GateVerifyBadRequestKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402GateVerifyBadRequestKnownErrorCodes)
+                }
+              }
+            },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-settld-known-error-codes": [...X402GateVerifyConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(X402GateVerifyConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },

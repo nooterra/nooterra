@@ -46,7 +46,16 @@ export type X402ExecutionIntentErrorCode =
   | "X402_EXECUTION_INTENT_EXPIRES_AT_INVALID"
   | "X402_EXECUTION_INTENT_EXPIRED";
 
-export type SettldApiErrorCode = X402ExecutionIntentErrorCode | "SCHEMA_INVALID" | (string & {});
+export type X402GateVerifyErrorCode =
+  | "X402_INVALID_VERIFICATION_KEY_REF"
+  | "X402_MISSING_REQUIRED_PROOF"
+  | "X402_INVALID_CRYPTOGRAPHIC_PROOF"
+  | "X402_SPEND_AUTH_POLICY_FINGERPRINT_MISMATCH"
+  | "X402_REQUEST_BINDING_REQUIRED"
+  | "X402_REQUEST_BINDING_EVIDENCE_REQUIRED"
+  | "X402_REQUEST_BINDING_EVIDENCE_MISMATCH";
+
+export type SettldApiErrorCode = X402ExecutionIntentErrorCode | X402GateVerifyErrorCode | "SCHEMA_INVALID" | (string & {});
 
 export type SettldError = {
   status: number;

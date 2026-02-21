@@ -37,7 +37,12 @@ test("mcp paid weather tool: retries x402 via autopay and returns weather payloa
         "content-type": "application/json; charset=utf-8",
         "x-settld-gate-id": gateId,
         "x-settld-settlement-status": "released",
-        "x-settld-verification-status": "green"
+        "x-settld-verification-status": "green",
+        "x-settld-policy-decision": "allow",
+        "x-settld-policy-hash": "b".repeat(64),
+        "x-settld-policy-version": "1",
+        "x-settld-decision-id": "dec_mcp_paid_weather_1",
+        "x-settld-reason-code": "policy_auto_release_green"
       });
       res.end(
         JSON.stringify({
@@ -127,6 +132,11 @@ test("mcp paid weather tool: retries x402 via autopay and returns weather payloa
   assert.equal(payload.result?.response?.city, "Chicago");
   assert.equal(payload.result?.response?.unit, "f");
   assert.equal(payload.result?.headers?.["x-settld-settlement-status"], "released");
+  assert.equal(payload.result?.decision?.policyDecision, "allow");
+  assert.equal(payload.result?.decision?.decisionId, "dec_mcp_paid_weather_1");
+  assert.equal(payload.result?.decision?.policyVersion, 1);
+  assert.equal(payload.result?.decision?.policyHash, "b".repeat(64));
+  assert.equal(payload.result?.decision?.reasonCode, "policy_auto_release_green");
   assert.equal(payload.result?.challenge?.gateId, "gate_weather_paid_1");
   assert.equal(payload.result?.challenge?.policyChallenge?.quoteRequired, null);
   assert.equal(payload.result?.challenge?.policyChallenge?.spendAuthorizationMode, null);

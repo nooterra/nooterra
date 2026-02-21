@@ -108,3 +108,15 @@ test("R1 API contract freeze: x402 authorize-payment publishes known execution-i
   assert.ok(knownConflictCodes.includes("X402_EXECUTION_INTENT_IDEMPOTENCY_MISMATCH"));
   assert.ok(knownConflictCodes.includes("X402_EXECUTION_INTENT_CONFLICT"));
 });
+
+test("R1 API contract freeze: x402 verify publishes known request-binding conflict error codes", () => {
+  const spec = buildOpenApiSpec();
+  const operation = spec?.paths?.["/x402/gate/verify"]?.post ?? null;
+  assert.ok(operation, "missing POST /x402/gate/verify");
+
+  const knownConflictCodes = operation?.responses?.["409"]?.["x-settld-known-error-codes"] ?? [];
+  assert.ok(Array.isArray(knownConflictCodes), "x402 verify 409 must expose known error codes");
+  assert.ok(knownConflictCodes.includes("X402_REQUEST_BINDING_REQUIRED"));
+  assert.ok(knownConflictCodes.includes("X402_REQUEST_BINDING_EVIDENCE_REQUIRED"));
+  assert.ok(knownConflictCodes.includes("X402_REQUEST_BINDING_EVIDENCE_MISMATCH"));
+});

@@ -460,6 +460,94 @@ async function settldJson(path, { tenantId, method, idempotencyKey = null, body 
   return json;
 }
 
+function readDecisionRecordFromVerify(gateVerify) {
+  if (!gateVerify || typeof gateVerify !== "object" || Array.isArray(gateVerify)) return null;
+  const direct =
+    gateVerify.decisionRecord && typeof gateVerify.decisionRecord === "object" && !Array.isArray(gateVerify.decisionRecord)
+      ? gateVerify.decisionRecord
+      : null;
+  if (direct) return direct;
+  const fromTrace =
+    gateVerify?.settlement?.decisionTrace?.decisionRecord &&
+    typeof gateVerify.settlement.decisionTrace.decisionRecord === "object" &&
+    !Array.isArray(gateVerify.settlement.decisionTrace.decisionRecord)
+      ? gateVerify.settlement.decisionTrace.decisionRecord
+      : null;
+  return fromTrace;
+}
+
+function collectReasonCodesFromVerify(gateVerify) {
+  const base = [];
+  const fromGateDecision = Array.isArray(gateVerify?.gate?.decision?.reasonCodes) ? gateVerify.gate.decision.reasonCodes : [];
+  const fromDecision = Array.isArray(gateVerify?.decision?.reasonCodes) ? gateVerify.decision.reasonCodes : [];
+  for (const row of [...fromGateDecision, ...fromDecision]) {
+    const code = typeof row === "string" ? row.trim() : "";
+    if (code) base.push(code);
+  }
+  return Array.from(new Set(base)).sort((left, right) => left.localeCompare(right));
+}
+
+function derivePolicyDecisionFromVerify(gateVerify) {
+  const settlementStatus = String(gateVerify?.settlement?.status ?? "").trim().toLowerCase();
+  if (settlementStatus === "released") return "allow";
+  if (settlementStatus === "refunded") return "deny";
+  if (gateVerify?.decision?.shouldAutoResolve === false) return "challenge";
+  if (settlementStatus) return "escalate";
+  return null;
+}
+
+function applySettldDecisionHeaders(outHeaders, { gateId, gateVerify } = {}) {
+  if (gateId) outHeaders["x-settld-gate-id"] = gateId;
+  if (!gateVerify || typeof gateVerify !== "object" || Array.isArray(gateVerify)) return;
+
+  outHeaders["x-settld-settlement-status"] = String(gateVerify?.settlement?.status ?? "");
+  outHeaders["x-settld-released-amount-cents"] = String(gateVerify?.settlement?.releasedAmountCents ?? "");
+  outHeaders["x-settld-refunded-amount-cents"] = String(gateVerify?.settlement?.refundedAmountCents ?? "");
+
+  const verificationStatus = String(gateVerify?.gate?.decision?.verificationStatus ?? "").trim();
+  if (verificationStatus) outHeaders["x-settld-verification-status"] = verificationStatus;
+
+  const policyDecision = derivePolicyDecisionFromVerify(gateVerify);
+  if (policyDecision) outHeaders["x-settld-policy-decision"] = policyDecision;
+
+  const reasonCodes = collectReasonCodesFromVerify(gateVerify);
+  if (reasonCodes.length > 0) {
+    outHeaders["x-settld-verification-codes"] = reasonCodes.join(",");
+    outHeaders["x-settld-reason-code"] = reasonCodes[0];
+  } else if (policyDecision) {
+    const fallbackReasonCode =
+      policyDecision === "allow"
+        ? "POLICY_ALLOW"
+        : policyDecision === "deny"
+          ? "POLICY_DENY"
+          : policyDecision === "challenge"
+            ? "POLICY_CHALLENGE"
+            : "POLICY_ESCALATE";
+    outHeaders["x-settld-reason-code"] = fallbackReasonCode;
+  }
+
+  const decisionRecord = readDecisionRecordFromVerify(gateVerify);
+  const decisionId = typeof decisionRecord?.decisionId === "string" ? decisionRecord.decisionId.trim() : "";
+  if (decisionId) outHeaders["x-settld-decision-id"] = decisionId;
+
+  const policyHashRaw =
+    typeof decisionRecord?.policyHashUsed === "string" && decisionRecord.policyHashUsed.trim() !== ""
+      ? decisionRecord.policyHashUsed
+      : typeof decisionRecord?.policyRef?.policyHash === "string" && decisionRecord.policyRef.policyHash.trim() !== ""
+        ? decisionRecord.policyRef.policyHash
+        : null;
+  const policyHash = typeof policyHashRaw === "string" ? policyHashRaw.trim().toLowerCase() : "";
+  if (/^[0-9a-f]{64}$/.test(policyHash)) outHeaders["x-settld-policy-hash"] = policyHash;
+
+  const policyVersion = Number(decisionRecord?.bindings?.policyDecisionFingerprint?.policyVersion ?? Number.NaN);
+  if (Number.isSafeInteger(policyVersion) && policyVersion > 0) {
+    outHeaders["x-settld-policy-version"] = String(policyVersion);
+  }
+
+  if (gateVerify?.gate?.holdback?.status) outHeaders["x-settld-holdback-status"] = String(gateVerify.gate.holdback.status);
+  if (gateVerify?.gate?.holdback?.amountCents !== undefined) outHeaders["x-settld-holdback-amount-cents"] = String(gateVerify.gate.holdback.amountCents);
+}
+
 async function handleProxy(req, res) {
   const url = new URL(req.url ?? "/", "http://localhost");
   if (req.method === "GET" && url.pathname === "/healthz") {
@@ -736,18 +824,7 @@ async function handleProxy(req, res) {
       });
 
       const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
-      outHeaders["x-settld-gate-id"] = gateId;
-      outHeaders["x-settld-settlement-status"] = String(gateVerify?.settlement?.status ?? "");
-      outHeaders["x-settld-released-amount-cents"] = String(gateVerify?.settlement?.releasedAmountCents ?? "");
-      outHeaders["x-settld-refunded-amount-cents"] = String(gateVerify?.settlement?.refundedAmountCents ?? "");
-      if (gateVerify?.gate?.decision?.verificationStatus) {
-        outHeaders["x-settld-verification-status"] = String(gateVerify.gate.decision.verificationStatus);
-      }
-      if (Array.isArray(gateVerify?.gate?.decision?.reasonCodes) && gateVerify.gate.decision.reasonCodes.length > 0) {
-        outHeaders["x-settld-verification-codes"] = gateVerify.gate.decision.reasonCodes.join(",");
-      }
-      if (gateVerify?.gate?.holdback?.status) outHeaders["x-settld-holdback-status"] = String(gateVerify.gate.holdback.status);
-      if (gateVerify?.gate?.holdback?.amountCents !== undefined) outHeaders["x-settld-holdback-amount-cents"] = String(gateVerify.gate.holdback.amountCents);
+      applySettldDecisionHeaders(outHeaders, { gateId, gateVerify });
 
       res.writeHead(502, outHeaders);
       res.end(`gateway: response too large to verify (>${2 * 1024 * 1024} bytes); refunded`);
@@ -893,19 +970,8 @@ async function handleProxy(req, res) {
     });
 
     const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
-    outHeaders["x-settld-gate-id"] = gateId;
     outHeaders["x-settld-response-sha256"] = respHash;
-    outHeaders["x-settld-settlement-status"] = String(gateVerify?.settlement?.status ?? "");
-    outHeaders["x-settld-released-amount-cents"] = String(gateVerify?.settlement?.releasedAmountCents ?? "");
-    outHeaders["x-settld-refunded-amount-cents"] = String(gateVerify?.settlement?.refundedAmountCents ?? "");
-    if (gateVerify?.gate?.decision?.verificationStatus) {
-      outHeaders["x-settld-verification-status"] = String(gateVerify.gate.decision.verificationStatus);
-    }
-    if (Array.isArray(gateVerify?.gate?.decision?.reasonCodes) && gateVerify.gate.decision.reasonCodes.length > 0) {
-      outHeaders["x-settld-verification-codes"] = gateVerify.gate.decision.reasonCodes.join(",");
-    }
-    if (gateVerify?.gate?.holdback?.status) outHeaders["x-settld-holdback-status"] = String(gateVerify.gate.holdback.status);
-    if (gateVerify?.gate?.holdback?.amountCents !== undefined) outHeaders["x-settld-holdback-amount-cents"] = String(gateVerify.gate.holdback.amountCents);
+    applySettldDecisionHeaders(outHeaders, { gateId, gateVerify });
 
     res.writeHead(upstreamRes.status, outHeaders);
     res.end(capture.buf);
@@ -940,19 +1006,10 @@ async function handleProxy(req, res) {
     } catch {}
 
     const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
-    outHeaders["x-settld-gate-id"] = gateId;
     if (gateVerify) {
-      outHeaders["x-settld-settlement-status"] = String(gateVerify?.settlement?.status ?? "");
-      outHeaders["x-settld-released-amount-cents"] = String(gateVerify?.settlement?.releasedAmountCents ?? "");
-      outHeaders["x-settld-refunded-amount-cents"] = String(gateVerify?.settlement?.refundedAmountCents ?? "");
-      if (gateVerify?.gate?.decision?.verificationStatus) {
-        outHeaders["x-settld-verification-status"] = String(gateVerify.gate.decision.verificationStatus);
-      }
-      if (Array.isArray(gateVerify?.gate?.decision?.reasonCodes) && gateVerify.gate.decision.reasonCodes.length > 0) {
-        outHeaders["x-settld-verification-codes"] = gateVerify.gate.decision.reasonCodes.join(",");
-      }
-      if (gateVerify?.gate?.holdback?.status) outHeaders["x-settld-holdback-status"] = String(gateVerify.gate.holdback.status);
-      if (gateVerify?.gate?.holdback?.amountCents !== undefined) outHeaders["x-settld-holdback-amount-cents"] = String(gateVerify.gate.holdback.amountCents);
+      applySettldDecisionHeaders(outHeaders, { gateId, gateVerify });
+    } else if (gateId) {
+      outHeaders["x-settld-gate-id"] = gateId;
     }
 
     res.writeHead(502, outHeaders);

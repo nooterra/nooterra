@@ -37,7 +37,12 @@ test("mcp paid llm tool: retries x402 via autopay and returns completion payload
         "content-type": "application/json; charset=utf-8",
         "x-settld-gate-id": gateId,
         "x-settld-settlement-status": "released",
-        "x-settld-verification-status": "green"
+        "x-settld-verification-status": "green",
+        "x-settld-policy-decision": "allow",
+        "x-settld-policy-hash": "c".repeat(64),
+        "x-settld-policy-version": "1",
+        "x-settld-decision-id": "dec_mcp_paid_llm_1",
+        "x-settld-reason-code": "policy_auto_release_green"
       });
       res.end(
         JSON.stringify({
@@ -124,6 +129,11 @@ test("mcp paid llm tool: retries x402 via autopay and returns completion payload
   assert.equal(payload.result?.response?.model, "gpt-4o-mini");
   assert.equal(payload.result?.response?.prompt, "hello world");
   assert.equal(payload.result?.headers?.["x-settld-settlement-status"], "released");
+  assert.equal(payload.result?.decision?.policyDecision, "allow");
+  assert.equal(payload.result?.decision?.decisionId, "dec_mcp_paid_llm_1");
+  assert.equal(payload.result?.decision?.policyVersion, 1);
+  assert.equal(payload.result?.decision?.policyHash, "c".repeat(64));
+  assert.equal(payload.result?.decision?.reasonCode, "policy_auto_release_green");
   assert.equal(payload.result?.challenge?.gateId, "gate_llm_paid_1");
   assert.equal(payload.result?.challenge?.policyChallenge?.quoteRequired, null);
   assert.equal(payload.result?.challenge?.policyChallenge?.spendAuthorizationMode, null);

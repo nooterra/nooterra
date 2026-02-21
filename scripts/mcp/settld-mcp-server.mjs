@@ -110,6 +110,74 @@ function isSha256Hex(value) {
   return typeof value === "string" && /^[0-9a-f]{64}$/i.test(value.trim());
 }
 
+function collectSettldHeaders(responseHeaders) {
+  const out = {};
+  for (const [k, v] of responseHeaders.entries()) {
+    const key = String(k).toLowerCase();
+    if (key.startsWith("x-settld-")) out[key] = v;
+  }
+  return out;
+}
+
+function parseCsvHeader(value) {
+  if (typeof value !== "string" || value.trim() === "") return [];
+  return value
+    .split(",")
+    .map((row) => row.trim())
+    .filter(Boolean);
+}
+
+function normalizePolicyDecision(value) {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return ["allow", "challenge", "deny", "escalate"].includes(raw) ? raw : null;
+}
+
+function parseSettldDecisionMetadata(headers) {
+  const policyVersionRaw = Number(headers["x-settld-policy-version"] ?? Number.NaN);
+  const reasonCodes = parseCsvHeader(headers["x-settld-verification-codes"]);
+  const reasonCode = typeof headers["x-settld-reason-code"] === "string" && headers["x-settld-reason-code"].trim() !== ""
+    ? headers["x-settld-reason-code"].trim()
+    : reasonCodes[0] ?? null;
+  return {
+    policyDecision: normalizePolicyDecision(headers["x-settld-policy-decision"]),
+    decisionId: typeof headers["x-settld-decision-id"] === "string" && headers["x-settld-decision-id"].trim() !== ""
+      ? headers["x-settld-decision-id"].trim()
+      : null,
+    policyHash:
+      typeof headers["x-settld-policy-hash"] === "string" && /^[0-9a-f]{64}$/i.test(headers["x-settld-policy-hash"].trim())
+        ? headers["x-settld-policy-hash"].trim().toLowerCase()
+        : null,
+    policyVersion: Number.isSafeInteger(policyVersionRaw) && policyVersionRaw > 0 ? policyVersionRaw : null,
+    reasonCode,
+    reasonCodes
+  };
+}
+
+function assertPolicyRuntimeMetadata({ headers, toolName }) {
+  const required = [
+    "x-settld-settlement-status",
+    "x-settld-verification-status",
+    "x-settld-policy-decision",
+    "x-settld-policy-hash",
+    "x-settld-decision-id"
+  ];
+  const missing = required.filter((key) => typeof headers[key] !== "string" || headers[key].trim() === "");
+  if (missing.length > 0) {
+    const err = new Error(`${toolName} response missing settld policy runtime metadata`);
+    err.code = "SETTLD_POLICY_RUNTIME_METADATA_MISSING";
+    err.details = { missingHeaders: missing };
+    throw err;
+  }
+  const metadata = parseSettldDecisionMetadata(headers);
+  if (!metadata.policyDecision) {
+    const err = new Error(`${toolName} returned unsupported x-settld-policy-decision value`);
+    err.code = "SETTLD_POLICY_RUNTIME_DECISION_INVALID";
+    err.details = { policyDecision: headers["x-settld-policy-decision"] ?? null };
+    throw err;
+  }
+  return metadata;
+}
+
 function generateEd25519PublicKeyPem() {
   const { publicKey } = crypto.generateKeyPairSync("ed25519");
   return publicKey.export({ format: "pem", type: "spki" });
@@ -324,10 +392,8 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       throw err;
     }
 
-    const headers = {};
-    for (const [k, v] of res.headers.entries()) {
-      if (k.toLowerCase().startsWith("x-settld-")) headers[k] = v;
-    }
+    const headers = collectSettldHeaders(res.headers);
+    const decision = assertPolicyRuntimeMetadata({ headers, toolName: "settld.exa_search_paid" });
 
     return {
       ok: true,
@@ -335,6 +401,7 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       numResults: normalizedNumResults,
       response: json,
       headers,
+      decision,
       challenge
     };
   }
@@ -384,10 +451,8 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       throw err;
     }
 
-    const headers = {};
-    for (const [k, v] of res.headers.entries()) {
-      if (k.toLowerCase().startsWith("x-settld-")) headers[k] = v;
-    }
+    const headers = collectSettldHeaders(res.headers);
+    const decision = assertPolicyRuntimeMetadata({ headers, toolName: "settld.weather_current_paid" });
 
     return {
       ok: true,
@@ -395,6 +460,7 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       unit: normalizedUnit,
       response: json,
       headers,
+      decision,
       challenge
     };
   }
@@ -446,10 +512,8 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       throw err;
     }
 
-    const headers = {};
-    for (const [k, v] of res.headers.entries()) {
-      if (k.toLowerCase().startsWith("x-settld-")) headers[k] = v;
-    }
+    const headers = collectSettldHeaders(res.headers);
+    const decision = assertPolicyRuntimeMetadata({ headers, toolName: "settld.llm_completion_paid" });
 
     return {
       ok: true,
@@ -458,6 +522,7 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       maxTokens: normalizedMaxTokens,
       response: json,
       headers,
+      decision,
       challenge
     };
   }
