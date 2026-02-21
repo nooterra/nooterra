@@ -5,6 +5,12 @@
 - Check escalation queue health
 - Check delivery retry/dead-letter queue state
 - Sample verify receipts and closepacks
+- Run HITL escalation smoke (`blocked -> escalation -> approve|deny -> receipt`):
+
+```bash
+npm run ops:x402:hitl:smoke -- --ops-token tok_ops
+```
+
 - Check onboarding runtime loop health (`runtime bootstrap -> MCP smoke -> first paid call`)
 - Confirm conformance matrix runs are green and not rate-limited
 

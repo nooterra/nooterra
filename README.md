@@ -157,6 +157,12 @@ Run conformance (kernel control plane, disputes + holdback):
 ./bin/settld.js conformance kernel --ops-token tok_ops
 ```
 
+Run local MCP host compatibility checks:
+
+```sh
+./bin/settld.js doctor
+```
+
 No-clone registry flow:
 
 ```sh
@@ -194,6 +200,7 @@ Ops workspaces (HTML):
 - `docs/QUICKSTART_PRODUCE.md`
 - `docs/QUICKSTART_SDK.md`
 - `docs/QUICKSTART_SDK_PYTHON.md`
+- `docs/QUICKSTART_POLICY_PACKS.md`
 - `docs/QUICKSTART_MCP.md`
 - `docs/QUICKSTART_MCP_HOSTS.md`
 - `docs/ADOPTION_CHECKLIST.md`

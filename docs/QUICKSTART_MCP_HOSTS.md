@@ -151,8 +151,10 @@ npm run mcp:probe -- --call settld.about '{}'
 0. Run hosted-style smoke once:
 
 ```bash
-npm run test:ci:mcp-host-smoke
+settld doctor
 ```
+
+This prints a clear `PASS`/`FAIL` summary and the report path (default: `artifacts/ops/mcp-host-smoke.json`).
 
 1. `npm run mcp:probe` passes locally.
 2. Host discovers `settld.*` tools.

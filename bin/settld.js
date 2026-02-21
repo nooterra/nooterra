@@ -9,6 +9,7 @@ function usage() {
   console.error("usage:");
   console.error("  settld --version");
   console.error("  settld setup [--help]");
+  console.error("  settld doctor [--help] [--report <path>]");
   console.error("  settld conformance test [--case <id>] [--bin settld-verify] [--node-bin <path/to/settld-verify.js>] [--keep-temp]");
   console.error("  settld conformance list");
   console.error("  settld conformance kernel --ops-token <tok_opsw> [--base-url http://127.0.0.1:3000] [--tenant-id tenant_default] [--protocol 1.0] [--case <id>]");
@@ -24,6 +25,13 @@ function usage() {
   console.error("  settld profile validate <profile.json|-> [--format json|text] [--json-out <path>]");
   console.error(
     "  settld profile simulate <profile.json|-> [--scenario <scenario.json|->|--scenario-json <json>] [--format json|text] [--json-out <path>]"
+  );
+  console.error("  settld policy init <pack-id> [--out <path>] [--force] [--format json|text] [--json-out <path>]");
+  console.error(
+    "  settld policy simulate <policy-pack.json|-> [--scenario <scenario.json|->|--scenario-json <json>] [--format json|text] [--json-out <path>]"
+  );
+  console.error(
+    "  settld policy publish <policy-pack.json|-> [--out <path>] [--force] [--channel <name>] [--owner <id>] [--format json|text] [--json-out <path>]"
   );
   console.error("  settld dev up [--no-build] [--foreground]");
   console.error("  settld dev down [--wipe]");
@@ -109,6 +117,10 @@ function main() {
 
   if (cmd === "setup") {
     return runNodeScript("scripts/setup/wizard.mjs", argv.slice(1));
+  }
+
+  if (cmd === "doctor") {
+    return runNodeScript("scripts/doctor/mcp-host.mjs", argv.slice(1));
   }
 
   if (cmd === "conformance") {
@@ -237,6 +249,10 @@ function main() {
 
   if (cmd === "profile") {
     return runNodeScript("scripts/profile/cli.mjs", argv.slice(1));
+  }
+
+  if (cmd === "policy") {
+    return runNodeScript("scripts/policy/cli.mjs", argv.slice(1));
   }
 
   usage();

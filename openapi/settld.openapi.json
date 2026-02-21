@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Settld API",
-    "version": "0.1.5",
+    "version": "0.2.0",
     "description": "Settld system-of-record API (protocol-gated).",
     "x-settld-protocol": "1.0"
   },

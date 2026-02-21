@@ -7,6 +7,13 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 ### Added
+- `settld doctor` command (`scripts/doctor/mcp-host.mjs`) for one-command MCP host compatibility validation with clear `PASS|FAIL` output and report path.
+- MCP host config certification matrix smoke (`scripts/ci/run-mcp-host-cert-matrix.mjs`, `npm run test:ci:mcp-host-cert-matrix`) covering Codex, Claude, Cursor, and OpenClaw write/idempotency behavior.
+- Policy packs v1 CLI: `settld policy init|simulate|publish` with deterministic JSON/text outputs and local publication artifacts.
+- Five starter policy packs for immediate rollout: `engineering-spend`, `procurement-enterprise`, `data-api-buyer`, `support-automation`, `finance-controls`.
+- Policy pack quickstart doc: `docs/QUICKSTART_POLICY_PACKS.md`.
+- Ops HITL x402 escalation smoke runner: `scripts/ops/run-x402-hitl-smoke.mjs` executes `blocked -> escalation -> approve|deny -> receipt` using live `/x402/gate/*` and `/x402/receipts/*` endpoints and writes `artifacts/ops/x402-hitl-smoke.json`.
+- npm alias `ops:x402:hitl:smoke` and runbook command in `mkdocs/docs/runbooks/operations.md` for operator execution.
 - Public MCP distribution path:
   - npm-published MCP runtime assets (`scripts/mcp/*`, `docs/QUICKSTART_MCP*.md`) are now included in package files.
   - New CLI entrypoint `settld-mcp` (`bin/settld-mcp`) for direct host MCP registration.
