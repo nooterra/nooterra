@@ -17,8 +17,15 @@ function usage() {
     "usage: node scripts/ci/run-production-cutover-gate.mjs [options]",
     "",
     "options:",
+    "  --mode <local|live>  Gate mode (default: local)",
+    "  --base-url <url>     Required for live mode",
+    "  --tenant-id <id>     Required for live mode",
+    "  --ops-token <token>  Required for live mode",
+    "  --protocol <ver>     Protocol (default: 1.0)",
     "  --report <file>      Gate report output path (default: artifacts/gates/production-cutover-gate.json)",
-    "  --help               Show help"
+    "  --help               Show help",
+    "",
+    "env fallbacks (live mode): PROD_BASE_URL, PROD_TENANT_ID, PROD_OPS_TOKEN, PROD_PROTOCOL"
   ].join("\n");
 }
 
@@ -34,8 +41,41 @@ function toExitCode(code, signal) {
   return 1;
 }
 
+function validateHttpUrl(raw, fieldName) {
+  const value = normalizeOptionalString(raw);
+  if (!value) throw new Error(`${fieldName} is required`);
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${fieldName} must be a valid URL`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`${fieldName} must be http(s)`);
+  }
+  return parsed.toString().replace(/\/$/, "");
+}
+
 export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
   const out = {
+    mode: normalizeOptionalString(env.PRODUCTION_CUTOVER_GATE_MODE) ?? "local",
+    baseUrl:
+      normalizeOptionalString(env.PROD_BASE_URL) ??
+      normalizeOptionalString(env.SETTLD_BASE_URL) ??
+      null,
+    tenantId:
+      normalizeOptionalString(env.PROD_TENANT_ID) ??
+      normalizeOptionalString(env.SETTLD_TENANT_ID) ??
+      null,
+    protocol:
+      normalizeOptionalString(env.PROD_PROTOCOL) ??
+      normalizeOptionalString(env.SETTLD_PROTOCOL) ??
+      "1.0",
+    opsToken:
+      normalizeOptionalString(env.PROD_OPS_TOKEN) ??
+      normalizeOptionalString(env.SETTLD_OPS_TOKEN) ??
+      normalizeOptionalString(env.PROXY_OPS_TOKEN) ??
+      null,
     reportPath: path.resolve(cwd, normalizeOptionalString(env.PRODUCTION_CUTOVER_GATE_REPORT_PATH) ?? DEFAULT_GATE_REPORT_PATH),
     help: false
   };
@@ -47,6 +87,31 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
       out.help = true;
       continue;
     }
+    if (arg === "--mode") {
+      out.mode = normalizeOptionalString(argv[i + 1]) ?? "";
+      i += 1;
+      continue;
+    }
+    if (arg === "--base-url") {
+      out.baseUrl = normalizeOptionalString(argv[i + 1]);
+      i += 1;
+      continue;
+    }
+    if (arg === "--tenant-id") {
+      out.tenantId = normalizeOptionalString(argv[i + 1]);
+      i += 1;
+      continue;
+    }
+    if (arg === "--ops-token") {
+      out.opsToken = normalizeOptionalString(argv[i + 1]);
+      i += 1;
+      continue;
+    }
+    if (arg === "--protocol") {
+      out.protocol = normalizeOptionalString(argv[i + 1]) ?? "";
+      i += 1;
+      continue;
+    }
     if (arg === "--report") {
       const value = normalizeOptionalString(argv[i + 1]);
       if (!value) throw new Error("--report requires a file path");
@@ -55,6 +120,18 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
       continue;
     }
     throw new Error(`unknown argument: ${arg}`);
+  }
+
+  out.mode = String(out.mode ?? "").trim().toLowerCase();
+  if (out.mode !== "local" && out.mode !== "live") {
+    throw new Error("--mode must be local or live");
+  }
+
+  if (!out.help && out.mode === "live") {
+    out.baseUrl = validateHttpUrl(out.baseUrl, "--base-url");
+    if (!normalizeOptionalString(out.tenantId)) throw new Error("--tenant-id is required for live mode");
+    if (!normalizeOptionalString(out.protocol)) throw new Error("--protocol is required for live mode");
+    if (!normalizeOptionalString(out.opsToken)) throw new Error("--ops-token is required for live mode");
   }
 
   return out;
@@ -110,14 +187,14 @@ async function stopProc(child) {
 async function waitForApiHealth({ baseUrl, child, timeoutMs = 30_000, intervalMs = 250 }) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null && child.exitCode !== undefined) {
+    if (child && child.exitCode !== null && child.exitCode !== undefined) {
       throw new Error(`ephemeral api exited before ready (${child.exitCode})`);
     }
     const response = await fetch(`${baseUrl}/healthz`).catch(() => null);
     if (response?.ok) return;
     await sleep(intervalMs);
   }
-  throw new Error("ephemeral api readiness timed out");
+  throw new Error("api readiness timed out");
 }
 
 function runNodeScript(scriptPath, args = [], { env = process.env } = {}) {
@@ -234,7 +311,32 @@ async function runCheck(check) {
   };
 }
 
-async function runX402HitlCheck({ reportPath, tenantId, protocol, env }) {
+async function runApiHealthCheck({ baseUrl }) {
+  const startedAt = Date.now();
+  const row = {
+    id: "prod_api_healthz",
+    label: "Production API healthz",
+    status: "failed",
+    exitCode: 1,
+    reportPath: null,
+    durationMs: 0,
+    command: ["GET", `${baseUrl}/healthz`]
+  };
+  try {
+    const response = await fetch(`${baseUrl}/healthz`);
+    row.exitCode = response.ok ? 0 : 1;
+    row.status = response.ok ? "passed" : "failed";
+    row.httpStatus = response.status;
+  } catch (err) {
+    row.status = "failed";
+    row.exitCode = 1;
+    row.error = err?.message ?? String(err);
+  }
+  row.durationMs = Date.now() - startedAt;
+  return row;
+}
+
+async function runX402HitlCheckLocal({ reportPath, tenantId, protocol, env }) {
   const startedAt = Date.now();
   const row = {
     id: "x402_hitl_smoke",
@@ -290,6 +392,31 @@ async function runX402HitlCheck({ reportPath, tenantId, protocol, env }) {
   return row;
 }
 
+async function runX402HitlCheckLive({ reportPath, baseUrl, tenantId, protocol, opsToken, env }) {
+  const startedAt = Date.now();
+  const args = ["--base-url", baseUrl, "--tenant-id", tenantId, "--protocol", protocol, "--ops-token", opsToken, "--out", reportPath];
+  const row = {
+    id: "x402_hitl_smoke_live",
+    label: "x402 HITL escalation smoke (live)",
+    status: "failed",
+    exitCode: 1,
+    reportPath,
+    durationMs: 0,
+    command: [process.execPath, "scripts/ops/run-x402-hitl-smoke.mjs", ...args]
+  };
+  try {
+    const result = await runNodeScript("scripts/ops/run-x402-hitl-smoke.mjs", args, { env });
+    row.status = toStatus(result.exitCode);
+    row.exitCode = result.exitCode;
+  } catch (err) {
+    row.status = "failed";
+    row.exitCode = 1;
+    row.error = err?.message ?? String(err);
+  }
+  row.durationMs = Date.now() - startedAt;
+  return row;
+}
+
 export async function runProductionCutoverGate(args, env = process.env, cwd = process.cwd()) {
   const startedAt = Date.now();
   const mcpHostSmokeReportPath = path.resolve(cwd, normalizeOptionalString(env.MCP_HOST_SMOKE_REPORT_PATH) ?? DEFAULT_MCP_HOST_SMOKE_REPORT_PATH);
@@ -298,47 +425,83 @@ export async function runProductionCutoverGate(args, env = process.env, cwd = pr
     normalizeOptionalString(env.MCP_HOST_CERT_MATRIX_REPORT_PATH) ?? DEFAULT_MCP_HOST_CERT_MATRIX_REPORT_PATH
   );
   const x402HitlSmokeReportPath = path.resolve(cwd, normalizeOptionalString(env.X402_HITL_SMOKE_REPORT_PATH) ?? DEFAULT_X402_HITL_SMOKE_REPORT_PATH);
-  const tenantId = normalizeOptionalString(env.SETTLD_TENANT_ID) ?? "tenant_default";
-  const protocol = normalizeOptionalString(env.SETTLD_PROTOCOL) ?? "1.0";
 
   const checks = [];
 
-  checks.push(
-    await runCheck({
-      id: "mcp_host_runtime_smoke",
-      label: "MCP host runtime smoke",
-      scriptPath: "scripts/ci/run-mcp-host-smoke.mjs",
-      args: [],
-      env: { ...env, MCP_HOST_SMOKE_REPORT_PATH: mcpHostSmokeReportPath },
-      reportPath: mcpHostSmokeReportPath
-    })
-  );
+  if (args.mode === "local") {
+    const tenantId = normalizeOptionalString(args.tenantId) ?? normalizeOptionalString(env.SETTLD_TENANT_ID) ?? "tenant_default";
+    const protocol = normalizeOptionalString(args.protocol) ?? normalizeOptionalString(env.SETTLD_PROTOCOL) ?? "1.0";
 
-  checks.push(
-    await runCheck({
-      id: "mcp_host_cert_matrix",
-      label: "MCP host certification matrix",
-      scriptPath: "scripts/ci/run-mcp-host-cert-matrix.mjs",
-      args: ["--report", mcpHostCertMatrixReportPath],
-      env,
-      reportPath: mcpHostCertMatrixReportPath
-    })
-  );
+    checks.push(
+      await runCheck({
+        id: "mcp_host_runtime_smoke",
+        label: "MCP host runtime smoke",
+        scriptPath: "scripts/ci/run-mcp-host-smoke.mjs",
+        args: [],
+        env: { ...env, MCP_HOST_SMOKE_REPORT_PATH: mcpHostSmokeReportPath },
+        reportPath: mcpHostSmokeReportPath
+      })
+    );
 
-  checks.push(
-    await runX402HitlCheck({
-      reportPath: x402HitlSmokeReportPath,
-      tenantId,
-      protocol,
-      env
-    })
-  );
+    checks.push(
+      await runCheck({
+        id: "mcp_host_cert_matrix",
+        label: "MCP host certification matrix",
+        scriptPath: "scripts/ci/run-mcp-host-cert-matrix.mjs",
+        args: ["--report", mcpHostCertMatrixReportPath],
+        env,
+        reportPath: mcpHostCertMatrixReportPath
+      })
+    );
+
+    checks.push(
+      await runX402HitlCheckLocal({
+        reportPath: x402HitlSmokeReportPath,
+        tenantId,
+        protocol,
+        env
+      })
+    );
+  } else {
+    checks.push(await runApiHealthCheck({ baseUrl: args.baseUrl }));
+
+    checks.push(
+      await runCheck({
+        id: "mcp_host_cert_matrix",
+        label: "MCP host certification matrix",
+        scriptPath: "scripts/ci/run-mcp-host-cert-matrix.mjs",
+        args: ["--report", mcpHostCertMatrixReportPath],
+        env,
+        reportPath: mcpHostCertMatrixReportPath
+      })
+    );
+
+    checks.push(
+      await runX402HitlCheckLive({
+        reportPath: x402HitlSmokeReportPath,
+        baseUrl: args.baseUrl,
+        tenantId: args.tenantId,
+        protocol: args.protocol,
+        opsToken: args.opsToken,
+        env
+      })
+    );
+  }
 
   const verdict = evaluateGateVerdict(checks);
   const report = {
     schemaVersion: PRODUCTION_CUTOVER_GATE_SCHEMA_VERSION,
+    mode: args.mode,
     generatedAt: new Date().toISOString(),
     durationMs: Date.now() - startedAt,
+    context:
+      args.mode === "live"
+        ? {
+            baseUrl: args.baseUrl,
+            tenantId: args.tenantId,
+            protocol: args.protocol
+          }
+        : null,
     checks,
     verdict
   };

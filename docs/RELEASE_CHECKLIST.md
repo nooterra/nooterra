@@ -149,6 +149,7 @@ Required gate reports:
 - `artifacts/gates/production-cutover-gate.json`
 - `artifacts/gates/s13-go-live-gate.json`
 - `artifacts/gates/s13-launch-cutover-packet.json`
+- Live deploy readiness run (manual workflow): `artifacts/gates/production-cutover-gate-prod.json`
 
 Related runbooks:
 

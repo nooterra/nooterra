@@ -8,6 +8,12 @@ Use this checklist to launch and verify a real hosted Settld environment.
 2. Confirm release workflow is blocked unless both required gates are green for the release commit.
 3. Confirm staging and production have separate domains, databases, secrets, and signer keys.
 4. Confirm required services are deployable: `npm run start:prod`, `npm run start:maintenance`, `npm run start:x402-gateway`.
+5. Configure GitHub Environment `production_cutover_gate` with:
+   - `PROD_BASE_URL`
+   - `PROD_TENANT_ID`
+   - `PROD_OPS_TOKEN`
+   - optional `PROD_PROTOCOL` (`1.0`)
+6. Require manual reviewers on `production_cutover_gate` before workflow secret access.
 
 ## Phase 1: Environment + secrets
 
@@ -95,6 +101,10 @@ Ship only when all are true:
 3. MCP compatibility matrix is green for supported hosts.
 4. Paid MCP run artifacts verify cleanly.
 5. Rollback runbook has been rehearsed.
+
+Run the live environment cutover gate before opening traffic:
+
+`Actions -> production-cutover-gate -> Run workflow`
 
 ## Phase 7: Post-release
 

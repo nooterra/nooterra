@@ -23,6 +23,7 @@ Report output:
 1. `.github/workflows/tests.yml` runs `kernel_v0_ship_gate` on every `push` to `main`.
 2. `.github/workflows/tests.yml` also runs `production_cutover_gate` on every `push` to `main`.
 3. `.github/workflows/release.yml` blocks release unless that same commit has successful `kernel_v0_ship_gate` and `production_cutover_gate` results from `tests.yml`.
+4. `.github/workflows/production-cutover-gate.yml` provides manual live-environment validation using `production_cutover_gate` GitHub Environment secrets.
 
 ## Included checks
 
