@@ -62550,20 +62550,47 @@
           },
           "400": {
             "description": "Bad Request",
+            "x-settld-known-error-codes": [
+              "SCHEMA_INVALID"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "SCHEMA_INVALID"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -62590,20 +62617,59 @@
           },
           "409": {
             "description": "Conflict",
+            "x-settld-known-error-codes": [
+              "X402_INVALID_VERIFICATION_KEY_REF",
+              "X402_MISSING_REQUIRED_PROOF",
+              "X402_INVALID_CRYPTOGRAPHIC_PROOF",
+              "X402_SPEND_AUTH_POLICY_FINGERPRINT_MISMATCH",
+              "X402_REQUEST_BINDING_REQUIRED",
+              "X402_REQUEST_BINDING_EVIDENCE_REQUIRED",
+              "X402_REQUEST_BINDING_EVIDENCE_MISMATCH"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "X402_INVALID_VERIFICATION_KEY_REF",
+                                "X402_MISSING_REQUIRED_PROOF",
+                                "X402_INVALID_CRYPTOGRAPHIC_PROOF",
+                                "X402_SPEND_AUTH_POLICY_FINGERPRINT_MISMATCH",
+                                "X402_REQUEST_BINDING_REQUIRED",
+                                "X402_REQUEST_BINDING_EVIDENCE_REQUIRED",
+                                "X402_REQUEST_BINDING_EVIDENCE_MISMATCH"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
