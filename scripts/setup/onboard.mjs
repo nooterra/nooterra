@@ -1361,21 +1361,26 @@ async function resolveRuntimeConfig({
           { defaultValue: canUseSavedSession ? "session" : "login", color }
         );
         if (keyMode === "login") {
-          await runLoginImpl({
-            argv: ["--base-url", out.baseUrl, "--session-file", out.sessionFile],
-            stdin,
-            stdout,
-            fetchImpl
-          });
-          const refreshedSession = await readSavedSessionImpl({ sessionPath: out.sessionFile });
-          if (!refreshedSession) throw new Error("login did not produce a saved session");
-          out.baseUrl = String(refreshedSession.baseUrl ?? out.baseUrl).trim() || out.baseUrl;
-          out.tenantId = String(refreshedSession.tenantId ?? out.tenantId).trim();
-          out.sessionCookie = String(refreshedSession.cookie ?? out.sessionCookie).trim();
-          if (savedSession) {
-            savedSession.baseUrl = refreshedSession.baseUrl;
-            savedSession.tenantId = refreshedSession.tenantId;
-            savedSession.cookie = refreshedSession.cookie;
+          try {
+            await runLoginImpl({
+              argv: ["--base-url", out.baseUrl, "--session-file", out.sessionFile],
+              stdin,
+              stdout,
+              fetchImpl
+            });
+            const refreshedSession = await readSavedSessionImpl({ sessionPath: out.sessionFile });
+            if (!refreshedSession) throw new Error("login did not produce a saved session");
+            out.baseUrl = String(refreshedSession.baseUrl ?? out.baseUrl).trim() || out.baseUrl;
+            out.tenantId = String(refreshedSession.tenantId ?? out.tenantId).trim();
+            out.sessionCookie = String(refreshedSession.cookie ?? out.sessionCookie).trim();
+            if (savedSession) {
+              savedSession.baseUrl = refreshedSession.baseUrl;
+              savedSession.tenantId = refreshedSession.tenantId;
+              savedSession.cookie = refreshedSession.cookie;
+            }
+          } catch (err) {
+            stdout.write(`Login failed: ${err?.message ?? "unknown error"}\n`);
+            stdout.write("Choose `Generate during setup` if your deployment does not expose public signup/login.\n");
           }
           continue;
         }

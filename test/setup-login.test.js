@@ -56,3 +56,35 @@ test("login: non-interactive saves tenant session from OTP flow", async () => {
   assert.equal(writes[0].session.cookie, "ml_buyer_session=session_abc123");
   assert.equal(writes[0].session.tenantId, "tenant_default");
 });
+
+test("login: non-interactive public signup forbidden returns actionable guidance", async () => {
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/v1/public/signup")) {
+      return new Response(JSON.stringify({ error: "forbidden", code: "FORBIDDEN" }), {
+        status: 403,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  await assert.rejects(
+    () =>
+      runLogin({
+        argv: [
+          "--non-interactive",
+          "--base-url",
+          "https://api.settld.work",
+          "--email",
+          "founder@example.com",
+          "--company",
+          "Settld",
+          "--otp",
+          "123456"
+        ],
+        fetchImpl,
+        stdout: { write() {} }
+      }),
+    /Public signup is unavailable on this base URL/
+  );
+});

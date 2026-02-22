@@ -39,6 +39,7 @@ function readArgValue(argv, index, rawArg) {
 function parseArgs(argv) {
   const out = {
     baseUrl: "https://api.settld.work",
+    baseUrlProvided: false,
     tenantId: "",
     email: "",
     company: "",
@@ -64,6 +65,7 @@ function parseArgs(argv) {
     if (arg === "--base-url" || arg.startsWith("--base-url=")) {
       const parsed = readArgValue(argv, i, arg);
       out.baseUrl = parsed.value;
+      out.baseUrlProvided = true;
       i = parsed.nextIndex;
       continue;
     }
@@ -149,6 +151,20 @@ async function requestJson(url, { method, body, headers = {}, fetchImpl = fetch 
   return { res, text, json };
 }
 
+function responseCode({ json }) {
+  const direct = typeof json?.code === "string" ? json.code : "";
+  if (direct) return direct;
+  const error = typeof json?.error === "string" ? json.error : "";
+  return error ? error.toUpperCase() : "";
+}
+
+function responseMessage({ json, text }, fallback = "unknown error") {
+  if (typeof json?.message === "string" && json.message.trim()) return json.message.trim();
+  if (typeof json?.error === "string" && json.error.trim()) return json.error.trim();
+  const raw = String(text ?? "").trim();
+  return raw || fallback;
+}
+
 async function promptLine(rl, label, { defaultValue = "", required = true } = {}) {
   const suffix = defaultValue ? ` [${defaultValue}]` : "";
   const value = String(await rl.question(`${label}${suffix}: `) ?? "").trim() || String(defaultValue ?? "").trim();
@@ -190,7 +206,9 @@ export async function runLogin({
   const rl = interactive ? createInterface({ input: stdin, output: stdout }) : null;
   try {
     if (interactive) {
-      state.baseUrl = await promptLine(rl, "Settld base URL", { defaultValue: state.baseUrl || "https://api.settld.work" });
+      if (!args.baseUrlProvided) {
+        state.baseUrl = await promptLine(rl, "Settld base URL", { defaultValue: state.baseUrl || "https://api.settld.work" });
+      }
       state.tenantId = await promptLine(rl, "Tenant ID (optional, leave blank to create new)", {
         defaultValue: state.tenantId,
         required: false
@@ -205,7 +223,20 @@ export async function runLogin({
     if (!state.email) throw new Error("email is required");
     if (!state.tenantId && !state.company) throw new Error("company is required when tenant ID is omitted");
 
+    const requestTenantOtp = async (tenantId) => {
+      const otpRequest = await requestJson(`${baseUrl}/v1/tenants/${encodeURIComponent(String(tenantId ?? ""))}/buyer/login/otp`, {
+        method: "POST",
+        body: { email: state.email },
+        fetchImpl
+      });
+      if (!otpRequest.res.ok) {
+        const message = responseMessage(otpRequest);
+        throw new Error(`otp request failed (${otpRequest.res.status}): ${message}`);
+      }
+    };
+
     let tenantId = state.tenantId;
+    let otpAlreadyIssued = false;
     if (!tenantId) {
       const signup = await requestJson(`${baseUrl}/v1/public/signup`, {
         method: "POST",
@@ -213,27 +244,24 @@ export async function runLogin({
         fetchImpl
       });
       if (!signup.res.ok) {
-        const code = typeof signup.json?.code === "string" ? signup.json.code : "";
-        const message = typeof signup.json?.message === "string" ? signup.json.message : signup.text;
+        const code = responseCode(signup);
+        const message = responseMessage(signup);
         if (code === "SIGNUP_DISABLED") {
           throw new Error("Public signup is disabled for this environment. Use an existing tenant ID or bootstrap key flow.");
         }
-        throw new Error(`public signup failed (${signup.res.status}): ${message || "unknown error"}`);
+        if (signup.res.status === 403 && code === "FORBIDDEN") {
+          throw new Error(
+            "Public signup is unavailable on this base URL. Retry with --tenant-id <existing_tenant>, or in `settld setup` choose `Generate during setup` and provide an onboarding bootstrap API key."
+          );
+        }
+        throw new Error(`public signup failed (${signup.res.status}): ${message}`);
       }
       tenantId = String(signup.json?.tenantId ?? "").trim();
       if (!tenantId) throw new Error("public signup response missing tenantId");
+      otpAlreadyIssued = Boolean(signup.json?.otpIssued);
       if (interactive) stdout.write(`Created tenant: ${tenantId}\n`);
-    } else {
-      const otpRequest = await requestJson(`${baseUrl}/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/otp`, {
-        method: "POST",
-        body: { email: state.email },
-        fetchImpl
-      });
-      if (!otpRequest.res.ok) {
-        const message = typeof otpRequest.json?.message === "string" ? otpRequest.json.message : otpRequest.text;
-        throw new Error(`otp request failed (${otpRequest.res.status}): ${message || "unknown error"}`);
-      }
     }
+    if (!otpAlreadyIssued) await requestTenantOtp(tenantId);
 
     if (!state.otp && interactive) {
       state.otp = await promptLine(rl, "OTP code", { required: true });
@@ -246,8 +274,8 @@ export async function runLogin({
       fetchImpl
     });
     if (!login.res.ok) {
-      const message = typeof login.json?.message === "string" ? login.json.message : login.text;
-      throw new Error(`login failed (${login.res.status}): ${message || "unknown error"}`);
+      const message = responseMessage(login);
+      throw new Error(`login failed (${login.res.status}): ${message}`);
     }
     const setCookie = login.res.headers.get("set-cookie") ?? "";
     const cookie = cookieHeaderFromSetCookie(setCookie);
