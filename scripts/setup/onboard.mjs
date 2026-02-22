@@ -1453,6 +1453,12 @@ export async function runOnboard({
       lines.push(`Settld: ${normalizedBaseUrl} (tenant=${tenantId})`);
       lines.push(`Wallet mode: ${config.walletMode}`);
       lines.push(`Wallet bootstrap mode: ${walletBootstrapMode}`);
+      if (config.walletMode !== "none") {
+        lines.push("Wallet next steps:");
+        lines.push("- settld wallet status");
+        lines.push("- settld wallet fund --method transfer");
+        lines.push("- settld wallet balance --watch --min-usdc 1");
+      }
       if (args.outEnv) lines.push(`Wrote env file: ${args.outEnv}`);
       if (args.reportPath) lines.push(`Wrote report: ${args.reportPath}`);
       lines.push("");
@@ -1555,6 +1561,14 @@ export async function runOnboard({
     let step = 1;
     for (const row of buildHostNextSteps({ host: config.host, installedHosts: config.installedHosts })) {
       lines.push(`${step}. ${row}`);
+      step += 1;
+    }
+    if (config.walletMode !== "none") {
+      lines.push(`${step}. Run \`settld wallet status\` to confirm wallet wiring.`);
+      step += 1;
+      lines.push(`${step}. Fund with \`settld wallet fund --method transfer\` (or \`--method card --open\` if hosted links are configured).`);
+      step += 1;
+      lines.push(`${step}. Confirm funds: \`settld wallet balance --watch --min-usdc 1\`.`);
       step += 1;
     }
     lines.push(`${step}. Run \`npm run mcp:probe\` for an immediate health check.`);

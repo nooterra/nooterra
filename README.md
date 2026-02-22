@@ -86,6 +86,27 @@ npm install -g settld
 settld setup
 ```
 
+Check wallet wiring and funding path:
+
+```sh
+settld wallet status
+settld wallet fund --open
+settld wallet fund --method transfer
+settld wallet balance --watch --min-usdc 1
+```
+
+Hosted top-up (recommended): configure Coinbase Hosted Onramp on the backend so `settld wallet fund --open` launches funding directly:
+
+```sh
+export MAGIC_LINK_WALLET_FUND_PROVIDER='coinbase'
+export MAGIC_LINK_COINBASE_API_KEY_VALUE='organizations/<org_id>/apiKeys/<key_id>'
+export MAGIC_LINK_COINBASE_API_SECRET_KEY='-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----'
+export MAGIC_LINK_COINBASE_PROJECT_ID='<project_id>'
+export MAGIC_LINK_COINBASE_DESTINATION_NETWORK='base'
+export MAGIC_LINK_COINBASE_ASSET='USDC'
+export MAGIC_LINK_COINBASE_FIAT_CURRENCY='USD'
+```
+
 Legacy setup wizard (advanced / old flags):
 
 ```sh

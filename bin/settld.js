@@ -22,6 +22,15 @@ function usage() {
   console.error("  settld closepack export --agreement-hash <sha256> --out <path.zip> [--ops-token tok_ops] [--base-url http://127.0.0.1:3000] [--tenant-id tenant_default] [--protocol 1.0]");
   console.error("  settld closepack verify <path.zip> [--json-out <path.json>]");
   console.error("  settld x402 receipt verify <receipt.json|-> [--strict] [--format json|text] [--json-out <path>]");
+  console.error(
+    "  settld wallet status [--base-url <url>] [--tenant-id <id>] [--session-file <path>] [--cookie <cookie>] [--magic-link-api-key <key>] [--format text|json] [--json-out <path>]"
+  );
+  console.error(
+    "  settld wallet fund [--method card|bank|transfer|faucet] [--open] [--hosted-url <url>] [--non-interactive] [--base-url <url>] [--tenant-id <id>] [--session-file <path>] [--cookie <cookie>] [--magic-link-api-key <key>] [--format text|json] [--json-out <path>]"
+  );
+  console.error(
+    "  settld wallet balance [--watch] [--min-usdc <amount>] [--interval-seconds <n>] [--timeout-seconds <n>] [--base-url <url>] [--tenant-id <id>] [--session-file <path>] [--cookie <cookie>] [--magic-link-api-key <key>] [--format text|json] [--json-out <path>]"
+  );
   console.error("  settld profile list [--format json|text] [--json-out <path>]");
   console.error("  settld profile init <profile-id> [--out <path>] [--force] [--format json|text] [--json-out <path>]");
   console.error(
@@ -269,6 +278,10 @@ function main() {
     // eslint-disable-next-line no-console
     console.error(`unknown x402 subcommand: ${sub}${sub2 ? ` ${sub2}` : ""}`);
     process.exit(1);
+  }
+
+  if (cmd === "wallet") {
+    return runNodeScript("scripts/wallet/cli.mjs", argv.slice(1));
   }
 
   if (cmd === "profile") {

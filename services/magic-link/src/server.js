@@ -96,6 +96,8 @@ import {
   startWebhookRetryWorker,
   webhookRetryQueueDepth
 } from "./webhook-retries.js";
+import { buildOnramperHostedUrls } from "../../../src/core/wallet-funding-hosted.js";
+import { buildCoinbaseHostedUrls } from "../../../src/core/wallet-funding-coinbase.js";
 
 function assertNonEmptyString(value, name) {
   if (typeof value !== "string" || value.trim() === "") throw new TypeError(`${name} must be a non-empty string`);
@@ -788,6 +790,82 @@ const billingCheckoutCancelUrlDefault = process.env.MAGIC_LINK_BILLING_CHECKOUT_
 const billingPortalReturnUrlDefault = process.env.MAGIC_LINK_BILLING_PORTAL_RETURN_URL
   ? String(process.env.MAGIC_LINK_BILLING_PORTAL_RETURN_URL).trim()
   : "https://example.invalid/billing";
+const walletFundUrlTemplate = process.env.MAGIC_LINK_WALLET_FUND_URL ? String(process.env.MAGIC_LINK_WALLET_FUND_URL).trim() : "";
+const walletFundCardUrlTemplate = process.env.MAGIC_LINK_WALLET_FUND_CARD_URL
+  ? String(process.env.MAGIC_LINK_WALLET_FUND_CARD_URL).trim()
+  : "";
+const walletFundBankUrlTemplate = process.env.MAGIC_LINK_WALLET_FUND_BANK_URL
+  ? String(process.env.MAGIC_LINK_WALLET_FUND_BANK_URL).trim()
+  : "";
+const walletFundHostedProviderRaw = String(process.env.MAGIC_LINK_WALLET_FUND_PROVIDER ?? "auto").trim().toLowerCase();
+const walletFundHostedProvider = walletFundHostedProviderRaw === "template" || walletFundHostedProviderRaw === "onramper" || walletFundHostedProviderRaw === "coinbase"
+  ? walletFundHostedProviderRaw
+  : "auto";
+const onramperBaseUrl = process.env.MAGIC_LINK_ONRAMPER_BASE_URL
+  ? String(process.env.MAGIC_LINK_ONRAMPER_BASE_URL).trim()
+  : "https://buy.onramper.com";
+const onramperApiKey = process.env.MAGIC_LINK_ONRAMPER_API_KEY
+  ? String(process.env.MAGIC_LINK_ONRAMPER_API_KEY).trim()
+  : "";
+const onramperDefaultFiat = process.env.MAGIC_LINK_ONRAMPER_DEFAULT_FIAT
+  ? String(process.env.MAGIC_LINK_ONRAMPER_DEFAULT_FIAT).trim()
+  : "usd";
+const onramperDefaultCrypto = process.env.MAGIC_LINK_ONRAMPER_DEFAULT_CRYPTO
+  ? String(process.env.MAGIC_LINK_ONRAMPER_DEFAULT_CRYPTO).trim()
+  : "usdc";
+const onramperOnlyCryptos = process.env.MAGIC_LINK_ONRAMPER_ONLY_CRYPTOS
+  ? String(process.env.MAGIC_LINK_ONRAMPER_ONLY_CRYPTOS).trim()
+  : "";
+const onramperOnlyCryptoNetworks = process.env.MAGIC_LINK_ONRAMPER_ONLY_CRYPTO_NETWORKS
+  ? String(process.env.MAGIC_LINK_ONRAMPER_ONLY_CRYPTO_NETWORKS).trim()
+  : "";
+const onramperNetworkId = process.env.MAGIC_LINK_ONRAMPER_NETWORK_ID
+  ? String(process.env.MAGIC_LINK_ONRAMPER_NETWORK_ID).trim()
+  : "";
+const onramperSigningSecret = process.env.MAGIC_LINK_ONRAMPER_SIGNING_SECRET
+  ? String(process.env.MAGIC_LINK_ONRAMPER_SIGNING_SECRET).trim()
+  : "";
+const onramperSuccessRedirectUrl = process.env.MAGIC_LINK_ONRAMPER_SUCCESS_REDIRECT_URL
+  ? String(process.env.MAGIC_LINK_ONRAMPER_SUCCESS_REDIRECT_URL).trim()
+  : "";
+const onramperFailureRedirectUrl = process.env.MAGIC_LINK_ONRAMPER_FAILURE_REDIRECT_URL
+  ? String(process.env.MAGIC_LINK_ONRAMPER_FAILURE_REDIRECT_URL).trim()
+  : "";
+const coinbaseOnrampApiKeyIdRaw = process.env.MAGIC_LINK_COINBASE_API_KEY_ID || process.env.MAGIC_LINK_COINBASE_API_KEY_VALUE || "";
+const coinbaseOnrampApiKeyId = coinbaseOnrampApiKeyIdRaw
+  ? String(coinbaseOnrampApiKeyIdRaw).trim()
+  : "";
+const coinbaseOnrampApiSecretRaw = process.env.MAGIC_LINK_COINBASE_API_SECRET || process.env.MAGIC_LINK_COINBASE_API_SECRET_KEY || "";
+const coinbaseOnrampApiSecret = coinbaseOnrampApiSecretRaw
+  ? String(coinbaseOnrampApiSecretRaw).trim()
+  : "";
+const coinbaseOnrampProjectId = process.env.MAGIC_LINK_COINBASE_PROJECT_ID
+  ? String(process.env.MAGIC_LINK_COINBASE_PROJECT_ID).trim()
+  : "";
+const coinbaseOnrampTokenUrl = process.env.MAGIC_LINK_COINBASE_TOKEN_URL
+  ? String(process.env.MAGIC_LINK_COINBASE_TOKEN_URL).trim()
+  : "https://api.developer.coinbase.com/onramp/v1/token";
+const coinbaseOnrampPayUrl = process.env.MAGIC_LINK_COINBASE_PAY_URL
+  ? String(process.env.MAGIC_LINK_COINBASE_PAY_URL).trim()
+  : "https://pay.coinbase.com/buy/select-asset";
+const coinbaseOnrampDestinationNetwork = process.env.MAGIC_LINK_COINBASE_DESTINATION_NETWORK
+  ? String(process.env.MAGIC_LINK_COINBASE_DESTINATION_NETWORK).trim()
+  : "";
+const coinbaseOnrampAsset = process.env.MAGIC_LINK_COINBASE_ASSET
+  ? String(process.env.MAGIC_LINK_COINBASE_ASSET).trim()
+  : "USDC";
+const coinbaseOnrampFiatCurrency = process.env.MAGIC_LINK_COINBASE_FIAT_CURRENCY
+  ? String(process.env.MAGIC_LINK_COINBASE_FIAT_CURRENCY).trim()
+  : "USD";
+const coinbaseOnrampRedirectUrl = process.env.MAGIC_LINK_COINBASE_REDIRECT_URL
+  ? String(process.env.MAGIC_LINK_COINBASE_REDIRECT_URL).trim()
+  : "";
+const coinbaseOnrampCardPaymentMethod = process.env.MAGIC_LINK_COINBASE_CARD_PAYMENT_METHOD
+  ? String(process.env.MAGIC_LINK_COINBASE_CARD_PAYMENT_METHOD).trim()
+  : "";
+const coinbaseOnrampBankPaymentMethod = process.env.MAGIC_LINK_COINBASE_BANK_PAYMENT_METHOD
+  ? String(process.env.MAGIC_LINK_COINBASE_BANK_PAYMENT_METHOD).trim()
+  : "";
 const decisionOtpTtlSeconds = Number.parseInt(String(process.env.MAGIC_LINK_DECISION_OTP_TTL_SECONDS ?? "900"), 10);
 const decisionOtpMaxAttempts = Number.parseInt(String(process.env.MAGIC_LINK_DECISION_OTP_MAX_ATTEMPTS ?? "10"), 10);
 const decisionOtpDeliveryMode = String(process.env.MAGIC_LINK_DECISION_OTP_DELIVERY_MODE ?? "record").trim().toLowerCase();
@@ -4515,6 +4593,7 @@ async function handleTenantCreate(req, res) {
     tenantId,
     onboardingUrl: `/v1/tenants/${tenantId}/onboarding`,
     runtimeBootstrapUrl: `/v1/tenants/${tenantId}/onboarding/runtime-bootstrap`,
+    walletFundingUrl: `/v1/tenants/${tenantId}/onboarding/wallet-funding`,
     integrationsUrl: `/v1/tenants/${tenantId}/integrations`,
     settlementPoliciesUrl: `/v1/tenants/${tenantId}/settlement-policies`,
     metricsUrl: `/v1/tenants/${tenantId}/onboarding-metrics`,
@@ -4597,6 +4676,194 @@ async function handleTenantOnboardingMetrics(req, res, tenantId, url) {
   });
 }
 
+function normalizeWalletFundingMethod(value) {
+  if (value === null || value === undefined || String(value).trim() === "") return null;
+  const method = String(value).trim().toLowerCase();
+  if (method === "card" || method === "bank" || method === "transfer" || method === "faucet") return method;
+  return null;
+}
+
+function renderWalletFundingTemplate(template, context) {
+  const raw = String(template ?? "").trim();
+  if (!raw) return null;
+  const rendered = raw.replace(/\{([a-zA-Z0-9_]+)\}/g, (_match, key) => {
+    const value = context && Object.prototype.hasOwnProperty.call(context, key) ? context[key] : "";
+    return encodeURIComponent(String(value ?? ""));
+  });
+  return normalizeHttpUrl(rendered);
+}
+
+function summarizeWalletBootstrap(walletBootstrap) {
+  const spendWallet = walletBootstrap?.wallets?.spend && typeof walletBootstrap.wallets.spend === "object" ? walletBootstrap.wallets.spend : {};
+  const escrowWallet = walletBootstrap?.wallets?.escrow && typeof walletBootstrap.wallets.escrow === "object" ? walletBootstrap.wallets.escrow : {};
+  return {
+    provider: walletBootstrap?.provider ?? "circle",
+    mode: walletBootstrap?.mode ?? null,
+    baseUrl: walletBootstrap?.baseUrl ?? null,
+    blockchain: walletBootstrap?.blockchain ?? null,
+    tokenIdUsdc: walletBootstrap?.tokenIdUsdc ?? null,
+    wallets: {
+      spend: {
+        walletId: spendWallet?.walletId ?? null,
+        address: spendWallet?.address ?? null
+      },
+      escrow: {
+        walletId: escrowWallet?.walletId ?? null,
+        address: escrowWallet?.address ?? null
+      }
+    },
+    balances: walletBootstrap?.balances ?? null,
+    faucetEnabled: Boolean(walletBootstrap?.faucetEnabled),
+    faucetResults: Array.isArray(walletBootstrap?.faucetResults) ? walletBootstrap.faucetResults : []
+  };
+}
+
+function buildWalletFundingContext({ tenantId, walletBootstrap }) {
+  const wallet = summarizeWalletBootstrap(walletBootstrap);
+  const spend = wallet.wallets?.spend ?? {};
+  const escrow = wallet.wallets?.escrow ?? {};
+  return {
+    tenantId,
+    provider: wallet.provider ?? "circle",
+    blockchain: wallet.blockchain ?? "",
+    token: "USDC",
+    tokenIdUsdc: wallet.tokenIdUsdc ?? "",
+    walletAddress: spend.address ?? "",
+    walletId: spend.walletId ?? "",
+    spendWalletAddress: spend.address ?? "",
+    spendWalletId: spend.walletId ?? "",
+    escrowWalletAddress: escrow.address ?? "",
+    escrowWalletId: escrow.walletId ?? ""
+  };
+}
+
+async function resolveHostedFundingUrls({ tenantId, walletBootstrap, hostedUrlOverride = null, requestedMethod = null, clientIp = null }) {
+  const context = buildWalletFundingContext({ tenantId, walletBootstrap });
+  const cardTemplate = walletFundCardUrlTemplate || walletFundUrlTemplate;
+  const bankTemplate = walletFundBankUrlTemplate || walletFundUrlTemplate;
+  const templateCardUrl = renderWalletFundingTemplate(cardTemplate, context);
+  const templateBankUrl = renderWalletFundingTemplate(bankTemplate, context);
+
+  let cardUrl = null;
+  let bankUrl = null;
+  let provider = null;
+
+  const templatesAvailable = Boolean(templateCardUrl || templateBankUrl);
+  if (walletFundHostedProvider === "template" || (walletFundHostedProvider === "auto" && templatesAvailable)) {
+    cardUrl = templateCardUrl;
+    bankUrl = templateBankUrl;
+    provider = templatesAvailable ? "template" : null;
+  }
+
+  if ((!cardUrl && !bankUrl) && (walletFundHostedProvider === "onramper" || walletFundHostedProvider === "auto")) {
+    const onramper = buildOnramperHostedUrls({
+      requestedMethod,
+      walletAddress: context.walletAddress,
+      blockchain: context.blockchain,
+      config: {
+        apiKey: onramperApiKey,
+        baseUrl: onramperBaseUrl,
+        defaultFiat: onramperDefaultFiat,
+        defaultCrypto: onramperDefaultCrypto,
+        onlyCryptos: onramperOnlyCryptos,
+        onlyCryptoNetworks: onramperOnlyCryptoNetworks,
+        networkId: onramperNetworkId,
+        signingSecret: onramperSigningSecret,
+        successRedirectUrl: onramperSuccessRedirectUrl,
+        failureRedirectUrl: onramperFailureRedirectUrl
+      }
+    });
+    cardUrl = onramper.card;
+    bankUrl = onramper.bank;
+    provider = (cardUrl || bankUrl) ? onramper.provider : provider;
+  }
+
+  if ((!cardUrl && !bankUrl) && (walletFundHostedProvider === "coinbase" || walletFundHostedProvider === "auto")) {
+    const coinbase = await buildCoinbaseHostedUrls({
+      requestedMethod,
+      walletAddress: context.walletAddress,
+      blockchain: context.blockchain,
+      clientIp,
+      config: {
+        apiKeyId: coinbaseOnrampApiKeyId,
+        apiKeySecret: coinbaseOnrampApiSecret,
+        projectId: coinbaseOnrampProjectId,
+        tokenUrl: coinbaseOnrampTokenUrl,
+        payBaseUrl: coinbaseOnrampPayUrl,
+        destinationNetwork: coinbaseOnrampDestinationNetwork,
+        purchaseAsset: coinbaseOnrampAsset,
+        fiatCurrency: coinbaseOnrampFiatCurrency,
+        redirectUrl: coinbaseOnrampRedirectUrl,
+        cardPaymentMethod: coinbaseOnrampCardPaymentMethod,
+        bankPaymentMethod: coinbaseOnrampBankPaymentMethod,
+        partnerUserRef: tenantId
+      },
+      fetchImpl: fetch
+    });
+    cardUrl = coinbase.card;
+    bankUrl = coinbase.bank;
+    provider = (cardUrl || bankUrl) ? coinbase.provider : provider;
+  }
+
+  const override = normalizeHttpUrl(hostedUrlOverride);
+  if (override && requestedMethod === "card") cardUrl = override;
+  if (override && requestedMethod === "bank") bankUrl = override;
+  const preferredMethod = cardUrl ? "card" : bankUrl ? "bank" : null;
+  return {
+    card: cardUrl,
+    bank: bankUrl,
+    preferredMethod,
+    provider
+  };
+}
+
+async function buildWalletFundingOptions({ tenantId, walletBootstrap, hostedUrlOverride = null, requestedMethod = null, clientIp = null }) {
+  const wallet = summarizeWalletBootstrap(walletBootstrap);
+  const hosted = await resolveHostedFundingUrls({
+    tenantId,
+    walletBootstrap,
+    hostedUrlOverride,
+    requestedMethod,
+    clientIp
+  });
+  const transfer = {
+    type: "transfer",
+    method: "transfer",
+    blockchain: wallet.blockchain ?? null,
+    token: "USDC",
+    tokenIdUsdc: wallet.tokenIdUsdc ?? null,
+    walletId: wallet.wallets?.spend?.walletId ?? null,
+    address: wallet.wallets?.spend?.address ?? null
+  };
+  const cardBankAvailable = Boolean(hosted.card || hosted.bank);
+  return {
+    options: [
+      {
+        optionId: "card_bank",
+        label: "Card/Bank top-up",
+        available: cardBankAvailable,
+        provider: hosted.provider ?? null,
+        preferredMethod: hosted.preferredMethod,
+        methods: [hosted.card ? "card" : null, hosted.bank ? "bank" : null].filter(Boolean),
+        urls: {
+          card: hosted.card,
+          bank: hosted.bank
+        }
+      },
+      {
+        optionId: "transfer",
+        label: "USDC transfer",
+        available: Boolean(transfer.address),
+        transfer
+      }
+    ],
+    recommendedOptionId: cardBankAvailable ? "card_bank" : "transfer",
+    preferredHostedMethod: hosted.preferredMethod,
+    transfer,
+    hosted
+  };
+}
+
 async function handleTenantWalletBootstrap(req, res, tenantId) {
   const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
   if (!auth.ok) return;
@@ -4647,6 +4914,7 @@ async function handleTenantWalletBootstrap(req, res, tenantId) {
     const escrowWalletId = typeof circleInput.escrowWalletId === "string" && circleInput.escrowWalletId.trim() ? circleInput.escrowWalletId.trim() : null;
     const tokenIdUsdc = typeof circleInput.tokenIdUsdc === "string" && circleInput.tokenIdUsdc.trim() ? circleInput.tokenIdUsdc.trim() : null;
     const faucet = typeof circleInput.faucet === "boolean" ? circleInput.faucet : null;
+    const includeBalances = typeof circleInput.includeBalances === "boolean" ? circleInput.includeBalances : false;
     const entitySecretHex = typeof circleInput.entitySecretHex === "string" && circleInput.entitySecretHex.trim()
       ? circleInput.entitySecretHex.trim()
       : null;
@@ -4663,6 +4931,7 @@ async function handleTenantWalletBootstrap(req, res, tenantId) {
         escrowWalletId,
         tokenIdUsdc,
         faucet,
+        includeBalances,
         includeApiKey: false,
         entitySecretHex,
         fetchImpl: fetch
@@ -4701,6 +4970,184 @@ async function handleTenantWalletBootstrap(req, res, tenantId) {
       schemaVersion: "MagicLinkWalletBootstrap.v1",
       tenantId,
       walletBootstrap
+    });
+  }
+
+  return sendJson(res, 400, {
+    ok: false,
+    code: "UNSUPPORTED_WALLET_PROVIDER",
+    message: `provider must be one of: ${supportedProviders.join(", ")}`
+  });
+}
+
+async function handleTenantWalletFunding(req, res, tenantId) {
+  const auth = await requireTenantPrincipal(req, res, { tenantId, minBuyerRole: "admin" });
+  if (!auth.ok) return;
+
+  let json = null;
+  try {
+    json = await readJsonBody(req, { maxBytes: 200_000 });
+  } catch (err) {
+    return sendJson(res, 400, { ok: false, code: err?.code ?? "INVALID_REQUEST", message: err?.message ?? "invalid request" });
+  }
+  if (json === null) json = {};
+  if (!isPlainObject(json)) return sendJson(res, 400, { ok: false, code: "INVALID_REQUEST", message: "body must be an object" });
+
+  const provider = typeof json.provider === "string" && json.provider.trim()
+    ? json.provider.trim().toLowerCase()
+    : "circle";
+  const supportedProviders = supportedWalletBootstrapProviders();
+  if (!supportedProviders.includes(provider)) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "UNSUPPORTED_WALLET_PROVIDER",
+      message: `provider must be one of: ${supportedProviders.join(", ")}`
+    });
+  }
+
+  const requestedMethod = normalizeWalletFundingMethod(json.method);
+  if (json.method !== undefined && requestedMethod === null) {
+    return sendJson(res, 400, {
+      ok: false,
+      code: "INVALID_FUNDING_METHOD",
+      message: "method must be one of: card, bank, transfer, faucet"
+    });
+  }
+
+  if (provider === "circle") {
+    const circleApiKey = String(process.env.CIRCLE_API_KEY ?? "").trim();
+    if (!circleApiKey) {
+      return sendJson(res, 503, {
+        ok: false,
+        code: "WALLET_PROVIDER_NOT_CONFIGURED",
+        message: "Circle wallet funding is not configured on this control plane"
+      });
+    }
+    const circleInput = isPlainObject(json.circle) ? json.circle : json;
+    const circleMode = typeof circleInput.mode === "string" && circleInput.mode.trim() ? circleInput.mode.trim().toLowerCase() : "auto";
+    const circleBaseUrl = typeof circleInput.baseUrl === "string" && circleInput.baseUrl.trim()
+      ? circleInput.baseUrl.trim()
+      : typeof process.env.CIRCLE_BASE_URL === "string" && process.env.CIRCLE_BASE_URL.trim()
+        ? process.env.CIRCLE_BASE_URL.trim()
+        : null;
+    const circleBlockchain = typeof circleInput.blockchain === "string" && circleInput.blockchain.trim()
+      ? circleInput.blockchain.trim()
+      : typeof process.env.CIRCLE_BLOCKCHAIN === "string" && process.env.CIRCLE_BLOCKCHAIN.trim()
+        ? process.env.CIRCLE_BLOCKCHAIN.trim()
+        : null;
+    const spendWalletId = typeof circleInput.spendWalletId === "string" && circleInput.spendWalletId.trim() ? circleInput.spendWalletId.trim() : null;
+    const escrowWalletId = typeof circleInput.escrowWalletId === "string" && circleInput.escrowWalletId.trim() ? circleInput.escrowWalletId.trim() : null;
+    const tokenIdUsdc = typeof circleInput.tokenIdUsdc === "string" && circleInput.tokenIdUsdc.trim() ? circleInput.tokenIdUsdc.trim() : null;
+    const entitySecretHex = typeof circleInput.entitySecretHex === "string" && circleInput.entitySecretHex.trim()
+      ? circleInput.entitySecretHex.trim()
+      : null;
+    const hostedUrlOverride = typeof json.hostedUrl === "string" && json.hostedUrl.trim() ? json.hostedUrl.trim() : null;
+
+    let walletBootstrap = null;
+    try {
+      walletBootstrap = await bootstrapWalletProvider({
+        provider,
+        apiKey: circleApiKey,
+        mode: circleMode,
+        baseUrl: circleBaseUrl,
+        blockchain: circleBlockchain,
+        spendWalletId,
+        escrowWalletId,
+        tokenIdUsdc,
+        faucet: requestedMethod === "faucet",
+        includeBalances: true,
+        includeApiKey: false,
+        entitySecretHex,
+        fetchImpl: fetch
+      });
+    } catch (err) {
+      return sendJson(res, 502, {
+        ok: false,
+        code: "WALLET_FUNDING_PREP_FAILED",
+        message: err?.message ?? "wallet funding preparation failed"
+      });
+    }
+
+    let funding = null;
+    try {
+      funding = await buildWalletFundingOptions({
+        tenantId,
+        walletBootstrap,
+        hostedUrlOverride,
+        requestedMethod,
+        clientIp: req.socket?.remoteAddress ?? null
+      });
+    } catch (err) {
+      return sendJson(res, 502, {
+        ok: false,
+        code: "WALLET_FUNDING_HOSTED_PROVIDER_ERROR",
+        message: err?.message ?? "wallet hosted funding provider failed",
+        detail: err?.detail ?? null
+      });
+    }
+    let session = null;
+
+    if (requestedMethod === "transfer") {
+      session = funding.transfer;
+      if (!session?.address) {
+        return sendJson(res, 409, {
+          ok: false,
+          code: "WALLET_TRANSFER_ADDRESS_MISSING",
+          message: "spend wallet address is missing"
+        });
+      }
+    } else if (requestedMethod === "card" || requestedMethod === "bank") {
+      const targetUrl = requestedMethod === "card" ? funding.hosted.card : funding.hosted.bank;
+      if (!targetUrl) {
+        return sendJson(res, 409, {
+          ok: false,
+          code: "WALLET_FUNDING_METHOD_UNAVAILABLE",
+          message: `hosted ${requestedMethod} funding is not configured`
+        });
+      }
+      session = {
+        type: "hosted",
+        method: requestedMethod,
+        url: targetUrl
+      };
+    } else if (requestedMethod === "faucet") {
+      session = {
+        type: "faucet",
+        method: "faucet",
+        blockchain: walletBootstrap?.blockchain ?? null,
+        results: Array.isArray(walletBootstrap?.faucetResults) ? walletBootstrap.faucetResults : []
+      };
+    }
+
+    try {
+      await appendAuditRecord({
+        dataDir,
+        tenantId,
+        record: {
+          at: nowIso(),
+          action: "TENANT_WALLET_FUNDING_PREPARED",
+          actor: { method: auth.principal?.method ?? null, email: auth.principal?.email ?? null, role: auth.principal?.role ?? null },
+          targetType: "tenant",
+          targetId: tenantId,
+          details: {
+            provider,
+            requestedMethod: requestedMethod ?? null,
+            recommendedOptionId: funding.recommendedOptionId ?? null
+          }
+        }
+      });
+    } catch {
+      // ignore audit write failures for convenience endpoint
+    }
+
+    return sendJson(res, 200, {
+      ok: true,
+      schemaVersion: "MagicLinkWalletFunding.v1",
+      tenantId,
+      wallet: summarizeWalletBootstrap(walletBootstrap),
+      recommendedOptionId: funding.recommendedOptionId,
+      options: funding.options,
+      session
     });
   }
 
@@ -14802,6 +15249,13 @@ export async function magicLinkHandler(req, res) {
     if (tenantWalletBootstrapMatch) {
       const tenantId = tenantWalletBootstrapMatch[1];
       if (method === "POST") return await handleTenantWalletBootstrap(req, res, tenantId);
+      return sendText(res, 405, "method not allowed\n");
+    }
+
+    const tenantWalletFundingMatch = /^\/v1\/tenants\/([a-zA-Z0-9_-]{1,64})\/onboarding\/wallet-funding$/.exec(pathname);
+    if (tenantWalletFundingMatch) {
+      const tenantId = tenantWalletFundingMatch[1];
+      if (method === "POST") return await handleTenantWalletFunding(req, res, tenantId);
       return sendText(res, 405, "method not allowed\n");
     }
 

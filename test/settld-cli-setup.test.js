@@ -207,3 +207,40 @@ test("CLI: settld setup openclaw --help routes to openclaw onboarding helper", a
   assert.deepEqual(helperArgv, ["--help"]);
   assert.doesNotMatch(String(res.stderr), /unknown command: setup/);
 });
+
+test("CLI: settld wallet status routes to wallet helper", async () => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-cli-wallet-"));
+  const binDir = path.join(tmpRoot, "bin");
+  const walletDir = path.join(tmpRoot, "scripts", "wallet");
+  const logPath = path.join(tmpRoot, "wallet-argv.json");
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.mkdir(walletDir, { recursive: true });
+
+  const sourceBinPath = path.resolve(process.cwd(), "bin", "settld.js");
+  const sourceBin = await fs.readFile(sourceBinPath, "utf8");
+  await fs.writeFile(path.join(binDir, "settld.js"), sourceBin, "utf8");
+  await fs.writeFile(path.join(tmpRoot, "SETTLD_VERSION"), "0.0.0-test\n", "utf8");
+
+  await fs.writeFile(
+    path.join(walletDir, "cli.mjs"),
+    [
+      'import fs from "node:fs";',
+      'const logPath = process.env.SETUP_WALLET_LOG;',
+      "if (!logPath) process.exit(2);",
+      "fs.writeFileSync(logPath, JSON.stringify(process.argv.slice(2)));",
+      "process.exit(0);"
+    ].join("\n"),
+    "utf8"
+  );
+
+  const res = spawnSync(process.execPath, [path.join(binDir, "settld.js"), "wallet", "status", "--format", "json"], {
+    cwd: tmpRoot,
+    env: { ...process.env, SETUP_WALLET_LOG: logPath },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  assert.equal(res.status, 0, `wallet route failed\n\nstdout:\n${String(res.stdout)}\n\nstderr:\n${String(res.stderr)}`);
+
+  const helperArgv = JSON.parse(await fs.readFile(logPath, "utf8"));
+  assert.deepEqual(helperArgv, ["status", "--format", "json"]);
+  assert.doesNotMatch(String(res.stderr), /unknown command: wallet/);
+});

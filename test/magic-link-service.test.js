@@ -783,6 +783,26 @@ async function postTenantWalletBootstrap({ tenantId, body = {}, headers = {} } =
   };
 }
 
+async function postTenantWalletFunding({ tenantId, body = {}, headers = {} } = {}) {
+  const buf = Buffer.from(JSON.stringify(body ?? {}), "utf8");
+  const mergedHeaders = {
+    "x-api-key": "test_key",
+    "content-type": "application/json",
+    "content-length": String(buf.length),
+    ...headers
+  };
+  const res = await runReq({
+    method: "POST",
+    url: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/wallet-funding`,
+    headers: mergedHeaders,
+    bodyChunks: [buf]
+  });
+  return {
+    statusCode: res.statusCode,
+    json: res._body().length ? JSON.parse(res._body().toString("utf8")) : null
+  };
+}
+
 async function postTenantRuntimeBootstrapSmokeTest({ tenantId, body = {}, headers = {} } = {}) {
   const buf = Buffer.from(JSON.stringify(body ?? {}), "utf8");
   const mergedHeaders = {
@@ -1281,6 +1301,15 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     MAGIC_LINK_BILLING_STRIPE_WEBHOOK_SECRET: "whsec_mock",
     MAGIC_LINK_BILLING_STRIPE_PRICE_ID_GROWTH: "price_growth_mock",
     MAGIC_LINK_BILLING_STRIPE_PRICE_ID_SCALE: "price_scale_mock",
+    MAGIC_LINK_WALLET_FUND_PROVIDER: "onramper",
+    MAGIC_LINK_ONRAMPER_API_KEY: "onr_test_mock",
+    MAGIC_LINK_ONRAMPER_BASE_URL: "https://buy.onramper.com",
+    MAGIC_LINK_ONRAMPER_DEFAULT_FIAT: "usd",
+    MAGIC_LINK_ONRAMPER_DEFAULT_CRYPTO: "usdc",
+    MAGIC_LINK_ONRAMPER_ONLY_CRYPTOS: "usdc",
+    MAGIC_LINK_ONRAMPER_ONLY_CRYPTO_NETWORKS: "base_sepolia",
+    MAGIC_LINK_ONRAMPER_NETWORK_ID: "base_sepolia",
+    MAGIC_LINK_ONRAMPER_SIGNING_SECRET: "onramper_signing_secret_mock",
     MAGIC_LINK_PUBLIC_SIGNUP_ENABLED: "1",
     MAGIC_LINK_SETTLD_API_BASE_URL: `http://127.0.0.1:${settldOpsPort}`,
     MAGIC_LINK_SETTLD_OPS_TOKEN: "ops_token_magic_link",
@@ -1363,6 +1392,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(created.tenantId, tenantId);
     assert.equal(created.onboardingUrl, `/v1/tenants/${tenantId}/onboarding`);
     assert.equal(created.runtimeBootstrapUrl, `/v1/tenants/${tenantId}/onboarding/runtime-bootstrap`);
+    assert.equal(created.walletFundingUrl, `/v1/tenants/${tenantId}/onboarding/wallet-funding`);
     assert.equal(created.integrationsUrl, `/v1/tenants/${tenantId}/integrations`);
     assert.equal(created.settlementPoliciesUrl, `/v1/tenants/${tenantId}/settlement-policies`);
     assert.equal(created.metricsUrl, `/v1/tenants/${tenantId}/onboarding-metrics`);
@@ -1485,6 +1515,85 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(out.statusCode, 400, JSON.stringify(out.json));
     assert.equal(out.json?.ok, false);
     assert.equal(out.json?.code, "UNSUPPORTED_WALLET_PROVIDER");
+  });
+
+  await t.test("tenant onboarding wallet funding: returns two funding options and transfer details", async () => {
+    const tenantId = "tenant_wallet_funding_options";
+    await createTenant({
+      tenantId,
+      name: "Wallet Funding Options Tenant",
+      contactEmail: "ops+wallet-funding-options@example.com",
+      billingEmail: "billing+wallet-funding-options@example.com"
+    });
+
+    const out = await postTenantWalletFunding({
+      tenantId,
+      body: {
+        provider: "circle",
+        circle: { mode: "sandbox" }
+      }
+    });
+    assert.equal(out.statusCode, 200, JSON.stringify(out.json));
+    assert.equal(out.json?.ok, true);
+    assert.equal(out.json?.schemaVersion, "MagicLinkWalletFunding.v1");
+    assert.equal(out.json?.tenantId, tenantId);
+    assert.equal(out.json?.recommendedOptionId, "card_bank");
+
+    const options = Array.isArray(out.json?.options) ? out.json.options : [];
+    const cardBank = options.find((row) => row?.optionId === "card_bank");
+    const transfer = options.find((row) => row?.optionId === "transfer");
+    assert.ok(cardBank);
+    assert.ok(transfer);
+    assert.equal(cardBank.available, true);
+    assert.equal(cardBank.provider, "onramper");
+    assert.equal(cardBank.preferredMethod, "card");
+    assert.match(String(cardBank?.urls?.card ?? ""), /apiKey=onr_test_mock/);
+    assert.match(String(cardBank?.urls?.card ?? ""), /defaultPaymentMethod=creditcard/);
+    assert.match(String(cardBank?.urls?.card ?? ""), /networkWallets=base_sepolia%3A0x0000000000000000000000000000000000000a11/);
+    assert.match(String(cardBank?.urls?.card ?? ""), /signature=/);
+    assert.equal(transfer.available, true);
+    assert.equal(transfer?.transfer?.method, "transfer");
+    assert.equal(transfer?.transfer?.walletId, "wid_circle_spend_test");
+    assert.equal(transfer?.transfer?.address, "0x0000000000000000000000000000000000000a11");
+  });
+
+  await t.test("tenant onboarding wallet funding: resolves method session for card and transfer", async () => {
+    const tenantId = "tenant_wallet_funding_method_session";
+    await createTenant({
+      tenantId,
+      name: "Wallet Funding Session Tenant",
+      contactEmail: "ops+wallet-funding-session@example.com",
+      billingEmail: "billing+wallet-funding-session@example.com"
+    });
+
+    const card = await postTenantWalletFunding({
+      tenantId,
+      body: {
+        provider: "circle",
+        method: "card",
+        circle: { mode: "sandbox" }
+      }
+    });
+    assert.equal(card.statusCode, 200, JSON.stringify(card.json));
+    assert.equal(card.json?.ok, true);
+    assert.equal(card.json?.session?.type, "hosted");
+    assert.equal(card.json?.session?.method, "card");
+    assert.match(String(card.json?.session?.url ?? ""), /defaultPaymentMethod=creditcard/);
+    assert.match(String(card.json?.session?.url ?? ""), /networkWallets=base_sepolia%3A0x0000000000000000000000000000000000000a11/);
+
+    const transfer = await postTenantWalletFunding({
+      tenantId,
+      body: {
+        provider: "circle",
+        method: "transfer",
+        circle: { mode: "sandbox" }
+      }
+    });
+    assert.equal(transfer.statusCode, 200, JSON.stringify(transfer.json));
+    assert.equal(transfer.json?.ok, true);
+    assert.equal(transfer.json?.session?.type, "transfer");
+    assert.equal(transfer.json?.session?.address, "0x0000000000000000000000000000000000000a11");
+    assert.equal(transfer.json?.session?.token, "USDC");
   });
 
   await t.test("tenant onboarding runtime bootstrap smoke-test: initialize + tools/list", async () => {

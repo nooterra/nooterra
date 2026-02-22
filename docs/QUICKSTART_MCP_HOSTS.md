@@ -169,7 +169,60 @@ Then activate host-side:
 - `cursor`: restart Cursor.
 - `openclaw`: run `openclaw doctor`, ensure OpenClaw onboarding is complete (`openclaw onboard --install-daemon`), then run `openclaw tui`.
 
-## 5) How the agent uses Settld after activation
+## 5) Fund and verify wallet state
+
+Check wallet assignment after setup:
+
+```bash
+settld wallet status
+```
+
+Funding paths:
+
+```bash
+# Guided selector (recommended)
+settld wallet fund --open
+
+# Hosted flow (card/bank) - provider-hosted URL, add --open to launch browser
+settld wallet fund --method card --open
+settld wallet fund --method bank --open
+
+# Direct transfer path (prints chain + destination address)
+settld wallet fund --method transfer
+
+# Sandbox only: request faucet top-up
+settld wallet fund --method faucet
+```
+
+Provider-hosted card/bank links are configured on the control-plane backend.
+
+Option A (recommended): Coinbase Hosted Onramp:
+
+```bash
+export MAGIC_LINK_WALLET_FUND_PROVIDER='coinbase'
+export MAGIC_LINK_COINBASE_API_KEY_VALUE='organizations/<org_id>/apiKeys/<key_id>'
+export MAGIC_LINK_COINBASE_API_SECRET_KEY='-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----'
+export MAGIC_LINK_COINBASE_PROJECT_ID='<project_id>'
+export MAGIC_LINK_COINBASE_DESTINATION_NETWORK='base'
+export MAGIC_LINK_COINBASE_ASSET='USDC'
+export MAGIC_LINK_COINBASE_FIAT_CURRENCY='USD'
+```
+
+Option B: explicit card/bank URLs:
+
+```bash
+# backend env (magic-link service)
+export MAGIC_LINK_WALLET_FUND_CARD_URL='https://pay.example.com/topup?tenant={tenantId}&method=card&address={walletAddress}'
+export MAGIC_LINK_WALLET_FUND_BANK_URL='https://pay.example.com/topup?tenant={tenantId}&method=bank&address={walletAddress}'
+```
+
+After funding, wait until spend wallet has balance:
+
+```bash
+settld wallet balance --watch --min-usdc 1
+```
+
+## 6) How the agent uses Settld after activation
 
 After host activation, the agent interacts with Settld through MCP `settld.*` tools.
 
@@ -200,7 +253,7 @@ Verify first receipt from artifacts:
 settld x402 receipt verify <artifactDir>/x402-receipt.json --json-out /tmp/settld-first-receipt.json
 ```
 
-## 6) Host config helper customization
+## 7) Host config helper customization
 
 Default host configuration logic is in:
 
@@ -214,10 +267,15 @@ settld setup --host-config ./path/to/custom-host-config.mjs
 
 Your helper should provide resolver/setup exports compatible with `scripts/setup/wizard.mjs`.
 
-## 7) Troubleshooting
+## 8) Troubleshooting
 
 - `BYO wallet mode missing required env keys`
   - Provide all required Circle keys in section 3.
+- `auth required: pass --cookie/--magic-link-api-key or run settld login first`
+  - Run `settld login`, then retry `settld wallet status` / `settld wallet fund`.
+- `no hosted funding URL configured for card/bank`
+  - set backend Coinbase env (`MAGIC_LINK_WALLET_FUND_PROVIDER=coinbase`, `MAGIC_LINK_COINBASE_API_KEY_VALUE`, `MAGIC_LINK_COINBASE_API_SECRET_KEY`) or set explicit `MAGIC_LINK_WALLET_FUND_CARD_URL` / `MAGIC_LINK_WALLET_FUND_BANK_URL`.
+  - pass `--hosted-url` for an ad-hoc override.
 - `host config helper missing`
   - Add `scripts/setup/host-config.mjs` or pass `--host-config`.
 - `SETTLD_API_KEY must be a non-empty string`

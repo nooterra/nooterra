@@ -86,6 +86,44 @@ function pickUsdcTokenId(payload) {
   return null;
 }
 
+function pickUsdcBalance(payload, { tokenIdHint = null } = {}) {
+  const root = payload && typeof payload === "object" ? payload : {};
+  const balances =
+    (Array.isArray(root?.data?.tokenBalances) && root.data.tokenBalances) ||
+    (Array.isArray(root?.tokenBalances) && root.tokenBalances) ||
+    [];
+  const normalizedHint = String(tokenIdHint ?? "").trim();
+  const ranked = [];
+  for (const row of balances) {
+    if (!row || typeof row !== "object") continue;
+    const token = row.token && typeof row.token === "object" ? row.token : null;
+    const tokenId = String(token?.id ?? row.tokenId ?? row.id ?? "").trim();
+    const symbol = String(token?.symbol ?? row.symbol ?? "").trim().toUpperCase();
+    const amountRaw = row.amount ?? row.amountUsdc ?? row.balance ?? null;
+    const amountText = amountRaw === null || amountRaw === undefined ? "" : String(amountRaw).trim();
+    if (!amountText) continue;
+    const amount = Number(amountText);
+    if (!Number.isFinite(amount) || amount < 0) continue;
+    const score =
+      normalizedHint && tokenId === normalizedHint
+        ? 3
+        : symbol === "USDC"
+          ? 2
+          : tokenId && normalizedHint && tokenId.toLowerCase().includes("usdc")
+            ? 1
+            : 0;
+    ranked.push({
+      score,
+      tokenId: tokenId || null,
+      symbol: symbol || null,
+      amount,
+      amountText
+    });
+  }
+  ranked.sort((a, b) => b.score - a.score || b.amount - a.amount);
+  return ranked[0] ?? null;
+}
+
 function inferModeFromBaseUrl(baseUrl) {
   const u = normalizeHttpUrl(baseUrl);
   if (!u) return null;
@@ -198,6 +236,27 @@ async function resolveUsdcTokenId({ baseUrl, apiKey, walletIds, fetchImpl = fetc
   return null;
 }
 
+async function resolveWalletUsdcBalance({ baseUrl, apiKey, walletId, tokenIdHint = null, fetchImpl = fetch }) {
+  const out = await callCircle({
+    baseUrl,
+    apiKey,
+    method: "GET",
+    endpoint: `/v1/w3s/wallets/${encodeURIComponent(walletId)}/balances`,
+    fetchImpl
+  });
+  if (out.status < 200 || out.status >= 300) {
+    throw new Error(`wallet balance lookup failed for ${walletId} (HTTP ${out.status})`);
+  }
+  const picked = pickUsdcBalance(out.json, { tokenIdHint });
+  return {
+    walletId,
+    usdcAmount: picked ? picked.amount : null,
+    usdcAmountText: picked ? picked.amountText : null,
+    tokenId: picked?.tokenId ?? null,
+    symbol: picked?.symbol ?? null
+  };
+}
+
 async function requestFaucet({ baseUrl, apiKey, address, blockchain, native, usdc, fetchImpl = fetch }) {
   const out = await callCircle({
     baseUrl,
@@ -229,6 +288,7 @@ export async function bootstrapCircleProvider({
   escrowWalletId = null,
   tokenIdUsdc = null,
   faucet = null,
+  includeBalances = false,
   includeApiKey = false,
   entitySecretHex = null,
   fetchImpl = fetch
@@ -282,6 +342,40 @@ export async function bootstrapCircleProvider({
 
   if (!resolvedTokenIdUsdc) {
     throw new Error("could not discover USDC token id; pass tokenIdUsdc explicitly");
+  }
+
+  let balances = null;
+  if (includeBalances) {
+    try {
+      const [spendBalance, escrowBalance] = await Promise.all([
+        resolveWalletUsdcBalance({
+          baseUrl: detected.baseUrl,
+          apiKey: circleApiKey,
+          walletId: chosen.spendWalletId,
+          tokenIdHint: resolvedTokenIdUsdc,
+          fetchImpl
+        }),
+        resolveWalletUsdcBalance({
+          baseUrl: detected.baseUrl,
+          apiKey: circleApiKey,
+          walletId: chosen.escrowWalletId,
+          tokenIdHint: resolvedTokenIdUsdc,
+          fetchImpl
+        })
+      ]);
+      balances = {
+        asOf: new Date().toISOString(),
+        spend: spendBalance,
+        escrow: escrowBalance
+      };
+    } catch (err) {
+      balances = {
+        asOf: new Date().toISOString(),
+        error: err?.message ?? "balance_lookup_failed",
+        spend: null,
+        escrow: null
+      };
+    }
   }
 
   const faucetEnabled =
@@ -342,6 +436,7 @@ export async function bootstrapCircleProvider({
       escrow: escrowMeta
     },
     tokenIdUsdc: resolvedTokenIdUsdc,
+    balances,
     entitySecretHex: resolvedEntitySecretHex,
     faucetEnabled,
     faucetResults,
