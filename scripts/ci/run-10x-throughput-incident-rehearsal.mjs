@@ -41,6 +41,41 @@ function makePolicyPayload({ policyId, policyVersion, amberReleaseRatePct, descr
   };
 }
 
+function resolveIncidentReportPath(cwd = process.cwd(), env = process.env) {
+  return resolve(
+    cwd,
+    env.THROUGHPUT_INCIDENT_REHEARSAL_REPORT_PATH || "artifacts/throughput/10x-incident-rehearsal-summary.json"
+  );
+}
+
+function toFailureSummary(err) {
+  return {
+    message: err?.message ?? String(err),
+    statusCode: Number.isSafeInteger(err?.statusCode) ? err.statusCode : null,
+    details: err?.details ?? null
+  };
+}
+
+async function writeFailureReport({ reportPath, runConfig = null, error }) {
+  await mkdir(dirname(reportPath), { recursive: true });
+  const report = {
+    schemaVersion: "ThroughputIncidentRehearsalReport.v1",
+    generatedAt: new Date().toISOString(),
+    runConfig,
+    durationMs: 0,
+    checks: [],
+    snapshots: {},
+    failure: toFailureSummary(error),
+    verdict: {
+      ok: false,
+      requiredChecks: 0,
+      passedChecks: 0
+    }
+  };
+  await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n", "utf8");
+  process.stdout.write(`wrote throughput incident rehearsal report: ${reportPath}\n`);
+}
+
 async function main() {
   const startedAt = Date.now();
   const baseUrl = normalizeBaseUrl(process.env.BASE_URL);
@@ -55,10 +90,7 @@ async function main() {
     typeof process.env.SETTLD_PROTOCOL === "string" && process.env.SETTLD_PROTOCOL.trim() !== ""
       ? process.env.SETTLD_PROTOCOL.trim()
       : "1.0";
-  const reportPath = resolve(
-    process.cwd(),
-    process.env.THROUGHPUT_INCIDENT_REHEARSAL_REPORT_PATH || "artifacts/throughput/10x-incident-rehearsal-summary.json"
-  );
+  const reportPath = resolveIncidentReportPath(process.cwd(), process.env);
   const policyId =
     typeof process.env.INCIDENT_REHEARSAL_POLICY_ID === "string" && process.env.INCIDENT_REHEARSAL_POLICY_ID.trim() !== ""
       ? process.env.INCIDENT_REHEARSAL_POLICY_ID.trim()
@@ -320,6 +352,17 @@ async function main() {
 }
 
 main().catch((err) => {
-  process.stderr.write(`${err?.stack || err?.message || String(err)}\n`);
-  process.exit(1);
+  const reportPath = resolveIncidentReportPath(process.cwd(), process.env);
+  writeFailureReport({
+    reportPath,
+    runConfig: null,
+    error: err
+  })
+    .catch((writeErr) => {
+      process.stderr.write(`${writeErr?.stack || writeErr?.message || String(writeErr)}\n`);
+    })
+    .finally(() => {
+      process.stderr.write(`${err?.stack || err?.message || String(err)}\n`);
+      process.exit(1);
+    });
 });

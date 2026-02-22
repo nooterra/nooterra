@@ -15,7 +15,7 @@ For host-specific setup (Claude, Cursor, Codex, OpenClaw), see `docs/QUICKSTART_
 Run guided setup first:
 
 ```bash
-settld setup
+npx -y settld setup
 ```
 
 Then run a smoke probe:
@@ -106,6 +106,23 @@ Artifact bundle includes:
 - `batch-payout-registry.json` (when `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`)
 - `batch-worker-state.json` (when `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`)
 - `batch-settlement.json` (when `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`)
+
+## First verified receipt (keep this artifact)
+
+The demo exports receipts to:
+
+- `<artifactDir>/x402-receipts.export.jsonl`
+- `<artifactDir>/x402-receipts.sample-verification.json`
+
+Convert the first exported receipt row into a standalone JSON file and verify it:
+
+```bash
+jq -c 'first' <artifactDir>/x402-receipts.export.jsonl > /tmp/settld-first-receipt.json
+settld x402 receipt verify /tmp/settld-first-receipt.json --format json --json-out /tmp/settld-first-receipt.verify.json
+```
+
+Keep `/tmp/settld-first-receipt.verify.json` (or check in an equivalent artifact path in CI). This is the deterministic
+proof packet for the first paid action.
 
 ## Authority + Pinning Notes
 

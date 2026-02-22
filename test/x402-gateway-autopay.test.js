@@ -198,6 +198,11 @@ test("x402 gateway: retries with SettldPay token and returns verified response",
   assert.equal(secondJson.ok, true);
   assert.equal(second.headers.get("x-settld-settlement-status"), "released");
   assert.equal(second.headers.get("x-settld-verification-status"), "green");
+  assert.equal(second.headers.get("x-settld-policy-decision"), "allow");
+  assert.match(String(second.headers.get("x-settld-policy-hash") ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(second.headers.get("x-settld-policy-version"), "1");
+  assert.match(String(second.headers.get("x-settld-decision-id") ?? ""), /^dec_/);
+  assert.ok(String(second.headers.get("x-settld-reason-code") ?? "").length > 0);
 
   assert.equal(upstreamRequests.length >= 2, true);
   const paidCall = upstreamRequests.find((row) => row.authorization.toLowerCase().startsWith("settldpay "));
@@ -467,6 +472,11 @@ test("x402 gateway: enforces signed provider quote when provider key is configur
   assert.equal(second.status, 200, await second.text());
   assert.equal(second.headers.get("x-settld-settlement-status"), "released");
   assert.equal(second.headers.get("x-settld-verification-status"), "green");
+  assert.equal(second.headers.get("x-settld-policy-decision"), "allow");
+  assert.match(String(second.headers.get("x-settld-policy-hash") ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(second.headers.get("x-settld-policy-version"), "1");
+  assert.match(String(second.headers.get("x-settld-decision-id") ?? ""), /^dec_/);
+  assert.ok(String(second.headers.get("x-settld-reason-code") ?? "").length > 0);
 });
 
 test("x402 gateway: verifies provider signatures via JWKS URL", async (t) => {
@@ -610,4 +620,9 @@ test("x402 gateway: verifies provider signatures via JWKS URL", async (t) => {
   assert.equal(second.status, 200, await second.text());
   assert.equal(second.headers.get("x-settld-settlement-status"), "released");
   assert.equal(second.headers.get("x-settld-verification-status"), "green");
+  assert.equal(second.headers.get("x-settld-policy-decision"), "allow");
+  assert.match(String(second.headers.get("x-settld-policy-hash") ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(second.headers.get("x-settld-policy-version"), "1");
+  assert.match(String(second.headers.get("x-settld-decision-id") ?? ""), /^dec_/);
+  assert.ok(String(second.headers.get("x-settld-reason-code") ?? "").length > 0);
 });

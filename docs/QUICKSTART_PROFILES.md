@@ -16,6 +16,7 @@ Non-interactive setup (manual mode):
 ```
 
 `settld setup` now also emits `SETTLD_PAID_TOOLS_AGENT_PASSPORT` automatically, so paid MCP tools run with policy-bound passport context without manual JSON editing.
+Add `--smoke` if you want setup to run an immediate MCP probe before moving on.
 
 Bootstrap mode (same flow, runtime key minted by onboarding endpoint):
 
@@ -27,6 +28,14 @@ If you only want runtime env + host wiring (without applying a profile), add:
 
 ```bash
 --skip-profile-apply
+```
+
+To validate payment evidence early, run a paid demo after setup and verify the first exported receipt:
+
+```bash
+npm run demo:mcp-paid-exa
+jq -c 'first' artifacts/mcp-paid-exa/*/x402-receipts.export.jsonl > /tmp/settld-first-receipt.json
+settld x402 receipt verify /tmp/settld-first-receipt.json --format json --json-out /tmp/settld-first-receipt.verify.json
 ```
 
 To verify MCP wiring immediately during setup, add:
@@ -58,9 +67,12 @@ Repo checkout:
 Example output:
 
 ```text
-engineering-spend	engineering	Engineering Spend
-procurement	procurement	Procurement
-data-api-buyer	data	Data API Buyer
+engineering-spend	engineering	Engineering Spend	<profile_fingerprint_sha256>
+procurement	procurement	Procurement	<profile_fingerprint_sha256>
+data-api-buyer	data	Data API Buyer	<profile_fingerprint_sha256>
+support-automation	support	Support Automation	<profile_fingerprint_sha256>
+finance-controls	finance	Finance Controls	<profile_fingerprint_sha256>
+growth-marketing	marketing	Growth Marketing	<profile_fingerprint_sha256>
 ```
 
 ## 2) Initialize a profile
@@ -104,6 +116,8 @@ Example output:
   "schemaVersion": "SettldProfileValidationReport.v1",
   "ok": true,
   "profileId": "engineering-spend",
+  "profileFingerprintVersion": "SettldProfileFingerprint.v1",
+  "profileFingerprint": "<sha256>",
   "errors": [],
   "warnings": []
 }
@@ -134,7 +148,12 @@ Example output:
   "requiredApprovers": 0,
   "approvalsProvided": 0,
   "selectedApprovalTier": "auto",
-  "reasons": []
+  "reasons": [],
+  "reasonCodes": [],
+  "reasonDetails": [],
+  "reasonRegistryVersion": "SettldProfileSimulationReasonRegistry.v1",
+  "profileFingerprintVersion": "SettldProfileFingerprint.v1",
+  "profileFingerprint": "<sha256>"
 }
 ```
 

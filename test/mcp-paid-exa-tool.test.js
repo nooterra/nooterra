@@ -37,7 +37,12 @@ test("mcp paid exa tool: retries x402 via autopay and returns search payload", a
         "content-type": "application/json; charset=utf-8",
         "x-settld-gate-id": gateId,
         "x-settld-settlement-status": "released",
-        "x-settld-verification-status": "green"
+        "x-settld-verification-status": "green",
+        "x-settld-policy-decision": "allow",
+        "x-settld-policy-hash": "a".repeat(64),
+        "x-settld-policy-version": "1",
+        "x-settld-decision-id": "dec_mcp_paid_exa_1",
+        "x-settld-reason-code": "policy_auto_release_green"
       });
       res.end(
         JSON.stringify({
@@ -123,6 +128,11 @@ test("mcp paid exa tool: retries x402 via autopay and returns search payload", a
   assert.equal(payload.result?.response?.provider, "exa-mock");
   assert.equal(payload.result?.response?.query, "dentist chicago");
   assert.equal(payload.result?.headers?.["x-settld-settlement-status"], "released");
+  assert.equal(payload.result?.decision?.policyDecision, "allow");
+  assert.equal(payload.result?.decision?.decisionId, "dec_mcp_paid_exa_1");
+  assert.equal(payload.result?.decision?.policyVersion, 1);
+  assert.equal(payload.result?.decision?.policyHash, "a".repeat(64));
+  assert.equal(payload.result?.decision?.reasonCode, "policy_auto_release_green");
   assert.equal(payload.result?.challenge?.gateId, "gate_exa_paid_1");
   assert.equal(payload.result?.challenge?.policyChallenge?.quoteRequired, null);
   assert.equal(payload.result?.challenge?.policyChallenge?.spendAuthorizationMode, null);

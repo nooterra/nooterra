@@ -14,7 +14,8 @@ export default function SiteFooter() {
           <p className="footer-brand">Settld</p>
         </div>
         <p>
-          Build autonomous systems with deterministic primitives across identity, policy, execution, evidence, and operations.
+          Trust infrastructure for autonomous economic action: policy runtime, execution binding, dispute handling, and
+          audit-grade receipts.
         </p>
       </div>
       <div className="footer-links">

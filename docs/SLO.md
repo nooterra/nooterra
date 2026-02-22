@@ -62,9 +62,70 @@ DLQ backlog is an on-call page. Pending backlog at end-of-run implies workers ar
 
 If the outbox is growing without being drained, the system is not steady-state safe.
 
+## SLO-4: Onboarding first-paid-call runtime (host readiness)
+
+**Objective**
+
+- Across supported hosts in the compatibility matrix, first-paid-call runtime remains within a deterministic p95 bound.
+
+**Metric**
+
+- `onboarding_first_paid_call_runtime_ms_p95_gauge` (fallbacks supported by gate script: `first_paid_call_runtime_ms_p95_gauge`, `first_paid_call_latency_ms_p95_gauge`)
+
+**Threshold**
+
+- `p95 <= 2000ms` (default; configurable via `SLO_ONBOARDING_FIRST_PAID_CALL_P95_MAX_MS`)
+
+## SLO-5: Policy decision runtime (latency + errors)
+
+**Objective**
+
+- Policy decision runtime stays fast and low-error on readiness runs.
+
+**Metrics**
+
+- `policy_decision_latency_ms_p95_gauge` (fallbacks supported by gate script)
+- policy decision totals and error totals (`policy_decisions_total` + `outcome=error`, with supported fallbacks)
+
+**Thresholds**
+
+- `policy decision p95 <= 250ms` (default; configurable via `SLO_POLICY_DECISION_LATENCY_P95_MAX_MS`)
+- `policy decision error rate <= 1%` (default; configurable via `SLO_POLICY_DECISION_ERROR_RATE_MAX_PCT`)
+
+## SLO-6: Host onboarding success rate (clean environment)
+
+**Objective**
+
+- Supported hosts must pass deterministic `settld setup --preflight-only` onboarding checks at or above a configured success rate under isolated HOME paths.
+
+**Metrics**
+
+- `onboarding_host_setup_attempts_total_gauge{host=...}`
+- `onboarding_host_setup_success_total_gauge{host=...}`
+- `onboarding_host_setup_failure_total_gauge{host=...}`
+- `onboarding_host_setup_success_rate_pct_gauge{host=...}`
+
+**Threshold**
+
+- Per-host success rate must be `>= 90%` by default (configurable with `ONBOARDING_HOST_SUCCESS_RATE_MIN_PCT`).
+
+**Why**
+
+Preflight success under clean homes verifies host bootstrap reliability and catches host-specific config drift before production cutover.
+
 ## CI enforcement
 
 - Script: `scripts/slo/check.mjs`
 - Source of truth: `/metrics` snapshot taken after the smoke lifecycle completes.
 - Thresholds are configurable via env (see script header).
-
+- Onboarding/policy readiness gate: `scripts/ci/run-onboarding-policy-slo-gate.mjs`
+- Host matrix input: `artifacts/ops/mcp-host-cert-matrix.json`
+- Output artifact: `artifacts/gates/onboarding-policy-slo-gate.json`
+- Onboarding host success gate: `scripts/ci/run-onboarding-host-success-gate.mjs`
+- Output artifact: `artifacts/gates/onboarding-host-success-gate.json`
+- Metrics output directory: `artifacts/ops/onboarding-host-success/`
+- Deterministic binding: onboarding gates emit `artifactHashScope` + `artifactHash` over canonical report core.
+- Gates are fail-closed when required host checks/metrics are missing or thresholds are breached.
+- CI wiring:
+  - `tests / onboarding_policy_slo_gate` generates matrix + metrics snapshot and runs the onboarding gate.
+  - `tests / onboarding_host_success_gate` runs clean-home preflight onboarding checks per supported host and emits host metrics artifacts.

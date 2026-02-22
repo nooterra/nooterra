@@ -11,6 +11,8 @@ if ! git rev-parse --verify HEAD^ >/dev/null 2>&1; then
 fi
 
 if git diff --quiet HEAD^ HEAD -- \
+  mkdocs/docs/ \
+  mkdocs/ \
   docs/ \
   mkdocs.yml \
   scripts/vercel/ \

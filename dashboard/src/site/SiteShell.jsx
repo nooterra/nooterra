@@ -3,6 +3,8 @@ import Hero from "./components/Hero.jsx";
 import SocialProofStrip from "./components/SocialProofStrip.jsx";
 import KernelNow from "./components/KernelNow.jsx";
 import Vision from "./components/Vision.jsx";
+import Quickstart from "./components/Quickstart.jsx";
+import FaqSection from "./components/FaqSection.jsx";
 import FinalCta from "./components/FinalCta.jsx";
 import SiteFooter from "./components/SiteFooter.jsx";
 
@@ -18,6 +20,8 @@ export default function SiteShell() {
         <SocialProofStrip />
         <KernelNow />
         <Vision />
+        <Quickstart />
+        <FaqSection />
         <FinalCta />
       </main>
       <SiteFooter />

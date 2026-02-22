@@ -20,10 +20,11 @@ Track real host compatibility evidence here. Update on every major host release 
 
 | Host | Host Version | Transport | Status | Last Verified (UTC) | Evidence Link | Notes |
 |---|---|---|---|---|---|---|
-| Claude | TBD | stdio | TBD | TBD | TBD | |
-| Cursor | TBD | stdio | TBD | TBD | TBD | |
-| Codex | TBD | stdio | TBD | TBD | TBD | |
-| OpenClaw | TBD | stdio | TBD | TBD | TBD | |
-| Generic MCP host bootstrap path | local CI smoke | stdio | green | 2026-02-20 | `settld doctor` | Runs the MCP host smoke flow (API + magic-link + runtime bootstrap + `mcp:probe` + `settld.about`) and writes `artifacts/ops/mcp-host-smoke.json`. |
+| Claude | local host-cert matrix harness | stdio | yellow | 2026-02-21 | `npm run test:ci:mcp-host-cert-matrix` | Validates host config write/idempotency for Claude MCP wiring; live interactive paid-tool validation in Claude desktop remains separate. |
+| Cursor | local host-cert matrix harness | stdio | yellow | 2026-02-21 | `npm run test:ci:mcp-host-cert-matrix` | Validates host config write/idempotency for Cursor MCP wiring; live interactive paid-tool validation in Cursor app remains separate. |
+| Codex | local host-cert matrix harness | stdio | yellow | 2026-02-21 | `npm run test:ci:mcp-host-cert-matrix` | Validates host config write/idempotency for Codex MCP wiring; live interactive paid-tool validation in Codex desktop remains separate. |
+| OpenClaw | local host-cert matrix harness | stdio | yellow | 2026-02-21 | `npm run test:ci:mcp-host-cert-matrix` | Validates host config write/idempotency for OpenClaw MCP wiring; live interactive paid-tool validation in OpenClaw app remains separate. |
+| Generic MCP host bootstrap path | local CI smoke | stdio | green | 2026-02-21 | `npm run test:ci:mcp-host-smoke` | Runs the MCP host smoke flow (API + magic-link + runtime bootstrap + MCP initialize/tools/list + `settld.about`) and writes `artifacts/ops/mcp-host-smoke.json`. |
 | Host config write matrix (Codex/Claude/Cursor/OpenClaw) | local CI smoke | config bootstrap | green | 2026-02-21 | `npm run test:ci:mcp-host-cert-matrix` | Verifies `scripts/setup/host-config.mjs` writes valid Settld MCP entries and remains idempotent across all supported hosts. |
-| Generic MCP HTTP client | local repo test harness | HTTP bridge | green | 2026-02-20 | `node --test test/mcp-stdio-spike.test.js test/mcp-http-gateway.test.js test/mcp-paid-exa-tool.test.js test/mcp-paid-weather-tool.test.js test/mcp-paid-llm-tool.test.js test/demo-mcp-paid-exa.test.js` | 9/9 passing in local CI-style run |
+| Generic MCP HTTP client | local repo test harness | HTTP bridge | green | 2026-02-21 | `node --test test/mcp-stdio-spike.test.js test/mcp-paid-exa-tool.test.js test/mcp-paid-weather-tool.test.js test/mcp-paid-llm-tool.test.js test/x402-gateway-autopay.test.js` | 6/6 passing with paid-tool runtime metadata checks and x402 settlement header verification. |
+| MCP paid runtime policy metadata gate | local repo test harness | stdio + x402 gateway | green | 2026-02-21 | `node --test test/mcp-paid-exa-tool.test.js test/mcp-paid-weather-tool.test.js test/mcp-paid-llm-tool.test.js test/x402-gateway-autopay.test.js` | Paid MCP tools now fail-closed if `x-settld-policy-decision`, `x-settld-policy-hash`, `x-settld-decision-id`, settlement, or verification headers are missing. |

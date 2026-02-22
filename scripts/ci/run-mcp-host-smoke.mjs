@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
+import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -96,6 +97,17 @@ async function stopProc(child) {
 }
 
 async function requestJson({ baseUrl, method, route, headers = {}, body = undefined }) {
+  const response = await requestJsonWithResponse({ baseUrl, method, route, headers, body });
+  if (!response.ok) {
+    const details = response.json && typeof response.json === "object" ? response.json : response.raw;
+    const err = new Error(`HTTP ${response.status} ${method} ${route}`);
+    err.details = details;
+    throw err;
+  }
+  return response.json;
+}
+
+async function requestJsonWithResponse({ baseUrl, method, route, headers = {}, body = undefined }) {
   const response = await fetch(`${baseUrl}${route}`, {
     method,
     headers: {
@@ -111,13 +123,36 @@ async function requestJson({ baseUrl, method, route, headers = {}, body = undefi
   } catch {
     json = null;
   }
-  if (!response.ok) {
-    const details = json && typeof json === "object" ? json : raw;
-    const err = new Error(`HTTP ${response.status} ${method} ${route}`);
-    err.details = details;
+  return {
+    ok: response.ok,
+    status: response.status,
+    raw,
+    json
+  };
+}
+
+async function requestJsonExpectError(
+  { baseUrl, method, route, headers = {}, body = undefined },
+  { expectedStatus, expectedCode, label }
+) {
+  const response = await requestJsonWithResponse({ baseUrl, method, route, headers, body });
+  if (response.ok) {
+    const err = new Error(`${label} unexpectedly succeeded`);
+    err.details = response.json ?? response.raw ?? null;
     throw err;
   }
-  return json;
+  if (response.status !== expectedStatus) {
+    const err = new Error(`${label} returned status ${response.status} (expected ${expectedStatus})`);
+    err.details = response.json ?? response.raw ?? null;
+    throw err;
+  }
+  const observedCode = typeof response.json?.code === "string" ? response.json.code : null;
+  if (expectedCode && observedCode !== expectedCode) {
+    const err = new Error(`${label} returned code ${observedCode ?? "null"} (expected ${expectedCode})`);
+    err.details = response.json ?? response.raw ?? null;
+    throw err;
+  }
+  return response;
 }
 
 function runNodeScript(scriptPath, args, { env = process.env } = {}) {
@@ -134,6 +169,77 @@ function runNodeScript(scriptPath, args, { env = process.env } = {}) {
   });
 }
 
+function runNodeScriptCapture(scriptPath, args, { env = process.env, timeoutMs = 30_000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [scriptPath, ...(args ?? [])], {
+      env,
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on("error", reject);
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // ignore
+      }
+      const err = new Error(`${path.basename(scriptPath)} timed out after ${timeoutMs}ms`);
+      err.details = { stdout, stderr };
+      reject(err);
+    }, timeoutMs);
+    timer.unref?.();
+    child.on("exit", (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal, stdout, stderr });
+    });
+  });
+}
+
+function startPolicyBypassProbeServer({ port }) {
+  let requestCount = 0;
+  const server = http.createServer((req, res) => {
+    requestCount += 1;
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (req.method === "GET" && url.pathname === "/weather/current") {
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json");
+      // Deliberately omit x-settld-* headers to prove paid MCP tools fail closed.
+      res.end(JSON.stringify({ ok: true, forecast: "sunny" }));
+      return;
+    }
+    res.statusCode = 404;
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ ok: false, code: "NOT_FOUND" }));
+  });
+
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.removeListener("error", reject);
+      resolve({
+        server,
+        getRequestCount: () => requestCount
+      });
+    });
+  });
+}
+
+function stopServer(server) {
+  if (!server) return Promise.resolve();
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+  });
+}
+
 async function main() {
   const reportPath = path.resolve(process.cwd(), process.env.MCP_HOST_SMOKE_REPORT_PATH || "artifacts/ops/mcp-host-smoke.json");
   const opsToken = randomId("ops");
@@ -145,6 +251,7 @@ async function main() {
   const baseApiUrl = `http://127.0.0.1:${apiPort}`;
   const baseMagicLinkUrl = `http://127.0.0.1:${magicLinkPort}`;
   const dataDir = await mkdtemp(path.join(os.tmpdir(), "settld-ci-mcp-host-smoke-"));
+  let policyBypassProbe = null;
 
   const api = startNodeProc({
     name: "api",
@@ -226,6 +333,51 @@ async function main() {
       throw new Error("runtime bootstrap did not return SETTLD_API_KEY");
     }
     report.checks.push({ id: "runtime_bootstrap", ok: true });
+    if (typeof mcpEnv.SETTLD_BASE_URL !== "string" || !mcpEnv.SETTLD_BASE_URL.trim()) {
+      throw new Error("runtime bootstrap did not return SETTLD_BASE_URL");
+    }
+    if (mcpEnv.SETTLD_TENANT_ID !== tenantId) {
+      throw new Error("runtime bootstrap returned SETTLD_TENANT_ID mismatch");
+    }
+    const mcpConfigEnv = runtimeBootstrap?.mcpConfigJson?.mcpServers?.settld?.env ?? null;
+    if (!mcpConfigEnv || typeof mcpConfigEnv !== "object") {
+      throw new Error("runtime bootstrap did not return mcpConfigJson.mcpServers.settld.env");
+    }
+    const requiredRuntimeKeys = ["SETTLD_BASE_URL", "SETTLD_TENANT_ID", "SETTLD_API_KEY"];
+    for (const key of requiredRuntimeKeys) {
+      if (typeof mcpConfigEnv[key] !== "string" || !mcpConfigEnv[key].trim()) {
+        throw new Error(`runtime bootstrap mcpConfigJson missing ${key}`);
+      }
+      if (mcpConfigEnv[key] !== mcpEnv[key]) {
+        throw new Error(`runtime bootstrap mcpConfigJson env mismatch for ${key}`);
+      }
+    }
+    report.checks.push({ id: "runtime_bootstrap_metadata_projection", ok: true, requiredRuntimeKeys });
+
+    const mismatchTenantEnv = {
+      ...mcpEnv,
+      SETTLD_TENANT_ID: `${tenantId}_mismatch`
+    };
+    const mismatchResponse = await requestJsonExpectError(
+      {
+        baseUrl: baseMagicLinkUrl,
+        method: "POST",
+        route: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/runtime-bootstrap/smoke-test`,
+        headers: { "x-api-key": magicLinkApiKey },
+        body: { env: mismatchTenantEnv }
+      },
+      {
+        expectedStatus: 400,
+        expectedCode: "ENV_INVALID",
+        label: "runtime bootstrap smoke test tenant mismatch"
+      }
+    );
+    report.checks.push({
+      id: "runtime_smoke_test_rejects_tenant_mismatch",
+      ok: true,
+      status: mismatchResponse.status,
+      code: mismatchResponse.json?.code ?? null
+    });
 
     await requestJson({
       baseUrl: baseMagicLinkUrl,
@@ -242,6 +394,51 @@ async function main() {
     });
     report.checks.push({ id: "mcp_initialize_tools_list", ok: true });
     report.checks.push({ id: "mcp_tool_call_settld_about", ok: true });
+
+    const paidToolsPort = await pickPort();
+    policyBypassProbe = await startPolicyBypassProbeServer({ port: paidToolsPort });
+    const paidToolProbe = await runNodeScriptCapture(
+      "scripts/mcp/probe.mjs",
+      ["--call", "settld.weather_current_paid", '{"city":"Austin","unit":"f"}'],
+      {
+        env: {
+          ...process.env,
+          ...mcpEnv,
+          SETTLD_PAID_TOOLS_BASE_URL: `http://127.0.0.1:${paidToolsPort}`,
+          MCP_PROBE_TIMEOUT_MS: "30000"
+        },
+        timeoutMs: 45_000
+      }
+    );
+    if (paidToolProbe.code !== 0) {
+      const err = new Error("paid tool policy-metadata probe failed unexpectedly");
+      err.details = {
+        code: paidToolProbe.code,
+        signal: paidToolProbe.signal,
+        stderr: paidToolProbe.stderr
+      };
+      throw err;
+    }
+    const sawProbeRequest = policyBypassProbe.getRequestCount() > 0;
+    const sawToolError = paidToolProbe.stdout.includes('"isError": true');
+    const sawPolicyMetadataError = paidToolProbe.stdout.includes(
+      "settld.weather_current_paid response missing settld policy runtime metadata"
+    );
+    if (!sawProbeRequest || !sawToolError || !sawPolicyMetadataError) {
+      const err = new Error("paid MCP tool did not fail closed when policy runtime metadata was absent");
+      err.details = {
+        sawProbeRequest,
+        sawToolError,
+        sawPolicyMetadataError
+      };
+      throw err;
+    }
+    report.checks.push({
+      id: "mcp_paid_tool_runtime_policy_metadata_fail_closed",
+      ok: true,
+      requestCount: policyBypassProbe.getRequestCount(),
+      expectedError: "settld.weather_current_paid response missing settld policy runtime metadata"
+    });
 
     report.ok = true;
 
@@ -263,6 +460,7 @@ async function main() {
     await mkdir(path.dirname(reportPath), { recursive: true });
     await writeFile(reportPath, JSON.stringify(report, null, 2) + "\n", "utf8");
     process.stdout.write(`wrote mcp host smoke report: ${reportPath}\n`);
+    await stopServer(policyBypassProbe?.server);
     await stopProc(magicLink.child);
     await stopProc(api.child);
     await rm(dataDir, { recursive: true, force: true });

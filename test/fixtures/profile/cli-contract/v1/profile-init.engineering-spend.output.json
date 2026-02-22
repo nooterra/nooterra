@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "command": "init",
+  "profileId": "engineering-spend",
+  "outPath": "__PROFILE_PATH__",
+  "profileFingerprintVersion": "SettldProfileFingerprint.v1",
+  "profileFingerprint": "863affd4af9dd54bb993f8035580cf960e26fc3336af108a17c528b685d7246d"
+}

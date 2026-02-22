@@ -1,117 +1,103 @@
 # Quickstart
 
-Get from zero to a verified Kernel v0 flow in minutes.
+Get from zero to a verified paid agent action in minutes.
 
 ## Prerequisites
 
 - Node.js 20+
-- Docker Desktop / Docker Engine running
-- `jq` installed (recommended for local checks)
+- Settld API URL
+- Tenant ID
+- Tenant API key (`keyId.secret`)
 
-## 1) Start local stack
+## 0) One-command setup
 
-Installed CLI:
-
-```bash
-npx settld dev up
-```
-
-Repo checkout:
+Run guided setup:
 
 ```bash
-./bin/settld.js dev up
+settld setup
 ```
 
-Expected:
+The guided setup uses arrow-key menus for host/wallet/policy decisions, then asks only the next required fields.
 
-- API healthy on local URL
-- local ops token available (`tok_ops` in default dev path)
-
-## 2) Create a capability template
-
-Installed CLI:
+Non-interactive example:
 
 ```bash
-npx settld init capability my-capability
+settld setup --non-interactive \
+  --host codex \
+  --base-url http://127.0.0.1:3000 \
+  --tenant-id tenant_default \
+  --settld-api-key sk_live_xxx.yyy \
+  --wallet-mode managed \
+  --wallet-bootstrap remote \
+  --profile-id engineering-spend \
+  --smoke \
+  --out-env ./.tmp/settld.env
 ```
 
-Repo checkout:
+What this does:
+
+- configures host MCP wiring
+- sets runtime env and policy passport
+- applies starter profile
+- runs connectivity smoke checks
+
+## 1) Activate your host
+
+If you wrote an env file, load it:
 
 ```bash
-./bin/settld.js init capability my-capability
+source ./.tmp/settld.env
 ```
 
-Then run the generated capability server (follow generated README in the capability folder).
+Then restart your host app (Codex/Claude/Cursor/OpenClaw) so it reloads MCP config.
 
-## 3) Run kernel conformance
-
-Installed CLI:
+## 2) Verify MCP connectivity
 
 ```bash
-npx settld conformance kernel --ops-token tok_ops --json-out /tmp/kernel-report.json
+npm run mcp:probe -- --call settld.about '{}'
 ```
 
-Repo checkout:
+Expected outcome:
+
+- `settld.about` succeeds
+- host can discover `settld.*` tools
+
+## 3) Run first paid call
 
 ```bash
-./bin/settld.js conformance kernel --ops-token tok_ops --json-out /tmp/kernel-report.json
+npm run demo:mcp-paid-exa
 ```
 
-Expected:
+Expected output includes:
 
-- conformance PASS
-- report at `/tmp/kernel-report.json`
+- `PASS artifactDir=...`
+- `gateId=...`
+- `decisionId=...`
+- `settlementReceiptId=...`
 
-## 4) Export and verify a closepack
-
-Use an agreement hash from conformance/test output:
+## 4) Verify first receipt (proof packet)
 
 ```bash
-npx settld closepack export --agreement-hash <agreementHash> --out closepack.zip
-npx settld closepack verify closepack.zip --json-out /tmp/closepack-verify.json
+jq -c 'first' <artifactDir>/x402-receipts.export.jsonl > /tmp/settld-first-receipt.json
+settld x402 receipt verify /tmp/settld-first-receipt.json --format json --json-out /tmp/settld-first-receipt.verify.json
 ```
 
-Expected:
+`/tmp/settld-first-receipt.verify.json` is your deterministic verification artifact for audit/compliance.
 
-- closepack verify passes
-- JSON verification report produced
-
-## 5) Replay-evaluate
+## 5) Optional: policy profile workflows
 
 ```bash
-curl -s "http://127.0.0.1:3000/ops/tool-calls/replay-evaluate?agreementHash=<agreementHash>" \
-  -H "x-proxy-ops-token: tok_ops" | jq .
+settld profile list
+settld profile init engineering-spend --out ./profiles/engineering-spend.profile.json
+settld profile validate ./profiles/engineering-spend.profile.json --format json
+settld profile simulate ./profiles/engineering-spend.profile.json --format json
 ```
-
-Expected: replay comparison fields indicate consistency/match.
-
-## 6) Profiles CLI (optional)
-
-Use the profiles commands to scaffold and test policy profiles used by Trust OS workflows:
-
-```bash
-npx settld profile list
-npx settld profile init engineering-spend --out ./profiles/engineering-spend.profile.json
-npx settld profile validate ./profiles/engineering-spend.profile.json --format json
-npx settld profile simulate ./profiles/engineering-spend.profile.json --format json
-```
-
-For full command examples and sample outputs, see `docs/QUICKSTART_PROFILES.md`.
 
 ## Troubleshooting
 
-### Docker not found
-
-Install/start Docker. Then rerun `dev up`.
-
-### Node engine warning
-
-Use Node 20+.
-
-### Ops token permission error
-
-Use token with at least `ops_read` scope.
-
-### Port conflicts
-
-Stop process on API port (`3000`) or configure alternate local runtime settings.
+- `SETTLD_API_KEY must be a non-empty string`
+  - ensure key is present in setup flags or shell env.
+- `BYO wallet mode missing required env keys`
+  - provide all required Circle keys in `docs/QUICKSTART_MCP_HOSTS.md`.
+- Host cannot find MCP tools
+  - rerun setup, restart host, then rerun `npm run mcp:probe`.

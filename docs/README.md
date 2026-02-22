@@ -14,3 +14,20 @@ For curated public docs, start here:
 - [Guides](./gitbook/guides.md)
 - [Security Model](./gitbook/security-model.md)
 - [FAQ](./gitbook/faq.md)
+
+## Fastest onboarding path
+
+1. Run `settld setup` (or `./bin/settld.js setup`) with your host, tenant, and API key.
+2. Activate your host and run `npm run mcp:probe`.
+3. Run `npm run demo:mcp-paid-exa`.
+4. Verify the first receipt:
+
+```bash
+jq -c 'first' artifacts/mcp-paid-exa/*/x402-receipts.export.jsonl > /tmp/settld-first-receipt.json
+settld x402 receipt verify /tmp/settld-first-receipt.json --format json --json-out /tmp/settld-first-receipt.verify.json
+```
+
+Reference docs:
+
+- `docs/QUICKSTART_MCP_HOSTS.md`
+- `docs/QUICKSTART_MCP.md`

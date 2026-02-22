@@ -1,24 +1,24 @@
-@import url("https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=DM+Sans:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --bg: #f4f1ea;
-  --surface: #fffdf8;
-  --surface-soft: #f9f4ea;
-  --surface-accent: #efe8da;
-  --ink-900: #1b2430;
-  --ink-700: #354152;
-  --ink-500: #657185;
-  --line: #d8d0c1;
-  --line-strong: #b9a98e;
-  --brand-700: #7f2f1f;
-  --brand-500: #a3472f;
-  --brand-300: #cb7a5f;
-  --mint: #275e55;
-  --shadow-soft: 0 18px 45px rgba(60, 44, 21, 0.09);
+  --bg: #071521;
+  --surface: #0d2a3f;
+  --surface-soft: #12354e;
+  --surface-accent: #0f3048;
+  --ink-900: #ecf5ff;
+  --ink-700: #b7cce0;
+  --ink-500: #89a4bc;
+  --line: #2a4d66;
+  --line-strong: #3b6887;
+  --brand-700: #18c2a1;
+  --brand-500: #2fd8b5;
+  --brand-300: #7ff0d5;
+  --mint: #ffbc67;
+  --shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.28);
   --radius-card: 16px;
   --radius-control: 11px;
   --container-max: 1200px;
@@ -39,7 +39,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--ink-900);
-  font-family: "Manrope", "Segoe UI", sans-serif;
+  font-family: "DM Sans", "Segoe UI", sans-serif;
   line-height: 1.55;
   letter-spacing: 0.003em;
 }
@@ -139,13 +139,13 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
   font-weight: 700;
   font-size: 0.94rem;
 }
 
 .brand-mark-core {
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
   font-size: 1.28rem;
   font-weight: 700;
   line-height: 1;
@@ -258,7 +258,7 @@ body {
 .pricing-hero h1,
 .panel h2 {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
   line-height: 1.08;
   letter-spacing: -0.015em;
 }
@@ -328,7 +328,7 @@ body {
 
 .hero-proof-panel h2 {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
   font-size: clamp(1.25rem, 2.2vw, 1.8rem);
 }
 
@@ -347,7 +347,7 @@ body {
   background: #fffdf8;
   padding: 0.58rem 0.68rem;
   color: var(--ink-900);
-  font-family: "JetBrains Mono", monospace;
+  font-family: "IBM Plex Mono", monospace;
   font-size: 0.78rem;
   line-height: 1.4;
 }
@@ -368,7 +368,7 @@ body {
 
 .hero-stat-value {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
   font-size: 1.14rem;
   color: var(--brand-700);
 }
@@ -409,7 +409,7 @@ body {
 
 .page-hero h1 {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
   font-size: clamp(2rem, 5vw, 3.6rem);
   line-height: 1.04;
   letter-spacing: -0.02em;
@@ -453,7 +453,7 @@ body {
 .future-card h3,
 .price-card h3 {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
 }
 
 .pillar-card p,
@@ -480,7 +480,7 @@ body {
   margin: 0 0 0.3rem;
   color: var(--brand-700);
   font-size: 0.73rem;
-  font-family: "JetBrains Mono", monospace;
+  font-family: "IBM Plex Mono", monospace;
   letter-spacing: 0.09em;
 }
 
@@ -502,7 +502,7 @@ body {
 .faq-item summary,
 .footer-brand {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
 }
 
 .tight-list {
@@ -597,7 +597,7 @@ body {
 
 .statement-card h3 {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
 }
 
 .statement-card p {
@@ -722,7 +722,7 @@ body {
 
 .auth-card h1 {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
   font-size: clamp(1.6rem, 4vw, 2.3rem);
   line-height: 1.08;
 }
@@ -824,7 +824,7 @@ body {
 
 .workspace-card h3 {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
 }
 
 .workspace-card p {
@@ -875,7 +875,7 @@ body {
 
 .docs-section-card h2 {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
 }
 
 .docs-section-card p {
@@ -920,7 +920,7 @@ body {
 }
 
 .docs-ref-card strong {
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
 }
 
 .docs-ref-card span {
@@ -970,7 +970,7 @@ body {
 
 .docs-method,
 .docs-path {
-  font-family: "JetBrains Mono", monospace;
+  font-family: "IBM Plex Mono", monospace;
   font-size: 0.78rem;
   color: var(--ink-900);
 }
@@ -1052,7 +1052,7 @@ body {
 .operator-topbar h1,
 .demo-topbar h1 {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
   font-size: clamp(1.45rem, 2.8vw, 2.1rem);
   line-height: 1.08;
   color: #f6f9fc;
@@ -1171,7 +1171,7 @@ body {
 
 .operator-card-head h2 {
   margin: 0;
-  font-family: "Sora", "Segoe UI", sans-serif;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
   font-size: 1.1rem;
   color: #f3f8fc;
 }
@@ -1234,7 +1234,7 @@ body {
 
 .operator-queue-line p {
   margin: 0;
-  font-family: "JetBrains Mono", monospace;
+  font-family: "IBM Plex Mono", monospace;
   font-size: 0.83rem;
   color: #ebf3fa;
 }
@@ -1441,7 +1441,7 @@ body {
   display: block;
   margin-top: 0.34rem;
   color: #eff5fa;
-  font-family: "JetBrains Mono", monospace;
+  font-family: "IBM Plex Mono", monospace;
   font-size: 0.85rem;
 }
 
@@ -1586,4 +1586,459 @@ body {
 
 .animate-slide-in {
   animation: slide-in 0.5s ease-out forwards;
+}
+
+/* ===== Settld Site Revamp ===== */
+.site-root {
+  background:
+    radial-gradient(1200px 700px at -8% -18%, rgba(38, 115, 168, 0.28), transparent 62%),
+    radial-gradient(1000px 600px at 110% 12%, rgba(27, 215, 175, 0.17), transparent 58%),
+    linear-gradient(180deg, #06111c 0%, #071828 38%, #081e30 100%);
+}
+
+.site-bg-texture {
+  background-image:
+    linear-gradient(rgba(132, 188, 230, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(132, 188, 230, 0.08) 1px, transparent 1px);
+  background-size: 44px 44px;
+  opacity: 0.32;
+}
+
+.site-bg-orb {
+  filter: blur(82px);
+  opacity: 0.9;
+}
+
+.site-bg-orb-a {
+  width: 40rem;
+  height: 40rem;
+  background: rgba(39, 115, 196, 0.18);
+  top: -13rem;
+  left: -12rem;
+}
+
+.site-bg-orb-b {
+  width: 34rem;
+  height: 34rem;
+  background: rgba(31, 198, 162, 0.2);
+  right: -11rem;
+  top: 16rem;
+}
+
+.site-nav-wrap {
+  padding: 1rem clamp(1rem, 3vw, 2.4rem);
+  backdrop-filter: blur(12px);
+  background: rgba(4, 15, 25, 0.56);
+  border-bottom: 1px solid rgba(57, 103, 132, 0.35);
+}
+
+.site-nav {
+  border: 1px solid rgba(55, 99, 128, 0.65);
+  background: linear-gradient(150deg, rgba(8, 27, 42, 0.96), rgba(7, 19, 31, 0.92));
+  border-radius: 20px;
+  padding: 0.7rem 0.85rem;
+  box-shadow: 0 18px 35px rgba(0, 0, 0, 0.38);
+}
+
+.brand-mark {
+  gap: 0.16rem;
+}
+
+.brand-mark-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.brand-mark-logo {
+  width: 31px;
+  height: 31px;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.45));
+}
+
+.brand-mark-logo-fallback {
+  border-radius: 9px;
+  background: linear-gradient(135deg, #20c4a3, #4ddfc2);
+  color: #06202f;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+.brand-mark-core {
+  color: #f3f8ff;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.brand-mark-sub {
+  color: #88a4bb;
+  letter-spacing: 0.08em;
+}
+
+.brand-pill {
+  border: 1px solid rgba(86, 201, 176, 0.6);
+  border-radius: 999px;
+  padding: 0.18rem 0.52rem;
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  color: #9af3de;
+  background: rgba(17, 95, 83, 0.35);
+}
+
+.site-links a {
+  color: #a6bfd5;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.44rem 0.78rem;
+}
+
+.site-links a:hover {
+  border-color: rgba(71, 124, 159, 0.75);
+  background: rgba(15, 41, 58, 0.86);
+  color: #e5f2ff;
+}
+
+.section-shell {
+  max-width: 1260px;
+  padding: clamp(2rem, 5vw, 4.5rem) clamp(1rem, 3.2vw, 2.4rem);
+}
+
+.section-shell + .section-shell {
+  padding-top: clamp(0.85rem, 2vw, 1.4rem);
+}
+
+.section-heading h2,
+.page-hero h1,
+.hero-title,
+.panel h2,
+.panel h3,
+.footer-brand,
+.faq-item summary,
+.site-footer a,
+.site-footer p,
+.site-footer .footer-brand,
+h1,
+h2,
+h3 {
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+}
+
+.section-heading h2,
+.page-hero h1 {
+  color: #f1f7ff;
+}
+
+.section-heading p,
+.hero-copy,
+.panel p,
+.cta-copy,
+.site-footer p,
+.faq-item p,
+.tight-list li,
+.docs-section-card p,
+.docs-endpoint-row span {
+  color: #a9c1d6;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.hero-kicker {
+  margin: 0 0 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #79edd2;
+  font-weight: 700;
+  font-size: 0.73rem;
+}
+
+.hero-title {
+  margin: 0;
+  font-size: clamp(2.35rem, 6.9vw, 5.5rem);
+  line-height: 0.97;
+  letter-spacing: -0.04em;
+  max-width: 12ch;
+  color: #f2f8ff;
+}
+
+.hero-copy {
+  margin-top: 1rem;
+  font-size: clamp(1.01rem, 1.8vw, 1.2rem);
+  line-height: 1.65;
+  max-width: 60ch;
+}
+
+.hero-chip-row {
+  margin-top: 1.05rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.hero-proof-card {
+  border: 1px solid rgba(64, 114, 145, 0.72);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 88% 5%, rgba(67, 226, 187, 0.16), transparent 38%),
+    linear-gradient(160deg, rgba(10, 31, 47, 0.95), rgba(8, 23, 35, 0.93));
+  padding: 1.25rem;
+  box-shadow: 0 20px 35px rgba(0, 0, 0, 0.4);
+}
+
+.hero-proof-label {
+  margin: 0;
+  color: #8ec7e8;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.hero-proof-meta {
+  margin-top: 1rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.hero-proof-meta div {
+  border: 1px solid rgba(62, 105, 134, 0.75);
+  border-radius: 12px;
+  padding: 0.6rem;
+  background: rgba(8, 27, 41, 0.75);
+  display: grid;
+  gap: 0.2rem;
+}
+
+.hero-proof-meta span {
+  color: #86a7c0;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+.hero-proof-meta strong {
+  color: #ebf7ff;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.82rem;
+}
+
+.hero-lane {
+  margin-top: 0.9rem;
+  border: 1px solid rgba(59, 103, 132, 0.7);
+  border-radius: 18px;
+  padding: 0.78rem 0.84rem;
+  background: rgba(8, 26, 40, 0.72);
+}
+
+.hero-lane p {
+  margin: 0;
+  color: #9ec0d9;
+  font-size: 0.9rem;
+}
+
+.hero-lane-grid {
+  margin-top: 0.56rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.hero-lane-grid span {
+  border: 1px solid rgba(73, 128, 161, 0.65);
+  border-radius: 10px;
+  padding: 0.45rem 0.5rem;
+  text-align: center;
+  color: #d4e8f8;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: rgba(9, 31, 48, 0.82);
+}
+
+.trust-strip-head {
+  max-width: 72ch;
+  margin-bottom: 0.9rem;
+}
+
+.trust-strip-head h2 {
+  margin: 0;
+  color: #f1f8ff;
+  font-size: clamp(1.6rem, 4vw, 2.8rem);
+  letter-spacing: -0.02em;
+}
+
+.trust-strip-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.trust-strip-card {
+  padding: 1.05rem;
+}
+
+.trust-strip-card h3 {
+  margin: 0;
+  color: #f2f8ff;
+  font-size: 1.2rem;
+}
+
+.trust-strip-card p {
+  margin: 0.56rem 0 0;
+  line-height: 1.65;
+}
+
+.build-path-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 0.85rem;
+}
+
+.build-path-terminal {
+  padding: 1.1rem;
+  border-color: rgba(63, 117, 150, 0.7);
+  background:
+    radial-gradient(circle at 95% 0%, rgba(255, 189, 86, 0.16), transparent 42%),
+    linear-gradient(165deg, rgba(11, 33, 48, 0.95), rgba(8, 26, 39, 0.93));
+}
+
+.build-path-steps {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.build-path-step {
+  padding: 0.9rem;
+  border-color: rgba(64, 115, 147, 0.75);
+  background: rgba(9, 29, 44, 0.86);
+}
+
+.build-path-step p {
+  margin: 0;
+  font-family: "IBM Plex Mono", monospace;
+  color: #79e9cf;
+  font-weight: 700;
+}
+
+.build-path-step h3 {
+  margin: 0.28rem 0 0;
+  color: #edf7ff;
+  font-size: 1.05rem;
+}
+
+.build-path-step span {
+  display: block;
+  margin-top: 0.32rem;
+  color: #9fbad1;
+  line-height: 1.55;
+}
+
+.btn {
+  border-radius: 12px;
+  padding: 0.62rem 1rem;
+  font-weight: 700;
+  font-size: 0.88rem;
+  border: 1px solid transparent;
+}
+
+.btn-solid {
+  background: linear-gradient(135deg, #21c7a5, #40ddb8);
+  color: #062330;
+  box-shadow: 0 12px 28px rgba(21, 194, 158, 0.35);
+}
+
+.btn-ghost {
+  border-color: rgba(63, 109, 138, 0.8);
+  background: rgba(11, 31, 46, 0.72);
+  color: #d7e9f7;
+}
+
+.panel,
+.panel-strong,
+.compact-pill,
+.pillar-card,
+.flow-card,
+.price-card,
+.statement-card,
+.future-card,
+.workspace-card,
+.docs-toc,
+.docs-section-card,
+.docs-ref-card,
+.docs-endpoint-row,
+.faq-item,
+.auth-card {
+  border: 1px solid rgba(50, 93, 122, 0.8);
+  background: linear-gradient(160deg, rgba(12, 33, 48, 0.92), rgba(9, 26, 39, 0.88));
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.26);
+}
+
+.quickstart-grid {
+  grid-template-columns: 1fr 1fr;
+}
+
+.command-list code,
+.mini-code code {
+  border: 1px solid rgba(62, 109, 140, 0.7);
+  background: rgba(7, 23, 35, 0.9);
+  color: #dff2ff;
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.command-list li::marker {
+  color: #78ebcf;
+}
+
+.faq-item summary {
+  color: #ecf6ff;
+}
+
+.final-cta-card {
+  border: 1px solid rgba(62, 109, 140, 0.82);
+  background:
+    radial-gradient(circle at 95% 5%, rgba(80, 220, 188, 0.24), transparent 40%),
+    radial-gradient(circle at 10% 90%, rgba(255, 186, 88, 0.16), transparent 45%),
+    linear-gradient(160deg, rgba(8, 24, 36, 0.95), rgba(7, 19, 30, 0.94));
+  color: #ebf6ff;
+}
+
+.site-footer {
+  border-top: 1px solid rgba(52, 95, 123, 0.75);
+  padding: 2.5rem clamp(1rem, 3vw, 2.2rem) 3rem;
+}
+
+.site-footer a {
+  color: #b8d0e4;
+}
+
+.site-footer a:hover {
+  color: #8ff2da;
+}
+
+@media (max-width: 1140px) {
+  .hero-grid,
+  .build-path-grid,
+  .trust-strip-grid,
+  .quickstart-grid,
+  .hero-lane-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .hero-title {
+    max-width: none;
+  }
+
+  .brand-pill {
+    display: none;
+  }
+
+  .site-nav-cta {
+    grid-template-columns: 1fr;
+  }
 }

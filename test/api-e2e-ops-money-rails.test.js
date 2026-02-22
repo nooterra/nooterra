@@ -4,9 +4,13 @@ import crypto from "node:crypto";
 
 import { createApi } from "../src/api/app.js";
 import { createStore } from "../src/api/store.js";
-import { sha256Hex } from "../src/core/crypto.js";
+import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
+import { signOperatorActionV1 } from "../src/core/operator-action.js";
 import { computeArtifactHash } from "../src/core/artifacts.js";
 import { request } from "./api-test-harness.js";
+
+const OPS_WRITE_HEADERS = { "x-proxy-ops-token": "tok_opsw" };
+let emergencyOperatorActionSeq = 0;
 
 function createMockFetchJsonResponse(status, payload, { headers = {} } = {}) {
   const normalizedHeaders = new Map(
@@ -24,6 +28,39 @@ function createMockFetchJsonResponse(status, payload, { headers = {} } = {}) {
       return JSON.stringify(payload ?? null);
     }
   };
+}
+
+async function registerEmergencyOperatorSigner(api, { description = "money-rail emergency signer" } = {}) {
+  const keypair = createEd25519Keypair();
+  const registered = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      publicKeyPem: keypair.publicKeyPem,
+      purpose: "operator",
+      description
+    }
+  });
+  assert.equal(registered.statusCode, 201, registered.body);
+  return keypair;
+}
+
+function buildSignedEmergencyOperatorAction({ signer, action = "OVERRIDE_DENY", justificationCode = "OPS_EMERGENCY_CONTROL" } = {}) {
+  emergencyOperatorActionSeq += 1;
+  return signOperatorActionV1({
+    action: {
+      actionId: `oa_money_rail_${emergencyOperatorActionSeq}`,
+      caseRef: { kind: "escalation", caseId: `money_rails_emergency_${emergencyOperatorActionSeq}` },
+      action,
+      justificationCode,
+      justification: "money rail emergency test",
+      actor: { operatorId: "op_money_rails_oncall", role: "oncall", tenantId: "tenant_default" },
+      actedAt: new Date().toISOString()
+    },
+    publicKeyPem: signer.publicKeyPem,
+    privateKeyPem: signer.privateKeyPem
+  });
 }
 
 test("API e2e: payout enqueue creates money rail operation and cancel is idempotent", async () => {
@@ -158,6 +195,124 @@ test("API e2e: payout enqueue creates money rail operation and cancel is idempot
   assert.equal(cancelAgain.statusCode, 200);
   assert.equal(cancelAgain.json?.applied, false);
   assert.equal(cancelAgain.json?.operation?.state, "cancelled");
+});
+
+test("API e2e: high-risk money-rail write routes fail closed without finance_write scope", async () => {
+  const api = createApi({
+    opsTokens: ["tok_finw:finance_write", "tok_fin:finance_read"].join(";")
+  });
+  const financeReadHeaders = { "x-proxy-ops-token": "tok_fin" };
+  const financeWriteHeaders = { "x-proxy-ops-token": "tok_finw" };
+
+  const enqueueReadOnly = await request(api, {
+    method: "POST",
+    path: "/ops/payouts/pty_scope_guard/2026-01/enqueue",
+    headers: { ...financeReadHeaders, "x-idempotency-key": "ops_scope_guard_enqueue_read_1" },
+    body: { counterpartyRef: "bank:acct_scope_guard_1" }
+  });
+  assert.equal(enqueueReadOnly.statusCode, 403, enqueueReadOnly.body);
+  assert.equal(enqueueReadOnly.json?.code, "FORBIDDEN");
+
+  const enqueueWithWrite = await request(api, {
+    method: "POST",
+    path: "/ops/payouts/pty_scope_guard/2026-01/enqueue",
+    headers: { ...financeWriteHeaders, "x-idempotency-key": "ops_scope_guard_enqueue_write_1" },
+    body: { counterpartyRef: "bank:acct_scope_guard_1" }
+  });
+  assert.equal(enqueueWithWrite.statusCode, 404, enqueueWithWrite.body);
+  assert.equal(enqueueWithWrite.json?.code, "NOT_FOUND");
+
+  const submitReadOnly = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stub_default/operations/op_scope_guard_missing/submit",
+    headers: { ...financeReadHeaders, "x-idempotency-key": "ops_scope_guard_submit_read_1" },
+    body: {}
+  });
+  assert.equal(submitReadOnly.statusCode, 403, submitReadOnly.body);
+  assert.equal(submitReadOnly.json?.code, "FORBIDDEN");
+
+  const submitWithWrite = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stub_default/operations/op_scope_guard_missing/submit",
+    headers: { ...financeWriteHeaders, "x-idempotency-key": "ops_scope_guard_submit_write_1" },
+    body: {}
+  });
+  assert.equal(submitWithWrite.statusCode, 404, submitWithWrite.body);
+  assert.equal(submitWithWrite.json?.code, "NOT_FOUND");
+
+  const cancelReadOnly = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stub_default/operations/op_scope_guard_missing/cancel",
+    headers: { ...financeReadHeaders, "x-idempotency-key": "ops_scope_guard_cancel_read_1" },
+    body: { reasonCode: "scope_guard" }
+  });
+  assert.equal(cancelReadOnly.statusCode, 403, cancelReadOnly.body);
+  assert.equal(cancelReadOnly.json?.code, "FORBIDDEN");
+
+  const cancelWithWrite = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stub_default/operations/op_scope_guard_missing/cancel",
+    headers: { ...financeWriteHeaders, "x-idempotency-key": "ops_scope_guard_cancel_write_1" },
+    body: { reasonCode: "scope_guard" }
+  });
+  assert.equal(cancelWithWrite.statusCode, 404, cancelWithWrite.body);
+  assert.equal(cancelWithWrite.json?.code, "NOT_FOUND");
+});
+
+test("API e2e: emergency kill-switch blocks finance write routes until resume", async () => {
+  const api = createApi({
+    opsTokens: ["tok_opsw:ops_write", "tok_finw:finance_write", "tok_fin:finance_read"].join(";")
+  });
+  const signer = await registerEmergencyOperatorSigner(api, { description: "money-rails emergency kill-switch signer" });
+
+  const enableKillSwitch = await request(api, {
+    method: "POST",
+    path: "/ops/emergency/kill-switch",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      reasonCode: "OPS_EMERGENCY_KILL_SWITCH",
+      reason: "integration test",
+      operatorAction: buildSignedEmergencyOperatorAction({
+        signer,
+        justificationCode: "OPS_EMERGENCY_KILL_SWITCH"
+      })
+    }
+  });
+  assert.equal(enableKillSwitch.statusCode, 201, enableKillSwitch.body);
+
+  const blockedMonthClose = await request(api, {
+    method: "POST",
+    path: "/ops/month-close",
+    headers: { "x-proxy-ops-token": "tok_finw" },
+    body: { month: "2026-01" }
+  });
+  assert.equal(blockedMonthClose.statusCode, 409, blockedMonthClose.body);
+  assert.equal(blockedMonthClose.json?.code, "EMERGENCY_KILL_SWITCH_ACTIVE");
+
+  const resume = await request(api, {
+    method: "POST",
+    path: "/ops/emergency/resume",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      controlType: "kill-switch",
+      reasonCode: "OPS_EMERGENCY_RESUME",
+      reason: "integration test recovery",
+      operatorAction: buildSignedEmergencyOperatorAction({
+        signer,
+        action: "OVERRIDE_ALLOW",
+        justificationCode: "OPS_EMERGENCY_RESUME"
+      })
+    }
+  });
+  assert.equal(resume.statusCode, 200, resume.body);
+
+  const allowedMonthClose = await request(api, {
+    method: "POST",
+    path: "/ops/month-close",
+    headers: { "x-proxy-ops-token": "tok_finw" },
+    body: { month: "2026-01" }
+  });
+  assert.equal(allowedMonthClose.statusCode, 202, allowedMonthClose.body);
 });
 
 test("API e2e: money rail operations persist across API recreation with shared store", async () => {

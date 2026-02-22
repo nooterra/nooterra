@@ -11,6 +11,12 @@ const REQUIRED_TA_ERROR_CODES = [
   "X402_EXECUTION_INTENT_CONFLICT"
 ];
 
+const REQUIRED_VERIFY_ERROR_CODES = [
+  "X402_REQUEST_BINDING_REQUIRED",
+  "X402_REQUEST_BINDING_EVIDENCE_REQUIRED",
+  "X402_REQUEST_BINDING_EVIDENCE_MISMATCH"
+];
+
 function readX402ErrorCatalog() {
   const file = path.resolve(process.cwd(), "docs/spec/x402-error-codes.v1.txt");
   const raw = fs.readFileSync(file, "utf8");
@@ -29,6 +35,13 @@ test("x402 error catalog publishes TA execution-intent error codes", () => {
   }
 });
 
+test("x402 error catalog publishes verify/runtime binding error codes", () => {
+  const catalog = readX402ErrorCatalog();
+  for (const code of REQUIRED_VERIFY_ERROR_CODES) {
+    assert.ok(catalog.has(code), `missing ${code} in docs/spec/x402-error-codes.v1.txt`);
+  }
+});
+
 test("openapi + sdk expose TA execution-intent error codes for x402 authorize-payment", () => {
   const spec = buildOpenApiSpec();
   const operation = spec?.paths?.["/x402/gate/authorize-payment"]?.post ?? null;
@@ -43,6 +56,24 @@ test("openapi + sdk expose TA execution-intent error codes for x402 authorize-pa
   const dts = fs.readFileSync(path.resolve(process.cwd(), "packages/api-sdk/src/index.d.ts"), "utf8");
   assert.match(dts, /export type X402ExecutionIntentErrorCode\s*=/);
   for (const code of REQUIRED_TA_ERROR_CODES) {
+    assert.match(dts, new RegExp(code));
+  }
+});
+
+test("openapi + sdk expose verify known error codes for x402 verify", () => {
+  const spec = buildOpenApiSpec();
+  const operation = spec?.paths?.["/x402/gate/verify"]?.post ?? null;
+  assert.ok(operation, "missing POST /x402/gate/verify");
+
+  const known409 = operation?.responses?.["409"]?.["x-settld-known-error-codes"] ?? [];
+  assert.ok(Array.isArray(known409), "409 response must expose x-settld-known-error-codes");
+  for (const code of REQUIRED_VERIFY_ERROR_CODES) {
+    assert.ok(known409.includes(code), `OpenAPI 409 known codes missing ${code}`);
+  }
+
+  const dts = fs.readFileSync(path.resolve(process.cwd(), "packages/api-sdk/src/index.d.ts"), "utf8");
+  assert.match(dts, /export type X402GateVerifyErrorCode\s*=/);
+  for (const code of REQUIRED_VERIFY_ERROR_CODES) {
     assert.match(dts, new RegExp(code));
   }
 });

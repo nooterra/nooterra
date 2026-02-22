@@ -35,6 +35,65 @@ function getServerNode(config, host) {
   return null;
 }
 
+function normalizeErrorCode(err) {
+  return typeof err?.code === "string" && err.code.trim() ? err.code.trim() : "ERROR";
+}
+
+async function runFailClosedBypassChecks({ host, configPath, env }) {
+  const checks = [];
+  const scenarios = [
+    {
+      id: "reject_missing_api_key",
+      expectedCode: "MISSING_ENV",
+      expectedMessageIncludes: "SETTLD_API_KEY",
+      buildEnv: () => {
+        const next = { ...env };
+        delete next.SETTLD_API_KEY;
+        return next;
+      }
+    },
+    {
+      id: "reject_invalid_base_url",
+      expectedCode: "INVALID_ENV",
+      expectedMessageIncludes: "SETTLD_BASE_URL must be a valid http(s) URL",
+      buildEnv: () => ({
+        ...env,
+        SETTLD_BASE_URL: "ftp://127.0.0.1:3000"
+      })
+    }
+  ];
+
+  for (const scenario of scenarios) {
+    try {
+      await runHostConfigSetup({
+        host,
+        configPath,
+        dryRun: true,
+        env: scenario.buildEnv()
+      });
+      checks.push({
+        id: scenario.id,
+        ok: false,
+        detail: "host config setup unexpectedly succeeded"
+      });
+    } catch (err) {
+      const observedCode = normalizeErrorCode(err);
+      const observedMessage = err?.message ?? String(err);
+      const matchesCode = observedCode === scenario.expectedCode;
+      const matchesMessage = observedMessage.includes(scenario.expectedMessageIncludes);
+      checks.push({
+        id: scenario.id,
+        ok: matchesCode && matchesMessage,
+        expectedCode: scenario.expectedCode,
+        observedCode,
+        observedMessage
+      });
+    }
+  }
+
+  return checks;
+}
+
 async function certHost({ host, rootDir }) {
   const configPath = path.join(rootDir, `${host}.json`);
   const env = {
@@ -65,6 +124,19 @@ async function certHost({ host, rootDir }) {
   if (!envKeys.includes("SETTLD_BASE_URL") || !envKeys.includes("SETTLD_TENANT_ID") || !envKeys.includes("SETTLD_API_KEY")) {
     throw new Error(`incomplete env projection for host ${host}`);
   }
+  if (second.changed !== false) {
+    throw new Error(`host config setup is not idempotent for host ${host} (second pass changed=true)`);
+  }
+
+  const bypassChecks = await runFailClosedBypassChecks({ host, configPath, env });
+  const bypassFailures = bypassChecks.filter((check) => check.ok !== true);
+  if (bypassFailures.length) {
+    const err = new Error(`host bridge bypass checks failed for host ${host}`);
+    err.details = {
+      bypassChecks
+    };
+    throw err;
+  }
 
   return {
     host,
@@ -73,7 +145,8 @@ async function certHost({ host, rootDir }) {
     keyPath: first.keyPath,
     firstChanged: first.changed,
     secondChanged: second.changed,
-    envKeys
+    envKeys,
+    bypassChecks
   };
 }
 
@@ -99,7 +172,8 @@ async function main() {
         checks.push({
           host,
           ok: false,
-          error: err?.message ?? String(err)
+          error: err?.message ?? String(err),
+          details: err?.details ?? null
         });
       }
     }

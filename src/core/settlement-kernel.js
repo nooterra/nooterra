@@ -207,6 +207,13 @@ function normalizeSettlementBindings(value, name, { allowNull = true } = {}) {
             sponsorWalletRef: normalizeNullableString(value.spendAuthorization.sponsorWalletRef, `${name}.spendAuthorization.sponsorWalletRef`, {
               max: 200
             }),
+            ...(Object.prototype.hasOwnProperty.call(value.spendAuthorization, "policyRef")
+              ? {
+                  policyRef: normalizeNullableString(value.spendAuthorization.policyRef, `${name}.spendAuthorization.policyRef`, {
+                    max: 200
+                  })
+                }
+              : {}),
             agentKeyId: normalizeNullableString(value.spendAuthorization.agentKeyId, `${name}.spendAuthorization.agentKeyId`, { max: 200 }),
             delegationRef: normalizeNullableString(value.spendAuthorization.delegationRef, `${name}.spendAuthorization.delegationRef`, { max: 200 }),
             rootDelegationRef: normalizeNullableString(value.spendAuthorization.rootDelegationRef, `${name}.spendAuthorization.rootDelegationRef`, {
@@ -286,7 +293,10 @@ function normalizeSettlementBindings(value, name, { allowNull = true } = {}) {
               { allowNull: true }
             )
           }
-        : null
+        : null,
+      ...(value.metadata && typeof value.metadata === "object" && !Array.isArray(value.metadata)
+        ? { metadata: normalizeForCanonicalJson(value.metadata, { path: `${name}.metadata` }) }
+        : {})
     },
     { path: "$" }
   );

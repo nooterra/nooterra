@@ -22,6 +22,8 @@ import { buildDisputeOpenEnvelopeV1 } from "../../src/core/dispute-open-envelope
 import { buildAgreementDelegationV1 } from "../../src/core/agreement-delegation.js";
 import { buildToolCallAgreementV1 } from "../../src/core/tool-call-agreement.js";
 import { buildToolCallEvidenceV1 } from "../../src/core/tool-call-evidence.js";
+import { buildPolicyDecisionV1 } from "../../src/core/policy-decision.js";
+import { computeOperatorActionHashV1, signOperatorActionV1 } from "../../src/core/operator-action.js";
 
 function bytes(text) {
   return new TextEncoder().encode(text);
@@ -519,6 +521,70 @@ async function main() {
   });
   const settlementDecisionRecordV2Canonical = canonicalJsonStringify(settlementDecisionRecordV2);
 
+  const policyDecision = buildPolicyDecisionV1({
+    decisionId: "pdec_run_vectors_0001_auto",
+    tenantId,
+    runId: agentRun.runId,
+    settlementId: agentRunSettlement.settlementId,
+    gateId: "gate_vectors_0001",
+    policyInput: {
+      policyId: "policy_vectors_0001",
+      policyVersion: 1
+    },
+    policyHashUsed: "3".repeat(64),
+    verificationMethodHashUsed: "4".repeat(64),
+    policyDecision: {
+      decisionMode: "automatic",
+      verificationStatus: "green",
+      runStatus: "completed",
+      shouldAutoResolve: true,
+      settlementStatus: "released",
+      releaseRatePct: 100,
+      releaseAmountCents: 1250,
+      refundAmountCents: 0,
+      reasonCodes: []
+    },
+    createdAt: "2026-02-01T00:02:00.000Z",
+    signerKeyId: keyId,
+    signerPrivateKeyPem: privateKeyPem
+  });
+  const policyDecisionCanonical = canonicalJsonStringify(policyDecision);
+
+  const operatorActionCore = {
+    schemaVersion: "OperatorAction.v1",
+    actionId: "opact_vectors_0001",
+    caseRef: {
+      kind: "dispute",
+      caseId: "dsp_run_vectors_0001"
+    },
+    action: "OVERRIDE_ALLOW",
+    justificationCode: "OPS_OVERRIDE_APPROVED",
+    justification: "vector override approved",
+    actor: {
+      operatorId: "op_vectors_0001",
+      role: "incident_commander",
+      tenantId,
+      sessionId: "ops_session_vectors_01",
+      metadata: {
+        source: "ops-console",
+        ticketId: "INC-VECTORS-1"
+      }
+    },
+    actedAt: "2026-02-01T00:02:10.000Z",
+    metadata: {
+      severity: "critical",
+      checklist: ["evidence-reviewed", "lead-approved"]
+    }
+  };
+  const operatorAction = signOperatorActionV1({
+    action: operatorActionCore,
+    signedAt: "2026-02-01T00:02:11.000Z",
+    publicKeyPem,
+    privateKeyPem
+  });
+  const operatorActionCanonical = canonicalJsonStringify(operatorAction);
+  const operatorActionCoreCanonical = canonicalJsonStringify(operatorActionCore);
+
   const settlementReceipt = buildSettlementReceipt({
     receiptId: "rcpt_run_vectors_0001_auto",
     tenantId,
@@ -843,6 +909,27 @@ async function main() {
       decisionStatus: settlementDecisionRecordV2.decisionStatus,
       canonicalJson: settlementDecisionRecordV2Canonical,
       sha256: sha256Hex(settlementDecisionRecordV2Canonical)
+    },
+    policyDecision: {
+      schemaVersion: policyDecision.schemaVersion,
+      decisionId: policyDecision.decisionId,
+      policyDecisionHash: policyDecision.policyDecisionHash,
+      evaluationHash: policyDecision.evaluationHash,
+      canonicalJson: policyDecisionCanonical,
+      sha256: sha256Hex(policyDecisionCanonical),
+      signatureKeyId: policyDecision.signature?.signerKeyId ?? null,
+      signature: policyDecision.signature?.signature ?? null
+    },
+    operatorAction: {
+      schemaVersion: operatorAction.schemaVersion,
+      actionId: operatorAction.actionId ?? null,
+      actionHash: operatorAction.signature?.actionHash ?? computeOperatorActionHashV1({ action: operatorActionCore }),
+      canonicalJson: operatorActionCanonical,
+      sha256: sha256Hex(operatorActionCanonical),
+      coreCanonicalJson: operatorActionCoreCanonical,
+      coreSha256: sha256Hex(operatorActionCoreCanonical),
+      signatureKeyId: operatorAction.signature?.keyId ?? null,
+      signature: operatorAction.signature?.signatureBase64 ?? null
     },
     settlementReceipt: {
       schemaVersion: settlementReceipt.schemaVersion,

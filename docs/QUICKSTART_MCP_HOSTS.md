@@ -1,176 +1,226 @@
 # Quickstart: MCP Host Integrations (Codex, Claude, Cursor, OpenClaw)
 
-Use this when you want to connect a host app to Settld MCP quickly.
+This guide is the fastest path to wire Settld into an agent host and confirm a first verified paid action.
 
-For deeper MCP flow details and artifact examples, see `docs/QUICKSTART_MCP.md`.
+Target outcome:
 
-## 0) Prerequisites
+1. Host can call `settld.*` MCP tools.
+2. Wallet mode is configured (`managed`, `byo`, or `none`).
+3. Policy profile is applied.
+4. Smoke call and first paid receipt are green.
 
+For deeper tool-level examples, see `docs/QUICKSTART_MCP.md`.
+
+## 1) Before you run `settld setup`
+
+Required inputs:
+
+- `SETTLD_BASE_URL` (local or hosted API URL)
+- `SETTLD_TENANT_ID`
+- one of:
+  - `SETTLD_API_KEY` (`keyId.secret`), or
+  - `SETTLD_BOOTSTRAP_API_KEY` (onboarding bootstrap key that mints `SETTLD_API_KEY` during setup)
 - Node.js 20+
-- Settld API reachable (`http://127.0.0.1:3000` for local or your hosted API)
-- Tenant API key (`keyId.secret`)
 
-## 1) One-command host setup (recommended)
-
-Each command below does all of this:
-
-- writes Settld MCP config for the selected host
-- sets runtime env values for that host config
-- auto-generates `SETTLD_PAID_TOOLS_AGENT_PASSPORT` for paid tool policy binding
-- applies starter policy profile `engineering-spend`
-- runs a smoke check (`settld.about`)
-
-### Codex
+Recommended non-interactive pattern:
 
 ```bash
-settld setup --yes --mode manual --host codex --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_live_xxx.yyy --profile-id engineering-spend --smoke
+settld setup --non-interactive \
+  --host openclaw \
+  --base-url https://api.settld.work \
+  --tenant-id tenant_default \
+  --settld-api-key 'sk_live_xxx.yyy' \
+  --wallet-mode managed \
+  --wallet-bootstrap remote \
+  --profile-id engineering-spend \
+  --smoke \
+  --out-env ./.tmp/settld-openclaw.env
 ```
 
-### Claude
+If you want setup to generate the tenant API key for you:
 
 ```bash
-settld setup --yes --mode manual --host claude --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_live_xxx.yyy --profile-id engineering-spend --smoke
+settld setup --non-interactive \
+  --host openclaw \
+  --base-url https://api.settld.work \
+  --tenant-id tenant_default \
+  --bootstrap-api-key 'ml_admin_xxx' \
+  --wallet-mode managed \
+  --wallet-bootstrap remote \
+  --profile-id engineering-spend \
+  --smoke
 ```
 
-### Cursor
+If you want validation only (no config writes):
 
 ```bash
-settld setup --yes --mode manual --host cursor --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_live_xxx.yyy --profile-id engineering-spend --smoke
+settld setup --non-interactive \
+  --host openclaw \
+  --base-url https://api.settld.work \
+  --tenant-id tenant_default \
+  --settld-api-key 'sk_live_xxx.yyy' \
+  --wallet-mode none \
+  --preflight-only \
+  --report-path ./.tmp/setup-preflight.json \
+  --format json
 ```
 
-### OpenClaw
+## 2) Host setup flows
+
+Unified setup command:
 
 ```bash
-settld setup --yes --mode manual --host openclaw --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_live_xxx.yyy --profile-id engineering-spend --smoke
+settld setup
 ```
 
-Hosted bootstrap mode (runtime key minted by onboarding endpoint):
+The wizard handles:
+
+- host selection (`codex|claude|cursor|openclaw`)
+- wallet mode selection (`managed|byo|none`)
+- preflight checks (API health, tenant auth, profile baseline, host config path)
+- policy apply + optional smoke
+- interactive menus with arrow keys (Up/Down + Enter) for choice steps
+
+Host-specific non-interactive examples:
 
 ```bash
-settld setup --yes --mode bootstrap --host codex --base-url https://api.settld.work --tenant-id tenant_default --bootstrap-api-key mlk_admin_xxx --bootstrap-key-id sk_runtime --bootstrap-scopes runs:read,runs:write --idempotency-key setup_codex_bootstrap_1
+# Codex
+settld setup --non-interactive --host codex --base-url http://127.0.0.1:3000 --tenant-id tenant_default --settld-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
+
+# Claude
+settld setup --non-interactive --host claude --base-url http://127.0.0.1:3000 --tenant-id tenant_default --settld-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
+
+# Cursor
+settld setup --non-interactive --host cursor --base-url http://127.0.0.1:3000 --tenant-id tenant_default --settld-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
+
+# OpenClaw
+settld setup --non-interactive --host openclaw --base-url http://127.0.0.1:3000 --tenant-id tenant_default --settld-api-key sk_live_xxx.yyy --wallet-mode none --profile-id engineering-spend --smoke
 ```
 
-Common setup flags:
+## 3) Wallet modes: managed vs BYO
 
-- `--skip-profile-apply`: host setup only, no policy apply
-- `--profile-file ./path/to/profile.json`: use your own profile file
-- `--dry-run`: preview file updates only (no writes)
+### Managed (`--wallet-mode managed`)
 
-Sanity check anytime:
+Managed is the default and recommended first path.
+
+`--wallet-bootstrap auto` behavior:
+
+- If `--circle-api-key` (or `CIRCLE_API_KEY`) is present: local Circle bootstrap.
+- If not present: remote onboarding bootstrap (`/v1/tenants/{tenantId}/onboarding/wallet-bootstrap`).
+
+Force the path explicitly when needed:
 
 ```bash
-npm run mcp:probe
+# force remote wallet creation
+settld setup --non-interactive --host openclaw --base-url https://api.settld.work --tenant-id tenant_default --settld-api-key 'sk_live_xxx.yyy' --wallet-mode managed --wallet-bootstrap remote --profile-id engineering-spend --smoke
+
+# force local wallet creation with Circle credentials
+settld setup --non-interactive --host openclaw --base-url https://api.settld.work --tenant-id tenant_default --settld-api-key 'sk_live_xxx.yyy' --wallet-mode managed --wallet-bootstrap local --circle-api-key 'TEST_API_KEY:...' --profile-id engineering-spend --smoke
 ```
 
-## 2) New policy wizard flow
+### BYO (`--wallet-mode byo`)
 
-If you only need a starter policy, keep `--profile-id engineering-spend` in `settld setup` and you are done.
+Provide your own existing wallet values. Required keys:
 
-If you want to build an SLA policy config step by step:
+- `CIRCLE_BASE_URL`
+- `CIRCLE_BLOCKCHAIN`
+- `CIRCLE_WALLET_ID_SPEND`
+- `CIRCLE_WALLET_ID_ESCROW`
+- `CIRCLE_TOKEN_ID_USDC`
+- `CIRCLE_ENTITY_SECRET_HEX`
 
-1. List templates:
+Pass as env or repeated `--wallet-env KEY=VALUE` flags:
 
 ```bash
-npm run trust:wizard -- list --format text
+settld setup --non-interactive \
+  --host openclaw \
+  --base-url https://api.settld.work \
+  --tenant-id tenant_default \
+  --settld-api-key 'sk_live_xxx.yyy' \
+  --wallet-mode byo \
+  --wallet-env CIRCLE_BASE_URL=https://api-sandbox.circle.com \
+  --wallet-env CIRCLE_BLOCKCHAIN=BASE-SEPOLIA \
+  --wallet-env CIRCLE_WALLET_ID_SPEND=wid_spend \
+  --wallet-env CIRCLE_WALLET_ID_ESCROW=wid_escrow \
+  --wallet-env CIRCLE_TOKEN_ID_USDC=token_usdc \
+  --wallet-env CIRCLE_ENTITY_SECRET_HEX=$(openssl rand -hex 32) \
+  --profile-id engineering-spend \
+  --smoke
 ```
 
-2. Preview one template:
+### None (`--wallet-mode none`)
+
+Use this for policy/tooling setup without payment rails yet.
+
+## 4) Activation after setup
+
+`settld setup` writes host MCP config and prints `Combined exports`.
+
+If you used `--out-env`, source it before running tools:
 
 ```bash
-npm run trust:wizard -- show --template delivery_standard_v1 --format text
+source ./.tmp/settld-openclaw.env
 ```
 
-3. Render your policy config file:
+Then activate host-side:
 
-```bash
-npm run trust:wizard -- render --template delivery_standard_v1 --overrides-json '{"metrics":{"targetCompletionMinutes":60}}' --out ./policy.delivery.json --format json
-```
+- `codex`: restart Codex.
+- `claude`: restart Claude Desktop.
+- `cursor`: restart Cursor.
+- `openclaw`: run `openclaw doctor`, ensure OpenClaw onboarding is complete (`openclaw onboard --install-daemon`), then run `openclaw tui`.
 
-4. Validate your overrides:
+## 5) How the agent uses Settld after activation
 
-```bash
-npm run trust:wizard -- validate --template delivery_standard_v1 --overrides-json '{"metrics":{"targetCompletionMinutes":60}}' --format json
-```
+After host activation, the agent interacts with Settld through MCP `settld.*` tools.
 
-## 3) Manual host config fallback
+Typical flow:
 
-If you skip `settld setup`, export env in your shell:
+1. Connectivity check: `settld.about`
+2. Paid action: `settld.exa_search_paid` or `settld.weather_current_paid`
+3. Policy gate + authorization happen server-side in Settld.
+4. Settld records evidence/decision/receipt artifacts.
+5. You can verify receipts offline (`settld x402 receipt verify`).
 
-```bash
-export SETTLD_BASE_URL='http://127.0.0.1:3000'
-export SETTLD_TENANT_ID='tenant_default'
-export SETTLD_API_KEY='sk_live_xxx.yyy'
-export SETTLD_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402'
-export SETTLD_PAID_TOOLS_AGENT_PASSPORT='{"schemaVersion":"X402AgentPassport.v1","sponsorRef":"sponsor_default","sponsorWalletRef":"wallet_engineering-spend","agentKeyId":"sk_live_xxx","policyRef":"engineering-spend","policyVersion":1,"delegationDepth":0}'
-```
-
-Default MCP stdio server definition:
-
-```json
-{
-  "name": "settld",
-  "command": "npx",
-  "args": ["-y", "settld-mcp"],
-  "env": {
-    "SETTLD_BASE_URL": "http://127.0.0.1:3000",
-    "SETTLD_TENANT_ID": "tenant_default",
-    "SETTLD_API_KEY": "sk_live_xxx.yyy",
-    "SETTLD_PAID_TOOLS_BASE_URL": "http://127.0.0.1:8402",
-    "SETTLD_PAID_TOOLS_AGENT_PASSPORT": "{\"schemaVersion\":\"X402AgentPassport.v1\",\"sponsorRef\":\"sponsor_default\",\"sponsorWalletRef\":\"wallet_engineering-spend\",\"agentKeyId\":\"sk_live_xxx\",\"policyRef\":\"engineering-spend\",\"policyVersion\":1,\"delegationDepth\":0}"
-  }
-}
-```
-
-If your host cannot run stdio commands, use HTTP bridge:
-
-```bash
-MCP_HTTP_PORT=8787 npm run mcp:http
-```
-
-Then point the host to:
-
-- MCP endpoint: `http://127.0.0.1:8787/rpc`
-- Health endpoint: `http://127.0.0.1:8787/healthz`
-
-## 4) OpenClaw skill package notes
-
-If you publish Settld for OpenClaw/ClawHub as a skill package, use:
-
-- `docs/integrations/openclaw/settld-mcp-skill/SKILL.md`
-- `docs/integrations/openclaw/settld-mcp-skill/mcp-server.example.json`
-- `docs/integrations/openclaw/CLAWHUB_PUBLISH_CHECKLIST.md`
-
-Local check:
+Quick local smoke:
 
 ```bash
 npm run mcp:probe -- --call settld.about '{}'
 ```
 
-## 5) 5-minute validation checklist
-
-0. Run hosted-style smoke once:
+First paid run + artifacts:
 
 ```bash
-settld doctor
+npm run demo:mcp-paid-exa
 ```
 
-This prints a clear `PASS`/`FAIL` summary and the report path (default: `artifacts/ops/mcp-host-smoke.json`).
+Verify first receipt from artifacts:
 
-1. `npm run mcp:probe` passes locally.
-2. Host discovers `settld.*` tools.
-3. `settld.about` succeeds.
-4. A paid tool call succeeds (`settld.exa_search_paid` or `settld.weather_current_paid`).
-5. Artifact bundle exists from demo runs:
-   - `artifacts/mcp-paid-exa/.../summary.json`
-   - `artifacts/mcp-paid-weather/.../summary.json`
+```bash
+# replace <artifactDir> with the printed directory from demo output
+settld x402 receipt verify <artifactDir>/x402-receipt.json --json-out /tmp/settld-first-receipt.json
+```
 
-## 6) Troubleshooting
+## 6) Host config helper customization
 
+Default host configuration logic is in:
+
+- `scripts/setup/host-config.mjs`
+
+If you need a custom resolver/writer, pass:
+
+```bash
+settld setup --host-config ./path/to/custom-host-config.mjs
+```
+
+Your helper should provide resolver/setup exports compatible with `scripts/setup/wizard.mjs`.
+
+## 7) Troubleshooting
+
+- `BYO wallet mode missing required env keys`
+  - Provide all required Circle keys in section 3.
+- `host config helper missing`
+  - Add `scripts/setup/host-config.mjs` or pass `--host-config`.
 - `SETTLD_API_KEY must be a non-empty string`
-  - API key is missing in host MCP env.
+  - Ensure key is present in shell or setup flags.
 - Host cannot run `npx`
-  - Install Node 20+ and ensure `npx` is in `PATH`, or use HTTP bridge mode.
-- Paid tool call fails with gateway/connectivity errors
-  - Check `SETTLD_PAID_TOOLS_BASE_URL` and confirm the gateway is running.
-- Paid tool call fails with policy/passport validation errors
-  - Re-run `settld setup` so the host MCP config gets a fresh `SETTLD_PAID_TOOLS_AGENT_PASSPORT`.
+  - Install Node.js 20+ and ensure `npx` is in `PATH`.

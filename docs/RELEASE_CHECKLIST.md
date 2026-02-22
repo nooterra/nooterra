@@ -5,6 +5,14 @@ This checklist is the “no surprises” gate for shipping Settld as a product (
 ## Preconditions
 
 - `npm test` is green on main.
+- Main-branch release gate jobs are green in `.github/workflows/tests.yml` for the release commit:
+  - `noo_44_47_48_regressions` (NOO-44/47/48 fail-closed regression lane)
+  - `kernel_v0_ship_gate`
+  - `production_cutover_gate`
+  - `offline_verification_parity_gate` (NOO-50)
+  - `onboarding_host_success_gate`
+- Public package smoke for OpenClaw onboarding is green:
+  - `npm run test:ci:public-openclaw-npx-smoke`
 - `CHANGELOG.md` is updated and accurate.
 - Protocol v1 freeze gate is satisfied (no accidental v1 schema/vector drift).
 - Minimum production topology is defined for the target environment:
@@ -16,6 +24,9 @@ This checklist is the “no surprises” gate for shipping Settld as a product (
   - `SETTLD_STAGING_OPS_TOKEN`
 - npm publish secret is configured for `.github/workflows/release.yml` if you want direct registry distribution:
   - `NPM_TOKEN`
+- Optional launch cutover packet signing inputs are configured for `.github/workflows/go-live-gate.yml` if signed packets are required:
+  - secret: `LAUNCH_CUTOVER_PACKET_SIGNING_PRIVATE_KEY_PEM`
+  - variable: `LAUNCH_CUTOVER_PACKET_SIGNATURE_KEY_ID`
 - PyPI Trusted Publisher is configured for `.github/workflows/release.yml` and the `pypi` GitHub environment is allowed.
 - PyPI Trusted Publisher is configured for `.github/workflows/python-pypi.yml` and the `pypi` GitHub environment is allowed (if using the Python-only lane).
 - TestPyPI Trusted Publisher is configured for `.github/workflows/python-testpypi.yml` and the `testpypi` GitHub environment is allowed.
@@ -31,6 +42,7 @@ For a v1 freeze release, the GitHub Release MUST include:
 - `conformance-v1.tar.gz` + `conformance-v1-SHA256SUMS`
 - `settld-audit-packet-v1.zip` + `settld-audit-packet-v1.zip.sha256`
 - `release_index_v1.json` + `release_index_v1.sig` (signed release manifest)
+- `release-promotion-guard.json` (NOO-65 promotion guard report)
 
 Release-gate evidence should also include:
 
@@ -47,7 +59,11 @@ Release-gate evidence should also include:
 - `artifacts/throughput/10x-drill-summary.json`
 - `artifacts/gates/s13-go-live-gate.json`
 - `artifacts/gates/s13-launch-cutover-packet.json`
+- when signing is configured, packet includes `signature` with `schemaVersion=LaunchCutoverPacketSignature.v1`
 - `artifacts/gates/production-cutover-gate.json`
+- `artifacts/gates/offline-verification-parity-gate.json` (NOO-50)
+- `artifacts/gates/onboarding-host-success-gate.json`
+- `artifacts/gates/release-promotion-guard.json` (NOO-65)
 
 See `docs/spec/SUPPLY_CHAIN.md` for the release-channel threat model and verification posture.
 
@@ -150,6 +166,13 @@ Required gate reports:
 - `artifacts/gates/s13-go-live-gate.json`
 - `artifacts/gates/s13-launch-cutover-packet.json`
 - Live deploy readiness run (manual workflow): `artifacts/gates/production-cutover-gate-prod.json`
+
+Promotion guard order (fail-closed):
+
+1. NOO-50 parity gate report is generated on main (`artifacts/gates/offline-verification-parity-gate.json`).
+2. S13 go-live workflow report set is generated for the same release commit (`s13-go-live-gate.json` + `s13-launch-cutover-packet.json`).
+3. Release workflow binds all required gate artifacts (kernel, production cutover, NOO-50 parity, onboarding host success, S13 go-live, S13 launch packet, hosted baseline evidence) into NOO-65.
+4. Release workflow must emit `artifacts/gates/release-promotion-guard.json` with `verdict.ok=true` before artifact publish jobs execute.
 
 Related runbooks:
 

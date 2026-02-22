@@ -110,6 +110,74 @@ function isSha256Hex(value) {
   return typeof value === "string" && /^[0-9a-f]{64}$/i.test(value.trim());
 }
 
+function collectSettldHeaders(responseHeaders) {
+  const out = {};
+  for (const [k, v] of responseHeaders.entries()) {
+    const key = String(k).toLowerCase();
+    if (key.startsWith("x-settld-")) out[key] = v;
+  }
+  return out;
+}
+
+function parseCsvHeader(value) {
+  if (typeof value !== "string" || value.trim() === "") return [];
+  return value
+    .split(",")
+    .map((row) => row.trim())
+    .filter(Boolean);
+}
+
+function normalizePolicyDecision(value) {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return ["allow", "challenge", "deny", "escalate"].includes(raw) ? raw : null;
+}
+
+function parseSettldDecisionMetadata(headers) {
+  const policyVersionRaw = Number(headers["x-settld-policy-version"] ?? Number.NaN);
+  const reasonCodes = parseCsvHeader(headers["x-settld-verification-codes"]);
+  const reasonCode = typeof headers["x-settld-reason-code"] === "string" && headers["x-settld-reason-code"].trim() !== ""
+    ? headers["x-settld-reason-code"].trim()
+    : reasonCodes[0] ?? null;
+  return {
+    policyDecision: normalizePolicyDecision(headers["x-settld-policy-decision"]),
+    decisionId: typeof headers["x-settld-decision-id"] === "string" && headers["x-settld-decision-id"].trim() !== ""
+      ? headers["x-settld-decision-id"].trim()
+      : null,
+    policyHash:
+      typeof headers["x-settld-policy-hash"] === "string" && /^[0-9a-f]{64}$/i.test(headers["x-settld-policy-hash"].trim())
+        ? headers["x-settld-policy-hash"].trim().toLowerCase()
+        : null,
+    policyVersion: Number.isSafeInteger(policyVersionRaw) && policyVersionRaw > 0 ? policyVersionRaw : null,
+    reasonCode,
+    reasonCodes
+  };
+}
+
+function assertPolicyRuntimeMetadata({ headers, toolName }) {
+  const required = [
+    "x-settld-settlement-status",
+    "x-settld-verification-status",
+    "x-settld-policy-decision",
+    "x-settld-policy-hash",
+    "x-settld-decision-id"
+  ];
+  const missing = required.filter((key) => typeof headers[key] !== "string" || headers[key].trim() === "");
+  if (missing.length > 0) {
+    const err = new Error(`${toolName} response missing settld policy runtime metadata`);
+    err.code = "SETTLD_POLICY_RUNTIME_METADATA_MISSING";
+    err.details = { missingHeaders: missing };
+    throw err;
+  }
+  const metadata = parseSettldDecisionMetadata(headers);
+  if (!metadata.policyDecision) {
+    const err = new Error(`${toolName} returned unsupported x-settld-policy-decision value`);
+    err.code = "SETTLD_POLICY_RUNTIME_DECISION_INVALID";
+    err.details = { policyDecision: headers["x-settld-policy-decision"] ?? null };
+    throw err;
+  }
+  return metadata;
+}
+
 function generateEd25519PublicKeyPem() {
   const { publicKey } = crypto.generateKeyPairSync("ed25519");
   return publicKey.export({ format: "pem", type: "spki" });
@@ -324,10 +392,8 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       throw err;
     }
 
-    const headers = {};
-    for (const [k, v] of res.headers.entries()) {
-      if (k.toLowerCase().startsWith("x-settld-")) headers[k] = v;
-    }
+    const headers = collectSettldHeaders(res.headers);
+    const decision = assertPolicyRuntimeMetadata({ headers, toolName: "settld.exa_search_paid" });
 
     return {
       ok: true,
@@ -335,6 +401,7 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       numResults: normalizedNumResults,
       response: json,
       headers,
+      decision,
       challenge
     };
   }
@@ -384,10 +451,8 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       throw err;
     }
 
-    const headers = {};
-    for (const [k, v] of res.headers.entries()) {
-      if (k.toLowerCase().startsWith("x-settld-")) headers[k] = v;
-    }
+    const headers = collectSettldHeaders(res.headers);
+    const decision = assertPolicyRuntimeMetadata({ headers, toolName: "settld.weather_current_paid" });
 
     return {
       ok: true,
@@ -395,6 +460,7 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       unit: normalizedUnit,
       response: json,
       headers,
+      decision,
       challenge
     };
   }
@@ -446,10 +512,8 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       throw err;
     }
 
-    const headers = {};
-    for (const [k, v] of res.headers.entries()) {
-      if (k.toLowerCase().startsWith("x-settld-")) headers[k] = v;
-    }
+    const headers = collectSettldHeaders(res.headers);
+    const decision = assertPolicyRuntimeMetadata({ headers, toolName: "settld.llm_completion_paid" });
 
     return {
       ok: true,
@@ -458,6 +522,7 @@ function makePaidToolsClient({ baseUrl, tenantId, fetchImpl = fetch, agentPasspo
       maxTokens: normalizedMaxTokens,
       response: json,
       headers,
+      decision,
       challenge
     };
   }
@@ -596,6 +661,92 @@ function buildTools() {
           disputeType: { type: ["string", "null"], default: null },
           priority: { type: ["string", "null"], default: null },
           channel: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.dispute_add_evidence",
+      description: "Attach dispute evidence to an open dispute.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["runId", "evidenceRef"],
+        properties: {
+          runId: { type: "string" },
+          disputeId: { type: ["string", "null"], default: null },
+          evidenceRef: { type: "string" },
+          submittedByAgentId: { type: ["string", "null"], default: null },
+          reason: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.dispute_escalate",
+      description: "Escalate an open dispute to a higher level (counterparty/arbiter/external).",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["runId", "escalationLevel"],
+        properties: {
+          runId: { type: "string" },
+          disputeId: { type: ["string", "null"], default: null },
+          escalationLevel: { type: "string", enum: ["l1_counterparty", "l2_arbiter", "l3_external"] },
+          channel: { type: ["string", "null"], default: null },
+          escalatedByAgentId: { type: ["string", "null"], default: null },
+          reason: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.dispute_close",
+      description: "Close an open dispute with optional signed verdict material.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["runId"],
+        properties: {
+          runId: { type: "string" },
+          disputeId: { type: ["string", "null"], default: null },
+          resolution: { type: ["object", "null"], additionalProperties: true, default: null },
+          verdict: { type: ["object", "null"], additionalProperties: true, default: null },
+          arbitrationVerdict: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.arbitration_open",
+      description: "Open an arbitration case for an already-open dispute.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["runId"],
+        properties: {
+          runId: { type: "string" },
+          caseId: { type: ["string", "null"], default: null },
+          disputeId: { type: ["string", "null"], default: null },
+          arbiterAgentId: { type: ["string", "null"], default: null },
+          panelCandidateAgentIds: { type: ["array", "null"], items: { type: "string" }, default: null },
+          evidenceRefs: { type: ["array", "null"], items: { type: "string" }, default: null },
+          summary: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.arbitration_issue_verdict",
+      description: "Issue a signed arbitration verdict for a case.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["runId", "caseId", "arbitrationVerdict"],
+        properties: {
+          runId: { type: "string" },
+          caseId: { type: "string" },
+          arbitrationVerdict: { type: "object", additionalProperties: true },
+          idempotencyKey: { type: ["string", "null"], default: null }
         }
       }
     },
@@ -1196,6 +1347,117 @@ async function main() {
               idem: makeIdempotencyKey("mcp_dispute_open")
             });
             result = { ok: true, ...redactSecrets(out) };
+          } else if (name === "settld.dispute_add_evidence") {
+            const runId = String(args?.runId ?? "").trim();
+            const evidenceRef = String(args?.evidenceRef ?? "").trim();
+            assertNonEmptyString(runId, "runId");
+            assertNonEmptyString(evidenceRef, "evidenceRef");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_dispute_evidence");
+            const out = await client.requestJson(`/runs/${encodeURIComponent(runId)}/dispute/evidence`, {
+              method: "POST",
+              write: true,
+              body: {
+                disputeId: args?.disputeId ?? null,
+                evidenceRef,
+                submittedByAgentId: args?.submittedByAgentId ?? null,
+                reason: args?.reason ?? null
+              },
+              idem: idempotencyKey
+            });
+            result = { ok: true, runId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.dispute_escalate") {
+            const runId = String(args?.runId ?? "").trim();
+            assertNonEmptyString(runId, "runId");
+            const escalationLevel = String(args?.escalationLevel ?? "").trim().toLowerCase();
+            if (!["l1_counterparty", "l2_arbiter", "l3_external"].includes(escalationLevel)) {
+              throw new TypeError("escalationLevel must be l1_counterparty|l2_arbiter|l3_external");
+            }
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_dispute_escalate");
+            const out = await client.requestJson(`/runs/${encodeURIComponent(runId)}/dispute/escalate`, {
+              method: "POST",
+              write: true,
+              body: {
+                disputeId: args?.disputeId ?? null,
+                escalationLevel,
+                channel: args?.channel ?? null,
+                escalatedByAgentId: args?.escalatedByAgentId ?? null,
+                reason: args?.reason ?? null
+              },
+              idem: idempotencyKey
+            });
+            result = { ok: true, runId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.dispute_close") {
+            const runId = String(args?.runId ?? "").trim();
+            assertNonEmptyString(runId, "runId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_dispute_close");
+            const out = await client.requestJson(`/runs/${encodeURIComponent(runId)}/dispute/close`, {
+              method: "POST",
+              write: true,
+              body: {
+                disputeId: args?.disputeId ?? null,
+                resolution: args?.resolution ?? null,
+                verdict: args?.verdict ?? null,
+                arbitrationVerdict: args?.arbitrationVerdict ?? null
+              },
+              idem: idempotencyKey
+            });
+            result = { ok: true, runId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.arbitration_open") {
+            const runId = String(args?.runId ?? "").trim();
+            assertNonEmptyString(runId, "runId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_arbitration_open");
+            const panelCandidateAgentIds = Array.isArray(args?.panelCandidateAgentIds)
+              ? args.panelCandidateAgentIds.map((v) => String(v ?? "").trim()).filter(Boolean)
+              : null;
+            const evidenceRefs = Array.isArray(args?.evidenceRefs) ? args.evidenceRefs.map((v) => String(v ?? "").trim()).filter(Boolean) : null;
+            const out = await client.requestJson(`/runs/${encodeURIComponent(runId)}/arbitration/open`, {
+              method: "POST",
+              write: true,
+              body: {
+                caseId: args?.caseId ?? null,
+                disputeId: args?.disputeId ?? null,
+                arbiterAgentId: args?.arbiterAgentId ?? null,
+                panelCandidateAgentIds,
+                evidenceRefs,
+                summary: args?.summary ?? null
+              },
+              idem: idempotencyKey
+            });
+            result = { ok: true, runId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.arbitration_issue_verdict") {
+            const runId = String(args?.runId ?? "").trim();
+            const caseId = String(args?.caseId ?? "").trim();
+            assertNonEmptyString(runId, "runId");
+            assertNonEmptyString(caseId, "caseId");
+            if (!args?.arbitrationVerdict || typeof args.arbitrationVerdict !== "object" || Array.isArray(args.arbitrationVerdict)) {
+              throw new TypeError("arbitrationVerdict must be an object");
+            }
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_arbitration_verdict");
+            const out = await client.requestJson(`/runs/${encodeURIComponent(runId)}/arbitration/verdict`, {
+              method: "POST",
+              write: true,
+              body: {
+                caseId,
+                arbitrationVerdict: args.arbitrationVerdict
+              },
+              idem: idempotencyKey
+            });
+            result = { ok: true, runId, caseId, idempotencyKey, ...redactSecrets(out) };
           } else if (name === "settld.resolve_settlement") {
             const runId = String(args?.runId ?? "").trim();
             assertNonEmptyString(runId, "runId");

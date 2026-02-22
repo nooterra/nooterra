@@ -4,6 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 PROBLEM_TESTS=(
+  "test/api-e2e-x402-authorize-payment.test.js"
   "test/api-python-sdk-first-paid-task-smoke.test.js"
   "test/api-python-sdk-first-verified-run-smoke.test.js"
   "test/magic-link-onboarding-live-contract.test.js"
@@ -15,19 +16,32 @@ PROBLEM_TESTS=(
   "test/trust-config-wizard-cli.test.js"
 )
 
-declare -A PROBLEM_SET=()
-for fp in "${PROBLEM_TESTS[@]}"; do
-  PROBLEM_SET["$fp"]=1
+NOO_REGRESSION_TEST_FILE="test/api-e2e-x402-authorize-payment.test.js"
+REQUIRED_NOO_REGRESSION_TESTS=(
+  "API e2e: x402 authorize-payment and verify fail closed on missing or revoked passport when required"
+  "API e2e: x402 authorize-payment requires valid execution intent when enabled"
+  "API e2e: verify enforces strict request binding evidence for quote-bound authorization"
+)
+
+for test_name in "${REQUIRED_NOO_REGRESSION_TESTS[@]}"; do
+  if ! grep -F "test(\"${test_name}\"" "$NOO_REGRESSION_TEST_FILE" >/dev/null; then
+    echo "missing required NOO regression test: ${test_name}" >&2
+    exit 1
+  fi
 done
 
-mapfile -t ALL_TESTS < <(ls test/*.test.js | sort)
-
 SAFE_TESTS=()
-for fp in "${ALL_TESTS[@]}"; do
-  if [[ -n "${PROBLEM_SET[$fp]+x}" ]]; then
-    continue
+for fp in $(ls test/*.test.js | sort); do
+  is_problem_test=0
+  for problem in "${PROBLEM_TESTS[@]}"; do
+    if [[ "$fp" == "$problem" ]]; then
+      is_problem_test=1
+      break
+    fi
+  done
+  if [[ "$is_problem_test" -eq 0 ]]; then
+    SAFE_TESTS+=("$fp")
   fi
-  SAFE_TESTS+=("$fp")
 done
 
 # Phase 1: bulk suite (fast).

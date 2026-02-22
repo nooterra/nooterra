@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://settld.local/schemas/PolicyDecision.v1.schema.json",
+  "title": "PolicyDecision.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "decisionId",
+    "tenantId",
+    "runId",
+    "settlementId",
+    "policyRef",
+    "decisionMode",
+    "verificationStatus",
+    "runStatus",
+    "shouldAutoResolve",
+    "settlementStatus",
+    "releaseRatePct",
+    "releaseAmountCents",
+    "refundAmountCents",
+    "reasonCodes",
+    "evaluationHash",
+    "createdAt",
+    "policyDecisionHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "PolicyDecision.v1" },
+    "decisionId": { "type": "string", "minLength": 1, "maxLength": 240, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "tenantId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "settlementId": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "gateId": { "type": "string", "minLength": 1, "maxLength": 240, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "policyRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policyId", "policyVersion", "policyHash", "verificationMethodHash"],
+      "properties": {
+        "policyId": { "type": ["string", "null"], "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" },
+        "policyVersion": { "type": ["integer", "null"], "minimum": 1 },
+        "policyHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "verificationMethodHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "decisionMode": { "type": "string", "enum": ["automatic", "manual-review"] },
+    "verificationStatus": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-z0-9_-]+$" },
+    "runStatus": { "type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-z0-9_-]+$" },
+    "shouldAutoResolve": { "type": "boolean" },
+    "settlementStatus": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9_-]+$" },
+    "releaseRatePct": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "releaseAmountCents": { "type": "integer", "minimum": 0 },
+    "refundAmountCents": { "type": "integer", "minimum": 0 },
+    "reasonCodes": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$" },
+      "uniqueItems": true
+    },
+    "evaluationHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "metadata": { "type": "object", "additionalProperties": true },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "policyDecisionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "signerKeyId", "policyDecisionHash", "signature"],
+      "properties": {
+        "algorithm": { "const": "ed25519" },
+        "signerKeyId": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^[A-Za-z0-9:_-]+$" },
+        "policyDecisionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "signature": { "type": "string", "minLength": 1, "maxLength": 16384 }
+      }
+    }
+  }
+}

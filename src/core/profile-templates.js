@@ -106,6 +106,111 @@ const STARTER_PROFILES = Object.freeze([
         allowUnknownToolVersion: false
       })
     })
+  }),
+  Object.freeze({
+    profileId: "support-automation",
+    metadata: Object.freeze({
+      name: "Support Automation",
+      vertical: "support",
+      description: "Profile defaults for customer support agents with strict low-ticket spend controls."
+    }),
+    policyDefaults: Object.freeze({
+      currency: "USD",
+      limits: Object.freeze({
+        perRequestUsdCents: 40_000,
+        monthlyUsdCents: 450_000
+      }),
+      allowlists: Object.freeze({
+        providers: Object.freeze(["openai", "twilio", "zendesk"]),
+        tools: Object.freeze(["ticket.reply", "knowledge.search", "ivr.call"])
+      }),
+      approvalTiers: Object.freeze([
+        Object.freeze({ tierId: "auto", maxAmountUsdCents: 10_000, requiredApprovers: 0, approverRole: "none" }),
+        Object.freeze({ tierId: "lead", maxAmountUsdCents: 25_000, requiredApprovers: 1, approverRole: "support_lead" }),
+        Object.freeze({ tierId: "manager", maxAmountUsdCents: 40_000, requiredApprovers: 2, approverRole: "support_manager" })
+      ]),
+      disputeDefaults: Object.freeze({
+        responseWindowHours: 48,
+        autoOpenIfReceiptMissing: true,
+        evidenceChecklist: Object.freeze(["ticket_id", "approval_log", "receipt"])
+      }),
+      compliance: Object.freeze({
+        enforceVendorAllowlist: true,
+        requireReceiptSignature: true,
+        requireToolManifestHash: true,
+        allowUnknownToolVersion: false
+      })
+    })
+  }),
+  Object.freeze({
+    profileId: "finance-controls",
+    metadata: Object.freeze({
+      name: "Finance Controls",
+      vertical: "finance",
+      description: "Profile defaults for finance workflows where every payment path must stay tightly governed."
+    }),
+    policyDefaults: Object.freeze({
+      currency: "USD",
+      limits: Object.freeze({
+        perRequestUsdCents: 800_000,
+        monthlyUsdCents: 5_000_000
+      }),
+      allowlists: Object.freeze({
+        providers: Object.freeze(["circle", "stripe", "wise"]),
+        tools: Object.freeze(["invoice.pay", "ledger.reconcile", "dispute.resolve"])
+      }),
+      approvalTiers: Object.freeze([
+        Object.freeze({ tierId: "controller", maxAmountUsdCents: 150_000, requiredApprovers: 1, approverRole: "finance_controller" }),
+        Object.freeze({ tierId: "director", maxAmountUsdCents: 400_000, requiredApprovers: 2, approverRole: "finance_director" }),
+        Object.freeze({ tierId: "cfo", maxAmountUsdCents: 800_000, requiredApprovers: 3, approverRole: "chief_financial_officer" })
+      ]),
+      disputeDefaults: Object.freeze({
+        responseWindowHours: 120,
+        autoOpenIfReceiptMissing: true,
+        evidenceChecklist: Object.freeze(["approval_log", "receipt", "payment_trace", "counterparty_statement"])
+      }),
+      compliance: Object.freeze({
+        enforceVendorAllowlist: true,
+        requireReceiptSignature: true,
+        requireToolManifestHash: true,
+        allowUnknownToolVersion: false
+      })
+    })
+  }),
+  Object.freeze({
+    profileId: "growth-marketing",
+    metadata: Object.freeze({
+      name: "Growth Marketing",
+      vertical: "marketing",
+      description: "Profile defaults for ad and campaign spending with bounded experimentation budgets."
+    }),
+    policyDefaults: Object.freeze({
+      currency: "USD",
+      limits: Object.freeze({
+        perRequestUsdCents: 180_000,
+        monthlyUsdCents: 1_200_000
+      }),
+      allowlists: Object.freeze({
+        providers: Object.freeze(["meta", "google_ads", "x_ads"]),
+        tools: Object.freeze(["campaign.launch", "creative.generate", "audience.sync"])
+      }),
+      approvalTiers: Object.freeze([
+        Object.freeze({ tierId: "auto", maxAmountUsdCents: 50_000, requiredApprovers: 0, approverRole: "none" }),
+        Object.freeze({ tierId: "manager", maxAmountUsdCents: 120_000, requiredApprovers: 1, approverRole: "growth_manager" }),
+        Object.freeze({ tierId: "director", maxAmountUsdCents: 180_000, requiredApprovers: 2, approverRole: "marketing_director" })
+      ]),
+      disputeDefaults: Object.freeze({
+        responseWindowHours: 72,
+        autoOpenIfReceiptMissing: true,
+        evidenceChecklist: Object.freeze(["approval_log", "campaign_id", "receipt", "spend_export"])
+      }),
+      compliance: Object.freeze({
+        enforceVendorAllowlist: true,
+        requireReceiptSignature: true,
+        requireToolManifestHash: true,
+        allowUnknownToolVersion: false
+      })
+    })
   })
 ]);
 

@@ -235,3 +235,87 @@ test("API e2e v0.5: robot overlapping reservations are blocked at dispatch", asy
   assert.equal(dispatch2.statusCode, 409);
 });
 
+test("API e2e v0.5: high-risk quote/book/dispatch fail closed without chain context header", async () => {
+  const api = createApi();
+
+  const now = Date.now();
+  const startAt = new Date(now + 15 * 60_000).toISOString();
+  const endAt = new Date(now + 75 * 60_000).toISOString();
+
+  const { publicKeyPem: robotPublicKeyPem } = createEd25519Keypair();
+  const regRobot = await request(api, {
+    method: "POST",
+    path: "/robots/register",
+    headers: { "x-idempotency-key": "ops_ctx_robot_reg_1" },
+    body: { robotId: "rob_ctx_1", publicKeyPem: robotPublicKeyPem, trustScore: 0.9 }
+  });
+  assert.equal(regRobot.statusCode, 201);
+
+  const setAvail = await request(api, {
+    method: "POST",
+    path: "/robots/rob_ctx_1/availability",
+    headers: { "x-proxy-expected-prev-chain-hash": regRobot.json.robot.lastChainHash, "x-idempotency-key": "ops_ctx_robot_av_1" },
+    body: {
+      availability: [{ startAt: new Date(now - 60 * 60_000).toISOString(), endAt: new Date(now + 24 * 60 * 60_000).toISOString() }]
+    }
+  });
+  assert.equal(setAvail.statusCode, 201);
+
+  const createJob = await request(api, {
+    method: "POST",
+    path: "/jobs",
+    headers: { "x-idempotency-key": "ops_ctx_job_create_1" },
+    body: { templateId: "reset_lite", constraints: {} }
+  });
+  assert.equal(createJob.statusCode, 201);
+  const jobId = createJob.json.job.id;
+
+  const missingQuoteContext = await request(api, {
+    method: "POST",
+    path: `/jobs/${jobId}/quote`,
+    headers: { "x-idempotency-key": "ops_ctx_quote_missing_1" },
+    body: { startAt, endAt, environmentTier: "ENV_MANAGED_BUILDING" }
+  });
+  assert.equal(missingQuoteContext.statusCode, 428, missingQuoteContext.body);
+  assert.equal(missingQuoteContext.json?.code, "MISSING_PRECONDITION");
+
+  const quoted = await request(api, {
+    method: "POST",
+    path: `/jobs/${jobId}/quote`,
+    headers: {
+      "x-idempotency-key": "ops_ctx_quote_ok_1",
+      "x-proxy-expected-prev-chain-hash": createJob.json.job.lastChainHash
+    },
+    body: { startAt, endAt, environmentTier: "ENV_MANAGED_BUILDING" }
+  });
+  assert.equal(quoted.statusCode, 201, quoted.body);
+
+  const missingBookContext = await request(api, {
+    method: "POST",
+    path: `/jobs/${jobId}/book`,
+    headers: { "x-idempotency-key": "ops_ctx_book_missing_1" },
+    body: { paymentHoldId: "hold_ctx_1", startAt, endAt, environmentTier: "ENV_MANAGED_BUILDING" }
+  });
+  assert.equal(missingBookContext.statusCode, 428, missingBookContext.body);
+  assert.equal(missingBookContext.json?.code, "MISSING_PRECONDITION");
+
+  const booked = await request(api, {
+    method: "POST",
+    path: `/jobs/${jobId}/book`,
+    headers: {
+      "x-idempotency-key": "ops_ctx_book_ok_1",
+      "x-proxy-expected-prev-chain-hash": quoted.json.job.lastChainHash
+    },
+    body: { paymentHoldId: "hold_ctx_1", startAt, endAt, environmentTier: "ENV_MANAGED_BUILDING" }
+  });
+  assert.equal(booked.statusCode, 201, booked.body);
+
+  const missingDispatchContext = await request(api, {
+    method: "POST",
+    path: `/jobs/${jobId}/dispatch`,
+    headers: { "x-idempotency-key": "ops_ctx_dispatch_missing_1" },
+    body: {}
+  });
+  assert.equal(missingDispatchContext.statusCode, 428, missingDispatchContext.body);
+  assert.equal(missingDispatchContext.json?.code, "MISSING_PRECONDITION");
+});

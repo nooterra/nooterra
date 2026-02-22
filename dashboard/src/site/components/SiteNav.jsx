@@ -31,15 +31,18 @@ function SiteNavShell({ children }) {
     <header className="site-nav-wrap">
       <nav className="site-nav" aria-label="Primary">
         <a href="/" className="brand-mark" aria-label="Settld home">
-          <span className="brand-mark-row">
-            {logoUrl ? (
-              <img src={logoUrl} alt="" className="brand-mark-logo" />
-            ) : (
-              <span className="brand-mark-logo-fallback" aria-hidden="true">S</span>
-            )}
-            <span className="brand-mark-core">Settld</span>
+          <span className="brand-mark-main">
+            <span className="brand-mark-row">
+              {logoUrl ? (
+                <img src={logoUrl} alt="" className="brand-mark-logo" />
+              ) : (
+                <span className="brand-mark-logo-fallback" aria-hidden="true">S</span>
+              )}
+              <span className="brand-mark-core">Settld</span>
+            </span>
+            <span className="brand-pill">Trust OS v1</span>
           </span>
-          {brandSubtitle ? <span className="brand-mark-sub">{brandSubtitle}</span> : null}
+          <span className="brand-mark-sub">{brandSubtitle || "Agent Commerce Control Plane"}</span>
         </a>
         <ul className="site-links">
           {links.map((link) => (
@@ -61,7 +64,7 @@ function Auth0NavActions() {
     return (
       <>
         <a className={buttonClasses()} href="/app">
-          Open workspace
+          Launch Settld workspace
         </a>
         <button
           type="button"
@@ -74,13 +77,21 @@ function Auth0NavActions() {
     );
   }
   return (
-      <>
-        <a className={buttonClasses({ variant: "outline" })} href={ossLinks.repo}>View GitHub</a>
-        <a className={buttonClasses()} href={docsLinks.quickstart}>Get started</a>
-        <button type="button" className={buttonClasses({ variant: "ghost", className: "nav-login-link px-2" })} onClick={() => loginWithRedirect()}>
-          Log in
-        </button>
-      </>
+    <>
+      <a className={buttonClasses()} href={docsLinks.quickstart}>
+        Start onboarding
+      </a>
+      <a className={buttonClasses({ variant: "outline" })} href={ossLinks.repo}>
+        View GitHub
+      </a>
+      <button
+        type="button"
+        className={buttonClasses({ variant: "ghost", className: "nav-login-link px-2" })}
+        onClick={() => loginWithRedirect()}
+      >
+        Log in
+      </button>
+    </>
   );
 }
 
@@ -137,7 +148,7 @@ function LegacyNavActions() {
       {session ? (
         <>
           <a className={buttonClasses()} href="/app">
-            Open workspace
+            Launch Settld workspace
           </a>
           <button type="button" className={buttonClasses({ variant: "outline" })} onClick={onSignOut}>
             Sign out
@@ -145,8 +156,12 @@ function LegacyNavActions() {
         </>
       ) : (
         <>
-          <a className={buttonClasses({ variant: "outline" })} href={ossLinks.repo}>View GitHub</a>
-          <a className={buttonClasses()} href={docsLinks.quickstart}>Get started</a>
+          <a className={buttonClasses()} href={docsLinks.quickstart}>
+            Start onboarding
+          </a>
+          <a className={buttonClasses({ variant: "outline" })} href={ossLinks.repo}>
+            View GitHub
+          </a>
           <a className={buttonClasses({ variant: "ghost", className: "nav-login-link px-2" })} href="/login">Log in</a>
         </>
       )}

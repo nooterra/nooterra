@@ -75,8 +75,21 @@ jobs:
           ALLOW_INCIDENT_REHEARSAL_SKIP: "0"
         run: node scripts/ci/run-go-live-gate.mjs
 
+      - name: Materialize launch cutover packet signing key (optional)
+        if: ${{ secrets.LAUNCH_CUTOVER_PACKET_SIGNING_PRIVATE_KEY_PEM != '' }}
+        env:
+          LAUNCH_CUTOVER_PACKET_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.LAUNCH_CUTOVER_PACKET_SIGNING_PRIVATE_KEY_PEM }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/launch-cutover-signing
+          printf '%s\n' "${LAUNCH_CUTOVER_PACKET_SIGNING_PRIVATE_KEY_PEM}" > /tmp/launch-cutover-signing/ed25519-private.pem
+          chmod 600 /tmp/launch-cutover-signing/ed25519-private.pem
+
       - name: Build launch cutover packet
         if: always()
+        env:
+          LAUNCH_CUTOVER_PACKET_SIGNING_KEY_FILE: ${{ secrets.LAUNCH_CUTOVER_PACKET_SIGNING_PRIVATE_KEY_PEM != '' && '/tmp/launch-cutover-signing/ed25519-private.pem' || '' }}
+          LAUNCH_CUTOVER_PACKET_SIGNATURE_KEY_ID: ${{ vars.LAUNCH_CUTOVER_PACKET_SIGNATURE_KEY_ID || '' }}
         run: node scripts/ci/build-launch-cutover-packet.mjs
 
       - name: Upload go-live artifacts
@@ -90,7 +103,11 @@ jobs:
             artifacts/throughput/10x-drill-summary.json
             artifacts/throughput/10x-drill-k6-summary.json
             artifacts/throughput/10x-incident-rehearsal-summary.json
-          if-no-files-found: warn
+          if-no-files-found: error
+
+      - name: Remove launch cutover packet signing key
+        if: always()
+        run: rm -rf /tmp/launch-cutover-signing
 
       - name: Stop server
         if: always()

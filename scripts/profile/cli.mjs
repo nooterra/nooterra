@@ -3,6 +3,13 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 
+import { canonicalJsonStringify, normalizeForCanonicalJson } from "../../src/core/canonical-json.js";
+import { sha256Hex } from "../../src/core/crypto.js";
+import { computeProfileFingerprint } from "../../src/core/profile-fingerprint.js";
+import {
+  PROFILE_SIMULATION_REASON_REGISTRY_VERSION,
+  mapProfileSimulationReasons
+} from "../../src/core/profile-simulation-reasons.js";
 import {
   PROFILE_TEMPLATE_CATALOG_VERSION,
   PROFILE_SCHEMA_VERSION,
@@ -461,7 +468,8 @@ function buildDefaultScenario(profile) {
     monthToDateSpendUsdCents: 0,
     approvalsProvided: 0,
     receiptSigned: true,
-    toolManifestHashPresent: true
+    toolManifestHashPresent: true,
+    toolVersionKnown: true
   };
 }
 
@@ -475,7 +483,8 @@ function normalizeScenario(raw, { profile }) {
     monthToDateSpendUsdCents: Number(raw.monthToDateSpendUsdCents ?? fallback.monthToDateSpendUsdCents),
     approvalsProvided: Number(raw.approvalsProvided ?? fallback.approvalsProvided),
     receiptSigned: raw.receiptSigned === undefined ? fallback.receiptSigned : Boolean(raw.receiptSigned),
-    toolManifestHashPresent: raw.toolManifestHashPresent === undefined ? fallback.toolManifestHashPresent : Boolean(raw.toolManifestHashPresent)
+    toolManifestHashPresent: raw.toolManifestHashPresent === undefined ? fallback.toolManifestHashPresent : Boolean(raw.toolManifestHashPresent),
+    toolVersionKnown: raw.toolVersionKnown === undefined ? fallback.toolVersionKnown : Boolean(raw.toolVersionKnown)
   };
   if (!out.providerId) fail("scenario.providerId is required");
   if (!out.toolId) fail("scenario.toolId is required");
@@ -507,7 +516,8 @@ function simulateProfile({ profile, scenario }) {
     { id: "per_request_limit", ok: scenario.amountUsdCents <= limits.perRequestUsdCents },
     { id: "monthly_limit", ok: scenario.amountUsdCents + scenario.monthToDateSpendUsdCents <= limits.monthlyUsdCents },
     { id: "receipt_signature", ok: compliance.requireReceiptSignature ? scenario.receiptSigned : true },
-    { id: "tool_manifest_hash", ok: compliance.requireToolManifestHash ? scenario.toolManifestHashPresent : true }
+    { id: "tool_manifest_hash", ok: compliance.requireToolManifestHash ? scenario.toolManifestHashPresent : true },
+    { id: "tool_version_known", ok: compliance.allowUnknownToolVersion ? true : scenario.toolVersionKnown }
   ];
 
   const checksOk = checks.every((item) => item.ok === true);
@@ -521,6 +531,7 @@ function simulateProfile({ profile, scenario }) {
   if (checksOk && !approvalsSatisfied) reasons.push("approval_required");
 
   const decision = !checksOk ? "deny" : approvalsSatisfied ? "allow" : "challenge";
+  const reasonDetails = mapProfileSimulationReasons(reasons, { failOnUnknown: true });
 
   return {
     schemaVersion: SIMULATION_REPORT_SCHEMA_VERSION,
@@ -531,6 +542,9 @@ function simulateProfile({ profile, scenario }) {
     approvalsProvided: scenario.approvalsProvided,
     selectedApprovalTier: tier.tierId,
     reasons,
+    reasonCodes: reasonDetails.map((item) => item.code),
+    reasonDetails,
+    reasonRegistryVersion: PROFILE_SIMULATION_REASON_REGISTRY_VERSION,
     checks,
     scenario
   };
@@ -570,10 +584,15 @@ async function writeOutput({ format, payload, text, jsonOut }) {
   process.stdout.write(text);
 }
 
+function computeTemplateFingerprint(template) {
+  const normalized = normalizeForCanonicalJson(template, { path: "$" });
+  return sha256Hex(canonicalJsonStringify(normalized));
+}
+
 function renderListText(templates) {
   const lines = [];
   for (const profile of templates) {
-    lines.push(`${profile.profileId}\t${profile.metadata.vertical}\t${profile.metadata.name}`);
+    lines.push(`${profile.profileId}\t${profile.metadata.vertical}\t${profile.metadata.name}\t${computeTemplateFingerprint(profile)}`);
   }
   return `${lines.join("\n")}${lines.length ? "\n" : ""}`;
 }
@@ -1035,6 +1054,7 @@ async function handleWizard(parsed) {
       `wizard generated an invalid profile at ${firstError?.path ?? "$"}: ${firstError?.message ?? "validation failed"}`
     );
   }
+  const profileFingerprint = computeProfileFingerprint(generated.profile);
   await fs.mkdir(path.dirname(generated.targetPath), { recursive: true });
   await fs.writeFile(generated.targetPath, `${JSON.stringify(generated.profile, null, 2)}\n`, "utf8");
   const payload = {
@@ -1043,7 +1063,9 @@ async function handleWizard(parsed) {
     mode: generated.mode,
     templateId: generated.templateId,
     profileId: generated.profile.profileId,
-    outPath: generated.targetPath
+    outPath: generated.targetPath,
+    profileFingerprintVersion: profileFingerprint.schemaVersion,
+    profileFingerprint: profileFingerprint.profileFingerprint
   };
   await writeOutput({
     format: parsed.format,
@@ -1056,14 +1078,27 @@ async function handleWizard(parsed) {
 
 async function handleList(parsed) {
   const templates = listProfileTemplates();
+  const profilesWithFingerprints = templates.map((profile) => ({
+    profileId: profile.profileId,
+    metadata: profile.metadata,
+    policySummary: {
+      currency: profile.policyDefaults?.currency ?? null,
+      perRequestUsdCents: profile.policyDefaults?.limits?.perRequestUsdCents ?? null,
+      monthlyUsdCents: profile.policyDefaults?.limits?.monthlyUsdCents ?? null,
+      providerCount: Array.isArray(profile.policyDefaults?.allowlists?.providers) ? profile.policyDefaults.allowlists.providers.length : 0,
+      toolCount: Array.isArray(profile.policyDefaults?.allowlists?.tools) ? profile.policyDefaults.allowlists.tools.length : 0
+    },
+    profileFingerprint: computeTemplateFingerprint(profile)
+  }));
   const payload = {
     schemaVersion: PROFILE_TEMPLATE_CATALOG_VERSION,
-    profiles: templates
+    profileFingerprintAlgorithm: "sha256",
+    profiles: profilesWithFingerprints
   };
   await writeOutput({
     format: parsed.format,
     payload,
-    text: renderListText(templates),
+    text: renderListText(profilesWithFingerprints),
     jsonOut: parsed.jsonOut
   });
   return 0;
@@ -1072,6 +1107,7 @@ async function handleList(parsed) {
 async function handleInit(parsed) {
   const profile = createStarterProfile({ profileId: parsed.profileId });
   if (!profile) fail(`unknown profile template: ${parsed.profileId}`);
+  const profileFingerprint = computeProfileFingerprint(profile);
   const targetPath = path.resolve(process.cwd(), parsed.outPath || `${parsed.profileId}.profile.json`);
   if (!parsed.force && (await exists(targetPath))) fail(`output path exists: ${targetPath}`);
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
@@ -1081,7 +1117,9 @@ async function handleInit(parsed) {
     ok: true,
     command: "init",
     profileId: parsed.profileId,
-    outPath: targetPath
+    outPath: targetPath,
+    profileFingerprintVersion: profileFingerprint.schemaVersion,
+    profileFingerprint: profileFingerprint.profileFingerprint
   };
   await writeOutput({
     format: parsed.format,
@@ -1095,6 +1133,11 @@ async function handleInit(parsed) {
 async function handleValidate(parsed) {
   const profile = await readJsonPath(parsed.inputPath);
   const report = validateProfileDocument(profile);
+  if (report.ok) {
+    const fingerprint = computeProfileFingerprint(profile);
+    report.profileFingerprintVersion = fingerprint.schemaVersion;
+    report.profileFingerprint = fingerprint.profileFingerprint;
+  }
   await writeOutput({
     format: parsed.format,
     payload: report,
@@ -1124,6 +1167,9 @@ async function handleSimulate(parsed) {
   }
   const scenario = await loadScenario(parsed, profile);
   const report = simulateProfile({ profile, scenario });
+  const fingerprint = computeProfileFingerprint(profile);
+  report.profileFingerprintVersion = fingerprint.schemaVersion;
+  report.profileFingerprint = fingerprint.profileFingerprint;
   await writeOutput({
     format: parsed.format,
     payload: report,
@@ -1147,6 +1193,7 @@ async function handleApply(parsed) {
   }
 
   const config = resolveApplyConfig(parsed, profile);
+  const profileFingerprint = computeProfileFingerprint(profile);
   const x402PolicyPayload = mapProfileToX402WalletPolicy({ profile, config });
   const settlementPolicyUpsertPayload = mapProfileToSettlementPolicyUpsert({ profile, config });
   const x402PolicyUrl = joinBaseUrl(config.baseUrl, `/x402/wallets/${encodeURIComponent(config.sponsorWalletRef)}/policy`);
@@ -1168,6 +1215,8 @@ async function handleApply(parsed) {
     dryRun: parsed.dryRun === true,
     profileId: config.profileId,
     profileSchemaVersion: config.profileSchemaVersion,
+    profileFingerprintVersion: profileFingerprint.schemaVersion,
+    profileFingerprint: profileFingerprint.profileFingerprint,
     appliedAt: new Date().toISOString(),
     target: {
       baseUrl: config.baseUrl,

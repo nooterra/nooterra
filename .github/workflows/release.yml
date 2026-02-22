@@ -36,8 +36,10 @@ jobs:
             const repo = context.repo.repo;
             const sha = context.sha;
             const requiredJobNames = [
+              "noo_44_47_48_regressions",
               "kernel_v0_ship_gate",
-              "production_cutover_gate"
+              "production_cutover_gate",
+              "offline_verification_parity_gate"
             ];
 
             const runs = await github.paginate(
@@ -263,8 +265,145 @@ jobs:
           set -euo pipefail
           if [[ -f /tmp/settld_pid ]]; then kill "$(cat /tmp/settld_pid)" || true; fi
 
+  release_promotion_guard:
+    needs: [require_tests_release_gates, release_gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Resolve upstream gate workflow runs for this release commit
+        id: upstream
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sha = context.sha;
+            const runs = await github.paginate(
+              github.rest.actions.listWorkflowRunsForRepo,
+              {
+                owner,
+                repo,
+                status: "completed",
+                per_page: 100
+              }
+            );
+            const testsRun = runs.find((run) =>
+              run.path === ".github/workflows/tests.yml" &&
+              run.event === "push" &&
+              run.head_sha === sha &&
+              run.conclusion === "success"
+            );
+            if (!testsRun) {
+              core.setFailed(`No successful tests.yml run found for commit ${sha}.`);
+              return;
+            }
+            const goLiveRun = runs.find((run) =>
+              run.path === ".github/workflows/go-live-gate.yml" &&
+              run.event === "workflow_dispatch" &&
+              run.head_sha === sha &&
+              run.conclusion === "success"
+            );
+            if (!goLiveRun) {
+              core.setFailed(
+                `No successful go-live-gate.yml workflow_dispatch run found for commit ${sha}.`
+              );
+              return;
+            }
+            core.setOutput("tests_run_id", String(testsRun.id));
+            core.setOutput("go_live_run_id", String(goLiveRun.id));
+            core.info(`tests.yml run: ${testsRun.id} (${testsRun.html_url})`);
+            core.info(`go-live-gate.yml run: ${goLiveRun.id} (${goLiveRun.html_url})`);
+
+      - name: Download tests.yml artifacts (kernel/prod/parity/onboarding gates)
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.upstream.outputs.tests_run_id }}
+          path: /tmp/release-upstream/tests
+
+      - name: Download go-live gate artifacts
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.upstream.outputs.go_live_run_id }}
+          path: /tmp/release-upstream/go-live
+
+      - name: Download release deploy-safety artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-deploy-safety-${{ github.run_id }}
+          path: /tmp/release-upstream/release-gate
+
+      - name: Materialize promotion-guard input artifacts
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/gates artifacts/ops
+          copy_required() {
+            local root="$1"
+            local file_name="$2"
+            local dest="$3"
+            local matches=()
+            mapfile -t matches < <(find "$root" -type f -name "$file_name" | sort)
+            if [[ "${#matches[@]}" -eq 0 ]]; then
+              echo "missing required artifact: $file_name under $root" >&2
+              exit 1
+            fi
+            if [[ "${#matches[@]}" -gt 1 ]]; then
+              echo "ambiguous required artifact: $file_name under $root resolved ${#matches[@]} files" >&2
+              printf '%s\n' "${matches[@]}" >&2
+              exit 1
+            fi
+            cp "${matches[0]}" "$dest"
+          }
+          copy_required "/tmp/release-upstream/tests" "kernel-v0-ship-gate.json" "artifacts/gates/kernel-v0-ship-gate.json"
+          copy_required "/tmp/release-upstream/tests" "production-cutover-gate.json" "artifacts/gates/production-cutover-gate.json"
+          copy_required "/tmp/release-upstream/tests" "offline-verification-parity-gate.json" "artifacts/gates/offline-verification-parity-gate.json"
+          copy_required "/tmp/release-upstream/tests" "onboarding-host-success-gate.json" "artifacts/gates/onboarding-host-success-gate.json"
+          copy_required "/tmp/release-upstream/go-live" "s13-go-live-gate.json" "artifacts/gates/s13-go-live-gate.json"
+          copy_required "/tmp/release-upstream/go-live" "s13-launch-cutover-packet.json" "artifacts/gates/s13-launch-cutover-packet.json"
+          copy_required "/tmp/release-upstream/release-gate" "hosted-baseline-release-gate.json" "artifacts/ops/hosted-baseline-release-gate.json"
+          ls -la artifacts/gates
+          ls -la artifacts/ops
+
+      - name: Run release promotion guard (NOO-65)
+        run: |
+          set -euo pipefail
+          npm run -s test:ops:release-promotion-guard -- \
+            --kernel-gate artifacts/gates/kernel-v0-ship-gate.json \
+            --production-gate artifacts/gates/production-cutover-gate.json \
+            --offline-parity-gate artifacts/gates/offline-verification-parity-gate.json \
+            --onboarding-host-success-gate artifacts/gates/onboarding-host-success-gate.json \
+            --go-live-gate artifacts/gates/s13-go-live-gate.json \
+            --launch-packet artifacts/gates/s13-launch-cutover-packet.json \
+            --baseline-evidence artifacts/ops/hosted-baseline-release-gate.json \
+            --promotion-ref "${{ github.sha }}"
+
+      - name: Upload release promotion guard artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-promotion-guard-${{ github.run_id }}
+          path: |
+            artifacts/gates/release-promotion-guard.json
+            artifacts/gates/kernel-v0-ship-gate.json
+            artifacts/gates/production-cutover-gate.json
+            artifacts/gates/offline-verification-parity-gate.json
+            artifacts/gates/onboarding-host-success-gate.json
+            artifacts/gates/s13-go-live-gate.json
+            artifacts/gates/s13-launch-cutover-packet.json
+            artifacts/ops/hosted-baseline-release-gate.json
+          if-no-files-found: error
+
   docker_image:
-    needs: [release_gate]
+    needs: [release_gate, release_promotion_guard]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -330,7 +469,7 @@ jobs:
         run: cosign sign --yes ${{ env.IMAGE_REPOSITORY }}:${{ steps.v.outputs.version }}
 
   helm_chart:
-    needs: [release_gate]
+    needs: [release_gate, release_promotion_guard]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -403,7 +542,7 @@ jobs:
           path: ${{ steps.package_chart.outputs.chart_tgz }}
 
   npm_packages:
-    needs: [release_gate]
+    needs: [release_gate, release_promotion_guard]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -679,7 +818,7 @@ jobs:
           if-no-files-found: warn
 
   python_package:
-    needs: [release_gate]
+    needs: [release_gate, release_promotion_guard]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -807,7 +946,7 @@ jobs:
           PY
 
   conformance_pack:
-    needs: [release_gate]
+    needs: [release_gate, release_promotion_guard]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -850,7 +989,7 @@ jobs:
           path: /tmp/conformance-artifacts
 
   audit_packet:
-    needs: [release_gate]
+    needs: [release_gate, release_promotion_guard]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -948,6 +1087,12 @@ jobs:
           name: sbom-${{ steps.v.outputs.version }}
           path: /tmp/release-artifacts/sbom
 
+      - name: Download release promotion guard artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-promotion-guard-${{ github.run_id }}
+          path: /tmp/release-artifacts/release-promotion-guard
+
       - name: Prepare asset directory
         run: |
           set -euo pipefail
@@ -965,6 +1110,7 @@ jobs:
           test -f /tmp/release-assets/conformance-v1-SHA256SUMS
           test -f /tmp/release-assets/settld-audit-packet-v1.zip
           test -f /tmp/release-assets/settld-audit-packet-v1.zip.sha256
+          test -f /tmp/release-assets/release-promotion-guard.json
           # npm tgz artifacts + checksums
           ls /tmp/release-assets/settld-api-sdk-*.tgz >/dev/null
           ls /tmp/release-assets/settld-artifact-produce-*.tgz >/dev/null
