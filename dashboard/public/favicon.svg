@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Settld favicon">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9bc700" />
+      <stop offset="100%" stop-color="#c7ff00" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#0b0d0d" />
+  <rect x="10" y="10" width="44" height="44" rx="12" fill="none" stroke="url(#g)" stroke-width="4" />
+  <path d="M39 22c-2-2-5-3-8-3-5 0-10 3-10 8 0 8 13 6 13 11 0 2-2 3-5 3-2 0-4-1-6-3l-5 4c3 4 7 5 11 5 7 0 12-4 12-9 0-9-13-7-13-11 0-1 1-2 3-2 2 0 3 1 4 2z" fill="url(#g)" />
+</svg>

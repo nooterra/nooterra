@@ -1,27 +1,34 @@
-# Settld Documentation
+# Settld Docs
 
-Settld is the deterministic control plane for autonomous systems.
+Settld is a deterministic trust layer for autonomous agent actions.
 
-It gives agents bounded economic and operational autonomy through:
+It is built for teams that want agents to execute paid workflows without losing control.
 
-- Explicit identity and delegation lineage
-- Policy-bounded authorization and execution gates
-- Immutable receipts with append-only timelines
-- Offline verification and reconciliation artifacts
-- Human-in-the-loop escalation and lifecycle unwind controls
+## Start Here
 
-## What Is Live
+1. Run [Quickstart](guides/quickstart.md) to complete setup and produce your first verified receipt.
+2. Follow [Local Environment](guides/local-environment.md) if you need a full local control-plane run.
+3. Use [Integrations](reference/integrations.md) to wire Settld into OpenClaw, Codex, Claude, or Cursor.
 
-- Delegated authorization + replay defense
-- Escalation workflow with signed one-time overrides
-- Webhook routing with signature verification + secret rotation
-- Insolvency freeze, unwind hooks, and reversal dispatch
-- ZK verification hooks and key registry support for verifiable labor
-- Closepack export and offline verification
+## What You Get
 
-## Documentation Paths
+- Deterministic policy outcomes: `allow`, `challenge`, `deny`, `escalate`
+- Execution binding to policy and authorization state
+- Immutable receipts and proof packets for finance/compliance replay
+- Operator escalation workflow with signed decisions and audit timeline
+- Reversal and unwind controls for incident response
 
-- Start with [Quickstart](guides/quickstart.md)
-- Learn architecture in [Control Plane](architecture/control-plane.md)
-- Integrate with [API Surface](reference/api-surface.md)
-- Operate safely with [Operations Runbook](runbooks/operations.md)
+## Live Production Surface
+
+- Delegated authorization with replay defense
+- Signed one-time operator override path
+- Webhook signature verification and secret rotation
+- Insolvency freeze and reversal dispatch hooks
+- Closepack export and offline verification workflow
+
+## Navigate by Job
+
+- Understand system design: [Control Plane](architecture/control-plane.md)
+- Integrate APIs: [API Surface](reference/api-surface.md)
+- Run safely in production: [Operations Runbook](runbooks/operations.md)
+- Plan rollout and controls: [Roadmap](roadmap.md) and [FAQ](faq.md)
