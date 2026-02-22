@@ -245,6 +245,81 @@ function buildExecutionIntent({
   return { ...executionIntentSeed, intentHash };
 }
 
+test("API e2e: wallet assignment resolver auto-populates missing passport metadata.x402 assignment", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const agentId = await registerAgent(api, { agentId: "agt_x402_wallet_assignment_passport_1" });
+  const nowAt = new Date().toISOString();
+  const sponsorRef = "sponsor_wallet_assignment_1";
+
+  const matchedPolicy = {
+    schemaVersion: "X402WalletPolicy.v1",
+    sponsorRef,
+    sponsorWalletRef: "wallet_assignment_match_1",
+    policyRef: "policy_assignment_match_1",
+    policyVersion: 4,
+    status: "active"
+  };
+  const fallbackPolicy = {
+    schemaVersion: "X402WalletPolicy.v1",
+    sponsorRef: null,
+    sponsorWalletRef: "wallet_assignment_fallback_1",
+    policyRef: "policy_assignment_fallback_1",
+    policyVersion: 1,
+    status: "active"
+  };
+
+  const matchedPolicyUpsert = await upsertX402WalletPolicy(api, {
+    policy: matchedPolicy,
+    idempotencyKey: "x402_wallet_policy_assignment_match_1"
+  });
+  assert.equal(matchedPolicyUpsert.statusCode, 201, matchedPolicyUpsert.body);
+  const fallbackPolicyUpsert = await upsertX402WalletPolicy(api, {
+    policy: fallbackPolicy,
+    idempotencyKey: "x402_wallet_policy_assignment_fallback_1"
+  });
+  assert.equal(fallbackPolicyUpsert.statusCode, 201, fallbackPolicyUpsert.body);
+
+  const issuePassport = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(agentId)}/passport`,
+    headers: {
+      "x-idempotency-key": "x402_wallet_assignment_issue_passport_1",
+      "x-settld-protocol": "1.0"
+    },
+    body: {
+      agentPassport: buildProtocolAgentPassport({
+        passportId: "passport_wallet_assignment_1",
+        agentId,
+        sponsorRef,
+        nowAt
+      })
+    }
+  });
+  assert.equal(issuePassport.statusCode, 201, issuePassport.body);
+  assert.deepEqual(issuePassport.json?.agentPassport?.metadata?.x402, {
+    sponsorWalletRef: matchedPolicy.sponsorWalletRef,
+    policyRef: matchedPolicy.policyRef,
+    policyVersion: matchedPolicy.policyVersion
+  });
+
+  const resolveAssignment = await request(api, {
+    method: "POST",
+    path: "/x402/wallet-assignment/resolve",
+    headers: { "x-settld-protocol": "1.0" },
+    body: {
+      profileRef: sponsorRef,
+      riskClass: "financial",
+      delegationRef: issuePassport.json?.agentPassport?.delegationRef
+    }
+  });
+  assert.equal(resolveAssignment.statusCode, 200, resolveAssignment.body);
+  assert.deepEqual(resolveAssignment.json?.assignment, {
+    sponsorWalletRef: matchedPolicy.sponsorWalletRef,
+    policyRef: matchedPolicy.policyRef,
+    policyVersion: matchedPolicy.policyVersion
+  });
+});
+
 test("API e2e: x402 gate create fails closed when agent passport is required and missing", async () => {
   const api = createApi({ opsToken: "tok_ops", x402RequireAgentPassport: true });
 
@@ -412,7 +487,28 @@ test("API e2e: x402 authorize-payment requires valid execution intent when enabl
   assert.equal(missingIntent.json?.code, "X402_EXECUTION_INTENT_REQUIRED");
 
   const requestBindingSha256 = sha256Hex("x402_execution_intent_request_binding_1");
-  const mismatchIntent = buildExecutionIntent({
+  const requestMismatchIntent = buildExecutionIntent({
+    intentId: "intent_exec_request_mismatch_1",
+    agentId: payerAgentId,
+    requestSha256: sha256Hex("x402_execution_intent_request_binding_mismatch_1"),
+    maxAmountCents: amountCents + 100,
+    idempotencyKey: "x402_gate_authz_exec_intent_request_mismatch_1"
+  });
+  const requestMismatchResponse = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_exec_intent_request_mismatch_1" },
+    body: {
+      gateId,
+      requestBindingMode: "strict",
+      requestBindingSha256,
+      executionIntent: requestMismatchIntent
+    }
+  });
+  assert.equal(requestMismatchResponse.statusCode, 409, requestMismatchResponse.body);
+  assert.equal(requestMismatchResponse.json?.code, "X402_EXECUTION_INTENT_REQUEST_MISMATCH");
+
+  const idempotencyMismatchIntent = buildExecutionIntent({
     intentId: "intent_exec_mismatch_1",
     agentId: payerAgentId,
     requestSha256: requestBindingSha256,
@@ -427,7 +523,7 @@ test("API e2e: x402 authorize-payment requires valid execution intent when enabl
       gateId,
       requestBindingMode: "strict",
       requestBindingSha256,
-      executionIntent: mismatchIntent
+      executionIntent: idempotencyMismatchIntent
     }
   });
   assert.equal(mismatchResponse.statusCode, 409, mismatchResponse.body);
@@ -454,7 +550,40 @@ test("API e2e: x402 authorize-payment requires valid execution intent when enabl
   });
   assert.equal(auth.statusCode, 200, auth.body);
 
+  const storedGate = await api.store.getX402Gate({ tenantId: "tenant_default", gateId });
+  assert.equal(storedGate?.authorization?.executionIntent?.intentHash, validIntent.intentHash);
+  assert.equal(storedGate?.authorization?.executionIntent?.requestFingerprint?.requestSha256, requestBindingSha256);
+
+  const mismatchedRequestEvidenceSha256 = sha256Hex("x402_execution_intent_verify_request_mismatch_1");
   const responseSha256 = sha256Hex("{\"ok\":true,\"scenario\":\"execution_intent\"}");
+  const verifyMismatchedRequest = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_exec_intent_request_mismatch_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: {
+        mode: "automatic",
+        rules: {
+          autoReleaseOnGreen: true,
+          greenReleaseRatePct: 100,
+          autoReleaseOnAmber: false,
+          amberReleaseRatePct: 0,
+          autoReleaseOnRed: true,
+          redReleaseRatePct: 0
+        }
+      },
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${mismatchedRequestEvidenceSha256}`, `http:response_sha256:${responseSha256}`]
+    }
+  });
+  assert.equal(verifyMismatchedRequest.statusCode, 409, verifyMismatchedRequest.body);
+  assert.equal(verifyMismatchedRequest.json?.code, "X402_REQUEST_BINDING_EVIDENCE_MISMATCH");
+  assert.equal(verifyMismatchedRequest.json?.details?.requestSha256, mismatchedRequestEvidenceSha256);
+  assert.equal(verifyMismatchedRequest.json?.details?.expectedRequestBindingSha256, requestBindingSha256);
+
   const verifyRes = await request(api, {
     method: "POST",
     path: "/x402/gate/verify",
@@ -481,9 +610,76 @@ test("API e2e: x402 authorize-payment requires valid execution intent when enabl
   assert.equal(verifyRes.statusCode, 200, verifyRes.body);
   assert.equal(verifyRes.json?.decisionRecord?.bindings?.executionIntent?.intentHash, validIntent.intentHash);
   assert.equal(verifyRes.json?.decisionRecord?.bindings?.executionIntent?.requestSha256, requestBindingSha256);
+});
 
-  const storedGate = await api.store.getX402Gate({ tenantId: "tenant_default", gateId });
-  assert.equal(storedGate?.authorization?.executionIntent?.intentHash, validIntent.intentHash);
+test("API e2e: high-risk x402 routes fail closed when protocol context header is required", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    protocol: { requireHeader: true }
+  });
+
+  const missingAuthorizeProtocol = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_proto_ctx_missing_authz_1" },
+    body: { gateId: "gate_proto_ctx_missing_1" }
+  });
+  assert.equal(missingAuthorizeProtocol.statusCode, 400, missingAuthorizeProtocol.body);
+  assert.equal(missingAuthorizeProtocol.json?.code, "PROTOCOL_VERSION_REQUIRED");
+
+  const authorizeWithProtocol = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: {
+      "x-idempotency-key": "x402_proto_ctx_present_authz_1",
+      "x-settld-protocol": "1.0"
+    },
+    body: { gateId: "gate_proto_ctx_missing_1" }
+  });
+  assert.equal(authorizeWithProtocol.statusCode, 404, authorizeWithProtocol.body);
+  assert.equal(authorizeWithProtocol.json?.code, "NOT_FOUND");
+
+  const missingEscalationProtocol = await request(api, {
+    method: "POST",
+    path: "/x402/gate/escalations/esc_proto_ctx_missing_1/resolve",
+    headers: { "x-idempotency-key": "x402_proto_ctx_missing_escalation_1" },
+    body: { action: "approve" }
+  });
+  assert.equal(missingEscalationProtocol.statusCode, 400, missingEscalationProtocol.body);
+  assert.equal(missingEscalationProtocol.json?.code, "PROTOCOL_VERSION_REQUIRED");
+
+  const escalationWithProtocol = await request(api, {
+    method: "POST",
+    path: "/x402/gate/escalations/esc_proto_ctx_missing_1/resolve",
+    headers: {
+      "x-idempotency-key": "x402_proto_ctx_present_escalation_1",
+      "x-settld-protocol": "1.0"
+    },
+    body: { action: "approve" }
+  });
+  assert.equal(escalationWithProtocol.statusCode, 404, escalationWithProtocol.body);
+  assert.equal(escalationWithProtocol.json?.code, "NOT_FOUND");
+
+  const missingWindDownProtocol = await request(api, {
+    method: "POST",
+    path: "/x402/gate/agents/agt_proto_ctx_missing_1/wind-down",
+    headers: { "x-idempotency-key": "x402_proto_ctx_missing_winddown_1" },
+    body: { reasonCode: "X402_AGENT_WIND_DOWN_MANUAL" }
+  });
+  assert.equal(missingWindDownProtocol.statusCode, 400, missingWindDownProtocol.body);
+  assert.equal(missingWindDownProtocol.json?.code, "PROTOCOL_VERSION_REQUIRED");
+
+  const windDownWithProtocol = await request(api, {
+    method: "POST",
+    path: "/x402/gate/agents/agt_proto_ctx_missing_1/wind-down",
+    headers: {
+      "x-idempotency-key": "x402_proto_ctx_present_winddown_1",
+      "x-settld-protocol": "1.0"
+    },
+    body: { reasonCode: "X402_AGENT_WIND_DOWN_MANUAL" }
+  });
+  assert.equal(windDownWithProtocol.statusCode, 404, windDownWithProtocol.body);
+  assert.equal(windDownWithProtocol.json?.code, "NOT_FOUND");
 });
 
 test("API e2e: x402 authorize-payment is idempotent and token verifies via keyset", async () => {
@@ -589,6 +785,16 @@ test("API e2e: x402 authorize-payment is idempotent and token verifies via keyse
   assert.equal(verifyRes.json?.decisionRecord?.bindings?.policyDecisionFingerprint?.fingerprintVersion, "PolicyDecisionFingerprint.v1");
   assert.match(String(verifyRes.json?.decisionRecord?.bindings?.policyDecisionFingerprint?.policyHash ?? ""), /^[0-9a-f]{64}$/);
   assert.match(String(verifyRes.json?.decisionRecord?.bindings?.policyDecisionFingerprint?.evaluationHash ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(verifyRes.json?.policyDecisionArtifact?.schemaVersion, "PolicyDecision.v1");
+  assert.match(String(verifyRes.json?.policyDecisionArtifact?.policyDecisionHash ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(
+    verifyRes.json?.policyDecisionArtifact?.policyDecisionHash,
+    verifyRes.json?.gate?.decision?.policyDecisionHash
+  );
+  assert.equal(
+    verifyRes.json?.decisionRecord?.bindings?.metadata?.x402?.policyDecision?.policyDecisionHash,
+    verifyRes.json?.policyDecisionArtifact?.policyDecisionHash
+  );
   assert.equal(
     verifyRes.json?.decisionRecord?.bindings?.policyDecisionFingerprint?.evaluationHash,
     verifyRes.json?.settlementReceipt?.bindings?.policyDecisionFingerprint?.evaluationHash
@@ -1474,6 +1680,17 @@ test("API e2e: verify enforces strict request binding evidence for quote-bound a
   });
   assert.equal(verifyOk.statusCode, 200, verifyOk.body);
   assert.equal(verifyOk.json?.decisionRecord?.bindings?.request?.sha256, requestBindingSha256);
+  assert.equal(verifyOk.json?.decisionRecord?.bindings?.spendAuthorization?.policyRef, "policy_bind_verify");
+  assert.deepEqual(verifyOk.json?.decisionRecord?.bindings?.metadata?.x402?.walletAssignment, {
+    sponsorWalletRef: "wallet_bind_verify_1",
+    policyRef: "policy_bind_verify",
+    policyVersion: 1
+  });
+  assert.deepEqual(verifyOk.json?.settlementReceipt?.bindings?.metadata?.x402?.walletAssignment, {
+    sponsorWalletRef: "wallet_bind_verify_1",
+    policyRef: "policy_bind_verify",
+    policyVersion: 1
+  });
 });
 
 test("API e2e: ops x402 wallet policy CRUD and authorize-payment policy enforcement", async () => {

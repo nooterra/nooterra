@@ -5,6 +5,11 @@ This checklist is the “no surprises” gate for shipping Settld as a product (
 ## Preconditions
 
 - `npm test` is green on main.
+- Main-branch release gate jobs are green in `.github/workflows/tests.yml` for the release commit:
+  - `noo_44_47_48_regressions` (NOO-44/47/48 fail-closed regression lane)
+  - `kernel_v0_ship_gate`
+  - `production_cutover_gate`
+  - `offline_verification_parity_gate` (NOO-50)
 - `CHANGELOG.md` is updated and accurate.
 - Protocol v1 freeze gate is satisfied (no accidental v1 schema/vector drift).
 - Minimum production topology is defined for the target environment:
@@ -31,6 +36,7 @@ For a v1 freeze release, the GitHub Release MUST include:
 - `conformance-v1.tar.gz` + `conformance-v1-SHA256SUMS`
 - `settld-audit-packet-v1.zip` + `settld-audit-packet-v1.zip.sha256`
 - `release_index_v1.json` + `release_index_v1.sig` (signed release manifest)
+- `release-promotion-guard.json` (NOO-65 promotion guard report)
 
 Release-gate evidence should also include:
 
@@ -48,6 +54,8 @@ Release-gate evidence should also include:
 - `artifacts/gates/s13-go-live-gate.json`
 - `artifacts/gates/s13-launch-cutover-packet.json`
 - `artifacts/gates/production-cutover-gate.json`
+- `artifacts/gates/offline-verification-parity-gate.json` (NOO-50)
+- `artifacts/gates/release-promotion-guard.json` (NOO-65)
 
 See `docs/spec/SUPPLY_CHAIN.md` for the release-channel threat model and verification posture.
 
@@ -150,6 +158,12 @@ Required gate reports:
 - `artifacts/gates/s13-go-live-gate.json`
 - `artifacts/gates/s13-launch-cutover-packet.json`
 - Live deploy readiness run (manual workflow): `artifacts/gates/production-cutover-gate-prod.json`
+
+Promotion guard order (fail-closed):
+
+1. NOO-50 parity gate report is generated on main (`artifacts/gates/offline-verification-parity-gate.json`).
+2. S13 go-live workflow report set is generated for the same release commit (`s13-go-live-gate.json` + `s13-launch-cutover-packet.json`).
+3. Release workflow runs NOO-65 and must emit `artifacts/gates/release-promotion-guard.json` with `verdict.ok=true` before artifact publish jobs execute.
 
 Related runbooks:
 

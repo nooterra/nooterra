@@ -114,6 +114,43 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const X402WalletAssignment = {
+    type: "object",
+    additionalProperties: false,
+    required: ["sponsorWalletRef", "policyRef", "policyVersion"],
+    properties: {
+      sponsorWalletRef: { type: "string" },
+      policyRef: { type: "string" },
+      policyVersion: { type: "integer", minimum: 1 }
+    }
+  };
+
+  const X402WalletAssignmentResolveRequest = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      profileRef: { type: "string", nullable: true },
+      riskClass: { type: "string", enum: ["read", "compute", "action", "financial"], nullable: true },
+      delegationRef: { type: "string", nullable: true },
+      delegationDepth: { type: "integer", minimum: 0, nullable: true }
+    }
+  };
+
+  const X402WalletAssignmentResolveResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "tenantId", "assignment"],
+    properties: {
+      ok: { type: "boolean" },
+      tenantId: { type: "string" },
+      profileRef: { type: "string", nullable: true },
+      riskClass: { type: "string", enum: ["read", "compute", "action", "financial"], nullable: true },
+      delegationRef: { type: "string", nullable: true },
+      delegationDepth: { type: "integer", minimum: 0, nullable: true },
+      assignment: { ...X402WalletAssignment, nullable: true }
+    }
+  };
+
   const X402AuthorizePaymentTaErrorCodes = Object.freeze([
     "X402_EXECUTION_INTENT_REQUIRED",
     "X402_EXECUTION_INTENT_IDEMPOTENCY_MISMATCH",
@@ -707,6 +744,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           closedByAgentId: { type: "string", nullable: true },
           summary: { type: "string", nullable: true },
           closedAt: { type: "string", format: "date-time", nullable: true },
+          releaseRatePct: { type: "integer", minimum: 0, maximum: 100, nullable: true },
           evidenceRefs: { type: "array", items: { type: "string" } }
         }
       },
@@ -1463,6 +1501,189 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       affectedTraceCount: { type: "integer", minimum: 0 },
       revoked: { type: "object", additionalProperties: true },
       missing: { type: "object", additionalProperties: true }
+    }
+  };
+
+  const OpsEmergencyControlType = {
+    type: "string",
+    enum: ["pause", "quarantine", "revoke", "kill-switch"]
+  };
+
+  const OpsEmergencyAction = {
+    type: "string",
+    enum: ["pause", "quarantine", "revoke", "kill-switch", "resume"]
+  };
+
+  const OpsEmergencyScope = {
+    type: "object",
+    additionalProperties: false,
+    required: ["type"],
+    properties: {
+      type: { type: "string", enum: ["tenant", "agent", "adapter"] },
+      id: { type: "string", nullable: true }
+    }
+  };
+
+  const OpsEmergencyRequestedBy = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      keyId: { type: "string", nullable: true },
+      principalId: { type: "string", nullable: true }
+    }
+  };
+
+  const OpsEmergencyControlEvent = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "eventId", "tenantId", "action", "scope", "requestedBy", "createdAt", "effectiveAt"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["OpsEmergencyControlEvent.v1"] },
+      eventId: { type: "string" },
+      tenantId: { type: "string" },
+      action: OpsEmergencyAction,
+      controlType: { ...OpsEmergencyControlType, nullable: true },
+      resumeControlTypes: { type: "array", items: OpsEmergencyControlType },
+      scope: OpsEmergencyScope,
+      reasonCode: { type: "string", nullable: true },
+      reason: { type: "string", nullable: true },
+      operatorAction: { type: "object", additionalProperties: true, nullable: true },
+      requestedBy: OpsEmergencyRequestedBy,
+      requestId: { type: "string", nullable: true },
+      createdAt: { type: "string", format: "date-time" },
+      effectiveAt: { type: "string", format: "date-time" }
+    }
+  };
+
+  const OpsEmergencyControlState = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "scopeType",
+      "scopeId",
+      "controlType",
+      "active",
+      "activatedAt",
+      "resumedAt",
+      "updatedAt",
+      "lastEventId",
+      "lastAction",
+      "reasonCode",
+      "reason",
+      "operatorAction",
+      "revision"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["OpsEmergencyControlState.v1"] },
+      tenantId: { type: "string" },
+      scopeType: { type: "string", enum: ["tenant", "agent", "adapter"] },
+      scopeId: { type: "string", nullable: true },
+      controlType: OpsEmergencyControlType,
+      active: { type: "boolean" },
+      activatedAt: { type: "string", format: "date-time" },
+      resumedAt: { type: "string", format: "date-time", nullable: true },
+      updatedAt: { type: "string", format: "date-time" },
+      lastEventId: { type: "string", nullable: true },
+      lastAction: { ...OpsEmergencyAction, nullable: true },
+      reasonCode: { type: "string", nullable: true },
+      reason: { type: "string", nullable: true },
+      operatorAction: { type: "object", additionalProperties: true, nullable: true },
+      revision: { type: "integer", minimum: 0 }
+    }
+  };
+
+  const OpsEmergencyPauseRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["operatorAction"],
+    properties: {
+      scope: OpsEmergencyScope,
+      scopeType: { type: "string", enum: ["tenant", "agent", "adapter"], nullable: true },
+      scopeId: { type: "string", nullable: true },
+      agentId: { type: "string", nullable: true },
+      adapterId: { type: "string", nullable: true },
+      providerId: { type: "string", nullable: true },
+      reasonCode: { type: "string", nullable: true },
+      reason: { type: "string", nullable: true },
+      operatorAction: { type: "object", additionalProperties: true },
+      effectiveAt: { type: "string", format: "date-time", nullable: true }
+    }
+  };
+
+  const OpsEmergencyQuarantineRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["operatorAction"],
+    properties: {
+      scope: OpsEmergencyScope,
+      scopeType: { type: "string", enum: ["tenant", "agent", "adapter"], nullable: true },
+      scopeId: { type: "string", nullable: true },
+      agentId: { type: "string", nullable: true },
+      adapterId: { type: "string", nullable: true },
+      providerId: { type: "string", nullable: true },
+      reasonCode: { type: "string", nullable: true },
+      reason: { type: "string", nullable: true },
+      operatorAction: { type: "object", additionalProperties: true },
+      effectiveAt: { type: "string", format: "date-time", nullable: true }
+    }
+  };
+
+  const OpsEmergencyKillSwitchRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["operatorAction"],
+    properties: {
+      scope: OpsEmergencyScope,
+      scopeType: { type: "string", enum: ["tenant", "agent", "adapter"], nullable: true },
+      scopeId: { type: "string", nullable: true },
+      agentId: { type: "string", nullable: true },
+      adapterId: { type: "string", nullable: true },
+      providerId: { type: "string", nullable: true },
+      reasonCode: { type: "string", nullable: true },
+      reason: { type: "string", nullable: true },
+      operatorAction: { type: "object", additionalProperties: true },
+      effectiveAt: { type: "string", format: "date-time", nullable: true }
+    }
+  };
+
+  const OpsEmergencyResumeRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["operatorAction"],
+    properties: {
+      scope: OpsEmergencyScope,
+      scopeType: { type: "string", enum: ["tenant", "agent", "adapter"], nullable: true },
+      scopeId: { type: "string", nullable: true },
+      agentId: { type: "string", nullable: true },
+      adapterId: { type: "string", nullable: true },
+      providerId: { type: "string", nullable: true },
+      controlType: OpsEmergencyControlType,
+      controlTypes: { type: "array", items: OpsEmergencyControlType },
+      resumeControlType: OpsEmergencyControlType,
+      resumeControlTypes: { type: "array", items: OpsEmergencyControlType },
+      reasonCode: { type: "string", nullable: true },
+      reason: { type: "string", nullable: true },
+      operatorAction: { type: "object", additionalProperties: true },
+      effectiveAt: { type: "string", format: "date-time", nullable: true }
+    }
+  };
+
+  const OpsEmergencyControlResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["tenantId", "applied", "action"],
+    properties: {
+      tenantId: { type: "string" },
+      applied: { type: "boolean" },
+      action: OpsEmergencyAction,
+      reason: { type: "string", nullable: true },
+      event: { ...OpsEmergencyControlEvent, nullable: true },
+      scope: { ...OpsEmergencyScope, nullable: true },
+      controlType: { ...OpsEmergencyControlType, nullable: true },
+      resumeControlTypes: { type: "array", items: OpsEmergencyControlType },
+      control: { ...OpsEmergencyControlState, nullable: true }
     }
   };
 
@@ -2491,7 +2712,6 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
   const RunSettlementResolveRequest = {
     type: "object",
     additionalProperties: false,
-    required: ["status"],
     properties: {
       status: { type: "string", enum: ["released", "refunded"] },
       releaseRatePct: { type: "integer", minimum: 0, maximum: 100 },
@@ -3393,6 +3613,9 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         AgentReputationWindowV2,
         AgentReputationV2,
         AgentReputationAny,
+        X402WalletAssignment,
+        X402WalletAssignmentResolveRequest,
+        X402WalletAssignmentResolveResponse,
         VerificationMethodV1,
         SettlementPolicyV1,
         MarketplaceSettlementPolicyRefV1,
@@ -3413,6 +3636,11 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         DelegationTraceListResponse,
         DelegationEmergencyRevokeRequest,
         DelegationEmergencyRevokeResponse,
+        OpsEmergencyPauseRequest,
+        OpsEmergencyQuarantineRequest,
+        OpsEmergencyKillSwitchRequest,
+        OpsEmergencyResumeRequest,
+        OpsEmergencyControlResponse,
         MarketplaceAgreementAcceptanceSignatureV2,
         MarketplaceAgreementChangeOrderAcceptanceSignatureV2,
         MarketplaceAgreementCancellationAcceptanceSignatureV2,
@@ -4721,11 +4949,13 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                         closedByAgentId: { type: "string", nullable: true },
                         summary: { type: "string", nullable: true },
                         closedAt: { type: "string", format: "date-time", nullable: true },
+                        releaseRatePct: { type: "integer", minimum: 0, maximum: 100, nullable: true },
                         evidenceRefs: { type: "array", items: { type: "string" } }
                       }
                     },
                     resolutionOutcome: { type: "string", enum: ["accepted", "rejected", "partial", "withdrawn", "unresolved"] },
                     resolutionEscalationLevel: { type: "string", enum: ["l1_counterparty", "l2_arbiter", "l3_external"] },
+                    resolutionReleaseRatePct: { type: "integer", minimum: 0, maximum: 100 },
                     resolutionSummary: { type: "string" },
                     closedByAgentId: { type: "string" },
                     resolutionEvidenceRefs: { type: "array", items: { type: "string" } },
@@ -6153,6 +6383,69 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
+      "/ops/emergency/pause": {
+        post: {
+          summary: "Emergency pause an agent for paid execution paths",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_write"],
+          requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyPauseRequest } } },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
+            201: { description: "Created", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/emergency/quarantine": {
+        post: {
+          summary: "Emergency quarantine an agent for paid execution paths",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_write"],
+          requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyQuarantineRequest } } },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
+            201: { description: "Created", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/emergency/kill-switch": {
+        post: {
+          summary: "Set emergency kill-switch state for high-risk execution",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_write"],
+          requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyKillSwitchRequest } } },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
+            201: { description: "Created", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/ops/emergency/resume": {
+        post: {
+          summary: "Resume previously paused or quarantined emergency controls",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-settld-scopes": ["ops_write"],
+          requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyResumeRequest } } },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
       "/ops/network/command-center": {
         get: {
           summary: "Network command-center summary",
@@ -6743,6 +7036,25 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } },
             409: { description: "Preconditions failed", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/x402/wallet-assignment/resolve": {
+        post: {
+          summary: "Resolve deterministic x402 wallet assignment",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: false,
+            content: {
+              "application/json": {
+                schema: X402WalletAssignmentResolveRequest
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: X402WalletAssignmentResolveResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },

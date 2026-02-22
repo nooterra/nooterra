@@ -713,6 +713,7 @@ test("API e2e: dispute evidence submissions and escalation transitions are persi
     body: {
       disputeId: "dsp_market_ctx_1",
       resolutionOutcome: "partial",
+      resolutionReleaseRatePct: 50,
       resolutionEscalationLevel: "l2_arbiter",
       resolutionSummary: "partial adjustment accepted",
       closedByAgentId: "agt_market_dispute_ctx_operator",
@@ -722,6 +723,7 @@ test("API e2e: dispute evidence submissions and escalation transitions are persi
   assert.equal(closeDispute.statusCode, 200);
   assert.equal(closeDispute.json?.settlement?.disputeStatus, "closed");
   assert.equal(closeDispute.json?.settlement?.disputeResolution?.outcome, "partial");
+  assert.equal(closeDispute.json?.settlement?.disputeResolution?.releaseRatePct, 50);
   assert.equal(closeDispute.json?.settlement?.disputeResolution?.escalationLevel, "l2_arbiter");
   assert.equal(closeDispute.json?.settlement?.disputeResolution?.closedByAgentId, "agt_market_dispute_ctx_operator");
 });

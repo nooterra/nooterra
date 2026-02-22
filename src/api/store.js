@@ -20,6 +20,28 @@ import { normalizeBillingPlanId } from "../core/billing-plans.js";
 
 const SERVER_SIGNER_FILENAME = "server-signer.json";
 const SETTLD_PAY_KEYSET_STORE_FILENAME = "settld-pay-keyset-store.json";
+const EMERGENCY_SCOPE_TYPE = Object.freeze({
+  TENANT: "tenant",
+  AGENT: "agent",
+  ADAPTER: "adapter"
+});
+const EMERGENCY_SCOPE_TYPES = new Set(Object.values(EMERGENCY_SCOPE_TYPE));
+const EMERGENCY_CONTROL_TYPE = Object.freeze({
+  PAUSE: "pause",
+  QUARANTINE: "quarantine",
+  REVOKE: "revoke",
+  KILL_SWITCH: "kill-switch"
+});
+const EMERGENCY_CONTROL_TYPES = Object.values(EMERGENCY_CONTROL_TYPE);
+const EMERGENCY_CONTROL_TYPES_SET = new Set(EMERGENCY_CONTROL_TYPES);
+const EMERGENCY_ACTION = Object.freeze({
+  PAUSE: "pause",
+  QUARANTINE: "quarantine",
+  REVOKE: "revoke",
+  KILL_SWITCH: "kill-switch",
+  RESUME: "resume"
+});
+const EMERGENCY_ACTIONS = new Set(Object.values(EMERGENCY_ACTION));
 
 function readJsonFileSafe(filePath) {
   if (!fs.existsSync(filePath)) return null;
@@ -112,6 +134,43 @@ function loadOrCreateServerSigner({ persistenceDir }) {
   const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
   fs.writeFileSync(signerPath, JSON.stringify({ publicKeyPem, privateKeyPem }, null, 2), "utf8");
   return { active: { publicKeyPem, privateKeyPem }, previous: [], source: "generated-persistent" };
+}
+
+function normalizeEmergencyScopeType(value) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!EMERGENCY_SCOPE_TYPES.has(normalized)) throw new TypeError("scope.type must be tenant|agent|adapter");
+  return normalized;
+}
+
+function normalizeEmergencyScopeId(scopeType, value) {
+  if (scopeType === EMERGENCY_SCOPE_TYPE.TENANT) return null;
+  const normalized = typeof value === "string" ? value.trim() : "";
+  if (!normalized) throw new TypeError("scope.id is required for scope.type agent|adapter");
+  return normalized;
+}
+
+function normalizeEmergencyControlType(value, { allowNull = false } = {}) {
+  if (allowNull && (value === null || value === undefined || String(value).trim() === "")) return null;
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!EMERGENCY_CONTROL_TYPES_SET.has(normalized)) throw new TypeError("controlType must be pause|quarantine|revoke|kill-switch");
+  return normalized;
+}
+
+function normalizeEmergencyAction(value) {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!EMERGENCY_ACTIONS.has(normalized)) throw new TypeError("action must be pause|quarantine|revoke|kill-switch|resume");
+  return normalized;
+}
+
+function normalizeEmergencyResumeControlTypes(value) {
+  const values = Array.isArray(value) ? value : value === null || value === undefined ? EMERGENCY_CONTROL_TYPES : [value];
+  const dedupe = new Set();
+  for (const item of values) {
+    dedupe.add(normalizeEmergencyControlType(item, { allowNull: false }));
+  }
+  const out = Array.from(dedupe.values());
+  out.sort((left, right) => left.localeCompare(right));
+  return out;
 }
 
 export function createStore({ persistenceDir = null, serverSignerKeypair = null } = {}) {
@@ -323,6 +382,8 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     x402EscalationOverrideUsage: new Map(), // `${tenantId}\n${overrideId}` -> X402EscalationOverrideUsage.v1
     x402AgentLifecycles: new Map(), // `${tenantId}\n${agentId}` -> X402AgentLifecycle.v1
     x402WebhookEndpoints: new Map(), // `${tenantId}\n${endpointId}` -> X402WebhookEndpoint.v1
+    emergencyControlEvents: new Map(), // `${tenantId}\n${eventId}` -> OpsEmergencyControlEvent.v1
+    emergencyControlState: new Map(), // `${tenantId}\n${scopeType}::${scopeId}::${controlType}` -> OpsEmergencyControlState.v1
     toolCallHolds: new Map(), // `${tenantId}\n${holdHash}` -> FundingHold.v1 snapshot
     settlementAdjustments: new Map(), // `${tenantId}\n${adjustmentId}` -> SettlementAdjustment.v1 snapshot
     moneyRailOperations: new Map(), // `${tenantId}\n${providerId}\n${operationId}` -> MoneyRailOperation.v1
@@ -3041,6 +3102,188 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     }
     all.sort((a, b) => Number(b.id ?? 0) - Number(a.id ?? 0));
     return all.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.appendEmergencyControlEvent = async function appendEmergencyControlEvent({ tenantId = DEFAULT_TENANT_ID, event, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!event || typeof event !== "object" || Array.isArray(event)) throw new TypeError("event is required");
+
+    const eventId = assertNonEmptyString(event.eventId ?? event.id ?? null, "event.eventId");
+    const action = normalizeEmergencyAction(event.action ?? null);
+    const scopeInput = event.scope && typeof event.scope === "object" && !Array.isArray(event.scope) ? event.scope : {};
+    const scopeType = normalizeEmergencyScopeType(scopeInput.type ?? event.scopeType ?? EMERGENCY_SCOPE_TYPE.TENANT);
+    const scopeId = normalizeEmergencyScopeId(scopeType, scopeInput.id ?? event.scopeId ?? null);
+    const controlType =
+      action === EMERGENCY_ACTION.RESUME
+        ? normalizeEmergencyControlType(event.controlType ?? null, { allowNull: true })
+        : normalizeEmergencyControlType(event.controlType ?? action, { allowNull: false });
+    const resumeControlTypes =
+      action === EMERGENCY_ACTION.RESUME
+        ? normalizeEmergencyResumeControlTypes(event.resumeControlTypes ?? (controlType ? [controlType] : null))
+        : [];
+
+    const nowAt = typeof store.nowIso === "function" ? store.nowIso() : new Date().toISOString();
+    const effectiveAt =
+      typeof event.effectiveAt === "string" && event.effectiveAt.trim() !== "" ? event.effectiveAt.trim() : nowAt;
+    const createdAt = typeof event.createdAt === "string" && event.createdAt.trim() !== "" ? event.createdAt.trim() : nowAt;
+    const normalizedEvent = {
+      ...event,
+      schemaVersion:
+        typeof event.schemaVersion === "string" && event.schemaVersion.trim() !== ""
+          ? event.schemaVersion.trim()
+          : "OpsEmergencyControlEvent.v1",
+      eventId,
+      tenantId,
+      action,
+      controlType,
+      resumeControlTypes,
+      scope: { type: scopeType, id: scopeId },
+      effectiveAt,
+      createdAt
+    };
+
+    await store.commitTx({ at: effectiveAt, ops: [{ kind: "EMERGENCY_CONTROL_EVENT_APPEND", tenantId, event: normalizedEvent }], audit });
+    return store.emergencyControlEvents.get(makeScopedKey({ tenantId, id: eventId })) ?? normalizedEvent;
+  };
+
+  store.listEmergencyControlEvents = async function listEmergencyControlEvents({
+    tenantId = DEFAULT_TENANT_ID,
+    action = null,
+    scopeType = null,
+    scopeId = null,
+    controlType = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (action !== null) action = normalizeEmergencyAction(action);
+    if (scopeType !== null) scopeType = normalizeEmergencyScopeType(scopeType);
+    if (controlType !== null) controlType = normalizeEmergencyControlType(controlType, { allowNull: false });
+    if (scopeId !== null && (typeof scopeId !== "string" || scopeId.trim() === "")) {
+      throw new TypeError("scopeId must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+
+    const out = [];
+    for (const row of store.emergencyControlEvents.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (action !== null && String(row.action ?? "").toLowerCase() !== action) continue;
+      const rowScope = row.scope && typeof row.scope === "object" && !Array.isArray(row.scope) ? row.scope : {};
+      if (scopeType !== null && String(rowScope.type ?? "").toLowerCase() !== scopeType) continue;
+      if (scopeId !== null && String(rowScope.id ?? "") !== scopeId) continue;
+      if (controlType !== null && String(row.controlType ?? "").toLowerCase() !== controlType) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => {
+      const leftMs = Number.isFinite(Date.parse(String(left?.effectiveAt ?? ""))) ? Date.parse(String(left.effectiveAt)) : Number.NaN;
+      const rightMs = Number.isFinite(Date.parse(String(right?.effectiveAt ?? ""))) ? Date.parse(String(right.effectiveAt)) : Number.NaN;
+      if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && rightMs !== leftMs) return rightMs - leftMs;
+      return String(left?.eventId ?? "").localeCompare(String(right?.eventId ?? ""));
+    });
+    return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.listEmergencyControlState = async function listEmergencyControlState({
+    tenantId = DEFAULT_TENANT_ID,
+    active = null,
+    scopeType = null,
+    scopeId = null,
+    controlType = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (active !== null && typeof active !== "boolean") throw new TypeError("active must be null or boolean");
+    if (scopeType !== null) scopeType = normalizeEmergencyScopeType(scopeType);
+    if (controlType !== null) controlType = normalizeEmergencyControlType(controlType, { allowNull: false });
+    if (scopeId !== null && (typeof scopeId !== "string" || scopeId.trim() === "")) {
+      throw new TypeError("scopeId must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+
+    const out = [];
+    for (const row of store.emergencyControlState.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (active !== null && Boolean(row.active) !== active) continue;
+      if (scopeType !== null && String(row.scopeType ?? "").toLowerCase() !== scopeType) continue;
+      if (scopeId !== null && String(row.scopeId ?? "") !== scopeId) continue;
+      if (controlType !== null && String(row.controlType ?? "").toLowerCase() !== controlType) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => {
+      const leftMs = Number.isFinite(Date.parse(String(left?.updatedAt ?? ""))) ? Date.parse(String(left.updatedAt)) : Number.NaN;
+      const rightMs = Number.isFinite(Date.parse(String(right?.updatedAt ?? ""))) ? Date.parse(String(right.updatedAt)) : Number.NaN;
+      if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && rightMs !== leftMs) return rightMs - leftMs;
+      const leftScope = `${String(left?.scopeType ?? "")}:${String(left?.scopeId ?? "")}`;
+      const rightScope = `${String(right?.scopeType ?? "")}:${String(right?.scopeId ?? "")}`;
+      const scopeOrder = leftScope.localeCompare(rightScope);
+      if (scopeOrder !== 0) return scopeOrder;
+      return String(left?.controlType ?? "").localeCompare(String(right?.controlType ?? ""));
+    });
+    return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.findEmergencyControlBlock = async function findEmergencyControlBlock({
+    tenantId = DEFAULT_TENANT_ID,
+    controlTypes = null,
+    agentIds = [],
+    adapterIds = []
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    const allowedControlTypes = controlTypes === null ? null : new Set(normalizeEmergencyResumeControlTypes(controlTypes));
+    const normalizedAgentIds = new Set((Array.isArray(agentIds) ? agentIds : []).map((value) => String(value ?? "").trim()).filter(Boolean));
+    const normalizedAdapterIds = new Set((Array.isArray(adapterIds) ? adapterIds : []).map((value) => String(value ?? "").trim()).filter(Boolean));
+    const controlPriority = new Map([
+      [EMERGENCY_CONTROL_TYPE.KILL_SWITCH, 0],
+      [EMERGENCY_CONTROL_TYPE.REVOKE, 1],
+      [EMERGENCY_CONTROL_TYPE.QUARANTINE, 2],
+      [EMERGENCY_CONTROL_TYPE.PAUSE, 3]
+    ]);
+    const scopePriority = new Map([
+      [EMERGENCY_SCOPE_TYPE.AGENT, 0],
+      [EMERGENCY_SCOPE_TYPE.ADAPTER, 1],
+      [EMERGENCY_SCOPE_TYPE.TENANT, 2]
+    ]);
+
+    const matches = [];
+    for (const row of store.emergencyControlState.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (row.active !== true) continue;
+      const rowControlType = normalizeEmergencyControlType(row.controlType ?? null, { allowNull: false });
+      if (allowedControlTypes && !allowedControlTypes.has(rowControlType)) continue;
+      const rowScopeType = normalizeEmergencyScopeType(row.scopeType ?? null);
+      const rowScopeId = row.scopeId === null || row.scopeId === undefined ? null : String(row.scopeId);
+      if (rowScopeType === EMERGENCY_SCOPE_TYPE.AGENT && !normalizedAgentIds.has(String(rowScopeId ?? ""))) continue;
+      if (rowScopeType === EMERGENCY_SCOPE_TYPE.ADAPTER && !normalizedAdapterIds.has(String(rowScopeId ?? ""))) continue;
+      matches.push({
+        ...row,
+        controlType: rowControlType,
+        scopeType: rowScopeType,
+        scopeId: rowScopeId
+      });
+    }
+    matches.sort((left, right) => {
+      const leftControl = controlPriority.get(left.controlType) ?? 100;
+      const rightControl = controlPriority.get(right.controlType) ?? 100;
+      if (leftControl !== rightControl) return leftControl - rightControl;
+      const leftScope = scopePriority.get(left.scopeType) ?? 100;
+      const rightScope = scopePriority.get(right.scopeType) ?? 100;
+      if (leftScope !== rightScope) return leftScope - rightScope;
+      const leftMs = Number.isFinite(Date.parse(String(left?.updatedAt ?? ""))) ? Date.parse(String(left.updatedAt)) : Number.NaN;
+      const rightMs = Number.isFinite(Date.parse(String(right?.updatedAt ?? ""))) ? Date.parse(String(right.updatedAt)) : Number.NaN;
+      if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && rightMs !== leftMs) return rightMs - leftMs;
+      return String(left?.lastEventId ?? "").localeCompare(String(right?.lastEventId ?? ""));
+    });
+    return matches[0] ?? null;
   };
 
   store.getSignerKey = async function getSignerKey({ tenantId = DEFAULT_TENANT_ID, keyId } = {}) {

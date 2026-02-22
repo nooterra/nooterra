@@ -4,16 +4,20 @@ Use this checklist to launch and verify a real hosted Settld environment.
 
 ## Phase 0: Preflight
 
-1. Confirm branch protection includes `tests / kernel_v0_ship_gate` and `tests / production_cutover_gate`.
-2. Confirm release workflow is blocked unless both required gates are green for the release commit.
-3. Confirm staging and production have separate domains, databases, secrets, and signer keys.
-4. Confirm required services are deployable: `npm run start:prod`, `npm run start:maintenance`, `npm run start:x402-gateway`.
-5. Configure GitHub Environment `production_cutover_gate` with:
+1. Confirm branch protection includes:
+   - `tests / kernel_v0_ship_gate`
+   - `tests / production_cutover_gate`
+   - `tests / offline_verification_parity_gate` (NOO-50)
+2. Confirm release workflow is blocked unless NOO-50 and the kernel/cutover gates are green for the release commit.
+3. Confirm release workflow runs NOO-65 promotion guard and blocks publish lanes if `release-promotion-guard.json` verdict is not pass/override-pass.
+4. Confirm staging and production have separate domains, databases, secrets, and signer keys.
+5. Confirm required services are deployable: `npm run start:prod`, `npm run start:maintenance`, `npm run start:x402-gateway`.
+6. Configure GitHub Environment `production_cutover_gate` with:
    - `PROD_BASE_URL`
    - `PROD_TENANT_ID`
    - `PROD_OPS_TOKEN`
    - optional `PROD_PROTOCOL` (`1.0`)
-6. Require manual reviewers on `production_cutover_gate` before workflow secret access.
+7. Require manual reviewers on `production_cutover_gate` before workflow secret access.
 
 ## Phase 1: Environment + secrets
 
@@ -96,11 +100,16 @@ npm run demo:mcp-paid-exa
 
 Ship only when all are true:
 
-1. Kernel v0 ship gate and production cutover gate are green.
+1. Kernel v0 ship gate, production cutover gate, and NOO-50 parity gate are green.
 2. Hosted baseline evidence is green.
-3. MCP compatibility matrix is green for supported hosts.
-4. Paid MCP run artifacts verify cleanly.
-5. Rollback runbook has been rehearsed.
+3. Go-live gate and launch cutover packet reports are present:
+   - `artifacts/gates/s13-go-live-gate.json`
+   - `artifacts/gates/s13-launch-cutover-packet.json`
+   - generated from a successful `go-live-gate` workflow run for the release commit
+4. NOO-65 promotion guard passes with required artifact binding (`artifacts/gates/release-promotion-guard.json`).
+5. MCP compatibility matrix is green for supported hosts.
+6. Paid MCP run artifacts verify cleanly.
+7. Rollback runbook has been rehearsed.
 
 Run the live environment cutover gate before opening traffic:
 

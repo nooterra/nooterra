@@ -2,6 +2,36 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { loadLighthouseTrackerFromPath } from "./lib/lighthouse-tracker.mjs";
+import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
+import { sha256Hex, signHashHexEd25519 } from "../../src/core/crypto.js";
+
+const SIGNING_KEY_FILE_ENV = "LAUNCH_CUTOVER_PACKET_SIGNING_KEY_FILE";
+const SIGNATURE_KEY_ID_ENV = "LAUNCH_CUTOVER_PACKET_SIGNATURE_KEY_ID";
+const PACKET_NOW_ENV = "LAUNCH_CUTOVER_PACKET_NOW";
+
+function normalizeOptionalString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
+function resolveSigningConfig(env = process.env) {
+  const signingKeyFile = normalizeOptionalString(env[SIGNING_KEY_FILE_ENV]);
+  const signatureKeyId = normalizeOptionalString(env[SIGNATURE_KEY_ID_ENV]);
+  return {
+    requested: Boolean(signingKeyFile || signatureKeyId),
+    signingKeyFile,
+    signatureKeyId
+  };
+}
+
+function resolveGeneratedAtIso(env = process.env) {
+  const raw = normalizeOptionalString(env[PACKET_NOW_ENV]);
+  if (!raw) return new Date().toISOString();
+  const epochMs = Date.parse(raw);
+  if (!Number.isFinite(epochMs)) throw new Error(`${PACKET_NOW_ENV} must be a valid ISO-8601 timestamp`);
+  return new Date(epochMs).toISOString();
+}
 
 async function readJson(pathname) {
   try {
@@ -27,6 +57,31 @@ function checkFromGoLiveGate(gateReport) {
   };
 }
 
+function buildPacketCore({ sources, checks, gateReference, blockingIssues, signing }) {
+  const passedChecks = checks.filter((row) => row.ok === true).length;
+  const checksOk = passedChecks === checks.length;
+  return {
+    schemaVersion: "LaunchCutoverPacket.v1",
+    sources,
+    checks,
+    gateReference,
+    blockingIssues,
+    signing: {
+      requested: signing.requested,
+      keyId: signing.keyId,
+      ok: signing.ok,
+      error: signing.error
+    },
+    verdict: {
+      ok: checksOk && signing.ok === true,
+      requiredChecks: checks.length,
+      passedChecks,
+      signingRequired: signing.requested,
+      signingOk: signing.ok === true
+    }
+  };
+}
+
 async function main() {
   const packetPath = resolve(process.cwd(), process.env.LAUNCH_CUTOVER_PACKET_PATH || "artifacts/gates/s13-launch-cutover-packet.json");
   const gateReportPath = resolve(process.cwd(), process.env.GO_LIVE_GATE_REPORT_PATH || "artifacts/gates/s13-go-live-gate.json");
@@ -39,6 +94,8 @@ async function main() {
     process.cwd(),
     process.env.LIGHTHOUSE_TRACKER_PATH || "planning/launch/lighthouse-production-tracker.json"
   );
+  const signingConfig = resolveSigningConfig(process.env);
+  const generatedAtIso = resolveGeneratedAtIso(process.env);
   await mkdir(dirname(packetPath), { recursive: true });
 
   const gateRead = await readJson(gateReportPath);
@@ -118,9 +175,30 @@ async function main() {
     });
   }
 
-  const report = {
-    schemaVersion: "LaunchCutoverPacket.v1",
-    generatedAt: new Date().toISOString(),
+  const signing = {
+    requested: signingConfig.requested,
+    keyId: signingConfig.signatureKeyId,
+    ok: false,
+    error: null
+  };
+  let signingPrivateKeyPem = null;
+  if (!signing.requested) {
+    signing.ok = true;
+  } else if (!signingConfig.signingKeyFile || !signingConfig.signatureKeyId) {
+    signing.ok = false;
+    signing.error = `${SIGNING_KEY_FILE_ENV} and ${SIGNATURE_KEY_ID_ENV} are both required when signing is requested`;
+  } else {
+    try {
+      signingPrivateKeyPem = await readFile(resolve(process.cwd(), signingConfig.signingKeyFile), "utf8");
+      if (!String(signingPrivateKeyPem).trim()) throw new Error(`${SIGNING_KEY_FILE_ENV} resolved to an empty file`);
+      signing.ok = true;
+    } catch (err) {
+      signing.ok = false;
+      signing.error = err?.message ?? "unable to load signing private key";
+    }
+  }
+
+  let packetCore = buildPacketCore({
     sources: {
       goLiveGateReportPath: gateReportPath,
       throughputReportPath,
@@ -130,11 +208,39 @@ async function main() {
     checks,
     gateReference: gateCheckRefs,
     blockingIssues,
-    verdict: {
-      ok: checks.every((row) => row.ok === true),
-      requiredChecks: checks.length,
-      passedChecks: checks.filter((row) => row.ok === true).length
+    signing
+  });
+  let packetChecksumSha256 = sha256Hex(canonicalJsonStringify(packetCore));
+  let signature = null;
+  if (signing.requested && signing.ok && signingPrivateKeyPem) {
+    try {
+      signature = {
+        schemaVersion: "LaunchCutoverPacketSignature.v1",
+        algorithm: "ed25519-sha256",
+        keyId: signing.keyId,
+        messageSha256: packetChecksumSha256,
+        signatureBase64: signHashHexEd25519(packetChecksumSha256, signingPrivateKeyPem)
+      };
+    } catch (err) {
+      signing.ok = false;
+      signing.error = err?.message ?? "unable to sign launch cutover packet";
+      packetCore = buildPacketCore({
+        sources: packetCore.sources,
+        checks,
+        gateReference: gateCheckRefs,
+        blockingIssues,
+        signing
+      });
+      packetChecksumSha256 = sha256Hex(canonicalJsonStringify(packetCore));
+      signature = null;
     }
+  }
+
+  const report = {
+    ...packetCore,
+    generatedAt: generatedAtIso,
+    packetChecksumSha256,
+    signature
   };
 
   await writeFile(packetPath, JSON.stringify(report, null, 2) + "\n", "utf8");

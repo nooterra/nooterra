@@ -23,6 +23,72 @@ function normalizeMarketplaceDirectionForReplay({ fromType, toType }) {
   });
 }
 
+const EMERGENCY_SCOPE_TYPE = Object.freeze({
+  TENANT: "tenant",
+  AGENT: "agent",
+  ADAPTER: "adapter"
+});
+const EMERGENCY_SCOPE_TYPES = new Set(Object.values(EMERGENCY_SCOPE_TYPE));
+const EMERGENCY_CONTROL_TYPE = Object.freeze({
+  PAUSE: "pause",
+  QUARANTINE: "quarantine",
+  REVOKE: "revoke",
+  KILL_SWITCH: "kill-switch"
+});
+const EMERGENCY_CONTROL_TYPES = Object.values(EMERGENCY_CONTROL_TYPE);
+const EMERGENCY_CONTROL_TYPES_SET = new Set(EMERGENCY_CONTROL_TYPES);
+const EMERGENCY_ACTION = Object.freeze({
+  PAUSE: "pause",
+  QUARANTINE: "quarantine",
+  REVOKE: "revoke",
+  KILL_SWITCH: "kill-switch",
+  RESUME: "resume"
+});
+const EMERGENCY_ACTIONS = new Set(Object.values(EMERGENCY_ACTION));
+
+function normalizeEmergencyScopeTypeForReplay(raw) {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!EMERGENCY_SCOPE_TYPES.has(value)) throw new TypeError("invalid emergency scope type");
+  return value;
+}
+
+function normalizeEmergencyScopeIdForReplay(scopeType, raw) {
+  if (scopeType === EMERGENCY_SCOPE_TYPE.TENANT) return null;
+  const value = typeof raw === "string" ? raw.trim() : "";
+  if (!value) throw new TypeError("emergency scope id is required for non-tenant scope");
+  return value;
+}
+
+function normalizeEmergencyControlTypeForReplay(raw, { allowNull = false } = {}) {
+  if (allowNull && (raw === null || raw === undefined || String(raw).trim() === "")) return null;
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!EMERGENCY_CONTROL_TYPES_SET.has(value)) throw new TypeError("invalid emergency control type");
+  return value;
+}
+
+function normalizeEmergencyActionForReplay(raw) {
+  const value = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!EMERGENCY_ACTIONS.has(value)) throw new TypeError("invalid emergency action");
+  return value;
+}
+
+function normalizeEmergencyResumeControlTypesForReplay(raw) {
+  const values = Array.isArray(raw) ? raw : raw === null || raw === undefined ? EMERGENCY_CONTROL_TYPES : [raw];
+  const dedupe = new Set();
+  for (const item of values) {
+    const controlType = normalizeEmergencyControlTypeForReplay(item, { allowNull: false });
+    dedupe.add(controlType);
+  }
+  const out = Array.from(dedupe.values());
+  out.sort((left, right) => left.localeCompare(right));
+  return out;
+}
+
+function emergencyControlStateStoreKey({ tenantId, scopeType, scopeId, controlType }) {
+  const scopeToken = scopeType === EMERGENCY_SCOPE_TYPE.TENANT ? "*" : String(scopeId);
+  return makeScopedKey({ tenantId, id: `${scopeType}::${scopeToken}::${controlType}` });
+}
+
 export function createFileTxLog({ dir, filename = "proxy-tx.log" }) {
   if (typeof dir !== "string" || dir.trim() === "") throw new TypeError("dir must be a non-empty string");
   fs.mkdirSync(dir, { recursive: true });
@@ -215,6 +281,106 @@ export function applyTxRecord(store, record) {
       if (!(store.opsAudit instanceof Map)) store.opsAudit = new Map();
       const key = makeScopedKey({ tenantId, id: String(auditId) });
       store.opsAudit.set(key, { ...audit, tenantId, id: auditId });
+      continue;
+    }
+
+    if (kind === "EMERGENCY_CONTROL_EVENT_APPEND") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const event = op.event ?? null;
+      if (!event || typeof event !== "object" || Array.isArray(event)) {
+        throw new TypeError("EMERGENCY_CONTROL_EVENT_APPEND requires event");
+      }
+      const eventIdRaw = event.eventId ?? event.id ?? op.eventId ?? null;
+      if (eventIdRaw === null || eventIdRaw === undefined || String(eventIdRaw).trim() === "") {
+        throw new TypeError("EMERGENCY_CONTROL_EVENT_APPEND requires event.eventId");
+      }
+      const eventId = String(eventIdRaw).trim();
+      const action = normalizeEmergencyActionForReplay(event.action ?? op.action ?? null);
+
+      const scopeRaw = event.scope && typeof event.scope === "object" && !Array.isArray(event.scope) ? event.scope : {};
+      const scopeType = normalizeEmergencyScopeTypeForReplay(scopeRaw.type ?? event.scopeType ?? EMERGENCY_SCOPE_TYPE.TENANT);
+      const scopeId = normalizeEmergencyScopeIdForReplay(scopeType, scopeRaw.id ?? event.scopeId ?? null);
+
+      const controlType =
+        action === EMERGENCY_ACTION.RESUME
+          ? normalizeEmergencyControlTypeForReplay(event.controlType ?? op.controlType ?? null, { allowNull: true })
+          : normalizeEmergencyControlTypeForReplay(event.controlType ?? action, { allowNull: false });
+      const resumeControlTypes =
+        action === EMERGENCY_ACTION.RESUME
+          ? normalizeEmergencyResumeControlTypesForReplay(event.resumeControlTypes ?? op.resumeControlTypes ?? (controlType ? [controlType] : null))
+          : [];
+
+      const effectiveAt =
+        typeof event.effectiveAt === "string" && event.effectiveAt.trim() !== "" ? event.effectiveAt.trim() : record.at ?? new Date().toISOString();
+      const createdAt =
+        typeof event.createdAt === "string" && event.createdAt.trim() !== "" ? event.createdAt.trim() : effectiveAt;
+
+      if (!(store.emergencyControlEvents instanceof Map)) store.emergencyControlEvents = new Map();
+      if (!(store.emergencyControlState instanceof Map)) store.emergencyControlState = new Map();
+
+      const eventKey = makeScopedKey({ tenantId, id: eventId });
+      const normalizedEvent = {
+        ...event,
+        schemaVersion:
+          typeof event.schemaVersion === "string" && event.schemaVersion.trim() !== ""
+            ? event.schemaVersion.trim()
+            : "OpsEmergencyControlEvent.v1",
+        tenantId,
+        eventId,
+        action,
+        controlType,
+        resumeControlTypes,
+        scope: { type: scopeType, id: scopeId },
+        effectiveAt,
+        createdAt
+      };
+      const existingEvent = store.emergencyControlEvents.get(eventKey) ?? null;
+      if (existingEvent) {
+        if (canonicalJsonStringify(existingEvent) !== canonicalJsonStringify(normalizedEvent)) {
+          const err = new Error("emergency control event conflict");
+          err.code = "EMERGENCY_CONTROL_EVENT_CONFLICT";
+          err.statusCode = 409;
+          throw err;
+        }
+        continue;
+      }
+      store.emergencyControlEvents.set(eventKey, normalizedEvent);
+
+      function putState(nextControlType, nextActive) {
+        const stateKey = emergencyControlStateStoreKey({ tenantId, scopeType, scopeId, controlType: nextControlType });
+        const existingState = store.emergencyControlState.get(stateKey) ?? null;
+        const revision = Number.isSafeInteger(Number(existingState?.revision)) ? Number(existingState.revision) + 1 : 1;
+        const next = {
+          schemaVersion: "OpsEmergencyControlState.v1",
+          tenantId,
+          scopeType,
+          scopeId,
+          controlType: nextControlType,
+          active: nextActive === true,
+          activatedAt: nextActive === true ? effectiveAt : existingState?.activatedAt ?? null,
+          resumedAt: nextActive === true ? null : effectiveAt,
+          updatedAt: effectiveAt,
+          lastEventId: eventId,
+          lastAction: action,
+          reasonCode:
+            event.reasonCode === null || event.reasonCode === undefined || String(event.reasonCode).trim() === ""
+              ? null
+              : String(event.reasonCode).trim(),
+          reason: event.reason === null || event.reason === undefined || String(event.reason).trim() === "" ? null : String(event.reason).trim(),
+          operatorAction:
+            event.operatorAction && typeof event.operatorAction === "object" && !Array.isArray(event.operatorAction) ? event.operatorAction : null,
+          revision
+        };
+        store.emergencyControlState.set(stateKey, next);
+      }
+
+      if (action === EMERGENCY_ACTION.RESUME) {
+        for (const resumeControlType of resumeControlTypes) {
+          putState(resumeControlType, false);
+        }
+      } else {
+        putState(controlType, true);
+      }
       continue;
     }
 

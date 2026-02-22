@@ -160,6 +160,68 @@ test("API e2e: payout enqueue creates money rail operation and cancel is idempot
   assert.equal(cancelAgain.json?.operation?.state, "cancelled");
 });
 
+test("API e2e: high-risk money-rail write routes fail closed without finance_write scope", async () => {
+  const api = createApi({
+    opsTokens: ["tok_finw:finance_write", "tok_fin:finance_read"].join(";")
+  });
+  const financeReadHeaders = { "x-proxy-ops-token": "tok_fin" };
+  const financeWriteHeaders = { "x-proxy-ops-token": "tok_finw" };
+
+  const enqueueReadOnly = await request(api, {
+    method: "POST",
+    path: "/ops/payouts/pty_scope_guard/2026-01/enqueue",
+    headers: { ...financeReadHeaders, "x-idempotency-key": "ops_scope_guard_enqueue_read_1" },
+    body: { counterpartyRef: "bank:acct_scope_guard_1" }
+  });
+  assert.equal(enqueueReadOnly.statusCode, 403, enqueueReadOnly.body);
+  assert.equal(enqueueReadOnly.json?.code, "FORBIDDEN");
+
+  const enqueueWithWrite = await request(api, {
+    method: "POST",
+    path: "/ops/payouts/pty_scope_guard/2026-01/enqueue",
+    headers: { ...financeWriteHeaders, "x-idempotency-key": "ops_scope_guard_enqueue_write_1" },
+    body: { counterpartyRef: "bank:acct_scope_guard_1" }
+  });
+  assert.equal(enqueueWithWrite.statusCode, 404, enqueueWithWrite.body);
+  assert.equal(enqueueWithWrite.json?.code, "NOT_FOUND");
+
+  const submitReadOnly = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stub_default/operations/op_scope_guard_missing/submit",
+    headers: { ...financeReadHeaders, "x-idempotency-key": "ops_scope_guard_submit_read_1" },
+    body: {}
+  });
+  assert.equal(submitReadOnly.statusCode, 403, submitReadOnly.body);
+  assert.equal(submitReadOnly.json?.code, "FORBIDDEN");
+
+  const submitWithWrite = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stub_default/operations/op_scope_guard_missing/submit",
+    headers: { ...financeWriteHeaders, "x-idempotency-key": "ops_scope_guard_submit_write_1" },
+    body: {}
+  });
+  assert.equal(submitWithWrite.statusCode, 404, submitWithWrite.body);
+  assert.equal(submitWithWrite.json?.code, "NOT_FOUND");
+
+  const cancelReadOnly = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stub_default/operations/op_scope_guard_missing/cancel",
+    headers: { ...financeReadHeaders, "x-idempotency-key": "ops_scope_guard_cancel_read_1" },
+    body: { reasonCode: "scope_guard" }
+  });
+  assert.equal(cancelReadOnly.statusCode, 403, cancelReadOnly.body);
+  assert.equal(cancelReadOnly.json?.code, "FORBIDDEN");
+
+  const cancelWithWrite = await request(api, {
+    method: "POST",
+    path: "/ops/money-rails/stub_default/operations/op_scope_guard_missing/cancel",
+    headers: { ...financeWriteHeaders, "x-idempotency-key": "ops_scope_guard_cancel_write_1" },
+    body: { reasonCode: "scope_guard" }
+  });
+  assert.equal(cancelWithWrite.statusCode, 404, cancelWithWrite.body);
+  assert.equal(cancelWithWrite.json?.code, "NOT_FOUND");
+});
+
 test("API e2e: money rail operations persist across API recreation with shared store", async () => {
   const store = createStore();
   const apiA = createApi({

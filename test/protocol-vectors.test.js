@@ -23,6 +23,7 @@ import { buildToolCallEvidenceV1 } from "../src/core/tool-call-evidence.js";
 import { buildReputationEventV1 } from "../src/core/reputation-event.js";
 import { buildDisputeOpenEnvelopeV1 } from "../src/core/dispute-open-envelope.js";
 import { buildAgreementDelegationV1 } from "../src/core/agreement-delegation.js";
+import { buildPolicyDecisionV1 } from "../src/core/policy-decision.js";
 
 function bytes(text) {
   return new TextEncoder().encode(text);
@@ -510,6 +511,34 @@ async function buildVectorsV1() {
     decidedAt: "2026-02-01T00:02:00.000Z"
   });
   const settlementDecisionRecordV2Canonical = canonicalJsonStringify(settlementDecisionRecordV2);
+  const policyDecision = buildPolicyDecisionV1({
+    decisionId: "pdec_run_vectors_0001_auto",
+    tenantId,
+    runId: agentRun.runId,
+    settlementId: agentRunSettlement.settlementId,
+    gateId: "gate_vectors_0001",
+    policyInput: {
+      policyId: "policy_vectors_0001",
+      policyVersion: 1
+    },
+    policyHashUsed: "3".repeat(64),
+    verificationMethodHashUsed: "4".repeat(64),
+    policyDecision: {
+      decisionMode: "automatic",
+      verificationStatus: "green",
+      runStatus: "completed",
+      shouldAutoResolve: true,
+      settlementStatus: "released",
+      releaseRatePct: 100,
+      releaseAmountCents: 1250,
+      refundAmountCents: 0,
+      reasonCodes: []
+    },
+    createdAt: "2026-02-01T00:02:00.000Z",
+    signerKeyId: keyId,
+    signerPrivateKeyPem: privateKeyPem
+  });
+  const policyDecisionCanonical = canonicalJsonStringify(policyDecision);
   const settlementReceipt = buildSettlementReceipt({
     receiptId: "rcpt_run_vectors_0001_auto",
     tenantId,
@@ -832,6 +861,16 @@ async function buildVectorsV1() {
       decisionStatus: settlementDecisionRecordV2.decisionStatus,
       canonicalJson: settlementDecisionRecordV2Canonical,
       sha256: sha256Hex(settlementDecisionRecordV2Canonical)
+    },
+    policyDecision: {
+      schemaVersion: policyDecision.schemaVersion,
+      decisionId: policyDecision.decisionId,
+      policyDecisionHash: policyDecision.policyDecisionHash,
+      evaluationHash: policyDecision.evaluationHash,
+      canonicalJson: policyDecisionCanonical,
+      sha256: sha256Hex(policyDecisionCanonical),
+      signatureKeyId: policyDecision.signature?.signerKeyId ?? null,
+      signature: policyDecision.signature?.signature ?? null
     },
     settlementReceipt: {
       schemaVersion: settlementReceipt.schemaVersion,

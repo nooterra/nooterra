@@ -1569,6 +1569,12 @@
                 "format": "date-time",
                 "nullable": true
               },
+              "releaseRatePct": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100,
+                "nullable": true
+              },
               "evidenceRefs": {
                 "type": "array",
                 "items": {
@@ -4336,6 +4342,118 @@
           }
         ]
       },
+      "X402WalletAssignment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sponsorWalletRef",
+          "policyRef",
+          "policyVersion"
+        ],
+        "properties": {
+          "sponsorWalletRef": {
+            "type": "string"
+          },
+          "policyRef": {
+            "type": "string"
+          },
+          "policyVersion": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "X402WalletAssignmentResolveRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "profileRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "riskClass": {
+            "type": "string",
+            "enum": [
+              "read",
+              "compute",
+              "action",
+              "financial"
+            ],
+            "nullable": true
+          },
+          "delegationRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "delegationDepth": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          }
+        }
+      },
+      "X402WalletAssignmentResolveResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "tenantId",
+          "assignment"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "tenantId": {
+            "type": "string"
+          },
+          "profileRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "riskClass": {
+            "type": "string",
+            "enum": [
+              "read",
+              "compute",
+              "action",
+              "financial"
+            ],
+            "nullable": true
+          },
+          "delegationRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "delegationDepth": {
+            "type": "integer",
+            "minimum": 0,
+            "nullable": true
+          },
+          "assignment": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "sponsorWalletRef",
+              "policyRef",
+              "policyVersion"
+            ],
+            "properties": {
+              "sponsorWalletRef": {
+                "type": "string"
+              },
+              "policyRef": {
+                "type": "string"
+              },
+              "policyVersion": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "nullable": true
+          }
+        }
+      },
       "VerificationMethodV1": {
         "type": "object",
         "additionalProperties": false,
@@ -5956,6 +6074,634 @@
           "missing": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "OpsEmergencyPauseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operatorAction"
+        ],
+        "properties": {
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tenant",
+                  "agent",
+                  "adapter"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "scopeType": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "agent",
+              "adapter"
+            ],
+            "nullable": true
+          },
+          "scopeId": {
+            "type": "string",
+            "nullable": true
+          },
+          "agentId": {
+            "type": "string",
+            "nullable": true
+          },
+          "adapterId": {
+            "type": "string",
+            "nullable": true
+          },
+          "providerId": {
+            "type": "string",
+            "nullable": true
+          },
+          "reasonCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "operatorAction": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "effectiveAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "OpsEmergencyQuarantineRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operatorAction"
+        ],
+        "properties": {
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tenant",
+                  "agent",
+                  "adapter"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "scopeType": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "agent",
+              "adapter"
+            ],
+            "nullable": true
+          },
+          "scopeId": {
+            "type": "string",
+            "nullable": true
+          },
+          "agentId": {
+            "type": "string",
+            "nullable": true
+          },
+          "adapterId": {
+            "type": "string",
+            "nullable": true
+          },
+          "providerId": {
+            "type": "string",
+            "nullable": true
+          },
+          "reasonCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "operatorAction": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "effectiveAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "OpsEmergencyKillSwitchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operatorAction"
+        ],
+        "properties": {
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tenant",
+                  "agent",
+                  "adapter"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "scopeType": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "agent",
+              "adapter"
+            ],
+            "nullable": true
+          },
+          "scopeId": {
+            "type": "string",
+            "nullable": true
+          },
+          "agentId": {
+            "type": "string",
+            "nullable": true
+          },
+          "adapterId": {
+            "type": "string",
+            "nullable": true
+          },
+          "providerId": {
+            "type": "string",
+            "nullable": true
+          },
+          "reasonCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "operatorAction": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "effectiveAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "OpsEmergencyResumeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operatorAction"
+        ],
+        "properties": {
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tenant",
+                  "agent",
+                  "adapter"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "scopeType": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "agent",
+              "adapter"
+            ],
+            "nullable": true
+          },
+          "scopeId": {
+            "type": "string",
+            "nullable": true
+          },
+          "agentId": {
+            "type": "string",
+            "nullable": true
+          },
+          "adapterId": {
+            "type": "string",
+            "nullable": true
+          },
+          "providerId": {
+            "type": "string",
+            "nullable": true
+          },
+          "controlType": {
+            "type": "string",
+            "enum": [
+              "pause",
+              "quarantine",
+              "revoke",
+              "kill-switch"
+            ]
+          },
+          "controlTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pause",
+                "quarantine",
+                "revoke",
+                "kill-switch"
+              ]
+            }
+          },
+          "resumeControlType": {
+            "type": "string",
+            "enum": [
+              "pause",
+              "quarantine",
+              "revoke",
+              "kill-switch"
+            ]
+          },
+          "resumeControlTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pause",
+                "quarantine",
+                "revoke",
+                "kill-switch"
+              ]
+            }
+          },
+          "reasonCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "operatorAction": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "effectiveAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "OpsEmergencyControlResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenantId",
+          "applied",
+          "action"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string"
+          },
+          "applied": {
+            "type": "boolean"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "pause",
+              "quarantine",
+              "revoke",
+              "kill-switch",
+              "resume"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "event": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schemaVersion",
+              "eventId",
+              "tenantId",
+              "action",
+              "scope",
+              "requestedBy",
+              "createdAt",
+              "effectiveAt"
+            ],
+            "properties": {
+              "schemaVersion": {
+                "type": "string",
+                "enum": [
+                  "OpsEmergencyControlEvent.v1"
+                ]
+              },
+              "eventId": {
+                "type": "string"
+              },
+              "tenantId": {
+                "type": "string"
+              },
+              "action": {
+                "type": "string",
+                "enum": [
+                  "pause",
+                  "quarantine",
+                  "revoke",
+                  "kill-switch",
+                  "resume"
+                ]
+              },
+              "controlType": {
+                "type": "string",
+                "enum": [
+                  "pause",
+                  "quarantine",
+                  "revoke",
+                  "kill-switch"
+                ],
+                "nullable": true
+              },
+              "resumeControlTypes": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "pause",
+                    "quarantine",
+                    "revoke",
+                    "kill-switch"
+                  ]
+                }
+              },
+              "scope": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "tenant",
+                      "agent",
+                      "adapter"
+                    ]
+                  },
+                  "id": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              },
+              "reasonCode": {
+                "type": "string",
+                "nullable": true
+              },
+              "reason": {
+                "type": "string",
+                "nullable": true
+              },
+              "operatorAction": {
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
+              },
+              "requestedBy": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "keyId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "principalId": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              },
+              "requestId": {
+                "type": "string",
+                "nullable": true
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "effectiveAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "nullable": true
+          },
+          "scope": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tenant",
+                  "agent",
+                  "adapter"
+                ]
+              },
+              "id": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "nullable": true
+          },
+          "controlType": {
+            "type": "string",
+            "enum": [
+              "pause",
+              "quarantine",
+              "revoke",
+              "kill-switch"
+            ],
+            "nullable": true
+          },
+          "resumeControlTypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pause",
+                "quarantine",
+                "revoke",
+                "kill-switch"
+              ]
+            }
+          },
+          "control": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "schemaVersion",
+              "tenantId",
+              "scopeType",
+              "scopeId",
+              "controlType",
+              "active",
+              "activatedAt",
+              "resumedAt",
+              "updatedAt",
+              "lastEventId",
+              "lastAction",
+              "reasonCode",
+              "reason",
+              "operatorAction",
+              "revision"
+            ],
+            "properties": {
+              "schemaVersion": {
+                "type": "string",
+                "enum": [
+                  "OpsEmergencyControlState.v1"
+                ]
+              },
+              "tenantId": {
+                "type": "string"
+              },
+              "scopeType": {
+                "type": "string",
+                "enum": [
+                  "tenant",
+                  "agent",
+                  "adapter"
+                ]
+              },
+              "scopeId": {
+                "type": "string",
+                "nullable": true
+              },
+              "controlType": {
+                "type": "string",
+                "enum": [
+                  "pause",
+                  "quarantine",
+                  "revoke",
+                  "kill-switch"
+                ]
+              },
+              "active": {
+                "type": "boolean"
+              },
+              "activatedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "resumedAt": {
+                "type": "string",
+                "format": "date-time",
+                "nullable": true
+              },
+              "updatedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "lastEventId": {
+                "type": "string",
+                "nullable": true
+              },
+              "lastAction": {
+                "type": "string",
+                "enum": [
+                  "pause",
+                  "quarantine",
+                  "revoke",
+                  "kill-switch",
+                  "resume"
+                ],
+                "nullable": true
+              },
+              "reasonCode": {
+                "type": "string",
+                "nullable": true
+              },
+              "reason": {
+                "type": "string",
+                "nullable": true
+              },
+              "operatorAction": {
+                "type": "object",
+                "additionalProperties": true,
+                "nullable": true
+              },
+              "revision": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "nullable": true
           }
         }
       },
@@ -11681,9 +12427,6 @@
       "RunSettlementResolveRequest": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "status"
-        ],
         "properties": {
           "status": {
             "type": "string",
@@ -12592,6 +13335,12 @@
                   "closedAt": {
                     "type": "string",
                     "format": "date-time",
+                    "nullable": true
+                  },
+                  "releaseRatePct": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
                     "nullable": true
                   },
                   "evidenceRefs": {
@@ -14698,6 +15447,12 @@
                   "closedAt": {
                     "type": "string",
                     "format": "date-time",
+                    "nullable": true
+                  },
+                  "releaseRatePct": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
                     "nullable": true
                   },
                   "evidenceRefs": {
@@ -28722,6 +29477,12 @@
                               "format": "date-time",
                               "nullable": true
                             },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
+                              "nullable": true
+                            },
                             "evidenceRefs": {
                               "type": "array",
                               "items": {
@@ -33087,6 +33848,12 @@
                               "format": "date-time",
                               "nullable": true
                             },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
+                              "nullable": true
+                            },
                             "evidenceRefs": {
                               "type": "array",
                               "items": {
@@ -33897,6 +34664,12 @@
                               "format": "date-time",
                               "nullable": true
                             },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
+                              "nullable": true
+                            },
                             "evidenceRefs": {
                               "type": "array",
                               "items": {
@@ -34144,6 +34917,12 @@
                         "format": "date-time",
                         "nullable": true
                       },
+                      "releaseRatePct": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 100,
+                        "nullable": true
+                      },
                       "evidenceRefs": {
                         "type": "array",
                         "items": {
@@ -34169,6 +34948,11 @@
                       "l2_arbiter",
                       "l3_external"
                     ]
+                  },
+                  "resolutionReleaseRatePct": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100
                   },
                   "resolutionSummary": {
                     "type": "string"
@@ -34547,6 +35331,12 @@
                             "closedAt": {
                               "type": "string",
                               "format": "date-time",
+                              "nullable": true
+                            },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
                               "nullable": true
                             },
                             "evidenceRefs": {
@@ -35017,6 +35807,12 @@
                             "closedAt": {
                               "type": "string",
                               "format": "date-time",
+                              "nullable": true
+                            },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
                               "nullable": true
                             },
                             "evidenceRefs": {
@@ -35501,6 +36297,12 @@
                             "closedAt": {
                               "type": "string",
                               "format": "date-time",
+                              "nullable": true
+                            },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
                               "nullable": true
                             },
                             "evidenceRefs": {
@@ -41585,6 +42387,12 @@
                               "format": "date-time",
                               "nullable": true
                             },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
+                              "nullable": true
+                            },
                             "evidenceRefs": {
                               "type": "array",
                               "items": {
@@ -42122,6 +42930,12 @@
                             "closedAt": {
                               "type": "string",
                               "format": "date-time",
+                              "nullable": true
+                            },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
                               "nullable": true
                             },
                             "evidenceRefs": {
@@ -42924,6 +43738,12 @@
                             "closedAt": {
                               "type": "string",
                               "format": "date-time",
+                              "nullable": true
+                            },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
                               "nullable": true
                             },
                             "evidenceRefs": {
@@ -44356,6 +45176,12 @@
                             "closedAt": {
                               "type": "string",
                               "format": "date-time",
+                              "nullable": true
+                            },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
                               "nullable": true
                             },
                             "evidenceRefs": {
@@ -47350,6 +48176,12 @@
                             "closedAt": {
                               "type": "string",
                               "format": "date-time",
+                              "nullable": true
+                            },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
                               "nullable": true
                             },
                             "evidenceRefs": {
@@ -50900,6 +51732,12 @@
                               "format": "date-time",
                               "nullable": true
                             },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
+                              "nullable": true
+                            },
                             "evidenceRefs": {
                               "type": "array",
                               "items": {
@@ -52805,6 +53643,12 @@
                               "format": "date-time",
                               "nullable": true
                             },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
+                              "nullable": true
+                            },
                             "evidenceRefs": {
                               "type": "array",
                               "items": {
@@ -54134,9 +54978,6 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": [
-                  "status"
-                ],
                 "properties": {
                   "status": {
                     "type": "string",
@@ -54412,6 +55253,12 @@
                             "closedAt": {
                               "type": "string",
                               "format": "date-time",
+                              "nullable": true
+                            },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
                               "nullable": true
                             },
                             "evidenceRefs": {
@@ -58865,6 +59712,2935 @@
         }
       }
     },
+    "/ops/emergency/pause": {
+      "post": {
+        "summary": "Emergency pause an agent for paid execution paths",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-settld-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-settld-scopes": [
+          "ops_write"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operatorAction"
+                ],
+                "properties": {
+                  "scope": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "tenant",
+                          "agent",
+                          "adapter"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "scopeType": {
+                    "type": "string",
+                    "enum": [
+                      "tenant",
+                      "agent",
+                      "adapter"
+                    ],
+                    "nullable": true
+                  },
+                  "scopeId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "agentId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "adapterId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "providerId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "reasonCode": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "reason": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "operatorAction": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "effectiveAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "tenantId",
+                    "applied",
+                    "action"
+                  ],
+                  "properties": {
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "applied": {
+                      "type": "boolean"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch",
+                        "resume"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "event": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "eventId",
+                        "tenantId",
+                        "action",
+                        "scope",
+                        "requestedBy",
+                        "createdAt",
+                        "effectiveAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlEvent.v1"
+                          ]
+                        },
+                        "eventId": {
+                          "type": "string"
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ]
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ],
+                          "nullable": true
+                        },
+                        "resumeControlTypes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "pause",
+                              "quarantine",
+                              "revoke",
+                              "kill-switch"
+                            ]
+                          }
+                        },
+                        "scope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "tenant",
+                                "agent",
+                                "adapter"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "effectiveAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "scope": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "controlType": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch"
+                      ],
+                      "nullable": true
+                    },
+                    "resumeControlTypes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "pause",
+                          "quarantine",
+                          "revoke",
+                          "kill-switch"
+                        ]
+                      }
+                    },
+                    "control": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "scopeType",
+                        "scopeId",
+                        "controlType",
+                        "active",
+                        "activatedAt",
+                        "resumedAt",
+                        "updatedAt",
+                        "lastEventId",
+                        "lastAction",
+                        "reasonCode",
+                        "reason",
+                        "operatorAction",
+                        "revision"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlState.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "scopeType": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "scopeId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ]
+                        },
+                        "active": {
+                          "type": "boolean"
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "resumedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "lastEventId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "lastAction": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ],
+                          "nullable": true
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "tenantId",
+                    "applied",
+                    "action"
+                  ],
+                  "properties": {
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "applied": {
+                      "type": "boolean"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch",
+                        "resume"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "event": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "eventId",
+                        "tenantId",
+                        "action",
+                        "scope",
+                        "requestedBy",
+                        "createdAt",
+                        "effectiveAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlEvent.v1"
+                          ]
+                        },
+                        "eventId": {
+                          "type": "string"
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ]
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ],
+                          "nullable": true
+                        },
+                        "resumeControlTypes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "pause",
+                              "quarantine",
+                              "revoke",
+                              "kill-switch"
+                            ]
+                          }
+                        },
+                        "scope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "tenant",
+                                "agent",
+                                "adapter"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "effectiveAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "scope": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "controlType": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch"
+                      ],
+                      "nullable": true
+                    },
+                    "resumeControlTypes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "pause",
+                          "quarantine",
+                          "revoke",
+                          "kill-switch"
+                        ]
+                      }
+                    },
+                    "control": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "scopeType",
+                        "scopeId",
+                        "controlType",
+                        "active",
+                        "activatedAt",
+                        "resumedAt",
+                        "updatedAt",
+                        "lastEventId",
+                        "lastAction",
+                        "reasonCode",
+                        "reason",
+                        "operatorAction",
+                        "revision"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlState.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "scopeType": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "scopeId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ]
+                        },
+                        "active": {
+                          "type": "boolean"
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "resumedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "lastEventId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "lastAction": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ],
+                          "nullable": true
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ops/emergency/quarantine": {
+      "post": {
+        "summary": "Emergency quarantine an agent for paid execution paths",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-settld-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-settld-scopes": [
+          "ops_write"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operatorAction"
+                ],
+                "properties": {
+                  "scope": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "tenant",
+                          "agent",
+                          "adapter"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "scopeType": {
+                    "type": "string",
+                    "enum": [
+                      "tenant",
+                      "agent",
+                      "adapter"
+                    ],
+                    "nullable": true
+                  },
+                  "scopeId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "agentId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "adapterId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "providerId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "reasonCode": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "reason": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "operatorAction": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "effectiveAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "tenantId",
+                    "applied",
+                    "action"
+                  ],
+                  "properties": {
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "applied": {
+                      "type": "boolean"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch",
+                        "resume"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "event": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "eventId",
+                        "tenantId",
+                        "action",
+                        "scope",
+                        "requestedBy",
+                        "createdAt",
+                        "effectiveAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlEvent.v1"
+                          ]
+                        },
+                        "eventId": {
+                          "type": "string"
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ]
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ],
+                          "nullable": true
+                        },
+                        "resumeControlTypes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "pause",
+                              "quarantine",
+                              "revoke",
+                              "kill-switch"
+                            ]
+                          }
+                        },
+                        "scope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "tenant",
+                                "agent",
+                                "adapter"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "effectiveAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "scope": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "controlType": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch"
+                      ],
+                      "nullable": true
+                    },
+                    "resumeControlTypes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "pause",
+                          "quarantine",
+                          "revoke",
+                          "kill-switch"
+                        ]
+                      }
+                    },
+                    "control": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "scopeType",
+                        "scopeId",
+                        "controlType",
+                        "active",
+                        "activatedAt",
+                        "resumedAt",
+                        "updatedAt",
+                        "lastEventId",
+                        "lastAction",
+                        "reasonCode",
+                        "reason",
+                        "operatorAction",
+                        "revision"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlState.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "scopeType": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "scopeId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ]
+                        },
+                        "active": {
+                          "type": "boolean"
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "resumedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "lastEventId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "lastAction": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ],
+                          "nullable": true
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "tenantId",
+                    "applied",
+                    "action"
+                  ],
+                  "properties": {
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "applied": {
+                      "type": "boolean"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch",
+                        "resume"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "event": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "eventId",
+                        "tenantId",
+                        "action",
+                        "scope",
+                        "requestedBy",
+                        "createdAt",
+                        "effectiveAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlEvent.v1"
+                          ]
+                        },
+                        "eventId": {
+                          "type": "string"
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ]
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ],
+                          "nullable": true
+                        },
+                        "resumeControlTypes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "pause",
+                              "quarantine",
+                              "revoke",
+                              "kill-switch"
+                            ]
+                          }
+                        },
+                        "scope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "tenant",
+                                "agent",
+                                "adapter"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "effectiveAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "scope": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "controlType": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch"
+                      ],
+                      "nullable": true
+                    },
+                    "resumeControlTypes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "pause",
+                          "quarantine",
+                          "revoke",
+                          "kill-switch"
+                        ]
+                      }
+                    },
+                    "control": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "scopeType",
+                        "scopeId",
+                        "controlType",
+                        "active",
+                        "activatedAt",
+                        "resumedAt",
+                        "updatedAt",
+                        "lastEventId",
+                        "lastAction",
+                        "reasonCode",
+                        "reason",
+                        "operatorAction",
+                        "revision"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlState.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "scopeType": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "scopeId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ]
+                        },
+                        "active": {
+                          "type": "boolean"
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "resumedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "lastEventId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "lastAction": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ],
+                          "nullable": true
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ops/emergency/kill-switch": {
+      "post": {
+        "summary": "Set emergency kill-switch state for high-risk execution",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-settld-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-settld-scopes": [
+          "ops_write"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operatorAction"
+                ],
+                "properties": {
+                  "scope": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "tenant",
+                          "agent",
+                          "adapter"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "scopeType": {
+                    "type": "string",
+                    "enum": [
+                      "tenant",
+                      "agent",
+                      "adapter"
+                    ],
+                    "nullable": true
+                  },
+                  "scopeId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "agentId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "adapterId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "providerId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "reasonCode": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "reason": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "operatorAction": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "effectiveAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "tenantId",
+                    "applied",
+                    "action"
+                  ],
+                  "properties": {
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "applied": {
+                      "type": "boolean"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch",
+                        "resume"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "event": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "eventId",
+                        "tenantId",
+                        "action",
+                        "scope",
+                        "requestedBy",
+                        "createdAt",
+                        "effectiveAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlEvent.v1"
+                          ]
+                        },
+                        "eventId": {
+                          "type": "string"
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ]
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ],
+                          "nullable": true
+                        },
+                        "resumeControlTypes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "pause",
+                              "quarantine",
+                              "revoke",
+                              "kill-switch"
+                            ]
+                          }
+                        },
+                        "scope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "tenant",
+                                "agent",
+                                "adapter"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "effectiveAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "scope": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "controlType": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch"
+                      ],
+                      "nullable": true
+                    },
+                    "resumeControlTypes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "pause",
+                          "quarantine",
+                          "revoke",
+                          "kill-switch"
+                        ]
+                      }
+                    },
+                    "control": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "scopeType",
+                        "scopeId",
+                        "controlType",
+                        "active",
+                        "activatedAt",
+                        "resumedAt",
+                        "updatedAt",
+                        "lastEventId",
+                        "lastAction",
+                        "reasonCode",
+                        "reason",
+                        "operatorAction",
+                        "revision"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlState.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "scopeType": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "scopeId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ]
+                        },
+                        "active": {
+                          "type": "boolean"
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "resumedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "lastEventId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "lastAction": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ],
+                          "nullable": true
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "tenantId",
+                    "applied",
+                    "action"
+                  ],
+                  "properties": {
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "applied": {
+                      "type": "boolean"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch",
+                        "resume"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "event": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "eventId",
+                        "tenantId",
+                        "action",
+                        "scope",
+                        "requestedBy",
+                        "createdAt",
+                        "effectiveAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlEvent.v1"
+                          ]
+                        },
+                        "eventId": {
+                          "type": "string"
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ]
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ],
+                          "nullable": true
+                        },
+                        "resumeControlTypes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "pause",
+                              "quarantine",
+                              "revoke",
+                              "kill-switch"
+                            ]
+                          }
+                        },
+                        "scope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "tenant",
+                                "agent",
+                                "adapter"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "effectiveAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "scope": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "controlType": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch"
+                      ],
+                      "nullable": true
+                    },
+                    "resumeControlTypes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "pause",
+                          "quarantine",
+                          "revoke",
+                          "kill-switch"
+                        ]
+                      }
+                    },
+                    "control": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "scopeType",
+                        "scopeId",
+                        "controlType",
+                        "active",
+                        "activatedAt",
+                        "resumedAt",
+                        "updatedAt",
+                        "lastEventId",
+                        "lastAction",
+                        "reasonCode",
+                        "reason",
+                        "operatorAction",
+                        "revision"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlState.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "scopeType": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "scopeId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ]
+                        },
+                        "active": {
+                          "type": "boolean"
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "resumedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "lastEventId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "lastAction": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ],
+                          "nullable": true
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ops/emergency/resume": {
+      "post": {
+        "summary": "Resume previously paused or quarantined emergency controls",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-settld-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-settld-scopes": [
+          "ops_write"
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operatorAction"
+                ],
+                "properties": {
+                  "scope": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "tenant",
+                          "agent",
+                          "adapter"
+                        ]
+                      },
+                      "id": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "scopeType": {
+                    "type": "string",
+                    "enum": [
+                      "tenant",
+                      "agent",
+                      "adapter"
+                    ],
+                    "nullable": true
+                  },
+                  "scopeId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "agentId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "adapterId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "providerId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "controlType": {
+                    "type": "string",
+                    "enum": [
+                      "pause",
+                      "quarantine",
+                      "revoke",
+                      "kill-switch"
+                    ]
+                  },
+                  "controlTypes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch"
+                      ]
+                    }
+                  },
+                  "resumeControlType": {
+                    "type": "string",
+                    "enum": [
+                      "pause",
+                      "quarantine",
+                      "revoke",
+                      "kill-switch"
+                    ]
+                  },
+                  "resumeControlTypes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch"
+                      ]
+                    }
+                  },
+                  "reasonCode": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "reason": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "operatorAction": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "effectiveAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "tenantId",
+                    "applied",
+                    "action"
+                  ],
+                  "properties": {
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "applied": {
+                      "type": "boolean"
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch",
+                        "resume"
+                      ]
+                    },
+                    "reason": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "event": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "eventId",
+                        "tenantId",
+                        "action",
+                        "scope",
+                        "requestedBy",
+                        "createdAt",
+                        "effectiveAt"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlEvent.v1"
+                          ]
+                        },
+                        "eventId": {
+                          "type": "string"
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "action": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ]
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ],
+                          "nullable": true
+                        },
+                        "resumeControlTypes": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "pause",
+                              "quarantine",
+                              "revoke",
+                              "kill-switch"
+                            ]
+                          }
+                        },
+                        "scope": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "type"
+                          ],
+                          "properties": {
+                            "type": {
+                              "type": "string",
+                              "enum": [
+                                "tenant",
+                                "agent",
+                                "adapter"
+                              ]
+                            },
+                            "id": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "requestedBy": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "properties": {
+                            "keyId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "principalId": {
+                              "type": "string",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "requestId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "createdAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "effectiveAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "scope": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "type"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "id": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      },
+                      "nullable": true
+                    },
+                    "controlType": {
+                      "type": "string",
+                      "enum": [
+                        "pause",
+                        "quarantine",
+                        "revoke",
+                        "kill-switch"
+                      ],
+                      "nullable": true
+                    },
+                    "resumeControlTypes": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "pause",
+                          "quarantine",
+                          "revoke",
+                          "kill-switch"
+                        ]
+                      }
+                    },
+                    "control": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "scopeType",
+                        "scopeId",
+                        "controlType",
+                        "active",
+                        "activatedAt",
+                        "resumedAt",
+                        "updatedAt",
+                        "lastEventId",
+                        "lastAction",
+                        "reasonCode",
+                        "reason",
+                        "operatorAction",
+                        "revision"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "OpsEmergencyControlState.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "scopeType": {
+                          "type": "string",
+                          "enum": [
+                            "tenant",
+                            "agent",
+                            "adapter"
+                          ]
+                        },
+                        "scopeId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "controlType": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch"
+                          ]
+                        },
+                        "active": {
+                          "type": "boolean"
+                        },
+                        "activatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "resumedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "updatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "lastEventId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "lastAction": {
+                          "type": "string",
+                          "enum": [
+                            "pause",
+                            "quarantine",
+                            "revoke",
+                            "kill-switch",
+                            "resume"
+                          ],
+                          "nullable": true
+                        },
+                        "reasonCode": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "reason": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "operatorAction": {
+                          "type": "object",
+                          "additionalProperties": true,
+                          "nullable": true
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ops/network/command-center": {
       "get": {
         "summary": "Network command-center summary",
@@ -60831,6 +64607,12 @@
                             "closedAt": {
                               "type": "string",
                               "format": "date-time",
+                              "nullable": true
+                            },
+                            "releaseRatePct": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100,
                               "nullable": true
                             },
                             "evidenceRefs": {
@@ -64083,6 +67865,177 @@
           },
           "409": {
             "description": "Preconditions failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/x402/wallet-assignment/resolve": {
+      "post": {
+        "summary": "Resolve deterministic x402 wallet assignment",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-settld-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "profileRef": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "riskClass": {
+                    "type": "string",
+                    "enum": [
+                      "read",
+                      "compute",
+                      "action",
+                      "financial"
+                    ],
+                    "nullable": true
+                  },
+                  "delegationRef": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "delegationDepth": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "tenantId",
+                    "assignment"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "profileRef": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "riskClass": {
+                      "type": "string",
+                      "enum": [
+                        "read",
+                        "compute",
+                        "action",
+                        "financial"
+                      ],
+                      "nullable": true
+                    },
+                    "delegationRef": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "delegationDepth": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "nullable": true
+                    },
+                    "assignment": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "sponsorWalletRef",
+                        "policyRef",
+                        "policyVersion"
+                      ],
+                      "properties": {
+                        "sponsorWalletRef": {
+                          "type": "string"
+                        },
+                        "policyRef": {
+                          "type": "string"
+                        },
+                        "policyVersion": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      },
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
             "content": {
               "application/json": {
                 "schema": {

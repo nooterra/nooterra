@@ -62,9 +62,42 @@ DLQ backlog is an on-call page. Pending backlog at end-of-run implies workers ar
 
 If the outbox is growing without being drained, the system is not steady-state safe.
 
+## SLO-4: Onboarding first-paid-call runtime (host readiness)
+
+**Objective**
+
+- Across supported hosts in the compatibility matrix, first-paid-call runtime remains within a deterministic p95 bound.
+
+**Metric**
+
+- `onboarding_first_paid_call_runtime_ms_p95_gauge` (fallbacks supported by gate script: `first_paid_call_runtime_ms_p95_gauge`, `first_paid_call_latency_ms_p95_gauge`)
+
+**Threshold**
+
+- `p95 <= 2000ms` (default; configurable via `SLO_ONBOARDING_FIRST_PAID_CALL_P95_MAX_MS`)
+
+## SLO-5: Policy decision runtime (latency + errors)
+
+**Objective**
+
+- Policy decision runtime stays fast and low-error on readiness runs.
+
+**Metrics**
+
+- `policy_decision_latency_ms_p95_gauge` (fallbacks supported by gate script)
+- policy decision totals and error totals (`policy_decisions_total` + `outcome=error`, with supported fallbacks)
+
+**Thresholds**
+
+- `policy decision p95 <= 250ms` (default; configurable via `SLO_POLICY_DECISION_LATENCY_P95_MAX_MS`)
+- `policy decision error rate <= 1%` (default; configurable via `SLO_POLICY_DECISION_ERROR_RATE_MAX_PCT`)
+
 ## CI enforcement
 
 - Script: `scripts/slo/check.mjs`
 - Source of truth: `/metrics` snapshot taken after the smoke lifecycle completes.
 - Thresholds are configurable via env (see script header).
-
+- Onboarding/policy readiness gate: `scripts/ci/run-onboarding-policy-slo-gate.mjs`
+- Host matrix input: `artifacts/ops/mcp-host-cert-matrix.json`
+- Output artifact: `artifacts/gates/onboarding-policy-slo-gate.json`
+- Gate is fail-closed when host matrix rows are red, metrics are missing, or thresholds are breached.

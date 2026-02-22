@@ -9,6 +9,7 @@ These specs are written so an independent implementer can build a verifier witho
 - **Canonical JSON**: JSON objects are canonicalized using RFC 8785 (JCS).
 - **Hashing**: all hashes in these specs are `sha256` over UTF-8 bytes of canonical JSON (or raw file bytes, as specified), represented as lowercase hex.
 - **Derived outputs**: bundle manifests intentionally **exclude** `verify/**` to avoid circular hashing; those files are verified out-of-band by signature and by binding to the `manifestHash`.
+- **x402 gateway parity**: `x-settld-verification-codes` uses shared reason-code normalization (trim + dedup + lexical sort), and policy fingerprint headers (`x-settld-policy-hash`, `x-settld-policy-version`, `x-settld-policy-verification-method-hash`, `x-settld-policy-evaluation-hash`) must mirror `decisionRecord.bindings.policyDecisionFingerprint`.
 
 ## Documents
 
@@ -47,6 +48,8 @@ These specs are written so an independent implementer can build a verifier witho
 - `AgentPassport.v1.md` — delegated identity envelope binding principal, keyset anchors, delegation root, and policy envelope.
 - `DelegationGrant.v1.md` — deterministic delegated-authority grant contract (scope + spend + chain + validity).
 - `ExecutionIntent.v1.md` — canonical pre-execution intent contract binding request fingerprint, risk profile, and policy/spend envelope.
+- `PolicyDecision.v1.md` — hash-addressable policy outcome artifact with normalized decision results and optional signature.
+- `OperatorAction.v1.md` — canonical operator decision audit artifact with deterministic hash binding and optional signature.
 - `AgentWallet.v1.md` — deterministic autonomous wallet snapshot contract.
 - `AgentRun.v1.md` — deterministic agent run snapshot contract.
 - `AgentEvent.v1.md` — append-only event envelope for agent runs.
@@ -62,6 +65,8 @@ These specs are written so an independent implementer can build a verifier witho
 - `ArbitrationCase.v1.md` — formal arbitration case contract with appeal linkage.
 - `DisputeOpenEnvelope.v1.md` — signed dispute opener-proof envelope bound to tool-call hold/receipt/agreement hashes.
 - `ArbitrationVerdict.v1.md` — signed arbitration verdict contract with appeal references.
+- `DisputeCaseLifecycle.v1.md` — fail-closed dispute/arbitration transition state machine and guard rules.
+- `ArbitrationOutcomeMapping.v1.md` — deterministic dispute outcome to settlement directive mapping contract.
 - `ReputationEvent.v1.md` — append-only, deterministic economic reputation fact artifact.
 - `AgentReputation.v1.md` — deterministic trust score snapshot derived from runs + settlement outcomes.
 - `AgentReputation.v2.md` — reputation with recency windows (`7d`, `30d`, `allTime`) for marketplace ranking.

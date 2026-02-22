@@ -1,33 +1,41 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 
-const API_BASE_URL = process.env.SLO_API_BASE_URL ?? "http://127.0.0.1:3000";
-const METRICS_PATH = process.env.SLO_METRICS_PATH ?? "/metrics";
-const METRICS_FILE = process.env.SLO_METRICS_FILE ?? null;
+function normalizeOptionalString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
 
-const MAX_HTTP_5XX_TOTAL = Number(process.env.SLO_MAX_HTTP_5XX_TOTAL ?? "0");
-const MAX_OUTBOX_PENDING = Number(process.env.SLO_MAX_OUTBOX_PENDING ?? "200");
-const MAX_DELIVERY_DLQ = Number(process.env.SLO_MAX_DELIVERY_DLQ ?? "0");
-const MAX_DELIVERIES_PENDING = Number(process.env.SLO_MAX_DELIVERIES_PENDING ?? "0");
-const MAX_DELIVERIES_FAILED = Number(process.env.SLO_MAX_DELIVERIES_FAILED ?? "0");
-
-function assertFiniteNumber(n, name) {
+export function assertFiniteNumber(n, name) {
   if (!Number.isFinite(n)) throw new TypeError(`${name} must be finite`);
 }
 
-for (const [k, v] of [
-  ["SLO_MAX_HTTP_5XX_TOTAL", MAX_HTTP_5XX_TOTAL],
-  ["SLO_MAX_OUTBOX_PENDING", MAX_OUTBOX_PENDING],
-  ["SLO_MAX_DELIVERY_DLQ", MAX_DELIVERY_DLQ],
-  ["SLO_MAX_DELIVERIES_PENDING", MAX_DELIVERIES_PENDING],
-  ["SLO_MAX_DELIVERIES_FAILED", MAX_DELIVERIES_FAILED]
-]) {
-  assertFiniteNumber(v, k);
-  if (v < 0) throw new TypeError(`${k} must be >= 0`);
+export function parseSloThresholds(env = process.env) {
+  return {
+    maxHttp5xxTotal: Number(env.SLO_MAX_HTTP_5XX_TOTAL ?? "0"),
+    maxOutboxPending: Number(env.SLO_MAX_OUTBOX_PENDING ?? "200"),
+    maxDeliveryDlq: Number(env.SLO_MAX_DELIVERY_DLQ ?? "0"),
+    maxDeliveriesPending: Number(env.SLO_MAX_DELIVERIES_PENDING ?? "0"),
+    maxDeliveriesFailed: Number(env.SLO_MAX_DELIVERIES_FAILED ?? "0")
+  };
+}
+
+export function validateSloThresholds(thresholds) {
+  for (const [k, v] of [
+    ["SLO_MAX_HTTP_5XX_TOTAL", thresholds.maxHttp5xxTotal],
+    ["SLO_MAX_OUTBOX_PENDING", thresholds.maxOutboxPending],
+    ["SLO_MAX_DELIVERY_DLQ", thresholds.maxDeliveryDlq],
+    ["SLO_MAX_DELIVERIES_PENDING", thresholds.maxDeliveriesPending],
+    ["SLO_MAX_DELIVERIES_FAILED", thresholds.maxDeliveriesFailed]
+  ]) {
+    assertFiniteNumber(v, k);
+    if (v < 0) throw new TypeError(`${k} must be >= 0`);
+  }
 }
 
 function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function fetchTextWithTimeout(url, timeoutMs = 5000) {
@@ -43,7 +51,6 @@ async function fetchTextWithTimeout(url, timeoutMs = 5000) {
 }
 
 function unescapeLabelValue(value) {
-  // Prometheus exposition escaping.
   return String(value).replaceAll("\\\\", "\\").replaceAll("\\n", "\n").replaceAll('\\"', '"');
 }
 
@@ -94,13 +101,12 @@ function parseLabels(src) {
   return labels;
 }
 
-function parsePrometheusText(text) {
+export function parsePrometheusText(text) {
   const series = [];
   const lines = String(text ?? "").split("\n");
   for (const lineRaw of lines) {
     const line = lineRaw.trim();
     if (!line || line.startsWith("#")) continue;
-    // name{labels} value
     const m = /^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[^}]*\})?\s+([-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?|NaN|Inf|-Inf)\s*$/.exec(line);
     if (!m) continue;
     const name = m[1];
@@ -112,67 +118,114 @@ function parsePrometheusText(text) {
   return series;
 }
 
-function sumWhere(series, { name, where = () => true } = {}) {
+export function sumWhere(series, { name, where = () => true } = {}) {
   let sum = 0;
-  for (const s of series) {
-    if (s.name !== name) continue;
-    if (!where(s.labels, s.value)) continue;
-    const v = Number(s.value);
-    if (!Number.isFinite(v)) continue;
-    sum += v;
+  for (const sample of series) {
+    if (sample.name !== name) continue;
+    if (!where(sample.labels, sample.value)) continue;
+    const value = Number(sample.value);
+    if (!Number.isFinite(value)) continue;
+    sum += value;
   }
   return sum;
 }
 
-function getOne(series, { name, where = () => true } = {}) {
-  for (const s of series) {
-    if (s.name !== name) continue;
-    if (!where(s.labels, s.value)) continue;
-    return Number(s.value);
+export function getOne(series, { name, where = () => true } = {}) {
+  for (const sample of series) {
+    if (sample.name !== name) continue;
+    if (!where(sample.labels, sample.value)) continue;
+    return Number(sample.value);
   }
   return null;
 }
 
-async function main() {
-  let metricsText;
-  if (METRICS_FILE) {
-    metricsText = await fs.readFile(METRICS_FILE, "utf8");
-  } else {
-    // Give the server a moment to flush post-lifecycle gauges.
-    await sleep(250);
-    const r = await fetchTextWithTimeout(`${API_BASE_URL}${METRICS_PATH}`, 10_000);
-    assert.equal(r.status, 200, `GET ${METRICS_PATH} failed: http ${r.status}`);
-    metricsText = r.text;
-  }
-
-  const series = parsePrometheusText(metricsText);
-
+export function collectOperationalSloSummary(series) {
   const http5xxTotal = sumWhere(series, {
     name: "http_requests_total",
     where: (labels) => typeof labels.status === "string" && labels.status.startsWith("5")
   });
-
   const outboxPending = sumWhere(series, { name: "outbox_pending_gauge" });
   const deliveryDlq = getOne(series, { name: "delivery_dlq_pending_total_gauge" }) ?? 0;
-  const deliveriesPending = getOne(series, { name: "deliveries_pending_gauge", where: (l) => l.state === "pending" }) ?? 0;
-  const deliveriesFailed = getOne(series, { name: "deliveries_pending_gauge", where: (l) => l.state === "failed" }) ?? 0;
-
-  const summary = {
+  const deliveriesPending = getOne(series, { name: "deliveries_pending_gauge", where: (labels) => labels.state === "pending" }) ?? 0;
+  const deliveriesFailed = getOne(series, { name: "deliveries_pending_gauge", where: (labels) => labels.state === "failed" }) ?? 0;
+  return {
     http5xxTotal,
     outboxPending,
     deliveryDlq,
     deliveriesPending,
     deliveriesFailed
   };
-  // Single-line JSON for CI logs.
-  console.log(JSON.stringify({ slo: summary }));
-
-  assert.ok(http5xxTotal <= MAX_HTTP_5XX_TOTAL, `SLO breach: http 5xx total ${http5xxTotal} > ${MAX_HTTP_5XX_TOTAL}`);
-  assert.ok(outboxPending <= MAX_OUTBOX_PENDING, `SLO breach: outbox pending ${outboxPending} > ${MAX_OUTBOX_PENDING}`);
-  assert.ok(deliveryDlq <= MAX_DELIVERY_DLQ, `SLO breach: delivery DLQ ${deliveryDlq} > ${MAX_DELIVERY_DLQ}`);
-  assert.ok(deliveriesPending <= MAX_DELIVERIES_PENDING, `SLO breach: deliveries pending ${deliveriesPending} > ${MAX_DELIVERIES_PENDING}`);
-  assert.ok(deliveriesFailed <= MAX_DELIVERIES_FAILED, `SLO breach: deliveries failed ${deliveriesFailed} > ${MAX_DELIVERIES_FAILED}`);
 }
 
-await main();
+export function assertOperationalSlo(summary, thresholds) {
+  assert.ok(
+    summary.http5xxTotal <= thresholds.maxHttp5xxTotal,
+    `SLO breach: http 5xx total ${summary.http5xxTotal} > ${thresholds.maxHttp5xxTotal}`
+  );
+  assert.ok(
+    summary.outboxPending <= thresholds.maxOutboxPending,
+    `SLO breach: outbox pending ${summary.outboxPending} > ${thresholds.maxOutboxPending}`
+  );
+  assert.ok(
+    summary.deliveryDlq <= thresholds.maxDeliveryDlq,
+    `SLO breach: delivery DLQ ${summary.deliveryDlq} > ${thresholds.maxDeliveryDlq}`
+  );
+  assert.ok(
+    summary.deliveriesPending <= thresholds.maxDeliveriesPending,
+    `SLO breach: deliveries pending ${summary.deliveriesPending} > ${thresholds.maxDeliveriesPending}`
+  );
+  assert.ok(
+    summary.deliveriesFailed <= thresholds.maxDeliveriesFailed,
+    `SLO breach: deliveries failed ${summary.deliveriesFailed} > ${thresholds.maxDeliveriesFailed}`
+  );
+}
 
+export async function loadMetricsText({
+  metricsFile = null,
+  apiBaseUrl = "http://127.0.0.1:3000",
+  metricsPath = "/metrics",
+  flushDelayMs = 250
+} = {}) {
+  if (metricsFile) {
+    return await fs.readFile(metricsFile, "utf8");
+  }
+  await sleep(flushDelayMs);
+  const response = await fetchTextWithTimeout(`${apiBaseUrl}${metricsPath}`, 10_000);
+  assert.equal(response.status, 200, `GET ${metricsPath} failed: http ${response.status}`);
+  return response.text;
+}
+
+export async function runSloCheck({ env = process.env } = {}) {
+  const thresholds = parseSloThresholds(env);
+  validateSloThresholds(thresholds);
+  const metricsFile = normalizeOptionalString(env.SLO_METRICS_FILE);
+  const metricsText = await loadMetricsText({
+    metricsFile,
+    apiBaseUrl: env.SLO_API_BASE_URL ?? "http://127.0.0.1:3000",
+    metricsPath: env.SLO_METRICS_PATH ?? "/metrics"
+  });
+  const series = parsePrometheusText(metricsText);
+  const summary = collectOperationalSloSummary(series);
+  assertOperationalSlo(summary, thresholds);
+  return summary;
+}
+
+async function main() {
+  const summary = await runSloCheck({ env: process.env });
+  console.log(JSON.stringify({ slo: summary }));
+}
+
+const isDirectExecution = (() => {
+  try {
+    return import.meta.url === new URL(`file://${process.argv[1]}`).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (isDirectExecution) {
+  main().catch((err) => {
+    process.stderr.write(`${err?.stack ?? err?.message ?? String(err)}\n`);
+    process.exit(1);
+  });
+}

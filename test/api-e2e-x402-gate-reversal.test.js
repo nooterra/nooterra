@@ -261,6 +261,40 @@ test("API e2e: x402 reversal void_authorization refunds locked gate before execu
   assert.equal(typeof events.json.events[0]?.eventHash, "string");
 });
 
+test("API e2e: x402 reversal-events unsupported paths return deterministic denial code", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  api.store.listX402ReversalEvents = null;
+  api.store.getX402ReversalEvent = null;
+
+  const listUnsupported = await request(api, {
+    method: "GET",
+    path: "/x402/reversal-events"
+  });
+  assert.equal(listUnsupported.statusCode, 501, listUnsupported.body);
+  assert.equal(listUnsupported.json?.code, "X402_REVERSAL_EVENTS_LIST_UNSUPPORTED");
+
+  const listUnsupportedAgain = await request(api, {
+    method: "GET",
+    path: "/x402/reversal-events?gateId=x402gate_missing"
+  });
+  assert.equal(listUnsupportedAgain.statusCode, 501, listUnsupportedAgain.body);
+  assert.equal(listUnsupportedAgain.json?.code, listUnsupported.json?.code);
+
+  const byIdUnsupported = await request(api, {
+    method: "GET",
+    path: "/x402/reversal-events/evt_missing"
+  });
+  assert.equal(byIdUnsupported.statusCode, 501, byIdUnsupported.body);
+  assert.equal(byIdUnsupported.json?.code, "X402_REVERSAL_EVENT_GET_UNSUPPORTED");
+
+  const byIdUnsupportedAgain = await request(api, {
+    method: "GET",
+    path: "/x402/reversal-events/evt_missing_2"
+  });
+  assert.equal(byIdUnsupportedAgain.statusCode, 501, byIdUnsupportedAgain.body);
+  assert.equal(byIdUnsupportedAgain.json?.code, byIdUnsupported.json?.code);
+});
+
 test("API e2e: x402 reversal request_refund + resolve_refund accepted moves funds back and updates receipt state", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const payer = await registerAgent(api, { agentId: "agt_x402_refund_payer_1" });
@@ -349,6 +383,48 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
   });
   assert.equal(requestReplay.statusCode, 409, requestReplay.body);
   assert.equal(requestReplay.json?.code, "X402_REVERSAL_COMMAND_REPLAY");
+  const requestReplayAgain = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_request_refund_1_replay_again" },
+    body: {
+      gateId,
+      action: "request_refund",
+      reason: "result_not_usable",
+      command: refundRequestCommand
+    }
+  });
+  assert.equal(requestReplayAgain.statusCode, 409, requestReplayAgain.body);
+  assert.equal(requestReplayAgain.json?.code, requestReplay.json?.code);
+
+  const mutatedRefundRequestCommand = JSON.parse(JSON.stringify(refundRequestCommand));
+  mutatedRefundRequestCommand.target.quoteId = "x402quote_tampered_refund_1";
+  const requestMutationDenied = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_request_refund_1_mutation" },
+    body: {
+      gateId,
+      action: "request_refund",
+      reason: "result_not_usable",
+      command: mutatedRefundRequestCommand
+    }
+  });
+  assert.equal(requestMutationDenied.statusCode, 409, requestMutationDenied.body);
+  assert.equal(requestMutationDenied.json?.code, "X402_REVERSAL_COMMAND_PAYLOAD_HASH_MISMATCH");
+  const requestMutationDeniedAgain = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_request_refund_1_mutation_again" },
+    body: {
+      gateId,
+      action: "request_refund",
+      reason: "result_not_usable",
+      command: mutatedRefundRequestCommand
+    }
+  });
+  assert.equal(requestMutationDeniedAgain.statusCode, 409, requestMutationDeniedAgain.body);
+  assert.equal(requestMutationDeniedAgain.json?.code, requestMutationDenied.json?.code);
 
   const resolveCommandMissingArtifact = signReversalCommand({
     payer,

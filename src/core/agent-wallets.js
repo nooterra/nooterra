@@ -188,6 +188,37 @@ function normalizeDisputeResolution(disputeResolution, { name = "settlement.disp
   const closedAtRaw = disputeResolution.closedAt ?? defaultClosedAt ?? null;
   const closedAt = closedAtRaw === null || closedAtRaw === undefined ? null : String(closedAtRaw).trim();
   if (closedAt !== null) assertIsoDate(closedAt, `${name}.closedAt`);
+  const releaseRatePctRaw = disputeResolution.releaseRatePct;
+  const releaseRatePct =
+    releaseRatePctRaw === null || releaseRatePctRaw === undefined || releaseRatePctRaw === ""
+      ? null
+      : Number.isSafeInteger(Number(releaseRatePctRaw))
+        ? Number(releaseRatePctRaw)
+        : Number.NaN;
+  if (releaseRatePct !== null && (!Number.isSafeInteger(releaseRatePct) || releaseRatePct < 0 || releaseRatePct > 100)) {
+    throw new TypeError(`${name}.releaseRatePct must be an integer within 0..100`);
+  }
+  if (outcome === AGENT_RUN_SETTLEMENT_DISPUTE_RESOLUTION_OUTCOME.ACCEPTED && releaseRatePct !== null && releaseRatePct !== 100) {
+    throw new TypeError(`${name}.releaseRatePct must be 100 when outcome=accepted`);
+  }
+  if (outcome === AGENT_RUN_SETTLEMENT_DISPUTE_RESOLUTION_OUTCOME.REJECTED && releaseRatePct !== null && releaseRatePct !== 0) {
+    throw new TypeError(`${name}.releaseRatePct must be 0 when outcome=rejected`);
+  }
+  if (outcome === AGENT_RUN_SETTLEMENT_DISPUTE_RESOLUTION_OUTCOME.PARTIAL) {
+    if (releaseRatePct === null) {
+      throw new TypeError(`${name}.releaseRatePct is required when outcome=partial`);
+    }
+    if (releaseRatePct <= 0 || releaseRatePct >= 100) {
+      throw new TypeError(`${name}.releaseRatePct must be within 1..99 when outcome=partial`);
+    }
+  }
+  if (
+    (outcome === AGENT_RUN_SETTLEMENT_DISPUTE_RESOLUTION_OUTCOME.WITHDRAWN ||
+      outcome === AGENT_RUN_SETTLEMENT_DISPUTE_RESOLUTION_OUTCOME.UNRESOLVED) &&
+    releaseRatePct !== null
+  ) {
+    throw new TypeError(`${name}.releaseRatePct is only allowed for accepted|rejected|partial outcomes`);
+  }
   const evidenceRefs = normalizeDisputeEvidenceRefs(disputeResolution.evidenceRefs, `${name}.evidenceRefs`);
   return {
     outcome,
@@ -195,6 +226,7 @@ function normalizeDisputeResolution(disputeResolution, { name = "settlement.disp
     closedByAgentId,
     summary,
     closedAt,
+    ...(releaseRatePct !== null ? { releaseRatePct } : {}),
     evidenceRefs
   };
 }
@@ -782,6 +814,108 @@ export function refundReleasedAgentRunSettlement({
     releasedAmountCents: 0,
     refundedAmountCents: current.amountCents,
     releaseRatePct: 0,
+    disputeStatus: AGENT_RUN_SETTLEMENT_DISPUTE_STATUS.NONE,
+    disputeId: null,
+    disputeOpenedAt: null,
+    disputeClosedAt: null,
+    disputeContext: null,
+    disputeResolution: null,
+    decisionStatus: normalizedDecisionStatus,
+    decisionMode: normalizedDecisionMode,
+    decisionPolicyHash: normalizedDecisionPolicyHash,
+    decisionReason: normalizedDecisionReason,
+    decisionTrace: decisionTrace ?? current.decisionTrace ?? null,
+    decisionUpdatedAt: at,
+    resolvedAt: at,
+    resolutionEventId: resolutionEventId ?? current.resolutionEventId ?? null,
+    revision: current.revision + 1,
+    updatedAt: at
+  });
+}
+
+export function reconcileResolvedAgentRunSettlement({
+  settlement,
+  status,
+  runStatus = null,
+  releasedAmountCents = null,
+  refundedAmountCents = null,
+  releaseRatePct = null,
+  decisionStatus = AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED,
+  decisionMode = AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+  decisionPolicyHash = null,
+  decisionReason = null,
+  decisionTrace = null,
+  resolutionEventId = null,
+  at = new Date().toISOString()
+}) {
+  const current = normalizeSettlementRecord(settlement);
+  if (current.status === AGENT_RUN_SETTLEMENT_STATUS.LOCKED) {
+    throw new TypeError("reconcileResolvedAgentRunSettlement requires a resolved settlement");
+  }
+  const nextStatus = String(status ?? "").toLowerCase();
+  if (nextStatus !== AGENT_RUN_SETTLEMENT_STATUS.RELEASED && nextStatus !== AGENT_RUN_SETTLEMENT_STATUS.REFUNDED) {
+    throw new TypeError("status must be released|refunded");
+  }
+  const nextRunStatusRaw = runStatus === null || runStatus === undefined ? current.runStatus : runStatus;
+  assertNonEmptyString(nextRunStatusRaw, "runStatus");
+  assertIsoDate(at, "at");
+  if (resolutionEventId !== null && resolutionEventId !== undefined) {
+    assertNonEmptyString(resolutionEventId, "resolutionEventId");
+  }
+
+  let nextReleasedAmountCents = releasedAmountCents === null || releasedAmountCents === undefined ? null : Number(releasedAmountCents);
+  let nextRefundedAmountCents = refundedAmountCents === null || refundedAmountCents === undefined ? null : Number(refundedAmountCents);
+  if (nextStatus === AGENT_RUN_SETTLEMENT_STATUS.RELEASED) {
+    if (nextReleasedAmountCents === null) nextReleasedAmountCents = current.amountCents;
+    if (nextRefundedAmountCents === null) nextRefundedAmountCents = current.amountCents - nextReleasedAmountCents;
+  } else {
+    if (nextReleasedAmountCents === null) nextReleasedAmountCents = 0;
+    if (nextRefundedAmountCents === null) nextRefundedAmountCents = current.amountCents;
+  }
+  assertAmountCents(nextReleasedAmountCents, "releasedAmountCents", { allowZero: true });
+  assertAmountCents(nextRefundedAmountCents, "refundedAmountCents", { allowZero: true });
+  if (nextReleasedAmountCents + nextRefundedAmountCents !== current.amountCents) {
+    throw new TypeError("releasedAmountCents + refundedAmountCents must equal settlement.amountCents");
+  }
+
+  const nextReleaseRatePct =
+    releaseRatePct === null || releaseRatePct === undefined
+      ? current.amountCents > 0
+        ? Math.round((nextReleasedAmountCents * 100) / current.amountCents)
+        : 0
+      : Number(releaseRatePct);
+  if (!Number.isSafeInteger(nextReleaseRatePct) || nextReleaseRatePct < 0 || nextReleaseRatePct > 100) {
+    throw new TypeError("releaseRatePct must be an integer within 0..100");
+  }
+
+  const normalizedDecisionStatus = String(decisionStatus ?? AGENT_RUN_SETTLEMENT_DECISION_STATUS.MANUAL_RESOLVED).toLowerCase();
+  if (!Object.values(AGENT_RUN_SETTLEMENT_DECISION_STATUS).includes(normalizedDecisionStatus)) {
+    throw new TypeError("decisionStatus must be pending|auto_resolved|manual_review_required|manual_resolved");
+  }
+  const normalizedDecisionMode = String(decisionMode ?? AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW).toLowerCase();
+  if (!Object.values(AGENT_RUN_SETTLEMENT_DECISION_MODE).includes(normalizedDecisionMode)) {
+    throw new TypeError("decisionMode must be automatic|manual-review");
+  }
+  const normalizedDecisionPolicyHash =
+    decisionPolicyHash === null || decisionPolicyHash === undefined ? null : String(decisionPolicyHash).trim();
+  if (normalizedDecisionPolicyHash !== null && normalizedDecisionPolicyHash === "") {
+    throw new TypeError("decisionPolicyHash must be a non-empty string when provided");
+  }
+  const normalizedDecisionReason = decisionReason === null || decisionReason === undefined ? null : String(decisionReason).trim();
+  if (normalizedDecisionReason !== null && normalizedDecisionReason === "") {
+    throw new TypeError("decisionReason must be a non-empty string when provided");
+  }
+  if (decisionTrace !== null && decisionTrace !== undefined) {
+    assertPlainObject(decisionTrace, "decisionTrace");
+  }
+
+  return normalizeSettlementRecord({
+    ...current,
+    status: nextStatus,
+    runStatus: String(nextRunStatusRaw),
+    releasedAmountCents: nextReleasedAmountCents,
+    refundedAmountCents: nextRefundedAmountCents,
+    releaseRatePct: nextReleaseRatePct,
     disputeStatus: AGENT_RUN_SETTLEMENT_DISPUTE_STATUS.NONE,
     disputeId: null,
     disputeOpenedAt: null,

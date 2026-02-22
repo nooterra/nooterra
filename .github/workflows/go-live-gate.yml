@@ -90,7 +90,7 @@ jobs:
             artifacts/throughput/10x-drill-summary.json
             artifacts/throughput/10x-drill-k6-summary.json
             artifacts/throughput/10x-incident-rehearsal-summary.json
-          if-no-files-found: warn
+          if-no-files-found: error
 
       - name: Stop server
         if: always()

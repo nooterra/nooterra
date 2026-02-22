@@ -2,10 +2,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createPrivateKey, createPublicKey } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { canonicalJsonStringify, normalizeForCanonicalJson } from "../../src/core/canonical-json.js";
-import { sha256Hex, signHashHexEd25519 } from "../../src/core/crypto.js";
+import { sha256Hex, signHashHexEd25519, verifyHashHexEd25519 } from "../../src/core/crypto.js";
 
 const DEFAULT_REQUIRED_METRICS = Object.freeze([
   "replay_mismatch_gauge",
@@ -22,10 +23,61 @@ const RATE_LIMIT_MODE = Object.freeze({
   DISABLED: "disabled"
 });
 
+const SIGNATURE_ALGORITHM = "Ed25519";
+
+function normalizeStringList(values) {
+  const out = [];
+  const seen = new Set();
+  for (const raw of values ?? []) {
+    const value = normalizeOptionalString(raw);
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out.sort();
+}
+
+function sortObjectKeys(input) {
+  const entries = Object.entries(input ?? {});
+  entries.sort(([a], [b]) => a.localeCompare(b));
+  return Object.fromEntries(entries);
+}
+
+function normalizeRateLimitProbeResult(result) {
+  if (!result || typeof result !== "object") return null;
+  return {
+    path: normalizeOptionalString(result.path) ?? "/ops/status",
+    requests: Number.isSafeInteger(result.requests) ? result.requests : 0,
+    mode: normalizeOptionalString(result.mode) ?? RATE_LIMIT_MODE.OPTIONAL,
+    statusCodeCounts: sortObjectKeys(result.statusCodeCounts),
+    saw429: result.saw429 === true,
+    ok: result.ok === true
+  };
+}
+
+function summarizeOpsStatusBody(body) {
+  if (!body || typeof body !== "object") return null;
+  return {
+    process: {
+      startedAt: normalizeOptionalString(body?.process?.startedAt)
+    },
+    maintenance: body?.maintenance ?? null
+  };
+}
+
+export function computeHostedBaselineArtifactHash(coreReport) {
+  return sha256Hex(canonicalJsonStringify(coreReport));
+}
+
+function publicKeyPemFromPrivateKeyPem(privateKeyPem) {
+  const privateKey = createPrivateKey(privateKeyPem);
+  return createPublicKey(privateKey).export({ format: "pem", type: "spki" }).toString();
+}
+
 function usage() {
   // eslint-disable-next-line no-console
   console.error(
-    "usage: node scripts/ops/hosted-baseline-evidence.mjs --ops-token <tok> [--base-url <url>] [--tenant-id <id>] [--environment <name>] [--metrics-ops-token <tok>] [--required-metrics <csv>] [--require-billing-catalog <true|false>] [--require-maintenance-schedulers <true|false>] [--rate-limit-mode <optional|required|disabled>] [--rate-limit-probe-requests <n>] [--rate-limit-probe-path <path>] [--run-backup-restore <true|false>] [--database-url <url>] [--restore-database-url <url>] [--backup-restore-schema <schema>] [--backup-restore-jobs <n>] [--backup-restore-month <YYYY-MM>] [--backup-restore-evidence-path <file>] [--require-backup-restore <true|false>] [--signing-key-file <pem>] [--signature-key-id <id>] [--out <file>]"
+    "usage: node scripts/ops/hosted-baseline-evidence.mjs --ops-token <tok> [--base-url <url>] [--tenant-id <id>] [--environment <name>] [--captured-at <iso>] [--metrics-ops-token <tok>] [--required-metrics <csv>] [--require-billing-catalog <true|false>] [--require-maintenance-schedulers <true|false>] [--rate-limit-mode <optional|required|disabled>] [--rate-limit-probe-requests <n>] [--rate-limit-probe-path <path>] [--run-backup-restore <true|false>] [--database-url <url>] [--restore-database-url <url>] [--backup-restore-schema <schema>] [--backup-restore-jobs <n>] [--backup-restore-month <YYYY-MM>] [--backup-restore-evidence-path <file>] [--require-backup-restore <true|false>] [--signing-key-file <pem>] [--signature-key-id <id>] [--out <file>]"
   );
 }
 
@@ -124,11 +176,12 @@ function validateBackupRestoreDatabaseUrl(raw, { name }) {
   return { ok: true, reason: null };
 }
 
-function parseArgs(argv) {
+export function parseArgs(argv) {
   const out = {
     baseUrl: "http://127.0.0.1:3000",
     tenantId: "tenant_default",
     environment: null,
+    capturedAt: null,
     opsToken: null,
     metricsOpsToken: null,
     requiredMetrics: [...DEFAULT_REQUIRED_METRICS],
@@ -165,6 +218,11 @@ function parseArgs(argv) {
     }
     if (arg === "--environment") {
       out.environment = String(argv[i + 1] ?? "");
+      i += 1;
+      continue;
+    }
+    if (arg === "--captured-at") {
+      out.capturedAt = String(argv[i + 1] ?? "");
       i += 1;
       continue;
     }
@@ -273,8 +331,10 @@ function parseArgs(argv) {
   out.baseUrl = normalizeOptionalString(out.baseUrl) ?? out.baseUrl;
   out.tenantId = normalizeOptionalString(out.tenantId) ?? out.tenantId;
   out.environment = normalizeOptionalString(out.environment);
+  out.capturedAt = normalizeOptionalString(out.capturedAt);
   out.opsToken = normalizeOptionalString(out.opsToken);
   out.metricsOpsToken = normalizeOptionalString(out.metricsOpsToken);
+  out.requiredMetrics = normalizeStringList(out.requiredMetrics);
   out.rateLimitProbePath = normalizeOptionalString(out.rateLimitProbePath) ?? "/ops/status";
   out.databaseUrl = normalizeOptionalString(out.databaseUrl);
   out.restoreDatabaseUrl = normalizeOptionalString(out.restoreDatabaseUrl);
@@ -291,8 +351,35 @@ function parseArgs(argv) {
   if (!out.rateLimitProbePath.startsWith("/")) {
     throw new Error("--rate-limit-probe-path must start with /");
   }
+  if (out.capturedAt && !Number.isFinite(Date.parse(out.capturedAt))) {
+    throw new Error("--captured-at must be an ISO date-time");
+  }
   if (out.backupRestoreMonth && !/^\d{4}-\d{2}$/.test(out.backupRestoreMonth)) {
     throw new Error("--backup-restore-month must match YYYY-MM");
+  }
+  if (out.rateLimitMode === RATE_LIMIT_MODE.REQUIRED && out.rateLimitProbeRequests < 1) {
+    throw new Error("--rate-limit-mode required needs --rate-limit-probe-requests >= 1");
+  }
+  if (out.signatureKeyId && !out.signingKeyFile) {
+    throw new Error("--signature-key-id requires --signing-key-file");
+  }
+  if (out.runBackupRestore && out.backupRestoreEvidencePath) {
+    throw new Error("--run-backup-restore cannot be combined with --backup-restore-evidence-path");
+  }
+  if (out.requireBackupRestore && !out.runBackupRestore && !out.backupRestoreEvidencePath) {
+    throw new Error("--require-backup-restore requires --run-backup-restore true or --backup-restore-evidence-path");
+  }
+  if (!out.runBackupRestore) {
+    const backupDrillFields = [
+      out.databaseUrl,
+      out.restoreDatabaseUrl,
+      out.backupRestoreSchema,
+      out.backupRestoreJobs,
+      out.backupRestoreMonth
+    ];
+    if (backupDrillFields.some((value) => value !== null)) {
+      throw new Error("backup/restore drill args require --run-backup-restore true");
+    }
   }
 
   return out;
@@ -434,7 +521,159 @@ function runBackupRestoreDrill({
   };
 }
 
-async function main() {
+export function createHostedBaselineReportCore({
+  capturedAt,
+  args,
+  failures,
+  healthz,
+  healthzOk,
+  opsStatus,
+  opsStatusOk,
+  hasRequiredMaintenanceSchedulers,
+  metrics,
+  metricNames,
+  missingMetrics,
+  metricsOk,
+  billingCatalog,
+  billingValidation,
+  billingOk,
+  rateLimitProbe,
+  backupRestore
+}) {
+  return normalizeForCanonicalJson({
+    type: "HostedBaselineEvidence.v1",
+    v: 1,
+    capturedAt,
+    status: failures.length === 0 ? "pass" : "fail",
+    failures: normalizeStringList(failures),
+    inputs: {
+      baseUrl: args.baseUrl,
+      tenantId: args.tenantId,
+      environment: args.environment,
+      requireBillingCatalog: args.requireBillingCatalog,
+      requireMaintenanceSchedulers: args.requireMaintenanceSchedulers,
+      requiredMetrics: normalizeStringList(args.requiredMetrics),
+      rateLimitMode: args.rateLimitMode,
+      rateLimitProbeRequests: args.rateLimitProbeRequests,
+      rateLimitProbePath: args.rateLimitProbePath,
+      runBackupRestore: args.runBackupRestore,
+      backupRestoreEvidencePath: args.backupRestoreEvidencePath,
+      requireBackupRestore: args.requireBackupRestore
+    },
+    checks: {
+      healthz: {
+        ok: healthzOk,
+        statusCode: healthz.statusCode,
+        body: healthz.body
+      },
+      opsStatus: {
+        ok: opsStatusOk,
+        statusCode: opsStatus.statusCode,
+        maintenanceSchedulersEnabled: hasRequiredMaintenanceSchedulers,
+        summary: opsStatusOk ? summarizeOpsStatusBody(opsStatus.body) : null
+      },
+      metrics: {
+        ok: metricsOk,
+        statusCode: metrics.statusCode,
+        metricCount: metricNames.size,
+        missingMetrics: normalizeStringList(missingMetrics)
+      },
+      billingCatalog: {
+        ok: billingOk,
+        statusCode: billingCatalog.statusCode,
+        validation: billingValidation
+      },
+      rateLimitProbe: normalizeRateLimitProbeResult(rateLimitProbe),
+      backupRestore
+    }
+  });
+}
+
+export function assertHostedBaselineEvidenceIntegrity(output, { publicKeyPem = null, requireSignature = false } = {}) {
+  if (!output || typeof output !== "object") {
+    throw new Error("hosted baseline evidence output must be an object");
+  }
+  const { artifactHash, signature, ...core } = output;
+  const expectedHash = computeHostedBaselineArtifactHash(core);
+  if (artifactHash !== expectedHash) {
+    throw new Error("artifactHash does not match canonical report core");
+  }
+  if (!signature) {
+    if (requireSignature) throw new Error("signature is required but missing");
+    return true;
+  }
+  if (typeof signature !== "object") {
+    throw new Error("signature must be an object when present");
+  }
+  if (requireSignature && !publicKeyPem) {
+    throw new Error("publicKeyPem is required when requireSignature is true");
+  }
+  if (signature.algorithm !== SIGNATURE_ALGORITHM) {
+    throw new Error(`signature.algorithm must be ${SIGNATURE_ALGORITHM}`);
+  }
+  if (Object.hasOwn(signature, "keyId")) {
+    const keyId = signature.keyId;
+    if (keyId !== null && normalizeOptionalString(keyId) === null) {
+      throw new Error("signature.keyId must be a non-empty string when provided");
+    }
+  }
+  const signatureBase64 = normalizeOptionalString(signature.signatureBase64);
+  if (!signatureBase64) {
+    throw new Error("signature.signatureBase64 is required");
+  }
+  if (publicKeyPem) {
+    let verified = false;
+    try {
+      verified = verifyHashHexEd25519({
+        hashHex: expectedHash,
+        signatureBase64,
+        publicKeyPem
+      });
+    } catch {
+      verified = false;
+    }
+    if (!verified) throw new Error("signature verification failed");
+  }
+  return true;
+}
+
+export function buildHostedBaselineEvidenceOutput({
+  reportCore,
+  signingKeyPem = null,
+  signatureKeyId = null
+}) {
+  if (!reportCore || typeof reportCore !== "object") {
+    throw new Error("reportCore must be an object");
+  }
+  if (Object.hasOwn(reportCore, "artifactHash") || Object.hasOwn(reportCore, "signature")) {
+    throw new Error("reportCore must not include artifactHash or signature");
+  }
+  const normalizedReportCore = normalizeForCanonicalJson(reportCore);
+  const artifactHash = computeHostedBaselineArtifactHash(normalizedReportCore);
+  const output = {
+    ...normalizedReportCore,
+    artifactHash
+  };
+
+  if (signingKeyPem) {
+    const normalizedKeyId = normalizeOptionalString(signatureKeyId);
+    output.signature = {
+      algorithm: SIGNATURE_ALGORITHM,
+      ...(normalizedKeyId ? { keyId: normalizedKeyId } : {}),
+      signatureBase64: signHashHexEd25519(artifactHash, signingKeyPem)
+    };
+    assertHostedBaselineEvidenceIntegrity(output, {
+      requireSignature: true,
+      publicKeyPem: publicKeyPemFromPrivateKeyPem(signingKeyPem)
+    });
+  } else {
+    assertHostedBaselineEvidenceIntegrity(output);
+  }
+
+  return output;
+}
+
+export async function main() {
   let args;
   try {
     args = parseArgs(process.argv.slice(2));
@@ -534,7 +773,7 @@ async function main() {
       path: args.rateLimitProbePath,
       requests: args.rateLimitProbeRequests,
       mode: args.rateLimitMode,
-      statusCodeCounts,
+      statusCodeCounts: sortObjectKeys(statusCodeCounts),
       saw429,
       ok: modePass
     };
@@ -592,76 +831,33 @@ async function main() {
     failures.push("backup/restore evidence is required but missing");
   }
 
-  const reportCore = normalizeForCanonicalJson({
-    type: "HostedBaselineEvidence.v1",
-    v: 1,
-    capturedAt: new Date().toISOString(),
-    status: failures.length === 0 ? "pass" : "fail",
+  const capturedAt = args.capturedAt ?? new Date().toISOString();
+  const reportCore = createHostedBaselineReportCore({
+    capturedAt,
+    args,
     failures,
-    inputs: {
-      baseUrl: args.baseUrl,
-      tenantId: args.tenantId,
-      environment: args.environment,
-      requireBillingCatalog: args.requireBillingCatalog,
-      requireMaintenanceSchedulers: args.requireMaintenanceSchedulers,
-      requiredMetrics: args.requiredMetrics,
-      rateLimitMode: args.rateLimitMode,
-      rateLimitProbeRequests: args.rateLimitProbeRequests,
-      rateLimitProbePath: args.rateLimitProbePath,
-      runBackupRestore: args.runBackupRestore,
-      backupRestoreEvidencePath: args.backupRestoreEvidencePath,
-      requireBackupRestore: args.requireBackupRestore
-    },
-    checks: {
-      healthz: {
-        ok: healthzOk,
-        statusCode: healthz.statusCode,
-        body: healthz.body
-      },
-      opsStatus: {
-        ok: opsStatusOk,
-        statusCode: opsStatus.statusCode,
-        maintenanceSchedulersEnabled: hasRequiredMaintenanceSchedulers,
-        summary: opsStatusOk
-          ? {
-              process: {
-                startedAt: opsStatus.body?.process?.startedAt ?? null,
-                uptimeSeconds: opsStatus.body?.process?.uptimeSeconds ?? null
-              },
-              maintenance: opsStatus.body?.maintenance ?? null
-            }
-          : null
-      },
-      metrics: {
-        ok: metricsOk,
-        statusCode: metrics.statusCode,
-        metricCount: metricNames.size,
-        missingMetrics
-      },
-      billingCatalog: {
-        ok: billingOk,
-        statusCode: billingCatalog.statusCode,
-        validation: billingValidation
-      },
-      rateLimitProbe,
-      backupRestore
-    }
+    healthz,
+    healthzOk,
+    opsStatus,
+    opsStatusOk,
+    hasRequiredMaintenanceSchedulers,
+    metrics,
+    metricNames,
+    missingMetrics,
+    metricsOk,
+    billingCatalog,
+    billingValidation,
+    billingOk,
+    rateLimitProbe,
+    backupRestore
   });
 
-  const artifactHash = sha256Hex(canonicalJsonStringify(reportCore));
-  const output = {
-    ...reportCore,
-    artifactHash
-  };
-
-  if (args.signingKeyFile) {
-    const pem = await fs.readFile(path.resolve(args.signingKeyFile), "utf8");
-    output.signature = {
-      algorithm: "Ed25519",
-      keyId: args.signatureKeyId ?? null,
-      signatureBase64: signHashHexEd25519(artifactHash, pem)
-    };
-  }
+  const pem = args.signingKeyFile ? await fs.readFile(path.resolve(args.signingKeyFile), "utf8") : null;
+  const output = buildHostedBaselineEvidenceOutput({
+    reportCore,
+    signingKeyPem: pem,
+    signatureKeyId: args.signatureKeyId
+  });
 
   if (args.outPath) {
     const target = path.resolve(args.outPath);
@@ -674,8 +870,18 @@ async function main() {
   process.exit(failures.length === 0 ? 0 : 2);
 }
 
-main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error(err?.stack ?? err?.message ?? String(err));
-  process.exit(1);
-});
+const isDirectExecution = (() => {
+  try {
+    return import.meta.url === new URL(`file://${process.argv[1]}`).href;
+  } catch {
+    return false;
+  }
+})();
+
+if (isDirectExecution) {
+  main().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error(err?.stack ?? err?.message ?? String(err));
+    process.exit(1);
+  });
+}

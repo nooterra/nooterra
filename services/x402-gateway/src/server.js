@@ -6,6 +6,7 @@ import { Readable } from "node:stream";
 import { parseX402PaymentRequired } from "../../../src/core/x402-gate.js";
 import { canonicalJsonStringify } from "../../../src/core/canonical-json.js";
 import { keyIdFromPublicKeyPem } from "../../../src/core/crypto.js";
+import { normalizeReasonCodes as normalizePolicyDecisionReasonCodes } from "../../../src/core/policy-decision.js";
 import { buildToolProviderQuotePayloadV1, verifyToolProviderQuoteSignatureV1 } from "../../../src/core/provider-quote-signature.js";
 import { computeSettldPayRequestBindingSha256V1 } from "../../../src/core/settld-pay-token.js";
 import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "../../../src/core/tool-provider-signature.js";
@@ -477,14 +478,9 @@ function readDecisionRecordFromVerify(gateVerify) {
 }
 
 function collectReasonCodesFromVerify(gateVerify) {
-  const base = [];
   const fromGateDecision = Array.isArray(gateVerify?.gate?.decision?.reasonCodes) ? gateVerify.gate.decision.reasonCodes : [];
   const fromDecision = Array.isArray(gateVerify?.decision?.reasonCodes) ? gateVerify.decision.reasonCodes : [];
-  for (const row of [...fromGateDecision, ...fromDecision]) {
-    const code = typeof row === "string" ? row.trim() : "";
-    if (code) base.push(code);
-  }
-  return Array.from(new Set(base)).sort((left, right) => left.localeCompare(right));
+  return normalizePolicyDecisionReasonCodes([...fromGateDecision, ...fromDecision], "gateVerify.reasonCodes");
 }
 
 function derivePolicyDecisionFromVerify(gateVerify) {
@@ -542,6 +538,24 @@ function applySettldDecisionHeaders(outHeaders, { gateId, gateVerify } = {}) {
   const policyVersion = Number(decisionRecord?.bindings?.policyDecisionFingerprint?.policyVersion ?? Number.NaN);
   if (Number.isSafeInteger(policyVersion) && policyVersion > 0) {
     outHeaders["x-settld-policy-version"] = String(policyVersion);
+  }
+  const policyDecisionFingerprint =
+    decisionRecord?.bindings?.policyDecisionFingerprint &&
+    typeof decisionRecord.bindings.policyDecisionFingerprint === "object" &&
+    !Array.isArray(decisionRecord.bindings.policyDecisionFingerprint)
+      ? decisionRecord.bindings.policyDecisionFingerprint
+      : null;
+  const policyVerificationMethodHash =
+    typeof policyDecisionFingerprint?.verificationMethodHash === "string"
+      ? policyDecisionFingerprint.verificationMethodHash.trim().toLowerCase()
+      : "";
+  if (/^[0-9a-f]{64}$/.test(policyVerificationMethodHash)) {
+    outHeaders["x-settld-policy-verification-method-hash"] = policyVerificationMethodHash;
+  }
+  const policyEvaluationHash =
+    typeof policyDecisionFingerprint?.evaluationHash === "string" ? policyDecisionFingerprint.evaluationHash.trim().toLowerCase() : "";
+  if (/^[0-9a-f]{64}$/.test(policyEvaluationHash)) {
+    outHeaders["x-settld-policy-evaluation-hash"] = policyEvaluationHash;
   }
 
   if (gateVerify?.gate?.holdback?.status) outHeaders["x-settld-holdback-status"] = String(gateVerify.gate.holdback.status);

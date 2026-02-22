@@ -73,6 +73,39 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres
 
+  noo_44_47_48_regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Assert NOO-44/47/48 regression tests are present (fail closed)
+        run: |
+          set -euo pipefail
+          test_file="test/api-e2e-x402-authorize-payment.test.js"
+          required_tests=(
+            "API e2e: x402 authorize-payment and verify fail closed on missing or revoked passport when required"
+            "API e2e: x402 authorize-payment requires valid execution intent when enabled"
+            "API e2e: verify enforces strict request binding evidence for quote-bound authorization"
+          )
+          for test_name in "${required_tests[@]}"; do
+            if ! grep -F "test(\"${test_name}\"" "$test_file" >/dev/null; then
+              echo "missing required NOO regression test: ${test_name}" >&2
+              exit 1
+            fi
+          done
+      - name: Run NOO-44/47/48 regression tests
+        run: |
+          set -euo pipefail
+          test_file="test/api-e2e-x402-authorize-payment.test.js"
+          node --test --test-name-pattern "API e2e: x402 authorize-payment and verify fail closed on missing or revoked passport when required" "$test_file"
+          node --test --test-name-pattern "API e2e: x402 authorize-payment requires valid execution intent when enabled" "$test_file"
+          node --test --test-name-pattern "API e2e: verify enforces strict request binding evidence for quote-bound authorization" "$test_file"
+
   magic_link_onboarding_live_contract:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -187,6 +220,44 @@ jobs:
             artifacts/ops/mcp-host-cert-matrix.json
             artifacts/ops/x402-hitl-smoke.json
           if-no-files-found: warn
+
+  offline_verification_parity_gate:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: npm ci
+      - name: Install python deps (cryptography)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install cryptography
+      - name: Run offline verification parity gate (NOO-50)
+        run: |
+          set -euo pipefail
+          export SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON="$(node -e "import fs from 'node:fs'; const t=JSON.parse(fs.readFileSync('test/fixtures/bundles/v1/trust.json','utf8')); process.stdout.write(JSON.stringify(t.governanceRoots||{}));")"
+          export SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON="$(node -e "import fs from 'node:fs'; const t=JSON.parse(fs.readFileSync('test/fixtures/bundles/v1/trust.json','utf8')); process.stdout.write(JSON.stringify(t.pricingSigners||{}));")"
+          export SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON="$(node -e "import fs from 'node:fs'; const t=JSON.parse(fs.readFileSync('test/fixtures/bundles/v1/trust.json','utf8')); process.stdout.write(JSON.stringify(t.timeAuthorities||{}));")"
+          npm run -s test:ops:offline-verification-parity-gate -- \
+            --baseline-label node \
+            --candidate-label python \
+            --baseline-command "node packages/artifact-verify/bin/settld-verify.js --strict --format json --job-proof test/fixtures/bundles/v1/jobproof/strict-pass --trusted-buyer-keys test/fixtures/bundles/v1/trust.json" \
+            --candidate-command "python3 reference/verifier-py/settld-verify-py --strict --format json --job-proof test/fixtures/bundles/v1/jobproof/strict-pass --trusted-buyer-keys test/fixtures/bundles/v1/trust.json"
+      - name: Upload offline verification parity gate artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-verification-parity-gate-${{ github.run_id }}
+          path: artifacts/gates/offline-verification-parity-gate.json
+          if-no-files-found: error
 
   flake_budget_guard:
     runs-on: ubuntu-latest

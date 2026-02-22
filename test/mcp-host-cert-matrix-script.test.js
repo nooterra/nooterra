@@ -25,4 +25,11 @@ test("mcp host cert matrix script writes green report for supported hosts", asyn
   assert.equal(Array.isArray(report.checks), true);
   assert.equal(report.checks.length, 4);
   assert.equal(report.checks.every((row) => row?.ok === true), true);
+  for (const row of report.checks) {
+    assert.equal(Array.isArray(row?.bypassChecks), true, `host=${row?.host} missing bypassChecks`);
+    assert.equal(row.bypassChecks.length, 2, `host=${row?.host} expected two bypass checks`);
+    const byId = new Map(row.bypassChecks.map((check) => [check.id, check]));
+    assert.equal(byId.get("reject_missing_api_key")?.ok, true, `host=${row?.host} missing API key bypass check failed`);
+    assert.equal(byId.get("reject_invalid_base_url")?.ok, true, `host=${row?.host} invalid base URL bypass check failed`);
+  }
 });
