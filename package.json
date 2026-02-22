@@ -1,6 +1,6 @@
 {
   "name": "settld",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Settld kernel CLI and local control-plane tooling",
   "private": false,
   "type": "module",
