@@ -8,6 +8,8 @@ Use this checklist to launch and verify a real hosted Settld environment.
    - `tests / kernel_v0_ship_gate`
    - `tests / production_cutover_gate`
    - `tests / offline_verification_parity_gate` (NOO-50)
+   - `tests / onboarding_policy_slo_gate`
+   - `tests / deploy_safety_smoke` (hosted baseline evidence path)
 2. Confirm release workflow is blocked unless NOO-50 and the kernel/cutover gates are green for the release commit.
 3. Confirm release workflow runs NOO-65 promotion guard and blocks publish lanes if `release-promotion-guard.json` verdict is not pass/override-pass.
 4. Confirm staging and production have separate domains, databases, secrets, and signer keys.
@@ -101,15 +103,16 @@ npm run demo:mcp-paid-exa
 Ship only when all are true:
 
 1. Kernel v0 ship gate, production cutover gate, and NOO-50 parity gate are green.
-2. Hosted baseline evidence is green.
-3. Go-live gate and launch cutover packet reports are present:
+2. Onboarding/policy SLO gate is green (`artifacts/gates/onboarding-policy-slo-gate.json`).
+3. Hosted baseline evidence is green.
+4. Go-live gate and launch cutover packet reports are present:
    - `artifacts/gates/s13-go-live-gate.json`
    - `artifacts/gates/s13-launch-cutover-packet.json`
    - generated from a successful `go-live-gate` workflow run for the release commit
-4. NOO-65 promotion guard passes with required artifact binding (`artifacts/gates/release-promotion-guard.json`).
-5. MCP compatibility matrix is green for supported hosts.
-6. Paid MCP run artifacts verify cleanly.
-7. Rollback runbook has been rehearsed.
+5. NOO-65 promotion guard passes with required artifact binding (`artifacts/gates/release-promotion-guard.json`).
+6. MCP compatibility matrix is green for supported hosts.
+7. Paid MCP run artifacts verify cleanly.
+8. Rollback runbook has been rehearsed.
 
 Run the live environment cutover gate before opening traffic:
 

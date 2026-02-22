@@ -200,6 +200,7 @@ test("launch cutover packet: fail-closed when required source input is missing",
     ? packet.blockingIssues.find((row) => row?.checkId === "go_live_gate_report_present")
     : null;
   assert.ok(missingGate);
+  assert.equal(missingGate.details?.code, "file_missing");
 });
 
 test("launch cutover packet: fail-closed when required source verdict is failed", async (t) => {
@@ -224,6 +225,30 @@ test("launch cutover packet: fail-closed when required source verdict is failed"
     ? packet.blockingIssues.find((row) => row?.checkId === "throughput_verdict_ok")
     : null;
   assert.ok(throughputFailed);
+});
+
+test("launch cutover packet: fail-closed when required source schema drifts", async (t) => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-schema-fail-"));
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const paths = await seedPassingInputs(tmpDir);
+  const packetPath = path.join(tmpDir, "artifacts", "gates", "s13-launch-cutover-packet.json");
+  await writeJson(paths.throughputReportPath, {
+    schemaVersion: "ThroughputDrill10xReport.v0",
+    verdict: { ok: true }
+  });
+
+  const result = runLaunchCutoverPacket(buildEnv(paths, packetPath));
+  assert.equal(result.status, 1, `expected fail-closed exit\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+
+  const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
+  assert.equal(packet.verdict?.ok, false);
+  const throughputSchemaFailed = Array.isArray(packet.blockingIssues)
+    ? packet.blockingIssues.find((row) => row?.checkId === "throughput_schema_valid")
+    : null;
+  assert.ok(throughputSchemaFailed);
 });
 
 test("launch cutover packet: fail-closed when signing key cannot produce a signature", async (t) => {

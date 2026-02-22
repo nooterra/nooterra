@@ -21,6 +21,9 @@ This checklist is the “no surprises” gate for shipping Settld as a product (
   - `SETTLD_STAGING_OPS_TOKEN`
 - npm publish secret is configured for `.github/workflows/release.yml` if you want direct registry distribution:
   - `NPM_TOKEN`
+- Optional launch cutover packet signing inputs are configured for `.github/workflows/go-live-gate.yml` if signed packets are required:
+  - secret: `LAUNCH_CUTOVER_PACKET_SIGNING_PRIVATE_KEY_PEM`
+  - variable: `LAUNCH_CUTOVER_PACKET_SIGNATURE_KEY_ID`
 - PyPI Trusted Publisher is configured for `.github/workflows/release.yml` and the `pypi` GitHub environment is allowed.
 - PyPI Trusted Publisher is configured for `.github/workflows/python-pypi.yml` and the `pypi` GitHub environment is allowed (if using the Python-only lane).
 - TestPyPI Trusted Publisher is configured for `.github/workflows/python-testpypi.yml` and the `testpypi` GitHub environment is allowed.
@@ -53,6 +56,7 @@ Release-gate evidence should also include:
 - `artifacts/throughput/10x-drill-summary.json`
 - `artifacts/gates/s13-go-live-gate.json`
 - `artifacts/gates/s13-launch-cutover-packet.json`
+- when signing is configured, packet includes `signature` with `schemaVersion=LaunchCutoverPacketSignature.v1`
 - `artifacts/gates/production-cutover-gate.json`
 - `artifacts/gates/offline-verification-parity-gate.json` (NOO-50)
 - `artifacts/gates/release-promotion-guard.json` (NOO-65)
@@ -163,7 +167,8 @@ Promotion guard order (fail-closed):
 
 1. NOO-50 parity gate report is generated on main (`artifacts/gates/offline-verification-parity-gate.json`).
 2. S13 go-live workflow report set is generated for the same release commit (`s13-go-live-gate.json` + `s13-launch-cutover-packet.json`).
-3. Release workflow runs NOO-65 and must emit `artifacts/gates/release-promotion-guard.json` with `verdict.ok=true` before artifact publish jobs execute.
+3. Release workflow binds all required gate artifacts (kernel, production cutover, NOO-50 parity, S13 go-live, S13 launch packet, hosted baseline evidence) into NOO-65.
+4. Release workflow must emit `artifacts/gates/release-promotion-guard.json` with `verdict.ok=true` before artifact publish jobs execute.
 
 Related runbooks:
 

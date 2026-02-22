@@ -11,6 +11,7 @@ const REPORT_SCHEMA_VERSION = "OfflineVerificationParityGateReport.v1";
 const DEFAULT_REPORT_PATH = "artifacts/gates/offline-verification-parity-gate.json";
 const REPORT_SIGNATURE_ALGORITHM = "Ed25519";
 const REPORT_ARTIFACT_HASH_SCOPE = "OfflineVerificationParityGateDeterministicCore.v1";
+const VERIFY_OUTPUT_SCHEMA_VERSION = "VerifyCliOutput.v1";
 
 function usage() {
   return [
@@ -391,6 +392,14 @@ export function computeOfflineVerificationParityArtifactHash(reportCore) {
 }
 
 function buildChecks({ args, baselineRun, candidateRun, parityOk, parityCompared, differences, signing }) {
+  const baselineOutputContract = evaluateVerificationOutputContract({
+    run: baselineRun,
+    label: args.baselineLabel
+  });
+  const candidateOutputContract = evaluateVerificationOutputContract({
+    run: candidateRun,
+    label: args.candidateLabel
+  });
   return [
     {
       id: "baseline_offline_verify_command",
@@ -409,6 +418,26 @@ function buildChecks({ args, baselineRun, candidateRun, parityOk, parityCompared
       detail: candidateRun.failure ?? "candidate command completed and produced normalized JSON output"
     },
     {
+      id: "baseline_offline_verify_output_contract",
+      ok: baselineOutputContract.ok,
+      label: args.baselineLabel,
+      expectedSchemaVersion: VERIFY_OUTPUT_SCHEMA_VERSION,
+      actualSchemaVersion: baselineOutputContract.actualSchemaVersion,
+      normalizedOk: baselineOutputContract.normalizedOk,
+      normalizedVerificationOk: baselineOutputContract.normalizedVerificationOk,
+      detail: baselineOutputContract.detail
+    },
+    {
+      id: "candidate_offline_verify_output_contract",
+      ok: candidateOutputContract.ok,
+      label: args.candidateLabel,
+      expectedSchemaVersion: VERIFY_OUTPUT_SCHEMA_VERSION,
+      actualSchemaVersion: candidateOutputContract.actualSchemaVersion,
+      normalizedOk: candidateOutputContract.normalizedOk,
+      normalizedVerificationOk: candidateOutputContract.normalizedVerificationOk,
+      detail: candidateOutputContract.detail
+    },
+    {
       id: "offline_verification_parity",
       ok: parityOk,
       compared: parityCompared,
@@ -424,6 +453,43 @@ function buildChecks({ args, baselineRun, candidateRun, parityOk, parityCompared
       detail: signing.error ?? (signing.requested ? "report signing configuration validated" : "report signing not requested")
     }
   ];
+}
+
+function evaluateVerificationOutputContract({ run, label }) {
+  if (!run || run.ok !== true || !run.normalized) {
+    return {
+      ok: false,
+      detail: run?.failure ?? `${label} command did not complete with normalized output`,
+      actualSchemaVersion: run?.normalized?.schemaVersion ?? null,
+      normalizedOk: run?.normalized?.ok === true,
+      normalizedVerificationOk: run?.normalized?.verificationOk === true
+    };
+  }
+  if (run.normalized.schemaVersion !== VERIFY_OUTPUT_SCHEMA_VERSION) {
+    return {
+      ok: false,
+      detail: `${label} output schemaVersion must be ${VERIFY_OUTPUT_SCHEMA_VERSION}`,
+      actualSchemaVersion: run.normalized.schemaVersion,
+      normalizedOk: run.normalized.ok === true,
+      normalizedVerificationOk: run.normalized.verificationOk === true
+    };
+  }
+  if (!(run.normalized.ok === true && run.normalized.verificationOk === true)) {
+    return {
+      ok: false,
+      detail: `${label} output indicates verification failure (ok=${run.normalized.ok}, verificationOk=${run.normalized.verificationOk})`,
+      actualSchemaVersion: run.normalized.schemaVersion,
+      normalizedOk: run.normalized.ok === true,
+      normalizedVerificationOk: run.normalized.verificationOk === true
+    };
+  }
+  return {
+    ok: true,
+    detail: `${label} output schema and verification result passed contract checks`,
+    actualSchemaVersion: run.normalized.schemaVersion,
+    normalizedOk: run.normalized.ok === true,
+    normalizedVerificationOk: run.normalized.verificationOk === true
+  };
 }
 
 function buildReportCore({ args, generatedAt, durationMs, baselineSummary, candidateSummary, parity, checks, signing }) {

@@ -231,6 +231,50 @@ test("offline verification parity gate: fails closed when a verifier command exi
   assert.match(String(report.runs?.candidate?.failure ?? ""), /exited with code/i);
 });
 
+test("offline verification parity gate: fails closed when both verifiers return failed verification envelopes", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-offline-parity-envelope-fail-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  const stubPath = await setupStubVerifier(tmpRoot);
+  const reportPath = path.join(tmpRoot, "report.json");
+  const payloadPath = path.join(tmpRoot, "payload.json");
+
+  await fs.writeFile(
+    payloadPath,
+    JSON.stringify(
+      {
+        schemaVersion: "VerifyCliOutput.v1",
+        mode: { strict: true, failOnWarnings: false },
+        ok: false,
+        verificationOk: false,
+        errors: [{ code: "VERIFY_FAILED", path: "verify/verification_report.json", message: "verification failed" }],
+        warnings: [],
+        summary: { tenantId: "tenant_default", period: null, type: "jobproof", manifestHash: "hash_1" }
+      },
+      null,
+      2
+    ) + "\n",
+    "utf8"
+  );
+
+  const result = runGate({
+    OFFLINE_VERIFICATION_PARITY_GATE_REPORT_PATH: reportPath,
+    OFFLINE_VERIFICATION_PARITY_BASELINE_COMMAND: buildCommand(stubPath, "emit", payloadPath),
+    OFFLINE_VERIFICATION_PARITY_CANDIDATE_COMMAND: buildCommand(stubPath, "emit", payloadPath)
+  });
+
+  assert.notEqual(result.status, 0, `expected non-zero exit\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+
+  const report = JSON.parse(await fs.readFile(reportPath, "utf8"));
+  assert.equal(report.parity?.ok, true, "parity alone should still match");
+  assert.equal(report.verdict?.ok, false, "contract check must fail closed");
+  const byId = new Map((report.checks ?? []).map((check) => [check.id, check]));
+  assert.equal(byId.get("baseline_offline_verify_output_contract")?.ok, false);
+  assert.equal(byId.get("candidate_offline_verify_output_contract")?.ok, false);
+});
+
 test("offline verification parity gate: optionally signs report with Ed25519", async (t) => {
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-offline-parity-sign-"));
   t.after(async () => {

@@ -176,6 +176,17 @@
     "signatureKeyId": "key_282c80df2381d6831a92e89b",
     "signature": "WeC7hBGy91sj4332T8idDGzfbnfbHFM1jx/ZSnmXLV7iUCV5uq6E9JTOkMkdV4t+m3C0Ow23hordUeQN3V00AA=="
   },
+  "operatorAction": {
+    "schemaVersion": "OperatorAction.v1",
+    "actionId": "opact_vectors_0001",
+    "actionHash": "83760fd9240840f2a84dcd1fd68a30eb97d1f27da523cdcda4fc93600cc3efcb",
+    "canonicalJson": "{\"actedAt\":\"2026-02-01T00:02:10.000Z\",\"action\":\"OVERRIDE_ALLOW\",\"actionId\":\"opact_vectors_0001\",\"actor\":{\"metadata\":{\"source\":\"ops-console\",\"ticketId\":\"INC-VECTORS-1\"},\"operatorId\":\"op_vectors_0001\",\"role\":\"incident_commander\",\"sessionId\":\"ops_session_vectors_01\",\"tenantId\":\"tenant_vectors\"},\"caseRef\":{\"caseId\":\"dsp_run_vectors_0001\",\"kind\":\"dispute\"},\"justification\":\"vector override approved\",\"justificationCode\":\"OPS_OVERRIDE_APPROVED\",\"metadata\":{\"checklist\":[\"evidence-reviewed\",\"lead-approved\"],\"severity\":\"critical\"},\"schemaVersion\":\"OperatorAction.v1\",\"signature\":{\"actionHash\":\"83760fd9240840f2a84dcd1fd68a30eb97d1f27da523cdcda4fc93600cc3efcb\",\"algorithm\":\"ed25519\",\"keyId\":\"key_282c80df2381d6831a92e89b\",\"schemaVersion\":\"OperatorActionSignature.v1\",\"signatureBase64\":\"wwJb+5gca6zIuSs97qJaIAmz8LZ5FMBoSzCxaVUbtHKBd2wAXLQmzsF94AnQjfUScPjOBPoL6rVv+8Lbl2N7Dw==\",\"signedAt\":\"2026-02-01T00:02:11.000Z\"}}",
+    "sha256": "d66079059d4510126758ca0699a2affd6d362d685ebeaf45e28807099fc6f24e",
+    "coreCanonicalJson": "{\"actedAt\":\"2026-02-01T00:02:10.000Z\",\"action\":\"OVERRIDE_ALLOW\",\"actionId\":\"opact_vectors_0001\",\"actor\":{\"metadata\":{\"source\":\"ops-console\",\"ticketId\":\"INC-VECTORS-1\"},\"operatorId\":\"op_vectors_0001\",\"role\":\"incident_commander\",\"sessionId\":\"ops_session_vectors_01\",\"tenantId\":\"tenant_vectors\"},\"caseRef\":{\"caseId\":\"dsp_run_vectors_0001\",\"kind\":\"dispute\"},\"justification\":\"vector override approved\",\"justificationCode\":\"OPS_OVERRIDE_APPROVED\",\"metadata\":{\"checklist\":[\"evidence-reviewed\",\"lead-approved\"],\"severity\":\"critical\"},\"schemaVersion\":\"OperatorAction.v1\"}",
+    "coreSha256": "83760fd9240840f2a84dcd1fd68a30eb97d1f27da523cdcda4fc93600cc3efcb",
+    "signatureKeyId": "key_282c80df2381d6831a92e89b",
+    "signature": "wwJb+5gca6zIuSs97qJaIAmz8LZ5FMBoSzCxaVUbtHKBd2wAXLQmzsF94AnQjfUScPjOBPoL6rVv+8Lbl2N7Dw=="
+  },
   "settlementReceipt": {
     "schemaVersion": "SettlementReceipt.v1",
     "receiptId": "rcpt_run_vectors_0001_auto",

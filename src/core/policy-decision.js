@@ -173,6 +173,7 @@ export function buildPolicyDecisionV1({
   reasonCodes = null,
   metadata = undefined,
   createdAt = new Date().toISOString(),
+  requireSignature = false,
   signerKeyId = null,
   signerPrivateKeyPem = null
 } = {}) {
@@ -228,14 +229,23 @@ export function buildPolicyDecisionV1({
   );
   const policyDecisionHash = computePolicyDecisionHashV1(normalized);
 
+  const signerKeyIdText = signerKeyId === null || signerKeyId === undefined ? "" : String(signerKeyId).trim();
+  const signerPrivateKeyText = signerPrivateKeyPem === null || signerPrivateKeyPem === undefined ? "" : String(signerPrivateKeyPem).trim();
+  if (requireSignature === true && (!signerKeyIdText || !signerPrivateKeyText)) {
+    throw new TypeError("policy decision signature is required");
+  }
+  if (signerKeyIdText && !signerPrivateKeyText) {
+    throw new TypeError("signerPrivateKeyPem is required when signerKeyId is provided");
+  }
+
   let signature = null;
-  if (signerPrivateKeyPem !== null && signerPrivateKeyPem !== undefined && String(signerPrivateKeyPem).trim() !== "") {
-    const keyId = normalizeId(signerKeyId, "signerKeyId", { min: 1, max: 256 });
+  if (signerPrivateKeyText) {
+    const keyId = normalizeId(signerKeyIdText, "signerKeyId", { min: 1, max: 256 });
     signature = {
       algorithm: "ed25519",
       signerKeyId: keyId,
       policyDecisionHash,
-      signature: signHashHexEd25519(policyDecisionHash, String(signerPrivateKeyPem))
+      signature: signHashHexEd25519(policyDecisionHash, signerPrivateKeyText)
     };
   }
 

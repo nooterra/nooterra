@@ -250,6 +250,23 @@ test("API e2e: settlement resolve and dispute endpoints are idempotent", async (
   assert.equal(complete.statusCode, 201);
   assert.equal(complete.json?.settlement?.status, "locked");
 
+  const openWhileLocked = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/dispute/open`,
+    headers: { "x-idempotency-key": "idmp_open_locked_1" },
+    body: {
+      disputeId: "dsp_idmp_locked_1",
+      disputeType: "quality",
+      disputePriority: "normal",
+      disputeChannel: "counterparty",
+      escalationLevel: "l1_counterparty",
+      openedByAgentId: "agt_idmp_operator",
+      reason: "attempt while locked"
+    }
+  });
+  assert.equal(openWhileLocked.statusCode, 409, openWhileLocked.body);
+  assert.equal(openWhileLocked.json?.code, "TRANSITION_ILLEGAL");
+
   const resolvePath = `/runs/${encodeURIComponent(runId)}/settlement/resolve`;
   const resolveBody = {
     status: "released",
@@ -763,6 +780,69 @@ test("API e2e: dispute outcome mapping drives deterministic settlement outcomes"
   assert.equal(rejectedResolveReplay.statusCode, 200, rejectedResolveReplay.body);
   assert.deepEqual(rejectedResolveReplay.json, rejectedResolve.json);
 
+  const acceptedRun = await setupLockedSettlementRun(api, { prefix: "idmp_outcome_accepted", amountCents: 2111 });
+  await resolveSettlementReleased(api, {
+    runId: acceptedRun.runId,
+    operatorAgentId: acceptedRun.operatorAgentId,
+    idempotencyKey: "idmp_outcome_accepted_resolve_baseline_1"
+  });
+  const acceptedOpen = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(acceptedRun.runId)}/dispute/open`,
+    headers: { "x-idempotency-key": "idmp_outcome_accepted_open_1" },
+    body: {
+      disputeId: "dsp_idmp_outcome_accepted_1",
+      disputeType: "quality",
+      disputePriority: "normal",
+      disputeChannel: "counterparty",
+      escalationLevel: "l1_counterparty",
+      openedByAgentId: acceptedRun.operatorAgentId,
+      reason: "accept and keep release"
+    }
+  });
+  assert.equal(acceptedOpen.statusCode, 200, acceptedOpen.body);
+  const acceptedClose = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(acceptedRun.runId)}/dispute/close`,
+    headers: { "x-idempotency-key": "idmp_outcome_accepted_close_1" },
+    body: {
+      disputeId: "dsp_idmp_outcome_accepted_1",
+      resolutionOutcome: "accepted",
+      resolutionEscalationLevel: "l2_arbiter",
+      resolutionSummary: "release stands",
+      closedByAgentId: acceptedRun.operatorAgentId
+    }
+  });
+  assert.equal(acceptedClose.statusCode, 200, acceptedClose.body);
+
+  const acceptedResolve = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(acceptedRun.runId)}/settlement/resolve`,
+    headers: { "x-idempotency-key": "idmp_outcome_accepted_resolve_1" },
+    body: {
+      reason: "apply accepted mapping",
+      resolvedByAgentId: acceptedRun.operatorAgentId
+    }
+  });
+  assert.equal(acceptedResolve.statusCode, 200, acceptedResolve.body);
+  assert.equal(acceptedResolve.json?.settlement?.status, "released");
+  assert.equal(acceptedResolve.json?.settlement?.releaseRatePct, 100);
+  assert.equal(acceptedResolve.json?.settlement?.releasedAmountCents, acceptedRun.amountCents);
+  assert.equal(acceptedResolve.json?.settlement?.refundedAmountCents, 0);
+  assert.equal(acceptedResolve.json?.settlement?.decisionTrace?.disputeSettlementDirective?.financialOutcome, "release");
+
+  const acceptedResolveReplay = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(acceptedRun.runId)}/settlement/resolve`,
+    headers: { "x-idempotency-key": "idmp_outcome_accepted_resolve_1" },
+    body: {
+      reason: "apply accepted mapping",
+      resolvedByAgentId: acceptedRun.operatorAgentId
+    }
+  });
+  assert.equal(acceptedResolveReplay.statusCode, 200, acceptedResolveReplay.body);
+  assert.deepEqual(acceptedResolveReplay.json, acceptedResolve.json);
+
   const partialRun = await setupLockedSettlementRun(api, { prefix: "idmp_outcome_partial", amountCents: 2301 });
   await resolveSettlementReleased(api, {
     runId: partialRun.runId,
@@ -812,6 +892,19 @@ test("API e2e: dispute outcome mapping drives deterministic settlement outcomes"
   });
   assert.equal(partialConflict.statusCode, 409, partialConflict.body);
   assert.equal(partialConflict.json?.code, "DISPUTE_OUTCOME_AMOUNT_MISMATCH");
+  const partialConflictAgain = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(partialRun.runId)}/settlement/resolve`,
+    headers: { "x-idempotency-key": "idmp_outcome_partial_conflict_2" },
+    body: {
+      status: "released",
+      releaseRatePct: 100,
+      reason: "conflicting override",
+      resolvedByAgentId: partialRun.operatorAgentId
+    }
+  });
+  assert.equal(partialConflictAgain.statusCode, 409, partialConflictAgain.body);
+  assert.equal(partialConflictAgain.json?.code, partialConflict.json?.code);
 
   const partialResolve = await request(api, {
     method: "POST",

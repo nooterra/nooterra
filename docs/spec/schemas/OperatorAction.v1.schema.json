@@ -6,120 +6,106 @@
   "additionalProperties": false,
   "required": [
     "schemaVersion",
-    "actionId",
-    "tenantId",
-    "operatorId",
-    "actionCode",
-    "decisionCode",
-    "reasonCode",
-    "target",
-    "occurredAt",
-    "createdAt",
-    "actionHash"
+    "caseRef",
+    "action",
+    "justificationCode",
+    "actor",
+    "actedAt"
   ],
   "properties": {
     "schemaVersion": { "const": "OperatorAction.v1" },
     "actionId": {
       "type": "string",
-      "minLength": 3,
       "maxLength": 240,
-      "pattern": "^[A-Za-z0-9:_-]+$"
+      "pattern": "^[A-Za-z0-9:._/-]+$"
     },
-    "tenantId": {
+    "caseRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "caseId"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["challenge", "dispute", "escalation"]
+        },
+        "caseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240,
+          "pattern": "^[A-Za-z0-9:._/-]+$"
+        }
+      }
+    },
+    "action": {
+      "type": "string",
+      "enum": ["APPROVE", "REJECT", "REQUEST_INFO", "OVERRIDE_ALLOW", "OVERRIDE_DENY"]
+    },
+    "justificationCode": {
       "type": "string",
       "minLength": 1,
       "maxLength": 128,
-      "pattern": "^[A-Za-z0-9:_-]+$"
+      "pattern": "^[A-Z][A-Z0-9._:-]*$"
     },
-    "operatorId": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 128,
-      "pattern": "^[A-Za-z0-9:_-]+$"
-    },
-    "actionCode": {
-      "type": "string",
-      "minLength": 2,
-      "maxLength": 64,
-      "pattern": "^[a-z0-9._:-]+$"
-    },
-    "decisionCode": {
-      "type": "string",
-      "minLength": 2,
-      "maxLength": 64,
-      "pattern": "^[a-z0-9._:-]+$"
-    },
-    "reasonCode": {
-      "type": "string",
-      "minLength": 2,
-      "maxLength": 64,
-      "pattern": "^[A-Z0-9_]+$"
-    },
-    "idempotencyKey": {
-      "type": "string",
-      "minLength": 8,
-      "maxLength": 200,
-      "pattern": "^[A-Za-z0-9:_-]+$"
-    },
-    "reasonDetail": {
+    "justification": {
       "type": "string",
       "minLength": 1,
       "maxLength": 2000
     },
-    "target": {
+    "actor": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["resourceType", "resourceId"],
+      "required": ["operatorId"],
       "properties": {
-        "resourceType": {
-          "type": "string",
-          "minLength": 2,
-          "maxLength": 64,
-          "pattern": "^[a-z0-9._:-]+$"
-        },
-        "resourceId": {
+        "operatorId": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 240,
-          "pattern": "^[A-Za-z0-9:_-]+$"
+          "maxLength": 200,
+          "pattern": "^[A-Za-z0-9:._/-]+$"
         },
-        "resourceHash": {
+        "role": {
           "type": "string",
-          "pattern": "^[0-9a-f]{64}$"
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-z0-9._:-]+$"
+        },
+        "tenantId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9:._/-]+$"
+        },
+        "sessionId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "^[A-Za-z0-9:._/-]+$"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
         }
       }
     },
-    "evidenceRefs": {
-      "type": "array",
-      "maxItems": 1000,
-      "uniqueItems": true,
-      "items": {
-        "type": "string",
-        "minLength": 1,
-        "maxLength": 512
-      }
-    },
+    "actedAt": { "type": "string", "format": "date-time" },
     "metadata": {
       "type": "object",
       "additionalProperties": true
     },
-    "occurredAt": { "type": "string", "format": "date-time" },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "actionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "signature": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["algorithm", "signerKeyId", "actionHash", "signature", "signedAt"],
+      "required": ["schemaVersion", "algorithm", "keyId", "signedAt", "actionHash", "signatureBase64"],
       "properties": {
+        "schemaVersion": { "const": "OperatorActionSignature.v1" },
         "algorithm": { "const": "ed25519" },
-        "signerKeyId": {
+        "keyId": {
           "type": "string",
           "minLength": 1,
           "maxLength": 256,
-          "pattern": "^[A-Za-z0-9:_-]+$"
+          "pattern": "^[A-Za-z0-9:._/-]+$"
         },
         "actionHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "signature": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "signatureBase64": { "type": "string", "minLength": 1, "maxLength": 16384 },
         "signedAt": { "type": "string", "format": "date-time" }
       }
     }

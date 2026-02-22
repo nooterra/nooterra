@@ -21,6 +21,7 @@ function assertNonEmptyString(value, name) {
 
 function assertIsoDateTime(value, name) {
   const out = assertNonEmptyString(value, name);
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(out)) throw new TypeError(`${name} must be an ISO date-time`);
   if (!Number.isFinite(Date.parse(out))) throw new TypeError(`${name} must be an ISO date-time`);
   return new Date(out).toISOString();
 }
@@ -282,13 +283,15 @@ export function verifyOperatorActionV1({ action, publicKeyPem } = {}) {
       };
     }
 
+    const normalizedAction = buildOperatorActionV1(normalized);
     return {
       ok: true,
       code: null,
       error: null,
       actionHash,
       keyId: normalized.signature.keyId,
-      action: buildOperatorActionV1(normalized)
+      action: normalizedAction,
+      signedAction: normalized
     };
   } catch (err) {
     return {

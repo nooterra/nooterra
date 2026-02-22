@@ -370,6 +370,20 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
   });
   assert.equal(requested.statusCode, 202, requested.body);
   assert.equal(requested.json?.reversal?.status, "refund_pending");
+  const requestedIdempotentReplay = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_request_refund_1" },
+    body: {
+      gateId,
+      action: "request_refund",
+      reason: "result_not_usable",
+      evidenceRefs: ["provider:incident:001"],
+      command: refundRequestCommand
+    }
+  });
+  assert.equal(requestedIdempotentReplay.statusCode, 202, requestedIdempotentReplay.body);
+  assert.deepEqual(requestedIdempotentReplay.json, requested.json);
   const requestReplay = await request(api, {
     method: "POST",
     path: "/x402/gate/reversal",
@@ -495,6 +509,21 @@ test("API e2e: x402 reversal request_refund + resolve_refund accepted moves fund
   assert.equal(resolved.json?.reversalEvent?.providerDecisionVerification?.verified, true);
   assert.ok(resolved.json?.reversal?.timeline?.some((row) => row?.eventType === "refund_requested"));
   assert.ok(resolved.json?.reversal?.timeline?.some((row) => row?.eventType === "refund_resolved"));
+  const resolvedIdempotentReplay = await request(api, {
+    method: "POST",
+    path: "/x402/gate/reversal",
+    headers: { "x-idempotency-key": "x402_gate_reversal_resolve_refund_1" },
+    body: {
+      gateId,
+      action: "resolve_refund",
+      providerDecision: "accepted",
+      reason: "provider_acknowledged",
+      command: resolveCommand,
+      providerDecisionArtifact
+    }
+  });
+  assert.equal(resolvedIdempotentReplay.statusCode, 200, resolvedIdempotentReplay.body);
+  assert.deepEqual(resolvedIdempotentReplay.json, resolved.json);
 
   const payerWallet = await request(api, {
     method: "GET",

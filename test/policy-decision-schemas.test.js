@@ -6,7 +6,7 @@ import path from "node:path";
 import Ajv from "ajv/dist/2020.js";
 
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
-import { sha256Hex } from "../src/core/crypto.js";
+import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
 import { buildPolicyDecisionV1, validatePolicyDecisionV1 } from "../src/core/policy-decision.js";
 
 async function loadSchemas() {
@@ -105,4 +105,71 @@ test("PolicyDecision.v1 canonical hash is stable under key reorder", () => {
   };
   const hashB = sha256Hex(canonicalJsonStringify(reordered));
   assert.equal(hashB, hashA);
+});
+
+test("PolicyDecision.v1 signed artifact is deterministic with fixed input", () => {
+  const signer = createEd25519Keypair();
+  const input = {
+    decisionId: "pdec_schema_signed_0001",
+    tenantId: "tenant_default",
+    runId: "run_schema_signed_demo",
+    settlementId: "setl_run_schema_signed_demo",
+    gateId: "gate_schema_signed_demo",
+    policyInput: { policyId: "policy_schema_signed_demo", policyVersion: 5 },
+    policyHashUsed: "a".repeat(64),
+    verificationMethodHashUsed: "b".repeat(64),
+    policyDecision: {
+      decisionMode: "automatic",
+      verificationStatus: "green",
+      runStatus: "completed",
+      shouldAutoResolve: true,
+      settlementStatus: "released",
+      releaseRatePct: 100,
+      releaseAmountCents: 1250,
+      refundAmountCents: 0,
+      reasonCodes: ["POLICY_ALLOW", "POLICY_ALLOW", "BETA"]
+    },
+    createdAt: "2026-02-11T00:00:00.000Z",
+    requireSignature: true,
+    signerKeyId: "srv_signer_01",
+    signerPrivateKeyPem: signer.privateKeyPem
+  };
+
+  const first = buildPolicyDecisionV1(input);
+  const second = buildPolicyDecisionV1(input);
+  assert.deepEqual(first, second);
+  assert.equal(first.signature?.signerKeyId, "srv_signer_01");
+  assert.equal(first.signature?.policyDecisionHash, first.policyDecisionHash);
+  assert.deepEqual(first.reasonCodes, ["BETA", "POLICY_ALLOW"]);
+  assert.equal(validatePolicyDecisionV1(first), true);
+});
+
+test("PolicyDecision.v1 fails closed when required signature material is missing", () => {
+  assert.throws(
+    () =>
+      buildPolicyDecisionV1({
+        decisionId: "pdec_schema_missing_signature_0001",
+        tenantId: "tenant_default",
+        runId: "run_schema_missing_signature_demo",
+        settlementId: "setl_run_schema_missing_signature_demo",
+        gateId: "gate_schema_missing_signature_demo",
+        policyInput: { policyId: "policy_schema_missing_signature_demo", policyVersion: 1 },
+        policyHashUsed: "c".repeat(64),
+        verificationMethodHashUsed: "d".repeat(64),
+        policyDecision: {
+          decisionMode: "automatic",
+          verificationStatus: "green",
+          runStatus: "completed",
+          shouldAutoResolve: true,
+          settlementStatus: "released",
+          releaseRatePct: 100,
+          releaseAmountCents: 1250,
+          refundAmountCents: 0,
+          reasonCodes: []
+        },
+        createdAt: "2026-02-11T00:00:00.000Z",
+        requireSignature: true
+      }),
+    /policy decision signature is required/
+  );
 });

@@ -21655,7 +21655,7 @@ export function createApi({
     return signerKey;
   }
 
-  async function verifyEmergencyOperatorActionInput({ tenantId, operatorActionInput }) {
+  async function verifyEmergencyOperatorActionInput({ tenantId, emergencyAction, operatorActionInput }) {
     if (!operatorActionInput || typeof operatorActionInput !== "object" || Array.isArray(operatorActionInput)) {
       return {
         ok: false,
@@ -21758,17 +21758,68 @@ export function createApi({
       publicKeyPem
     });
     if (!verification.ok) {
+      const verificationCode = String(verification.code ?? "");
+      const isSchemaCode =
+        verificationCode.startsWith("OPERATOR_ACTION_SCHEMA_") || verificationCode.startsWith("OPERATOR_ACTION_SIGNATURE_SCHEMA_");
       return {
         ok: false,
-        statusCode: String(verification.code ?? "").startsWith("OPERATOR_ACTION_SCHEMA_") ? 400 : 409,
+        statusCode: isSchemaCode ? 400 : 409,
         code: verification.code ?? "OPERATOR_ACTION_SIGNATURE_INVALID",
         message: verification.error ?? "operatorAction verification failed"
       };
     }
 
+    const verifiedSignedAction =
+      verification.signedAction && typeof verification.signedAction === "object" && !Array.isArray(verification.signedAction)
+        ? verification.signedAction
+        : null;
+    if (!verifiedSignedAction) {
+      return {
+        ok: false,
+        statusCode: 409,
+        code: "OPERATOR_ACTION_SIGNED_ARTIFACT_INVALID",
+        message: "operatorAction signed artifact is invalid"
+      };
+    }
+
+    const expectedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    const actionTenantId =
+      typeof verification.action?.actor?.tenantId === "string" && verification.action.actor.tenantId.trim() !== ""
+        ? normalizeTenantId(verification.action.actor.tenantId)
+        : null;
+    if (!actionTenantId) {
+      return {
+        ok: false,
+        statusCode: 409,
+        code: "OPERATOR_ACTION_TENANT_REQUIRED",
+        message: "operatorAction.actor.tenantId is required"
+      };
+    }
+    if (actionTenantId !== expectedTenantId) {
+      return {
+        ok: false,
+        statusCode: 409,
+        code: "OPERATOR_ACTION_TENANT_MISMATCH",
+        message: "operatorAction.actor.tenantId does not match request tenant"
+      };
+    }
+
+    const normalizedEmergencyAction = normalizeEmergencyActionInput(emergencyAction ?? null);
+    const expectedOperatorDecision = normalizedEmergencyAction === EMERGENCY_ACTION.RESUME ? "OVERRIDE_ALLOW" : "OVERRIDE_DENY";
+    const actualOperatorDecision =
+      typeof verification.action?.action === "string" ? verification.action.action.trim().toUpperCase() : "";
+    if (actualOperatorDecision !== expectedOperatorDecision) {
+      return {
+        ok: false,
+        statusCode: 409,
+        code: "OPERATOR_ACTION_DECISION_MISMATCH",
+        message: `operatorAction.action must be ${expectedOperatorDecision} for emergency action ${String(normalizedEmergencyAction)}`
+      };
+    }
+
     return {
       ok: true,
-      operatorAction
+      operatorAction: verifiedSignedAction
     };
   }
 
@@ -23046,6 +23097,7 @@ export function createApi({
                 : String(body.reason).trim().slice(0, 500);
             const operatorActionValidation = await verifyEmergencyOperatorActionInput({
               tenantId,
+              emergencyAction: action,
               operatorActionInput: body?.operatorAction ?? null
             });
             if (!operatorActionValidation.ok) {
@@ -39162,23 +39214,56 @@ export function createApi({
             verificationMethodHashUsed,
             policyDecision
           });
-          const policyDecisionArtifact = buildPolicyDecisionV1({
-            decisionId: `pdec_${gateId}`,
-            tenantId,
-            runId,
-            settlementId:
-              typeof settlement.settlementId === "string" && settlement.settlementId.trim() !== ""
-                ? settlement.settlementId.trim()
-                : `setl_${runId}`,
-            gateId,
-            policyInput: body?.policy ?? null,
-            policyHashUsed,
-            verificationMethodHashUsed,
-            policyDecision,
-            createdAt: at,
-            signerKeyId: store.serverSigner.keyId,
-            signerPrivateKeyPem: store.serverSigner.privateKeyPem
-          });
+          const policyDecisionSignerKeyId =
+            typeof store?.serverSigner?.keyId === "string" && store.serverSigner.keyId.trim() !== ""
+              ? store.serverSigner.keyId.trim()
+              : null;
+          const policyDecisionSignerPrivateKeyPem =
+            typeof store?.serverSigner?.privateKeyPem === "string" && store.serverSigner.privateKeyPem.trim() !== ""
+              ? store.serverSigner.privateKeyPem
+              : null;
+          if (!policyDecisionSignerKeyId || !policyDecisionSignerPrivateKeyPem) {
+            return sendError(
+              res,
+              409,
+              "policy decision signer is not configured",
+              {
+                gateId,
+                signerKeyIdConfigured: Boolean(policyDecisionSignerKeyId),
+                signerPrivateKeyConfigured: Boolean(policyDecisionSignerPrivateKeyPem)
+              },
+              { code: "X402_POLICY_DECISION_SIGNER_REQUIRED" }
+            );
+          }
+          let policyDecisionArtifact = null;
+          try {
+            policyDecisionArtifact = buildPolicyDecisionV1({
+              decisionId: `pdec_${gateId}`,
+              tenantId,
+              runId,
+              settlementId:
+                typeof settlement.settlementId === "string" && settlement.settlementId.trim() !== ""
+                  ? settlement.settlementId.trim()
+                  : `setl_${runId}`,
+              gateId,
+              policyInput: body?.policy ?? null,
+              policyHashUsed,
+              verificationMethodHashUsed,
+              policyDecision,
+              createdAt: at,
+              requireSignature: true,
+              signerKeyId: policyDecisionSignerKeyId,
+              signerPrivateKeyPem: policyDecisionSignerPrivateKeyPem
+            });
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "unable to build signed policy decision artifact",
+              { gateId, message: err?.message ?? null },
+              { code: "X402_POLICY_DECISION_BUILD_FAILED" }
+            );
+          }
           const tokenQuoteId =
             typeof tokenPayloadForBindings?.quoteId === "string" && tokenPayloadForBindings.quoteId.trim() !== ""
               ? tokenPayloadForBindings.quoteId.trim()
@@ -44486,7 +44571,7 @@ export function createApi({
         }
         if (!settlement) return sendError(res, 404, "run settlement not found");
         if (settlement.status === AGENT_RUN_SETTLEMENT_STATUS.LOCKED) {
-          return sendError(res, 409, "cannot dispute settlement before resolution");
+          return sendError(res, 409, "cannot dispute settlement before resolution", null, { code: "TRANSITION_ILLEGAL" });
         }
 
         const nowAt = nowIso();
@@ -44693,7 +44778,7 @@ export function createApi({
           const currentRank = escalationRank.get(currentEscalationLevel) ?? 1;
           const requestedRank = escalationRank.get(requestedEscalationLevel) ?? 0;
           if (requestedRank < currentRank) {
-            return sendError(res, 409, "escalationLevel cannot downgrade an active dispute");
+            return sendError(res, 409, "escalationLevel cannot downgrade an active dispute", null, { code: "TRANSITION_ILLEGAL" });
           }
           const channelByEscalationLevel = new Map([
             [AGENT_RUN_SETTLEMENT_DISPUTE_ESCALATION_LEVEL.L1_COUNTERPARTY, AGENT_RUN_SETTLEMENT_DISPUTE_CHANNEL.COUNTERPARTY],

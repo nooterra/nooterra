@@ -348,6 +348,9 @@ export function parseArgs(argv) {
   if (!Object.values(RATE_LIMIT_MODE).includes(out.rateLimitMode)) {
     throw new Error(`--rate-limit-mode must be ${Object.values(RATE_LIMIT_MODE).join("|")}`);
   }
+  if (out.requiredMetrics.length === 0) {
+    throw new Error("--required-metrics must include at least one metric name");
+  }
   if (!out.rateLimitProbePath.startsWith("/")) {
     throw new Error("--rate-limit-probe-path must start with /");
   }

@@ -36,6 +36,7 @@ jobs:
             const repo = context.repo.repo;
             const sha = context.sha;
             const requiredJobNames = [
+              "noo_44_47_48_regressions",
               "kernel_v0_ship_gate",
               "production_cutover_gate",
               "offline_verification_parity_gate"
@@ -349,16 +350,22 @@ jobs:
             local root="$1"
             local file_name="$2"
             local dest="$3"
-            local src
-            src="$(find "$root" -type f -name "$file_name" | head -n 1 || true)"
-            if [[ -z "$src" ]]; then
+            local matches=()
+            mapfile -t matches < <(find "$root" -type f -name "$file_name" | sort)
+            if [[ "${#matches[@]}" -eq 0 ]]; then
               echo "missing required artifact: $file_name under $root" >&2
               exit 1
             fi
-            cp "$src" "$dest"
+            if [[ "${#matches[@]}" -gt 1 ]]; then
+              echo "ambiguous required artifact: $file_name under $root resolved ${#matches[@]} files" >&2
+              printf '%s\n' "${matches[@]}" >&2
+              exit 1
+            fi
+            cp "${matches[0]}" "$dest"
           }
           copy_required "/tmp/release-upstream/tests" "kernel-v0-ship-gate.json" "artifacts/gates/kernel-v0-ship-gate.json"
           copy_required "/tmp/release-upstream/tests" "production-cutover-gate.json" "artifacts/gates/production-cutover-gate.json"
+          copy_required "/tmp/release-upstream/tests" "offline-verification-parity-gate.json" "artifacts/gates/offline-verification-parity-gate.json"
           copy_required "/tmp/release-upstream/go-live" "s13-go-live-gate.json" "artifacts/gates/s13-go-live-gate.json"
           copy_required "/tmp/release-upstream/go-live" "s13-launch-cutover-packet.json" "artifacts/gates/s13-launch-cutover-packet.json"
           copy_required "/tmp/release-upstream/release-gate" "hosted-baseline-release-gate.json" "artifacts/ops/hosted-baseline-release-gate.json"
@@ -371,6 +378,7 @@ jobs:
           npm run -s test:ops:release-promotion-guard -- \
             --kernel-gate artifacts/gates/kernel-v0-ship-gate.json \
             --production-gate artifacts/gates/production-cutover-gate.json \
+            --offline-parity-gate artifacts/gates/offline-verification-parity-gate.json \
             --go-live-gate artifacts/gates/s13-go-live-gate.json \
             --launch-packet artifacts/gates/s13-launch-cutover-packet.json \
             --baseline-evidence artifacts/ops/hosted-baseline-release-gate.json \
@@ -385,6 +393,7 @@ jobs:
             artifacts/gates/release-promotion-guard.json
             artifacts/gates/kernel-v0-ship-gate.json
             artifacts/gates/production-cutover-gate.json
+            artifacts/gates/offline-verification-parity-gate.json
             artifacts/gates/s13-go-live-gate.json
             artifacts/gates/s13-launch-cutover-packet.json
             artifacts/ops/hosted-baseline-release-gate.json

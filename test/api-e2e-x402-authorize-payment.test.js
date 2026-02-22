@@ -682,6 +682,51 @@ test("API e2e: high-risk x402 routes fail closed when protocol context header is
   assert.equal(windDownWithProtocol.json?.code, "NOT_FOUND");
 });
 
+test("API e2e: high-risk x402 financial routes require finance_write scope", async () => {
+  const api = createApi({
+    opsTokens: "tok_ops_only:ops_write;tok_ops_finance:ops_write,finance_write"
+  });
+
+  const authorizeOpsOnly = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: {
+      "x-proxy-ops-token": "tok_ops_only",
+      "x-idempotency-key": "x402_scope_guard_authorize_ops_only_1"
+    },
+    body: { gateId: "gate_scope_guard_1" }
+  });
+  assert.equal(authorizeOpsOnly.statusCode, 403, authorizeOpsOnly.body);
+  assert.equal(authorizeOpsOnly.json?.code, "FORBIDDEN");
+  assert.equal(authorizeOpsOnly.json?.details?.routeId, "x402_gate_authorize_payment");
+
+  const authorizeOpsFinance = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: {
+      "x-proxy-ops-token": "tok_ops_finance",
+      "x-idempotency-key": "x402_scope_guard_authorize_ops_finance_1"
+    },
+    body: { gateId: "gate_scope_guard_1" }
+  });
+  assert.equal(authorizeOpsFinance.statusCode, 404, authorizeOpsFinance.body);
+  assert.equal(authorizeOpsFinance.json?.code, "NOT_FOUND");
+
+  const escalationResolveOpsOnly = await request(api, {
+    method: "POST",
+    path: "/x402/gate/escalations/esc_scope_guard_1/resolve",
+    headers: {
+      "x-proxy-ops-token": "tok_ops_only",
+      "x-idempotency-key": "x402_scope_guard_escalation_ops_only_1",
+      "x-settld-protocol": "1.0"
+    },
+    body: { action: "approve" }
+  });
+  assert.equal(escalationResolveOpsOnly.statusCode, 403, escalationResolveOpsOnly.body);
+  assert.equal(escalationResolveOpsOnly.json?.code, "FORBIDDEN");
+  assert.equal(escalationResolveOpsOnly.json?.details?.routeId, "x402_gate_escalation_resolve");
+});
+
 test("API e2e: x402 authorize-payment is idempotent and token verifies via keyset", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 
@@ -787,6 +832,12 @@ test("API e2e: x402 authorize-payment is idempotent and token verifies via keyse
   assert.match(String(verifyRes.json?.decisionRecord?.bindings?.policyDecisionFingerprint?.evaluationHash ?? ""), /^[0-9a-f]{64}$/);
   assert.equal(verifyRes.json?.policyDecisionArtifact?.schemaVersion, "PolicyDecision.v1");
   assert.match(String(verifyRes.json?.policyDecisionArtifact?.policyDecisionHash ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(verifyRes.json?.policyDecisionArtifact?.signature?.algorithm, "ed25519");
+  assert.equal(
+    verifyRes.json?.policyDecisionArtifact?.signature?.policyDecisionHash,
+    verifyRes.json?.policyDecisionArtifact?.policyDecisionHash
+  );
+  assert.ok(typeof verifyRes.json?.policyDecisionArtifact?.signature?.signature === "string");
   assert.equal(
     verifyRes.json?.policyDecisionArtifact?.policyDecisionHash,
     verifyRes.json?.gate?.decision?.policyDecisionHash
@@ -807,6 +858,79 @@ test("API e2e: x402 authorize-payment is idempotent and token verifies via keyse
   assert.equal(verifyRes.json?.zkProofVerification?.protocol, "groth16");
   assert.equal(verifyRes.json?.zkProofVerification?.status, "verification_key_missing");
   assert.equal(verifyRes.json?.zkProofVerification?.verified, false);
+});
+
+test("API e2e: x402 verify fails closed when policy decision signer is unavailable", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_policy_signer_missing_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_policy_signer_missing_payee_1" });
+  await creditWallet(api, {
+    agentId: payerAgentId,
+    amountCents: 5000,
+    idempotencyKey: "wallet_credit_x402_policy_signer_missing_1"
+  });
+
+  const gateId = "gate_policy_signer_missing_1";
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_policy_signer_missing_1" },
+    body: {
+      gateId,
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 500,
+      currency: "USD"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const authorized = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_policy_signer_missing_1" },
+    body: { gateId }
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+
+  api.store.serverSigner = {
+    ...api.store.serverSigner,
+    privateKeyPem: ""
+  };
+
+  const verifyRes = await request(api, {
+    method: "POST",
+    path: "/x402/gate/verify",
+    headers: { "x-idempotency-key": "x402_gate_verify_policy_signer_missing_1" },
+    body: {
+      gateId,
+      verificationStatus: "green",
+      runStatus: "completed",
+      policy: {
+        mode: "automatic",
+        rules: {
+          autoReleaseOnGreen: true,
+          greenReleaseRatePct: 100,
+          autoReleaseOnAmber: false,
+          amberReleaseRatePct: 0,
+          autoReleaseOnRed: true,
+          redReleaseRatePct: 0
+        }
+      },
+      verificationMethod: { mode: "deterministic", source: "http_status_v1" },
+      evidenceRefs: [`http:request_sha256:${"1".repeat(64)}`, `http:response_sha256:${"2".repeat(64)}`]
+    }
+  });
+  assert.equal(verifyRes.statusCode, 409, verifyRes.body);
+  assert.equal(verifyRes.json?.code, "X402_POLICY_DECISION_SIGNER_REQUIRED");
+
+  const settlementRead = await request(api, {
+    method: "GET",
+    path: `/runs/${encodeURIComponent(`x402_${gateId}`)}/settlement`
+  });
+  assert.equal(settlementRead.statusCode, 200, settlementRead.body);
+  assert.equal(settlementRead.json?.settlement?.status, "locked");
 });
 
 test("API e2e: x402 gate verify rejects invalid zk proof protocol", async () => {

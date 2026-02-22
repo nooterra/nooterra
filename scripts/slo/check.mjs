@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 
+const SLO_CHECK_SCHEMA_VERSION = "OperationalSloCheck.v1";
+
 function normalizeOptionalString(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -145,9 +147,15 @@ export function collectOperationalSloSummary(series) {
     where: (labels) => typeof labels.status === "string" && labels.status.startsWith("5")
   });
   const outboxPending = sumWhere(series, { name: "outbox_pending_gauge" });
-  const deliveryDlq = getOne(series, { name: "delivery_dlq_pending_total_gauge" }) ?? 0;
-  const deliveriesPending = getOne(series, { name: "deliveries_pending_gauge", where: (labels) => labels.state === "pending" }) ?? 0;
-  const deliveriesFailed = getOne(series, { name: "deliveries_pending_gauge", where: (labels) => labels.state === "failed" }) ?? 0;
+  const deliveryDlq = sumWhere(series, { name: "delivery_dlq_pending_total_gauge" });
+  const deliveriesPending = sumWhere(series, {
+    name: "deliveries_pending_gauge",
+    where: (labels) => labels.state === "pending"
+  });
+  const deliveriesFailed = sumWhere(series, {
+    name: "deliveries_pending_gauge",
+    where: (labels) => labels.state === "failed"
+  });
   return {
     http5xxTotal,
     outboxPending,
@@ -212,7 +220,7 @@ export async function runSloCheck({ env = process.env } = {}) {
 
 async function main() {
   const summary = await runSloCheck({ env: process.env });
-  console.log(JSON.stringify({ slo: summary }));
+  console.log(JSON.stringify({ schemaVersion: SLO_CHECK_SCHEMA_VERSION, slo: summary }));
 }
 
 const isDirectExecution = (() => {

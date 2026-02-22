@@ -1,78 +1,76 @@
 # OperatorAction.v1
 
-`OperatorAction.v1` is a canonical, hash-addressable audit artifact for high-risk human/operator decisions.
+`OperatorAction.v1` is the canonical operator-evidence artifact used for high-risk control actions.
 
-It captures a deterministic action surface (who acted, what was targeted, what decision was taken, and why), with optional signature material for offline verification.
+It captures who acted, which case was affected, what action was taken, and why. The signed form binds this surface to an Ed25519 signature for offline verification.
 
 ## Purpose
 
 `OperatorAction.v1` enables:
 
-- deterministic replay/audit of operator decisions,
-- cryptographic binding of an action to a specific target object/hash,
-- strict vs non-strict verification behavior without ambiguous trust assumptions.
+- deterministic replay/audit of emergency operator decisions,
+- hash-based tamper detection over a frozen action surface,
+- stable verification codes for schema/key/hash/signature failures.
 
 ## Required fields
 
 - `schemaVersion` (const: `OperatorAction.v1`)
-- `actionId`
-- `tenantId`
-- `operatorId`
-- `actionCode` (stable machine code, lowercase token)
-- `decisionCode` (stable machine code, lowercase token)
-- `reasonCode` (stable machine code, uppercase snake-case)
-- `target`
-  - `resourceType` (lowercase token)
-  - `resourceId`
-- `occurredAt` (ISO 8601 date-time)
-- `createdAt` (ISO 8601 date-time)
-- `actionHash`
+- `caseRef`
+  - `kind` (`challenge|dispute|escalation`)
+  - `caseId`
+- `action` (`APPROVE|REJECT|REQUEST_INFO|OVERRIDE_ALLOW|OVERRIDE_DENY`)
+- `justificationCode` (uppercase machine token)
+- `actor`
+  - `operatorId`
+- `actedAt` (ISO 8601 date-time)
 
 Optional:
 
-- `idempotencyKey`
-- `reasonDetail`
-- `target.resourceHash` (sha256 hex of referenced object when hash binding is required)
-- `evidenceRefs` (deterministically ordered, unique references)
+- `actionId`
+- `justification`
+- `actor.role` (lowercase token)
+- `actor.tenantId`
+- `actor.sessionId`
+- `actor.metadata`
 - `metadata`
 - `signature`
+  - `schemaVersion` (const: `OperatorActionSignature.v1`)
   - `algorithm` (const: `ed25519`)
-  - `signerKeyId`
-  - `actionHash`
-  - `signature` (base64)
-  - `signedAt`
+  - `keyId`
+  - `signedAt` (ISO 8601 date-time)
+  - `actionHash` (`sha256` hex)
+  - `signatureBase64`
+
+Optional fields MUST be omitted when absent (not `null`) unless explicitly allowed by schema.
 
 ## Canonicalization + hashing
 
-`actionHash` is computed over canonical JSON (RFC 8785 / JCS) of the full object excluding:
-
-- `actionHash`
-- `signature`
+`actionHash` is computed over canonical JSON (RFC 8785 / JCS) of the unsigned `OperatorAction.v1` object.
 
 Hash algorithm: `sha256` over canonical UTF-8 bytes, lowercase hex output.
 
-Optional fields MUST be omitted when absent (not `null`) unless a future schema version explicitly allows `null`.
+`actionHash` is carried inside `signature.actionHash` in the signed envelope.
 
-## Signing
+## Signing and verification
 
-When present, `signature.signature` is an Ed25519 signature over the raw bytes of `actionHash` (hex-decoded 32-byte digest), encoded as base64.
+Signing (`signOperatorActionV1`) attaches a `signature` object and signs `actionHash` using Ed25519.
 
-Verifiers should validate in order:
+Verification (`verifyOperatorActionV1`) enforces:
 
-1. `actionHash` recomputation matches object content,
-2. `signature.actionHash === actionHash`,
-3. signature verification succeeds for `signerKeyId`.
+1. `action.schemaVersion === OperatorAction.v1`,
+2. `action.signature.schemaVersion === OperatorActionSignature.v1`,
+3. `signature.keyId` matches the expected public key id,
+4. `signature.actionHash` equals recomputed hash,
+5. Ed25519 signature verification succeeds.
 
-## Strict vs non-strict verification expectations
+Failures return stable codes such as:
 
-- **Strict**:
-  - `signature` is required.
-  - signer key must resolve to a trusted operator signing key.
-  - missing/invalid signature, hash mismatch, or target hash mismatch (when `target.resourceHash` is present and the target is available) is a hard failure.
-- **Non-strict**:
-  - unsigned actions may be accepted for compatibility.
-  - if `signature` is present, it must verify exactly as in strict mode.
-  - tamper signals (`actionHash` mismatch, `signature.actionHash` mismatch, invalid signature) remain hard failures.
+- `OPERATOR_ACTION_SCHEMA_MISMATCH`
+- `OPERATOR_ACTION_SIGNATURE_SCHEMA_MISMATCH`
+- `OPERATOR_ACTION_KEY_ID_MISMATCH`
+- `OPERATOR_ACTION_HASH_MISMATCH`
+- `OPERATOR_ACTION_SIGNATURE_INVALID`
+- `OPERATOR_ACTION_SCHEMA_INVALID`
 
 ## Schema
 

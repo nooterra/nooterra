@@ -100,4 +100,7 @@ If the outbox is growing without being drained, the system is not steady-state s
 - Onboarding/policy readiness gate: `scripts/ci/run-onboarding-policy-slo-gate.mjs`
 - Host matrix input: `artifacts/ops/mcp-host-cert-matrix.json`
 - Output artifact: `artifacts/gates/onboarding-policy-slo-gate.json`
+- Deterministic binding: onboarding gate emits `artifactHashScope` + `artifactHash` over canonical report core.
 - Gate is fail-closed when host matrix rows are red, metrics are missing, or thresholds are breached.
+- CI wiring:
+  - `tests / onboarding_policy_slo_gate` generates matrix + metrics snapshot and runs the onboarding gate.

@@ -7,6 +7,7 @@ import { signOperatorActionV1 } from "../src/core/operator-action.js";
 import { request } from "./api-test-harness.js";
 
 const OPS_WRITE_HEADERS = { "x-proxy-ops-token": "tok_opsw" };
+const OPS_READ_HEADERS = { "x-proxy-ops-token": "tok_opsr" };
 let operatorActionSeq = 0;
 
 function createEmergencyApi() {
@@ -44,6 +45,7 @@ function buildSignedOperatorAction({
   justificationCode = "OPS_EMERGENCY_CONTROL",
   justification = "manual emergency control operation",
   operatorId = "op_noo57_oncall",
+  tenantId = "tenant_default",
   caseIdPrefix = "emergency_control"
 } = {}) {
   operatorActionSeq += 1;
@@ -54,7 +56,7 @@ function buildSignedOperatorAction({
       action,
       justificationCode,
       justification,
-      actor: { operatorId, role: "oncall", tenantId: "tenant_default" },
+      actor: { operatorId, role: "oncall", tenantId },
       actedAt: new Date().toISOString()
     },
     publicKeyPem: signer.publicKeyPem,
@@ -119,6 +121,7 @@ test("API e2e: /ops/emergency endpoints enforce auth + invalid payload cases", a
   const unauthorizedChecks = [
     { path: "/ops/emergency/pause", body: {} },
     { path: "/ops/emergency/quarantine", body: {} },
+    { path: "/ops/emergency/revoke", body: {} },
     { path: "/ops/emergency/kill-switch", body: {} },
     { path: "/ops/emergency/resume", body: {} }
   ];
@@ -136,6 +139,7 @@ test("API e2e: /ops/emergency endpoints enforce auth + invalid payload cases", a
   const invalidChecks = [
     { path: "/ops/emergency/pause", body: { scope: { type: "bogus" } } },
     { path: "/ops/emergency/quarantine", body: { scope: { type: "bogus" } } },
+    { path: "/ops/emergency/revoke", body: { scope: { type: "bogus" } } },
     { path: "/ops/emergency/kill-switch", body: { scope: { type: "bogus" } } },
     { path: "/ops/emergency/resume", body: { controlType: "bogus" } }
   ];
@@ -215,6 +219,58 @@ test("API e2e: /ops/emergency endpoints enforce auth + invalid payload cases", a
   });
   assert.equal(revokedSignerRejected.statusCode, 409, revokedSignerRejected.body);
   assert.equal(revokedSignerRejected.json?.code, "OPERATOR_ACTION_SIGNER_REVOKED");
+
+  const decisionMismatchRejected = await request(api, {
+    method: "POST",
+    path: "/ops/emergency/pause",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      reasonCode: "OPS_EMERGENCY_PAUSE",
+      reason: "decision mismatch should be rejected",
+      operatorAction: buildSignedOperatorAction({
+        signer: operatorSigner,
+        action: "OVERRIDE_ALLOW",
+        caseIdPrefix: "decision_mismatch_case"
+      })
+    }
+  });
+  assert.equal(decisionMismatchRejected.statusCode, 409, decisionMismatchRejected.body);
+  assert.equal(decisionMismatchRejected.json?.code, "OPERATOR_ACTION_DECISION_MISMATCH");
+
+  const tenantMismatchRejected = await request(api, {
+    method: "POST",
+    path: "/ops/emergency/pause",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      reasonCode: "OPS_EMERGENCY_PAUSE",
+      reason: "tenant mismatch should be rejected",
+      operatorAction: buildSignedOperatorAction({
+        signer: operatorSigner,
+        tenantId: "tenant_other",
+        caseIdPrefix: "tenant_mismatch_case"
+      })
+    }
+  });
+  assert.equal(tenantMismatchRejected.statusCode, 409, tenantMismatchRejected.body);
+  assert.equal(tenantMismatchRejected.json?.code, "OPERATOR_ACTION_TENANT_MISMATCH");
+
+  const signatureSchemaMismatchAction = buildSignedOperatorAction({
+    signer: operatorSigner,
+    caseIdPrefix: "signature_schema_mismatch_case"
+  });
+  signatureSchemaMismatchAction.signature.schemaVersion = "OperatorActionSignature.v2";
+  const signatureSchemaMismatchRejected = await request(api, {
+    method: "POST",
+    path: "/ops/emergency/pause",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      reasonCode: "OPS_EMERGENCY_PAUSE",
+      reason: "signature schema mismatch should be rejected",
+      operatorAction: signatureSchemaMismatchAction
+    }
+  });
+  assert.equal(signatureSchemaMismatchRejected.statusCode, 400, signatureSchemaMismatchRejected.body);
+  assert.equal(signatureSchemaMismatchRejected.json?.code, "OPERATOR_ACTION_SIGNATURE_SCHEMA_MISMATCH");
 });
 
 test("API e2e: emergency pause blocks paid execution immediately; resume unblocks", async () => {
@@ -232,6 +288,14 @@ test("API e2e: emergency pause blocks paid execution immediately; resume unblock
   });
   assert.equal(gateBeforePause.statusCode, 201, gateBeforePause.body);
 
+  const pauseOperatorAction = {
+    ...buildSignedOperatorAction({
+      signer: operatorSigner,
+      caseIdPrefix: "pause_enable_case",
+      justificationCode: "OPS_EMERGENCY_PAUSE"
+    }),
+    unsignedNoise: "drop_me"
+  };
   const pause = await request(api, {
     method: "POST",
     path: "/ops/emergency/pause",
@@ -239,16 +303,27 @@ test("API e2e: emergency pause blocks paid execution immediately; resume unblock
     body: {
       reasonCode: "OPS_EMERGENCY_PAUSE",
       reason: "manual incident response",
-      operatorAction: buildSignedOperatorAction({
-        signer: operatorSigner,
-        caseIdPrefix: "pause_enable_case",
-        justificationCode: "OPS_EMERGENCY_PAUSE"
-      })
+      operatorAction: pauseOperatorAction
     }
   });
   assertCreatedOrOk(pause);
   assert.equal(pause.json?.action, "pause");
   assert.equal(pause.json?.controlType, "pause");
+  assert.equal(pause.json?.event?.operatorAction?.signature?.actionHash, pauseOperatorAction.signature.actionHash);
+  assert.equal(Object.prototype.hasOwnProperty.call(pause.json?.event?.operatorAction ?? {}, "unsignedNoise"), false);
+
+  const eventsRead = await request(api, {
+    method: "GET",
+    path: "/ops/emergency/events?action=pause&limit=5",
+    headers: OPS_READ_HEADERS
+  });
+  assert.equal(eventsRead.statusCode, 200, eventsRead.body);
+  const pauseEvent = Array.isArray(eventsRead.json?.events)
+    ? eventsRead.json.events.find((row) => String(row?.eventId ?? "") === String(pause.json?.event?.eventId ?? ""))
+    : null;
+  assert.ok(pauseEvent, eventsRead.body);
+  assert.equal(pauseEvent.operatorAction.signature.actionHash, pauseOperatorAction.signature.actionHash);
+  assert.equal(Object.prototype.hasOwnProperty.call(pauseEvent.operatorAction ?? {}, "unsignedNoise"), false);
 
   const blocked = await createX402Gate(api, {
     gateId: "gate_noo57_pause_blocked",
@@ -359,6 +434,79 @@ test("API e2e: emergency quarantine blocks paid execution immediately; resume un
     payerAgentId: payerAfter,
     payeeAgentId: payeeAfter,
     idempotencyKey: "noo57_quarantine_gate_after"
+  });
+  assert.equal(gateAfterResume.statusCode, 201, gateAfterResume.body);
+});
+
+test("API e2e: emergency revoke blocks paid execution immediately; resume unblocks", async () => {
+  const api = createEmergencyApi();
+  const operatorSigner = await registerSignerKey(api, { purpose: "operator", description: "NOO-57 revoke signer" });
+
+  const payerBefore = await registerAgent(api, { agentId: "agt_noo57_revoke_payer_before" });
+  const payeeBefore = await registerAgent(api, { agentId: "agt_noo57_revoke_payee_before" });
+
+  const gateBeforeRevoke = await createX402Gate(api, {
+    gateId: "gate_noo57_revoke_before",
+    payerAgentId: payerBefore,
+    payeeAgentId: payeeBefore,
+    idempotencyKey: "noo57_revoke_gate_before"
+  });
+  assert.equal(gateBeforeRevoke.statusCode, 201, gateBeforeRevoke.body);
+
+  const revoke = await request(api, {
+    method: "POST",
+    path: "/ops/emergency/revoke",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      reasonCode: "OPS_EMERGENCY_REVOKE",
+      reason: "manual incident response",
+      operatorAction: buildSignedOperatorAction({
+        signer: operatorSigner,
+        caseIdPrefix: "revoke_enable_case",
+        justificationCode: "OPS_EMERGENCY_REVOKE"
+      })
+    }
+  });
+  assertCreatedOrOk(revoke);
+  assert.equal(revoke.json?.action, "revoke");
+  assert.equal(revoke.json?.controlType, "revoke");
+
+  const blocked = await createX402Gate(api, {
+    gateId: "gate_noo57_revoke_blocked",
+    payerAgentId: payerBefore,
+    payeeAgentId: payeeBefore,
+    idempotencyKey: "noo57_revoke_gate_blocked"
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "EMERGENCY_REVOKE_ACTIVE");
+
+  const resume = await request(api, {
+    method: "POST",
+    path: "/ops/emergency/resume",
+    headers: OPS_WRITE_HEADERS,
+    body: {
+      controlType: "revoke",
+      reasonCode: "OPS_EMERGENCY_RESUME",
+      reason: "manual recovery complete",
+      operatorAction: buildSignedOperatorAction({
+        signer: operatorSigner,
+        action: "OVERRIDE_ALLOW",
+        caseIdPrefix: "revoke_resume_case",
+        justificationCode: "OPS_EMERGENCY_RESUME"
+      })
+    }
+  });
+  assert.equal(resume.statusCode, 200, resume.body);
+  assert.equal(resume.json?.action, "resume");
+  assert.deepEqual(resume.json?.resumeControlTypes, ["revoke"]);
+
+  const payerAfter = await registerAgent(api, { agentId: "agt_noo57_revoke_payer_after" });
+  const payeeAfter = await registerAgent(api, { agentId: "agt_noo57_revoke_payee_after" });
+  const gateAfterResume = await createX402Gate(api, {
+    gateId: "gate_noo57_revoke_after",
+    payerAgentId: payerAfter,
+    payeeAgentId: payeeAfter,
+    idempotencyKey: "noo57_revoke_gate_after"
   });
   assert.equal(gateAfterResume.statusCode, 201, gateAfterResume.body);
 });

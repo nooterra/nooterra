@@ -86,6 +86,29 @@ test("operator action: sign + verify succeeds", () => {
   assert.equal(verified.ok, true);
   assert.equal(verified.code, null);
   assert.equal(verified.actionHash, signed.signature.actionHash);
+  assert.equal(verified.signedAction?.signature?.actionHash, signed.signature.actionHash);
+});
+
+test("operator action: verify returns normalized signed artifact only", () => {
+  const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
+  const signed = signOperatorActionV1({
+    action: buildBaseAction(),
+    signedAt: "2026-02-21T00:00:01.000Z",
+    publicKeyPem,
+    privateKeyPem
+  });
+  const noisy = {
+    ...signed,
+    unsignedNoise: "drop-me",
+    signature: {
+      ...signed.signature,
+      unsignedSignatureNoise: "drop-me-too"
+    }
+  };
+  const verified = verifyOperatorActionV1({ action: noisy, publicKeyPem });
+  assert.equal(verified.ok, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(verified.signedAction, "unsignedNoise"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(verified.signedAction.signature, "unsignedSignatureNoise"), false);
 });
 
 test("operator action: invalid signature is rejected with stable code", () => {
@@ -130,6 +153,18 @@ test("operator action: schema mismatches return stable verification codes", () =
 
 test("event policy: operator emergency event types require operator signatures", () => {
   assert.equal(requiredSignerKindForEventType("OPERATOR_EMERGENCY_PAUSE"), SIGNER_KIND.OPERATOR);
+  assert.equal(requiredSignerKindForEventType("OPERATOR_EMERGENCY_REVOKE"), SIGNER_KIND.OPERATOR);
   assert.equal(requiredSignerKindForEventType("OPERATOR_EMERGENCY_RESUME"), SIGNER_KIND.OPERATOR);
   assert.equal(requiredSignerKindForEventType("OPERATOR_EMERGENCY_CUSTOM"), SIGNER_KIND.OPERATOR);
+});
+
+test("operator action: actedAt must be ISO date-time", () => {
+  const invalidAction = {
+    ...buildBaseAction(),
+    actedAt: "2026-02-21"
+  };
+  assert.throws(
+    () => computeOperatorActionHashV1({ action: invalidAction }),
+    /action\.actedAt must be an ISO date-time/
+  );
 });

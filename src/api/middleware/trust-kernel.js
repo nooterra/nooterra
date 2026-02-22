@@ -1,10 +1,18 @@
 import { authorize } from "./authz.js";
 
 const HIGH_RISK_WRITE_ROUTES = Object.freeze([
-  { id: "x402_wallet_authorize", method: "POST", path: /^\/x402\/wallets\/[^/]+\/authorize$/, requiredScopes: ["OPS_WRITE"] },
-  { id: "x402_gate_authorize_payment", method: "POST", path: /^\/x402\/gate\/authorize-payment$/, requiredScopes: ["OPS_WRITE"] },
-  { id: "x402_gate_verify", method: "POST", path: /^\/x402\/gate\/verify$/, requiredScopes: ["OPS_WRITE"] },
-  { id: "x402_gate_reversal", method: "POST", path: /^\/x402\/gate\/reversal$/, requiredScopes: ["OPS_WRITE"] },
+  { id: "x402_wallet_authorize", method: "POST", path: /^\/x402\/wallets\/[^/]+\/authorize$/, requiredScopes: ["FINANCE_WRITE"] },
+  { id: "x402_gate_create", method: "POST", path: /^\/x402\/gate\/create$/, requiredScopes: ["FINANCE_WRITE"] },
+  { id: "x402_gate_quote", method: "POST", path: /^\/x402\/gate\/quote$/, requiredScopes: ["FINANCE_WRITE"] },
+  { id: "x402_gate_authorize_payment", method: "POST", path: /^\/x402\/gate\/authorize-payment$/, requiredScopes: ["FINANCE_WRITE"] },
+  { id: "x402_gate_verify", method: "POST", path: /^\/x402\/gate\/verify$/, requiredScopes: ["FINANCE_WRITE"] },
+  { id: "x402_gate_reversal", method: "POST", path: /^\/x402\/gate\/reversal$/, requiredScopes: ["FINANCE_WRITE"] },
+  {
+    id: "x402_gate_escalation_resolve",
+    method: "POST",
+    path: /^\/x402\/gate\/escalations\/[^/]+\/resolve$/,
+    requiredScopes: ["FINANCE_WRITE"]
+  },
   { id: "x402_gate_wind_down", method: "POST", path: /^\/x402\/gate\/agents\/[^/]+\/wind-down$/, requiredScopes: ["OPS_WRITE"] }
 ]);
 

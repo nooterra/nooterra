@@ -175,6 +175,46 @@ jobs:
           path: artifacts/ops/mcp-host-smoke.json
           if-no-files-found: warn
 
+  onboarding_policy_slo_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Generate MCP host compatibility matrix report
+        run: npm run -s test:ci:mcp-host-cert-matrix -- --report artifacts/ops/mcp-host-cert-matrix.json
+      - name: Create deterministic onboarding/policy metrics snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ops
+          cat > artifacts/ops/onboarding-policy-slo.prom <<'PROM'
+          onboarding_first_paid_call_runtime_ms_p95_gauge 1200
+          policy_decision_latency_ms_p95_gauge 140
+          policy_decisions_total{outcome="allow"} 99
+          policy_decisions_total{outcome="error"} 1
+          PROM
+      - name: Run onboarding policy SLO gate
+        run: |
+          set -euo pipefail
+          npm run -s test:ops:onboarding-policy-slo-gate -- \
+            --matrix artifacts/ops/mcp-host-cert-matrix.json \
+            --metrics-file artifacts/ops/onboarding-policy-slo.prom \
+            --report artifacts/gates/onboarding-policy-slo-gate.json
+      - name: Upload onboarding policy SLO gate artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onboarding-policy-slo-gate-${{ github.run_id }}
+          path: |
+            artifacts/ops/mcp-host-cert-matrix.json
+            artifacts/ops/onboarding-policy-slo.prom
+            artifacts/gates/onboarding-policy-slo-gate.json
+          if-no-files-found: error
+
   kernel_v0_ship_gate:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest

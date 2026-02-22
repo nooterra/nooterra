@@ -140,3 +140,43 @@ test("x402 reversal command: mutation denial code is stable across repeated veri
   assert.equal(second.ok, false);
   assert.equal(second.code, first.code);
 });
+
+test("x402 reversal command: quote mismatch code is stable across repeated verification", () => {
+  const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
+  const command = signX402ReversalCommandV1({
+    command: {
+      commandId: "cmd_test_5",
+      sponsorRef: "sponsor_5",
+      target: {
+        gateId: "x402gate_test_5",
+        receiptId: "srec_test_5",
+        quoteId: "x402quote_test_5"
+      },
+      action: "request_refund",
+      nonce: "nonce_test_5",
+      idempotencyKey: "idem_test_5",
+      exp: "2099-01-01T00:00:00.000Z"
+    },
+    signedAt: "2026-02-18T00:00:00.000Z",
+    publicKeyPem,
+    privateKeyPem
+  });
+
+  const first = verifyX402ReversalCommandV1({
+    command,
+    publicKeyPem,
+    nowAt: "2026-02-18T00:00:01.000Z",
+    expectedQuoteId: "x402quote_other_5"
+  });
+  const second = verifyX402ReversalCommandV1({
+    command,
+    publicKeyPem,
+    nowAt: "2026-02-18T00:00:01.000Z",
+    expectedQuoteId: "x402quote_other_5"
+  });
+
+  assert.equal(first.ok, false);
+  assert.equal(first.code, "X402_REVERSAL_COMMAND_QUOTE_MISMATCH");
+  assert.equal(second.ok, false);
+  assert.equal(second.code, first.code);
+});

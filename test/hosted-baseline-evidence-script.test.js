@@ -88,6 +88,10 @@ test("hosted baseline parser: fail-closed for misconfigured strict options", () 
     () => parseArgs(["--ops-token", "tok_ops", "--database-url", "postgres://db.internal/proxy"]),
     /backup\/restore drill args require --run-backup-restore true/
   );
+  assert.throws(
+    () => parseArgs(["--ops-token", "tok_ops", "--required-metrics", "   "]),
+    /--required-metrics must include at least one metric name/
+  );
 });
 
 test("hosted baseline report core: deterministic field normalization", () => {

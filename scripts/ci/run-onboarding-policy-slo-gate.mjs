@@ -3,12 +3,16 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getOne, parsePrometheusText, sumWhere } from "../slo/check.mjs";
+import { canonicalJsonStringify, normalizeForCanonicalJson } from "../../src/core/canonical-json.js";
+import { sha256Hex } from "../../src/core/crypto.js";
 
 const REPORT_SCHEMA_VERSION = "OnboardingPolicySloGateReport.v1";
 const DEFAULT_REPORT_PATH = "artifacts/gates/onboarding-policy-slo-gate.json";
 const DEFAULT_HOST_MATRIX_PATH = "artifacts/ops/mcp-host-cert-matrix.json";
 const DEFAULT_METRICS_DIR = "artifacts/ops/onboarding-policy-slo";
 const DEFAULT_METRICS_EXT = ".prom";
+const MATRIX_SCHEMA_VERSION = "SettldMcpHostCertMatrix.v1";
+const REPORT_ARTIFACT_HASH_SCOPE = "OnboardingPolicySloGateDeterministicCore.v1";
 
 function usage() {
   return [
@@ -33,6 +37,14 @@ function normalizeOptionalString(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
+}
+
+function cmpString(a, b) {
+  const left = String(a ?? "");
+  const right = String(b ?? "");
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 function parseThresholdNumber(raw, fallback, name, { min = 0, max = Number.POSITIVE_INFINITY } = {}) {
@@ -124,17 +136,41 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
 }
 
 export function extractHostRows(hostMatrixReport) {
+  if (hostMatrixReport?.schemaVersion !== MATRIX_SCHEMA_VERSION) {
+    throw new Error(`host matrix schemaVersion must be ${MATRIX_SCHEMA_VERSION}`);
+  }
   const checks = Array.isArray(hostMatrixReport?.checks) ? hostMatrixReport.checks : [];
-  const rows = [];
-  const seen = new Set();
-  for (const check of checks) {
+  const byHost = new Map();
+  for (let index = 0; index < checks.length; index += 1) {
+    const check = checks[index];
+    if (!check || typeof check !== "object" || Array.isArray(check)) {
+      throw new Error(`host matrix row ${index} must be an object`);
+    }
     const hostRaw = typeof check?.host === "string" ? check.host.trim().toLowerCase() : "";
-    if (!hostRaw || seen.has(hostRaw)) continue;
-    seen.add(hostRaw);
+    if (!hostRaw) throw new Error(`host matrix row ${index} is missing host`);
+    if (!(check.ok === true || check.ok === false)) {
+      throw new Error(`host matrix row ${index} host=${hostRaw} must include boolean ok`);
+    }
+    const existing = byHost.get(hostRaw) ?? [];
+    existing.push(check);
+    byHost.set(hostRaw, existing);
+  }
+  const rows = [];
+  const sortedHosts = Array.from(byHost.keys()).sort(cmpString);
+  for (const host of sortedHosts) {
+    const sourceRows = byHost.get(host) ?? [];
+    const duplicateRows = Math.max(0, sourceRows.length - 1);
+    const compatibilityFromMatrix = sourceRows.every((row) => row?.ok === true);
+    const compatibilityOk = duplicateRows === 0 && compatibilityFromMatrix;
+    let detail = compatibilityFromMatrix ? "host marked compatible in matrix" : "host not compatible in matrix";
+    if (duplicateRows > 0) {
+      detail = `host matrix contains duplicate rows for ${host}; fail closed`;
+    }
     rows.push({
-      host: hostRaw,
-      compatibilityOk: check?.ok === true,
-      source: check
+      host,
+      compatibilityOk,
+      matrixDetail: detail,
+      duplicateRows
     });
   }
   if (!rows.length) throw new Error("host matrix report did not contain any host rows");
@@ -195,6 +231,7 @@ function computePolicyDecisionTotals(series) {
 export function evaluateHostReadiness({
   host,
   compatibilityOk,
+  matrixDetail = null,
   series = null,
   thresholds,
   metricsPath = null,
@@ -204,7 +241,7 @@ export function evaluateHostReadiness({
   checks.push({
     id: "host_compatibility_matrix",
     ok: compatibilityOk === true,
-    detail: compatibilityOk === true ? "host marked compatible in matrix" : "host not compatible in matrix"
+    detail: matrixDetail ?? (compatibilityOk === true ? "host marked compatible in matrix" : "host not compatible in matrix")
   });
 
   if (!Array.isArray(series)) {
@@ -338,6 +375,61 @@ export function summarizeVerdict(hosts) {
   };
 }
 
+function buildBlockingIssues(hosts) {
+  const issues = [];
+  for (const hostRow of hosts) {
+    if (hostRow?.ready === true) continue;
+    const host = typeof hostRow?.host === "string" ? hostRow.host : "unknown";
+    const reasons = Array.from(new Set(Array.isArray(hostRow?.reasons) ? hostRow.reasons : []))
+      .map((reason) => String(reason))
+      .sort(cmpString);
+    for (let i = 0; i < reasons.length; i += 1) {
+      issues.push({
+        id: `${host}#${i + 1}`,
+        host,
+        reason: reasons[i]
+      });
+    }
+  }
+  return issues;
+}
+
+function buildGateChecks({ hostRows, verdict }) {
+  return [
+    {
+      id: "onboarding_policy_slo_host_matrix_loaded",
+      ok: hostRows.length > 0,
+      requiredHosts: hostRows.length,
+      detail: hostRows.length > 0 ? "host matrix rows loaded" : "host matrix rows missing"
+    },
+    {
+      id: "onboarding_policy_slo_hosts_ready",
+      ok: verdict.ok,
+      requiredHosts: verdict.requiredHosts,
+      readyHosts: verdict.readyHosts,
+      failedHosts: verdict.failedHosts,
+      detail: verdict.ok ? "all hosts met onboarding and policy SLO thresholds" : "one or more hosts failed readiness"
+    }
+  ];
+}
+
+function buildDeterministicReportCore(report) {
+  const row = report && typeof report === "object" ? report : {};
+  return normalizeForCanonicalJson({
+    schemaVersion: REPORT_SCHEMA_VERSION,
+    thresholds: row.thresholds ?? null,
+    sources: row.sources ?? null,
+    hosts: row.hosts ?? [],
+    checks: row.checks ?? [],
+    blockingIssues: row.blockingIssues ?? [],
+    verdict: row.verdict ?? null
+  });
+}
+
+export function computeOnboardingPolicySloGateArtifactHash(report) {
+  return sha256Hex(canonicalJsonStringify(buildDeterministicReportCore(report)));
+}
+
 async function loadJsonFile(filePath) {
   const raw = await readFile(filePath, "utf8");
   return JSON.parse(raw);
@@ -352,17 +444,17 @@ export async function runOnboardingPolicySloGate(args, env = process.env) {
   const thresholds = resolveThresholds(env);
   const matrixReport = await loadJsonFile(args.hostMatrixPath);
   const hostRows = extractHostRows(matrixReport);
-  const sharedMetricsText = args.metricsFile ? await readFile(args.metricsFile, "utf8") : null;
+  const sharedMetricsSeries = args.metricsFile ? parsePrometheusText(await readFile(args.metricsFile, "utf8")) : null;
 
   const hosts = [];
   for (const row of hostRows) {
-    if (sharedMetricsText !== null) {
-      const series = parsePrometheusText(sharedMetricsText);
+    if (sharedMetricsSeries !== null) {
       hosts.push(
         evaluateHostReadiness({
           host: row.host,
           compatibilityOk: row.compatibilityOk,
-          series,
+          matrixDetail: row.matrixDetail,
+          series: sharedMetricsSeries,
           thresholds,
           metricsPath: args.metricsFile
         })
@@ -383,6 +475,7 @@ export async function runOnboardingPolicySloGate(args, env = process.env) {
       evaluateHostReadiness({
         host: row.host,
         compatibilityOk: row.compatibilityOk,
+        matrixDetail: row.matrixDetail,
         series,
         thresholds,
         metricsPath: hostMetricsPath,
@@ -392,6 +485,8 @@ export async function runOnboardingPolicySloGate(args, env = process.env) {
   }
 
   const verdict = summarizeVerdict(hosts);
+  const checks = buildGateChecks({ hostRows, verdict });
+  const blockingIssues = buildBlockingIssues(hosts);
   const report = {
     schemaVersion: REPORT_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
@@ -402,8 +497,13 @@ export async function runOnboardingPolicySloGate(args, env = process.env) {
       metricsFile: args.metricsFile
     },
     hosts,
+    checks,
+    blockingIssues,
     verdict
   };
+  const artifactHash = computeOnboardingPolicySloGateArtifactHash(report);
+  report.artifactHashScope = REPORT_ARTIFACT_HASH_SCOPE;
+  report.artifactHash = artifactHash;
 
   await mkdir(path.dirname(args.reportPath), { recursive: true });
   await writeFile(args.reportPath, JSON.stringify(report, null, 2) + "\n", "utf8");

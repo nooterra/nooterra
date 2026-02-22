@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-import { loadLighthouseTrackerFromPath } from "./lib/lighthouse-tracker.mjs";
+import { evaluateLighthouseTracker } from "./lib/lighthouse-tracker.mjs";
 import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
 import { sha256Hex, signHashHexEd25519 } from "../../src/core/crypto.js";
 
 const SIGNING_KEY_FILE_ENV = "LAUNCH_CUTOVER_PACKET_SIGNING_KEY_FILE";
 const SIGNATURE_KEY_ID_ENV = "LAUNCH_CUTOVER_PACKET_SIGNATURE_KEY_ID";
 const PACKET_NOW_ENV = "LAUNCH_CUTOVER_PACKET_NOW";
+const GO_LIVE_GATE_SCHEMA_VERSION = "GoLiveGateReport.v1";
+const THROUGHPUT_REPORT_SCHEMA_VERSION = "ThroughputDrill10xReport.v1";
+const INCIDENT_REHEARSAL_REPORT_SCHEMA_VERSION = "ThroughputIncidentRehearsalReport.v1";
+const LIGHTHOUSE_TRACKER_SCHEMA_VERSION = "LighthouseProductionTracker.v1";
 
 function normalizeOptionalString(value) {
   if (typeof value !== "string") return null;
@@ -36,9 +40,15 @@ function resolveGeneratedAtIso(env = process.env) {
 async function readJson(pathname) {
   try {
     const raw = await readFile(pathname, "utf8");
-    return { ok: true, value: JSON.parse(raw) };
+    return { ok: true, value: JSON.parse(raw), errorCode: null, error: null };
   } catch (err) {
-    return { ok: false, error: err?.message ?? "unable to read JSON file" };
+    const isMissing = err?.code === "ENOENT";
+    return {
+      ok: false,
+      value: null,
+      errorCode: isMissing ? "file_missing" : "json_read_or_parse_error",
+      error: err?.message ?? "unable to read JSON file"
+    };
   }
 }
 
@@ -101,13 +111,8 @@ async function main() {
   const gateRead = await readJson(gateReportPath);
   const throughputRead = await readJson(throughputReportPath);
   const incidentRehearsalRead = await readJson(incidentRehearsalReportPath);
-  let lighthouse = null;
-  let lighthouseLoadError = null;
-  try {
-    lighthouse = await loadLighthouseTrackerFromPath(lighthouseTrackerPath);
-  } catch (err) {
-    lighthouseLoadError = err?.message ?? "unable to load lighthouse tracker";
-  }
+  const lighthouseRead = await readJson(lighthouseTrackerPath);
+  const lighthouse = lighthouseRead.ok ? evaluateLighthouseTracker(lighthouseRead.value) : null;
 
   const gateCheckRefs = gateRead.ok ? checkFromGoLiveGate(gateRead.value) : null;
   const checks = [
@@ -115,7 +120,13 @@ async function main() {
       id: "go_live_gate_report_present",
       ok: gateRead.ok,
       path: gateReportPath,
-      details: gateRead.ok ? null : gateRead.error
+      details: gateRead.ok ? null : { code: gateRead.errorCode, message: gateRead.error }
+    },
+    {
+      id: "go_live_gate_schema_valid",
+      ok: gateRead.ok ? gateRead.value?.schemaVersion === GO_LIVE_GATE_SCHEMA_VERSION : false,
+      path: gateReportPath,
+      details: gateRead.ok ? { expected: GO_LIVE_GATE_SCHEMA_VERSION, observed: gateRead.value?.schemaVersion ?? null } : null
     },
     {
       id: "go_live_gate_verdict_ok",
@@ -132,7 +143,18 @@ async function main() {
       id: "throughput_report_present",
       ok: throughputRead.ok,
       path: throughputReportPath,
-      details: throughputRead.ok ? null : throughputRead.error
+      details: throughputRead.ok ? null : { code: throughputRead.errorCode, message: throughputRead.error }
+    },
+    {
+      id: "throughput_schema_valid",
+      ok: throughputRead.ok ? throughputRead.value?.schemaVersion === THROUGHPUT_REPORT_SCHEMA_VERSION : false,
+      path: throughputReportPath,
+      details: throughputRead.ok
+        ? {
+            expected: THROUGHPUT_REPORT_SCHEMA_VERSION,
+            observed: throughputRead.value?.schemaVersion ?? null
+          }
+        : null
     },
     {
       id: "throughput_verdict_ok",
@@ -144,7 +166,18 @@ async function main() {
       id: "throughput_incident_rehearsal_report_present",
       ok: incidentRehearsalRead.ok,
       path: incidentRehearsalReportPath,
-      details: incidentRehearsalRead.ok ? null : incidentRehearsalRead.error
+      details: incidentRehearsalRead.ok ? null : { code: incidentRehearsalRead.errorCode, message: incidentRehearsalRead.error }
+    },
+    {
+      id: "throughput_incident_rehearsal_schema_valid",
+      ok: incidentRehearsalRead.ok ? incidentRehearsalRead.value?.schemaVersion === INCIDENT_REHEARSAL_REPORT_SCHEMA_VERSION : false,
+      path: incidentRehearsalReportPath,
+      details: incidentRehearsalRead.ok
+        ? {
+            expected: INCIDENT_REHEARSAL_REPORT_SCHEMA_VERSION,
+            observed: incidentRehearsalRead.value?.schemaVersion ?? null
+          }
+        : null
     },
     {
       id: "throughput_incident_rehearsal_verdict_ok",
@@ -158,10 +191,27 @@ async function main() {
         : null
     },
     {
+      id: "lighthouse_tracker_present",
+      ok: lighthouseRead.ok,
+      path: lighthouseTrackerPath,
+      details: lighthouseRead.ok ? null : { code: lighthouseRead.errorCode, message: lighthouseRead.error }
+    },
+    {
+      id: "lighthouse_tracker_schema_valid",
+      ok: lighthouseRead.ok ? lighthouseRead.value?.schemaVersion === LIGHTHOUSE_TRACKER_SCHEMA_VERSION : false,
+      path: lighthouseTrackerPath,
+      details: lighthouseRead.ok
+        ? {
+            expected: LIGHTHOUSE_TRACKER_SCHEMA_VERSION,
+            observed: lighthouseRead.value?.schemaVersion ?? null
+          }
+        : null
+    },
+    {
       id: "lighthouse_tracker_ready",
       ok: lighthouse?.ok === true,
       path: lighthouseTrackerPath,
-      details: lighthouse ?? { error: lighthouseLoadError }
+      details: lighthouseRead.ok ? lighthouse : { code: lighthouseRead.errorCode, message: lighthouseRead.error }
     }
   ];
 
