@@ -58,9 +58,12 @@ Repo checkout:
 Example output:
 
 ```text
-engineering-spend	engineering	Engineering Spend
-procurement	procurement	Procurement
-data-api-buyer	data	Data API Buyer
+engineering-spend	engineering	Engineering Spend	<profile_fingerprint_sha256>
+procurement	procurement	Procurement	<profile_fingerprint_sha256>
+data-api-buyer	data	Data API Buyer	<profile_fingerprint_sha256>
+support-automation	support	Support Automation	<profile_fingerprint_sha256>
+finance-controls	finance	Finance Controls	<profile_fingerprint_sha256>
+growth-marketing	marketing	Growth Marketing	<profile_fingerprint_sha256>
 ```
 
 ## 2) Initialize a profile
@@ -104,6 +107,8 @@ Example output:
   "schemaVersion": "SettldProfileValidationReport.v1",
   "ok": true,
   "profileId": "engineering-spend",
+  "profileFingerprintVersion": "SettldProfileFingerprint.v1",
+  "profileFingerprint": "<sha256>",
   "errors": [],
   "warnings": []
 }
@@ -134,7 +139,12 @@ Example output:
   "requiredApprovers": 0,
   "approvalsProvided": 0,
   "selectedApprovalTier": "auto",
-  "reasons": []
+  "reasons": [],
+  "reasonCodes": [],
+  "reasonDetails": [],
+  "reasonRegistryVersion": "SettldProfileSimulationReasonRegistry.v1",
+  "profileFingerprintVersion": "SettldProfileFingerprint.v1",
+  "profileFingerprint": "<sha256>"
 }
 ```
 

@@ -248,6 +248,19 @@ function buildApplyArgs({ profilePath, mode, runtime = null }) {
   return args;
 }
 
+test("CLI: settld profile list returns starter profiles with deterministic fingerprints", () => {
+  const run = runSettld(["profile", "list", "--format", "json"]);
+  assert.equal(run.status, 0, `stdout:\n${run.stdout}\n\nstderr:\n${run.stderr}`);
+  const body = parseJson(run.stdout, "profile list output");
+  assert.equal(body.schemaVersion, "SettldProfileTemplateCatalog.v1");
+  assert.equal(body.profileFingerprintAlgorithm, "sha256");
+  assert.equal(Array.isArray(body.profiles), true);
+  assert.equal(body.profiles.length >= 6, true);
+  for (const row of body.profiles) {
+    assert.match(String(row.profileFingerprint ?? ""), /^[0-9a-f]{64}$/);
+  }
+});
+
 test("CLI: settld profile wizard non-interactive writes profile valid for validate/simulate/apply pipeline", async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-profile-cli-wizard-"));
   const profilePath = path.join(tmpDir, "custom.profile.json");
@@ -372,6 +385,8 @@ test("CLI: settld profile init + validate + simulate", async () => {
     const initBody = JSON.parse(initRun.stdout);
     assert.equal(initBody.ok, true);
     assert.equal(initBody.profileId, "engineering-spend");
+    assert.equal(initBody.profileFingerprintVersion, "SettldProfileFingerprint.v1");
+    assert.match(String(initBody.profileFingerprint), /^[0-9a-f]{64}$/);
     const profileDoc = JSON.parse(await fs.readFile(profilePath, "utf8"));
     assert.equal(profileDoc.schemaVersion, "SettldProfile.v1");
     assert.equal(profileDoc.profileId, "engineering-spend");
@@ -382,6 +397,8 @@ test("CLI: settld profile init + validate + simulate", async () => {
     assert.equal(validateBody.schemaVersion, "SettldProfileValidationReport.v1");
     assert.equal(validateBody.ok, true);
     assert.deepEqual(validateBody.errors, []);
+    assert.equal(validateBody.profileFingerprintVersion, "SettldProfileFingerprint.v1");
+    assert.match(String(validateBody.profileFingerprint), /^[0-9a-f]{64}$/);
 
     const simulateRunA = runSettld(["profile", "simulate", profilePath, "--scenario", scenarioPath, "--format", "json"]);
     assert.equal(simulateRunA.status, 0, `stdout:\n${simulateRunA.stdout}\n\nstderr:\n${simulateRunA.stderr}`);
@@ -390,6 +407,10 @@ test("CLI: settld profile init + validate + simulate", async () => {
     assert.equal(simulateBodyA.ok, true);
     assert.equal(simulateBodyA.decision, "allow");
     assert.equal(simulateBodyA.requiredApprovers, 1);
+    assert.deepEqual(simulateBodyA.reasonCodes, []);
+    assert.equal(simulateBodyA.reasonRegistryVersion, "SettldProfileSimulationReasonRegistry.v1");
+    assert.equal(simulateBodyA.profileFingerprintVersion, "SettldProfileFingerprint.v1");
+    assert.match(String(simulateBodyA.profileFingerprint), /^[0-9a-f]{64}$/);
 
     const simulateRunChallenge = runSettld([
       "profile",
@@ -412,6 +433,9 @@ test("CLI: settld profile init + validate + simulate", async () => {
     const simulateBodyChallenge = JSON.parse(simulateRunChallenge.stdout);
     assert.equal(simulateBodyChallenge.decision, "challenge");
     assert.equal(simulateBodyChallenge.requiredApprovers, 1);
+    assert.deepEqual(simulateBodyChallenge.reasonCodes, ["PROFILE_APPROVAL_REQUIRED"]);
+    assert.equal(simulateBodyChallenge.reasonDetails[0].checkId, "approval_required");
+    assert.equal(simulateBodyChallenge.reasonDetails[0].severity, "warning");
 
     const simulateRunB = runSettld(["profile", "simulate", profilePath, "--scenario", scenarioPath, "--format", "json"]);
     assert.equal(simulateRunB.status, 0, `stdout:\n${simulateRunB.stdout}\n\nstderr:\n${simulateRunB.stderr}`);
