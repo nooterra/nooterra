@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "SettldProfileSimulationReport.v1",
+  "ok": true,
+  "profileId": "engineering-spend",
+  "decision": "allow",
+  "requiredApprovers": 1,
+  "approvalsProvided": 1,
+  "selectedApprovalTier": "manager",
+  "reasons": [],
+  "reasonCodes": [],
+  "reasonDetails": [],
+  "reasonRegistryVersion": "SettldProfileSimulationReasonRegistry.v1",
+  "checks": [
+    {
+      "id": "provider_allowlisted",
+      "ok": true
+    },
+    {
+      "id": "tool_allowlisted",
+      "ok": true
+    },
+    {
+      "id": "per_request_limit",
+      "ok": true
+    },
+    {
+      "id": "monthly_limit",
+      "ok": true
+    },
+    {
+      "id": "receipt_signature",
+      "ok": true
+    },
+    {
+      "id": "tool_manifest_hash",
+      "ok": true
+    },
+    {
+      "id": "tool_version_known",
+      "ok": true
+    }
+  ],
+  "scenario": {
+    "providerId": "openai",
+    "toolId": "llm.inference",
+    "amountUsdCents": 120000,
+    "monthToDateSpendUsdCents": 200000,
+    "approvalsProvided": 1,
+    "receiptSigned": true,
+    "toolManifestHashPresent": true,
+    "toolVersionKnown": true
+  },
+  "profileFingerprintVersion": "SettldProfileFingerprint.v1",
+  "profileFingerprint": "863affd4af9dd54bb993f8035580cf960e26fc3336af108a17c528b685d7246d"
+}

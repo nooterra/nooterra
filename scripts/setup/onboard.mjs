@@ -2,6 +2,7 @@
 
 import fs from "node:fs/promises";
 import fsNative from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -34,6 +35,7 @@ const CIRCLE_BYO_REQUIRED_KEYS = Object.freeze([
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const SETTLD_BIN = path.join(REPO_ROOT, "bin", "settld.js");
+const PROFILE_FINGERPRINT_REGEX = /^[0-9a-f]{64}$/;
 
 function usage() {
   const text = [
@@ -315,6 +317,14 @@ function healthUrlForBase(baseUrl) {
   return `${normalized}/healthz`;
 }
 
+function parseJsonOrNull(text) {
+  try {
+    return JSON.parse(String(text ?? ""));
+  } catch {
+    return null;
+  }
+}
+
 function runSettldProfileListProbe({ baseUrl, tenantId, apiKey, timeoutMs = 12000 } = {}) {
   const args = [
     SETTLD_BIN,
@@ -333,8 +343,89 @@ function runSettldProfileListProbe({ baseUrl, tenantId, apiKey, timeoutMs = 1200
     },
     encoding: "utf8",
     timeout: timeoutMs,
+    maxBuffer: 1_048_576,
     stdio: ["ignore", "pipe", "pipe"]
   });
+}
+
+function runSettldProfileInitProbe({ profileId, outPath, timeoutMs = 12000 } = {}) {
+  const args = [SETTLD_BIN, "profile", "init", String(profileId ?? ""), "--out", String(outPath ?? ""), "--force", "--format", "json"];
+  return spawnSync(process.execPath, args, {
+    cwd: REPO_ROOT,
+    env: process.env,
+    encoding: "utf8",
+    timeout: timeoutMs,
+    maxBuffer: 1_048_576,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+}
+
+function runSettldProfileSimulateProbe({ profilePath, timeoutMs = 12000 } = {}) {
+  const args = [SETTLD_BIN, "profile", "simulate", String(profilePath ?? ""), "--format", "json"];
+  return spawnSync(process.execPath, args, {
+    cwd: REPO_ROOT,
+    env: process.env,
+    encoding: "utf8",
+    timeout: timeoutMs,
+    maxBuffer: 1_048_576,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+}
+
+export async function runProfileSimulationPreflight({ profileId, timeoutMs = 12000 } = {}) {
+  const resolvedProfileId = String(profileId ?? "").trim() || "engineering-spend";
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-profile-preflight-"));
+  const profilePath = path.join(tmpDir, `${resolvedProfileId}.profile.json`);
+  try {
+    const initProbe = runSettldProfileInitProbe({ profileId: resolvedProfileId, outPath: profilePath, timeoutMs });
+    if (initProbe.error?.code === "ETIMEDOUT") {
+      return { ok: false, detail: "profile init timed out" };
+    }
+    if (initProbe.status !== 0) {
+      const detail = String(initProbe.stderr || initProbe.stdout || "").trim() || `exit ${initProbe.status}`;
+      return { ok: false, detail: `profile init failed: ${detail}` };
+    }
+    const initJson = parseJsonOrNull(initProbe.stdout);
+    const initFingerprint = typeof initJson?.profileFingerprint === "string" ? initJson.profileFingerprint.trim().toLowerCase() : "";
+    if (!PROFILE_FINGERPRINT_REGEX.test(initFingerprint)) {
+      return { ok: false, detail: "profile init output missing valid profileFingerprint" };
+    }
+
+    const simulateProbe = runSettldProfileSimulateProbe({ profilePath, timeoutMs });
+    if (simulateProbe.error?.code === "ETIMEDOUT") {
+      return { ok: false, detail: "profile simulate timed out" };
+    }
+    if (simulateProbe.status !== 0) {
+      const detail = String(simulateProbe.stderr || simulateProbe.stdout || "").trim() || `exit ${simulateProbe.status}`;
+      return { ok: false, detail: `profile simulate failed: ${detail}` };
+    }
+
+    const simulateJson = parseJsonOrNull(simulateProbe.stdout);
+    if (!simulateJson || typeof simulateJson !== "object") {
+      return { ok: false, detail: "profile simulate did not return valid JSON output" };
+    }
+
+    const decision = typeof simulateJson.decision === "string" ? simulateJson.decision.trim().toLowerCase() : "";
+    if (decision === "allow") {
+      return {
+        ok: true,
+        detail: `profile ${resolvedProfileId} baseline simulation decision=allow (fingerprint=${initFingerprint})`
+      };
+    }
+
+    const reasonCodes = Array.isArray(simulateJson.reasonCodes) ? simulateJson.reasonCodes.map((value) => String(value)).filter(Boolean) : [];
+    const firstHint = Array.isArray(simulateJson.reasonDetails)
+      ? simulateJson.reasonDetails.find((row) => typeof row?.remediationHint === "string" && row.remediationHint.trim())
+      : null;
+    const hintText = firstHint ? `; remediation=${String(firstHint.remediationHint).trim()}` : "";
+    const reasonText = reasonCodes.length ? reasonCodes.join(",") : "none";
+    return {
+      ok: false,
+      detail: `profile ${resolvedProfileId} baseline simulation decision=${decision || "unknown"} reasonCodes=${reasonText}${hintText}`
+    };
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
 }
 
 async function nearestExistingDirectory(startPath) {
@@ -407,7 +498,32 @@ async function runPreflightChecks({
     const message = String(probe.stderr || probe.stdout || "").trim() || `exit ${probe.status}`;
     fail("tenant_auth", message);
   }
+  const probeJson = parseJsonOrNull(probe.stdout);
+  if (!probeJson || typeof probeJson !== "object" || probeJson.schemaVersion !== "SettldProfileTemplateCatalog.v1") {
+    fail("tenant_auth", "profile list probe returned invalid JSON schema");
+  }
+  const catalogProfiles = Array.isArray(probeJson.profiles) ? probeJson.profiles : [];
+  if (!catalogProfiles.length) {
+    fail("tenant_auth", "profile list probe returned empty profile catalog");
+  }
+  const missingFingerprint = catalogProfiles.some((row) => {
+    const fingerprint = typeof row?.profileFingerprint === "string" ? row.profileFingerprint.trim().toLowerCase() : "";
+    return !PROFILE_FINGERPRINT_REGEX.test(fingerprint);
+  });
+  if (missingFingerprint) {
+    fail("tenant_auth", "profile list probe returned profile rows without valid profileFingerprint");
+  }
   ok("tenant_auth", "tenant + API key accepted");
+
+  if (config.skipProfileApply === true) {
+    ok("profile_policy", "skipped (skip-profile-apply enabled)");
+  } else {
+    const profilePolicy = await runProfileSimulationPreflight({ profileId: config.profileId });
+    if (!profilePolicy.ok) {
+      fail("profile_policy", profilePolicy.detail);
+    }
+    ok("profile_policy", profilePolicy.detail);
+  }
 
   const hostConfigProbe = await hostHelper.applyHostConfig({
     host: config.host,
