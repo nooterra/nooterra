@@ -191,10 +191,13 @@ export async function runLogin({
   try {
     if (interactive) {
       state.baseUrl = await promptLine(rl, "Settld base URL", { defaultValue: state.baseUrl || "https://api.settld.work" });
-      state.tenantId = await promptLine(rl, "Tenant ID (optional for new signup)", { defaultValue: state.tenantId, required: false });
+      state.tenantId = await promptLine(rl, "Tenant ID (optional, leave blank to create new)", {
+        defaultValue: state.tenantId,
+        required: false
+      });
       state.email = (await promptLine(rl, "Email", { defaultValue: state.email })).toLowerCase();
       if (!state.tenantId) {
-        state.company = await promptLine(rl, "Company name", { defaultValue: state.company });
+        state.company = await promptLine(rl, "What should your tenant/company name be?", { defaultValue: state.company });
       }
     }
 

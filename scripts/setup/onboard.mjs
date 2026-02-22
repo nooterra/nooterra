@@ -13,6 +13,7 @@ import { bootstrapWalletProvider } from "../../src/core/wallet-provider-bootstra
 import { extractBootstrapMcpEnv, loadHostConfigHelper, runWizard } from "./wizard.mjs";
 import { SUPPORTED_HOSTS } from "./host-config.mjs";
 import { defaultSessionPath, readSavedSession } from "./session-store.mjs";
+import { runLogin } from "./login.mjs";
 
 const WALLET_MODES = new Set(["managed", "byo", "none"]);
 const WALLET_PROVIDERS = new Set(["circle"]);
@@ -38,6 +39,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const SETTLD_BIN = path.join(REPO_ROOT, "bin", "settld.js");
 const PROFILE_FINGERPRINT_REGEX = /^[0-9a-f]{64}$/;
+const DEFAULT_PUBLIC_BASE_URL = "https://api.settld.work";
 const ANSI_RESET = "\u001b[0m";
 const ANSI_BOLD = "\u001b[1m";
 const ANSI_DIM = "\u001b[2m";
@@ -1028,10 +1030,13 @@ async function resolveRuntimeConfig({
   runtimeEnv,
   stdin = process.stdin,
   stdout = process.stdout,
-  detectInstalledHostsImpl = detectInstalledHosts
+  detectInstalledHostsImpl = detectInstalledHosts,
+  fetchImpl = fetch,
+  runLoginImpl = runLogin,
+  readSavedSessionImpl = readSavedSession
 }) {
   const sessionFile = String(args.sessionFile ?? runtimeEnv.SETTLD_SESSION_FILE ?? defaultSessionPath()).trim();
-  const savedSession = await readSavedSession({ sessionPath: sessionFile });
+  const savedSession = await readSavedSessionImpl({ sessionPath: sessionFile });
   const installedHosts = detectInstalledHostsImpl();
   const defaultHost = selectDefaultHost({
     explicitHost: args.host ? String(args.host).toLowerCase() : "",
@@ -1133,53 +1138,81 @@ async function resolveRuntimeConfig({
       { defaultValue: out.walletMode, color }
     );
 
-    if (!out.baseUrl) {
-      out.baseUrl = await promptLine(rl, "Settld base URL", { defaultValue: "https://api.settld.work" });
+    if (!out.baseUrl) out.baseUrl = DEFAULT_PUBLIC_BASE_URL;
+    if (!out.settldApiKey) {
+      while (!out.settldApiKey) {
+        const canUseSavedSession =
+          Boolean(out.sessionCookie) &&
+          (!savedSession ||
+            (normalizeHttpUrl(out.baseUrl) === normalizeHttpUrl(savedSession?.baseUrl) &&
+              (!out.tenantId || String(out.tenantId ?? "").trim() === String(savedSession?.tenantId ?? "").trim())));
+        const keyOptions = [];
+        if (canUseSavedSession) {
+          keyOptions.push({
+            value: "session",
+            label: "Use saved login session",
+            hint: `Reuse ${out.sessionFile} to mint runtime key`
+          });
+        } else {
+          keyOptions.push({
+            value: "login",
+            label: "Login / create tenant (recommended)",
+            hint: "OTP sign-in; no API key required"
+          });
+        }
+        keyOptions.push(
+          { value: "bootstrap", label: "Generate during setup", hint: "Use onboarding bootstrap API key" },
+          { value: "manual", label: "Paste existing key", hint: "Use an existing tenant API key" }
+        );
+        const keyMode = await promptSelect(
+          rl,
+          stdin,
+          stdout,
+          "How should setup get your Settld API key?",
+          keyOptions,
+          { defaultValue: canUseSavedSession ? "session" : "login", color }
+        );
+        if (keyMode === "login") {
+          await runLoginImpl({
+            argv: ["--base-url", out.baseUrl, "--session-file", out.sessionFile],
+            stdin,
+            stdout,
+            fetchImpl
+          });
+          const refreshedSession = await readSavedSessionImpl({ sessionPath: out.sessionFile });
+          if (!refreshedSession) throw new Error("login did not produce a saved session");
+          out.baseUrl = String(refreshedSession.baseUrl ?? out.baseUrl).trim() || out.baseUrl;
+          out.tenantId = String(refreshedSession.tenantId ?? out.tenantId).trim();
+          out.sessionCookie = String(refreshedSession.cookie ?? out.sessionCookie).trim();
+          if (savedSession) {
+            savedSession.baseUrl = refreshedSession.baseUrl;
+            savedSession.tenantId = refreshedSession.tenantId;
+            savedSession.cookie = refreshedSession.cookie;
+          }
+          continue;
+        }
+        if (keyMode === "bootstrap") {
+          if (!out.bootstrapApiKey) {
+            out.bootstrapApiKey = await promptSecretLine(rl, mutableOutput, stdout, "Onboarding bootstrap API key");
+          }
+          if (!out.bootstrapKeyId) {
+            out.bootstrapKeyId = await promptLine(rl, "Generated key ID (optional)", { required: false });
+          }
+          if (!out.bootstrapScopes) {
+            out.bootstrapScopes = await promptLine(rl, "Generated key scopes CSV (optional)", { required: false });
+          }
+          break;
+        }
+        if (keyMode === "manual") {
+          out.settldApiKey = await promptSecretLine(rl, mutableOutput, stdout, "Settld API key");
+          break;
+        }
+        out.bootstrapApiKey = "";
+        break;
+      }
     }
     if (!out.tenantId) {
       out.tenantId = await promptLine(rl, "Tenant ID", { defaultValue: "tenant_default" });
-    }
-    if (!out.settldApiKey) {
-      const canUseSavedSession =
-        Boolean(out.sessionCookie) &&
-        (!savedSession ||
-          (normalizeHttpUrl(out.baseUrl) === normalizeHttpUrl(savedSession?.baseUrl) &&
-            String(out.tenantId ?? "").trim() === String(savedSession?.tenantId ?? "").trim()));
-      const keyOptions = [];
-      if (canUseSavedSession) {
-        keyOptions.push({
-          value: "session",
-          label: "Use saved login session",
-          hint: `Reuse ${out.sessionFile} to mint runtime key`
-        });
-      }
-      keyOptions.push(
-        { value: "bootstrap", label: "Generate during setup", hint: "Use onboarding bootstrap API key" },
-        { value: "manual", label: "Paste existing key", hint: "Use an existing tenant API key" }
-      );
-      const keyMode = await promptSelect(
-        rl,
-        stdin,
-        stdout,
-        "How should setup get your Settld API key?",
-        keyOptions,
-        { defaultValue: canUseSavedSession ? "session" : "bootstrap", color }
-      );
-      if (keyMode === "bootstrap") {
-        if (!out.bootstrapApiKey) {
-          out.bootstrapApiKey = await promptSecretLine(rl, mutableOutput, stdout, "Onboarding bootstrap API key");
-        }
-        if (!out.bootstrapKeyId) {
-          out.bootstrapKeyId = await promptLine(rl, "Generated key ID (optional)", { required: false });
-        }
-        if (!out.bootstrapScopes) {
-          out.bootstrapScopes = await promptLine(rl, "Generated key scopes CSV (optional)", { required: false });
-        }
-      } else if (keyMode === "manual") {
-        out.settldApiKey = await promptSecretLine(rl, mutableOutput, stdout, "Settld API key");
-      } else {
-        out.bootstrapApiKey = "";
-      }
     }
 
     if (out.walletMode === "managed") {
@@ -1296,7 +1329,9 @@ export async function runOnboard({
   requestRuntimeBootstrapMcpEnvImpl = requestRuntimeBootstrapMcpEnv,
   requestRemoteWalletBootstrapImpl = requestRemoteWalletBootstrap,
   runPreflightChecksImpl = runPreflightChecks,
-  detectInstalledHostsImpl = detectInstalledHosts
+  detectInstalledHostsImpl = detectInstalledHosts,
+  runLoginImpl = runLogin,
+  readSavedSessionImpl = readSavedSession
 } = {}) {
   const args = parseArgs(argv);
   if (args.help) {
@@ -1314,7 +1349,10 @@ export async function runOnboard({
     runtimeEnv,
     stdin,
     stdout,
-    detectInstalledHostsImpl
+    detectInstalledHostsImpl,
+    fetchImpl,
+    runLoginImpl,
+    readSavedSessionImpl
   });
   step += 1;
   const normalizedBaseUrl = normalizeHttpUrl(mustString(config.baseUrl, "SETTLD_BASE_URL / --base-url"));
