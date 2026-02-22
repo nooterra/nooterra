@@ -2047,16 +2047,16 @@ h3 {
 .simple-site {
   min-height: 100vh;
   background:
-    radial-gradient(circle at 8% 5%, rgba(59, 130, 246, 0.16), transparent 32%),
-    radial-gradient(circle at 96% 6%, rgba(16, 185, 129, 0.12), transparent 30%),
-    #f6f8fb;
-  color: #0f172a;
+    radial-gradient(circle at 8% 5%, rgba(14, 116, 144, 0.18), transparent 34%),
+    radial-gradient(circle at 96% 6%, rgba(14, 165, 128, 0.14), transparent 34%),
+    #f3f7f8;
+  color: #102027;
 }
 
 .simple-nav {
-  max-width: 980px;
+  max-width: 1020px;
   margin: 0 auto;
-  padding: 1.2rem 1rem;
+  padding: 1.2rem 1rem 0.9rem;
   display: flex;
   gap: 1rem;
   align-items: center;
@@ -2080,7 +2080,7 @@ h3 {
 
 .simple-brand-sub {
   font-size: 0.78rem;
-  color: #475569;
+  color: #46616d;
 }
 
 .simple-nav-links {
@@ -2093,24 +2093,26 @@ h3 {
 
 .simple-nav-links a {
   text-decoration: none;
-  color: #1e293b;
+  color: #15313a;
   font-weight: 600;
   font-size: 0.9rem;
 }
 
 .simple-main {
-  max-width: 980px;
+  max-width: 1020px;
   margin: 0 auto;
-  padding: 1.2rem 1rem 2.8rem;
+  padding: 0.4rem 1rem 2.8rem;
   display: grid;
-  gap: 1.2rem;
+  gap: 1rem;
 }
 
 .simple-hero {
-  background: #ffffff;
-  border: 1px solid #dbe3ee;
-  border-radius: 16px;
-  padding: clamp(1.2rem, 2.8vw, 2rem);
+  background:
+    radial-gradient(circle at 90% 10%, rgba(125, 211, 252, 0.15), transparent 42%),
+    #ffffff;
+  border: 1px solid #d3e2e7;
+  border-radius: 18px;
+  padding: clamp(1.25rem, 2.8vw, 2.1rem);
 }
 
 .simple-kicker {
@@ -2127,13 +2129,30 @@ h3 {
   font-family: "Space Grotesk", sans-serif;
   font-size: clamp(1.5rem, 3vw, 2.35rem);
   line-height: 1.18;
-  color: #0f172a;
+  color: #0d1f26;
 }
 
 .simple-lead {
   margin: 0.85rem 0 0;
-  color: #334155;
-  max-width: 70ch;
+  color: #334f5a;
+  max-width: 66ch;
+}
+
+.simple-hosts {
+  margin-top: 0.95rem;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.simple-hosts span {
+  padding: 0.22rem 0.56rem;
+  border-radius: 999px;
+  border: 1px solid #cfe0e8;
+  background: #f8fbfc;
+  font-size: 0.79rem;
+  font-weight: 600;
+  color: #23414c;
 }
 
 .simple-command-wrap {
@@ -2141,17 +2160,17 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
-  background: #f8fafc;
-  border: 1px solid #d7e0ec;
+  background: #f9fbfc;
+  border: 1px solid #d1dfe6;
   border-radius: 10px;
   padding: 0.5rem 0.7rem;
-  color: #334155;
+  color: #35515d;
   font-size: 0.88rem;
 }
 
 .simple-command-wrap code {
   font-family: "IBM Plex Mono", monospace;
-  color: #0f172a;
+  color: #0e2832;
   font-size: 0.85rem;
 }
 
@@ -2168,8 +2187,8 @@ h3 {
   justify-content: center;
   text-decoration: none;
   border-radius: 10px;
-  border: 1px solid #0f172a;
-  background: #0f172a;
+  border: 1px solid #0f2d36;
+  background: linear-gradient(160deg, #0f2d36, #124553);
   color: #f8fafc !important;
   padding: 0.56rem 0.78rem;
   font-size: 0.88rem;
@@ -2178,8 +2197,8 @@ h3 {
 
 .simple-btn-muted {
   background: transparent;
-  color: #0f172a !important;
-  border-color: #c0cedf;
+  color: #11343e !important;
+  border-color: #c4d6dd;
 }
 
 .simple-grid {
@@ -2190,29 +2209,56 @@ h3 {
 
 .simple-grid article {
   background: #ffffff;
-  border: 1px solid #dbe3ee;
+  border: 1px solid #d3e2e7;
   border-radius: 14px;
   padding: 0.95rem;
+}
+
+.simple-step {
+  margin: 0 0 0.22rem;
+  font-size: 0.77rem;
+  color: #0f766e;
+  letter-spacing: 0.08em;
+  font-weight: 700;
 }
 
 .simple-grid h2 {
   margin: 0;
   font-family: "Space Grotesk", sans-serif;
   font-size: 1rem;
-  color: #0f172a;
+  color: #102127;
 }
 
 .simple-grid p {
   margin: 0.45rem 0 0;
   font-size: 0.9rem;
-  color: #475569;
+  color: #45606c;
 }
 
 .simple-links {
   background: #ffffff;
-  border: 1px solid #dbe3ee;
+  border: 1px solid #d3e2e7;
   border-radius: 14px;
   padding: 0.95rem;
+}
+
+.simple-section-card {
+  background: #ffffff;
+  border: 1px solid #d3e2e7;
+  border-radius: 14px;
+  padding: 0.95rem;
+}
+
+.simple-section-card h2 {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1rem;
+  color: #102127;
+}
+
+.simple-section-card p {
+  margin: 0.48rem 0 0;
+  color: #45606c;
 }
 
 .simple-links h2 {
@@ -2227,19 +2273,55 @@ h3 {
 }
 
 .simple-links a {
-  color: #0f172a;
+  color: #11343e;
   text-decoration: underline;
   text-decoration-thickness: 1px;
 }
 
+.simple-links-row {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 0.9rem;
+}
+
+.simple-commands {
+  background: #ffffff;
+  border: 1px solid #d3e2e7;
+  border-radius: 14px;
+  padding: 0.95rem;
+}
+
+.simple-commands h2 {
+  margin: 0;
+  font-family: "Space Grotesk", sans-serif;
+  font-size: 1rem;
+  color: #102127;
+}
+
+.simple-commands pre {
+  margin: 0.62rem 0 0;
+  border-radius: 10px;
+  border: 1px solid #d4e0e6;
+  background: #f8fbfc;
+  padding: 0.75rem;
+  overflow-x: auto;
+}
+
+.simple-commands code {
+  font-family: "IBM Plex Mono", monospace;
+  color: #0e2832;
+  font-size: 0.84rem;
+}
+
 .simple-footer {
-  max-width: 980px;
+  max-width: 1020px;
   margin: 0 auto;
   padding: 0.2rem 1rem 2rem;
   display: flex;
   gap: 0.65rem;
   flex-wrap: wrap;
-  color: #64748b;
+  color: #5a7380;
   font-size: 0.85rem;
 }
 

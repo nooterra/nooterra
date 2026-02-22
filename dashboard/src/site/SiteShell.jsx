@@ -1,5 +1,27 @@
 import { docsLinks, ossLinks } from "./config/links.js";
 
+const hostList = ["OpenClaw", "Codex", "Claude", "Cursor"];
+const steps = [
+  {
+    title: "Connect runtime",
+    body: "Run setup, pick host, and wire MCP in one pass."
+  },
+  {
+    title: "Enforce policy",
+    body: "Every risky action resolves via allow, challenge, deny, or escalate."
+  },
+  {
+    title: "Verify outcomes",
+    body: "Receipts and proof artifacts replay offline for ops, finance, and compliance."
+  }
+];
+
+const proofItems = [
+  "Policy fingerprint + reason codes",
+  "Execution binding and tamper-evident timeline",
+  "Settlement receipt with offline verification output"
+];
+
 export default function SiteShell() {
   return (
     <div className="simple-site" id="top">
@@ -18,12 +40,17 @@ export default function SiteShell() {
 
       <main className="simple-main">
         <section className="simple-hero">
-          <p className="simple-kicker">Deterministic Trust OS for Agent Spending</p>
-          <h1>Let agents spend money safely, with enforceable controls.</h1>
+          <p className="simple-kicker">Trust OS for Agent Commerce</p>
+          <h1>Let agents spend autonomously. Keep humans in control.</h1>
           <p className="simple-lead">
-            Settld sits between autonomous agent actions and payment rails. Every risky action is policy-checked,
-            challengeable by a human, and produces deterministic receipts for audit.
+            Settld is the control layer between agent actions and money movement. It enforces policy decisions,
+            supports operator intervention, and emits deterministic evidence by default.
           </p>
+          <div className="simple-hosts" aria-label="Supported hosts">
+            {hostList.map((host) => (
+              <span key={host}>{host}</span>
+            ))}
+          </div>
           <div className="simple-command-wrap">
             <span>Run first setup:</span>
             <code>npx settld setup</code>
@@ -34,30 +61,46 @@ export default function SiteShell() {
           </div>
         </section>
 
-        <section className="simple-grid" aria-label="Core product summary">
-          <article>
-            <h2>Policy Runtime</h2>
-            <p>Allow, challenge, deny, or escalate with stable reason codes and policy fingerprints.</p>
-          </article>
-          <article>
-            <h2>Operator Control</h2>
-            <p>Human-in-the-loop approvals, emergency pause, revoke, and signed override decisions.</p>
-          </article>
-          <article>
-            <h2>Deterministic Receipts</h2>
-            <p>Proof packets can be verified offline by finance, risk, and compliance teams.</p>
-          </article>
+        <section className="simple-section-card">
+          <h2>What Settld is</h2>
+          <p>
+            A deterministic trust kernel for agent spending. Not a wallet replacement, not a prompt guardrail.
+            It is the enforcement and evidence layer that makes autonomous spending production-safe.
+          </p>
         </section>
 
-        <section className="simple-links" aria-label="Essential links">
-          <h2>Essential links</h2>
+        <section className="simple-grid" aria-label="How Settld works">
+          {steps.map((step, index) => (
+            <article key={step.title}>
+              <p className="simple-step">0{index + 1}</p>
+              <h2>{step.title}</h2>
+              <p>{step.body}</p>
+            </article>
+          ))}
+        </section>
+
+        <section className="simple-links" aria-label="Proof outputs and links">
+          <h2>First proof packet includes</h2>
           <ul>
-            <li><a href={docsLinks.home}>Documentation</a></li>
-            <li><a href={docsLinks.quickstart}>Onboarding quickstart</a></li>
-            <li><a href={docsLinks.security}>Security model</a></li>
-            <li><a href={docsLinks.api}>API reference</a></li>
-            <li><a href={ossLinks.repo}>GitHub repository</a></li>
+            {proofItems.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
           </ul>
+          <div className="simple-links-row">
+            <a href={docsLinks.home}>Documentation</a>
+            <a href={docsLinks.quickstart}>Quickstart</a>
+            <a href={docsLinks.security}>Security model</a>
+            <a href={docsLinks.api}>API reference</a>
+            <a href={ossLinks.repo}>GitHub</a>
+          </div>
+        </section>
+
+        <section className="simple-commands" aria-label="Quick command flow">
+          <h2>Four commands to first verified run</h2>
+          <pre><code>{`npx settld setup
+npm run mcp:probe -- --call settld.about '{}'
+npm run demo:mcp-paid-exa
+settld x402 receipt verify /tmp/settld-first-receipt.json --format json`}</code></pre>
         </section>
       </main>
 
