@@ -6,7 +6,7 @@ const Card = React.forwardRef(({ className, as: Comp = "div", ...props }, ref) =
   <Comp
     ref={ref}
     className={cn(
-      "rounded-2xl border border-[#d8d0c1] bg-[rgba(255,253,248,0.92)] text-[#1b2430] shadow-[0_8px_24px_rgba(60,44,21,0.08)]",
+      "rounded-3xl border border-[#2b4f68] bg-[linear-gradient(160deg,rgba(13,35,51,0.95),rgba(9,27,42,0.86))] text-[#ecf5ff] shadow-[0_18px_40px_rgba(0,0,0,0.34)]",
       className
     )}
     {...props}
@@ -25,7 +25,7 @@ const CardTitle = React.forwardRef(({ className, ...props }, ref) => (
 CardTitle.displayName = "CardTitle";
 
 const CardDescription = React.forwardRef(({ className, ...props }, ref) => (
-  <p ref={ref} className={cn("text-sm text-[#354152]", className)} {...props} />
+  <p ref={ref} className={cn("text-sm text-[#acc3d8]", className)} {...props} />
 ));
 CardDescription.displayName = "CardDescription";
 

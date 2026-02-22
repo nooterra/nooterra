@@ -1,35 +1,58 @@
 import { buttonClasses } from "./ui/button.jsx";
-import { docsLinks, ossLinks } from "../config/links.js";
+import { docsLinks } from "../config/links.js";
 import { Badge } from "./ui/badge.jsx";
 
 export default function Hero() {
   return (
     <section className="section-shell" id="hero">
-      <div className="mx-auto max-w-5xl">
-        <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-[#7f2f1f]">
-          Deterministic trust OS for AI automation
-        </p>
-        <h1 className="text-[clamp(3rem,9vw,6rem)] font-bold leading-[0.95] tracking-[-0.03em] text-[#1b2430]">
-          Simple guardrails. Unstoppable autonomous workflows.
-        </h1>
-        <p className="mt-6 max-w-3xl text-lg leading-relaxed text-[#354152]">
-          Define policies, require human review when necessary, and bind every action to immutable evidence so
-          autonomous agents stay productive without compromising risk controls.
-        </p>
-
-        <div className="mt-6 grid max-w-4xl grid-cols-1 gap-2 sm:grid-cols-3">
-          <Badge variant="accent">Policy scopes</Badge>
-          <Badge variant="accent">Approval gates</Badge>
-          <Badge variant="accent">Cryptographic proof</Badge>
-        </div>
-
-        <div className="mt-10 flex flex-wrap gap-3">
-          <a className={buttonClasses({ size: "lg" })} href={docsLinks.quickstart}>
-            Start onboarding
-          </a>
-          <a className={buttonClasses({ variant: "outline", size: "lg" })} href="/developers">
-            Explore developer flow
-          </a>
+      <div className="hero-grid">
+        <article>
+          <p className="hero-kicker">Deterministic trust OS for agent commerce</p>
+          <h1 className="hero-title">Let agents spend. Keep humans in control.</h1>
+          <p className="hero-copy">
+            Settld is the enforcement layer between autonomous action and money movement. Every high-risk step is
+            policy checked, challengeable, and receipts are deterministic by default.
+          </p>
+          <div className="hero-chip-row">
+            <Badge variant="accent">Allow / Challenge / Deny / Escalate</Badge>
+            <Badge variant="accent">Proof packets for audit</Badge>
+            <Badge variant="accent">Cross-host MCP ready</Badge>
+          </div>
+          <div className="hero-actions">
+            <a className={buttonClasses({ size: "lg" })} href={docsLinks.quickstart}>
+              Start onboarding
+            </a>
+            <a className={buttonClasses({ variant: "outline", size: "lg" })} href="/developers">
+              See integration path
+            </a>
+          </div>
+        </article>
+        <aside className="hero-proof-card">
+          <p className="hero-proof-label">What ships in the first proof packet</p>
+          <ul className="tight-list mt-0">
+            <li>Policy fingerprint + reason codes for each decision</li>
+            <li>Execution binding hashes and tamper-evident timeline</li>
+            <li>Settlement receipt + offline verification output</li>
+          </ul>
+          <div className="hero-proof-meta">
+            <div>
+              <span>First run target</span>
+              <strong>&lt; 10 min</strong>
+            </div>
+            <div>
+              <span>Default command</span>
+              <strong>npx settld setup</strong>
+            </div>
+          </div>
+        </aside>
+      </div>
+      <div className="hero-lane">
+        <p>Use with OpenClaw, Codex, Claude, and Cursor through one hardened trust contract.</p>
+        <div className="hero-lane-grid">
+          <span>Policy Runtime</span>
+          <span>Operator Inbox</span>
+          <span>Receipt Verification</span>
+          <span>Dispute / Reversal</span>
         </div>
       </div>
     </section>

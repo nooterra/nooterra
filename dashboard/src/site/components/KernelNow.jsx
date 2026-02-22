@@ -45,12 +45,13 @@ export default function KernelNow() {
     <section id="platform" className="section-shell">
       <Card>
         <CardHeader>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#7f2f1f]">Core Capabilities</p>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#62e5c2]">Core Capabilities</p>
           <CardTitle className="text-[clamp(1.9rem,4.4vw,3.2rem)] leading-tight tracking-[-0.02em]">
-            What you get out of the box
+            One trust kernel, four enforceable primitives
           </CardTitle>
-          <p className="text-lg leading-relaxed text-[#354152]">
-            The essentials to run agent workflows without losing control.
+          <p className="text-lg leading-relaxed text-[#b0c6d9]">
+            This is the baseline control plane for agent spending: identity boundaries, policy runtime, settlement
+            protections, and independently verifiable evidence.
           </p>
         </CardHeader>
         <CardContent>
@@ -63,10 +64,10 @@ export default function KernelNow() {
             </TabsList>
             {Object.entries(primitiveDetail).map(([key, section]) => (
               <TabsContent key={key} value={key}>
-                <Card className="border-[#e1d8c8] bg-[rgba(255,255,255,0.74)] shadow-none">
+                <Card className="border-[#31556e] bg-[rgba(10,30,44,0.82)] shadow-none">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-2xl">{section.title}</CardTitle>
-                    <p className="text-base text-[#354152]">{section.copy}</p>
+                    <p className="text-base text-[#b0c6d9]">{section.copy}</p>
                   </CardHeader>
                   <CardContent>
                     <ul className="tight-list mt-0">

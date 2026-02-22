@@ -31,15 +31,18 @@ function SiteNavShell({ children }) {
     <header className="site-nav-wrap">
       <nav className="site-nav" aria-label="Primary">
         <a href="/" className="brand-mark" aria-label="Settld home">
-          <span className="brand-mark-row">
-            {logoUrl ? (
-              <img src={logoUrl} alt="" className="brand-mark-logo" />
-            ) : (
-              <span className="brand-mark-logo-fallback" aria-hidden="true">S</span>
-            )}
-            <span className="brand-mark-core">Settld</span>
+          <span className="brand-mark-main">
+            <span className="brand-mark-row">
+              {logoUrl ? (
+                <img src={logoUrl} alt="" className="brand-mark-logo" />
+              ) : (
+                <span className="brand-mark-logo-fallback" aria-hidden="true">S</span>
+              )}
+              <span className="brand-mark-core">Settld</span>
+            </span>
+            <span className="brand-pill">Trust OS v1</span>
           </span>
-          {brandSubtitle ? <span className="brand-mark-sub">{brandSubtitle}</span> : null}
+          <span className="brand-mark-sub">{brandSubtitle || "Agent Commerce Control Plane"}</span>
         </a>
         <ul className="site-links">
           {links.map((link) => (
