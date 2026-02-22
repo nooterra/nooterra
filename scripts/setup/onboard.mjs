@@ -32,6 +32,7 @@ const CIRCLE_BYO_REQUIRED_KEYS = Object.freeze([
   "CIRCLE_TOKEN_ID_USDC",
   "CIRCLE_ENTITY_SECRET_HEX"
 ]);
+const ONBOARDING_DOCS_PATH = "docs/QUICKSTART_MCP_HOSTS.md";
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const SETTLD_BIN = path.join(REPO_ROOT, "bin", "settld.js");
@@ -567,6 +568,144 @@ async function promptLine(rl, label, { required = true, defaultValue = null } = 
   throw new Error(`${label} is required`);
 }
 
+function findOptionIndex(options, value, fallback = 0) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return fallback;
+  const idx = options.findIndex((option) => String(option?.value ?? "").trim().toLowerCase() === normalized);
+  if (idx < 0) return fallback;
+  return idx;
+}
+
+async function promptSelect(
+  rl,
+  stdin,
+  stdout,
+  label,
+  options,
+  { defaultValue = null, hint = null } = {}
+) {
+  if (!Array.isArray(options) || options.length === 0) {
+    throw new Error(`${label} requires at least one option`);
+  }
+  const normalizedOptions = options.map((option) => {
+    const value = String(option?.value ?? "").trim();
+    const display = String(option?.label ?? value).trim() || value;
+    const detail = typeof option?.hint === "string" ? option.hint.trim() : "";
+    return { value, label: display, hint: detail };
+  });
+  if (!stdin?.isTTY || typeof stdin.setRawMode !== "function") {
+    const fallbackValue = defaultValue ?? normalizedOptions[0].value;
+    const joined = normalizedOptions.map((option) => option.value).join("/");
+    const picked = (
+      await promptLine(rl, `${label} (${joined})`, {
+        defaultValue: fallbackValue
+      })
+    ).toLowerCase();
+    const idx = findOptionIndex(normalizedOptions, picked, -1);
+    if (idx < 0) {
+      throw new Error(`${label} must be one of: ${normalizedOptions.map((option) => option.value).join(", ")}`);
+    }
+    return normalizedOptions[idx].value;
+  }
+
+  let index = findOptionIndex(normalizedOptions, defaultValue, 0);
+  const wasRaw = stdin.isRaw === true;
+  let renderedLines = 0;
+
+  const render = () => {
+    const lines = [];
+    lines.push(`${label} (arrow keys + Enter)`);
+    for (let i = 0; i < normalizedOptions.length; i += 1) {
+      const option = normalizedOptions[i];
+      const prefix = i === index ? ">" : " ";
+      const detail = option.hint ? ` - ${option.hint}` : "";
+      lines.push(`  ${prefix} ${option.label}${detail}`);
+    }
+    if (hint) lines.push(`  ${hint}`);
+    if (renderedLines > 0) {
+      stdout.write(`\u001b[${renderedLines}A`);
+    }
+    for (const line of lines) {
+      stdout.write(`\u001b[2K\r${line}\n`);
+    }
+    renderedLines = lines.length;
+  };
+
+  if (typeof rl?.pause === "function") rl.pause();
+  if (!wasRaw) stdin.setRawMode(true);
+  stdin.resume();
+  stdin.setEncoding("utf8");
+
+  render();
+
+  return await new Promise((resolve, reject) => {
+    const cleanup = () => {
+      stdin.off("data", onData);
+      if (!wasRaw) stdin.setRawMode(false);
+      if (typeof rl?.resume === "function") rl.resume();
+    };
+
+    const resolveWithSelection = () => {
+      const selected = normalizedOptions[index];
+      cleanup();
+      stdout.write(`\u001b[2K\r${label}: ${selected.label}\n`);
+      resolve(selected.value);
+    };
+
+    const onData = (chunk) => {
+      const key = String(chunk ?? "");
+      if (!key) return;
+      if (key === "\u0003") {
+        cleanup();
+        reject(new Error("setup cancelled by user"));
+        return;
+      }
+      if (key === "\r" || key === "\n") {
+        resolveWithSelection();
+        return;
+      }
+      if (key === "\u001b[A" || key === "k" || key === "K") {
+        index = (index - 1 + normalizedOptions.length) % normalizedOptions.length;
+        render();
+        return;
+      }
+      if (key === "\u001b[B" || key === "j" || key === "J") {
+        index = (index + 1) % normalizedOptions.length;
+        render();
+      }
+    };
+
+    stdin.on("data", onData);
+  });
+}
+
+async function promptBooleanChoice(rl, stdin, stdout, label, defaultValue, { trueLabel = "Yes", falseLabel = "No", hint = null } = {}) {
+  const selected = await promptSelect(
+    rl,
+    stdin,
+    stdout,
+    label,
+    [
+      { value: "yes", label: trueLabel },
+      { value: "no", label: falseLabel }
+    ],
+    { defaultValue: defaultValue ? "yes" : "no", hint }
+  );
+  return selected === "yes";
+}
+
+function upsertWalletEnvRow(rows, key, value) {
+  const normalizedKey = String(key ?? "").trim();
+  if (!normalizedKey) return;
+  const normalizedValue = String(value ?? "");
+  const idx = rows.findIndex((row) => String(row?.key ?? "").trim() === normalizedKey);
+  if (idx >= 0) {
+    rows[idx] = { key: normalizedKey, value: normalizedValue };
+    return;
+  }
+  rows.push({ key: normalizedKey, value: normalizedValue });
+}
+
 function createMutableOutput(output) {
   return {
     muted: false,
@@ -636,7 +775,8 @@ function buildHostNextSteps({ host, installedHosts }) {
     steps.push(`Install ${host} CLI/app so MCP config can be consumed (expected binary: ${bin}).`);
   }
   if (host === "openclaw") {
-    steps.push("Run `openclaw doctor` then `openclaw tui`.");
+    steps.push("Run `openclaw doctor` and ensure OpenClaw itself is onboarded (`openclaw onboard --install-daemon`).");
+    steps.push("Run `openclaw tui`.");
     steps.push("In OpenClaw, ask for a Settld tool call (for example: `run settld.about`).");
     return steps;
   }
@@ -659,10 +799,10 @@ function buildHostNextSteps({ host, installedHosts }) {
   return steps;
 }
 
-function resolveByoWalletEnv({ args, runtimeEnv }) {
+function resolveByoWalletEnv({ walletProvider, walletEnvRows, runtimeEnv }) {
   const env = {};
-  for (const row of args.walletEnvRows) env[row.key] = row.value;
-  if (args.walletProvider === "circle") {
+  for (const row of walletEnvRows ?? []) env[row.key] = row.value;
+  if (walletProvider === "circle") {
     for (const key of CIRCLE_BYO_REQUIRED_KEYS) {
       if (typeof env[key] === "string" && env[key].trim()) continue;
       const fromProcess = String(runtimeEnv[key] ?? "").trim();
@@ -670,7 +810,9 @@ function resolveByoWalletEnv({ args, runtimeEnv }) {
     }
     const missing = CIRCLE_BYO_REQUIRED_KEYS.filter((key) => !(typeof env[key] === "string" && String(env[key]).trim()));
     if (missing.length) {
-      throw new Error(`BYO wallet mode missing required env keys: ${missing.join(", ")} (set --wallet-env KEY=VALUE or shell env)`);
+      throw new Error(
+        `BYO wallet mode missing required env keys: ${missing.join(", ")} (set --wallet-env KEY=VALUE or shell env; see ${ONBOARDING_DOCS_PATH}#3-wallet-modes-managed-vs-byo)`
+      );
     }
     if (!(typeof env.X402_CIRCLE_RESERVE_MODE === "string" && String(env.X402_CIRCLE_RESERVE_MODE).trim())) {
       env.X402_CIRCLE_RESERVE_MODE = inferCircleReserveMode(env.CIRCLE_BASE_URL) ?? "production";
@@ -764,6 +906,7 @@ async function resolveRuntimeConfig({
     circleMode: args.circleMode,
     circleBaseUrl: String(args.circleBaseUrl ?? runtimeEnv.CIRCLE_BASE_URL ?? "").trim(),
     circleBlockchain: String(args.circleBlockchain ?? runtimeEnv.CIRCLE_BLOCKCHAIN ?? "").trim(),
+    walletEnvRows: Array.isArray(args.walletEnvRows) ? args.walletEnvRows.map((row) => ({ ...row })) : [],
     profileId: args.profileId,
     skipProfileApply: Boolean(args.skipProfileApply),
     preflight: Boolean(args.preflight),
@@ -799,17 +942,32 @@ async function resolveRuntimeConfig({
     stdout.write("\n");
 
     const hostPromptDefault = out.host && SUPPORTED_HOSTS.includes(out.host) ? out.host : defaultHost;
-    out.host = (
-      await promptLine(rl, `Host (${SUPPORTED_HOSTS.join("/")})`, {
-        defaultValue: hostPromptDefault
-      })
-    ).toLowerCase();
-    if (!SUPPORTED_HOSTS.includes(out.host)) throw new Error(`host must be one of: ${SUPPORTED_HOSTS.join(", ")}`);
+    const hostOptions = SUPPORTED_HOSTS.map((host) => ({
+      value: host,
+      label: installedHosts.includes(host) ? `${host} (detected)` : host
+    }));
+    out.host = await promptSelect(
+      rl,
+      stdin,
+      stdout,
+      "Select host",
+      hostOptions,
+      { defaultValue: hostPromptDefault, hint: "Up/Down arrows change selection" }
+    );
+
     if (!out.walletMode) out.walletMode = "managed";
-    out.walletMode = (
-      await promptLine(rl, "Wallet mode (managed/byo/none)", { defaultValue: out.walletMode, required: true })
-    ).toLowerCase();
-    if (!WALLET_MODES.has(out.walletMode)) throw new Error("wallet mode must be managed, byo, or none");
+    out.walletMode = await promptSelect(
+      rl,
+      stdin,
+      stdout,
+      "Select wallet mode",
+      [
+        { value: "managed", label: "managed", hint: "Settld bootstraps wallet env for you" },
+        { value: "byo", label: "byo", hint: "Use your existing wallet IDs and secrets" },
+        { value: "none", label: "none", hint: "No payment rail wiring during setup" }
+      ],
+      { defaultValue: out.walletMode }
+    );
 
     if (!out.baseUrl) {
       out.baseUrl = await promptLine(rl, "Settld base URL", { defaultValue: "https://api.settld.work" });
@@ -820,16 +978,96 @@ async function resolveRuntimeConfig({
     if (!out.settldApiKey) out.settldApiKey = await promptSecretLine(rl, mutableOutput, stdout, "Settld API key");
 
     if (out.walletMode === "managed") {
-      out.walletBootstrap = (
-        await promptLine(rl, "Managed wallet bootstrap (auto/local/remote)", {
-          defaultValue: out.walletBootstrap || "auto",
-          required: true
-        })
-      ).toLowerCase();
-      if (!WALLET_BOOTSTRAP_MODES.has(out.walletBootstrap)) throw new Error("wallet bootstrap must be auto, local, or remote");
+      out.walletBootstrap = await promptSelect(
+        rl,
+        stdin,
+        stdout,
+        "Managed wallet bootstrap",
+        [
+          { value: "auto", label: "auto", hint: "Use local Circle key when present, else remote bootstrap" },
+          { value: "local", label: "local", hint: "Always use local Circle API key flow" },
+          { value: "remote", label: "remote", hint: "Always use tenant onboarding endpoint" }
+        ],
+        { defaultValue: out.walletBootstrap || "auto" }
+      );
       if (out.walletBootstrap === "local" && !out.circleApiKey) {
         out.circleApiKey = await promptSecretLine(rl, mutableOutput, stdout, "Circle API key");
       }
+    } else if (out.walletMode === "byo" && out.walletProvider === "circle") {
+      for (const key of CIRCLE_BYO_REQUIRED_KEYS) {
+        const alreadySet = out.walletEnvRows.find((row) => row?.key === key && String(row?.value ?? "").trim() !== "");
+        if (alreadySet) continue;
+        const inheritedValue = String(runtimeEnv[key] ?? "").trim();
+        if (inheritedValue) {
+          upsertWalletEnvRow(out.walletEnvRows, key, inheritedValue);
+          continue;
+        }
+        const isSecret = key === "CIRCLE_ENTITY_SECRET_HEX";
+        const value = isSecret
+          ? await promptSecretLine(rl, mutableOutput, stdout, key, { required: true })
+          : await promptLine(rl, key, { required: true });
+        upsertWalletEnvRow(out.walletEnvRows, key, value);
+      }
+    }
+
+    if (args.preflightOnly) {
+      out.preflight = true;
+      out.smoke = false;
+      out.skipProfileApply = true;
+      out.dryRun = true;
+    } else {
+      out.preflight = await promptBooleanChoice(
+        rl,
+        stdin,
+        stdout,
+        "Run preflight checks?",
+        out.preflight,
+        {
+          trueLabel: "Yes - validate API/auth/paths",
+          falseLabel: "No - skip preflight"
+        }
+      );
+      out.smoke = await promptBooleanChoice(
+        rl,
+        stdin,
+        stdout,
+        "Run MCP smoke test?",
+        out.smoke,
+        {
+          trueLabel: "Yes - run settld.about probe",
+          falseLabel: "No - skip smoke"
+        }
+      );
+
+      const applyProfile = await promptBooleanChoice(
+        rl,
+        stdin,
+        stdout,
+        "Apply starter policy profile?",
+        !out.skipProfileApply,
+        {
+          trueLabel: "Yes - apply profile now",
+          falseLabel: "No - skip profile apply"
+        }
+      );
+      out.skipProfileApply = !applyProfile;
+      if (applyProfile) {
+        out.profileId = await promptLine(rl, "Starter profile ID", {
+          defaultValue: out.profileId || "engineering-spend"
+        });
+      }
+
+      out.dryRun = await promptBooleanChoice(
+        rl,
+        stdin,
+        stdout,
+        "Dry run host config write?",
+        out.dryRun,
+        {
+          trueLabel: "Yes - preview only",
+          falseLabel: "No - write config"
+        }
+      );
     }
     return out;
   } finally {
@@ -909,7 +1147,11 @@ export async function runOnboard({
     walletEnv = wallet?.env && typeof wallet.env === "object" ? { ...wallet.env } : {};
   } else if (config.walletMode === "byo") {
     walletBootstrapMode = "byo";
-    walletEnv = resolveByoWalletEnv({ args, runtimeEnv });
+    walletEnv = resolveByoWalletEnv({
+      walletProvider: config.walletProvider,
+      walletEnvRows: config.walletEnvRows,
+      runtimeEnv
+    });
   }
   step += 1;
 

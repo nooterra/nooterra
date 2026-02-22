@@ -166,6 +166,32 @@ test("setup wizard: extractBootstrapMcpEnv validates and normalizes bootstrap en
   );
 });
 
+test("setup wizard: missing host config helper points to host onboarding docs", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-setup-wizard-missing-host-helper-"));
+  try {
+    const missingHostConfigPath = path.join(tmpDir, "does-not-exist.mjs");
+    const out = await runWizard([
+      "--non-interactive",
+      "--mode",
+      "manual",
+      "--host",
+      "codex",
+      "--base-url",
+      "http://127.0.0.1:3999",
+      "--tenant-id",
+      "tenant_missing_helper",
+      "--api-key",
+      "ak_missing_helper.secret",
+      "--host-config",
+      missingHostConfigPath
+    ]);
+    assert.notEqual(out.code, 0);
+    assert.match(out.stderr, /docs\/QUICKSTART_MCP_HOSTS\.md#6-host-config-helper-customization/);
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test("setup wizard: non-interactive manual mode prints export commands", async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-setup-wizard-test-"));
   try {

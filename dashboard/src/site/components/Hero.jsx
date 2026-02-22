@@ -7,27 +7,28 @@ export default function Hero() {
     <section className="section-shell" id="hero">
       <div className="mx-auto max-w-5xl">
         <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-[#7f2f1f]">
-          Open-source runtime for AI agents
+          Deterministic trust OS for AI automation
         </p>
-        <h1 className="max-w-[11ch] text-[clamp(3rem,9vw,6.25rem)] font-bold leading-[0.95] tracking-[-0.03em] text-[#1b2430]">
-          Run agents with real-world guardrails.
+        <h1 className="text-[clamp(3rem,9vw,6rem)] font-bold leading-[0.95] tracking-[-0.03em] text-[#1b2430]">
+          Simple guardrails. Unstoppable autonomous workflows.
         </h1>
         <p className="mt-6 max-w-3xl text-lg leading-relaxed text-[#354152]">
-          Set clear limits, require human approval when needed, and verify what happened after every action.
+          Define policies, require human review when necessary, and bind every action to immutable evidence so
+          autonomous agents stay productive without compromising risk controls.
         </p>
 
-        <div className="mt-6 flex flex-wrap gap-2">
-          <Badge variant="accent">Set limits</Badge>
-          <Badge variant="accent">Require approval</Badge>
-          <Badge variant="accent">Verify outcomes</Badge>
+        <div className="mt-6 grid max-w-4xl grid-cols-1 gap-2 sm:grid-cols-3">
+          <Badge variant="accent">Policy scopes</Badge>
+          <Badge variant="accent">Approval gates</Badge>
+          <Badge variant="accent">Cryptographic proof</Badge>
         </div>
 
         <div className="mt-10 flex flex-wrap gap-3">
           <a className={buttonClasses({ size: "lg" })} href={docsLinks.quickstart}>
-            Get started
+            Start onboarding
           </a>
-          <a className={buttonClasses({ variant: "outline", size: "lg" })} href={ossLinks.repo}>
-            View GitHub
+          <a className={buttonClasses({ variant: "outline", size: "lg" })} href="/developers">
+            Explore developer flow
           </a>
         </div>
       </div>

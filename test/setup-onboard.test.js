@@ -343,3 +343,27 @@ test("onboard: report-path writes payload json", async () => {
   assert.equal(written.reportPath, reportPath);
   assert.equal(written.host, "codex");
 });
+
+test("onboard: BYO mode error references required key docs", async () => {
+  await assert.rejects(
+    runOnboard({
+      argv: [
+        "--non-interactive",
+        "--host",
+        "openclaw",
+        "--wallet-mode",
+        "byo",
+        "--no-preflight",
+        "--base-url",
+        "https://api.settld.work",
+        "--tenant-id",
+        "tenant_default",
+        "--settld-api-key",
+        "sk_live_x.y"
+      ],
+      runtimeEnv: {},
+      stdout: { write() {} }
+    }),
+    /docs\/QUICKSTART_MCP_HOSTS\.md#3-wallet-modes-managed-vs-byo/
+  );
+});

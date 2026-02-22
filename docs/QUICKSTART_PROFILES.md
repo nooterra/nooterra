@@ -16,6 +16,7 @@ Non-interactive setup (manual mode):
 ```
 
 `settld setup` now also emits `SETTLD_PAID_TOOLS_AGENT_PASSPORT` automatically, so paid MCP tools run with policy-bound passport context without manual JSON editing.
+Add `--smoke` if you want setup to run an immediate MCP probe before moving on.
 
 Bootstrap mode (same flow, runtime key minted by onboarding endpoint):
 
@@ -27,6 +28,14 @@ If you only want runtime env + host wiring (without applying a profile), add:
 
 ```bash
 --skip-profile-apply
+```
+
+To validate payment evidence early, run a paid demo after setup and verify the first exported receipt:
+
+```bash
+npm run demo:mcp-paid-exa
+jq -c 'first' artifacts/mcp-paid-exa/*/x402-receipts.export.jsonl > /tmp/settld-first-receipt.json
+settld x402 receipt verify /tmp/settld-first-receipt.json --format json --json-out /tmp/settld-first-receipt.verify.json
 ```
 
 To verify MCP wiring immediately during setup, add:

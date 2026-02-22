@@ -10,11 +10,23 @@ Settld gives you a canonical economic loop:
 
 ## Start here
 
-- [Quickstart](./quickstart.md) — local stack to conformance in minutes
+- [Quickstart](./quickstart.md) — one-command onboarding to first verified paid receipt
 - [Core Primitives](./core-primitives.md) — protocol objects and invariants
 - [API Reference](./api-reference.md) — endpoint map and auth model
 - [Conformance](./conformance.md) — machine-checkable correctness gates
 - [Closepacks](./closepacks.md) — offline verification workflow
+
+## One-command onboarding
+
+```bash
+settld setup --non-interactive --host codex --base-url http://127.0.0.1:3000 --tenant-id tenant_default --settld-api-key sk_live_xxx.yyy --wallet-mode managed --wallet-bootstrap remote --profile-id engineering-spend --smoke
+```
+
+Then:
+
+1. `npm run mcp:probe -- --call settld.about '{}'`
+2. `npm run demo:mcp-paid-exa`
+3. verify first receipt with `settld x402 receipt verify`
 
 ## Implementation path
 
