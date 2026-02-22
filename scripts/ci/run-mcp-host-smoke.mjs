@@ -11,6 +11,10 @@ function randomId(prefix) {
   return `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
 }
 
+function buildScopedOpsToken(token) {
+  return `${String(token ?? "").trim()}:ops_read,ops_write,finance_read,finance_write,audit_read`;
+}
+
 function pickPort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -243,6 +247,7 @@ function stopServer(server) {
 async function main() {
   const reportPath = path.resolve(process.cwd(), process.env.MCP_HOST_SMOKE_REPORT_PATH || "artifacts/ops/mcp-host-smoke.json");
   const opsToken = randomId("ops");
+  const scopedOpsToken = buildScopedOpsToken(opsToken);
   const magicLinkApiKey = randomId("ml_admin");
   const tenantId = randomId("tenant");
 
@@ -259,6 +264,7 @@ async function main() {
     env: {
       PORT: String(apiPort),
       PROXY_BIND_HOST: "127.0.0.1",
+      PROXY_OPS_TOKENS: scopedOpsToken,
       PROXY_OPS_TOKEN: opsToken,
       PROXY_AUTOTICK_INTERVAL_MS: "200"
     }

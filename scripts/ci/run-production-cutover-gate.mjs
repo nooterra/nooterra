@@ -141,6 +141,10 @@ function randomId(prefix) {
   return `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
 }
 
+function buildScopedOpsToken(token) {
+  return `${String(token ?? "").trim()}:ops_read,ops_write,finance_read,finance_write,audit_read`;
+}
+
 function pickPort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -239,6 +243,7 @@ function startNodeProc({ name, scriptPath, env }) {
 async function startEphemeralApi(env = process.env) {
   const port = await pickPort();
   const opsToken = randomId("ops");
+  const scopedOpsToken = buildScopedOpsToken(opsToken);
   const baseUrl = `http://127.0.0.1:${port}`;
   const api = startNodeProc({
     name: "cutover-api",
@@ -247,6 +252,7 @@ async function startEphemeralApi(env = process.env) {
       ...env,
       PORT: String(port),
       PROXY_BIND_HOST: "127.0.0.1",
+      PROXY_OPS_TOKENS: scopedOpsToken,
       PROXY_OPS_TOKEN: opsToken,
       PROXY_AUTOTICK_INTERVAL_MS: "200"
     }

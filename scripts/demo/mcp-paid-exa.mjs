@@ -192,6 +192,18 @@ function readEnvString(name, fallback = null) {
   return String(raw).trim();
 }
 
+function readFirstOpsTokenFromScopedList(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+  const firstEntry = text
+    .split(";")
+    .map((entry) => String(entry ?? "").trim())
+    .find(Boolean);
+  if (!firstEntry) return null;
+  const token = firstEntry.split(":")[0]?.trim() ?? "";
+  return token || null;
+}
+
 function assertCircleModeInputs({ mode }) {
   if (mode === "stub") return;
   const required = ["CIRCLE_API_KEY", "CIRCLE_WALLET_ID_SPEND", "CIRCLE_WALLET_ID_ESCROW", "CIRCLE_TOKEN_ID_USDC"];
@@ -646,7 +658,10 @@ async function main() {
   const workload = normalizeWorkload(cli.workload ?? readEnvString("SETTLD_DEMO_WORKLOAD", "exa"));
   const externalReserveRequired = circleMode !== "stub";
   assertCircleModeInputs({ mode: circleMode });
-  const opsToken = String(process.env.SETTLD_DEMO_OPS_TOKEN ?? "tok_ops").trim() || "tok_ops";
+  const inheritedOpsTokenList = readEnvString("PROXY_OPS_TOKENS", null);
+  const derivedOpsToken = readFirstOpsTokenFromScopedList(inheritedOpsTokenList);
+  const opsToken = String(process.env.SETTLD_DEMO_OPS_TOKEN ?? derivedOpsToken ?? "tok_ops").trim() || "tok_ops";
+  const scopedOpsToken = `${opsToken}:ops_read,ops_write,finance_read,finance_write,audit_read`;
   const tenantId = String(process.env.SETTLD_TENANT_ID ?? "tenant_default").trim() || "tenant_default";
 
   const workloadConfig = (() => {
@@ -733,6 +748,8 @@ async function main() {
       cmd: "node",
       args: ["src/api/server.js"],
       env: {
+        // Pin ops auth for this demo process so inherited deployment env can't cause token mismatch.
+        PROXY_OPS_TOKENS: scopedOpsToken,
         PROXY_OPS_TOKEN: opsToken,
         BIND_HOST: "127.0.0.1",
         PORT: String(apiPort),
