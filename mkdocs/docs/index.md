@@ -1,26 +1,34 @@
 # Settld Docs
 
-Settld is the trust and control plane for autonomous agent actions.
+Let agents spend. Keep policy in control.
 
-It is built for teams that want agents to spend money with enforceable policy, deterministic receipts, and operational recourse.
+Settld is the deterministic trust layer between autonomous actions and money movement.
 
-## Start Here
+## Start In Minutes
 
-1. [Quickstart](guides/quickstart.md): from install to first verified receipt.
-2. [Local Environment](guides/local-environment.md): run API and onboarding loop locally.
-3. [Integrations](reference/integrations.md): wire OpenClaw, Codex, Claude, and Cursor.
+```bash
+npx settld setup
+npm run mcp:probe -- --call settld.about '{}'
+npm run demo:mcp-paid-exa
+```
 
-## What Is In Scope Right Now
+Then follow:
+
+1. [Quickstart](guides/quickstart.md)
+2. [Integrations](reference/integrations.md)
+3. [Production Cutover](guides/production-cutover.md)
+
+## What Settld Enforces
 
 - Deterministic decision outcomes: `allow`, `challenge`, `deny`, `escalate`
-- Execution binding to policy/authorization state
+- Execution binding to policy and authorization fingerprints
 - Receipt verification and closepack export
-- Human-in-the-loop escalation and unwind controls
-- One hardened payment lane first (`x402`, Circle-backed paths)
+- Signed human escalation and unwind controls
+- One hardened payment lane first: `x402` (Circle-backed)
 
-## Operator Outcomes
+## What Teams Get
 
-- Prove what happened for each paid action
-- Reconcile finance events with deterministic artifacts
-- Resolve disputes and reversals with idempotent processing
-- Run onboarding and release gates fail-closed
+- First verified receipt in one setup flow
+- Deterministic finance and compliance evidence
+- Dispute and reversal flows with idempotent retries
+- Fail-closed onboarding and production gates

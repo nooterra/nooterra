@@ -11,6 +11,8 @@ theme:
     - navigation.expand
     - content.code.copy
     - search.highlight
+extra:
+  generator: false
 plugins:
   - search
 markdown_extensions:
@@ -25,23 +27,23 @@ markdown_extensions:
   - pymdownx.inlinehilite
 nav:
   - Home: index.md
-  - Getting Started:
+  - Start:
       - Quickstart: guides/quickstart.md
       - Local Environment: guides/local-environment.md
-      - First Production Cutover: guides/production-cutover.md
+      - Production Cutover: guides/production-cutover.md
       - Policy Packs: guides/policy-packs.md
       - MCP Host Certification: guides/mcp-host-certification.md
   - Architecture:
       - Control Plane: architecture/control-plane.md
       - State Machines: architecture/state-machines.md
       - Artifact Lineage: architecture/artifact-lineage.md
-  - Reference:
+  - API & Security:
       - API Surface: reference/api-surface.md
       - Security Model: reference/security-model.md
       - Integrations: reference/integrations.md
-  - Runbooks:
+  - Ops:
       - Operations: runbooks/operations.md
-      - Onboarding Runtime Loop: runbooks/onboarding-runtime.md
+      - Onboarding Loop: runbooks/onboarding-runtime.md
       - Incident Response: runbooks/incidents.md
       - Key Management: runbooks/key-management.md
   - Roadmap: roadmap.md
