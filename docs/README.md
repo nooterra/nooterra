@@ -17,10 +17,11 @@ For curated public docs, start here:
 
 ## Fastest onboarding path
 
-1. Run `settld setup` (or `./bin/settld.js setup`) with your host, tenant, and API key.
-2. Activate your host and run `npm run mcp:probe`.
-3. Run `npm run demo:mcp-paid-exa`.
-4. Verify the first receipt:
+1. Run `settld setup` (or `./bin/settld.js setup`), choose `quick`, and complete OTP login.
+2. Let guided wallet funding complete (or run `settld wallet fund` + `settld wallet balance --watch --min-usdc 1`).
+3. Activate your host and run `npm run mcp:probe`.
+4. Run `npm run demo:mcp-paid-exa`.
+5. Verify the first receipt:
 
 ```bash
 jq -c 'first' artifacts/mcp-paid-exa/*/x402-receipts.export.jsonl > /tmp/settld-first-receipt.json

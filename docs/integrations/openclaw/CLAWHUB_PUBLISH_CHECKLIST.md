@@ -15,6 +15,7 @@ Confirm required files exist:
 
 - `docs/integrations/openclaw/settld-mcp-skill/SKILL.md`
 - `docs/integrations/openclaw/settld-mcp-skill/mcp-server.example.json`
+- `docs/integrations/openclaw/settld-mcp-skill/skill.json`
 
 ## 2) Prepare Skill Metadata
 
@@ -62,4 +63,3 @@ Capture these fields each publish:
 - Added/changed tools
 - Known limitations
 - Validation run timestamp
-

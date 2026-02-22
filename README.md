@@ -73,6 +73,16 @@ Agent host onboarding (Codex / Claude / Cursor / OpenClaw), with guided wallet +
 npx -y settld setup
 ```
 
+Default interactive flow is now login-first:
+
+1. pick host + wallet mode
+2. choose `quick` setup (recommended)
+3. login with OTP (creates tenant if needed)
+4. setup mints runtime API key automatically
+5. guided wallet fund + first paid call check runs
+
+Advanced mode is still available in setup when you need explicit base URL/bootstrap/API-key control.
+
 Preflight-only check (no host config write), with JSON report:
 
 ```sh
@@ -89,6 +99,7 @@ settld setup
 Check wallet wiring and funding path:
 
 ```sh
+settld login
 settld wallet status
 settld wallet fund --open
 settld wallet fund --method transfer

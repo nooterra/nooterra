@@ -5,11 +5,8 @@ This guide gets you from zero to a first verified receipt with the fewest steps.
 ## 1) Prerequisites
 
 - Node.js 20+
-- Settld API base URL (local default: `http://127.0.0.1:3000`)
-- Tenant ID (local default: `tenant_default`)
-- Auth path:
-  - Tenant runtime key: `--settld-api-key <keyId.secret>`
-  - Or bootstrap key (mint runtime key during setup): `--bootstrap-api-key <admin_key>`
+- Public default: no API keys needed before setup
+- Advanced/non-interactive: explicit `--base-url`, `--tenant-id`, and key/bootstrap flags
 
 ## 2) Guided setup (recommended)
 
@@ -18,6 +15,13 @@ npx settld setup
 ```
 
 The wizard writes host config, wires MCP env, applies starter profile `engineering-spend` (unless skipped), and runs smoke by default.
+
+Choose `quick` mode for minimal prompts:
+
+1. host
+2. wallet mode
+3. OTP login/signup
+4. guided wallet fund and first paid-call check
 
 ## 3) Non-interactive setup (CI / scripted)
 
@@ -46,6 +50,7 @@ Useful flags:
 ## 4) Verify runtime + first paid path
 
 ```bash
+settld login
 npm run mcp:probe -- --call settld.about '{}'
 npm run demo:mcp-paid-exa
 settld x402 receipt verify /tmp/settld-first-receipt.json --format json

@@ -13,16 +13,27 @@ For deeper tool-level examples, see `docs/QUICKSTART_MCP.md`.
 
 ## 1) Before you run `settld setup`
 
-Required inputs:
+Public default path (recommended):
 
-- `SETTLD_BASE_URL` (local or hosted API URL)
-- `SETTLD_TENANT_ID`
+- Node.js 20+
+- no API keys required up front
+- run `settld setup`, choose `quick`, then login with OTP
+- setup creates tenant (if needed), mints runtime key, and wires MCP
+
+Admin/operator path (advanced):
+
+- explicit `SETTLD_BASE_URL`, `SETTLD_TENANT_ID`
 - one of:
   - `SETTLD_API_KEY` (`keyId.secret`), or
-  - `SETTLD_BOOTSTRAP_API_KEY` (onboarding bootstrap key that mints `SETTLD_API_KEY` during setup)
-- Node.js 20+
+  - `SETTLD_BOOTSTRAP_API_KEY` (bootstrap key that mints runtime key)
 
-Recommended non-interactive pattern:
+Recommended interactive pattern:
+
+```bash
+settld setup
+```
+
+Recommended non-interactive pattern (automation/support):
 
 ```bash
 settld setup --non-interactive \
@@ -37,7 +48,7 @@ settld setup --non-interactive \
   --out-env ./.tmp/settld-openclaw.env
 ```
 
-If you want setup to generate the tenant API key for you:
+If you want non-interactive setup to generate the tenant API key:
 
 ```bash
 settld setup --non-interactive \
@@ -73,13 +84,17 @@ Unified setup command:
 settld setup
 ```
 
-The wizard handles:
+`quick` mode (default) handles:
 
 - host selection (`codex|claude|cursor|openclaw`)
 - wallet mode selection (`managed|byo|none`)
+- login/signup + OTP session flow (no manual key paste)
 - preflight checks (API health, tenant auth, profile baseline, host config path)
 - policy apply + optional smoke
+- guided wallet funding and first paid MCP check
 - interactive menus with arrow keys (Up/Down + Enter) for choice steps
+
+`advanced` mode exposes explicit key/bootstrap/base-url prompts and fine-grained setup toggles.
 
 Host-specific non-interactive examples:
 
@@ -175,6 +190,12 @@ Check wallet assignment after setup:
 
 ```bash
 settld wallet status
+```
+
+If wallet commands return auth errors, run:
+
+```bash
+settld login
 ```
 
 Funding paths:

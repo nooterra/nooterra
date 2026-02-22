@@ -19,8 +19,12 @@ Settld gives you a canonical economic loop:
 ## One-command onboarding
 
 ```bash
-settld setup --non-interactive --host codex --base-url http://127.0.0.1:3000 --tenant-id tenant_default --settld-api-key sk_live_xxx.yyy --wallet-mode managed --wallet-bootstrap remote --profile-id engineering-spend --smoke
+settld setup
 ```
+
+Recommended path: choose `quick`, complete OTP login, and let setup run guided funding + paid-call checks.
+
+Advanced/scripted path is still supported with explicit non-interactive flags.
 
 Then:
 

@@ -9,6 +9,14 @@ author: Settld
 
 This skill teaches OpenClaw agents to use Settld for paid MCP tool calls.
 
+It is designed for the public `quick` onboarding flow:
+
+1. `settld setup`
+2. pick `openclaw` + `quick`
+3. login via OTP
+4. fund wallet
+5. run paid tool call with deterministic receipt evidence
+
 ## What This Skill Enables
 
 - Discover Settld MCP tools (`settld.*`)
@@ -19,9 +27,7 @@ This skill teaches OpenClaw agents to use Settld for paid MCP tool calls.
 ## Prerequisites
 
 - Node.js 20+
-- Settld API key (`SETTLD_API_KEY`)
-- Settld API base URL (`SETTLD_BASE_URL`)
-- Tenant id (`SETTLD_TENANT_ID`)
+- Settld runtime env from setup (`SETTLD_API_KEY`, `SETTLD_BASE_URL`, `SETTLD_TENANT_ID`)
 - Optional paid tools base URL (`SETTLD_PAID_TOOLS_BASE_URL`)
 
 ## MCP Server Registration
@@ -61,9 +67,18 @@ Optional env vars:
 - "Call `settld.about` and return the result JSON."
 - "Run `settld.weather_current_paid` for Chicago in fahrenheit and include the `x-settld-*` headers."
 
+## Identity + Traceability
+
+Every paid call should be explainable and auditable:
+
+- tenant identity (who owns the runtime)
+- actor/session identity (who approved/triggered)
+- policy decision identity (`allow|challenge|deny|escalate` + reason codes)
+- settlement identity (`settlementReceiptId`)
+- evidence identity (hash-verifiable receipt/timeline artifacts)
+
 ## Safety Notes
 
 - Treat `SETTLD_API_KEY` as secret input.
 - Do not print full API keys in chat output.
 - Keep paid tools scoped to trusted providers and tenant policy.
-

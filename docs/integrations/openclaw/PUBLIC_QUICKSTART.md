@@ -33,10 +33,10 @@ npx -y settld@latest setup
 Choose:
 
 1. `host`: `openclaw`
-2. wallet mode (`managed` recommended first)
-3. wallet bootstrap (`remote` recommended for first setup)
-4. keep preflight + smoke enabled
-5. apply a starter profile (`engineering-spend`)
+2. setup mode: `quick`
+3. wallet mode (`managed` recommended first)
+4. login with OTP (new tenant is created if needed)
+5. let setup run guided fund + first paid check
 
 Non-interactive path (automation/support):
 
@@ -53,7 +53,7 @@ npx -y settld@latest setup \
   --smoke
 ```
 
-If you do not have a tenant `sk_*` yet, let setup mint one:
+Advanced non-interactive key/bootstrap paths are still supported:
 
 ```bash
 npx -y settld@latest setup \
@@ -102,7 +102,9 @@ npx -y settld@latest x402 receipt verify ./receipt.json --format json
 ## Notes for operators
 
 - Public users do not need to clone the Settld repo.
+- Public users should not need bootstrap/admin keys in the default setup path.
 - Public path is valid only after publishing a package version that includes the current setup flow.
 - For OpenClaw skill packaging and publish flow, see:
   - `docs/integrations/openclaw/settld-mcp-skill/SKILL.md`
+  - `docs/integrations/openclaw/settld-mcp-skill/skill.json`
   - `docs/integrations/openclaw/CLAWHUB_PUBLISH_CHECKLIST.md`

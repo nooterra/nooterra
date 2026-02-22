@@ -5,9 +5,8 @@ Get from zero to a verified paid agent action in minutes.
 ## Prerequisites
 
 - Node.js 20+
-- Settld API URL
-- Tenant ID
-- Tenant API key (`keyId.secret`)
+- Public flow: no API key required up front (`settld setup` handles login/session bootstrap)
+- Advanced flow: optional explicit `--base-url`, `--tenant-id`, and `--settld-api-key`
 
 ## 0) One-command setup
 
@@ -17,7 +16,14 @@ Run guided setup:
 settld setup
 ```
 
-The guided setup uses arrow-key menus for host/wallet/policy decisions, then asks only the next required fields.
+Recommended interactive choices:
+
+1. host
+2. `quick` setup mode
+3. wallet mode
+4. OTP login (creates tenant if needed)
+
+`quick` mode auto-runs preflight/smoke/profile apply, then starts guided wallet fund + first paid call checks.
 
 Non-interactive example:
 
@@ -54,6 +60,7 @@ Then restart your host app (Codex/Claude/Cursor/OpenClaw) so it reloads MCP conf
 ## 2) Check wallet and fund it
 
 ```bash
+settld login
 settld wallet status
 settld wallet fund --method transfer
 settld wallet balance --watch --min-usdc 1

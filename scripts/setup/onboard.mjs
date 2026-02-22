@@ -14,10 +14,12 @@ import { extractBootstrapMcpEnv, loadHostConfigHelper, runWizard } from "./wizar
 import { SUPPORTED_HOSTS } from "./host-config.mjs";
 import { defaultSessionPath, readSavedSession } from "./session-store.mjs";
 import { runLogin } from "./login.mjs";
+import { runWalletCli } from "../wallet/cli.mjs";
 
 const WALLET_MODES = new Set(["managed", "byo", "none"]);
 const WALLET_PROVIDERS = new Set(["circle"]);
 const WALLET_BOOTSTRAP_MODES = new Set(["auto", "local", "remote"]);
+const SETUP_MODES = new Set(["quick", "advanced"]);
 const FORMAT_OPTIONS = new Set(["text", "json"]);
 const HOST_BINARY_HINTS = Object.freeze({
   codex: "codex",
@@ -56,6 +58,10 @@ function usage() {
     "",
     "flags:",
     "  --non-interactive               Disable prompts; require explicit flags",
+    "  --quick                         Quick setup mode (default for interactive)",
+    "  --advanced                      Advanced setup mode (shows all prompts)",
+    "  --guided-next                   Run guided fund + first paid check after setup (default in quick mode)",
+    "  --skip-guided-next              Skip guided post-setup actions",
     `  --host <${SUPPORTED_HOSTS.join("|")}>      Host target (default: auto-detect, fallback openclaw)`,
     "  --base-url <url>                Settld API base URL (or SETTLD_BASE_URL)",
     "  --tenant-id <id>                Settld tenant ID (or SETTLD_TENANT_ID)",
@@ -111,6 +117,8 @@ function parseWalletEnvAssignment(raw) {
 function parseArgs(argv) {
   const out = {
     nonInteractive: false,
+    setupMode: null,
+    guidedNext: null,
     host: null,
     baseUrl: null,
     tenantId: null,
@@ -149,6 +157,22 @@ function parseArgs(argv) {
     }
     if (arg === "--non-interactive" || arg === "--yes") {
       out.nonInteractive = true;
+      continue;
+    }
+    if (arg === "--quick") {
+      out.setupMode = "quick";
+      continue;
+    }
+    if (arg === "--advanced") {
+      out.setupMode = "advanced";
+      continue;
+    }
+    if (arg === "--guided-next") {
+      out.guidedNext = true;
+      continue;
+    }
+    if (arg === "--skip-guided-next") {
+      out.guidedNext = false;
       continue;
     }
     if (arg === "--skip-profile-apply") {
@@ -311,6 +335,9 @@ function parseArgs(argv) {
 
   if (out.host && !SUPPORTED_HOSTS.includes(out.host)) {
     throw new Error(`--host must be one of: ${SUPPORTED_HOSTS.join(", ")}`);
+  }
+  if (out.setupMode && !SETUP_MODES.has(out.setupMode)) {
+    throw new Error("--quick or --advanced are the supported setup modes");
   }
   if (!WALLET_MODES.has(out.walletMode)) throw new Error("--wallet-mode must be managed|byo|none");
   if (!WALLET_PROVIDERS.has(out.walletProvider)) throw new Error(`--wallet-provider must be one of: ${[...WALLET_PROVIDERS].join(", ")}`);
@@ -867,6 +894,144 @@ function buildHostNextSteps({ host, installedHosts }) {
   return steps;
 }
 
+function runMcpPaidCallProbe({ env, timeoutMs = 45_000 } = {}) {
+  const args = [
+    path.join("scripts", "mcp", "probe.mjs"),
+    "--call",
+    "settld.weather_current_paid",
+    JSON.stringify({ city: "Chicago", unit: "f" }),
+    "--timeout-ms",
+    String(timeoutMs)
+  ];
+  const result = spawnSync(process.execPath, args, {
+    cwd: REPO_ROOT,
+    env: { ...process.env, ...(env ?? {}) },
+    encoding: "utf8",
+    timeout: timeoutMs + 5000,
+    maxBuffer: 4 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const stdoutText = String(result.stdout ?? "");
+  const stderrText = String(result.stderr ?? "");
+  const sawToolError = /"isError"\s*:\s*true/.test(stdoutText);
+  const sawToolSuccess = /"isError"\s*:\s*false/.test(stdoutText);
+  const ok = Number(result.status) === 0 && sawToolSuccess && !sawToolError;
+  return {
+    ok,
+    exitCode: typeof result.status === "number" ? result.status : 1,
+    stdout: stdoutText,
+    stderr: stderrText
+  };
+}
+
+async function runGuidedQuickFlow({
+  enabled = false,
+  walletMode = "none",
+  normalizedBaseUrl,
+  tenantId,
+  sessionFile,
+  sessionCookie = "",
+  mergedEnv = {},
+  runtimeEnv = process.env,
+  stdin = process.stdin,
+  stdout = process.stdout,
+  runWalletCliImpl = runWalletCli
+} = {}) {
+  const summary = {
+    enabled: Boolean(enabled),
+    ran: false,
+    walletFund: null,
+    walletBalanceWatch: null,
+    firstPaidCall: null,
+    warnings: []
+  };
+  if (!summary.enabled) return summary;
+  if (!stdin?.isTTY || !stdout?.isTTY) {
+    summary.warnings.push("guided quick flow skipped (non-interactive terminal)");
+    return summary;
+  }
+
+  const actionEnv = {
+    ...runtimeEnv,
+    ...mergedEnv,
+    SETTLD_BASE_URL: normalizedBaseUrl,
+    SETTLD_TENANT_ID: tenantId,
+    ...(sessionCookie ? { SETTLD_SESSION_COOKIE: sessionCookie } : {})
+  };
+  summary.ran = true;
+
+  if (walletMode !== "none") {
+    try {
+      const fundResult = await runWalletCliImpl({
+        argv: ["fund", "--open", "--base-url", normalizedBaseUrl, "--tenant-id", tenantId, "--session-file", sessionFile, "--format", "json"],
+        env: actionEnv,
+        stdin,
+        stdout
+      });
+      summary.walletFund = {
+        ok: true,
+        method: String(fundResult?.method ?? "").trim() || null
+      };
+    } catch (err) {
+      summary.walletFund = {
+        ok: false,
+        error: err?.message ?? String(err ?? "")
+      };
+      summary.warnings.push("wallet funding did not complete during guided flow");
+    }
+
+    try {
+      const watchResult = await runWalletCliImpl({
+        argv: [
+          "balance",
+          "--watch",
+          "--min-usdc",
+          "1",
+          "--timeout-seconds",
+          "300",
+          "--interval-seconds",
+          "5",
+          "--base-url",
+          normalizedBaseUrl,
+          "--tenant-id",
+          tenantId,
+          "--session-file",
+          sessionFile,
+          "--format",
+          "json"
+        ],
+        env: actionEnv,
+        stdin,
+        stdout
+      });
+      summary.walletBalanceWatch = {
+        ok: Boolean(watchResult?.ok),
+        satisfied: Boolean(watchResult?.watch?.satisfied)
+      };
+    } catch (err) {
+      summary.walletBalanceWatch = {
+        ok: false,
+        error: err?.message ?? String(err ?? "")
+      };
+      summary.warnings.push("wallet balance watch did not reach target within timeout");
+    }
+  }
+
+  const paidProbe = runMcpPaidCallProbe({ env: actionEnv });
+  if (paidProbe.ok) {
+    summary.firstPaidCall = { ok: true };
+  } else {
+    summary.firstPaidCall = {
+      ok: false,
+      exitCode: paidProbe.exitCode,
+      error: paidProbe.stderr || "paid call returned tool error"
+    };
+    summary.warnings.push("first paid call probe failed");
+  }
+
+  return summary;
+}
+
 function resolveByoWalletEnv({ walletProvider, walletEnvRows, runtimeEnv }) {
   const env = {};
   for (const row of walletEnvRows ?? []) env[row.key] = row.value;
@@ -1043,6 +1208,8 @@ async function resolveRuntimeConfig({
     installedHosts
   });
   const out = {
+    setupMode: args.setupMode ?? "quick",
+    guidedNext: args.guidedNext,
     host: args.host ?? defaultHost,
     walletMode: args.walletMode,
     baseUrl: String(args.baseUrl ?? runtimeEnv.SETTLD_BASE_URL ?? "").trim(),
@@ -1076,6 +1243,9 @@ async function resolveRuntimeConfig({
   }
 
   if (args.nonInteractive) {
+    if (!out.setupMode) out.setupMode = "quick";
+    if (!SETUP_MODES.has(out.setupMode)) throw new Error("--quick or --advanced are the supported setup modes");
+    if (out.guidedNext === null || out.guidedNext === undefined) out.guidedNext = false;
     if (!SUPPORTED_HOSTS.includes(out.host)) throw new Error(`--host must be one of: ${SUPPORTED_HOSTS.join(", ")}`);
     if (!out.baseUrl) throw new Error("--base-url is required");
     if (!out.tenantId) throw new Error("--tenant-id is required");
@@ -1109,6 +1279,24 @@ async function resolveRuntimeConfig({
       stdout.write(`${tint(color, ANSI_GREEN, "Saved login session")}: tenant ${savedSession.tenantId}\n`);
     }
     stdout.write("\n");
+
+    if (!out.setupMode || !SETUP_MODES.has(out.setupMode)) {
+      out.setupMode = "quick";
+    }
+    out.setupMode = await promptSelect(
+      rl,
+      stdin,
+      stdout,
+      "Setup mode",
+      [
+        { value: "quick", label: "quick", hint: "Recommended: minimal prompts and guided next steps" },
+        { value: "advanced", label: "advanced", hint: "Full control over all setup options" }
+      ],
+      { defaultValue: out.setupMode, color }
+    );
+    if (out.guidedNext === null || out.guidedNext === undefined) {
+      out.guidedNext = out.setupMode === "quick";
+    }
 
     const hostPromptDefault = out.host && SUPPORTED_HOSTS.includes(out.host) ? out.host : defaultHost;
     const hostOptions = SUPPORTED_HOSTS.map((host) => ({
@@ -1216,18 +1404,22 @@ async function resolveRuntimeConfig({
     }
 
     if (out.walletMode === "managed") {
-      out.walletBootstrap = await promptSelect(
-        rl,
-        stdin,
-        stdout,
-        "Managed wallet bootstrap",
-        [
-          { value: "auto", label: "auto", hint: "Use local Circle key when present, else remote bootstrap" },
-          { value: "local", label: "local", hint: "Always use local Circle API key flow" },
-          { value: "remote", label: "remote", hint: "Always use tenant onboarding endpoint" }
-        ],
-        { defaultValue: out.walletBootstrap || "auto", color }
-      );
+      if (out.setupMode === "quick") {
+        out.walletBootstrap = out.walletBootstrap || "auto";
+      } else {
+        out.walletBootstrap = await promptSelect(
+          rl,
+          stdin,
+          stdout,
+          "Managed wallet bootstrap",
+          [
+            { value: "auto", label: "auto", hint: "Use local Circle key when present, else remote bootstrap" },
+            { value: "local", label: "local", hint: "Always use local Circle API key flow" },
+            { value: "remote", label: "remote", hint: "Always use tenant onboarding endpoint" }
+          ],
+          { defaultValue: out.walletBootstrap || "auto", color }
+        );
+      }
       if (out.walletBootstrap === "local" && !out.circleApiKey) {
         out.circleApiKey = await promptSecretLine(rl, mutableOutput, stdout, "Circle API key");
       }
@@ -1253,6 +1445,9 @@ async function resolveRuntimeConfig({
       out.smoke = false;
       out.skipProfileApply = true;
       out.dryRun = true;
+      out.guidedNext = false;
+    } else if (out.setupMode === "quick") {
+      out.profileId = out.profileId || "engineering-spend";
     } else {
       out.preflight = await promptBooleanChoice(
         rl,
@@ -1331,7 +1526,8 @@ export async function runOnboard({
   runPreflightChecksImpl = runPreflightChecks,
   detectInstalledHostsImpl = detectInstalledHosts,
   runLoginImpl = runLogin,
-  readSavedSessionImpl = readSavedSession
+  readSavedSessionImpl = readSavedSession,
+  runWalletCliImpl = runWalletCli
 } = {}) {
   const args = parseArgs(argv);
   if (args.help) {
@@ -1340,7 +1536,7 @@ export async function runOnboard({
   }
 
   const showSteps = args.format !== "json";
-  const totalSteps = args.preflightOnly ? 4 : 5;
+  const totalSteps = args.preflightOnly ? 4 : 6;
   let step = 1;
 
   if (showSteps) printStep(stdout, step, totalSteps, "Resolve setup configuration");
@@ -1550,9 +1746,27 @@ export async function runOnboard({
     await fs.writeFile(args.outEnv, toEnvFileText(mergedEnv), "utf8");
   }
 
+  if (showSteps) printStep(stdout, step, totalSteps, "Guided next steps");
+  const guided = await runGuidedQuickFlow({
+    enabled: Boolean(config.setupMode === "quick" && config.guidedNext),
+    walletMode: config.walletMode,
+    normalizedBaseUrl,
+    tenantId,
+    sessionFile: config.sessionFile,
+    sessionCookie: config.sessionCookie,
+    mergedEnv,
+    runtimeEnv,
+    stdin,
+    stdout,
+    runWalletCliImpl
+  });
+  step += 1;
+
   if (showSteps) printStep(stdout, step, totalSteps, "Finalize output");
   const payload = {
     ok: true,
+    setupMode: config.setupMode,
+    guided,
     host: config.host,
     wallet: {
       mode: config.walletMode,
@@ -1584,6 +1798,7 @@ export async function runOnboard({
     lines.push("Settld onboard complete.");
     lines.push(`Host: ${config.host}`);
     lines.push(`Settld: ${normalizedBaseUrl} (tenant=${tenantId})`);
+    lines.push(`Setup mode: ${config.setupMode}`);
     lines.push(`Preflight: ${config.preflight ? "passed" : "skipped"}`);
     lines.push(`Wallet mode: ${config.walletMode}`);
     lines.push(`Wallet bootstrap mode: ${walletBootstrapMode}`);
@@ -1591,6 +1806,18 @@ export async function runOnboard({
     if (wallet?.wallets?.escrow?.walletId) lines.push(`Escrow wallet: ${wallet.wallets.escrow.walletId}`);
     if (wallet?.tokenIdUsdc) lines.push(`USDC token id: ${wallet.tokenIdUsdc}`);
     if (args.outEnv) lines.push(`Wrote env file: ${args.outEnv}`);
+    if (guided?.enabled) {
+      lines.push("");
+      lines.push("Guided quick flow:");
+      if (guided.ran) {
+        lines.push(`- wallet fund: ${guided.walletFund?.ok ? "ok" : "not completed"}`);
+        lines.push(`- wallet balance watch: ${guided.walletBalanceWatch?.ok ? "ok" : "not completed"}`);
+        lines.push(`- first paid call: ${guided.firstPaidCall?.ok ? "ok" : "failed"}`);
+      } else {
+        lines.push("- skipped");
+      }
+      for (const warning of guided.warnings ?? []) lines.push(`- warning: ${warning}`);
+    }
     lines.push("");
     lines.push("Combined exports:");
     lines.push(toExportText(mergedEnv));

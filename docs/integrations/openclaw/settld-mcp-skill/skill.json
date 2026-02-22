@@ -1,0 +1,11 @@
+{
+  "name": "settld-mcp-payments",
+  "version": "0.2.0",
+  "description": "OpenClaw skill for Settld paid MCP tools with policy decisions and verifiable receipts.",
+  "author": "Settld",
+  "entry": "SKILL.md",
+  "files": [
+    "SKILL.md",
+    "mcp-server.example.json"
+  ]
+}
