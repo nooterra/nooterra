@@ -1,47 +1,33 @@
 # Onboarding Runtime Loop
 
-This runbook covers the production onboarding control loop:
+Production onboarding loop:
 
 `runtime bootstrap -> MCP smoke -> first paid call -> conformance matrix`
 
-## Prerequisites
-
-- Control plane admin API key (`x-api-key`)
-- Tenant ID
-- Settld API + ops token configured on Magic Link service
-- MCP server executable available (`npx -y settld-mcp`)
-
-## CLI fast path (host + starter policy)
-
-Use one command per host:
+## Fast path (CLI)
 
 ```bash
-settld setup --yes --mode manual --host codex --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_live_xxx.yyy --profile-id engineering-spend --smoke
-settld setup --yes --mode manual --host claude --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_live_xxx.yyy --profile-id engineering-spend --smoke
-settld setup --yes --mode manual --host cursor --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_live_xxx.yyy --profile-id engineering-spend --smoke
-settld setup --yes --mode manual --host openclaw --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_live_xxx.yyy --profile-id engineering-spend --smoke
+npx settld setup
 ```
 
-Setup automatically injects `SETTLD_PAID_TOOLS_AGENT_PASSPORT` into host MCP config so paid tool calls carry policy-bound passport context by default.
-
-Useful flags:
-
-- `--skip-profile-apply` for host setup only
-- `--profile-file ./path/to/profile.json` to apply your own profile
-- `--dry-run` to preview writes only
-
-Policy wizard flow (template-based):
+For scripted execution:
 
 ```bash
-npm run trust:wizard -- list --format text
-npm run trust:wizard -- show --template delivery_standard_v1 --format text
-npm run trust:wizard -- render --template delivery_standard_v1 --overrides-json '{"metrics":{"targetCompletionMinutes":60}}' --out ./policy.delivery.json --format json
-npm run trust:wizard -- validate --template delivery_standard_v1 --overrides-json '{"metrics":{"targetCompletionMinutes":60}}' --format json
+npx settld setup \
+  --non-interactive \
+  --host codex \
+  --base-url http://127.0.0.1:3000 \
+  --tenant-id tenant_default \
+  --settld-api-key sk_live_xxx.yyy \
+  --wallet-mode managed \
+  --profile-id engineering-spend \
+  --smoke \
+  --report-path ./artifacts/setup-codex.json
 ```
 
-## Hosted API golden path
+## Hosted API path (Magic Link)
 
-1. Generate runtime credentials:
+1. Runtime bootstrap:
 
 ```bash
 curl -sS -X POST \
@@ -51,17 +37,17 @@ curl -sS -X POST \
   -d '{"apiKey":{"create":true,"description":"onboarding runtime key"}}'
 ```
 
-2. Run MCP smoke test:
+2. MCP smoke:
 
 ```bash
 curl -sS -X POST \
   -H "x-api-key: <admin_api_key>" \
   -H "content-type: application/json" \
   http://127.0.0.1:3090/v1/tenants/<tenant_id>/onboarding/runtime-bootstrap/smoke-test \
-  -d '{"env":{"SETTLD_BASE_URL":"<api_base_url>","SETTLD_TENANT_ID":"<tenant_id>","SETTLD_API_KEY":"<runtime_key>"}}'
+  -d '{"env":{"SETTLD_BASE_URL":"http://127.0.0.1:3000","SETTLD_TENANT_ID":"<tenant_id>","SETTLD_API_KEY":"<runtime_key>"}}'
 ```
 
-3. Run first paid flow:
+3. First paid call:
 
 ```bash
 curl -sS -X POST \
@@ -71,63 +57,34 @@ curl -sS -X POST \
   -d '{}'
 ```
 
-4. Run conformance matrix (recommended with idempotency key):
+4. Conformance matrix:
 
 ```bash
 curl -sS -X POST \
   -H "x-api-key: <admin_api_key>" \
-  -H "x-idempotency-key: matrix_<tenant_id>_<build_id>" \
+  -H "x-idempotency-key: matrix_<tenant>_<build>" \
   -H "content-type: application/json" \
   http://127.0.0.1:3090/v1/tenants/<tenant_id>/onboarding/conformance-matrix \
   -d '{"targets":["codex","claude","cursor","openclaw"]}'
 ```
 
-## Replay and History
-
-- Read first paid call history:
+## Replay / history
 
 ```bash
-curl -sS \
-  -H "x-api-key: <admin_api_key>" \
+curl -sS -H "x-api-key: <admin_api_key>" \
   http://127.0.0.1:3090/v1/tenants/<tenant_id>/onboarding/first-paid-call/history
 ```
 
-- Replay a prior first paid call attempt (no new spend attempt):
+## Failure patterns
 
-```bash
-curl -sS -X POST \
-  -H "x-api-key: <admin_api_key>" \
-  -H "content-type: application/json" \
-  http://127.0.0.1:3090/v1/tenants/<tenant_id>/onboarding/first-paid-call \
-  -d '{"replayAttemptId":"fpc_<attempt_id>"}'
-```
+- `RUNTIME_BOOTSTRAP_UNCONFIGURED`: bootstrap service missing API/ops settings
+- `MCP_SMOKE_TEST_FAILED`: runtime env or MCP wiring invalid
+- `SETTLD_API_CALL_FAILED`: paid flow step failed downstream
+- `RATE_LIMITED`: retry after returned interval
 
-## Failure Playbook
+## Success criteria
 
-- `RUNTIME_BOOTSTRAP_UNCONFIGURED`
-  - Verify `MAGIC_LINK_SETTLD_API_BASE_URL` and `MAGIC_LINK_SETTLD_OPS_TOKEN` are both set.
-
-- `MCP_SMOKE_TEST_FAILED`
-  - Confirm env values from bootstrap output are unmodified.
-  - Confirm MCP package is resolvable in runtime host.
-
-- `SETTLD_API_CALL_FAILED` / step-specific paid-call failure
-  - Check response `step` and `message`.
-  - Re-run first paid call and compare attempt history.
-
-- `RATE_LIMITED` on conformance matrix
-  - Honor `retryAfterSeconds`.
-  - Reduce automated matrix frequency.
-  - Use `x-idempotency-key` to safely retry same operation.
-
-- `INVALID_IDEMPOTENCY_KEY`
-  - Ensure key is single-line and <= 160 chars.
-
-## Audit Expectations
-
-After successful runs, audit logs should contain:
-
-- `TENANT_RUNTIME_BOOTSTRAP_ISSUED`
-- `TENANT_RUNTIME_MCP_SMOKE_TESTED`
-- `TENANT_RUNTIME_FIRST_PAID_CALL_COMPLETED`
-- `TENANT_RUNTIME_CONFORMANCE_MATRIX_RUN`
+- Setup report says host write + smoke passed
+- `settld.about` callable from host
+- First paid call returns deterministic IDs and settlement receipt
+- Conformance matrix marks target hosts `ready=true`

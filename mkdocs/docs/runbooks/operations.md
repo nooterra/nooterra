@@ -1,32 +1,61 @@
 # Operations Runbook
 
-## Daily
+This runbook is for daily production operation of Settld control loops.
 
-- Check escalation queue health
-- Check delivery retry/dead-letter queue state
-- Sample verify receipts and closepacks
-- Run HITL escalation smoke (`blocked -> escalation -> approve|deny -> receipt`):
+## Daily checks
+
+1. Confirm onboarding health:
 
 ```bash
-npm run ops:x402:hitl:smoke -- --ops-token tok_ops
+npm run test:ci:mcp-host-smoke
 ```
 
-- Check onboarding runtime loop health (`runtime bootstrap -> MCP smoke -> first paid call`)
-- Confirm conformance matrix runs are green and not rate-limited
+2. Confirm host certification matrix health:
 
-## Release
+```bash
+npm run test:ci:mcp-host-cert-matrix
+```
 
-- Run conformance suite
-- Run replay comparison gates
-- Validate export and reconciliation contracts
-- Re-run onboarding conformance matrix with an idempotency key and verify `reused=true` behavior
+3. Verify escalation/human override path:
 
-## Weekly
+```bash
+npm run ops:x402:hitl:smoke
+```
 
-- Secret rotation drills
-- Policy drift checks
-- Incident postmortem reviews
+4. Sample receipt verification quality:
 
-## Related Runbook
+```bash
+npm run ops:x402:receipt:sample-check
+```
+
+5. Generate reconciliation evidence:
+
+```bash
+npm run ops:money-rails:reconcile:evidence
+npm run ops:dispute:finance:packet
+```
+
+## Release checks
+
+Run before promotion:
+
+```bash
+npm run test:ops:onboarding-policy-slo-gate
+npm run test:ops:onboarding-host-success-gate
+npm run test:ops:go-live-gate
+npm run test:ops:production-cutover-gate
+npm run test:ops:release-promotion-guard
+```
+
+## Throughput / incident drills
+
+```bash
+npm run test:ops:throughput:10x
+npm run test:ops:throughput:incident
+```
+
+## Related runbooks
 
 - [Onboarding Runtime Loop](onboarding-runtime.md)
+- [Incident Response](incidents.md)
+- [Key Management](key-management.md)

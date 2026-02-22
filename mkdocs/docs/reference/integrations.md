@@ -1,24 +1,49 @@
 # Integrations
 
-## MCP Integration
+Settld is designed to sit under existing agent runtimes, not replace them.
 
-Expose Settld as agent-callable tools for host environments.
+## Host integrations
 
-### Host Targets
+Supported setup targets:
 
-- Codex Agent via MCP server wiring
-- Claude Code/Desktop via MCP tool configuration
-- Cursor via MCP endpoint registration
-- OpenClaw/ClawHub via skill package that configures Settld MCP
+- `codex`
+- `claude`
+- `cursor`
+- `openclaw`
 
-## SDK Integration
+Recommended path:
 
-Use SDKs in app backends for deterministic policy + settlement loops.
+```bash
+npx settld setup
+```
 
-## Operator Integration
+For scripted install:
 
-Route escalation events into a control inbox with signed decision APIs.
+```bash
+npx settld setup --non-interactive --host <codex|claude|cursor|openclaw> ...
+```
 
-## Registry and Discovery
+## MCP integration
 
-Publish provider and verification-key references with cryptographic anchors.
+- Settld MCP server is exposed by package binary `settld-mcp`
+- Smoke test command:
+
+```bash
+npm run mcp:probe -- --call settld.about '{}'
+```
+
+## SDK/backend integration
+
+Use Settld APIs in backend flows for:
+
+- policy-bounded authorization
+- settlement verification
+- receipt retrieval and reconciliation
+
+## OpenClaw skill path
+
+Public skill files live under:
+
+- `docs/integrations/openclaw/settld-mcp-skill/`
+
+Use this when packaging Settld setup as an installable skill for OpenClaw users.

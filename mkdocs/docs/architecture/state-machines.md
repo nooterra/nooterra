@@ -1,19 +1,35 @@
 # State Machines
 
-## Authorization / Execution
+Settld relies on deterministic state transitions and idempotent retries.
 
-`quoted -> authorized -> executed -> verified -> receipted`
+## 1) Paid execution flow
 
-## Escalation
+`create -> quote(optional) -> authorize -> verify -> settlement`
 
-`policy_blocked -> pending_escalation -> approved|denied -> resumed|voided`
+Terminal outcomes:
 
-## Agent Lifecycle
+- `released`
+- `refunded`
+- `reversed`
+- `locked` (until operator/dispute action)
+
+## 2) Escalation flow
+
+`triggered -> pending -> approved|denied -> resumed|voided`
+
+Rules:
+
+- Escalation decisions are signed and one-time.
+- Retry does not double-settle or double-resolve.
+
+## 3) Agent lifecycle flow
 
 `active -> frozen -> unwind -> archived`
 
-## Queue Guarantees
+Used when insolvency/risk controls require immediate containment.
 
-- Retries with backoff
-- Dead-lettering on repeated failure
-- Idempotent command processing
+## 4) Queue and retry guarantees
+
+- At-least-once delivery with idempotency keys
+- Backoff + dead-letter protection
+- Replay-safe processing for settlement/dispute transitions

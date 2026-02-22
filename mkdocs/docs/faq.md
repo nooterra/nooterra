@@ -1,16 +1,19 @@
 # FAQ
 
-## Is Settld only payments?
-No. Payments are one primitive. The system spans identity, policy, execution, evidence, and operations.
+## Is Settld only a wallet?
+No. Settld is a trust/control layer around agent actions and settlement.
 
-## Can we verify without Settld online?
-Yes. Closepacks are designed for offline verification.
+## Can I run without managed wallet setup?
+Yes. Use `--wallet-mode byo` or `--wallet-mode none` during setup.
 
-## How do overrides work?
-Policy blocks create signed escalation requests. Operators approve/deny via signed one-time decisions.
+## Can we verify receipts offline?
+Yes. Use `settld x402 receipt verify` and closepack export/verify flows.
 
-## What happens when agents become insolvent?
-They are frozen, unwound, and archived through deterministic lifecycle controls.
+## What happens when policy blocks a payment?
+The outcome is deterministic (`challenge`, `deny`, or `escalate`) with reason codes and audit traces.
 
-## Is this production-ready?
-Core primitives are production-directed. Use conformance and runbook gates before scaling to wider traffic.
+## How do human overrides work?
+Through signed escalation decisions; retries are idempotent.
+
+## Is this production ready?
+Core Trust OS flows are production-focused. Run onboarding, conformance, and cutover gates before broad rollout.

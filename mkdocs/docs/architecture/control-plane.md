@@ -1,18 +1,28 @@
 # Control Plane
 
-Settld composes five layers:
+Settld is the enforcement layer between autonomous actions and settlement.
 
-1. **Identity and Delegation**
-2. **Policy and Authorization**
-3. **Execution and Settlement**
-4. **Evidence and Verification**
-5. **Lifecycle and Operations**
+## Layer model
 
-Each layer emits artifacts consumed by the next layer. No layer may bypass upstream integrity checks.
+1. **Identity and delegation**
+   - Agent identity, delegation lineage, revocation/expiry checks
+2. **Policy decision**
+   - Deterministic outcome: `allow`, `challenge`, `deny`, `escalate`
+3. **Execution binding**
+   - Request binding to policy/authorization context
+4. **Settlement and lifecycle**
+   - Authorization, verification, release/refund/reversal paths
+5. **Evidence and operations**
+   - Receipt bundles, closepacks, replay, audit exports
 
-## Core Invariants
+## Hard invariants
 
-- No settlement without verification checks.
-- No mutable receipt history.
-- No override without signed escalation decision.
-- No stranded liabilities after insolvency.
+- No paid settlement without verification checks.
+- No override without signed operator decision.
+- No mutable receipt history (append-only timeline).
+- No bypass path around policy runtime for high-risk actions.
+
+## Why this matters
+
+Payment rails can settle money.
+Settld makes agent settlement trustworthy, explainable, and operable under incident pressure.

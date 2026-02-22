@@ -1,6 +1,37 @@
 # API Surface
 
-## Onboarding Runtime Loop
+This page summarizes the currently active public/control endpoints used by Settld workflows.
+
+## Core Settld API (typically `:3000`)
+
+Identity / runtime:
+
+- `POST /agents/register`
+- `GET /runs/{runId}/verification`
+- `GET /runs/{runId}/settlement`
+
+x402 flow:
+
+- `POST /x402/gate/create`
+- `POST /x402/gate/quote`
+- `POST /x402/gate/authorize-payment`
+- `POST /x402/gate/verify`
+- `GET /x402/gate/escalations`
+- `POST /x402/gate/escalations/{id}/resolve`
+- `POST /x402/gate/agents/{agentId}/wind-down`
+
+Wallet and webhook controls:
+
+- `POST /x402/wallets/{walletId}/authorize`
+- `POST /x402/webhooks/endpoints`
+- `GET /x402/webhooks/endpoints`
+- `POST /x402/webhooks/endpoints/{endpointId}/rotate-secret`
+
+Ops:
+
+- `POST /ops/api-keys`
+
+## Hosted onboarding API (Magic Link service, typically `:3090`)
 
 - `POST /v1/tenants/{tenantId}/onboarding/runtime-bootstrap`
 - `POST /v1/tenants/{tenantId}/onboarding/runtime-bootstrap/smoke-test`
@@ -8,35 +39,17 @@
 - `GET /v1/tenants/{tenantId}/onboarding/first-paid-call/history`
 - `POST /v1/tenants/{tenantId}/onboarding/conformance-matrix`
 
-## Authorization and Spend
+## Error behavior
 
-- `POST /x402/wallets/:walletId/authorize`
-- `POST /x402/gate/authorize-payment`
-- `POST /x402/gate/verify`
-- `POST /x402/gate/reversal`
+Common control-plane failure classes:
 
-## Receipts and Evidence
+- `RATE_LIMITED`
+- `INVALID_IDEMPOTENCY_KEY`
+- `MCP_SMOKE_TEST_FAILED`
+- `SETTLD_API_CALL_FAILED`
+- x402 policy/verification specific fail-closed codes (returned by x402 endpoints)
 
-- `GET /x402/receipts/:receiptId`
-- `GET /x402/receipts`
-- `GET /x402/receipts/export.jsonl`
-- `GET /x402/receipts/:receiptId/closepack`
+## Contract source
 
-## Escalation and Webhooks
-
-- `GET /x402/gate/escalations`
-- `POST /x402/gate/escalations/:id/resolve`
-- `POST /x402/webhooks/endpoints`
-- `POST /x402/webhooks/endpoints/:id/rotate-secret`
-
-## Lifecycle
-
-- `POST /x402/gate/agents/:id/wind-down`
-
-## Common Control-Plane Error Codes
-
-- `RATE_LIMITED` with `retryAfterSeconds` for conformance abuse protection
-- `INVALID_IDEMPOTENCY_KEY` for malformed idempotency values
-- `RUNTIME_BOOTSTRAP_UNCONFIGURED` when API base URL / ops token is missing
-- `MCP_SMOKE_TEST_FAILED` when MCP initialize/tools listing fails
-- `SETTLD_API_CALL_FAILED` for upstream action failures in paid flow steps
+- Generated OpenAPI: `openapi/settld.openapi.json`
+- Generator command: `npm run openapi:write`

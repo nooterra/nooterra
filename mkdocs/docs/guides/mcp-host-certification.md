@@ -1,21 +1,44 @@
 # MCP Host Certification
 
-Use these commands to verify Settld MCP host compatibility.
+This verifies that a host can run Settld MCP paths reliably.
 
-## One-command host runtime doctor
+## 1) Doctor check
 
 ```bash
 npx settld doctor
 ```
 
-This runs runtime bootstrap + MCP probe checks and writes:
+Optional report output:
+
+```bash
+npx settld doctor --report ./artifacts/ops/doctor-report.json
+```
+
+## 2) Onboarding smoke (runtime bootstrap + MCP call)
+
+```bash
+npm run test:ci:mcp-host-smoke
+```
+
+Writes report:
 
 - `artifacts/ops/mcp-host-smoke.json`
 
-## Host config write matrix (Codex/Claude/Cursor/OpenClaw)
+## 3) Host config matrix check
 
 ```bash
 npm run test:ci:mcp-host-cert-matrix
 ```
 
-This validates config write/idempotency behavior for all supported host config shapes.
+Writes report:
+
+- `artifacts/ops/mcp-host-cert-matrix.json`
+
+## 4) Certification criteria
+
+A host is considered ready when all are true:
+
+- Setup writes host config deterministically
+- MCP initialize + tools/list succeeds
+- `settld.about` tool call succeeds
+- First paid path completes with verifiable receipt
