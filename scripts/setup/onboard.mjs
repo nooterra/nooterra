@@ -1328,6 +1328,8 @@ async function resolveRuntimeConfig({
 
     if (!out.baseUrl) out.baseUrl = DEFAULT_PUBLIC_BASE_URL;
     if (!out.settldApiKey) {
+      let loginUnavailableForRun = false;
+      let preferredKeyMode = null;
       while (!out.settldApiKey) {
         const canUseSavedSession =
           Boolean(out.sessionCookie) &&
@@ -1341,7 +1343,7 @@ async function resolveRuntimeConfig({
             label: "Use saved login session",
             hint: `Reuse ${out.sessionFile} to mint runtime key`
           });
-        } else {
+        } else if (!loginUnavailableForRun) {
           keyOptions.push({
             value: "login",
             label: "Login / create tenant (recommended)",
@@ -1352,13 +1354,21 @@ async function resolveRuntimeConfig({
           { value: "bootstrap", label: "Generate during setup", hint: "Use onboarding bootstrap API key" },
           { value: "manual", label: "Paste existing key", hint: "Use an existing tenant API key" }
         );
+        const defaultKeyMode =
+          preferredKeyMode && keyOptions.some((option) => option.value === preferredKeyMode)
+            ? preferredKeyMode
+            : canUseSavedSession
+              ? "session"
+              : loginUnavailableForRun
+                ? "bootstrap"
+                : "login";
         const keyMode = await promptSelect(
           rl,
           stdin,
           stdout,
           "How should setup get your Settld API key?",
           keyOptions,
-          { defaultValue: canUseSavedSession ? "session" : "login", color }
+          { defaultValue: defaultKeyMode, color }
         );
         if (keyMode === "login") {
           try {
@@ -1378,13 +1388,21 @@ async function resolveRuntimeConfig({
               savedSession.tenantId = refreshedSession.tenantId;
               savedSession.cookie = refreshedSession.cookie;
             }
+            preferredKeyMode = "session";
           } catch (err) {
-            stdout.write(`Login failed: ${err?.message ?? "unknown error"}\n`);
+            const message = String(err?.message ?? "unknown error");
+            stdout.write(`Login failed: ${message}\n`);
             stdout.write("Choose `Generate during setup` if your deployment does not expose public signup/login.\n");
+            if (/Public signup is unavailable|Public signup is disabled/i.test(message)) {
+              loginUnavailableForRun = true;
+              stdout.write("Login/signup has been disabled for this setup run. Continuing with API key modes.\n");
+            }
+            preferredKeyMode = "bootstrap";
           }
           continue;
         }
         if (keyMode === "bootstrap") {
+          preferredKeyMode = "bootstrap";
           if (!out.bootstrapApiKey) {
             out.bootstrapApiKey = await promptSecretLine(rl, mutableOutput, stdout, "Onboarding bootstrap API key");
           }
@@ -1397,6 +1415,7 @@ async function resolveRuntimeConfig({
           break;
         }
         if (keyMode === "manual") {
+          preferredKeyMode = "manual";
           out.settldApiKey = await promptSecretLine(rl, mutableOutput, stdout, "Settld API key");
           break;
         }
