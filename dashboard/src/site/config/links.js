@@ -17,8 +17,8 @@ export const ossLinks = {
 
 export const docsLinks = {
   home: `${docsBaseUrl}/`,
-  quickstart: `${docsBaseUrl}/getting-started/quickstart/`,
-  localEnvironment: `${docsBaseUrl}/getting-started/local-environment/`,
+  quickstart: `${docsBaseUrl}/guides/quickstart/`,
+  localEnvironment: `${docsBaseUrl}/guides/local-environment/`,
   architecture: `${docsBaseUrl}/architecture/control-plane/`,
   api: `${docsBaseUrl}/reference/api-surface/`,
   integrations: `${docsBaseUrl}/reference/integrations/`,
