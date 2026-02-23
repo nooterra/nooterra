@@ -11,7 +11,8 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-const dataDir = process.env.MAGIC_LINK_DATA_DIR ? path.resolve(process.env.MAGIC_LINK_DATA_DIR) : path.join(os.tmpdir(), "settld-magic-link");
+const dataDirRaw = process.env.MAGIC_LINK_DATA_DIR ? String(process.env.MAGIC_LINK_DATA_DIR).trim() : "";
+const dataDir = dataDirRaw ? path.resolve(dataDirRaw) : path.join(os.tmpdir(), "settld-magic-link");
 const dataDirLikelyEphemeral =
   dataDir === "/tmp" ||
   dataDir.startsWith("/tmp/") ||
