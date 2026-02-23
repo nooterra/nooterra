@@ -13,7 +13,7 @@ import { bootstrapWalletProvider } from "../../src/core/wallet-provider-bootstra
 import { extractBootstrapMcpEnv, loadHostConfigHelper, runWizard } from "./wizard.mjs";
 import { SUPPORTED_HOSTS } from "./host-config.mjs";
 import { defaultSessionPath, readSavedSession } from "./session-store.mjs";
-import { runLogin } from "./login.mjs";
+import { detectDeploymentAuthMode, runLogin } from "./login.mjs";
 import { runWalletCli } from "../wallet/cli.mjs";
 import { classifyOnboardingFailure } from "./onboarding-failure-taxonomy.mjs";
 import { ONBOARDING_EVENTS, ONBOARDING_STATES, transitionOnboardingState } from "./onboarding-state-machine.mjs";
@@ -1199,6 +1199,7 @@ async function resolveRuntimeConfig({
   stdin = process.stdin,
   stdout = process.stdout,
   detectInstalledHostsImpl = detectInstalledHosts,
+  detectDeploymentAuthModeImpl = detectDeploymentAuthMode,
   fetchImpl = fetch,
   runLoginImpl = runLogin,
   readSavedSessionImpl = readSavedSession
@@ -1237,6 +1238,7 @@ async function resolveRuntimeConfig({
     preflight: Boolean(args.preflight),
     smoke: Boolean(args.smoke),
     dryRun: Boolean(args.dryRun),
+    authMode: "unknown",
     installedHosts
   };
   if (savedSession) {
@@ -1330,6 +1332,20 @@ async function resolveRuntimeConfig({
     );
 
     if (!out.baseUrl) out.baseUrl = DEFAULT_PUBLIC_BASE_URL;
+    if (out.baseUrl) {
+      try {
+        const authDiscovery = await detectDeploymentAuthModeImpl({ baseUrl: out.baseUrl, fetchImpl });
+        out.authMode = String(authDiscovery?.mode ?? "unknown");
+        if (out.authMode !== "unknown") {
+          stdout.write(`Detected auth mode: ${out.authMode}\n`);
+        }
+      } catch {
+        out.authMode = "unknown";
+      }
+    }
+    if (out.authMode === "enterprise_preprovisioned" && !out.tenantId && !savedSession?.tenantId) {
+      out.tenantId = await promptLine(rl, "Tenant ID (required for this deployment mode)", { required: true });
+    }
     if (!out.settldApiKey) {
       let loginUnavailableForRun = false;
       let preferredKeyMode = null;
@@ -1349,13 +1365,15 @@ async function resolveRuntimeConfig({
             (normalizeHttpUrl(out.baseUrl) === normalizeHttpUrl(savedSession?.baseUrl) &&
               (!out.tenantId || String(out.tenantId ?? "").trim() === String(savedSession?.tenantId ?? "").trim())));
         const keyOptions = [];
+        const loginAllowedForMode =
+          out.authMode !== "enterprise_preprovisioned" || Boolean(String(out.tenantId ?? "").trim());
         if (canUseSavedSession) {
           keyOptions.push({
             value: "session",
             label: "Use saved login session",
             hint: `Reuse ${out.sessionFile} to mint runtime key`
           });
-        } else if (!loginUnavailableForRun) {
+        } else if (!loginUnavailableForRun && loginAllowedForMode) {
           keyOptions.push({
             value: "login",
             label: "Login / create tenant (recommended)",
@@ -1373,7 +1391,9 @@ async function resolveRuntimeConfig({
               ? "session"
               : loginUnavailableForRun
                 ? "bootstrap"
-                : "login";
+                : loginAllowedForMode
+                  ? "login"
+                  : "bootstrap";
         const keyMode = await promptSelect(
           rl,
           stdin,
@@ -1383,9 +1403,16 @@ async function resolveRuntimeConfig({
           { defaultValue: defaultKeyMode, color }
         );
         if (keyMode === "login") {
+          if (!loginAllowedForMode) {
+            throw new Error(
+              "login flow requires --tenant-id in enterprise_preprovisioned mode. Provide tenant ID or choose bootstrap/manual API key mode."
+            );
+          }
           try {
+            const loginArgv = ["--base-url", out.baseUrl, "--session-file", out.sessionFile];
+            if (out.tenantId) loginArgv.push("--tenant-id", out.tenantId);
             await runLoginImpl({
-              argv: ["--base-url", out.baseUrl, "--session-file", out.sessionFile],
+              argv: loginArgv,
               stdin,
               stdout,
               fetchImpl
@@ -1561,6 +1588,7 @@ export async function runOnboard({
   requestRemoteWalletBootstrapImpl = requestRemoteWalletBootstrap,
   runPreflightChecksImpl = runPreflightChecks,
   detectInstalledHostsImpl = detectInstalledHosts,
+  detectDeploymentAuthModeImpl = detectDeploymentAuthMode,
   runLoginImpl = runLogin,
   readSavedSessionImpl = readSavedSession,
   runWalletCliImpl = runWalletCli
@@ -1587,6 +1615,7 @@ export async function runOnboard({
     stdin,
     stdout,
     detectInstalledHostsImpl,
+    detectDeploymentAuthModeImpl,
     fetchImpl,
     runLoginImpl,
     readSavedSessionImpl
@@ -1699,11 +1728,12 @@ export async function runOnboard({
         details: wallet && typeof wallet === "object" ? wallet : null
       },
       settld: {
-        baseUrl: normalizedBaseUrl,
-        tenantId,
-        preflight: Boolean(config.preflight),
-        smoke: false,
-        profileApplied: false,
+      baseUrl: normalizedBaseUrl,
+      tenantId,
+      authMode: config.authMode ?? "unknown",
+      preflight: Boolean(config.preflight),
+      smoke: false,
+      profileApplied: false,
         profileId: null
       },
       preflight,
@@ -1830,6 +1860,7 @@ export async function runOnboard({
     settld: {
       baseUrl: normalizedBaseUrl,
       tenantId,
+      authMode: config.authMode ?? "unknown",
       preflight: Boolean(config.preflight),
       smoke: Boolean(config.smoke),
       profileApplied: !config.skipProfileApply,
@@ -1855,6 +1886,7 @@ export async function runOnboard({
     lines.push("Settld onboard complete.");
     lines.push(`Host: ${config.host}`);
     lines.push(`Settld: ${normalizedBaseUrl} (tenant=${tenantId})`);
+    lines.push(`Auth mode: ${config.authMode ?? "unknown"}`);
     lines.push(`Setup mode: ${config.setupMode}`);
     lines.push(`Preflight: ${config.preflight ? "passed" : "skipped"}`);
     lines.push(`Wallet mode: ${config.walletMode}`);

@@ -30,6 +30,7 @@ Required decisions (target <= 6):
 - Fallback path: onboarding bootstrap API key.
 - Last resort: paste existing tenant API key.
 - Setup must not loop indefinitely on unavailable login/signup routes.
+- Deployment mode is detected from `GET /v1/public/auth-mode` before prompting auth choices.
 
 ## OTP Behavior
 

@@ -8,6 +8,10 @@ import { fileURLToPath } from "node:url";
 import { cookieHeaderFromSetCookie, defaultSessionPath, writeSavedSession } from "./session-store.mjs";
 
 const FORMAT_OPTIONS = new Set(["text", "json"]);
+const AUTH_MODE_PUBLIC_SIGNUP = "public_signup";
+const AUTH_MODE_ENTERPRISE_PREPROVISIONED = "enterprise_preprovisioned";
+const AUTH_MODE_HYBRID = "hybrid";
+const KNOWN_AUTH_MODES = new Set([AUTH_MODE_PUBLIC_SIGNUP, AUTH_MODE_ENTERPRISE_PREPROVISIONED, AUTH_MODE_HYBRID]);
 
 function usage() {
   const text = [
@@ -151,6 +155,52 @@ async function requestJson(url, { method, body, headers = {}, fetchImpl = fetch 
   return { res, text, json };
 }
 
+function normalizeAuthMode(value) {
+  const mode = String(value ?? "").trim().toLowerCase();
+  return KNOWN_AUTH_MODES.has(mode) ? mode : "unknown";
+}
+
+export async function detectDeploymentAuthMode({ baseUrl, fetchImpl = fetch } = {}) {
+  const normalizedBaseUrl = mustHttpUrl(baseUrl, "base URL");
+  let response;
+  try {
+    response = await requestJson(`${normalizedBaseUrl}/v1/public/auth-mode`, {
+      method: "GET",
+      fetchImpl
+    });
+  } catch {
+    return {
+      schemaVersion: "SettldAuthModeDiscovery.v1",
+      mode: "unknown",
+      source: "network_error",
+      enterpriseProvisionedTenantsOnly: null
+    };
+  }
+  if (!response.res.ok) {
+    return {
+      schemaVersion: "SettldAuthModeDiscovery.v1",
+      mode: "unknown",
+      source: `http_${response.res.status}`,
+      enterpriseProvisionedTenantsOnly: null
+    };
+  }
+  const mode = normalizeAuthMode(response.json?.authMode);
+  const enterpriseOnly =
+    typeof response.json?.enterpriseProvisionedTenantsOnly === "boolean"
+      ? response.json.enterpriseProvisionedTenantsOnly
+      : mode === AUTH_MODE_ENTERPRISE_PREPROVISIONED
+        ? true
+        : mode === "unknown"
+          ? null
+          : false;
+  return {
+    schemaVersion: "SettldAuthModeDiscovery.v1",
+    mode,
+    source: "endpoint",
+    enterpriseProvisionedTenantsOnly: enterpriseOnly
+  };
+}
+
 function responseCode({ json }) {
   const direct = typeof json?.code === "string" ? json.code : "";
   if (direct) return direct;
@@ -220,6 +270,15 @@ export async function runLogin({
     }
 
     const baseUrl = mustHttpUrl(state.baseUrl, "base URL");
+    const authMode = await detectDeploymentAuthMode({ baseUrl, fetchImpl });
+    if (interactive && authMode.mode !== "unknown") {
+      stdout.write(`Detected auth mode: ${authMode.mode}\n`);
+    }
+    if (!state.tenantId && authMode.mode === AUTH_MODE_ENTERPRISE_PREPROVISIONED) {
+      throw new Error(
+        "This deployment uses enterprise_preprovisioned mode. Pass --tenant-id <existing_tenant> and login via OTP, or use bootstrap/manual API key flow."
+      );
+    }
     if (!state.email) throw new Error("email is required");
     if (!state.tenantId && !state.company) throw new Error("company is required when tenant ID is omitted");
 
@@ -299,7 +358,8 @@ export async function runLogin({
       tenantId: session.tenantId,
       email: session.email,
       sessionFile: state.sessionFile,
-      expiresAt: session.expiresAt ?? null
+      expiresAt: session.expiresAt ?? null,
+      authMode: authMode.mode
     };
 
     if (state.format === "json") {

@@ -874,6 +874,9 @@ const buyerOtpMaxAttempts = Number.parseInt(String(process.env.MAGIC_LINK_BUYER_
 const buyerOtpDeliveryMode = String(process.env.MAGIC_LINK_BUYER_OTP_DELIVERY_MODE ?? "record").trim().toLowerCase();
 const buyerSessionTtlSeconds = Number.parseInt(String(process.env.MAGIC_LINK_BUYER_SESSION_TTL_SECONDS ?? String(24 * 3600)), 10);
 const publicSignupEnabled = String(process.env.MAGIC_LINK_PUBLIC_SIGNUP_ENABLED ?? "0").trim() === "1";
+const AUTH_MODE_PUBLIC_SIGNUP = "public_signup";
+const AUTH_MODE_ENTERPRISE_PREPROVISIONED = "enterprise_preprovisioned";
+const AUTH_MODE_HYBRID = "hybrid";
 const onboardingEmailSequenceEnabled = String(process.env.MAGIC_LINK_ONBOARDING_EMAIL_SEQUENCE_ENABLED ?? "1").trim() !== "0";
 const onboardingEmailSequenceDeliveryModeRaw = String(process.env.MAGIC_LINK_ONBOARDING_EMAIL_DELIVERY_MODE ?? "").trim().toLowerCase();
 const paymentTriggerRetryIntervalMs = Number.parseInt(String(process.env.MAGIC_LINK_PAYMENT_TRIGGER_RETRY_INTERVAL_MS ?? "2000"), 10);
@@ -10196,6 +10199,38 @@ async function handleBuyerLogout(req, res) {
   return sendJson(res, 200, { ok: true });
 }
 
+function deriveAuthMode() {
+  if (publicSignupEnabled && apiKey) return AUTH_MODE_HYBRID;
+  if (publicSignupEnabled) return AUTH_MODE_PUBLIC_SIGNUP;
+  return AUTH_MODE_ENTERPRISE_PREPROVISIONED;
+}
+
+function buildAuthModePayload() {
+  const authMode = deriveAuthMode();
+  return {
+    ok: true,
+    schemaVersion: "MagicLinkAuthMode.v1",
+    authMode,
+    publicSignupEnabled: Boolean(publicSignupEnabled),
+    enterpriseProvisionedTenantsOnly: authMode === AUTH_MODE_ENTERPRISE_PREPROVISIONED,
+    guidance:
+      authMode === AUTH_MODE_ENTERPRISE_PREPROVISIONED
+        ? "Public signup is disabled. Use an existing tenant ID with OTP login or bootstrap/manual API key flow."
+        : authMode === AUTH_MODE_HYBRID
+          ? "Public signup and enterprise pre-provisioned tenant workflows are both available."
+          : "Public signup is enabled. New tenants can onboard with OTP.",
+    endpoints: {
+      publicSignup: "/v1/public/signup",
+      buyerLoginOtpTemplate: "/v1/tenants/{tenantId}/buyer/login/otp",
+      buyerLoginTemplate: "/v1/tenants/{tenantId}/buyer/login"
+    }
+  };
+}
+
+async function handlePublicAuthMode(_req, res) {
+  return sendJson(res, 200, buildAuthModePayload());
+}
+
 function normalizeBuyerRoleForApi(value) {
   const role = String(value ?? "").trim().toLowerCase();
   if (role === "admin" || role === "approver" || role === "viewer") return role;
@@ -15157,6 +15192,7 @@ export async function magicLinkHandler(req, res) {
       res.end(metrics.renderPrometheusText());
       return;
     }
+    if (method === "GET" && pathname === "/v1/public/auth-mode") return await handlePublicAuthMode(req, res);
     if (method === "POST" && pathname === "/v1/upload") return await handleUpload(req, res);
     if (method === "POST" && pathname === "/v1/revoke") return await handleRevoke(req, res);
     if (method === "GET" && pathname === "/v1/inbox") return await handleInbox(req, res, url);
