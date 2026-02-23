@@ -1020,6 +1020,17 @@ async function runGuidedQuickFlow({
     }
   }
 
+  const paidToolsBaseUrl = String(actionEnv.SETTLD_PAID_TOOLS_BASE_URL ?? "").trim();
+  if (!paidToolsBaseUrl) {
+    summary.firstPaidCall = {
+      ok: false,
+      skipped: true,
+      reason: "SETTLD_PAID_TOOLS_BASE_URL not configured"
+    };
+    summary.warnings.push("first paid call probe skipped (SETTLD_PAID_TOOLS_BASE_URL not configured)");
+    return summary;
+  }
+
   const paidProbe = runMcpPaidCallProbe({ env: actionEnv });
   if (paidProbe.ok) {
     summary.firstPaidCall = { ok: true };
@@ -1958,7 +1969,8 @@ export async function runOnboard({
       if (guided.ran) {
         lines.push(`- wallet fund: ${guided.walletFund?.ok ? "ok" : "not completed"}`);
         lines.push(`- wallet balance watch: ${guided.walletBalanceWatch?.ok ? "ok" : "not completed"}`);
-        lines.push(`- first paid call: ${guided.firstPaidCall?.ok ? "ok" : "failed"}`);
+        const firstPaidCallState = guided.firstPaidCall?.skipped ? "skipped" : guided.firstPaidCall?.ok ? "ok" : "failed";
+        lines.push(`- first paid call: ${firstPaidCallState}`);
       } else {
         lines.push("- skipped");
       }
