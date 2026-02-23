@@ -1,4 +1,0 @@
-interface:
-  display_name: "AI DevOps Release Operator"
-  short_description: "Scale infra and release execution"
-  default_prompt: "Use $ai-devops-release-operator to plan infra changes and safe rollout checklists."

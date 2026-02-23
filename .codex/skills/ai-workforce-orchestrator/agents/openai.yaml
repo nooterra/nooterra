@@ -1,4 +1,0 @@
-interface:
-  display_name: "AI Workforce Orchestrator"
-  short_description: "Coordinate AI employees across sprints"
-  default_prompt: "Use $ai-workforce-orchestrator to plan and run multi-role sprint execution."

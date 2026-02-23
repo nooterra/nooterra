@@ -1,4 +1,0 @@
-interface:
-  display_name: "AI PM Sprint Planner"
-  short_description: "Turn strategy into sprint backlogs"
-  default_prompt: "Use $ai-pm-sprint-planner to convert goals into Jira-ready sprint plans."

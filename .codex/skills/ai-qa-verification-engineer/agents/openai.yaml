@@ -1,4 +1,0 @@
-interface:
-  display_name: "AI QA Verification Engineer"
-  short_description: "Own test quality and release safety"
-  default_prompt: "Use $ai-qa-verification-engineer to design and run verification plans for each sprint."

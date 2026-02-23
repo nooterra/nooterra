@@ -1,4 +1,0 @@
-interface:
-  display_name: "AI GTM Pilot Operator"
-  short_description: "Drive pilot adoption and expansion"
-  default_prompt: "Use $ai-gtm-pilot-operator to map pilot execution and expansion metrics."
