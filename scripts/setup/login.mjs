@@ -289,6 +289,12 @@ export async function runLogin({
         fetchImpl
       });
       if (!otpRequest.res.ok) {
+        const code = responseCode(otpRequest);
+        if (otpRequest.res.status === 403 && code === "FORBIDDEN") {
+          throw new Error(
+            "OTP login is unavailable on this base URL. Use `Generate during setup` with an onboarding bootstrap API key, or use an existing tenant API key."
+          );
+        }
         const message = responseMessage(otpRequest);
         throw new Error(`otp request failed (${otpRequest.res.status}): ${message}`);
       }

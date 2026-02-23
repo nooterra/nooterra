@@ -184,6 +184,95 @@ test("onboard: managed wallet local uses provider bootstrap", async () => {
   assert.equal(bootstrapCalls[0].apiKey, "TEST_API_KEY:abc");
 });
 
+test("onboard: managed remote wallet retries bootstrap auth when runtime key is forbidden", async () => {
+  const attempts = [];
+  const out = await runOnboard({
+    argv: [
+      "--non-interactive",
+      "--host",
+      "openclaw",
+      "--wallet-mode",
+      "managed",
+      "--wallet-bootstrap",
+      "remote",
+      "--no-preflight",
+      "--base-url",
+      "https://api.settld.work",
+      "--tenant-id",
+      "tenant_default",
+      "--bootstrap-api-key",
+      "ml_admin_bootstrap",
+      "--format",
+      "json"
+    ],
+    runtimeEnv: {},
+    requestRuntimeBootstrapMcpEnvImpl: async () => ({
+      SETTLD_BASE_URL: "https://api.settld.work",
+      SETTLD_TENANT_ID: "tenant_default",
+      SETTLD_API_KEY: "sk_runtime_limited"
+    }),
+    fetchImpl: async (url, init = {}) => {
+      if (!String(url).includes("/onboarding/wallet-bootstrap")) {
+        throw new Error(`unexpected request: ${url}`);
+      }
+      attempts.push({
+        apiKey: init?.headers?.["x-api-key"] ?? init?.headers?.["X-API-KEY"] ?? null,
+        cookie: init?.headers?.cookie ?? null
+      });
+      const apiKey = String(init?.headers?.["x-api-key"] ?? "");
+      if (apiKey === "sk_runtime_limited") {
+        return new Response(JSON.stringify({ error: "forbidden", code: "FORBIDDEN" }), {
+          status: 403,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (apiKey === "ml_admin_bootstrap") {
+        return new Response(
+          JSON.stringify({
+            walletBootstrap: {
+              provider: "circle",
+              mode: "sandbox",
+              env: {
+                CIRCLE_BASE_URL: "https://api-sandbox.circle.com",
+                CIRCLE_BLOCKCHAIN: "BASE-SEPOLIA",
+                CIRCLE_WALLET_ID_SPEND: "wid_remote_spend",
+                CIRCLE_WALLET_ID_ESCROW: "wid_remote_escrow",
+                CIRCLE_TOKEN_ID_USDC: "token_usdc_remote",
+                CIRCLE_ENTITY_SECRET_HEX: "b".repeat(64),
+                X402_CIRCLE_RESERVE_MODE: "sandbox",
+                X402_REQUIRE_EXTERNAL_RESERVE: "1"
+              }
+            }
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          }
+        );
+      }
+      throw new Error(`unexpected x-api-key: ${apiKey}`);
+    },
+    runWizardImpl: async ({ extraEnv }) => ({
+      ok: true,
+      env: {
+        SETTLD_BASE_URL: "https://api.settld.work",
+        SETTLD_TENANT_ID: "tenant_default",
+        SETTLD_API_KEY: "sk_runtime_limited",
+        ...extraEnv
+      }
+    }),
+    stdout: { write() {} }
+  });
+
+  assert.equal(out.ok, true);
+  assert.equal(out.wallet.mode, "managed");
+  assert.equal(out.wallet.bootstrapMode, "remote");
+  assert.equal(out.env.CIRCLE_WALLET_ID_SPEND, "wid_remote_spend");
+  assert.equal(attempts.length, 2);
+  assert.equal(attempts[0].apiKey, "sk_runtime_limited");
+  assert.equal(attempts[1].apiKey, "ml_admin_bootstrap");
+});
+
 test("onboard: non-interactive can mint tenant API key via bootstrap key", async () => {
   const bootstrapCalls = [];
   const wizardCalls = [];

@@ -14,7 +14,7 @@ Use this checklist to launch and verify a real hosted Settld environment.
 2. Confirm release workflow is blocked unless NOO-50 and the kernel/cutover gates are green for the release commit.
 3. Confirm release workflow runs NOO-65 promotion guard and blocks publish lanes if `release-promotion-guard.json` verdict is not pass/override-pass.
 4. Confirm staging and production have separate domains, databases, secrets, and signer keys.
-5. Confirm required services are deployable: `npm run start:prod`, `npm run start:maintenance`, `npm run start:x402-gateway`.
+5. Confirm required services are deployable: `npm run start:prod`, `npm run start:magic-link`, `npm run start:maintenance`, `npm run start:x402-gateway`.
 6. Configure GitHub Environment `production_cutover_gate` with:
    - `PROD_BASE_URL`
    - `PROD_TENANT_ID`
@@ -29,17 +29,22 @@ Use this checklist to launch and verify a real hosted Settld environment.
 3. Set scoped `PROXY_OPS_TOKENS`.
 4. Configure rate limits and quotas from `docs/CONFIG.md`.
 5. Configure gateway secrets: `SETTLD_API_URL`, `SETTLD_API_KEY`, `UPSTREAM_URL`.
+6. Configure onboarding routing:
+   - `PROXY_ONBOARDING_BASE_URL=https://<magic-link-host>` on `settld-api`
+   - `MAGIC_LINK_PUBLIC_SIGNUP_ENABLED=1` and OTP delivery (`smtp`) on `settld-magic-link`
 
 ## Phase 2: Deploy services
 
 1. Deploy `settld-api`.
-2. Deploy `settld-maintenance`.
-3. Deploy `x402-gateway`.
+2. Deploy `settld-magic-link`.
+3. Deploy `settld-maintenance`.
+4. Deploy `x402-gateway`.
 4. Verify service health:
 
 ```bash
 curl -fsS https://api.settld.work/healthz
 curl -fsS https://gateway.settld.work/healthz
+npm run test:ops:public-onboarding-gate -- --base-url https://api.settld.work --tenant-id tenant_default
 ```
 
 ## Phase 3: Baseline ops verification

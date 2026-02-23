@@ -16,6 +16,12 @@ test("onboarding failure taxonomy: classifies runtime bootstrap forbidden", () =
   assert.equal(failure.phase, "bootstrap");
 });
 
+test("onboarding failure taxonomy: classifies login unavailable on base URL", () => {
+  const failure = classifyOnboardingFailure(new Error("otp request failed (403): forbidden"));
+  assert.equal(failure.code, "ONBOARDING_AUTH_LOGIN_UNAVAILABLE");
+  assert.equal(failure.phase, "auth");
+});
+
 test("onboarding failure taxonomy: exposes deterministic class registry", () => {
   const classes = listOnboardingFailureClasses();
   assert.ok(Array.isArray(classes));

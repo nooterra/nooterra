@@ -25,6 +25,7 @@
     "scripts",
     "docs",
     "src",
+    "services/magic-link",
     "services/finance-sink",
     "services/x402-gateway",
     "services/receiver"
@@ -110,6 +111,7 @@
     "test:ops:onboarding-host-success-gate": "node scripts/ci/run-onboarding-host-success-gate.mjs",
     "test:ops:self-serve-benchmark": "node scripts/ci/build-self-serve-benchmark-report.mjs",
     "test:ops:launch-cutover-packet": "node scripts/ci/build-launch-cutover-packet.mjs",
+    "test:ops:public-onboarding-gate": "node scripts/ci/run-public-onboarding-gate.mjs",
     "test:ops:production-cutover-gate": "node scripts/ci/run-production-cutover-gate.mjs",
     "test:ops:release-promotion-guard": "node scripts/ci/run-release-promotion-guard.mjs",
     "test:ci:mcp-host-smoke": "node scripts/ci/run-mcp-host-smoke.mjs",

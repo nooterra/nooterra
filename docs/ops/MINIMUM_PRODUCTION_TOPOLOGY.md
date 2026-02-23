@@ -7,12 +7,13 @@ This is the smallest topology that supports real paid agent tool calls with audi
 | Component | Purpose | Start command |
 |---|---|---|
 | `settld-api` | control plane + kernel APIs + receipts + ops endpoints | `npm run start:prod` |
+| `settld-magic-link` | public onboarding/auth/wallet bootstrap service | `npm run start:magic-link` |
 | `settld-maintenance` | reconciliation/cleanup/maintenance ticks | `npm run start:maintenance` |
 | `postgres` | system of record for tenants, gates, receipts, ops state | managed Postgres |
 | `x402-gateway` | payment challenge/authorize/verify wrapper for paid tool calls | `npm run start:x402-gateway` |
 | paid upstream tool API(s) | actual provider tools (`/exa`, `/weather`, etc.) | provider-specific |
 
-Without all five, the end-to-end paid tool path is incomplete.
+Without all six, public onboarding + paid tool path is incomplete.
 
 ## 2) Recommended production shape
 
@@ -35,8 +36,18 @@ Reference baseline: `docs/ops/HOSTED_BASELINE_R2.md`.
 - `PROXY_OPS_TOKENS` (scoped ops tokens)
 - `PROXY_FINANCE_RECONCILE_ENABLED=1`
 - `PROXY_MONEY_RAIL_RECONCILE_ENABLED=1`
+- `PROXY_ONBOARDING_BASE_URL=https://<magic-link-host>`
 
 Primary config source: `docs/CONFIG.md`.
+
+### `settld-magic-link`
+
+- `NODE_ENV=production`
+- `MAGIC_LINK_API_KEY` (admin key)
+- `MAGIC_LINK_PUBLIC_SIGNUP_ENABLED=1` (for self-serve public onboarding)
+- `MAGIC_LINK_BUYER_OTP_DELIVERY_MODE=smtp` + SMTP env
+- `MAGIC_LINK_SETTLD_API_BASE_URL=https://<settld-api-host>`
+- `MAGIC_LINK_SETTLD_OPS_TOKEN=<scoped ops token>`
 
 ### `settld-maintenance`
 
@@ -67,22 +78,23 @@ Reference flow: `docs/QUICKSTART_X402_GATEWAY.md`.
 Must host for real customer traffic:
 
 1. `settld-api`
-2. `settld-maintenance`
-3. Postgres
-4. `x402-gateway`
-5. At least one paid upstream provider API
+2. `settld-magic-link`
+3. `settld-maintenance`
+4. Postgres
+5. `x402-gateway`
+6. At least one paid upstream provider API
 
 Optional at first:
 
 1. Receiver service (`npm run start:receiver`)
 2. Finance sink (`npm run start:finance-sink`)
-3. Magic-link UI service
+3. Additional onboarding UI shells
 
 ## 6) Definition of "usable in production"
 
 A deployment is considered usable when all are true:
 
-1. `GET /healthz` is green on API and gateway.
+1. `GET /healthz` is green on API and gateway; `GET /v1/public/auth-mode` is reachable on API host.
 2. Hosted baseline evidence command passes for the environment.
 3. One paid MCP tool call succeeds end-to-end with artifact output.
 4. Receipt verification succeeds and is replay-auditable.

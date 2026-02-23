@@ -1139,6 +1139,8 @@ async function requestRemoteWalletBootstrap({
   baseUrl,
   tenantId,
   settldApiKey,
+  bootstrapApiKey,
+  sessionCookie,
   walletProvider,
   circleMode,
   circleBaseUrl,
@@ -1160,30 +1162,69 @@ async function requestRemoteWalletBootstrap({
   }
 
   const url = new URL(`/v1/tenants/${encodeURIComponent(String(tenantId ?? ""))}/onboarding/wallet-bootstrap`, normalizedBaseUrl);
-  const res = await fetchImpl(url.toString(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": String(settldApiKey ?? "")
-    },
-    body: JSON.stringify(body)
-  });
-
-  const text = await res.text();
-  let json = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = null;
+  const candidates = [];
+  const runtimeKey = String(settldApiKey ?? "").trim();
+  const bootstrapKey = String(bootstrapApiKey ?? "").trim();
+  const cookie = String(sessionCookie ?? "").trim();
+  if (runtimeKey) candidates.push({ kind: "runtime_key", apiKey: runtimeKey });
+  if (bootstrapKey && bootstrapKey !== runtimeKey) candidates.push({ kind: "bootstrap_key", apiKey: bootstrapKey });
+  if (cookie) candidates.push({ kind: "session_cookie", cookie });
+  if (!candidates.length) {
+    throw new Error("remote wallet bootstrap requires SETTLD_API_KEY, bootstrap API key, or saved login session");
   }
-  if (!res.ok) {
+
+  let lastError = null;
+  let succeeded = false;
+  let json = null;
+  for (const candidate of candidates) {
+    const headers = {
+      "content-type": "application/json"
+    };
+    if (candidate.apiKey) headers["x-api-key"] = candidate.apiKey;
+    if (candidate.cookie) headers.cookie = candidate.cookie;
+
+    const res = await fetchImpl(url.toString(), {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body)
+    });
+
+    const text = await res.text();
+    json = null;
+    try {
+      json = text ? JSON.parse(text) : null;
+    } catch {
+      json = null;
+    }
+    if (res.ok) {
+      succeeded = true;
+      break;
+    }
     const message =
       json && typeof json === "object"
         ? json?.message ?? json?.error ?? `HTTP ${res.status}`
         : text || `HTTP ${res.status}`;
-    throw new Error(`remote wallet bootstrap failed (${res.status}): ${String(message)}`);
+    lastError = { status: res.status, message: String(message), kind: candidate.kind };
+    if (res.status !== 403) {
+      throw new Error(`remote wallet bootstrap failed (${res.status}): ${String(message)}`);
+    }
   }
-  const bootstrap = json?.walletBootstrap;
+  if (!succeeded) {
+    const detail = lastError ? ` (${lastError.kind})` : "";
+    if (lastError && lastError.status === 403) {
+      throw new Error(
+        `remote wallet bootstrap failed (403): forbidden${detail}. Try --wallet-mode none (finish trust wiring) or --wallet-bootstrap local with --circle-api-key.`
+      );
+    }
+    if (lastError) {
+      throw new Error(`remote wallet bootstrap failed (${lastError.status}): ${lastError.message}${detail}`);
+    }
+    throw new Error("remote wallet bootstrap failed: unknown error");
+  }
+  if (!json || typeof json !== "object" || Array.isArray(json)) {
+    throw new Error("remote wallet bootstrap response missing payload");
+  }
+  const bootstrap = json.walletBootstrap;
   if (!bootstrap || typeof bootstrap !== "object" || Array.isArray(bootstrap)) {
     throw new Error("remote wallet bootstrap response missing walletBootstrap object");
   }
@@ -1432,7 +1473,7 @@ async function resolveRuntimeConfig({
             const failure = classifyOnboardingFailure(err);
             stdout.write(`[${failure.code}] ${failure.message}\n`);
             if (failure.remediation) stdout.write(`Remediation: ${failure.remediation}\n`);
-            if (failure.code === "ONBOARDING_AUTH_PUBLIC_SIGNUP_UNAVAILABLE") {
+            if (failure.code === "ONBOARDING_AUTH_PUBLIC_SIGNUP_UNAVAILABLE" || failure.code === "ONBOARDING_AUTH_LOGIN_UNAVAILABLE") {
               loginUnavailableForRun = true;
               stdout.write("Login/signup has been disabled for this setup run. Continuing with API key modes.\n");
             }
@@ -1674,6 +1715,8 @@ export async function runOnboard({
         baseUrl: normalizedBaseUrl,
         tenantId,
         settldApiKey,
+        bootstrapApiKey: config.bootstrapApiKey,
+        sessionCookie: config.sessionCookie,
         walletProvider: config.walletProvider,
         circleMode: config.circleMode,
         circleBaseUrl: config.circleBaseUrl || null,

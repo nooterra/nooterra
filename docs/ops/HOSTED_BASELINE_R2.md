@@ -13,14 +13,16 @@ This is the minimum hosted setup for a real product surface.
 
 ## 2) Railway service split
 
-Create two Railway services from this repo per environment:
+Create three Railway services from this repo per environment:
 
 - `settld-api`:
   - start command: `npm run start:prod`
+- `settld-magic-link`:
+  - start command: `npm run start:magic-link`
 - `settld-worker`:
   - start command: `npm run start:maintenance`
 
-Both services must point at the same environment DB and secret set for that environment.
+All services must point at the same environment DB and secret set for that environment.
 
 ## 3) Required runtime controls
 

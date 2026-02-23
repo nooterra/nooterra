@@ -82,6 +82,18 @@ Delivery/worker tuning:
 - `PROXY_AUTH_KEY_TOUCH_MIN_SECONDS` (default: `60`)  
   Throttle how often `last_used_at` is updated for API keys (reduces DB write amplification).
 
+## Public onboarding routing
+
+- `PROXY_ONBOARDING_BASE_URL` (optional but required for public onboarding on `settld-api`)  
+  Absolute `http(s)` URL for the onboarding service (`services/magic-link`). When set, `settld-api` reverse-proxies public onboarding routes:
+  - `/v1/public/auth-mode`
+  - `/v1/public/signup`
+  - `/v1/tenants/:tenantId/buyer/login/otp`
+  - `/v1/tenants/:tenantId/buyer/login`
+  - `/v1/tenants/:tenantId/onboarding/*`
+
+  If missing, these routes fail closed with `503` and code `ONBOARDING_PROXY_NOT_CONFIGURED`.
+
 ## Ingest auth
 
 - `PROXY_INGEST_TOKEN` (optional)  

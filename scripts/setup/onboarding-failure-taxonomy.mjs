@@ -7,15 +7,22 @@ const FAILURE_CLASSES = Object.freeze([
       "Use `Generate during setup` with an onboarding bootstrap API key, or rerun with `--tenant-id <existing_tenant>`."
   },
   {
+    code: "ONBOARDING_AUTH_LOGIN_UNAVAILABLE",
+    phase: "auth",
+    patterns: [/OTP login is unavailable on this base URL/i, /otp request failed \(403\)/i, /login failed \(403\): forbidden/i],
+    remediation:
+      "This base URL does not expose public OTP login. Use `Generate during setup` with an onboarding bootstrap API key, or use `Paste existing key`."
+  },
+  {
     code: "ONBOARDING_AUTH_OTP_INVALID",
     phase: "auth",
-    patterns: [/otp/i, /code/i, /invalid/i],
+    patterns: [/OTP_(INVALID|EXPIRED|CONSUMED|MISSING)/i, /otp code is required/i, /invalid otp/i],
     remediation: "Request a fresh OTP and retry `settld login`."
   },
   {
     code: "ONBOARDING_BOOTSTRAP_FORBIDDEN",
     phase: "bootstrap",
-    patterns: [/runtime bootstrap request failed \(403\)/i, /forbidden/i],
+    patterns: [/runtime bootstrap request failed \(403\)/i],
     remediation: "Check onboarding bootstrap API key scopes and tenant binding, then rerun setup."
   },
   {

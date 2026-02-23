@@ -498,6 +498,12 @@ export function createApi({
   }
   const rateBucketsByApiKey = new Map(); // `${tenantId}\n${apiKeyId}` -> { tokens, lastMs }
   const ratePerKeyRefillPerMs = rateLimitPerKeyRpmValue ? rateLimitPerKeyRpmValue / 60_000 : 0;
+  const onboardingProxyBaseUrlRaw =
+    typeof process !== "undefined" ? process.env.PROXY_ONBOARDING_BASE_URL ?? process.env.PROXY_MAGIC_LINK_BASE_URL ?? null : null;
+  const onboardingProxyBaseUrl =
+    onboardingProxyBaseUrlRaw && String(onboardingProxyBaseUrlRaw).trim() !== ""
+      ? normalizeOptionalAbsoluteUrl(String(onboardingProxyBaseUrlRaw).trim(), { fieldName: "PROXY_ONBOARDING_BASE_URL" })?.replace(/\/+$/, "")
+      : null;
 
   function setProtocolResponseHeaders(res) {
     try {
@@ -21977,6 +21983,126 @@ export function createApi({
     return "info";
   }
 
+  const ONBOARDING_PROXY_ROUTES = Object.freeze([
+    { method: "GET", re: /^\/v1\/public\/auth-mode$/ },
+    { method: "POST", re: /^\/v1\/public\/signup$/ },
+    { method: "GET", re: /^\/v1\/buyer\/me$/ },
+    { method: "POST", re: /^\/v1\/buyer\/logout$/ },
+    { method: "POST", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/buyer\/login\/otp$/ },
+    { method: "POST", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/buyer\/login$/ },
+    { method: "GET", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding$/ },
+    { method: "POST", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding\/events$/ },
+    { method: "GET", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding-metrics$/ },
+    { method: "POST", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding\/wallet-bootstrap$/ },
+    { method: "POST", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding\/wallet-funding$/ },
+    { method: "POST", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding\/runtime-bootstrap$/ },
+    { method: "POST", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding\/runtime-bootstrap\/smoke-test$/ },
+    { method: "POST", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding\/first-paid-call$/ },
+    { method: "GET", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding\/first-paid-call\/history$/ },
+    { method: "POST", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding\/conformance-matrix$/ }
+  ]);
+  const ONBOARDING_PROXY_BODY_METHODS = new Set(["POST", "PUT", "PATCH"]);
+  const HOP_BY_HOP_HEADERS = new Set([
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "host",
+    "content-length"
+  ]);
+
+  function isOnboardingProxyRoute({ method, path }) {
+    const m = String(method ?? "").toUpperCase();
+    const p = String(path ?? "");
+    for (const route of ONBOARDING_PROXY_ROUTES) {
+      if (route.method !== m) continue;
+      if (route.re.test(p)) return true;
+    }
+    return false;
+  }
+
+  async function proxyOnboardingRequest(req, res, { path, search, requestId }) {
+    if (!onboardingProxyBaseUrl) {
+      return sendError(
+        res,
+        503,
+        "onboarding proxy is not configured on this API host",
+        { env: "PROXY_ONBOARDING_BASE_URL" },
+        { code: "ONBOARDING_PROXY_NOT_CONFIGURED" }
+      );
+    }
+    const upstreamFetch = typeof fetchFn === "function" ? fetchFn : globalThis.fetch;
+    if (typeof upstreamFetch !== "function") {
+      return sendError(res, 500, "onboarding proxy fetch is unavailable", null, { code: "ONBOARDING_PROXY_FETCH_UNAVAILABLE" });
+    }
+
+    const targetUrl = new URL(`${path}${search || ""}`, `${onboardingProxyBaseUrl}/`).toString();
+    const upstreamHeaders = new Headers();
+    for (const [nameRaw, valueRaw] of Object.entries(req.headers ?? {})) {
+      const name = String(nameRaw ?? "").toLowerCase();
+      if (!name || HOP_BY_HOP_HEADERS.has(name)) continue;
+      if (Array.isArray(valueRaw)) {
+        if (!valueRaw.length) continue;
+        upstreamHeaders.set(name, valueRaw.join(", "));
+        continue;
+      }
+      if (valueRaw === undefined || valueRaw === null) continue;
+      upstreamHeaders.set(name, String(valueRaw));
+    }
+    if (!upstreamHeaders.has("x-request-id") && requestId) {
+      upstreamHeaders.set("x-request-id", String(requestId));
+    }
+
+    let body = undefined;
+    const method = String(req.method ?? "").toUpperCase();
+    if (ONBOARDING_PROXY_BODY_METHODS.has(method)) {
+      const raw = await readRawBody(req);
+      if (raw && raw.length > 0) body = raw;
+    }
+
+    let upstreamRes;
+    try {
+      upstreamRes = await upstreamFetch(targetUrl, {
+        method,
+        headers: upstreamHeaders,
+        body
+      });
+    } catch (err) {
+      return sendError(
+        res,
+        502,
+        "onboarding proxy upstream unreachable",
+        { message: err?.message ?? String(err) },
+        { code: "ONBOARDING_PROXY_UNREACHABLE" }
+      );
+    }
+
+    const bytes = Buffer.from(await upstreamRes.arrayBuffer());
+    res.statusCode = upstreamRes.status;
+    for (const [name, value] of upstreamRes.headers.entries()) {
+      const n = String(name ?? "").toLowerCase();
+      if (!n || HOP_BY_HOP_HEADERS.has(n)) continue;
+      try {
+        res.setHeader(n, value);
+      } catch {
+        // ignore invalid header copy
+      }
+    }
+    try {
+      const setCookies = typeof upstreamRes.headers.getSetCookie === "function" ? upstreamRes.headers.getSetCookie() : [];
+      if (Array.isArray(setCookies) && setCookies.length > 0) {
+        res.setHeader("set-cookie", setCookies);
+      }
+    } catch {
+      // ignore
+    }
+    return res.end(bytes);
+  }
+
   async function handle(req, res) {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
@@ -21990,6 +22116,9 @@ export function createApi({
     setProtocolResponseHeaders(res);
 
     return withLogContext({ requestId, route, method: req.method, path }, async () => {
+      if (isOnboardingProxyRoute({ method: req.method, path })) {
+        return proxyOnboardingRequest(req, res, { path, search: url.search, requestId });
+      }
       const startedMs = Date.now();
       let tenantId = "tenant_default";
       let principalId = "anon";

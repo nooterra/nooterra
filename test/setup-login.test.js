@@ -138,3 +138,41 @@ test("login: enterprise_preprovisioned mode requires tenant-id before signup att
   assert.equal(calls.length, 1);
   assert.ok(calls[0].includes("/v1/public/auth-mode"));
 });
+
+test("login: non-interactive otp forbidden returns actionable guidance", async () => {
+  const fetchImpl = async (url) => {
+    if (String(url).includes("/v1/public/auth-mode")) {
+      return new Response(JSON.stringify({ ok: false, error: "forbidden", code: "FORBIDDEN" }), {
+        status: 403,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (String(url).includes("/buyer/login/otp")) {
+      return new Response(JSON.stringify({ error: "forbidden", code: "FORBIDDEN" }), {
+        status: 403,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  await assert.rejects(
+    () =>
+      runLogin({
+        argv: [
+          "--non-interactive",
+          "--base-url",
+          "https://api.settld.work",
+          "--tenant-id",
+          "tenant_default",
+          "--email",
+          "founder@example.com",
+          "--otp",
+          "123456"
+        ],
+        fetchImpl,
+        stdout: { write() {} }
+      }),
+    /OTP login is unavailable on this base URL/
+  );
+});
