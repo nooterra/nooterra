@@ -30,6 +30,8 @@ nav:
   - Start:
       - Quickstart: guides/quickstart.md
       - State-of-the-Art Onboarding: guides/state-of-the-art-onboarding.md
+      - Onboarding State Machine: guides/onboarding-state-machine.md
+      - Onboarding Failure Taxonomy: guides/onboarding-failure-taxonomy.md
       - Launch Readiness Scorecard: guides/launch-readiness-scorecard.md
       - V1 Execution Plan: guides/v1-execution-plan.md
       - Local Environment: guides/local-environment.md

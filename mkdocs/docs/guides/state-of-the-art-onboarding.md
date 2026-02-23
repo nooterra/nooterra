@@ -93,5 +93,7 @@ Capture at minimum:
 ## Related Guides
 
 - [Quickstart](quickstart.md)
+- [Onboarding State Machine](onboarding-state-machine.md)
+- [Onboarding Failure Taxonomy](onboarding-failure-taxonomy.md)
 - [Launch Readiness Scorecard](launch-readiness-scorecard.md)
 - [V1 Execution Plan](v1-execution-plan.md)

@@ -15,6 +15,8 @@ import { SUPPORTED_HOSTS } from "./host-config.mjs";
 import { defaultSessionPath, readSavedSession } from "./session-store.mjs";
 import { runLogin } from "./login.mjs";
 import { runWalletCli } from "../wallet/cli.mjs";
+import { classifyOnboardingFailure } from "./onboarding-failure-taxonomy.mjs";
+import { ONBOARDING_EVENTS, ONBOARDING_STATES, transitionOnboardingState } from "./onboarding-state-machine.mjs";
 
 const WALLET_MODES = new Set(["managed", "byo", "none"]);
 const WALLET_PROVIDERS = new Set(["circle"]);
@@ -42,6 +44,7 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const SETTLD_BIN = path.join(REPO_ROOT, "bin", "settld.js");
 const PROFILE_FINGERPRINT_REGEX = /^[0-9a-f]{64}$/;
 const DEFAULT_PUBLIC_BASE_URL = "https://api.settld.work";
+const MAX_INTERACTIVE_API_KEY_MODE_ATTEMPTS = 8;
 const ANSI_RESET = "\u001b[0m";
 const ANSI_BOLD = "\u001b[1m";
 const ANSI_DIM = "\u001b[2m";
@@ -1330,7 +1333,16 @@ async function resolveRuntimeConfig({
     if (!out.settldApiKey) {
       let loginUnavailableForRun = false;
       let preferredKeyMode = null;
+      let keyModeAttempts = 0;
       while (!out.settldApiKey) {
+        keyModeAttempts += 1;
+        if (keyModeAttempts > MAX_INTERACTIVE_API_KEY_MODE_ATTEMPTS) {
+          const error = new Error(
+            `setup API key flow exceeded ${MAX_INTERACTIVE_API_KEY_MODE_ATTEMPTS} attempts; choose \`Generate during setup\` or \`Paste existing key\``
+          );
+          error.code = "ONBOARDING_KEY_MODE_LOOP_GUARD";
+          throw error;
+        }
         const canUseSavedSession =
           Boolean(out.sessionCookie) &&
           (!savedSession ||
@@ -1390,10 +1402,10 @@ async function resolveRuntimeConfig({
             }
             preferredKeyMode = "session";
           } catch (err) {
-            const message = String(err?.message ?? "unknown error");
-            stdout.write(`Login failed: ${message}\n`);
-            stdout.write("Choose `Generate during setup` if your deployment does not expose public signup/login.\n");
-            if (/Public signup is unavailable|Public signup is disabled/i.test(message)) {
+            const failure = classifyOnboardingFailure(err);
+            stdout.write(`[${failure.code}] ${failure.message}\n`);
+            if (failure.remediation) stdout.write(`Remediation: ${failure.remediation}\n`);
+            if (failure.code === "ONBOARDING_AUTH_PUBLIC_SIGNUP_UNAVAILABLE") {
               loginUnavailableForRun = true;
               stdout.write("Login/signup has been disabled for this setup run. Continuing with API key modes.\n");
             }
@@ -1562,6 +1574,11 @@ export async function runOnboard({
   const showSteps = args.format !== "json";
   const totalSteps = args.preflightOnly ? 4 : 6;
   let step = 1;
+  let onboardingState = ONBOARDING_STATES.INIT;
+  const advanceOnboardingState = (event) => {
+    onboardingState = transitionOnboardingState({ state: onboardingState, event });
+    return onboardingState;
+  };
 
   if (showSteps) printStep(stdout, step, totalSteps, "Resolve setup configuration");
   const config = await resolveRuntimeConfig({
@@ -1574,6 +1591,7 @@ export async function runOnboard({
     runLoginImpl,
     readSavedSessionImpl
   });
+  advanceOnboardingState(ONBOARDING_EVENTS.RESOLVE_CONFIG_OK);
   step += 1;
   const normalizedBaseUrl = normalizeHttpUrl(mustString(config.baseUrl, "SETTLD_BASE_URL / --base-url"));
   if (!normalizedBaseUrl) throw new Error(`invalid Settld base URL: ${config.baseUrl}`);
@@ -1593,6 +1611,7 @@ export async function runOnboard({
     });
     settldApiKey = mustString(runtimeBootstrapEnv?.SETTLD_API_KEY ?? "", "runtime bootstrap SETTLD_API_KEY");
   }
+  advanceOnboardingState(ONBOARDING_EVENTS.RUNTIME_KEY_OK);
   const runtimeBootstrapOptionalEnv = {};
   if (runtimeBootstrapEnv?.SETTLD_PAID_TOOLS_BASE_URL) {
     runtimeBootstrapOptionalEnv.SETTLD_PAID_TOOLS_BASE_URL = String(runtimeBootstrapEnv.SETTLD_PAID_TOOLS_BASE_URL);
@@ -1642,6 +1661,7 @@ export async function runOnboard({
       runtimeEnv
     });
   }
+  advanceOnboardingState(ONBOARDING_EVENTS.WALLET_OK);
   step += 1;
 
   let preflight = { ok: false, skipped: true, checks: [] };
@@ -1662,9 +1682,11 @@ export async function runOnboard({
   } else {
     if (showSteps) printStep(stdout, step, totalSteps, "Skip preflight checks");
   }
+  advanceOnboardingState(ONBOARDING_EVENTS.PREFLIGHT_OK);
   step += 1;
 
   if (args.preflightOnly) {
+    advanceOnboardingState(ONBOARDING_EVENTS.COMPLETE);
     if (showSteps) printStep(stdout, step, totalSteps, "Finalize preflight-only output");
     const payload = {
       ok: true,
@@ -1685,6 +1707,10 @@ export async function runOnboard({
         profileId: null
       },
       preflight,
+      onboarding: {
+        schemaVersion: "SettldOnboardingState.v1",
+        state: onboardingState
+      },
       hostInstallDetected: Array.isArray(config.installedHosts) && config.installedHosts.includes(config.host),
       installedHosts: config.installedHosts,
       env: {
@@ -1757,6 +1783,7 @@ export async function runOnboard({
       ...walletEnv
     }
   });
+  advanceOnboardingState(ONBOARDING_EVENTS.HOST_CONFIG_OK);
   step += 1;
 
   const mergedEnv = {
@@ -1784,9 +1811,11 @@ export async function runOnboard({
     stdout,
     runWalletCliImpl
   });
+  advanceOnboardingState(ONBOARDING_EVENTS.GUIDED_OK);
   step += 1;
 
   if (showSteps) printStep(stdout, step, totalSteps, "Finalize output");
+  advanceOnboardingState(ONBOARDING_EVENTS.COMPLETE);
   const payload = {
     ok: true,
     setupMode: config.setupMode,
@@ -1807,6 +1836,10 @@ export async function runOnboard({
       profileId: config.skipProfileApply ? null : (config.profileId || "engineering-spend")
     },
     preflight,
+    onboarding: {
+      schemaVersion: "SettldOnboardingState.v1",
+      state: onboardingState
+    },
     hostInstallDetected: Array.isArray(config.installedHosts) && config.installedHosts.includes(config.host),
     installedHosts: config.installedHosts,
     env: mergedEnv,
@@ -1871,7 +1904,11 @@ async function main(argv = process.argv.slice(2)) {
   try {
     await runOnboard({ argv });
   } catch (err) {
-    process.stderr.write(`${err?.message ?? String(err)}\n`);
+    const failure = classifyOnboardingFailure(err);
+    process.stderr.write(`[${failure.code}] ${failure.message}\n`);
+    if (failure.remediation) {
+      process.stderr.write(`Remediation: ${failure.remediation}\n`);
+    }
     process.exit(1);
   }
 }
