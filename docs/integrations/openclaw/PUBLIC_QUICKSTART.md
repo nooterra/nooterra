@@ -72,19 +72,27 @@ Run:
 
 ```bash
 openclaw doctor
+openclaw plugins install settld@latest
+openclaw agent --local --agent main --session-id settld-smoke --message "Use the tool named settld_about with empty arguments. Return only JSON." --json
 ```
 
 Then from OpenClaw chat/test prompt:
 
-- `Call settld.about and return JSON.`
+- `Use tool settld_about and return JSON only.`
 
 Expected result: success payload with Settld tool metadata.
+
+If your TUI is in a channel-bound session (`whatsapp:*`, `telegram:*`), switch to `main` first:
+
+```bash
+openclaw tui --session main
+```
 
 ## 4) Run first paid tool call
 
 From OpenClaw prompt:
 
-- `Run settld.weather_current_paid for city=Chicago unit=f and include x-settld-* headers in the response.`
+- `Use tool settld_call with tool=settld.weather_current_paid and arguments={"city":"Chicago","unit":"f"}.`
 
 Expected result:
 

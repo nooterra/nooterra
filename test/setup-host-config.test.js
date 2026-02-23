@@ -112,7 +112,7 @@ test("openclaw falls back to root host-equivalent shape when no server map exist
   assert.equal(merged.config.description, existing.description);
   assert.equal(merged.config.name, "settld");
   assert.equal(merged.config.command, "npx");
-  assert.deepEqual(merged.config.args, ["-y", "settld-mcp"]);
+  assert.deepEqual(merged.config.args, ["-y", "--package", "settld", "settld-mcp"]);
   assert.equal(merged.config.env.SETTLD_BASE_URL, "http://127.0.0.1:3000");
   assert.equal(merged.config.env.SETTLD_PAID_TOOLS_BASE_URL, "http://127.0.0.1:8402");
 });
@@ -224,7 +224,7 @@ test("runHostConfigSetup writes once and then becomes idempotent", async () => {
 
     const written = JSON.parse(await fs.readFile(configPath, "utf8"));
     assert.equal(written.mcpServers?.settld?.command, "npx");
-    assert.deepEqual(written.mcpServers?.settld?.args, ["-y", "settld-mcp"]);
+    assert.deepEqual(written.mcpServers?.settld?.args, ["-y", "--package", "settld", "settld-mcp"]);
     assert.equal(written.mcpServers?.settld?.env?.SETTLD_API_KEY, "sk_test_id.secret");
     assert.equal(typeof written.mcpServers?.settld?.env?.SETTLD_PAID_TOOLS_AGENT_PASSPORT, "string");
 

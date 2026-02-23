@@ -299,7 +299,7 @@ function parsePaidToolsAgentPassportFromEnv(env) {
 
 function parseMcpArgsFromEnv(env) {
   const argsJson = typeof env.SETTLD_MCP_ARGS_JSON === "string" ? env.SETTLD_MCP_ARGS_JSON.trim() : "";
-  if (!argsJson) return ["-y", "settld-mcp"];
+  if (!argsJson) return ["-y", "--package", "settld", "settld-mcp"];
   let parsed;
   try {
     parsed = JSON.parse(argsJson);

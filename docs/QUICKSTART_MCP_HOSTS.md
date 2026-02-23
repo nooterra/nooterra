@@ -182,7 +182,7 @@ Then activate host-side:
 - `codex`: restart Codex.
 - `claude`: restart Claude Desktop.
 - `cursor`: restart Cursor.
-- `openclaw`: run `openclaw doctor`, ensure OpenClaw onboarding is complete (`openclaw onboard --install-daemon`), then run `openclaw tui`.
+- `openclaw`: run `openclaw doctor`, ensure OpenClaw onboarding is complete (`openclaw onboard --install-daemon`), install plugin (`openclaw plugins install settld@latest`), run local verification (`openclaw agent --local --agent main --session-id settld-smoke --message "Use the tool named settld_about with empty arguments. Return only JSON." --json`), then run `openclaw tui --session main`.
 
 ## 5) Fund and verify wallet state
 

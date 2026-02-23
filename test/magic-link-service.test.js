@@ -1434,7 +1434,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.equal(out.json?.bootstrap?.apiKey?.keyId, "ak_runtime_test");
     assert.equal(out.json?.bootstrap?.apiKey?.token, "ak_runtime_test.secret_runtime");
     assert.equal(out.json?.mcp?.command, "npx");
-    assert.deepEqual(out.json?.mcp?.args, ["-y", "settld-mcp"]);
+    assert.deepEqual(out.json?.mcp?.args, ["-y", "--package", "settld", "settld-mcp"]);
     assert.equal(out.json?.mcp?.env?.SETTLD_TENANT_ID, tenantId);
     assert.equal(out.json?.mcp?.env?.SETTLD_API_KEY, "ak_runtime_test.secret_runtime");
     assert.equal(out.json?.mcp?.env?.SETTLD_BASE_URL, "https://api.mock.settld.work/");

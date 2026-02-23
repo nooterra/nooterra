@@ -19,6 +19,8 @@
     "README.md",
     "Dockerfile",
     "docker-compose.yml",
+    "openclaw.plugin.json",
+    "openclaw",
     "bin",
     "conformance",
     "packages/api-sdk/src",
@@ -34,6 +36,11 @@
   "bin": {
     "settld": "bin/settld.js",
     "settld-mcp": "bin/settld-mcp"
+  },
+  "openclaw": {
+    "extensions": [
+      "./openclaw/index.js"
+    ]
   },
   "exports": {
     "./mcp": "./scripts/mcp/settld-mcp-server.mjs"

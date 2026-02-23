@@ -5262,7 +5262,7 @@ async function handleTenantRuntimeBootstrap(req, res, tenantId) {
   const mcp = {
     schemaVersion: "SettldMcpServerConfig.v1",
     command: "npx",
-    args: ["-y", "settld-mcp"],
+    args: ["-y", "--package", "settld", "settld-mcp"],
     env: mcpEnv
   };
   const mcpConfigJson = {
@@ -6212,7 +6212,7 @@ async function handleTenantRuntimeConformanceMatrix(req, res, tenantId) {
   const smokeOk = checkById.get("mcp_smoke")?.status === "pass";
   const paidOk = checkById.get("first_paid_call")?.status === "pass";
   const targetRows = targets.map((target) => {
-    const serverConfig = mcpEnv ? { command: "npx", args: ["-y", "settld-mcp"], env: mcpEnv } : null;
+    const serverConfig = mcpEnv ? { command: "npx", args: ["-y", "--package", "settld", "settld-mcp"], env: mcpEnv } : null;
     let config;
     if (target === "openhands") {
       config = {

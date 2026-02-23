@@ -1,0 +1,29 @@
+{
+  "id": "settld",
+  "name": "Settld",
+  "description": "Settld tools for OpenClaw with runtime env auto-discovery from Settld setup.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": {
+        "type": "string"
+      },
+      "tenantId": {
+        "type": "string"
+      },
+      "apiKey": {
+        "type": "string"
+      },
+      "paidToolsBaseUrl": {
+        "type": "string"
+      },
+      "paidToolsAgentPassport": {
+        "type": "string"
+      },
+      "mcpConfigPath": {
+        "type": "string"
+      }
+    }
+  }
+}

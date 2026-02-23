@@ -874,8 +874,10 @@ function buildHostNextSteps({ host, installedHosts }) {
   }
   if (host === "openclaw") {
     steps.push("Run `openclaw doctor` and ensure OpenClaw itself is onboarded (`openclaw onboard --install-daemon`).");
-    steps.push("Run `openclaw tui`.");
-    steps.push("In OpenClaw, ask for a Settld tool call (for example: `run settld.about`).");
+    steps.push("Install the Settld OpenClaw plugin: `openclaw plugins install settld@latest`.");
+    steps.push("Verify in local mode: `openclaw agent --local --agent main --session-id settld-smoke --message \"Use the tool named settld_about with empty arguments. Return only JSON.\" --json`.");
+    steps.push("Run `openclaw tui --session main`.");
+    steps.push("If you are in a channel-bound session (e.g. whatsapp:*), switch back to `main` to access Settld tools.");
     return steps;
   }
   if (host === "codex") {

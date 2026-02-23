@@ -32,7 +32,7 @@ Publish the folder `docs/integrations/openclaw/settld-mcp-skill/` as your skill 
 If ClawHub UI requests install instructions, use:
 
 - command: `npx`
-- args: `-y settld-mcp`
+- args: `-y --package settld@latest settld-mcp`
 - env: `SETTLD_BASE_URL`, `SETTLD_TENANT_ID`, `SETTLD_API_KEY`, optional `SETTLD_PAID_TOOLS_BASE_URL`
 
 ## 4) Post-Publish Smoke Test

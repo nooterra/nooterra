@@ -30,14 +30,16 @@ It is designed for the public `quick` onboarding flow:
 - Settld runtime env from setup (`SETTLD_API_KEY`, `SETTLD_BASE_URL`, `SETTLD_TENANT_ID`)
 - Optional paid tools base URL (`SETTLD_PAID_TOOLS_BASE_URL`)
 
-## MCP Server Registration
+## OpenClaw Plugin Registration
 
-Use the server definition in `mcp-server.example.json`.
+Install the Settld OpenClaw plugin from npm:
 
-Server command:
+- `openclaw plugins install settld@latest`
 
-- command: `npx`
-- args: `["-y","settld-mcp"]`
+This plugin wraps Settld MCP under OpenClaw-native tools:
+
+- `settld_about`
+- `settld_call`
 
 Required env vars:
 
@@ -52,10 +54,10 @@ Optional env vars:
 
 ## Agent Usage Pattern
 
-1. Call `settld.about` to verify connectivity.
-2. For paid search/data calls, use:
-   - `settld.exa_search_paid`
-   - `settld.weather_current_paid`
+1. Call `settld_about` to verify connectivity.
+2. For paid search/data calls, use `settld_call` with:
+   - `tool=settld.exa_search_paid`
+   - `tool=settld.weather_current_paid`
 3. For agreement lifecycle demo calls, use:
    - `settld.create_agreement`
    - `settld.submit_evidence`
@@ -64,8 +66,8 @@ Optional env vars:
 
 ## Smoke Prompts
 
-- "Call `settld.about` and return the result JSON."
-- "Run `settld.weather_current_paid` for Chicago in fahrenheit and include the `x-settld-*` headers."
+- "Use tool `settld_about` and return JSON."
+- "Use tool `settld_call` with `tool=settld.weather_current_paid` and arguments for Chicago/fahrenheit."
 
 ## Identity + Traceability
 

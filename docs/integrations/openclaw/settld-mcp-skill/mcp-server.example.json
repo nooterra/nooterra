@@ -1,7 +1,7 @@
 {
   "name": "settld",
   "command": "npx",
-  "args": ["-y", "settld-mcp"],
+  "args": ["-y", "--package", "settld@latest", "settld-mcp"],
   "env": {
     "SETTLD_BASE_URL": "https://api.settld.work",
     "SETTLD_TENANT_ID": "tenant_xxx",
