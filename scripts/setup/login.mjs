@@ -331,7 +331,7 @@ export async function runLogin({
       otpAlreadyIssued = Boolean(signup.json?.otpIssued);
       if (interactive) stdout.write(`Created tenant: ${tenantId}\n`);
     }
-    if (!otpAlreadyIssued) await requestTenantOtp(tenantId);
+    if (!otpAlreadyIssued && !state.otp) await requestTenantOtp(tenantId);
 
     if (!state.otp && interactive) {
       state.otp = await promptLine(rl, "OTP code", { required: true });

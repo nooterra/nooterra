@@ -42,6 +42,8 @@ async function main() {
     sh("tar", ["-xzf", tarballPath, "-C", unpackDir], { env: npmEnv });
     const packageRoot = path.join(unpackDir, "package");
     const cliPath = path.join(packageRoot, "bin", "settld.js");
+    await fs.access(path.join(packageRoot, "scripts", "mcp", "settld-mcp-server.mjs"));
+    await fs.access(path.join(packageRoot, "packages", "api-sdk", "src", "x402-autopay.js"));
 
     const runTarballCli = (args) => {
       const cmd = ["npx", "--yes", "--package", tarballPath, "--", "settld", ...args].map(shellQuote).join(" ");

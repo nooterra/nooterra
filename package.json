@@ -21,6 +21,7 @@
     "docker-compose.yml",
     "bin",
     "conformance",
+    "packages/api-sdk/src",
     "packages/artifact-verify/src",
     "scripts",
     "docs",

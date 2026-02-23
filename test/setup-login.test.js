@@ -56,10 +56,9 @@ test("login: non-interactive saves tenant session from OTP flow", async () => {
   assert.equal(result.tenantId, "tenant_default");
   assert.equal(result.sessionFile, "/tmp/settld-session-test.json");
   assert.equal(result.authMode, "public_signup");
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 2);
   assert.ok(String(calls[0].url).includes("/v1/public/auth-mode"));
-  assert.ok(String(calls[1].url).includes("/buyer/login/otp"));
-  assert.ok(String(calls[2].url).includes("/buyer/login"));
+  assert.ok(String(calls[1].url).includes("/buyer/login"));
   assert.equal(writes.length, 1);
   assert.equal(writes[0].session.cookie, "ml_buyer_session=session_abc123");
   assert.equal(writes[0].session.tenantId, "tenant_default");
@@ -166,9 +165,7 @@ test("login: non-interactive otp forbidden returns actionable guidance", async (
           "--tenant-id",
           "tenant_default",
           "--email",
-          "founder@example.com",
-          "--otp",
-          "123456"
+          "founder@example.com"
         ],
         fetchImpl,
         stdout: { write() {} }
