@@ -32,3 +32,6 @@ Reference docs:
 
 - `docs/QUICKSTART_MCP_HOSTS.md`
 - `docs/QUICKSTART_MCP.md`
+- `planning/trust-os-v1/state-of-the-art-launch-readiness-scorecard.md`
+- `planning/sprints/state-of-the-art-v1-6-week-plan.md`
+- `planning/jira/state-of-the-art-v1-backlog.json`

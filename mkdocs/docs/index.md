@@ -15,8 +15,11 @@ npm run demo:mcp-paid-exa
 Then follow:
 
 1. [Quickstart](guides/quickstart.md)
-2. [Integrations](reference/integrations.md)
-3. [Production Cutover](guides/production-cutover.md)
+2. [State-of-the-Art Onboarding](guides/state-of-the-art-onboarding.md)
+3. [Launch Readiness Scorecard](guides/launch-readiness-scorecard.md)
+4. [V1 Execution Plan](guides/v1-execution-plan.md)
+5. [Integrations](reference/integrations.md)
+6. [Production Cutover](guides/production-cutover.md)
 
 ## What Settld Enforces
 

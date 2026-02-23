@@ -29,6 +29,9 @@ nav:
   - Home: index.md
   - Start:
       - Quickstart: guides/quickstart.md
+      - State-of-the-Art Onboarding: guides/state-of-the-art-onboarding.md
+      - Launch Readiness Scorecard: guides/launch-readiness-scorecard.md
+      - V1 Execution Plan: guides/v1-execution-plan.md
       - Local Environment: guides/local-environment.md
       - Production Cutover: guides/production-cutover.md
       - Policy Packs: guides/policy-packs.md
