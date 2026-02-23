@@ -5201,11 +5201,26 @@ async function handleTenantRuntimeBootstrap(req, res, tenantId) {
   }
 
   const apiBaseUrl = typeof bootstrap.apiBaseUrl === "string" && bootstrap.apiBaseUrl.trim() ? bootstrap.apiBaseUrl.trim() : settldApiBaseUrl;
+  const normalizedApiBaseUrl = normalizeHttpUrl(apiBaseUrl);
+  if (!normalizedApiBaseUrl) {
+    return sendJson(res, 502, {
+      ok: false,
+      code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+      message: "Settld bootstrap response missing apiBaseUrl"
+    });
+  }
   const apiKeyToken = typeof bootstrap?.apiKey?.token === "string" && bootstrap.apiKey.token.trim() ? bootstrap.apiKey.token.trim() : null;
+  if (!apiKeyToken) {
+    return sendJson(res, 502, {
+      ok: false,
+      code: "RUNTIME_BOOTSTRAP_INVALID_RESPONSE",
+      message: "Settld bootstrap response missing runtime API key token"
+    });
+  }
   const mcpEnv = {};
-  if (apiBaseUrl) mcpEnv.SETTLD_BASE_URL = apiBaseUrl;
+  mcpEnv.SETTLD_BASE_URL = normalizedApiBaseUrl;
   mcpEnv.SETTLD_TENANT_ID = tenantId;
-  if (apiKeyToken) mcpEnv.SETTLD_API_KEY = apiKeyToken;
+  mcpEnv.SETTLD_API_KEY = apiKeyToken;
   if (paidToolsBaseUrl) mcpEnv.SETTLD_PAID_TOOLS_BASE_URL = paidToolsBaseUrl;
   const mcp = {
     schemaVersion: "SettldMcpServerConfig.v1",

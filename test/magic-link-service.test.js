@@ -1437,7 +1437,7 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     assert.deepEqual(out.json?.mcp?.args, ["-y", "settld-mcp"]);
     assert.equal(out.json?.mcp?.env?.SETTLD_TENANT_ID, tenantId);
     assert.equal(out.json?.mcp?.env?.SETTLD_API_KEY, "ak_runtime_test.secret_runtime");
-    assert.equal(out.json?.mcp?.env?.SETTLD_BASE_URL, "https://api.mock.settld.work");
+    assert.equal(out.json?.mcp?.env?.SETTLD_BASE_URL, "https://api.mock.settld.work/");
     assert.equal(out.json?.mcp?.env?.SETTLD_PAID_TOOLS_BASE_URL, "https://paid.tools.settld.work/");
     assert.equal(out.json?.mcpConfigJson?.mcpServers?.settld?.command, "npx");
 
@@ -1453,6 +1453,102 @@ test("magic-link app (no listen): strict/auto, idempotency, downloads, revoke", 
     const auditFp = path.join(dataDir, "audit", tenantId, `${monthKeyUtcNow()}.jsonl`);
     const auditRaw = await fs.readFile(auditFp, "utf8");
     assert.match(auditRaw, /TENANT_RUNTIME_BOOTSTRAP_ISSUED/);
+  });
+
+  await t.test("tenant onboarding runtime bootstrap: session cookie and bootstrap key emit identical MCP env contract", async () => {
+    const tenantId = "tenant_runtime_bootstrap_auth_parity";
+    await createTenant({
+      tenantId,
+      name: "Runtime Bootstrap Auth Parity Tenant",
+      contactEmail: "ops+runtime-auth-parity@example.com",
+      billingEmail: "billing+runtime-auth-parity@example.com"
+    });
+    await putTenantSettings({
+      tenantId,
+      patch: {
+        buyerAuthEmailDomains: ["buyer.example"],
+        buyerUserRoles: {
+          "admin@buyer.example": "admin"
+        }
+      }
+    });
+
+    const otpReqBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example" }), "utf8");
+    const otpRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login/otp`,
+      headers: { "content-type": "application/json", "content-length": String(otpReqBuf.length) },
+      bodyChunks: [otpReqBuf]
+    });
+    assert.equal(otpRes.statusCode, 200, otpRes._body().toString("utf8"));
+    const otpCode = await readBuyerOtpOutboxCode({ tenantId, email: "admin@buyer.example" });
+    assert.match(String(otpCode), /^[0-9]{6}$/);
+
+    const loginBuf = Buffer.from(JSON.stringify({ email: "admin@buyer.example", code: otpCode }), "utf8");
+    const loginRes = await runReq({
+      method: "POST",
+      url: `/v1/tenants/${encodeURIComponent(tenantId)}/buyer/login`,
+      headers: { "content-type": "application/json", "content-length": String(loginBuf.length) },
+      bodyChunks: [loginBuf]
+    });
+    assert.equal(loginRes.statusCode, 200, loginRes._body().toString("utf8"));
+    const sessionCookie = String(loginRes.getHeader("set-cookie") ?? "").split(";")[0];
+    assert.ok(sessionCookie.startsWith("ml_buyer_session="));
+
+    const bootstrapKeyOut = await postTenantRuntimeBootstrap({
+      tenantId,
+      body: {
+        apiKey: { keyId: "ak_runtime_parity", scopes: ["runs:write", "runs:read"] },
+        paidToolsBaseUrl: "https://paid.tools.settld.work"
+      }
+    });
+    assert.equal(bootstrapKeyOut.statusCode, 201, JSON.stringify(bootstrapKeyOut.json));
+    assert.equal(bootstrapKeyOut.json?.ok, true);
+
+    const sessionOut = await postTenantRuntimeBootstrap({
+      tenantId,
+      headers: { "x-api-key": "", cookie: sessionCookie },
+      body: {
+        apiKey: { keyId: "ak_runtime_parity", scopes: ["runs:write", "runs:read"] },
+        paidToolsBaseUrl: "https://paid.tools.settld.work"
+      }
+    });
+    assert.equal(sessionOut.statusCode, 201, JSON.stringify(sessionOut.json));
+    assert.equal(sessionOut.json?.ok, true);
+    assert.equal(sessionOut.json?.bootstrap?.apiKey?.token, "ak_runtime_parity.secret_runtime");
+    assert.deepEqual(sessionOut.json?.mcp?.env, bootstrapKeyOut.json?.mcp?.env);
+    assert.deepEqual(sessionOut.json?.mcpConfigJson?.mcpServers?.settld?.env, bootstrapKeyOut.json?.mcpConfigJson?.mcpServers?.settld?.env);
+  });
+
+  await t.test("tenant onboarding runtime bootstrap: rejects upstream success payload missing runtime key token", async () => {
+    const tenantId = "tenant_runtime_bootstrap_missing_token";
+    await createTenant({
+      tenantId,
+      name: "Runtime Bootstrap Missing Token Tenant",
+      contactEmail: "ops+runtime-missing-token@example.com",
+      billingEmail: "billing+runtime-missing-token@example.com"
+    });
+
+    settldOpsBootstrapState.nextErrorStatus = 201;
+    settldOpsBootstrapState.nextErrorBody = {
+      tenantId,
+      bootstrap: {
+        tenantId,
+        apiBaseUrl: "https://api.mock.settld.work",
+        apiKey: { keyId: "ak_missing_token", token: "" }
+      }
+    };
+
+    const out = await postTenantRuntimeBootstrap({
+      tenantId,
+      body: {
+        apiKey: { keyId: "ak_missing_token" }
+      }
+    });
+    assert.equal(out.statusCode, 502, JSON.stringify(out.json));
+    assert.equal(out.json?.ok, false);
+    assert.equal(out.json?.code, "RUNTIME_BOOTSTRAP_INVALID_RESPONSE");
+    assert.match(String(out.json?.message ?? ""), /missing runtime API key token/i);
   });
 
   await t.test("tenant onboarding wallet bootstrap: returns provider env and does not expose circle api key", async () => {

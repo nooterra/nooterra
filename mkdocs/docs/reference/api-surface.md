@@ -34,6 +34,8 @@ Ops:
 ## Hosted onboarding API (Magic Link service, typically `:3090`)
 
 - `POST /v1/tenants/{tenantId}/onboarding/runtime-bootstrap`
+  - Auth: `x-api-key` (bootstrap/admin key) or buyer session cookie (`ml_buyer_session`)
+  - Success contract: always returns `mcp.env` with `SETTLD_BASE_URL`, `SETTLD_TENANT_ID`, `SETTLD_API_KEY`
 - `POST /v1/tenants/{tenantId}/onboarding/runtime-bootstrap/smoke-test`
 - `POST /v1/tenants/{tenantId}/onboarding/first-paid-call`
 - `GET /v1/tenants/{tenantId}/onboarding/first-paid-call/history`
