@@ -83,11 +83,12 @@ Magic Link can deliver OTP codes in three modes:
 - `record` (default): write OTPs to an on-disk outbox under `MAGIC_LINK_DATA_DIR` (dev/testing)
 - `log`: log OTP codes to stdout (dev only)
 - `smtp`: send OTP codes via SMTP (production)
+- `resend`: send OTP codes via Resend HTTPS API (recommended on hosts where SMTP egress is restricted)
 
 Env vars:
 
-- `MAGIC_LINK_BUYER_OTP_DELIVERY_MODE=record|log|smtp`
-- `MAGIC_LINK_DECISION_OTP_DELIVERY_MODE=record|log|smtp`
+- `MAGIC_LINK_BUYER_OTP_DELIVERY_MODE=record|log|smtp|resend`
+- `MAGIC_LINK_DECISION_OTP_DELIVERY_MODE=record|log|smtp|resend`
 
 SMTP config (required for `smtp` mode):
 
@@ -97,6 +98,12 @@ SMTP config (required for `smtp` mode):
 - `MAGIC_LINK_SMTP_STARTTLS=1|0` (default `1`; ignored when `SECURE=1`)
 - `MAGIC_LINK_SMTP_USER`, `MAGIC_LINK_SMTP_PASS` (optional; enables `AUTH PLAIN`)
 - `MAGIC_LINK_SMTP_FROM` (required when `MAGIC_LINK_SMTP_HOST` is set; use bare email for envelope sender, e.g. `ops@settld.work`)
+
+Resend config (required for `resend` mode):
+
+- `MAGIC_LINK_RESEND_API_KEY`
+- `MAGIC_LINK_RESEND_FROM` (verified sender, e.g. `onboarding@settld.work`)
+- `MAGIC_LINK_RESEND_BASE_URL` (optional, default `https://api.resend.com`)
 
 ## Data dir format + upgrades
 

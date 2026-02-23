@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import { sendSmtpMail } from "./smtp.js";
+import { sendResendMail } from "./email-resend.js";
 
 function nowIso() {
   return new Date().toISOString();
@@ -52,7 +53,7 @@ function errorMessageOrFallback(err, fallback = "smtp failed") {
   return fallback;
 }
 
-export async function issueDecisionOtp({ dataDir, token, email, ttlSeconds, deliveryMode, smtp } = {}) {
+export async function issueDecisionOtp({ dataDir, token, email, ttlSeconds, deliveryMode, smtp, resend } = {}) {
   const emailNorm = normalizeEmail(email);
   if (!emailNorm) return { ok: false, error: "INVALID_EMAIL", message: "invalid email" };
 
@@ -112,6 +113,28 @@ export async function issueDecisionOtp({ dataDir, token, email, ttlSeconds, deli
       });
     } catch (err) {
       return { ok: false, error: "SMTP_SEND_FAILED", message: errorMessageOrFallback(err, "smtp send failed") };
+    }
+  } else if (mode === "resend") {
+    const from = typeof resend?.from === "string" ? resend.from.trim() : "";
+    const apiKey = typeof resend?.apiKey === "string" ? resend.apiKey.trim() : "";
+    if (!from || !apiKey) {
+      return {
+        ok: false,
+        error: "RESEND_NOT_CONFIGURED",
+        message: "resend.from and resend.apiKey are required"
+      };
+    }
+    try {
+      await sendResendMail({
+        apiKey,
+        from,
+        to: emailNorm,
+        subject: "Your Settld decision code",
+        text: `Your decision code is: ${code}\n\nThis code expires at: ${expiresAt}\n\nIf you did not request this code, you can ignore this email.\n`,
+        baseUrl: resend?.baseUrl
+      });
+    } catch (err) {
+      return { ok: false, error: "RESEND_SEND_FAILED", message: errorMessageOrFallback(err, "resend send failed") };
     }
   } else {
     throw new Error("invalid deliveryMode");

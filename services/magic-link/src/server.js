@@ -909,6 +909,10 @@ const smtpUser = process.env.MAGIC_LINK_SMTP_USER ? String(process.env.MAGIC_LIN
 const smtpPass = process.env.MAGIC_LINK_SMTP_PASS ? String(process.env.MAGIC_LINK_SMTP_PASS) : "";
 const smtpFrom = process.env.MAGIC_LINK_SMTP_FROM ? String(process.env.MAGIC_LINK_SMTP_FROM).trim() : "";
 const smtpConfig = smtpHost && smtpFrom ? { host: smtpHost, port: smtpPort, secure: smtpSecure, starttls: smtpStarttls, user: smtpUser, pass: smtpPass, from: smtpFrom } : null;
+const resendApiKey = process.env.MAGIC_LINK_RESEND_API_KEY ? String(process.env.MAGIC_LINK_RESEND_API_KEY).trim() : "";
+const resendFrom = process.env.MAGIC_LINK_RESEND_FROM ? String(process.env.MAGIC_LINK_RESEND_FROM).trim() : "";
+const resendBaseUrl = process.env.MAGIC_LINK_RESEND_BASE_URL ? String(process.env.MAGIC_LINK_RESEND_BASE_URL).trim() : "https://api.resend.com";
+const resendConfig = resendApiKey && resendFrom ? { apiKey: resendApiKey, from: resendFrom, baseUrl: resendBaseUrl } : null;
 const onboardingEmailSequenceDeliveryMode =
   onboardingEmailSequenceDeliveryModeRaw || (smtpConfig ? "smtp" : "record");
 
@@ -997,10 +1001,14 @@ if (billingProvider === "stripe" && stripeWebhookSecret && !stripeWebhookSecret.
 }
 if (!Number.isInteger(decisionOtpTtlSeconds) || decisionOtpTtlSeconds <= 0) throw new Error("MAGIC_LINK_DECISION_OTP_TTL_SECONDS must be a positive integer");
 if (!Number.isInteger(decisionOtpMaxAttempts) || decisionOtpMaxAttempts < 1) throw new Error("MAGIC_LINK_DECISION_OTP_MAX_ATTEMPTS must be an integer >= 1");
-if (decisionOtpDeliveryMode !== "record" && decisionOtpDeliveryMode !== "log" && decisionOtpDeliveryMode !== "smtp") throw new Error("MAGIC_LINK_DECISION_OTP_DELIVERY_MODE must be record|log|smtp");
+if (decisionOtpDeliveryMode !== "record" && decisionOtpDeliveryMode !== "log" && decisionOtpDeliveryMode !== "smtp" && decisionOtpDeliveryMode !== "resend") {
+  throw new Error("MAGIC_LINK_DECISION_OTP_DELIVERY_MODE must be record|log|smtp|resend");
+}
 if (!Number.isInteger(buyerOtpTtlSeconds) || buyerOtpTtlSeconds <= 0) throw new Error("MAGIC_LINK_BUYER_OTP_TTL_SECONDS must be a positive integer");
 if (!Number.isInteger(buyerOtpMaxAttempts) || buyerOtpMaxAttempts < 1) throw new Error("MAGIC_LINK_BUYER_OTP_MAX_ATTEMPTS must be an integer >= 1");
-if (buyerOtpDeliveryMode !== "record" && buyerOtpDeliveryMode !== "log" && buyerOtpDeliveryMode !== "smtp") throw new Error("MAGIC_LINK_BUYER_OTP_DELIVERY_MODE must be record|log|smtp");
+if (buyerOtpDeliveryMode !== "record" && buyerOtpDeliveryMode !== "log" && buyerOtpDeliveryMode !== "smtp" && buyerOtpDeliveryMode !== "resend") {
+  throw new Error("MAGIC_LINK_BUYER_OTP_DELIVERY_MODE must be record|log|smtp|resend");
+}
 if (!Number.isInteger(buyerSessionTtlSeconds) || buyerSessionTtlSeconds <= 0) throw new Error("MAGIC_LINK_BUYER_SESSION_TTL_SECONDS must be a positive integer");
 if (
   onboardingEmailSequenceDeliveryMode !== "record" &&
@@ -1019,6 +1027,11 @@ if (requireDurableDataDir && dataDirLikelyEphemeral) {
 if (smtpHost) {
   if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) throw new Error("MAGIC_LINK_SMTP_PORT must be 1..65535");
   if (!smtpFrom) throw new Error("MAGIC_LINK_SMTP_FROM is required when MAGIC_LINK_SMTP_HOST is set");
+}
+if (buyerOtpDeliveryMode === "resend" || decisionOtpDeliveryMode === "resend") {
+  if (!resendApiKey || !resendFrom) {
+    throw new Error("MAGIC_LINK_RESEND_API_KEY and MAGIC_LINK_RESEND_FROM are required when OTP delivery mode is resend");
+  }
 }
 if (publicBaseUrl !== null && publicBaseUrl !== "") {
   // Minimal validation; URL constructor will throw on invalid.
@@ -10146,7 +10159,15 @@ async function handleBuyerLoginOtpRequest(req, res, tenantId) {
     return sendJson(res, 400, { ok: false, code: "BUYER_EMAIL_DOMAIN_FORBIDDEN", message: "email domain is not allowed" });
   }
 
-  const issued = await issueBuyerOtp({ dataDir, tenantId, email, ttlSeconds: buyerOtpTtlSeconds, deliveryMode: buyerOtpDeliveryMode, smtp: smtpConfig });
+  const issued = await issueBuyerOtp({
+    dataDir,
+    tenantId,
+    email,
+    ttlSeconds: buyerOtpTtlSeconds,
+    deliveryMode: buyerOtpDeliveryMode,
+    smtp: smtpConfig,
+    resend: resendConfig
+  });
   if (!issued.ok) {
     metrics.incCounter("login_otp_requests_total", { tenantId, ok: "false", code: String(issued.error ?? "OTP_FAILED") }, 1);
     return sendJson(res, 400, { ok: false, code: issued.error ?? "OTP_FAILED", message: issued.message || "otp failed" });
@@ -10359,7 +10380,15 @@ async function handlePublicSignup(req, res) {
     status: "active"
   });
 
-  const issued = await issueBuyerOtp({ dataDir, tenantId, email, ttlSeconds: buyerOtpTtlSeconds, deliveryMode: buyerOtpDeliveryMode, smtp: smtpConfig });
+  const issued = await issueBuyerOtp({
+    dataDir,
+    tenantId,
+    email,
+    ttlSeconds: buyerOtpTtlSeconds,
+    deliveryMode: buyerOtpDeliveryMode,
+    smtp: smtpConfig,
+    resend: resendConfig
+  });
   if (!issued.ok) {
     return sendJson(res, 202, {
       ok: true,
@@ -14538,7 +14567,15 @@ async function handleDecisionOtpRequest(req, res, token) {
     return sendJson(res, 400, { ok: false, code: "OTP_EMAIL_DOMAIN_FORBIDDEN", message: "email domain is not allowed" });
   }
 
-  const issued = await issueDecisionOtp({ dataDir, token, email, ttlSeconds: decisionOtpTtlSeconds, deliveryMode: decisionOtpDeliveryMode, smtp: smtpConfig });
+  const issued = await issueDecisionOtp({
+    dataDir,
+    token,
+    email,
+    ttlSeconds: decisionOtpTtlSeconds,
+    deliveryMode: decisionOtpDeliveryMode,
+    smtp: smtpConfig,
+    resend: resendConfig
+  });
   if (!issued.ok) {
     metrics.incCounter("decision_otp_requests_total", { tenantId: String(tenantId ?? "default"), ok: "false", code: String(issued.error ?? "OTP_FAILED") }, 1);
     return sendJson(res, 400, { ok: false, code: issued.error ?? "OTP_FAILED", message: issued.message || "otp failed" });
