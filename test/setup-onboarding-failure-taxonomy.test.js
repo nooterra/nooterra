@@ -22,6 +22,12 @@ test("onboarding failure taxonomy: classifies login unavailable on base URL", ()
   assert.equal(failure.phase, "auth");
 });
 
+test("onboarding failure taxonomy: classifies tenant buyer auth disabled", () => {
+  const failure = classifyOnboardingFailure(new Error("buyer OTP login is not enabled for this tenant"));
+  assert.equal(failure.code, "ONBOARDING_AUTH_TENANT_DISABLED");
+  assert.equal(failure.phase, "auth");
+});
+
 test("onboarding failure taxonomy: exposes deterministic class registry", () => {
   const classes = listOnboardingFailureClasses();
   assert.ok(Array.isArray(classes));

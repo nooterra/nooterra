@@ -290,6 +290,11 @@ export async function runLogin({
       });
       if (!otpRequest.res.ok) {
         const code = responseCode(otpRequest);
+        if (otpRequest.res.status === 400 && code === "BUYER_AUTH_DISABLED") {
+          throw new Error(
+            "buyer OTP login is not enabled for this tenant. This tenant may be stale on the onboarding service; rerun `settld login` without --tenant-id to create a fresh tenant, or use bootstrap/manual API key mode."
+          );
+        }
         if (otpRequest.res.status === 403 && code === "FORBIDDEN") {
           throw new Error(
             "OTP login is unavailable on this base URL. Use `Generate during setup` with an onboarding bootstrap API key, or use an existing tenant API key."

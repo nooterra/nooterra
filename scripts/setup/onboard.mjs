@@ -1126,10 +1126,24 @@ async function requestRuntimeBootstrapMcpEnv({
     json = null;
   }
   if (!res.ok) {
+    const responseCode =
+      json && typeof json === "object" && (typeof json?.code === "string" || typeof json?.error === "string")
+        ? String(json?.code ?? json?.error ?? "").trim().toUpperCase()
+        : "";
     const message =
       json && typeof json === "object"
         ? json?.message ?? json?.error ?? `HTTP ${res.status}`
         : text || `HTTP ${res.status}`;
+    if (res.status === 403 && cookie && !apiKey) {
+      throw new Error(
+        `runtime bootstrap request failed (403): ${String(message)}. Saved login session was rejected for this tenant; rerun \`settld login\` without --tenant-id to create a fresh tenant, or choose \`Generate during setup\`.`
+      );
+    }
+    if (res.status === 400 && responseCode === "BUYER_AUTH_DISABLED") {
+      throw new Error(
+        "runtime bootstrap request failed (400): buyer OTP login is not enabled for this tenant. Rerun `settld login` without --tenant-id to create a fresh tenant, or choose `Generate during setup`."
+      );
+    }
     throw new Error(`runtime bootstrap request failed (${res.status}): ${String(message)}`);
   }
   return extractBootstrapMcpEnv(json);

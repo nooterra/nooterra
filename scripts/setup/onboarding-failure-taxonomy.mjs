@@ -20,6 +20,17 @@ const FAILURE_CLASSES = Object.freeze([
     remediation: "Request a fresh OTP and retry `settld login`."
   },
   {
+    code: "ONBOARDING_AUTH_TENANT_DISABLED",
+    phase: "auth",
+    patterns: [
+      /buyer OTP login is not enabled for this tenant/i,
+      /BUYER_AUTH_DISABLED/i,
+      /Saved login session was rejected for this tenant/i
+    ],
+    remediation:
+      "Rerun `settld login` without `--tenant-id` to create a fresh tenant, or choose `Generate during setup` / `Paste existing key`."
+  },
+  {
     code: "ONBOARDING_BOOTSTRAP_FORBIDDEN",
     phase: "bootstrap",
     patterns: [/runtime bootstrap request failed \(403\)/i],

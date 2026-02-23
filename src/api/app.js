@@ -7588,7 +7588,12 @@ export function createApi({
     const out = [];
     const seen = new Set();
     for (const entry of parsed) {
-      const id = normalizeOptionalX402RefInput(entry, fieldPath, { allowNull: true, max });
+      if (entry === null || entry === undefined || String(entry).trim() === "") continue;
+      if (typeof entry !== "string") throw new TypeError(`${fieldPath} must contain only strings`);
+      const id = String(entry).trim();
+      if (!id) continue;
+      if (id.length > max) throw new TypeError(`${fieldPath} must be <= ${max} chars`);
+      if (!/^[A-Za-z0-9:_.-]+$/.test(id)) throw new TypeError(`${fieldPath} must match ^[A-Za-z0-9:_.-]+$`);
       if (!id) continue;
       if (seen.has(id)) continue;
       seen.add(id);

@@ -2011,6 +2011,34 @@ test("API e2e: ops x402 wallet policy CRUD and authorize-payment policy enforcem
   assert.equal(issuerDecisionB.json?.code, "X402_WALLET_POLICY_DAILY_LIMIT_EXCEEDED");
 });
 
+test("API e2e: ops x402 wallet policy upsert accepts dot-delimited tool IDs", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_auth_policy_dot_payee_1" });
+  const walletPolicy = {
+    schemaVersion: "X402WalletPolicy.v1",
+    sponsorRef: "sponsor_policy_dot_1",
+    sponsorWalletRef: "wallet_policy_dot_1",
+    policyRef: "policy_dot_1",
+    policyVersion: 1,
+    status: "active",
+    maxAmountCents: 1000,
+    maxDailyAuthorizationCents: 1000,
+    allowedProviderIds: [payeeAgentId],
+    allowedToolIds: ["ci.compute", "observability.logs"],
+    allowedAgentKeyIds: [],
+    allowedCurrencies: ["USD"],
+    requireQuote: false,
+    requireStrictRequestBinding: false,
+    requireAgentKeyMatch: false
+  };
+  const createdPolicy = await upsertX402WalletPolicy(api, {
+    policy: walletPolicy,
+    idempotencyKey: "x402_wallet_policy_upsert_dot_1"
+  });
+  assert.equal(createdPolicy.statusCode, 201, createdPolicy.body);
+  assert.deepEqual(createdPolicy.json?.policy?.allowedToolIds, walletPolicy.allowedToolIds);
+});
+
 test("API e2e: verify rejects spend authorization policy fingerprint mismatch", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 
