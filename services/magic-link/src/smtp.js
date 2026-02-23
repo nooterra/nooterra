@@ -21,6 +21,19 @@ function clampText(v, { max }) {
   return s.slice(0, Math.max(0, max - 1)) + "…";
 }
 
+const SIMPLE_EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+$/;
+
+export function extractSmtpEnvelopeAddress(value, { fieldName = "address" } = {}) {
+  const raw = String(value ?? "").trim();
+  if (!raw) throw new Error(`smtp ${fieldName} required`);
+  const bracketed = /<\s*([^<>\s@]+@[^\s@<>]+)\s*>/.exec(raw);
+  const candidate = (bracketed ? bracketed[1] : raw).trim();
+  if (!SIMPLE_EMAIL_RE.test(candidate)) {
+    throw new Error(`smtp ${fieldName} must be an email address`);
+  }
+  return candidate;
+}
+
 export function formatSmtpMessage({ from, to, subject, text, messageIdDomain }) {
   const subj = clampText(subject, { max: 200 });
   const body = String(text ?? "");
@@ -133,6 +146,8 @@ export async function sendSmtpMail({
   if (!h) throw new Error("smtp host required");
   if (!Number.isInteger(p) || p < 1 || p > 65535) throw new Error("smtp port invalid");
   if (!from || !to) throw new Error("smtp from/to required");
+  const envelopeFrom = extractSmtpEnvelopeAddress(from, { fieldName: "from" });
+  const envelopeTo = extractSmtpEnvelopeAddress(to, { fieldName: "to" });
 
   const connect = secure
     ? () => tls.connect({ host: h, port: p, servername: h })
@@ -178,13 +193,13 @@ export async function sendSmtpMail({
     }
   }
 
-  await sendCmd(socket, reader, `MAIL FROM:<${from}>`, 250);
-  await sendCmd(socket, reader, `RCPT TO:<${to}>`, [250, 251]);
+  await sendCmd(socket, reader, `MAIL FROM:<${envelopeFrom}>`, 250);
+  await sendCmd(socket, reader, `RCPT TO:<${envelopeTo}>`, [250, 251]);
   await sendCmd(socket, reader, "DATA", 354);
 
   const domain = (() => {
-    const i = String(from).indexOf("@");
-    return i !== -1 ? String(from).slice(i + 1) : "localhost";
+    const i = envelopeFrom.indexOf("@");
+    return i !== -1 ? envelopeFrom.slice(i + 1) : "localhost";
   })();
   const msg = formatSmtpMessage({ from, to, subject, text, messageIdDomain: domain });
 

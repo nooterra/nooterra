@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { dotStuffSmtpData, formatSmtpMessage } from "../services/magic-link/src/smtp.js";
+import { dotStuffSmtpData, extractSmtpEnvelopeAddress, formatSmtpMessage } from "../services/magic-link/src/smtp.js";
 
 test("formatSmtpMessage: emits CRLF headers + body and ends with CRLF", () => {
   const msg = formatSmtpMessage({
@@ -26,3 +26,11 @@ test("dotStuffSmtpData: prefixes lines that start with '.'", () => {
   assert.equal(out, "h\r\n..hello\r\n...two\r\nnormal\r\n");
 });
 
+test("extractSmtpEnvelopeAddress: accepts plain and display-name forms", () => {
+  assert.equal(extractSmtpEnvelopeAddress("ops@example.test"), "ops@example.test");
+  assert.equal(extractSmtpEnvelopeAddress("Settld Ops <ops@example.test>"), "ops@example.test");
+});
+
+test("extractSmtpEnvelopeAddress: rejects invalid values", () => {
+  assert.throws(() => extractSmtpEnvelopeAddress("Settld Ops"), /smtp address must be an email address/);
+});

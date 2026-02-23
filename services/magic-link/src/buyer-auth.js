@@ -44,6 +44,14 @@ function issueCode6() {
   return String(n).padStart(6, "0");
 }
 
+function errorMessageOrFallback(err, fallback = "smtp failed") {
+  const direct = typeof err?.message === "string" ? err.message.trim() : "";
+  if (direct) return direct;
+  const asText = String(err ?? "").trim();
+  if (asText && asText !== "[object Object]") return asText;
+  return fallback;
+}
+
 export async function issueBuyerOtp({ dataDir, tenantId, email, ttlSeconds, deliveryMode, smtp } = {}) {
   const emailNorm = normalizeEmailLower(email);
   if (!emailNorm) return { ok: false, error: "INVALID_EMAIL", message: "invalid email" };
@@ -106,7 +114,7 @@ export async function issueBuyerOtp({ dataDir, tenantId, email, ttlSeconds, deli
         text: `Your login code is: ${code}\n\nThis code expires at: ${expiresAt}\n\nIf you did not request this code, you can ignore this email.\n`
       });
     } catch (err) {
-      return { ok: false, error: "SMTP_SEND_FAILED", message: err?.message ?? String(err ?? "smtp failed") };
+      return { ok: false, error: "SMTP_SEND_FAILED", message: errorMessageOrFallback(err, "smtp send failed") };
     }
   } else {
     throw new Error("invalid deliveryMode");

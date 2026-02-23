@@ -30,8 +30,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/package.json ./package.json
 COPY --from=deps /app/SETTLD_VERSION ./SETTLD_VERSION
 
-# Runtime-writable locations should be mounted as volumes in k8s; create /data with correct ownership for safety.
-COPY --from=prep /data /data
+# Runtime-writable locations should be mounted as volumes in k8s; copy with nonroot ownership for distroless runtime.
+COPY --chown=65532:65532 --from=prep /data /data
 
 # Copy application code.
 COPY src ./src

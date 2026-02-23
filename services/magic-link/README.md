@@ -27,7 +27,8 @@ Example:
 export MAGIC_LINK_HOST=127.0.0.1   # set 0.0.0.0 in prod
 export MAGIC_LINK_PORT=8787
 export MAGIC_LINK_API_KEY='dev_key'
-export MAGIC_LINK_DATA_DIR=/tmp/settld-magic-link
+export MAGIC_LINK_DATA_DIR=/tmp/settld-magic-link # dev only; use a persistent volume path in production
+export MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR=0      # set 1 in production to fail fast on ephemeral paths
 export MAGIC_LINK_VERIFY_TIMEOUT_MS=60000
 export MAGIC_LINK_RATE_LIMIT_UPLOADS_PER_HOUR=100
 export MAGIC_LINK_VERIFY_QUEUE_WORKERS=2
@@ -95,7 +96,7 @@ SMTP config (required for `smtp` mode):
 - `MAGIC_LINK_SMTP_SECURE=1|0` (default `0`; set `1` for SMTPS/465)
 - `MAGIC_LINK_SMTP_STARTTLS=1|0` (default `1`; ignored when `SECURE=1`)
 - `MAGIC_LINK_SMTP_USER`, `MAGIC_LINK_SMTP_PASS` (optional; enables `AUTH PLAIN`)
-- `MAGIC_LINK_SMTP_FROM` (required when `MAGIC_LINK_SMTP_HOST` is set)
+- `MAGIC_LINK_SMTP_FROM` (required when `MAGIC_LINK_SMTP_HOST` is set; use bare email for envelope sender, e.g. `ops@settld.work`)
 
 ## Data dir format + upgrades
 
@@ -106,6 +107,7 @@ Magic Link persists state under `MAGIC_LINK_DATA_DIR`. A small format marker is 
 On startup, Magic Link can initialize/migrate this marker (default: enabled):
 
 - `MAGIC_LINK_MIGRATE_ON_STARTUP=1` (default)
+- `MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR=1|0` (default `0`; set `1` in production to block startup when `MAGIC_LINK_DATA_DIR` points to `/tmp`)
 
 You can also run an explicit check/migrate command without starting the server:
 

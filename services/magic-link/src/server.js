@@ -713,11 +713,23 @@ async function readJsonIfExists(fp) {
   }
 }
 
+function isLikelyEphemeralDataDir(dirPath) {
+  const resolved = path.resolve(String(dirPath ?? ""));
+  return (
+    resolved === "/tmp" ||
+    resolved.startsWith("/tmp/") ||
+    resolved === os.tmpdir() ||
+    resolved.startsWith(`${os.tmpdir()}${path.sep}`)
+  );
+}
+
 const port = Number(process.env.MAGIC_LINK_PORT ?? "8787");
 const host = process.env.MAGIC_LINK_HOST ? String(process.env.MAGIC_LINK_HOST) : "127.0.0.1";
 const socketPath = process.env.MAGIC_LINK_SOCKET_PATH ? path.resolve(String(process.env.MAGIC_LINK_SOCKET_PATH)) : null;
 const apiKey = process.env.MAGIC_LINK_API_KEY ?? null;
 const dataDir = process.env.MAGIC_LINK_DATA_DIR ? path.resolve(process.env.MAGIC_LINK_DATA_DIR) : path.join(os.tmpdir(), "settld-magic-link");
+const dataDirLikelyEphemeral = isLikelyEphemeralDataDir(dataDir);
+const requireDurableDataDir = String(process.env.MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR ?? "0").trim() === "1";
 const maxUploadBytes = Number(process.env.MAGIC_LINK_MAX_UPLOAD_BYTES ?? String(50 * 1024 * 1024));
 const tokenTtlSeconds = Number(process.env.MAGIC_LINK_TOKEN_TTL_SECONDS ?? String(7 * 24 * 3600));
 const verifyTimeoutMs = Number(process.env.MAGIC_LINK_VERIFY_TIMEOUT_MS ?? String(60_000));
@@ -1001,6 +1013,9 @@ if (!Number.isInteger(paymentTriggerRetryIntervalMs) || paymentTriggerRetryInter
 if (!Number.isInteger(paymentTriggerMaxAttempts) || paymentTriggerMaxAttempts < 1) throw new Error("MAGIC_LINK_PAYMENT_TRIGGER_MAX_ATTEMPTS must be an integer >= 1");
 if (!Number.isInteger(paymentTriggerRetryBackoffMs) || paymentTriggerRetryBackoffMs < 0) throw new Error("MAGIC_LINK_PAYMENT_TRIGGER_RETRY_BACKOFF_MS must be an integer >= 0");
 if (typeof migrateOnStartup !== "boolean") throw new Error("MAGIC_LINK_MIGRATE_ON_STARTUP must be 1|0");
+if (requireDurableDataDir && dataDirLikelyEphemeral) {
+  throw new Error("MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR=1 but MAGIC_LINK_DATA_DIR resolves to an ephemeral path (/tmp)");
+}
 if (smtpHost) {
   if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) throw new Error("MAGIC_LINK_SMTP_PORT must be 1..65535");
   if (!smtpFrom) throw new Error("MAGIC_LINK_SMTP_FROM is required when MAGIC_LINK_SMTP_HOST is set");
@@ -1062,6 +1077,12 @@ const verifyDurationsWindow = 500;
 await fs.mkdir(dataDir, { recursive: true });
 const dataDirFormat = await checkAndMigrateDataDir({ dataDir, migrateOnStartup });
 if (!dataDirFormat.ok) throw new Error(`magic-link data dir check failed: ${dataDirFormat.code ?? "UNKNOWN"}`);
+if (dataDirLikelyEphemeral) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    `magic-link warning: MAGIC_LINK_DATA_DIR (${dataDir}) is likely ephemeral; use a persistent volume and set MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR=1 in production`
+  );
+}
 
 function recordVerifyDurationMs(ms) {
   const n = Math.max(0, Number(ms));
@@ -1093,6 +1114,8 @@ async function readinessSignals() {
   metrics.setGauge("magic_link_data_dir_writable_gauge", null, dataDirWritable ? 1 : 0);
   return {
     dataDir,
+    dataDirLikelyEphemeral,
+    requireDurableDataDir,
     dataDirWritable,
     dataFormatVersion: MAGIC_LINK_DATA_FORMAT_VERSION_CURRENT,
     migrateOnStartup,
@@ -10126,7 +10149,7 @@ async function handleBuyerLoginOtpRequest(req, res, tenantId) {
   const issued = await issueBuyerOtp({ dataDir, tenantId, email, ttlSeconds: buyerOtpTtlSeconds, deliveryMode: buyerOtpDeliveryMode, smtp: smtpConfig });
   if (!issued.ok) {
     metrics.incCounter("login_otp_requests_total", { tenantId, ok: "false", code: String(issued.error ?? "OTP_FAILED") }, 1);
-    return sendJson(res, 400, { ok: false, code: issued.error ?? "OTP_FAILED", message: issued.message ?? "otp failed" });
+    return sendJson(res, 400, { ok: false, code: issued.error ?? "OTP_FAILED", message: issued.message || "otp failed" });
   }
   metrics.incCounter("login_otp_requests_total", { tenantId, ok: "true" }, 1);
   try {
@@ -10160,7 +10183,7 @@ async function handleBuyerLogin(req, res, tenantId) {
   if (!isEmailAllowedByDomains({ email, allowedDomains })) return sendJson(res, 400, { ok: false, code: "BUYER_EMAIL_DOMAIN_FORBIDDEN", message: "email domain is not allowed" });
 
   const verified = await verifyAndConsumeBuyerOtp({ dataDir, tenantId, email, code, maxAttempts: buyerOtpMaxAttempts });
-  if (!verified.ok) return sendJson(res, 400, { ok: false, code: verified.error ?? "OTP_FAILED", message: verified.message ?? "otp failed" });
+  if (!verified.ok) return sendJson(res, 400, { ok: false, code: verified.error ?? "OTP_FAILED", message: verified.message || "otp failed" });
 
   const session = createBuyerSessionToken({ sessionKey, tenantId, email, ttlSeconds: buyerSessionTtlSeconds });
   if (!session.ok) return sendJson(res, 500, { ok: false, code: session.error ?? "SESSION_FAILED", message: "failed to create buyer session" });
@@ -10344,7 +10367,7 @@ async function handlePublicSignup(req, res) {
       email,
       otpIssued: false,
       warning: issued.error ?? "OTP_FAILED",
-      message: issued.message ?? "tenant created, otp issue failed"
+      message: issued.message || "tenant created, otp issue failed"
     });
   }
 
@@ -14518,7 +14541,7 @@ async function handleDecisionOtpRequest(req, res, token) {
   const issued = await issueDecisionOtp({ dataDir, token, email, ttlSeconds: decisionOtpTtlSeconds, deliveryMode: decisionOtpDeliveryMode, smtp: smtpConfig });
   if (!issued.ok) {
     metrics.incCounter("decision_otp_requests_total", { tenantId: String(tenantId ?? "default"), ok: "false", code: String(issued.error ?? "OTP_FAILED") }, 1);
-    return sendJson(res, 400, { ok: false, code: issued.error ?? "OTP_FAILED", message: issued.message ?? "otp failed" });
+    return sendJson(res, 400, { ok: false, code: issued.error ?? "OTP_FAILED", message: issued.message || "otp failed" });
   }
   metrics.incCounter("decision_otp_requests_total", { tenantId: String(tenantId ?? "default"), ok: "true" }, 1);
 
@@ -14724,7 +14747,7 @@ async function handleDecision(req, res, token, { internalAutoDecision = false } 
       return sendJson(res, 400, { ok: false, code: "OTP_REQUIRED", message: "otp code is required" });
     }
     const verified = await verifyAndConsumeDecisionOtp({ dataDir, token, email: actorEmailNorm, code: otp, maxAttempts: decisionOtpMaxAttempts });
-    if (!verified.ok) return sendJson(res, 400, { ok: false, code: verified.error ?? "OTP_FAILED", message: verified.message ?? "otp failed" });
+    if (!verified.ok) return sendJson(res, 400, { ok: false, code: verified.error ?? "OTP_FAILED", message: verified.message || "otp failed" });
   }
 
   let cliOut = null;

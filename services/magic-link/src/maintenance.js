@@ -12,10 +12,19 @@ function nowIso() {
 }
 
 const dataDir = process.env.MAGIC_LINK_DATA_DIR ? path.resolve(process.env.MAGIC_LINK_DATA_DIR) : path.join(os.tmpdir(), "settld-magic-link");
+const dataDirLikelyEphemeral =
+  dataDir === "/tmp" ||
+  dataDir.startsWith("/tmp/") ||
+  dataDir === os.tmpdir() ||
+  dataDir.startsWith(`${os.tmpdir()}${path.sep}`);
+const requireDurableDataDir = String(process.env.MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR ?? "0").trim() === "1";
 const migrateOnStartup = String(process.env.MAGIC_LINK_MIGRATE_ON_STARTUP ?? "1").trim() !== "0";
 const intervalSeconds = Number.parseInt(String(process.env.MAGIC_LINK_MAINTENANCE_INTERVAL_SECONDS ?? "86400"), 10);
 
 if (!Number.isInteger(intervalSeconds) || intervalSeconds < 5) throw new Error("MAGIC_LINK_MAINTENANCE_INTERVAL_SECONDS must be an integer >= 5");
+if (requireDurableDataDir && dataDirLikelyEphemeral) {
+  throw new Error("MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR=1 but MAGIC_LINK_DATA_DIR resolves to an ephemeral path (/tmp)");
+}
 
 await fs.mkdir(dataDir, { recursive: true });
 const fmt = await checkAndMigrateDataDir({ dataDir, migrateOnStartup });
@@ -35,6 +44,21 @@ process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 // eslint-disable-next-line no-console
 console.log(JSON.stringify({ at: nowIso(), event: "magic_link_maintenance.start", dataDir, intervalSeconds }, null, 2));
+if (dataDirLikelyEphemeral) {
+  // eslint-disable-next-line no-console
+  console.warn(
+    JSON.stringify(
+      {
+        at: nowIso(),
+        event: "magic_link_maintenance.ephemeral_data_dir_warning",
+        dataDir,
+        message: "data dir looks ephemeral; use persistent volume + MAGIC_LINK_REQUIRE_DURABLE_DATA_DIR=1 in production"
+      },
+      null,
+      2
+    )
+  );
+}
 
 while (!stopped) {
   const loopStartMs = Date.now();
