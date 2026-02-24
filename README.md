@@ -3,7 +3,7 @@
 [![CI](https://github.com/aidenlippert/settld/actions/workflows/tests.yml/badge.svg)](https://github.com/aidenlippert/settld/actions/workflows/tests.yml)
 [![npm](https://img.shields.io/npm/v/settld)](https://www.npmjs.com/package/settld)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
-[![Node 20.x | 22.x](https://img.shields.io/badge/node-20.x%20%7C%2022.x-brightgreen)](./.nvmrc)
+[![Node 22.x](https://img.shields.io/badge/node-22.x-brightgreen)](./.nvmrc)
 
 Settld is a deterministic trust-and-settlement control plane for agent actions: **decision** (`allow|challenge|deny|escalate`) + **execution binding** + **verifiable receipts** + **recourse**.
 
@@ -31,7 +31,7 @@ MCP gives agents *capability* (they can call tools/APIs). x402 gives them *a way
 
 ## Get Started (Local x402 Demo)
 
-Prereqs: Node.js 20.x or 22.x (install is fail-fast if you use a different major).
+Prereqs: Node.js 22.x (LTS). Node.js 20.x is also supported, but OpenClaw requires Node >= 22.
 
 ```sh
 nvm use
@@ -39,7 +39,7 @@ npm ci
 npm run quickstart:x402
 ```
 
-Note: if you see Node warnings like `ExperimentalWarning: CommonJS module ... is loading ES Module ...`, you are likely running an unsupported Node major (ex: Node 23). Use Node 20.x or 22.x (LTS) for deterministic behavior.
+Note: if you see Node warnings like `ExperimentalWarning: CommonJS module ... is loading ES Module ...`, you are likely running an unsupported Node major (ex: Node 23). Use Node 22.x (LTS) for deterministic behavior.
 
 CI-friendly one-shot run:
 

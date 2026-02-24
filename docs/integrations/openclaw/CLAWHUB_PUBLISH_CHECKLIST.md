@@ -25,6 +25,7 @@ In `SKILL.md`, verify:
 - `name` is unique in ClawHub
 - `description` is short and explicit
 - `version` bumped for every publish
+- `version` matches `docs/integrations/openclaw/settld-mcp-skill/skill.json`
 - `user-invocable: true` is present for slash-invoked usage
 - prompt library includes discovery + delegation + work-order + receipt flows
 
@@ -55,11 +56,13 @@ Automated smoke (requires network and public ClawHub access):
 npm run -s test:ci:openclaw-clawhub-install-smoke -- --slug settld-mcp-payments --bootstrap-local
 ```
 
-If ClawHub blocks non-interactive install due suspicious-skill gating, rerun with:
+If ClawHub blocks non-interactive install due to suspicious-skill gating, rerun with:
 
 ```bash
 npm run -s test:ci:openclaw-clawhub-install-smoke -- --slug settld-mcp-payments --force --bootstrap-local
 ```
+
+Only use `--force` for internal validation when you trust the publisher/source and have reviewed the skill contents.
 
 ## 5) Rollback Plan
 

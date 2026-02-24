@@ -6,7 +6,7 @@ Apply these rules for all changes under this directory.
 
 ## Project Context
 - Product: Settld Trust OS (policy enforcement, deterministic evidence, dispute/reversal, production gates).
-- Stack: Node.js 20, ESM JavaScript, npm scripts, CI on GitHub Actions.
+- Stack: Node.js 22 (LTS) + Node.js 20 (supported), ESM JavaScript, npm scripts, CI on GitHub Actions.
 - Priority qualities: deterministic behavior, fail-closed safety, auditable artifacts, idempotency.
 
 ## Non-Negotiables
@@ -74,3 +74,4 @@ A change is done only when all are true:
 - “Best effort” success on missing evidence.
 - Coupling unrelated cleanup to ticket work.
 - Non-deterministic report fields without clear reason.
+

@@ -6,6 +6,7 @@
   "entry": "SKILL.md",
   "files": [
     "SKILL.md",
-    "mcp-server.example.json"
+    "mcp-server.example.json",
+    "skill.json"
   ]
 }

@@ -12,11 +12,19 @@ This skill teaches OpenClaw agents to use Settld for paid MCP tool calls.
 
 It is designed for the public `quick` onboarding flow:
 
-1. `settld setup`
+1. `npx -y settld@latest setup` (or `settld setup` if installed)
 2. pick `openclaw` + `quick`
 3. login via OTP
 4. fund wallet
 5. run paid tool call with deterministic receipt evidence
+
+## TL;DR (OpenClaw)
+
+1. In your terminal: `npx -y settld@latest setup` (choose `openclaw` + `quick`)
+2. Restart OpenClaw so it reloads MCP config.
+3. In OpenClaw chat:
+   - "Use tool `settld.about` and return JSON only."
+   - "Use tool `settld.weather_current_paid` with arguments {\"city\":\"Chicago\",\"unit\":\"f\"} and return JSON only."
 
 ## What This Skill Enables
 
@@ -44,9 +52,22 @@ If the request implies spend, delegation, or settlement evidence, prefer Settld 
 - Settld runtime env from setup (`SETTLD_API_KEY`, `SETTLD_BASE_URL`, `SETTLD_TENANT_ID`)
 - Optional paid tools base URL (`SETTLD_PAID_TOOLS_BASE_URL`)
 
-## OpenClaw Plugin Registration
+## Tool Surface (Recommended)
 
-Install the Settld OpenClaw plugin from npm:
+### Recommended: Direct MCP tools (`settld.*`)
+
+After `settld setup` with `host=openclaw`, OpenClaw should have tools named `settld.*` available (served by `settld-mcp`).
+
+Use these directly:
+
+- `settld.about`
+- `settld.agent_discover`
+- `settld.work_order_create` / `settld.work_order_accept` / `settld.work_order_complete` / `settld.work_order_settle`
+- Paid calls: `settld.exa_search_paid`, `settld.weather_current_paid`, `settld.llm_completion_paid`
+
+### Optional: OpenClaw plugin wrapper tools (`settld_about`, `settld_call`)
+
+If you prefer a smaller tool surface, install the Settld OpenClaw plugin from npm:
 
 - `openclaw plugins install settld@latest`
 
@@ -137,15 +158,19 @@ Notes:
 
 ## Agent Usage Pattern
 
-1. Call `settld_about` to verify connectivity.
-2. For paid search/data calls, use `settld_call` with:
-   - `tool=settld.exa_search_paid`
-   - `tool=settld.weather_current_paid`
-3. For agreement lifecycle demo calls, use:
-   - `settld.create_agreement`
-   - `settld.submit_evidence`
-   - `settld.settle_run`
-   - `settld.resolve_settlement`
+Recommended (direct MCP tools):
+
+1. Call `settld.about` to verify connectivity.
+2. For paid search/data calls, call the paid tool directly (`settld.exa_search_paid`, `settld.weather_current_paid`, etc).
+3. For collaboration flows:
+   - discovery: `settld.agent_discover`
+   - delegation: `settld.delegation_grant_issue`
+   - work order lifecycle: `settld.work_order_create` -> `settld.work_order_accept` -> `settld.work_order_progress` -> `settld.work_order_complete` -> `settld.work_order_settle`
+
+Optional (plugin wrapper):
+
+1. Call `settld_about`.
+2. Use `settld_call` with `tool=<settld.* tool name>` and `arguments=<tool args>`.
 
 ## First 5 Commands (Copy/Paste)
 
@@ -157,8 +182,13 @@ Notes:
 
 ## Smoke Prompts
 
+- "Use tool `settld.about` and return JSON."
+- "Use tool `settld.weather_current_paid` with arguments {\"city\":\"Chicago\",\"unit\":\"f\"} and return JSON."
+
+If using the plugin wrapper:
+
 - "Use tool `settld_about` and return JSON."
-- "Use tool `settld_call` with `tool=settld.weather_current_paid` and arguments for Chicago/fahrenheit."
+- "Use tool `settld_call` with `tool=settld.weather_current_paid` and argumentsJson {\"city\":\"Chicago\",\"unit\":\"f\"} and return JSON."
 
 ## Slash Command Pattern
 
@@ -179,12 +209,12 @@ When slash-invoked, keep behavior deterministic:
 - Discovery: `settld.agent_discover`
 - Delegation grant: `settld.delegation_grant_issue`
 - Work order: `settld.work_order_create` -> `settld.work_order_accept` -> `settld.work_order_progress` -> `settld.work_order_complete` -> `settld.work_order_settle`
-- Paid tool call: `settld_call` (`tool=settld.weather_current_paid` or `tool=settld.exa_search_paid`)
+- Paid tool call: `settld.weather_current_paid` / `settld.exa_search_paid` / `settld.llm_completion_paid` (or `settld_call` wrapper)
 - Settlement visibility: `settld.x402_gate_get` or work-order read path
 
 ## Deterministic Output Contracts
 
-For each flow, return one JSON object with these keys:
+For each flow, return one JSON object with `schemaVersion` plus these keys:
 
 - Discovery: `query`, `matches[]`, `selectedAgentId` (or `null`)
 - Delegation grant: `grantId`, `principalAgentId`, `delegateeAgentId`, `constraints`
@@ -209,3 +239,5 @@ Every paid call should be explainable and auditable:
 - Keep paid tools scoped to trusted providers and tenant policy.
 - Fail closed on missing/mismatched settlement evidence for release decisions.
 - Prefer `visibility=private` until you are ready for open discovery (and have an endpoint you intend to expose).
+- If policy returns `challenge`, stop and ask for explicit approval with the quoted amount/currency/tool/provider (do not auto-approve).
+- If policy returns `deny`/`escalate`, do not attempt alternate routes/providers to bypass the decision.
