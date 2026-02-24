@@ -364,12 +364,13 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     operators: new Map(), // `${tenantId}\n${operatorId}` -> snapshot
     operatorEvents: new Map(), // `${tenantId}\n${operatorId}` -> chained events
     agentIdentities: new Map(), // `${tenantId}\n${agentId}` -> AgentIdentity.v1 record
-    agentCards: new Map(), // `${tenantId}\n${agentId}` -> AgentCard.v1 record
-    agentPassports: new Map(), // `${tenantId}\n${agentId}` -> AgentPassport.v1 record
-    agentWallets: new Map(), // `${tenantId}\n${agentId}` -> AgentWallet.v1 record
-    agentRuns: new Map(), // `${tenantId}\n${runId}` -> AgentRun.v1 snapshot
-    agentRunEvents: new Map(), // `${tenantId}\n${runId}` -> AgentEvent.v1[]
-    agentRunSettlements: new Map(), // `${tenantId}\n${runId}` -> AgentRunSettlement.v1
+	    agentCards: new Map(), // `${tenantId}\n${agentId}` -> AgentCard.v1 record
+	    agentPassports: new Map(), // `${tenantId}\n${agentId}` -> AgentPassport.v1 record
+	    agentWallets: new Map(), // `${tenantId}\n${agentId}` -> AgentWallet.v1 record
+	    listingBonds: new Map(), // `${tenantId}\n${bondId}` -> ListingBondRecord.v1 record
+	    agentRuns: new Map(), // `${tenantId}\n${runId}` -> AgentRun.v1 snapshot
+	    agentRunEvents: new Map(), // `${tenantId}\n${runId}` -> AgentEvent.v1[]
+	    agentRunSettlements: new Map(), // `${tenantId}\n${runId}` -> AgentRunSettlement.v1
     arbitrationCases: new Map(), // `${tenantId}\n${caseId}` -> ArbitrationCase.v1 snapshot
     agreementDelegations: new Map(), // `${tenantId}\n${delegationId}` -> AgreementDelegation.v1
     delegationGrants: new Map(), // `${tenantId}\n${grantId}` -> DelegationGrant.v1

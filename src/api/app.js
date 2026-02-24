@@ -157,10 +157,11 @@ import {
   validateAgentCardV1
 } from "../core/agent-card.js";
 import { buildX402SettlementTerms, parseX402PaymentRequired } from "../core/x402-gate.js";
-import { createCircleReserveAdapter } from "../core/circle-reserve-adapter.js";
-import { signX402ReversalCommandV1, verifyX402ReversalCommandV1 } from "../core/x402-reversal-command.js";
-import { verifyX402ProviderRefundDecisionV1 } from "../core/x402-provider-refund-decision.js";
-import { verifyX402ExecutionProofV1 } from "../core/zk-verifier.js";
+	import { createCircleReserveAdapter } from "../core/circle-reserve-adapter.js";
+	import { signX402ReversalCommandV1, verifyX402ReversalCommandV1 } from "../core/x402-reversal-command.js";
+	import { LISTING_BOND_PURPOSE, signListingBondV1, verifyListingBondV1 } from "../core/listing-bond.js";
+	import { verifyX402ProviderRefundDecisionV1 } from "../core/x402-provider-refund-decision.js";
+	import { verifyX402ExecutionProofV1 } from "../core/zk-verifier.js";
 import {
   REPUTATION_EVENT_KIND,
   REPUTATION_EVENT_SCHEMA_VERSION,
@@ -421,6 +422,13 @@ export function createApi({
   agentCardPublicListingFeeCents = null,
   agentCardPublicListingFeeCurrency = null,
   agentCardPublicListingFeeCollectorAgentId = null,
+  agentCardPublicListingBondCents = null,
+  agentCardPublicListingBondCurrency = null,
+  agentCardPublicListingBondCollectorAgentId = null,
+  agentCardPublicListingBondTtlSeconds = null,
+  agentCardPublicListingBondRateLimitSeconds = null,
+  agentCardPublicListingBondEscalationWindowSeconds = null,
+  agentCardPublicListingBondEscalationMultiplier = null,
   agentCardPublicRequireCapabilityAttestation = null,
   agentCardPublicAttestationMinLevel = null,
   agentCardPublicAttestationIssuerAgentId = null
@@ -1034,6 +1042,75 @@ export function createApi({
     const normalized = raw === null || raw === undefined || String(raw).trim() === "" ? "__settld_registry__" : String(raw).trim();
     if (!normalized) throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_FEE_COLLECTOR_AGENT_ID must be a non-empty string");
     return normalized;
+  })();
+  const agentCardPublicListingBondCentsValue = (() => {
+    const raw =
+      agentCardPublicListingBondCents ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_CENTS ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 0;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n < 0) throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_CENTS must be a non-negative safe integer");
+    return n;
+  })();
+  const agentCardPublicListingBondCurrencyValue = (() => {
+    const raw =
+      agentCardPublicListingBondCurrency ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_CURRENCY ?? null : null);
+    const normalized = raw === null || raw === undefined || String(raw).trim() === "" ? "USD" : String(raw).trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,8}$/.test(normalized)) {
+      throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_CURRENCY must be 3-8 uppercase alphanumeric characters");
+    }
+    return normalized;
+  })();
+  const agentCardPublicListingBondCollectorAgentIdValue = (() => {
+    const raw =
+      agentCardPublicListingBondCollectorAgentId ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_COLLECTOR_AGENT_ID ?? null : null);
+    const normalized = raw === null || raw === undefined || String(raw).trim() === "" ? "__settld_registry__" : String(raw).trim();
+    if (!normalized) throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_COLLECTOR_AGENT_ID must be a non-empty string");
+    return normalized;
+  })();
+  const agentCardPublicListingBondTtlSecondsValue = (() => {
+    const raw =
+      agentCardPublicListingBondTtlSeconds ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_TTL_SECONDS ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 10 * 60;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n <= 0) throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_TTL_SECONDS must be a positive safe integer");
+    return n;
+  })();
+  const agentCardPublicListingBondRateLimitSecondsValue = (() => {
+    const raw =
+      agentCardPublicListingBondRateLimitSeconds ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_RATE_LIMIT_SECONDS ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 5;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_RATE_LIMIT_SECONDS must be a positive safe integer");
+    }
+    return n;
+  })();
+  const agentCardPublicListingBondEscalationWindowSecondsValue = (() => {
+    const raw =
+      agentCardPublicListingBondEscalationWindowSeconds ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_ESCALATION_WINDOW_SECONDS ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 60;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_ESCALATION_WINDOW_SECONDS must be a positive safe integer");
+    }
+    return n;
+  })();
+  const agentCardPublicListingBondEscalationMultiplierValue = (() => {
+    const raw =
+      agentCardPublicListingBondEscalationMultiplier ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_ESCALATION_MULTIPLIER ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 2;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_BOND_ESCALATION_MULTIPLIER must be a positive safe integer");
+    }
+    return n;
   })();
   const agentCardPublicRequireCapabilityAttestationValue = (() => {
     const raw =
@@ -7998,9 +8075,9 @@ export function createApi({
       throw new TypeError("riskTier must be low|guarded|elevated|high");
     }
 
-    let cards = [];
-    if (typeof store.listAgentCards === "function") {
-      cards = await store.listAgentCards({
+	    let cards = [];
+	    if (typeof store.listAgentCards === "function") {
+	      cards = await store.listAgentCards({
         tenantId: t,
         status: statusFilter === "all" ? null : statusFilter,
         visibility: visibilityFilter === "all" ? null : visibilityFilter,
@@ -8028,18 +8105,56 @@ export function createApi({
         }
         cards.push(row);
       }
-      cards.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
-    }
+	        cards.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
+	    }
 
-    const ranked = [];
-    const excludedAttestationCandidates = [];
-    for (const agentCard of cards) {
-      const agentId = String(agentCard?.agentId ?? "");
-      if (!agentId) continue;
-      if (requireAttestation && !capabilityFilter) {
-        const requestedCapabilities = Array.isArray(agentCard?.capabilities)
-          ? [...new Set(agentCard.capabilities.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort((left, right) =>
-              left.localeCompare(right)
+	    let quarantinedAgentIds = null;
+	    try {
+	      const rows =
+	        typeof store?.listEmergencyControlState === "function"
+	          ? await store.listEmergencyControlState({
+	              tenantId: t,
+	              active: true,
+	              scopeType: EMERGENCY_SCOPE_TYPE.AGENT,
+	              controlType: EMERGENCY_CONTROL_TYPE.QUARANTINE,
+	              limit: 2000,
+	              offset: 0
+	            })
+	          : store?.emergencyControlState instanceof Map
+	            ? Array.from(store.emergencyControlState.values())
+	            : [];
+	      const out = new Set();
+	      for (const row of rows) {
+	        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+	        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
+	        const scopeType = String(row.scopeType ?? "").toLowerCase();
+	        const controlType = String(row.controlType ?? "").toLowerCase();
+	        if (scopeType !== EMERGENCY_SCOPE_TYPE.AGENT) continue;
+	        if (controlType !== EMERGENCY_CONTROL_TYPE.QUARANTINE) continue;
+	        if (row.active !== true) continue;
+	        const scopeId = row.scopeId === null || row.scopeId === undefined ? "" : String(row.scopeId);
+	        if (!scopeId.trim()) continue;
+	        out.add(scopeId.trim());
+	      }
+	      quarantinedAgentIds = out;
+	    } catch {
+	      quarantinedAgentIds = null;
+	    }
+
+	    const ranked = [];
+	    const excludedAttestationCandidates = [];
+	    const excludedQuarantineCandidates = [];
+	    for (const agentCard of cards) {
+	      const agentId = String(agentCard?.agentId ?? "");
+	      if (!agentId) continue;
+	      if (quarantinedAgentIds instanceof Set && quarantinedAgentIds.has(agentId)) {
+	        excludedQuarantineCandidates.push({ agentId, reasonCode: "AGENT_QUARANTINED" });
+	        continue;
+	      }
+	      if (requireAttestation && !capabilityFilter) {
+	        const requestedCapabilities = Array.isArray(agentCard?.capabilities)
+	          ? [...new Set(agentCard.capabilities.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort((left, right) =>
+	              left.localeCompare(right)
             )
           : [];
         if (requestedCapabilities.length === 0) {
@@ -8160,20 +8275,21 @@ export function createApi({
       return item;
     });
 
-    const out = {
-      reputationVersion: version,
-      reputationWindow: window,
-      scoreStrategy: rankingStrategy,
-      total,
+	    const out = {
+	      reputationVersion: version,
+	      reputationWindow: window,
+	      scoreStrategy: rankingStrategy,
+	      total,
       limit: safeLimit,
       offset: safeOffset,
       results
-    };
-    if (requireAttestation) out.excludedAttestationCandidates = excludedAttestationCandidates;
-    if (requireAttestationByPolicy) {
-      out.attestationPolicy = {
-        schemaVersion: "AgentCardPublicDiscoveryAttestationPolicy.v1",
-        source: "public_discovery_policy",
+	    };
+	    if (requireAttestation) out.excludedAttestationCandidates = excludedAttestationCandidates;
+	    if (excludedQuarantineCandidates.length > 0) out.excludedQuarantineCandidates = excludedQuarantineCandidates;
+	    if (requireAttestationByPolicy) {
+	      out.attestationPolicy = {
+	        schemaVersion: "AgentCardPublicDiscoveryAttestationPolicy.v1",
+	        source: "public_discovery_policy",
         minLevel: effectiveAttestationMinLevel,
         issuerAgentId: effectiveAttestationIssuerAgentId
       };
@@ -13293,6 +13409,103 @@ export function createApi({
     if (typeof store.getAgentCard === "function") return store.getAgentCard({ tenantId, agentId });
     if (store.agentCards instanceof Map) return store.agentCards.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
     throw new TypeError("agent cards not supported for this store");
+  }
+
+  async function getListingBondRecord({ tenantId, bondId }) {
+    if (typeof store.getListingBond === "function") return store.getListingBond({ tenantId, bondId });
+    if (store.listingBonds instanceof Map) return store.listingBonds.get(makeScopedKey({ tenantId, id: String(bondId) })) ?? null;
+    throw new TypeError("listing bonds not supported for this store");
+  }
+
+  function computeAgentCardPublicListingBondRequirement({ existingCard, nowAt }) {
+    const baseBondCents = agentCardPublicListingBondCentsValue;
+    const currency = agentCardPublicListingBondCurrencyValue;
+    const nowMs = Date.parse(String(nowAt ?? ""));
+    const lastUpdatedAt = existingCard?.updatedAt ?? null;
+    const lastUpdatedMs = lastUpdatedAt ? Date.parse(String(lastUpdatedAt)) : Number.NaN;
+    const secondsSinceLastUpdate =
+      Number.isFinite(nowMs) && Number.isFinite(lastUpdatedMs) ? Math.max(0, Math.floor((nowMs - lastUpdatedMs) / 1000)) : null;
+
+    if (secondsSinceLastUpdate !== null && secondsSinceLastUpdate < agentCardPublicListingBondRateLimitSecondsValue) {
+      return {
+        ok: false,
+        code: "AGENT_CARD_PUBLIC_LISTING_RATE_LIMITED",
+        retryAfterSeconds: Math.max(1, agentCardPublicListingBondRateLimitSecondsValue - secondsSinceLastUpdate),
+        baseBondCents,
+        requiredBondCents: baseBondCents,
+        currency,
+        multiplier: 1,
+        secondsSinceLastUpdate
+      };
+    }
+
+    const shouldEscalate =
+      secondsSinceLastUpdate !== null && secondsSinceLastUpdate < agentCardPublicListingBondEscalationWindowSecondsValue;
+    const multiplier = shouldEscalate ? agentCardPublicListingBondEscalationMultiplierValue : 1;
+    return {
+      ok: true,
+      code: shouldEscalate ? "AGENT_CARD_PUBLIC_LISTING_BOND_ESCALATED" : "AGENT_CARD_PUBLIC_LISTING_BOND_BASE",
+      retryAfterSeconds: null,
+      baseBondCents,
+      requiredBondCents: baseBondCents * multiplier,
+      currency,
+      multiplier,
+      secondsSinceLastUpdate
+    };
+  }
+
+  async function quarantineAgentForAbuse({
+    tenantId,
+    agentId,
+    at,
+    reasonCode,
+    reasonDetails = null
+  } = {}) {
+    const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedAgentId = typeof agentId === "string" ? agentId.trim() : "";
+    if (!normalizedAgentId) throw new TypeError("agentId is required");
+    const effectiveAt = typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso();
+    const existing = await findMatchingEmergencyControl({
+      tenantId: normalizedTenantId,
+      controlTypes: [EMERGENCY_CONTROL_TYPE.QUARANTINE],
+      agentIds: [normalizedAgentId],
+      adapterIds: []
+    });
+    if (existing) return existing;
+
+    const event = normalizeForCanonicalJson(
+      {
+        schemaVersion: "OpsEmergencyControlEvent.v1",
+        eventId: createId("emerg"),
+        action: EMERGENCY_ACTION.QUARANTINE,
+        controlType: EMERGENCY_CONTROL_TYPE.QUARANTINE,
+        scope: { type: EMERGENCY_SCOPE_TYPE.AGENT, id: normalizedAgentId },
+        effectiveAt,
+        createdAt: effectiveAt,
+        reason:
+          typeof reasonCode === "string" && reasonCode.trim() !== ""
+            ? normalizeForCanonicalJson(
+                {
+                  schemaVersion: "AgentCardQuarantineReason.v1",
+                  reasonCode: reasonCode.trim(),
+                  details: reasonDetails && typeof reasonDetails === "object" && !Array.isArray(reasonDetails) ? reasonDetails : null
+                },
+                { path: "$.reason" }
+              )
+            : null
+      },
+      { path: "$" }
+    );
+
+    await commitTx([{ kind: "EMERGENCY_CONTROL_EVENT_APPEND", tenantId: normalizedTenantId, event }]);
+    return (
+      (await findMatchingEmergencyControl({
+        tenantId: normalizedTenantId,
+        controlTypes: [EMERGENCY_CONTROL_TYPE.QUARANTINE],
+        agentIds: [normalizedAgentId],
+        adapterIds: []
+      })) ?? null
+    );
   }
 
   async function getSubAgentWorkOrderRecord({ tenantId, workOrderId }) {
@@ -43190,9 +43403,12 @@ export function createApi({
 	        }
       }
 
-      if (req.method === "POST" && path === "/agent-cards") {
-        if (typeof store.getAgentCard !== "function" && !(store.agentCards instanceof Map)) {
-          return sendError(res, 501, "agent cards not supported for this store");
+      if (req.method === "POST" && path === "/agent-cards/listing-bonds") {
+        if (store.kind !== "memory") {
+          return sendError(res, 501, "listing bonds not supported for this store", null, { code: "LISTING_BONDS_UNSUPPORTED" });
+        }
+        if (agentCardPublicListingBondCentsValue <= 0) {
+          return sendError(res, 409, "listing bonds are not enabled", null, { code: "LISTING_BONDS_DISABLED" });
         }
         if (!requireProtocolHeaderForWrite(req, res)) return;
 
@@ -43224,6 +43440,189 @@ export function createApi({
           return sendError(res, 400, "invalid agentId", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
         if (!agentIdentity) return sendError(res, 404, "agent identity not found", null, { code: "NOT_FOUND" });
+
+        const emergencyControl = await findMatchingEmergencyControl({
+          tenantId,
+          controlTypes: [EMERGENCY_CONTROL_TYPE.QUARANTINE],
+          agentIds: [agentId],
+          adapterIds: []
+        });
+        if (emergencyControl) {
+          return sendError(res, 409, "agent is quarantined", { emergencyControl }, { code: "AGENT_QUARANTINED" });
+        }
+
+        let existingCard = null;
+        try {
+          existingCard = await getAgentCardRecord({ tenantId, agentId });
+        } catch (err) {
+          return sendError(res, 501, "agent cards not supported for this store", { message: err?.message }, { code: "AGENT_CARDS_UNSUPPORTED" });
+        }
+
+        const issuedAt = nowIso();
+        const requirement = computeAgentCardPublicListingBondRequirement({ existingCard, nowAt: issuedAt });
+        if (!requirement.ok) {
+          try {
+            res.setHeader("retry-after", String(requirement.retryAfterSeconds));
+          } catch {
+            // ignore
+          }
+          return sendError(
+            res,
+            429,
+            "agent card publish rate limited",
+            {
+              schemaVersion: "AgentCardPublicListingBondRateLimit.v1",
+              agentId,
+              retryAfterSeconds: requirement.retryAfterSeconds,
+              secondsSinceLastUpdate: requirement.secondsSinceLastUpdate
+            },
+            { code: requirement.code }
+          );
+        }
+
+        const hasWalletStore = typeof store.getAgentWallet === "function" || store.agentWallets instanceof Map;
+        if (!hasWalletStore) {
+          return sendError(
+            res,
+            501,
+            "agent wallets are required for listing bond enforcement",
+            null,
+            { code: "AGENT_CARD_PUBLIC_LISTING_BOND_UNSUPPORTED" }
+          );
+        }
+
+        let payerWalletExisting = null;
+        try {
+          payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId });
+        } catch (err) {
+          return sendError(res, 400, "invalid agent wallet query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        let payerWallet = ensureAgentWallet({
+          wallet: payerWalletExisting,
+          tenantId,
+          agentId,
+          currency: requirement.currency,
+          at: issuedAt
+        });
+        try {
+          payerWallet = lockAgentWalletEscrow({ wallet: payerWallet, amountCents: requirement.requiredBondCents, at: issuedAt });
+        } catch (err) {
+          if (err?.code === "INSUFFICIENT_WALLET_BALANCE") {
+            return sendError(res, 402, "insufficient wallet balance for listing bond", { message: err?.message }, { code: "INSUFFICIENT_FUNDS" });
+          }
+          return sendError(res, 400, "listing bond escrow lock failed", { message: err?.message }, { code: err?.code ?? "ESCROW_LOCK_FAILED" });
+        }
+
+        const bondId = createId("lbond");
+        const expAt = new Date(Date.parse(issuedAt) + agentCardPublicListingBondTtlSecondsValue * 1000).toISOString();
+        const bond = signListingBondV1({
+          bond: {
+            bondId,
+            tenantId,
+            agentId,
+            purpose: LISTING_BOND_PURPOSE.AGENT_CARD_PUBLIC_LISTING,
+            amountCents: requirement.requiredBondCents,
+            currency: requirement.currency,
+            issuedAt,
+            exp: expAt
+          },
+          signedAt: issuedAt,
+          publicKeyPem: store.serverSigner.publicKeyPem,
+          privateKeyPem: store.serverSigner.privateKeyPem
+        });
+
+        const listingBondRecord = normalizeForCanonicalJson(
+          {
+            schemaVersion: "ListingBondRecord.v1",
+            bondId,
+            tenantId,
+            agentId,
+            purpose: LISTING_BOND_PURPOSE.AGENT_CARD_PUBLIC_LISTING,
+            amountCents: requirement.requiredBondCents,
+            currency: requirement.currency,
+            status: "active",
+            issuedAt,
+            exp: expAt,
+            bond,
+            consumedAt: null,
+            consumedBy: null,
+            createdAt: issuedAt,
+            updatedAt: issuedAt
+          },
+          { path: "$" }
+        );
+
+        const responseBody = {
+          ok: true,
+          bond,
+          requirement: {
+            schemaVersion: "AgentCardPublicListingBondRequirement.v1",
+            agentId,
+            baseBondCents: requirement.baseBondCents,
+            requiredBondCents: requirement.requiredBondCents,
+            currency: requirement.currency,
+            multiplier: requirement.multiplier,
+            reasonCode: requirement.code
+          }
+        };
+        const ops = [
+          { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
+          { kind: "LISTING_BOND_UPSERT", tenantId, listingBond: listingBondRecord }
+        ];
+        if (idemStoreKey) {
+          ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+        }
+        await commitTx(ops);
+        return sendJson(res, 201, responseBody);
+      }
+
+      if (req.method === "POST" && path === "/agent-cards") {
+        if (typeof store.getAgentCard !== "function" && !(store.agentCards instanceof Map)) {
+          return sendError(res, 501, "agent cards not supported for this store");
+        }
+        if (store.kind !== "memory") {
+          return sendError(res, 501, "agent card publishing not supported for this store", null, { code: "AGENT_CARD_PUBLISH_UNSUPPORTED" });
+        }
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const agentId = typeof body?.agentId === "string" && body.agentId.trim() !== "" ? body.agentId.trim() : null;
+        if (!agentId) return sendError(res, 400, "agentId is required", null, { code: "SCHEMA_INVALID" });
+
+        let agentIdentity = null;
+        try {
+          agentIdentity = await getAgentIdentityRecord({ tenantId, agentId });
+        } catch (err) {
+          return sendError(res, 400, "invalid agentId", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        if (!agentIdentity) return sendError(res, 404, "agent identity not found", null, { code: "NOT_FOUND" });
+
+        const emergencyControl = await findMatchingEmergencyControl({
+          tenantId,
+          controlTypes: [EMERGENCY_CONTROL_TYPE.QUARANTINE],
+          agentIds: [agentId],
+          adapterIds: []
+        });
+        if (emergencyControl) {
+          return sendError(res, 409, "agent is quarantined", { emergencyControl }, { code: "AGENT_QUARANTINED" });
+        }
 
         let existingCard = null;
         try {
@@ -43272,9 +43671,9 @@ export function createApi({
           return sendError(res, 400, "invalid agent card", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
 
-        if (agentCard.visibility === AGENT_CARD_VISIBILITY.PUBLIC && agentCardPublicRequireCapabilityAttestationValue) {
-          const capabilities = Array.isArray(agentCard.capabilities) ? agentCard.capabilities : [];
-          if (capabilities.length === 0) {
+	        if (agentCard.visibility === AGENT_CARD_VISIBILITY.PUBLIC && agentCardPublicRequireCapabilityAttestationValue) {
+	          const capabilities = Array.isArray(agentCard.capabilities) ? agentCard.capabilities : [];
+	          if (capabilities.length === 0) {
             return sendError(
               res,
               409,
@@ -43331,13 +43730,181 @@ export function createApi({
               },
               { code: "AGENT_CARD_PUBLIC_ATTESTATION_REQUIRED" }
             );
-          }
-        }
+	          }
+	        }
 
-        let listingFeeMetadata = null;
-        const listingWalletOps = [];
-        if (shouldChargePublicListingFee) {
-          const hasWalletStore = typeof store.getAgentWallet === "function" || store.agentWallets instanceof Map;
+	        let listingBondMetadata = null;
+	        const listingBondOps = [];
+	        if (agentCard.visibility === AGENT_CARD_VISIBILITY.PUBLIC && agentCardPublicListingBondCentsValue > 0) {
+	          const requirement = computeAgentCardPublicListingBondRequirement({ existingCard, nowAt: upsertedAt });
+	          if (!requirement.ok) {
+	            try {
+	              res.setHeader("retry-after", String(requirement.retryAfterSeconds));
+	            } catch {
+	              // ignore
+	            }
+	            return sendError(
+	              res,
+	              429,
+	              "agent card publish rate limited",
+	              {
+	                schemaVersion: "AgentCardPublicListingBondRateLimit.v1",
+	                agentId,
+	                retryAfterSeconds: requirement.retryAfterSeconds,
+	                secondsSinceLastUpdate: requirement.secondsSinceLastUpdate
+	              },
+	              { code: requirement.code }
+	            );
+	          }
+
+	          const bondInput = body?.listingBond ?? body?.publicListingBond ?? body?.metadata?.publicListingBond ?? null;
+	          if (!bondInput) {
+	            return sendError(
+	              res,
+	              402,
+	              "listing bond required",
+	              {
+	                schemaVersion: "AgentCardPublicListingBondRequirement.v1",
+	                agentId,
+	                baseBondCents: requirement.baseBondCents,
+	                requiredBondCents: requirement.requiredBondCents,
+	                currency: requirement.currency,
+	                multiplier: requirement.multiplier,
+	                reasonCode: requirement.code,
+	                createBondPath: "/agent-cards/listing-bonds"
+	              },
+	              { code: "AGENT_CARD_PUBLIC_LISTING_BOND_REQUIRED" }
+	            );
+	          }
+
+	          const verifiedBond = verifyListingBondV1({
+	            bond: bondInput,
+	            publicKeyPem: store.serverSigner.publicKeyPem,
+	            nowAt: upsertedAt,
+	            expectedTenantId: tenantId,
+	            expectedAgentId: agentId,
+	            expectedPurpose: LISTING_BOND_PURPOSE.AGENT_CARD_PUBLIC_LISTING,
+	            expectedCurrency: requirement.currency,
+	            minAmountCents: requirement.requiredBondCents
+	          });
+	          if (!verifiedBond.ok) {
+	            const emergencyApplied = await quarantineAgentForAbuse({
+	              tenantId,
+	              agentId,
+	              at: upsertedAt,
+	              reasonCode: verifiedBond.code ?? "LISTING_BOND_INVALID",
+	              reasonDetails: {
+	                schemaVersion: "ListingBondVerificationFailure.v1",
+	                verification: verifiedBond
+	              }
+	            });
+	            return sendError(
+	              res,
+	              409,
+	              "listing bond rejected",
+	              {
+	                schemaVersion: "AgentCardPublicListingBondDecision.v1",
+	                outcome: "deny",
+	                agentId,
+	                reasonCode: verifiedBond.code,
+	                error: verifiedBond.error,
+	                emergencyControl: emergencyApplied
+	              },
+	              { code: "AGENT_CARD_PUBLIC_LISTING_BOND_INVALID" }
+	            );
+	          }
+
+	          let bondRecord = null;
+	          try {
+	            bondRecord = await getListingBondRecord({ tenantId, bondId: verifiedBond.payload?.bondId });
+	          } catch (err) {
+	            return sendError(res, 501, "listing bonds not supported for this store", { message: err?.message }, { code: "LISTING_BONDS_UNSUPPORTED" });
+	          }
+	          if (!bondRecord) {
+	            return sendError(
+	              res,
+	              402,
+	              "listing bond not found",
+	              { bondId: verifiedBond.payload?.bondId },
+	              { code: "AGENT_CARD_PUBLIC_LISTING_BOND_INVALID" }
+	            );
+	          }
+	          if (String(bondRecord.status ?? "").toLowerCase() !== "active") {
+	            return sendError(
+	              res,
+	              409,
+	              "listing bond is not active",
+	              { bondId: bondRecord.bondId ?? null, status: bondRecord.status ?? null },
+	              { code: "AGENT_CARD_PUBLIC_LISTING_BOND_CONSUMED" }
+	            );
+	          }
+	          if (String(bondRecord.agentId ?? "") !== String(agentId)) {
+	            return sendError(
+	              res,
+	              409,
+	              "listing bond agent mismatch",
+	              { bondId: bondRecord.bondId ?? null, agentId: bondRecord.agentId ?? null },
+	              { code: "AGENT_CARD_PUBLIC_LISTING_BOND_MISMATCH" }
+	            );
+	          }
+	          if (Number(bondRecord.amountCents ?? 0) !== Number(verifiedBond.payload?.amountCents ?? 0)) {
+	            return sendError(
+	              res,
+	              409,
+	              "listing bond amount mismatch",
+	              { bondId: bondRecord.bondId ?? null, amountCents: bondRecord.amountCents ?? null },
+	              { code: "AGENT_CARD_PUBLIC_LISTING_BOND_MISMATCH" }
+	            );
+	          }
+	          if (String(bondRecord.currency ?? "") !== String(verifiedBond.payload?.currency ?? "")) {
+	            return sendError(
+	              res,
+	              409,
+	              "listing bond currency mismatch",
+	              { bondId: bondRecord.bondId ?? null, currency: bondRecord.currency ?? null },
+	              { code: "AGENT_CARD_PUBLIC_LISTING_BOND_MISMATCH" }
+	            );
+	          }
+	          if (String(bondRecord.purpose ?? "") !== String(verifiedBond.payload?.purpose ?? "")) {
+	            return sendError(
+	              res,
+	              409,
+	              "listing bond purpose mismatch",
+	              { bondId: bondRecord.bondId ?? null, purpose: bondRecord.purpose ?? null },
+	              { code: "AGENT_CARD_PUBLIC_LISTING_BOND_MISMATCH" }
+	            );
+	          }
+	          const consumedRecord = normalizeForCanonicalJson(
+	            {
+	              ...bondRecord,
+	              status: "consumed",
+	              consumedAt: upsertedAt,
+	              consumedBy: normalizeForCanonicalJson(
+	                {
+	                  schemaVersion: "ListingBondConsumption.v1",
+	                  kind: "agent_card_upsert",
+	                  agentId,
+	                  agentCardRevision: agentCard.revision,
+	                  agentCardUpdatedAt: upsertedAt
+	                },
+	                { path: "$.consumedBy" }
+	              ),
+	              updatedAt: upsertedAt
+	            },
+	            { path: "$" }
+	          );
+	          listingBondOps.push({ kind: "LISTING_BOND_UPSERT", tenantId, listingBond: consumedRecord });
+
+	          listingBondMetadata = normalizeForCanonicalJson(
+	            (bondRecord?.bond && typeof bondRecord.bond === "object" && !Array.isArray(bondRecord.bond) ? bondRecord.bond : bondInput) ?? bondInput,
+	            { path: "$.metadata.publicListingBond" }
+	          );
+	        }
+
+	        let listingFeeMetadata = null;
+	        const listingWalletOps = [];
+	        if (shouldChargePublicListingFee) {
+	          const hasWalletStore = typeof store.getAgentWallet === "function" || store.agentWallets instanceof Map;
           if (!hasWalletStore) {
             return sendError(
               res,
@@ -43425,19 +43992,20 @@ export function createApi({
           );
         }
 
-        if (listingFeeMetadata) {
-          const metadataBase =
-            agentCard.metadata && typeof agentCard.metadata === "object" && !Array.isArray(agentCard.metadata) ? agentCard.metadata : {};
-          let cardMetadataInput = null;
-          try {
-            cardMetadataInput = normalizeForCanonicalJson(
-              {
-                ...metadataBase,
-                publicListingFee: listingFeeMetadata
-              },
-              { path: "$.metadata" }
-            );
-            agentCard = buildAgentCardV1({
+	        if (listingFeeMetadata || listingBondMetadata) {
+	          const metadataBase =
+	            agentCard.metadata && typeof agentCard.metadata === "object" && !Array.isArray(agentCard.metadata) ? agentCard.metadata : {};
+	          let cardMetadataInput = null;
+	          try {
+	            cardMetadataInput = normalizeForCanonicalJson(
+	              {
+	                ...metadataBase,
+	                ...(listingFeeMetadata ? { publicListingFee: listingFeeMetadata } : {}),
+	                ...(listingBondMetadata ? { publicListingBond: listingBondMetadata } : {})
+	              },
+	              { path: "$.metadata" }
+	            );
+	            agentCard = buildAgentCardV1({
               tenantId,
               agentIdentity,
               previousCard: existingCard,
@@ -43461,15 +44029,15 @@ export function createApi({
           }
         }
 
-        const created = !existingCard;
-        const responseStatusCode = created ? 201 : 200;
-        const responseBody = { ok: true, agentCard };
-        const ops = [...listingWalletOps, { kind: "AGENT_CARD_UPSERT", tenantId, agentId, agentCard }];
-        if (idemStoreKey) {
-          ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: responseStatusCode, body: responseBody } });
-        }
-        await commitTx(ops);
-        return sendJson(res, responseStatusCode, responseBody);
+	        const created = !existingCard;
+	        const responseStatusCode = created ? 201 : 200;
+	        const responseBody = { ok: true, agentCard };
+	        const ops = [...listingWalletOps, ...listingBondOps, { kind: "AGENT_CARD_UPSERT", tenantId, agentId, agentCard }];
+	        if (idemStoreKey) {
+	          ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: responseStatusCode, body: responseBody } });
+	        }
+	        await commitTx(ops);
+	        return sendJson(res, responseStatusCode, responseBody);
       }
 
       if (req.method === "GET" && path === "/agent-cards/discover") {

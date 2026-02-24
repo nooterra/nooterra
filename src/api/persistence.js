@@ -215,6 +215,20 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "LISTING_BOND_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const listingBond = op.listingBond ?? op.listingBondRecord ?? op.record ?? null;
+      if (!listingBond || typeof listingBond !== "object" || Array.isArray(listingBond)) {
+        throw new TypeError("LISTING_BOND_UPSERT requires listingBond");
+      }
+      const bondId = listingBond.bondId ?? listingBond.id ?? op.bondId ?? null;
+      if (!bondId) throw new TypeError("LISTING_BOND_UPSERT requires listingBond.bondId");
+      if (!(store.listingBonds instanceof Map)) store.listingBonds = new Map();
+      const key = makeScopedKey({ tenantId, id: String(bondId) });
+      store.listingBonds.set(key, { ...listingBond, tenantId, bondId: String(bondId) });
+      continue;
+    }
+
     if (kind === "PUBLIC_KEY_PUT") {
       const { keyId, publicKeyPem } = op;
       if (!keyId) throw new TypeError("PUBLIC_KEY_PUT requires keyId");

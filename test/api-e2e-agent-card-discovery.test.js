@@ -366,6 +366,172 @@ test("API e2e: public AgentCard listing fee fails closed when collector identity
   assert.equal(payerWallet.json?.wallet?.availableCents, 1000);
 });
 
+test("API e2e: public AgentCard listing bond is required for public publishing", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicListingBondCents: 250,
+    agentCardPublicListingBondCurrency: "USD"
+  });
+  const agentId = "agt_card_bond_required_1";
+  await registerAgent(api, { agentId, capabilities: ["travel.booking"] });
+
+  const denied = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_bond_required_denied_1" },
+    body: {
+      agentId,
+      displayName: "Bond Required Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/bond-required", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(denied.statusCode, 402, denied.body);
+  assert.equal(denied.json?.code, "AGENT_CARD_PUBLIC_LISTING_BOND_REQUIRED");
+  assert.equal(denied.json?.details?.schemaVersion, "AgentCardPublicListingBondRequirement.v1");
+});
+
+test("API e2e: listing bond publish succeeds and is discoverable", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicListingBondCents: 250,
+    agentCardPublicListingBondCurrency: "USD"
+  });
+  const agentId = "agt_card_bond_allowed_1";
+  await registerAgent(api, { agentId, capabilities: ["travel.booking"] });
+
+  const funded = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(agentId)}/wallet/credit`,
+    headers: { "x-idempotency-key": "wallet_credit_agent_card_bond_allowed_1" },
+    body: { amountCents: 2000, currency: "USD" }
+  });
+  assert.equal(funded.statusCode, 201, funded.body);
+
+  const issued = await request(api, {
+    method: "POST",
+    path: "/agent-cards/listing-bonds",
+    headers: { "x-idempotency-key": "listing_bond_issue_1" },
+    body: { agentId }
+  });
+  assert.equal(issued.statusCode, 201, issued.body);
+  assert.equal(issued.json?.bond?.schemaVersion, "ListingBond.v1");
+
+  const published = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_bond_publish_1" },
+    body: {
+      agentId,
+      displayName: "Bond Allowed Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/bond-allowed", protocols: ["mcp"] },
+      listingBond: issued.json?.bond
+    }
+  });
+  assert.equal(published.statusCode, 201, published.body);
+  assert.equal(published.json?.agentCard?.metadata?.publicListingBond?.schemaVersion, "ListingBond.v1");
+
+  const discovered = await request(api, {
+    method: "GET",
+    path: "/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&limit=10&offset=0"
+  });
+  assert.equal(discovered.statusCode, 200, discovered.body);
+  assert.equal(discovered.json?.results?.[0]?.agentCard?.agentId, agentId);
+});
+
+test("API adversarial: flood publish is rate limited and invalid bond attempt quarantines agent from discovery", async () => {
+  let nowAt = "2026-02-24T00:00:00.000Z";
+  const api = createApi({
+    opsToken: "tok_ops",
+    now: () => nowAt,
+    agentCardPublicListingBondCents: 100,
+    agentCardPublicListingBondCurrency: "USD",
+    agentCardPublicListingBondRateLimitSeconds: 10,
+    agentCardPublicListingBondEscalationWindowSeconds: 60,
+    agentCardPublicListingBondEscalationMultiplier: 2
+  });
+  const agentId = "agt_card_bond_adv_1";
+  await registerAgent(api, { agentId, capabilities: ["travel.booking"] });
+  const funded = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(agentId)}/wallet/credit`,
+    headers: { "x-idempotency-key": "wallet_credit_agent_card_bond_adv_1" },
+    body: { amountCents: 5000, currency: "USD" }
+  });
+  assert.equal(funded.statusCode, 201, funded.body);
+
+  const issued = await request(api, {
+    method: "POST",
+    path: "/agent-cards/listing-bonds",
+    headers: { "x-idempotency-key": "listing_bond_issue_adv_1" },
+    body: { agentId }
+  });
+  assert.equal(issued.statusCode, 201, issued.body);
+
+  const published = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_bond_adv_publish_1" },
+    body: {
+      agentId,
+      displayName: "Bond Adv Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/bond-adv", protocols: ["mcp"] },
+      listingBond: issued.json?.bond
+    }
+  });
+  assert.equal(published.statusCode, 201, published.body);
+
+  nowAt = "2026-02-24T00:00:05.000Z";
+  const floodBond = await request(api, {
+    method: "POST",
+    path: "/agent-cards/listing-bonds",
+    headers: { "x-idempotency-key": "listing_bond_issue_adv_flood_1" },
+    body: { agentId }
+  });
+  assert.equal(floodBond.statusCode, 429, floodBond.body);
+  assert.equal(floodBond.json?.code, "AGENT_CARD_PUBLIC_LISTING_RATE_LIMITED");
+
+  nowAt = "2026-02-24T00:00:20.000Z";
+  const issued2 = await request(api, {
+    method: "POST",
+    path: "/agent-cards/listing-bonds",
+    headers: { "x-idempotency-key": "listing_bond_issue_adv_2" },
+    body: { agentId }
+  });
+  assert.equal(issued2.statusCode, 201, issued2.body);
+
+  const tampered = JSON.parse(JSON.stringify(issued2.json?.bond));
+  tampered.signature.signatureBase64 = "AA" + String(tampered.signature.signatureBase64 ?? "").slice(2);
+
+  const rejected = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_bond_adv_publish_tampered_1" },
+    body: {
+      agentId,
+      displayName: "Bond Adv Agent (Bad)",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/bond-adv-bad", protocols: ["mcp"] },
+      listingBond: tampered
+    }
+  });
+  assert.equal(rejected.statusCode, 409, rejected.body);
+  assert.equal(rejected.json?.code, "AGENT_CARD_PUBLIC_LISTING_BOND_INVALID");
+
+  const discovered = await request(api, {
+    method: "GET",
+    path: "/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&limit=10&offset=0"
+  });
+  assert.equal(discovered.statusCode, 200, discovered.body);
+  assert.equal(discovered.json?.results?.length, 0);
+});
+
 test("API e2e: trust-weighted routing strategy is explainable and deterministic", async () => {
   let nowAt = "2026-02-23T00:00:00.000Z";
   const api = createApi({
