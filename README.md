@@ -11,11 +11,21 @@ Current wedge: an x402-style gateway that turns `HTTP 402` into `hold -> verify 
 
 Docs: [Overview](./docs/OVERVIEW.md) · [Architecture](./docs/ARCHITECTURE.md) · [Docs Index](./docs/README.md) · [Public Specs](./docs/spec/public/README.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md)
 
+## Why Settld (vs “just MCP” or “just x402”)
+
+MCP gives agents *capability* (they can call tools/APIs). x402 gives them *a way to pay*. Settld gives them **authority + safety + proof**:
+
+- **Fail-closed policy** for paid/high-risk actions (`allow|challenge|deny|escalate`)
+- **Verifiable receipts** bound to the exact work that was requested/delivered
+- **Recourse** (hold/release/refund/dispute), not “send money and pray”
+- **Inter-agent contracts** (delegation, work orders, attestations) that work across hosts
+
 ## Highlights
 
 - Policy decisioning that fails closed by default (deny/challenge/escalate) for paid/high-risk actions
 - x402 verify-before-release: `402 -> hold -> verify -> release/refund`
 - Inter-agent delegation primitives: `AgentCard.v1` + `DelegationGrant.v1` + `SubAgentWorkOrder.v1` + `SubAgentCompletionReceipt.v1`
+- Signed capability attestations that affect discovery and selection: `CapabilityAttestation.v1`
 - MCP tool surface + OpenClaw ClawHub distribution
 - “Settld Verified” gates: deterministic conformance, receipts, and incident-ready artifacts
 
@@ -29,6 +39,8 @@ npm ci
 npm run quickstart:x402
 ```
 
+Note: if you see Node warnings like `ExperimentalWarning: CommonJS module ... is loading ES Module ...`, you are likely running an unsupported Node major (ex: Node 23). Use Node 20.x for deterministic behavior.
+
 CI-friendly one-shot run:
 
 ```sh
@@ -36,6 +48,20 @@ SETTLD_QUICKSTART_KEEP_ALIVE=0 npm run quickstart:x402
 ```
 
 Success: prints `OK`, a `gateId=...`, and a `gateStateUrl=...`.
+
+## Capability Trials (Deterministic Collaboration Harness)
+
+List available trials:
+
+```sh
+./bin/settld.js trials list
+```
+
+Run a full collaboration trial locally (bootstraps a local API, runs a work order lifecycle, and can issue a signed attestation):
+
+```sh
+./bin/settld.js trials run work_order_worker_protocol.v1 --bootstrap-local
+```
 
 ## Preferred Setup (Agent Hosts)
 
