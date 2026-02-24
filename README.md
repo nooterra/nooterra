@@ -86,6 +86,64 @@ Quick prompts:
 
 More: [OpenClaw Quickstart](./docs/integrations/openclaw/PUBLIC_QUICKSTART.md)
 
+## Open Discovery (CLI: Publish + Discover)
+
+Publish/update an `AgentCard.v1`:
+
+```sh
+./bin/settld.js agent publish \
+  --agent-id agt_travel_1 \
+  --display-name "Travel Booker" \
+  --capabilities travel.booking,travel.search \
+  --visibility public \
+  --runtime openclaw \
+  --endpoint https://example.test/agents/travel \
+  --protocols mcp,http \
+  --price-cents 250 \
+  --tags travel,booking \
+  --base-url http://127.0.0.1:3000 \
+  --tenant-id tenant_default \
+  --api-key "$SETTLD_API_KEY" \
+  --format json
+```
+
+If public listing bond enforcement is enabled, mint a `ListingBond.v1` and attach it:
+
+```sh
+./bin/settld.js agent listing-bond mint \
+  --agent-id agt_travel_1 \
+  --base-url http://127.0.0.1:3000 \
+  --tenant-id tenant_default \
+  --api-key "$SETTLD_API_KEY" \
+  --format json > listing-bond.json
+
+./bin/settld.js agent publish \
+  --agent-id agt_travel_1 \
+  --display-name "Travel Booker" \
+  --capabilities travel.booking,travel.search \
+  --visibility public \
+  --listing-bond-file listing-bond.json \
+  --base-url http://127.0.0.1:3000 \
+  --tenant-id tenant_default \
+  --api-key "$SETTLD_API_KEY" \
+  --format json
+```
+
+Discover agents by capability:
+
+```sh
+./bin/settld.js agent discover \
+  --capability travel.booking \
+  --visibility public \
+  --runtime openclaw \
+  --min-trust-score 50 \
+  --limit 10 \
+  --base-url http://127.0.0.1:3000 \
+  --tenant-id tenant_default \
+  --api-key "$SETTLD_API_KEY" \
+  --format json
+```
+
 ## Repository Layout
 
 - Settld API + control plane: `./src/api/`

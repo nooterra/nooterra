@@ -376,9 +376,19 @@ function resolveRuntimeFromEnv(args) {
 }
 
 async function readListingBond({ filePath, jsonText } = {}) {
+  function unwrapBond(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    if (String(value.schemaVersion ?? "") === "ListingBond.v1") return value;
+    if (String(value.schemaVersion ?? "") === SCHEMAS.LISTING_BOND_MINT_OUTPUT) {
+      const bond = value.bond;
+      if (bond && typeof bond === "object" && !Array.isArray(bond) && String(bond.schemaVersion ?? "") === "ListingBond.v1") return bond;
+    }
+    return value;
+  }
+
   if (jsonText && String(jsonText).trim() !== "") {
     try {
-      return JSON.parse(String(jsonText));
+      return unwrapBond(JSON.parse(String(jsonText)));
     } catch (err) {
       fail(`--listing-bond-json is not valid JSON: ${err?.message ?? String(err)}`);
     }
@@ -387,7 +397,7 @@ async function readListingBond({ filePath, jsonText } = {}) {
     const fullPath = path.resolve(process.cwd(), String(filePath).trim());
     const text = await fs.readFile(fullPath, "utf8");
     try {
-      return JSON.parse(text);
+      return unwrapBond(JSON.parse(text));
     } catch (err) {
       fail(`--listing-bond-file is not valid JSON: ${err?.message ?? String(err)}`);
     }
