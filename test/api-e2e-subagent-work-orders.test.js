@@ -237,6 +237,35 @@ test("API e2e: SubAgentWorkOrder.v1 lifecycle create->accept->progress->complete
   assert.equal(settled.json?.workOrder?.status, "settled");
   assert.equal(settled.json?.workOrder?.settlement?.status, "released");
 
+  const cardUpsert = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_workord_worker_1" },
+    body: {
+      agentId: subAgentId,
+      displayName: "WorkOrder Worker",
+      capabilities: ["code.generation"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/workord/worker", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(cardUpsert.statusCode, 201, cardUpsert.body);
+
+  const discovered = await request(api, {
+    method: "GET",
+    path:
+      "/agent-cards/discover?capability=code.generation&visibility=public&runtime=openclaw&status=active" +
+      "&includeReputation=false&includeRoutingFactors=true&scoreStrategy=trust_weighted" +
+      `&requesterAgentId=${encodeURIComponent(principalAgentId)}&limit=10&offset=0`
+  });
+  assert.equal(discovered.statusCode, 200, discovered.body);
+  assert.equal(discovered.json?.results?.[0]?.agentCard?.agentId, subAgentId);
+  assert.equal(discovered.json?.results?.[0]?.routingFactors?.strategy, "trust_weighted");
+  assert.equal(discovered.json?.results?.[0]?.routingFactors?.signals?.relationshipHistory?.counterpartyAgentId, principalAgentId);
+  assert.equal(discovered.json?.results?.[0]?.routingFactors?.signals?.relationshipHistory?.workedWithCount, 1);
+  assert.equal(discovered.json?.results?.[0]?.routingFactors?.signals?.relationshipHistory?.successRate, 1);
+  assert.equal(discovered.json?.results?.[0]?.routingFactors?.signals?.relationshipHistory?.disputeRate, 0);
+
   const blockedAfterSettle = await request(api, {
     method: "POST",
     path: "/work-orders/workord_1/progress",

@@ -506,6 +506,19 @@ test("API e2e: trust-weighted routing strategy is explainable and deterministic"
   );
   assert.equal(routed.json?.results?.[0]?.capabilityAttestation?.attestationId, "catt_router_good_1");
 
+  const routedNoRequester = await request(api, {
+    method: "GET",
+    path:
+      `/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active` +
+      `&includeReputation=false&includeRoutingFactors=true&scoreStrategy=trust_weighted&limit=10&offset=0`
+  });
+  assert.equal(routedNoRequester.statusCode, 200, routedNoRequester.body);
+  assert.equal(routedNoRequester.json?.results?.[0]?.agentCard?.agentId, candidateGood);
+  assert.equal(routedNoRequester.json?.results?.[0]?.routingFactors?.strategy, "trust_weighted");
+  assert.equal(routedNoRequester.json?.results?.[0]?.routingFactors?.signals?.relationshipHistory?.counterpartyAgentId, null);
+  assert.equal(routedNoRequester.json?.results?.[0]?.routingFactors?.signals?.relationshipHistory?.eventCount, 0);
+  assert.equal(routedNoRequester.json?.results?.[0]?.routingFactors?.signals?.relationshipHistory?.workedWithCount, 0);
+
   const tieOrder = await request(api, {
     method: "GET",
     path:

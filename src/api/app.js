@@ -7465,17 +7465,21 @@ export function createApi({
                     ? "missing"
                     : "not_requested"
             },
-            relationshipHistory: {
-              counterpartyAgentId: requesterAgentId,
-              eventCount: Number(relationshipStats?.eventCount ?? 0),
-              decisionsTotal: Number(relationshipStats?.decisionsTotal ?? 0),
-              decisionsApproved: Number(relationshipStats?.decisionsApproved ?? 0),
-              disputeRate:
-                Number.isFinite(Number(relationshipStats?.disputeRate)) ? Number(Number(relationshipStats.disputeRate).toFixed(6)) : null,
-              lastInteractionAt: relationshipStats?.lastInteractionAt ?? null
-            }
-          }
-        },
+	            relationshipHistory: {
+	              counterpartyAgentId: requesterAgentId,
+	              eventCount: Number(relationshipStats?.eventCount ?? 0),
+	              decisionsTotal: Number(relationshipStats?.decisionsTotal ?? 0),
+	              decisionsApproved: Number(relationshipStats?.decisionsApproved ?? 0),
+	              workedWithCount: Number(relationshipStats?.decisionsTotal ?? 0),
+	              successRate:
+	                Number.isFinite(Number(relationshipStats?.approvalRate)) ? Number(Number(relationshipStats.approvalRate).toFixed(6)) : null,
+	              disputesOpened: Number(relationshipStats?.disputesOpened ?? 0),
+	              disputeRate:
+	                Number.isFinite(Number(relationshipStats?.disputeRate)) ? Number(Number(relationshipStats.disputeRate).toFixed(6)) : null,
+	              lastInteractionAt: relationshipStats?.lastInteractionAt ?? null
+	            }
+	          }
+	        },
         { path: "$" }
       )
     };
@@ -7706,35 +7710,38 @@ export function createApi({
     return Array.isArray(rows) ? rows : [];
   }
 
-  async function computeTrustWeightedRoutingFactors({
-    tenantId,
-    agentId,
-    requesterAgentId = null,
-    reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
-    at = nowIso(),
-    capabilityAttestation = null,
-    attestationRuntime = null,
-    capabilityRequested = false
-  } = {}) {
-    const t = normalizeTenant(tenantId);
-    const a = String(agentId ?? "").trim();
-    if (!a) throw new TypeError("agentId is required");
-    const counterparty = typeof requesterAgentId === "string" && requesterAgentId.trim() !== "" ? requesterAgentId.trim() : null;
-    const window = parseReputationWindow(reputationWindow);
-    const windowStart = reputationWindowStartAt({ window, at });
-    const events = await listRoutingReputationEvents({
-      tenantId: t,
-      agentId: a,
-      occurredAtGte: windowStart,
-      occurredAtLte: at
-    });
-    const globalStats = computeRoutingReputationEventStats({ events });
-    const relationshipStats = computeRoutingReputationEventStats({ events, counterpartyAgentId: counterparty });
-    return computeTrustWeightedRoutingScore({
-      globalStats,
-      relationshipStats,
-      capabilityAttestation,
-      attestationRuntime,
+	  async function computeTrustWeightedRoutingFactors({
+	    tenantId,
+	    agentId,
+	    requesterAgentId = null,
+	    reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+	    at = nowIso(),
+	    capabilityAttestation = null,
+	    attestationRuntime = null,
+	    capabilityRequested = false
+	  } = {}) {
+	    const t = normalizeTenant(tenantId);
+	    const a = String(agentId ?? "").trim();
+	    if (!a) throw new TypeError("agentId is required");
+	    const counterparty = typeof requesterAgentId === "string" && requesterAgentId.trim() !== "" ? requesterAgentId.trim() : null;
+	    const window = parseReputationWindow(reputationWindow);
+	    const windowStart = reputationWindowStartAt({ window, at });
+	    const events = await listRoutingReputationEvents({
+	      tenantId: t,
+	      agentId: a,
+	      occurredAtGte: windowStart,
+	      occurredAtLte: at
+	    });
+	    const globalStats = computeRoutingReputationEventStats({ events });
+	    // Privacy-first: without a counterparty, relationship history should be neutral (not global).
+	    const relationshipStats = counterparty
+	      ? computeRoutingReputationEventStats({ events, counterpartyAgentId: counterparty })
+	      : computeRoutingReputationEventStats({ events: [] });
+	    return computeTrustWeightedRoutingScore({
+	      globalStats,
+	      relationshipStats,
+	      capabilityAttestation,
+	      attestationRuntime,
       capabilityRequested,
       requesterAgentId: counterparty
     });
@@ -18164,25 +18171,116 @@ export function createApi({
     };
   }
 
-  async function emitReputationEventBestEffort(input, { context = null } = {}) {
-    try {
-      return await emitReputationEvent(input);
-    } catch (err) {
-      logger.warn("reputation.event.emit_failed", {
-        tenantId: input?.tenantId ?? null,
-        eventId: input?.eventId ?? null,
-        eventKind: input?.eventKind ?? null,
-        context,
-        err
-      });
-      return null;
-    }
-  }
+	  async function emitReputationEventBestEffort(input, { context = null } = {}) {
+	    try {
+	      return await emitReputationEvent(input);
+	    } catch (err) {
+	      logger.warn("reputation.event.emit_failed", {
+	        tenantId: input?.tenantId ?? null,
+	        eventId: input?.eventId ?? null,
+	        eventKind: input?.eventKind ?? null,
+	        context,
+	        err
+	      });
+	      return null;
+	    }
+	  }
 
-  function normalizePercentIntOrNull(value) {
-    if (value === null || value === undefined) return null;
-    const n = Number(value);
-    if (!Number.isSafeInteger(n) || n < 0 || n > 100) return null;
+	  function buildWorkOrderSettlementDecisionHashV1({
+	    tenantId,
+	    workOrderId,
+	    receiptHash,
+	    settlementStatus,
+	    x402GateId,
+	    x402RunId
+	  } = {}) {
+	    const t = String(tenantId ?? "").trim();
+	    const w = String(workOrderId ?? "").trim();
+	    const r = String(receiptHash ?? "").trim().toLowerCase();
+	    const s = String(settlementStatus ?? "").trim().toLowerCase();
+	    const g = String(x402GateId ?? "").trim();
+	    const run = String(x402RunId ?? "").trim();
+	    return sha256Hex(`work_order_settlement:v1:${t}:${w}:${r}:${s}:${g}:${run}`);
+	  }
+
+	  async function emitWorkOrderSettlementReputationEventBestEffort({ tenantId, workOrder, completionReceipt, context = null } = {}) {
+	    const settlement =
+	      workOrder?.settlement && typeof workOrder.settlement === "object" && !Array.isArray(workOrder.settlement) ? workOrder.settlement : null;
+	    if (!settlement) return null;
+	    const settlementStatus = String(settlement?.status ?? "").trim().toLowerCase();
+	    if (
+	      settlementStatus !== SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.RELEASED &&
+	      settlementStatus !== SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.REFUNDED
+	    ) {
+	      return null;
+	    }
+
+	    const workOrderId = String(workOrder?.workOrderId ?? "").trim();
+	    const principalAgentId = String(workOrder?.principalAgentId ?? "").trim();
+	    const subAgentId = String(workOrder?.subAgentId ?? "").trim();
+	    const receiptHash = String(completionReceipt?.receiptHash ?? "").trim().toLowerCase();
+	    const x402GateId = String(settlement?.x402GateId ?? "").trim();
+	    const x402RunId = String(settlement?.x402RunId ?? "").trim();
+	    const occurredAt =
+	      typeof settlement?.settledAt === "string" && settlement.settledAt.trim() !== "" ? settlement.settledAt.trim() : nowIso();
+
+	    if (!workOrderId || !principalAgentId || !subAgentId || !/^[0-9a-f]{64}$/.test(receiptHash) || !x402GateId || !x402RunId) {
+	      return null;
+	    }
+
+	    const decisionHash = buildWorkOrderSettlementDecisionHashV1({
+	      tenantId,
+	      workOrderId,
+	      receiptHash,
+	      settlementStatus,
+	      x402GateId,
+	      x402RunId
+	    });
+	    const amountCentsRaw =
+	      completionReceipt?.settlementQuote && typeof completionReceipt.settlementQuote === "object" && !Array.isArray(completionReceipt.settlementQuote)
+	        ? completionReceipt.settlementQuote.amountCents
+	        : completionReceipt?.amountCents ?? null;
+	    const amountCents = Number(amountCentsRaw);
+	    const safeAmountCents = Number.isSafeInteger(amountCents) && amountCents >= 0 ? amountCents : 0;
+	    const approved = settlementStatus === SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.RELEASED;
+
+	    return emitReputationEventBestEffort(
+	      {
+	        tenantId,
+	        eventId: `rep_dec_${decisionHash}`,
+	        occurredAt,
+	        eventKind: approved ? REPUTATION_EVENT_KIND.DECISION_APPROVED : REPUTATION_EVENT_KIND.DECISION_REJECTED,
+	        subject: {
+	          agentId: subAgentId,
+	          toolId: "work_order",
+	          counterpartyAgentId: principalAgentId,
+	          role: "payee"
+	        },
+	        sourceRef: {
+	          kind: "work_order_settlement",
+	          sourceId: workOrderId,
+	          hash: decisionHash,
+	          decisionHash,
+	          receiptHash,
+	          runId: x402RunId,
+	          settlementId: x402GateId
+	        },
+	        facts: {
+	          decisionStatus: approved ? "approved" : "rejected",
+	          releaseRatePct: approved ? 100 : 0,
+	          amountSettledCents: approved ? safeAmountCents : 0,
+	          amountRefundedCents: approved ? 0 : safeAmountCents,
+	          workOrderId
+	        }
+	      },
+	      { context: context ?? "work_order.settlement" }
+	    );
+	  }
+
+	  function normalizePercentIntOrNull(value) {
+	    if (value === null || value === undefined) return null;
+	    const n = Number(value);
+	    if (!Number.isSafeInteger(n) || n < 0 || n > 100) return null;
     return n;
   }
 
@@ -44261,35 +44359,176 @@ export function createApi({
           if (!completionReceiptId) {
             return sendError(res, 409, "work order settlement blocked", { message: "completionReceiptId is required once work is completed" }, { code: "WORK_ORDER_SETTLEMENT_BLOCKED" });
           }
-          const completionReceipt = await getSubAgentCompletionReceiptRecord({ tenantId, receiptId: completionReceiptId });
-          if (!completionReceipt) return sendError(res, 404, "completion receipt not found", null, { code: "NOT_FOUND" });
+	          const completionReceipt = await getSubAgentCompletionReceiptRecord({ tenantId, receiptId: completionReceiptId });
+	          if (!completionReceipt) return sendError(res, 404, "completion receipt not found", null, { code: "NOT_FOUND" });
 
-          const settlementStatusRaw = typeof body?.status === "string" && body.status.trim() !== "" ? body.status.trim().toLowerCase() : null;
-          let settlementStatus = settlementStatusRaw;
-          if (!settlementStatus) {
-            settlementStatus =
-              String(completionReceipt?.status ?? "").toLowerCase() === SUB_AGENT_COMPLETION_STATUS.SUCCESS
-                ? SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.RELEASED
-                : SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.REFUNDED;
-          }
-          if (!Object.values(SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS).includes(settlementStatus)) {
-            return sendError(
-              res,
-              400,
+	          const storedSettlement =
+	            existingWorkOrder?.settlement && typeof existingWorkOrder.settlement === "object" && !Array.isArray(existingWorkOrder.settlement)
+	              ? existingWorkOrder.settlement
+	              : null;
+	          const alreadySettled =
+	            String(existingWorkOrder?.status ?? "").toLowerCase() === SUB_AGENT_WORK_ORDER_STATUS.SETTLED && storedSettlement;
+
+	          const settlementStatusRaw = typeof body?.status === "string" && body.status.trim() !== "" ? body.status.trim().toLowerCase() : null;
+	          let settlementStatus = settlementStatusRaw;
+	          if (alreadySettled) {
+	            const storedStatus = String(storedSettlement?.status ?? "").trim().toLowerCase();
+	            if (settlementStatus && settlementStatus !== storedStatus) {
+	              return sendError(
+	                res,
+	                409,
+	                "work order settlement conflict",
+	                { message: "status does not match settled work order" },
+	                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+	              );
+	            }
+	            settlementStatus = storedStatus;
+	          } else if (!settlementStatus) {
+	            settlementStatus =
+	              String(completionReceipt?.status ?? "").toLowerCase() === SUB_AGENT_COMPLETION_STATUS.SUCCESS
+	                ? SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.RELEASED
+	                : SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.REFUNDED;
+	          }
+	          if (!Object.values(SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS).includes(settlementStatus)) {
+	            return sendError(
+	              res,
+	              400,
               "invalid work order settlement",
               { message: `status must be one of ${Object.values(SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS).join("|")}` },
-              { code: "SCHEMA_INVALID" }
-            );
-          }
-          const evidenceBinding = validateWorkOrderSettlementEvidenceBinding({
-            workOrder: existingWorkOrder,
-            completionReceipt,
-            settlementStatus,
-            completionReceiptHash: body?.completionReceiptHash ?? null
-          });
-          if (!evidenceBinding.ok) {
-            return sendError(
-              res,
+	              { code: "SCHEMA_INVALID" }
+	            );
+	          }
+
+	          const normalizedCompletionReceiptHash =
+	            typeof body?.completionReceiptHash === "string" && body.completionReceiptHash.trim() !== ""
+	              ? body.completionReceiptHash.trim().toLowerCase()
+	              : null;
+	          const actualReceiptHash = String(completionReceipt?.receiptHash ?? "").trim().toLowerCase();
+	          if (normalizedCompletionReceiptHash && actualReceiptHash && normalizedCompletionReceiptHash !== actualReceiptHash) {
+	            return sendError(
+	              res,
+	              409,
+	              "work order settlement blocked",
+	              {
+	                reasonCode: "WORK_ORDER_RECEIPT_HASH_MISMATCH",
+	                expectedReceiptHash: normalizedCompletionReceiptHash,
+	                actualReceiptHash
+	              },
+	              { code: "WORK_ORDER_EVIDENCE_BINDING_BLOCKED" }
+	            );
+	          }
+
+	          if (alreadySettled) {
+	            const storedReceiptId = typeof existingWorkOrder?.completionReceiptId === "string" ? existingWorkOrder.completionReceiptId.trim() : "";
+	            if (storedReceiptId && storedReceiptId !== completionReceiptId) {
+	              return sendError(
+	                res,
+	                409,
+	                "work order settlement conflict",
+	                { message: "completionReceiptId does not match settled work order" },
+	                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+	              );
+	            }
+
+		            const x402GateIdRaw = typeof body?.x402GateId === "string" && body.x402GateId.trim() !== "" ? body.x402GateId.trim() : null;
+		            const x402RunIdRaw = typeof body?.x402RunId === "string" && body.x402RunId.trim() !== "" ? body.x402RunId.trim() : null;
+		            const x402GateId = x402GateIdRaw ?? (String(storedSettlement?.x402GateId ?? "").trim() || null);
+		            const x402RunId = x402RunIdRaw ?? (String(storedSettlement?.x402RunId ?? "").trim() || null);
+		            if (!x402GateId || !x402RunId) {
+		              return sendError(
+		                res,
+	                409,
+	                "work order settlement blocked",
+	                { message: "x402 bindings missing on settled work order" },
+	                { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+	              );
+	            }
+	            if (x402GateIdRaw && x402GateIdRaw !== String(storedSettlement?.x402GateId ?? "")) {
+	              return sendError(
+	                res,
+	                409,
+	                "work order settlement conflict",
+	                { message: "x402GateId does not match settled work order" },
+	                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+	              );
+	            }
+	            if (x402RunIdRaw && x402RunIdRaw !== String(storedSettlement?.x402RunId ?? "")) {
+	              return sendError(
+	                res,
+	                409,
+	                "work order settlement conflict",
+	                { message: "x402RunId does not match settled work order" },
+	                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+	              );
+	            }
+	            if (
+	              typeof body?.x402SettlementStatus === "string" &&
+	              body.x402SettlementStatus.trim() !== "" &&
+	              body.x402SettlementStatus.trim().toLowerCase() !== String(storedSettlement?.x402SettlementStatus ?? "").toLowerCase()
+	            ) {
+	              return sendError(
+	                res,
+	                409,
+	                "work order settlement conflict",
+	                { message: "x402SettlementStatus does not match settled work order" },
+	                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+	              );
+	            }
+	            if (
+	              typeof body?.x402ReceiptId === "string" &&
+	              body.x402ReceiptId.trim() !== "" &&
+	              body.x402ReceiptId.trim() !== String(storedSettlement?.x402ReceiptId ?? "")
+	            ) {
+	              return sendError(
+	                res,
+	                409,
+	                "work order settlement conflict",
+	                { message: "x402ReceiptId does not match settled work order" },
+	                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+	              );
+	            }
+	            if (
+	              typeof body?.settledAt === "string" &&
+	              body.settledAt.trim() !== "" &&
+	              body.settledAt.trim() !== String(storedSettlement?.settledAt ?? "")
+	            ) {
+	              return sendError(
+	                res,
+	                409,
+	                "work order settlement conflict",
+	                { message: "settledAt does not match settled work order" },
+	                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+	              );
+	            }
+
+	            const responseBody = { ok: true, workOrder: existingWorkOrder, completionReceipt };
+	            const ops = [];
+	            if (idemStoreKey) {
+	              ops.push({
+	                kind: "IDEMPOTENCY_PUT",
+	                key: idemStoreKey,
+	                value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody }
+	              });
+	            }
+	            if (ops.length > 0) await commitTx(ops);
+	            await emitWorkOrderSettlementReputationEventBestEffort({
+	              tenantId,
+	              workOrder: existingWorkOrder,
+	              completionReceipt,
+	              context: "work_order.settle.idempotent"
+	            });
+	            return sendJson(res, 200, responseBody);
+	          }
+
+	          const evidenceBinding = validateWorkOrderSettlementEvidenceBinding({
+	            workOrder: existingWorkOrder,
+	            completionReceipt,
+	            settlementStatus,
+	            completionReceiptHash: normalizedCompletionReceiptHash
+	          });
+	          if (!evidenceBinding.ok) {
+	            return sendError(
+	              res,
               409,
               "work order settlement blocked",
               {
@@ -44403,13 +44642,19 @@ export function createApi({
             );
             ops.push({ kind: "X402_GATE_UPSERT", tenantId, gateId: x402GateId, gate: nextLinkedGate });
           }
-          if (idemStoreKey) {
-            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
-          }
-          await commitTx(ops);
-          return sendJson(res, 200, responseBody);
-        }
-      }
+	          if (idemStoreKey) {
+	            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+	          }
+	          await commitTx(ops);
+	          await emitWorkOrderSettlementReputationEventBestEffort({
+	            tenantId,
+	            workOrder: nextWorkOrder,
+	            completionReceipt,
+	            context: "work_order.settle"
+	          });
+	          return sendJson(res, 200, responseBody);
+	        }
+	      }
 
       if (req.method === "GET" && path === "/agents") {
         const status = url.searchParams.get("status");
