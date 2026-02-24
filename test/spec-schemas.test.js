@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import Ajv from "ajv/dist/2020.js";
+import { createAjv2020 } from "./helpers/ajv-2020.js";
 
 import { resetDeterministicIds } from "../src/core/ids.js";
 import { createChainedEvent, appendChainedEvent } from "../src/core/event-chain.js";
@@ -176,7 +176,7 @@ async function buildMinimalBundles() {
 }
 
 test("docs/spec/schemas validate real generated bundles (smoke)", async () => {
-  const ajv = new Ajv({ allErrors: true, strict: false });
+  const ajv = createAjv2020();
   for (const schema of await loadSchemas()) {
     if (schema && typeof schema === "object" && typeof schema.$id === "string") ajv.addSchema(schema, schema.$id);
   }
@@ -225,7 +225,7 @@ test("docs/spec/schemas validate real generated bundles (smoke)", async () => {
 });
 
 test("schema catches missing required fields (smoke)", async () => {
-  const ajv = new Ajv({ allErrors: true, strict: false });
+  const ajv = createAjv2020();
   for (const schema of await loadSchemas()) {
     if (schema && typeof schema === "object" && typeof schema.$id === "string") ajv.addSchema(schema, schema.$id);
   }

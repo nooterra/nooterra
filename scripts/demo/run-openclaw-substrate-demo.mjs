@@ -1,0 +1,436 @@
+#!/usr/bin/env node
+import { spawn } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { createEd25519Keypair } from "../../src/core/crypto.js";
+
+const SCHEMA_VERSION = "OpenClawSubstrateDemoReport.v1";
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function usage() {
+  return [
+    "usage: node scripts/demo/run-openclaw-substrate-demo.mjs [options]",
+    "",
+    "options:",
+    "  --out <file>   Report path (default: artifacts/demo/openclaw-substrate-demo.json)",
+    "  --help         Show help",
+    "",
+    "required env:",
+    "  SETTLD_BASE_URL",
+    "  SETTLD_TENANT_ID",
+    "  SETTLD_API_KEY"
+  ].join("\n");
+}
+
+function parseArgs(argv, cwd = process.cwd()) {
+  const out = {
+    help: false,
+    out: path.resolve(cwd, "artifacts/demo/openclaw-substrate-demo.json")
+  };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = String(argv[i] ?? "").trim();
+    const next = () => {
+      i += 1;
+      if (i >= argv.length) throw new Error(`missing value for ${arg}`);
+      return String(argv[i] ?? "").trim();
+    };
+    if (!arg) continue;
+    if (arg === "--help" || arg === "-h") out.help = true;
+    else if (arg === "--out") out.out = path.resolve(cwd, next());
+    else if (arg.startsWith("--out=")) out.out = path.resolve(cwd, arg.slice("--out=".length).trim());
+    else throw new Error(`unknown argument: ${arg}`);
+  }
+  return out;
+}
+
+function assertEnv(name) {
+  const value = process.env[name];
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new Error(`${name} is required`);
+  }
+  return value.trim();
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+class JsonRpcClient {
+  constructor(child) {
+    this.child = child;
+    this.buffer = "";
+    this.pending = new Map();
+    this.closed = false;
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => this.#onData(chunk));
+    child.on("exit", (code, signal) => {
+      this.closed = true;
+      const message = `MCP child exited (code=${code ?? "null"} signal=${signal ?? "null"})`;
+      for (const { reject } of this.pending.values()) reject(new Error(message));
+      this.pending.clear();
+    });
+  }
+
+  #onData(chunk) {
+    this.buffer += String(chunk ?? "");
+    for (;;) {
+      const idx = this.buffer.indexOf("\n");
+      if (idx === -1) break;
+      const line = this.buffer.slice(0, idx).trim();
+      this.buffer = this.buffer.slice(idx + 1);
+      if (!line) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const id = parsed?.id;
+      if (id === undefined || id === null) continue;
+      const key = String(id);
+      const pending = this.pending.get(key);
+      if (!pending) continue;
+      this.pending.delete(key);
+      pending.resolve(parsed);
+    }
+  }
+
+  async call(method, params, timeoutMs = 30_000) {
+    if (this.closed) throw new Error(`MCP transport closed before ${method}`);
+    const id = `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const payload = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+    this.child.stdin.write(`${payload}\n`);
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        if (!this.pending.has(id)) return;
+        this.pending.delete(id);
+        reject(new Error(`timeout waiting for ${method}`));
+      }, timeoutMs);
+      timer.unref?.();
+      this.pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: (err) => {
+          clearTimeout(timer);
+          reject(err);
+        }
+      });
+    });
+  }
+}
+
+function parseToolResult(response) {
+  const text = response?.result?.content?.[0]?.text ?? "";
+  if (typeof text !== "string" || text.trim() === "") {
+    throw new Error("tool response missing content text");
+  }
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(`tool response is not JSON: ${err?.message ?? String(err)}`);
+  }
+}
+
+function sanitizeId(value, fallback) {
+  const normalized = String(value ?? "").trim().replace(/[^A-Za-z0-9:_-]/g, "_");
+  return normalized || fallback;
+}
+
+async function registerAgentIdentity({ baseUrl, tenantId, apiKey, agentId, displayName, capabilities = [] }) {
+  const { publicKeyPem } = createEd25519Keypair();
+  const res = await fetch(new URL("/agents/register", baseUrl), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": `demo_agent_register_${agentId}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      agentId,
+      displayName,
+      owner: { ownerType: "service", ownerId: "svc_openclaw_demo" },
+      publicKeyPem,
+      capabilities
+    })
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`agent register failed for ${agentId}: HTTP ${res.status} ${text}`);
+  }
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    process.stdout.write(`${usage()}\n`);
+    return;
+  }
+
+  const baseUrl = assertEnv("SETTLD_BASE_URL");
+  const tenantId = assertEnv("SETTLD_TENANT_ID");
+  const apiKey = assertEnv("SETTLD_API_KEY");
+
+  const demoSeed = `${Date.now()}`;
+  const principalAgentId = sanitizeId(`agt_openclaw_demo_principal_${demoSeed}`, `agt_openclaw_demo_principal`);
+  const workerAgentId = sanitizeId(`agt_openclaw_demo_worker_${demoSeed}`, `agt_openclaw_demo_worker`);
+  const startedAt = nowIso();
+  const transcript = [];
+  let child = null;
+
+  try {
+    await registerAgentIdentity({
+      baseUrl,
+      tenantId,
+      apiKey,
+      agentId: principalAgentId,
+      displayName: "OpenClaw Demo Principal",
+      capabilities: ["orchestration", "travel.booking"]
+    });
+    await registerAgentIdentity({
+      baseUrl,
+      tenantId,
+      apiKey,
+      agentId: workerAgentId,
+      displayName: "OpenClaw Demo Worker",
+      capabilities: ["travel.booking.flights"]
+    });
+
+    child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+      cwd: process.cwd(),
+      env: { ...process.env },
+      stdio: ["pipe", "pipe", "inherit"]
+    });
+    const rpc = new JsonRpcClient(child);
+
+    const initialize = await rpc.call("initialize", {
+      protocolVersion: "2024-11-05",
+      clientInfo: { name: "openclaw-substrate-demo", version: "v1" },
+      capabilities: {}
+    });
+    transcript.push({ step: "initialize", ok: !initialize?.error, response: initialize?.error ?? initialize?.result ?? null });
+
+    const toolsList = await rpc.call("tools/list", {});
+    transcript.push({
+      step: "tools_list",
+      ok: !toolsList?.error,
+      toolsCount: Array.isArray(toolsList?.result?.tools) ? toolsList.result.tools.length : null
+    });
+
+    async function tool(name, callArgs) {
+      const response = await rpc.call("tools/call", { name, arguments: callArgs });
+      if (response?.error) {
+        transcript.push({ step: name, ok: false, error: response.error });
+        throw new Error(`${name} failed: ${response.error?.message ?? "unknown error"}`);
+      }
+      const parsed = parseToolResult(response);
+      const isToolError =
+        response?.result?.isError === true || (parsed && typeof parsed.error === "string" && parsed.error.trim() !== "");
+      transcript.push({ step: name, ok: !isToolError, result: parsed });
+      if (isToolError) {
+        throw new Error(`${name} failed: ${String(parsed.error ?? "tool returned isError")}`);
+      }
+      return parsed;
+    }
+
+    const about = await tool("settld.about", {});
+    const gateCreate = await tool("settld.x402_gate_create", {
+      amountCents: 275,
+      currency: "USD",
+      payerAgentId: principalAgentId,
+      payeeAgentId: workerAgentId,
+      autoFundPayerCents: 5000,
+      toolId: "openclaw_substrate_demo",
+      idempotencyKey: `demo_gate_create_${demoSeed}`
+    });
+    const gateId =
+      gateCreate?.result?.gateId ??
+      gateCreate?.result?.gate?.gateId ??
+      gateCreate?.gateId ??
+      null;
+    if (!gateId) throw new Error("x402 gate id missing from settld.x402_gate_create");
+
+    const gateVerify = await tool("settld.x402_gate_verify", {
+      gateId,
+      ensureAuthorized: true,
+      verificationStatus: "green",
+      runStatus: "completed",
+      authorizeIdempotencyKey: `demo_gate_auth_${demoSeed}`,
+      idempotencyKey: `demo_gate_verify_${demoSeed}`
+    });
+
+    const gateGet = await tool("settld.x402_gate_get", { gateId });
+    const x402RunId =
+      gateGet?.result?.gate?.runId ??
+      gateVerify?.result?.gate?.runId ??
+      gateCreate?.result?.gate?.runId ??
+      null;
+    if (!x402RunId) throw new Error("x402 run id missing for work order settlement binding");
+
+    await tool("settld.agent_card_upsert", {
+      agentId: principalAgentId,
+      displayName: "OpenClaw Demo Principal",
+      capabilities: ["orchestration", "travel.booking"],
+      visibility: "public",
+      hostRuntime: "openclaw",
+      hostProtocols: ["mcp", "json-rpc"]
+    });
+    await tool("settld.agent_card_upsert", {
+      agentId: workerAgentId,
+      displayName: "OpenClaw Demo Worker",
+      capabilities: ["travel.booking.flights"],
+      visibility: "public",
+      hostRuntime: "openclaw",
+      hostProtocols: ["mcp", "json-rpc"]
+    });
+
+    const delegationGrant = await tool("settld.delegation_grant_issue", {
+      grantId: `dgrant_openclaw_demo_${demoSeed}`,
+      delegatorAgentId: principalAgentId,
+      delegateeAgentId: workerAgentId,
+      allowedRiskClasses: ["financial"],
+      sideEffectingAllowed: true,
+      maxPerCallCents: 1000,
+      maxTotalCents: 2000,
+      maxDelegationDepth: 1,
+      currency: "USD",
+      idempotencyKey: `demo_delegation_issue_${demoSeed}`
+    });
+    const delegationGrantRef =
+      delegationGrant?.delegationGrant?.grantId ??
+      delegationGrant?.result?.delegationGrant?.grantId ??
+      `dgrant_openclaw_demo_${demoSeed}`;
+
+    const workOrderCreate = await tool("settld.work_order_create", {
+      workOrderId: `workord_openclaw_demo_${demoSeed}`,
+      principalAgentId,
+      subAgentId: workerAgentId,
+      requiredCapability: "travel.booking.flights",
+      specification: {
+        intent: "book cheapest direct flight under budget",
+        budgetCents: 27500,
+        route: "SFO->JFK"
+      },
+      amountCents: 275,
+      currency: "USD",
+      delegationGrantRef,
+      idempotencyKey: `demo_workorder_create_${demoSeed}`
+    });
+    const workOrderId =
+      workOrderCreate?.workOrder?.workOrderId ??
+      workOrderCreate?.result?.workOrder?.workOrderId ??
+      `workord_openclaw_demo_${demoSeed}`;
+
+    await tool("settld.work_order_accept", {
+      workOrderId,
+      acceptedByAgentId: workerAgentId,
+      idempotencyKey: `demo_workorder_accept_${demoSeed}`
+    });
+
+    await tool("settld.work_order_progress", {
+      workOrderId,
+      eventType: "progress",
+      message: "queried providers and selected itinerary",
+      percentComplete: 80,
+      evidenceRefs: [`artifact://openclaw_demo/${demoSeed}/selection`],
+      idempotencyKey: `demo_workorder_progress_${demoSeed}`
+    });
+
+    const workOrderComplete = await tool("settld.work_order_complete", {
+      workOrderId,
+      receiptId: `worec_openclaw_demo_${demoSeed}`,
+      status: "success",
+      outputs: { itineraryId: `itn_${demoSeed}`, provider: "demo_provider" },
+      metrics: { plannerMs: 2100, providerCount: 4 },
+      evidenceRefs: [`artifact://openclaw_demo/${demoSeed}/itinerary`],
+      amountCents: 275,
+      currency: "USD",
+      idempotencyKey: `demo_workorder_complete_${demoSeed}`
+    });
+    const completionReceiptId =
+      workOrderComplete?.completionReceipt?.receiptId ??
+      workOrderComplete?.result?.completionReceipt?.receiptId ??
+      `worec_openclaw_demo_${demoSeed}`;
+
+    const workOrderSettle = await tool("settld.work_order_settle", {
+      workOrderId,
+      completionReceiptId,
+      status: "released",
+      x402GateId: gateId,
+      x402RunId,
+      x402SettlementStatus: "released",
+      idempotencyKey: `demo_workorder_settle_${demoSeed}`
+    });
+
+    const discover = await tool("settld.agent_discover", {
+      capability: "travel.booking.flights",
+      includeReputation: true,
+      limit: 5
+    });
+
+    const report = {
+      schemaVersion: SCHEMA_VERSION,
+      ok: true,
+      startedAt,
+      completedAt: nowIso(),
+      ids: {
+        gateId,
+        x402RunId,
+        principalAgentId,
+        workerAgentId,
+        workOrderId,
+        completionReceiptId,
+        delegationGrantRef
+      },
+      summary: {
+        aboutOk: Boolean(about?.ok ?? true),
+        settlementStatus:
+          workOrderSettle?.workOrder?.settlement?.status ??
+          workOrderSettle?.result?.workOrder?.settlement?.status ??
+          null,
+        discoveredAgents:
+          Array.isArray(discover?.result?.results) ? discover.result.results.length : Array.isArray(discover?.results) ? discover.results.length : null
+      },
+      transcript
+    };
+
+    await mkdir(path.dirname(args.out), { recursive: true });
+    await writeFile(args.out, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+    process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  } finally {
+    if (child) {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // ignore
+      }
+      await sleep(50);
+    }
+  }
+}
+
+main().catch(async (err) => {
+  const failure = {
+    schemaVersion: SCHEMA_VERSION,
+    ok: false,
+    completedAt: nowIso(),
+    error: {
+      message: err?.message ?? String(err),
+      stack: err?.stack ?? null
+    }
+  };
+  try {
+    const args = parseArgs(process.argv.slice(2));
+    await mkdir(path.dirname(args.out), { recursive: true });
+    await writeFile(args.out, `${JSON.stringify(failure, null, 2)}\n`, "utf8");
+  } catch {
+    // ignore
+  }
+  process.stderr.write(`${err?.stack ?? err?.message ?? String(err)}\n`);
+  process.exit(1);
+});

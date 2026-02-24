@@ -38,6 +38,7 @@ demo/**/output/
 # Misc
 *.tmp
 *.swp
+.cache/
 
 # Debug bundles
 settld-debug-*.tar.gz

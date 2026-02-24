@@ -44,6 +44,7 @@ function headerSafeValue(value) {
   // Prevent fetch/undici from throwing on invalid header values (CTL chars, newlines).
   // `orderKey` is allowed to include newlines internally; for transport we normalize it.
   const s = String(value ?? "");
+  // eslint-disable-next-line no-control-regex
   return s.replaceAll(/[\u0000-\u001F\u007F]/g, " ").trim();
 }
 

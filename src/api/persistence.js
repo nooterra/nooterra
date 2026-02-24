@@ -171,6 +171,20 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "AGENT_CARD_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const agentCard = op.agentCard ?? null;
+      if (!agentCard || typeof agentCard !== "object" || Array.isArray(agentCard)) {
+        throw new TypeError("AGENT_CARD_UPSERT requires agentCard");
+      }
+      const agentId = agentCard.agentId ?? op.agentId ?? null;
+      if (!agentId) throw new TypeError("AGENT_CARD_UPSERT requires agentCard.agentId");
+      if (!(store.agentCards instanceof Map)) store.agentCards = new Map();
+      const key = makeScopedKey({ tenantId, id: String(agentId) });
+      store.agentCards.set(key, { ...agentCard, tenantId, agentId: String(agentId) });
+      continue;
+    }
+
     if (kind === "AGENT_PASSPORT_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
       const agentPassport = op.agentPassport ?? null;
@@ -607,6 +621,62 @@ export function applyTxRecord(store, record) {
       if (!(store.agreementDelegations instanceof Map)) store.agreementDelegations = new Map();
       const key = makeScopedKey({ tenantId, id: String(delegationId) });
       store.agreementDelegations.set(key, { ...delegation, tenantId, delegationId: String(delegationId) });
+      continue;
+    }
+
+    if (kind === "DELEGATION_GRANT_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const delegationGrant = op.delegationGrant ?? null;
+      if (!delegationGrant || typeof delegationGrant !== "object" || Array.isArray(delegationGrant)) {
+        throw new TypeError("DELEGATION_GRANT_UPSERT requires delegationGrant");
+      }
+      const grantId = delegationGrant.grantId ?? op.grantId ?? null;
+      if (!grantId) throw new TypeError("DELEGATION_GRANT_UPSERT requires delegationGrant.grantId");
+      if (!(store.delegationGrants instanceof Map)) store.delegationGrants = new Map();
+      const key = makeScopedKey({ tenantId, id: String(grantId) });
+      store.delegationGrants.set(key, { ...delegationGrant, tenantId, grantId: String(grantId) });
+      continue;
+    }
+
+    if (kind === "CAPABILITY_ATTESTATION_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const capabilityAttestation = op.capabilityAttestation ?? null;
+      if (!capabilityAttestation || typeof capabilityAttestation !== "object" || Array.isArray(capabilityAttestation)) {
+        throw new TypeError("CAPABILITY_ATTESTATION_UPSERT requires capabilityAttestation");
+      }
+      const attestationId = capabilityAttestation.attestationId ?? op.attestationId ?? null;
+      if (!attestationId) throw new TypeError("CAPABILITY_ATTESTATION_UPSERT requires capabilityAttestation.attestationId");
+      if (!(store.capabilityAttestations instanceof Map)) store.capabilityAttestations = new Map();
+      const key = makeScopedKey({ tenantId, id: String(attestationId) });
+      store.capabilityAttestations.set(key, { ...capabilityAttestation, tenantId, attestationId: String(attestationId) });
+      continue;
+    }
+
+    if (kind === "SUB_AGENT_WORK_ORDER_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const workOrder = op.workOrder ?? null;
+      if (!workOrder || typeof workOrder !== "object" || Array.isArray(workOrder)) {
+        throw new TypeError("SUB_AGENT_WORK_ORDER_UPSERT requires workOrder");
+      }
+      const workOrderId = workOrder.workOrderId ?? op.workOrderId ?? null;
+      if (!workOrderId) throw new TypeError("SUB_AGENT_WORK_ORDER_UPSERT requires workOrder.workOrderId");
+      if (!(store.subAgentWorkOrders instanceof Map)) store.subAgentWorkOrders = new Map();
+      const key = makeScopedKey({ tenantId, id: String(workOrderId) });
+      store.subAgentWorkOrders.set(key, { ...workOrder, tenantId, workOrderId: String(workOrderId) });
+      continue;
+    }
+
+    if (kind === "SUB_AGENT_COMPLETION_RECEIPT_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const completionReceipt = op.completionReceipt ?? null;
+      if (!completionReceipt || typeof completionReceipt !== "object" || Array.isArray(completionReceipt)) {
+        throw new TypeError("SUB_AGENT_COMPLETION_RECEIPT_UPSERT requires completionReceipt");
+      }
+      const receiptId = completionReceipt.receiptId ?? op.receiptId ?? null;
+      if (!receiptId) throw new TypeError("SUB_AGENT_COMPLETION_RECEIPT_UPSERT requires completionReceipt.receiptId");
+      if (!(store.subAgentCompletionReceipts instanceof Map)) store.subAgentCompletionReceipts = new Map();
+      const key = makeScopedKey({ tenantId, id: String(receiptId) });
+      store.subAgentCompletionReceipts.set(key, { ...completionReceipt, tenantId, receiptId: String(receiptId) });
       continue;
     }
 

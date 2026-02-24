@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import Ajv from "ajv/dist/2020.js";
+import { createAjv2020 } from "./helpers/ajv-2020.js";
 
 import { buildReputationEventV1, validateReputationEventV1 } from "../src/core/reputation-event.js";
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
@@ -21,7 +21,7 @@ async function loadSchemas() {
 }
 
 test("reputation event schema validates canonical example", async () => {
-  const ajv = new Ajv({ allErrors: true, strict: false });
+  const ajv = createAjv2020();
   for (const schema of await loadSchemas()) {
     if (schema && typeof schema === "object" && typeof schema.$id === "string") {
       ajv.addSchema(schema, schema.$id);
@@ -98,4 +98,39 @@ test("reputation event canonical hash is stable under key reorder", () => {
   };
   const hashB = sha256Hex(canonicalJsonStringify(reordered));
   assert.equal(hashB, hashA);
+});
+
+test("reputation event schema rejects invalid occurredAt date-time", async () => {
+  const ajv = createAjv2020();
+  for (const schema of await loadSchemas()) {
+    if (schema && typeof schema === "object" && typeof schema.$id === "string") {
+      ajv.addSchema(schema, schema.$id);
+    }
+  }
+
+  const validate = ajv.getSchema("https://settld.local/schemas/ReputationEvent.v1.schema.json");
+  assert.ok(validate);
+
+  const invalid = buildReputationEventV1({
+    eventId: "rep_vrd_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    tenantId: "tenant_default",
+    occurredAt: "2026-02-11T12:00:00.000Z",
+    eventKind: "decision_rejected",
+    subject: {
+      agentId: "agt_payee_demo",
+      toolId: "tool_call",
+      role: "payee"
+    },
+    sourceRef: {
+      kind: "settlement_decision",
+      decisionHash: "c".repeat(64)
+    },
+    facts: {
+      amountRequestedCents: 1500
+    }
+  });
+  invalid.occurredAt = "not-a-date";
+
+  assert.equal(validate(invalid), false);
+  assert.match(JSON.stringify(validate.errors ?? []), /"format":"date-time"/);
 });

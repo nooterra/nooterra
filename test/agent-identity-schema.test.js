@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import Ajv from "ajv/dist/2020.js";
+import { createAjv2020 } from "./helpers/ajv-2020.js";
 
 async function loadSchemas() {
   const base = path.resolve(process.cwd(), "docs/spec/schemas");
@@ -17,7 +17,7 @@ async function loadSchemas() {
 }
 
 test("AgentIdentity.v1 schema validates canonical shape", async () => {
-  const ajv = new Ajv({ allErrors: true, strict: false });
+  const ajv = createAjv2020();
   for (const schema of await loadSchemas()) {
     if (schema && typeof schema === "object" && typeof schema.$id === "string") {
       ajv.addSchema(schema, schema.$id);

@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-import Ajv from "ajv/dist/2020.js";
+import { createAjv2020 } from "./helpers/ajv-2020.js";
 
 async function runCli(args, { env } = {}) {
   const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "settld-verify.js");
@@ -37,7 +37,7 @@ test("fixture bundles verify via CLI (matrix)", async (t) => {
 
   const cliSchemaPath = path.resolve(process.cwd(), "docs", "spec", "schemas", "VerifyCliOutput.v1.schema.json");
   const cliSchema = JSON.parse(await fs.readFile(cliSchemaPath, "utf8"));
-  const ajv = new Ajv({ allErrors: true, strict: false });
+  const ajv = createAjv2020();
   ajv.addSchema(cliSchema);
   const validateCliOutput = ajv.getSchema(cliSchema.$id);
   assert.ok(validateCliOutput, "failed to load VerifyCliOutput.v1 schema");

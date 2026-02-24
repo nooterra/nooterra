@@ -6,7 +6,7 @@ For host-specific setup (Claude, Cursor, Codex, OpenClaw), see `docs/QUICKSTART_
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 20.x (`nvm use` in repo root). Install is fail-fast if you use a different major.
 - A Settld API key with appropriate scopes (`keyId.secret` format)
 - Settld API reachable (local `npm run dev:api` or hosted)
 

@@ -17,6 +17,7 @@ import { clampQuota } from "../core/quotas.js";
 import { computeFinanceAccountMapHash, validateFinanceAccountMapV1 } from "../core/finance-account-map.js";
 import { appendChainedEvent, createChainedEvent } from "../core/event-chain.js";
 import { normalizeBillingPlanId } from "../core/billing-plans.js";
+import { validateAgentCardV1 } from "../core/agent-card.js";
 
 const SERVER_SIGNER_FILENAME = "server-signer.json";
 const SETTLD_PAY_KEYSET_STORE_FILENAME = "settld-pay-keyset-store.json";
@@ -363,6 +364,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     operators: new Map(), // `${tenantId}\n${operatorId}` -> snapshot
     operatorEvents: new Map(), // `${tenantId}\n${operatorId}` -> chained events
     agentIdentities: new Map(), // `${tenantId}\n${agentId}` -> AgentIdentity.v1 record
+    agentCards: new Map(), // `${tenantId}\n${agentId}` -> AgentCard.v1 record
     agentPassports: new Map(), // `${tenantId}\n${agentId}` -> AgentPassport.v1 record
     agentWallets: new Map(), // `${tenantId}\n${agentId}` -> AgentWallet.v1 record
     agentRuns: new Map(), // `${tenantId}\n${runId}` -> AgentRun.v1 snapshot
@@ -370,6 +372,10 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     agentRunSettlements: new Map(), // `${tenantId}\n${runId}` -> AgentRunSettlement.v1
     arbitrationCases: new Map(), // `${tenantId}\n${caseId}` -> ArbitrationCase.v1 snapshot
     agreementDelegations: new Map(), // `${tenantId}\n${delegationId}` -> AgreementDelegation.v1
+    delegationGrants: new Map(), // `${tenantId}\n${grantId}` -> DelegationGrant.v1
+    capabilityAttestations: new Map(), // `${tenantId}\n${attestationId}` -> CapabilityAttestation.v1
+    subAgentWorkOrders: new Map(), // `${tenantId}\n${workOrderId}` -> SubAgentWorkOrder.v1
+    subAgentCompletionReceipts: new Map(), // `${tenantId}\n${receiptId}` -> SubAgentCompletionReceipt.v1
     x402Gates: new Map(), // `${tenantId}\n${gateId}` -> X402 gate record (internal API surface)
     x402Receipts: new Map(), // `${tenantId}\n${receiptId}` -> immutable X402ReceiptRecord.v1 base record
     x402WalletPolicies: new Map(), // `${tenantId}\n${sponsorWalletRef}::${policyRef}::${policyVersion}` -> X402WalletPolicy.v1
@@ -891,6 +897,78 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     return out.slice(safeOffset, safeOffset + safeLimit);
   };
 
+  store.getAgentCard = async function getAgentCard({ tenantId = DEFAULT_TENANT_ID, agentId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof agentId !== "string" || agentId.trim() === "") throw new TypeError("agentId is required");
+    return store.agentCards.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
+  };
+
+  store.putAgentCard = async function putAgentCard({ tenantId = DEFAULT_TENANT_ID, agentCard, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!agentCard || typeof agentCard !== "object" || Array.isArray(agentCard)) throw new TypeError("agentCard is required");
+    validateAgentCardV1(agentCard);
+    const agentId = typeof agentCard.agentId === "string" ? agentCard.agentId.trim() : "";
+    if (!agentId) throw new TypeError("agentCard.agentId is required");
+    const key = makeScopedKey({ tenantId, id: String(agentId) });
+    const at = agentCard.updatedAt ?? agentCard.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "AGENT_CARD_UPSERT", tenantId, agentId, agentCard: { ...agentCard, tenantId, agentId } }],
+      audit
+    });
+    return store.agentCards.get(key) ?? null;
+  };
+
+  store.listAgentCards = async function listAgentCards({
+    tenantId = DEFAULT_TENANT_ID,
+    agentId = null,
+    status = null,
+    visibility = null,
+    capability = null,
+    runtime = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (agentId !== null && (typeof agentId !== "string" || agentId.trim() === "")) throw new TypeError("agentId must be null or a non-empty string");
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
+    if (visibility !== null && (typeof visibility !== "string" || visibility.trim() === "")) throw new TypeError("visibility must be null or a non-empty string");
+    if (capability !== null && (typeof capability !== "string" || capability.trim() === "")) throw new TypeError("capability must be null or a non-empty string");
+    if (runtime !== null && (typeof runtime !== "string" || runtime.trim() === "")) throw new TypeError("runtime must be null or a non-empty string");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const agentFilter = agentId ? String(agentId).trim() : null;
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const visibilityFilter = visibility ? String(visibility).trim().toLowerCase() : null;
+    const capabilityFilter = capability ? String(capability).trim() : null;
+    const runtimeFilter = runtime ? String(runtime).trim().toLowerCase() : null;
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const out = [];
+    for (const row of store.agentCards.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (agentFilter && String(row.agentId ?? "") !== agentFilter) continue;
+      if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      if (visibilityFilter && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
+      if (runtimeFilter) {
+        const rowRuntime =
+          row?.host && typeof row.host === "object" && !Array.isArray(row.host) && typeof row.host.runtime === "string"
+            ? row.host.runtime.trim().toLowerCase()
+            : "";
+        if (rowRuntime !== runtimeFilter) continue;
+      }
+      if (capabilityFilter) {
+        const caps = Array.isArray(row.capabilities) ? row.capabilities : [];
+        if (!caps.includes(capabilityFilter)) continue;
+      }
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
+    return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
   store.putAgentPassport = async function putAgentPassport({ tenantId = DEFAULT_TENANT_ID, agentPassport, audit = null } = {}) {
     tenantId = normalizeTenantId(tenantId);
     if (!agentPassport || typeof agentPassport !== "object" || Array.isArray(agentPassport)) {
@@ -1086,6 +1164,291 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       out.push(row);
     }
     out.sort((left, right) => String(left.delegationId ?? "").localeCompare(String(right.delegationId ?? "")));
+    return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.getDelegationGrant = async function getDelegationGrant({ tenantId = DEFAULT_TENANT_ID, grantId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof grantId !== "string" || grantId.trim() === "") throw new TypeError("grantId is required");
+    return store.delegationGrants.get(makeScopedKey({ tenantId, id: String(grantId) })) ?? null;
+  };
+
+  store.putDelegationGrant = async function putDelegationGrant({ tenantId = DEFAULT_TENANT_ID, delegationGrant, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!delegationGrant || typeof delegationGrant !== "object" || Array.isArray(delegationGrant)) {
+      throw new TypeError("delegationGrant is required");
+    }
+    const grantId = delegationGrant.grantId ?? null;
+    if (typeof grantId !== "string" || grantId.trim() === "") throw new TypeError("delegationGrant.grantId is required");
+    const key = makeScopedKey({ tenantId, id: String(grantId) });
+    const at = delegationGrant.updatedAt ?? delegationGrant.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "DELEGATION_GRANT_UPSERT", tenantId, grantId, delegationGrant: { ...delegationGrant, tenantId, grantId } }],
+      audit
+    });
+    return store.delegationGrants.get(key) ?? null;
+  };
+
+  store.listDelegationGrants = async function listDelegationGrants({
+    tenantId = DEFAULT_TENANT_ID,
+    grantId = null,
+    grantHash = null,
+    delegatorAgentId = null,
+    delegateeAgentId = null,
+    includeRevoked = true,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (grantId !== null && (typeof grantId !== "string" || grantId.trim() === "")) throw new TypeError("grantId must be null or a non-empty string");
+    if (grantHash !== null && (typeof grantHash !== "string" || grantHash.trim() === "")) {
+      throw new TypeError("grantHash must be null or a non-empty string");
+    }
+    if (delegatorAgentId !== null && (typeof delegatorAgentId !== "string" || delegatorAgentId.trim() === "")) {
+      throw new TypeError("delegatorAgentId must be null or a non-empty string");
+    }
+    if (delegateeAgentId !== null && (typeof delegateeAgentId !== "string" || delegateeAgentId.trim() === "")) {
+      throw new TypeError("delegateeAgentId must be null or a non-empty string");
+    }
+    if (includeRevoked !== true && includeRevoked !== false) throw new TypeError("includeRevoked must be a boolean");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const grantIdFilter = grantId ? String(grantId).trim() : null;
+    const grantHashFilter = grantHash ? String(grantHash).trim().toLowerCase() : null;
+    const delegatorFilter = delegatorAgentId ? String(delegatorAgentId).trim() : null;
+    const delegateeFilter = delegateeAgentId ? String(delegateeAgentId).trim() : null;
+    const safeLimit = Math.min(1000, limit);
+    const out = [];
+    for (const row of store.delegationGrants.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (grantIdFilter && String(row.grantId ?? "") !== grantIdFilter) continue;
+      if (grantHashFilter && String(row.grantHash ?? "").toLowerCase() !== grantHashFilter) continue;
+      if (delegatorFilter && String(row.delegatorAgentId ?? "") !== delegatorFilter) continue;
+      if (delegateeFilter && String(row.delegateeAgentId ?? "") !== delegateeFilter) continue;
+      if (!includeRevoked) {
+        const revokedAt =
+          row?.revocation && typeof row.revocation === "object" && !Array.isArray(row.revocation)
+            ? row.revocation.revokedAt
+            : null;
+        if (typeof revokedAt === "string" && revokedAt.trim() !== "") continue;
+      }
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.grantId ?? "").localeCompare(String(right.grantId ?? "")));
+    return out.slice(offset, offset + safeLimit);
+  };
+
+  store.getCapabilityAttestation = async function getCapabilityAttestation({ tenantId = DEFAULT_TENANT_ID, attestationId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof attestationId !== "string" || attestationId.trim() === "") throw new TypeError("attestationId is required");
+    return store.capabilityAttestations.get(makeScopedKey({ tenantId, id: String(attestationId) })) ?? null;
+  };
+
+  store.putCapabilityAttestation = async function putCapabilityAttestation({
+    tenantId = DEFAULT_TENANT_ID,
+    capabilityAttestation,
+    audit = null
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!capabilityAttestation || typeof capabilityAttestation !== "object" || Array.isArray(capabilityAttestation)) {
+      throw new TypeError("capabilityAttestation is required");
+    }
+    const attestationId = capabilityAttestation.attestationId ?? null;
+    if (typeof attestationId !== "string" || attestationId.trim() === "") throw new TypeError("capabilityAttestation.attestationId is required");
+    const at = capabilityAttestation.updatedAt ?? capabilityAttestation.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "CAPABILITY_ATTESTATION_UPSERT", tenantId, attestationId, capabilityAttestation: { ...capabilityAttestation, tenantId, attestationId } }],
+      audit
+    });
+    return store.capabilityAttestations.get(makeScopedKey({ tenantId, id: String(attestationId) })) ?? null;
+  };
+
+  store.listCapabilityAttestations = async function listCapabilityAttestations({
+    tenantId = DEFAULT_TENANT_ID,
+    attestationId = null,
+    subjectAgentId = null,
+    issuerAgentId = null,
+    capability = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (attestationId !== null && (typeof attestationId !== "string" || attestationId.trim() === "")) {
+      throw new TypeError("attestationId must be null or a non-empty string");
+    }
+    if (subjectAgentId !== null && (typeof subjectAgentId !== "string" || subjectAgentId.trim() === "")) {
+      throw new TypeError("subjectAgentId must be null or a non-empty string");
+    }
+    if (issuerAgentId !== null && (typeof issuerAgentId !== "string" || issuerAgentId.trim() === "")) {
+      throw new TypeError("issuerAgentId must be null or a non-empty string");
+    }
+    if (capability !== null && (typeof capability !== "string" || capability.trim() === "")) {
+      throw new TypeError("capability must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const attestationIdFilter = attestationId ? String(attestationId).trim() : null;
+    const subjectAgentIdFilter = subjectAgentId ? String(subjectAgentId).trim() : null;
+    const issuerAgentIdFilter = issuerAgentId ? String(issuerAgentId).trim() : null;
+    const capabilityFilter = capability ? String(capability).trim() : null;
+    const safeLimit = Math.min(1000, limit);
+
+    const out = [];
+    for (const row of store.capabilityAttestations.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (attestationIdFilter && String(row.attestationId ?? "") !== attestationIdFilter) continue;
+      if (subjectAgentIdFilter && String(row.subjectAgentId ?? "") !== subjectAgentIdFilter) continue;
+      if (issuerAgentIdFilter && String(row.issuerAgentId ?? "") !== issuerAgentIdFilter) continue;
+      if (capabilityFilter && String(row.capability ?? "") !== capabilityFilter) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.attestationId ?? "").localeCompare(String(right.attestationId ?? "")));
+    return out.slice(offset, offset + safeLimit);
+  };
+
+  store.getSubAgentWorkOrder = async function getSubAgentWorkOrder({ tenantId = DEFAULT_TENANT_ID, workOrderId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof workOrderId !== "string" || workOrderId.trim() === "") throw new TypeError("workOrderId is required");
+    return store.subAgentWorkOrders.get(makeScopedKey({ tenantId, id: String(workOrderId) })) ?? null;
+  };
+
+  store.putSubAgentWorkOrder = async function putSubAgentWorkOrder({ tenantId = DEFAULT_TENANT_ID, workOrder, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!workOrder || typeof workOrder !== "object" || Array.isArray(workOrder)) throw new TypeError("workOrder is required");
+    const workOrderId = workOrder.workOrderId ?? null;
+    if (typeof workOrderId !== "string" || workOrderId.trim() === "") throw new TypeError("workOrder.workOrderId is required");
+    const at = workOrder.updatedAt ?? workOrder.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "SUB_AGENT_WORK_ORDER_UPSERT", tenantId, workOrderId, workOrder: { ...workOrder, tenantId, workOrderId } }],
+      audit
+    });
+    return store.subAgentWorkOrders.get(makeScopedKey({ tenantId, id: String(workOrderId) })) ?? null;
+  };
+
+  store.listSubAgentWorkOrders = async function listSubAgentWorkOrders({
+    tenantId = DEFAULT_TENANT_ID,
+    workOrderId = null,
+    principalAgentId = null,
+    subAgentId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (workOrderId !== null && (typeof workOrderId !== "string" || workOrderId.trim() === "")) {
+      throw new TypeError("workOrderId must be null or a non-empty string");
+    }
+    if (principalAgentId !== null && (typeof principalAgentId !== "string" || principalAgentId.trim() === "")) {
+      throw new TypeError("principalAgentId must be null or a non-empty string");
+    }
+    if (subAgentId !== null && (typeof subAgentId !== "string" || subAgentId.trim() === "")) {
+      throw new TypeError("subAgentId must be null or a non-empty string");
+    }
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const workOrderIdFilter = workOrderId ? String(workOrderId).trim() : null;
+    const principalFilter = principalAgentId ? String(principalAgentId).trim() : null;
+    const subAgentFilter = subAgentId ? String(subAgentId).trim() : null;
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const out = [];
+    for (const row of store.subAgentWorkOrders.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (workOrderIdFilter && String(row.workOrderId ?? "") !== workOrderIdFilter) continue;
+      if (principalFilter && String(row.principalAgentId ?? "") !== principalFilter) continue;
+      if (subAgentFilter && String(row.subAgentId ?? "") !== subAgentFilter) continue;
+      if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.workOrderId ?? "").localeCompare(String(right.workOrderId ?? "")));
+    return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.getSubAgentCompletionReceipt = async function getSubAgentCompletionReceipt({ tenantId = DEFAULT_TENANT_ID, receiptId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof receiptId !== "string" || receiptId.trim() === "") throw new TypeError("receiptId is required");
+    return store.subAgentCompletionReceipts.get(makeScopedKey({ tenantId, id: String(receiptId) })) ?? null;
+  };
+
+  store.putSubAgentCompletionReceipt = async function putSubAgentCompletionReceipt({
+    tenantId = DEFAULT_TENANT_ID,
+    completionReceipt,
+    audit = null
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!completionReceipt || typeof completionReceipt !== "object" || Array.isArray(completionReceipt)) {
+      throw new TypeError("completionReceipt is required");
+    }
+    const receiptId = completionReceipt.receiptId ?? null;
+    if (typeof receiptId !== "string" || receiptId.trim() === "") throw new TypeError("completionReceipt.receiptId is required");
+    const at = completionReceipt.deliveredAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [
+        {
+          kind: "SUB_AGENT_COMPLETION_RECEIPT_UPSERT",
+          tenantId,
+          receiptId,
+          completionReceipt: { ...completionReceipt, tenantId, receiptId }
+        }
+      ],
+      audit
+    });
+    return store.subAgentCompletionReceipts.get(makeScopedKey({ tenantId, id: String(receiptId) })) ?? null;
+  };
+
+  store.listSubAgentCompletionReceipts = async function listSubAgentCompletionReceipts({
+    tenantId = DEFAULT_TENANT_ID,
+    receiptId = null,
+    workOrderId = null,
+    principalAgentId = null,
+    subAgentId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (receiptId !== null && (typeof receiptId !== "string" || receiptId.trim() === "")) throw new TypeError("receiptId must be null or a non-empty string");
+    if (workOrderId !== null && (typeof workOrderId !== "string" || workOrderId.trim() === "")) throw new TypeError("workOrderId must be null or a non-empty string");
+    if (principalAgentId !== null && (typeof principalAgentId !== "string" || principalAgentId.trim() === "")) {
+      throw new TypeError("principalAgentId must be null or a non-empty string");
+    }
+    if (subAgentId !== null && (typeof subAgentId !== "string" || subAgentId.trim() === "")) {
+      throw new TypeError("subAgentId must be null or a non-empty string");
+    }
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const receiptIdFilter = receiptId ? String(receiptId).trim() : null;
+    const workOrderFilter = workOrderId ? String(workOrderId).trim() : null;
+    const principalFilter = principalAgentId ? String(principalAgentId).trim() : null;
+    const subAgentFilter = subAgentId ? String(subAgentId).trim() : null;
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const out = [];
+    for (const row of store.subAgentCompletionReceipts.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (receiptIdFilter && String(row.receiptId ?? "") !== receiptIdFilter) continue;
+      if (workOrderFilter && String(row.workOrderId ?? "") !== workOrderFilter) continue;
+      if (principalFilter && String(row.principalAgentId ?? "") !== principalFilter) continue;
+      if (subAgentFilter && String(row.subAgentId ?? "") !== subAgentFilter) continue;
+      if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.receiptId ?? "").localeCompare(String(right.receiptId ?? "")));
     return out.slice(safeOffset, safeOffset + safeLimit);
   };
 

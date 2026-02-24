@@ -2,12 +2,31 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-function parseArgs(argv) {
+function usage() {
+  return [
+    "usage: node scripts/ci/run-public-onboarding-gate.mjs [options]",
+    "",
+    "options:",
+    "  --base-url <url>   API base URL (required; no production default)",
+    "  --tenant-id <id>   Tenant id (default: tenant_default)",
+    "  --email <address>  OTP probe email (default: probe@settld.work)",
+    "  --out <file>       Output report path (default: artifacts/gates/public-onboarding-gate.json)",
+    "  --help             Show help",
+    "",
+    "env fallbacks:",
+    "  SETTLD_BASE_URL",
+    "  SETTLD_TENANT_ID",
+    "  SETTLD_ONBOARDING_PROBE_EMAIL"
+  ].join("\n");
+}
+
+export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
   const out = {
-    baseUrl: process.env.SETTLD_BASE_URL ?? "https://api.settld.work",
-    tenantId: process.env.SETTLD_TENANT_ID ?? "tenant_default",
-    email: process.env.SETTLD_ONBOARDING_PROBE_EMAIL ?? "probe@settld.work",
-    out: "artifacts/gates/public-onboarding-gate.json"
+    help: false,
+    baseUrl: env.SETTLD_BASE_URL ?? null,
+    tenantId: env.SETTLD_TENANT_ID ?? "tenant_default",
+    email: env.SETTLD_ONBOARDING_PROBE_EMAIL ?? "probe@settld.work",
+    out: path.resolve(cwd, "artifacts/gates/public-onboarding-gate.json")
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = String(argv[i] ?? "");
@@ -16,23 +35,27 @@ function parseArgs(argv) {
       if (i >= argv.length) throw new Error(`missing value for ${arg}`);
       return String(argv[i] ?? "");
     };
-    if (arg === "--base-url") out.baseUrl = next();
+    if (arg === "--help" || arg === "-h") out.help = true;
+    else if (arg === "--base-url") out.baseUrl = next();
     else if (arg.startsWith("--base-url=")) out.baseUrl = arg.slice("--base-url=".length);
     else if (arg === "--tenant-id") out.tenantId = next();
     else if (arg.startsWith("--tenant-id=")) out.tenantId = arg.slice("--tenant-id=".length);
     else if (arg === "--email") out.email = next();
     else if (arg.startsWith("--email=")) out.email = arg.slice("--email=".length);
-    else if (arg === "--out") out.out = next();
-    else if (arg.startsWith("--out=")) out.out = arg.slice("--out=".length);
+    else if (arg === "--out") out.out = path.resolve(cwd, next());
+    else if (arg.startsWith("--out=")) out.out = path.resolve(cwd, arg.slice("--out=".length));
+    else throw new Error(`unknown argument: ${arg}`);
   }
   out.baseUrl = String(out.baseUrl ?? "").trim().replace(/\/+$/, "");
   out.tenantId = String(out.tenantId ?? "").trim();
   out.email = String(out.email ?? "").trim().toLowerCase();
   out.out = String(out.out ?? "").trim();
-  if (!out.baseUrl) throw new Error("--base-url is required");
-  if (!out.tenantId) throw new Error("--tenant-id is required");
-  if (!out.email) throw new Error("--email is required");
-  if (!out.out) throw new Error("--out is required");
+  if (!out.help) {
+    if (!out.baseUrl) throw new Error("--base-url is required (pass flag or SETTLD_BASE_URL)");
+    if (!out.tenantId) throw new Error("--tenant-id is required");
+    if (!out.email) throw new Error("--email is required");
+    if (!out.out) throw new Error("--out is required");
+  }
   return out;
 }
 
@@ -73,13 +96,12 @@ function summarizeBody(outcome) {
   return { raw: String(outcome?.text ?? "").slice(0, 500) };
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
+export async function runPublicOnboardingGate(args, { requestJsonFn = requestJson } = {}) {
   const startedAt = new Date().toISOString();
   const steps = [];
   const errors = [];
 
-  const authMode = await requestJson(`${args.baseUrl}/v1/public/auth-mode`);
+  const authMode = await requestJsonFn(`${args.baseUrl}/v1/public/auth-mode`);
   steps.push({
     step: "public_auth_mode",
     statusCode: authMode.statusCode,
@@ -92,7 +114,7 @@ async function main() {
     });
   }
 
-  const otpProbe = await requestJson(
+  const otpProbe = await requestJsonFn(
     `${args.baseUrl}/v1/tenants/${encodeURIComponent(args.tenantId)}/buyer/login/otp`,
     {
       method: "POST",
@@ -122,6 +144,18 @@ async function main() {
     errors
   };
 
+  return { report };
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.help) {
+    process.stdout.write(`${usage()}\n`);
+    return;
+  }
+
+  const { report } = await runPublicOnboardingGate(args);
+
   await fs.mkdir(path.dirname(args.out), { recursive: true });
   await fs.writeFile(args.out, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   process.stdout.write(`wrote public onboarding gate report: ${path.resolve(args.out)}\n`);
@@ -129,8 +163,17 @@ async function main() {
   if (!report.ok) process.exit(1);
 }
 
-main().catch((err) => {
-  process.stderr.write(`${err?.stack ?? err?.message ?? String(err)}\n`);
-  process.exit(1);
-});
+const isDirectExecution = (() => {
+  try {
+    return import.meta.url === new URL(`file://${process.argv[1]}`).href;
+  } catch {
+    return false;
+  }
+})();
 
+if (isDirectExecution) {
+  main().catch((err) => {
+    process.stderr.write(`${err?.stack ?? err?.message ?? String(err)}\n`);
+    process.exit(1);
+  });
+}

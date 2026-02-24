@@ -1,218 +1,83 @@
-# Settld
+# Settld — Trust & Settlement OS for Agent Actions
 
-Settld is verify-before-release receipts for delegated autonomous work: **verify what happened**, retain **audit-ready evidence**, and **settle** outcomes deterministically.
+[![CI](https://github.com/aidenlippert/settld/actions/workflows/tests.yml/badge.svg)](https://github.com/aidenlippert/settld/actions/workflows/tests.yml)
+[![npm](https://img.shields.io/npm/v/settld)](https://www.npmjs.com/package/settld)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
+[![Node 20.x](https://img.shields.io/badge/node-20.x-brightgreen)](./.nvmrc)
 
-Wedge (current): an x402-style gateway that turns `HTTP 402` into `hold -> verify -> release/refund`, with deterministic receipts. Default posture is strict: **hold 100% until PASS**; **refund on FAIL**. Optionally require an **Ed25519 provider signature** over the upstream response hash.
+Settld is a deterministic trust-and-settlement control plane for agent actions: **decision** (`allow|challenge|deny|escalate`) + **execution binding** + **verifiable receipts** + **recourse**.
 
-What you get in this repo:
+Current wedge: an x402-style gateway that turns `HTTP 402` into `hold -> verify -> release/refund`, with deterministic receipts.
 
-- `settld` CLI for bundle verification + a conformance pack (CI / audit evidence)
-- Runnable Node.js prototype (API + agent simulator)
-- Protocol + product docs (schemas/specs, trust anchors, warning codes, etc.)
-- Positioning and go-to-market narrative: `docs/marketing/agent-commerce-substrate.md`
+Docs: [Overview](./docs/OVERVIEW.md) · [Architecture](./docs/ARCHITECTURE.md) · [x402 Quickstart](./docs/QUICKSTART_X402_GATEWAY.md) · [MCP Hosts](./docs/QUICKSTART_MCP_HOSTS.md) · [Public Specs](./docs/spec/public/README.md) · [Security](./SECURITY.md) · [Support](./docs/SUPPORT.md)
 
-## 10-minute Demo: Verified Receipt (x402 Verify-Before-Release)
+## Get Started (Local x402 Demo)
 
-Prereqs: Node.js 20+.
-
-```sh
-npm ci && npm run quickstart:x402
-```
-
-By default the script keeps services running until you press Ctrl+C.
-
-If you already ran `npm ci` in this repo, you can skip it:
+Prereqs: Node.js 20.x (install is fail-fast if you use a different major).
 
 ```sh
+nvm use
+npm ci
 npm run quickstart:x402
 ```
 
-To run once and exit (CI-friendly):
+CI-friendly one-shot run:
 
 ```sh
-npm ci && SETTLD_QUICKSTART_KEEP_ALIVE=0 npm run quickstart:x402
+SETTLD_QUICKSTART_KEEP_ALIVE=0 npm run quickstart:x402
 ```
 
 Success: prints `OK`, a `gateId=...`, and a `gateStateUrl=...`.
 
-Next: `docs/QUICKSTART_X402_GATEWAY.md`
+## Preferred Setup (Agent Hosts)
 
-If you tried and failed:
-
-- Run `./scripts/collect-debug.sh` and open a GitHub issue using the "Quickstart failure" template: https://github.com/aidenlippert/settld/issues/new?template=quickstart-failure.yml
-
-The core mental model in this repo:
-
-- **Jobs are state machines**: a job moves through explicit states (booked → executing → completed/aborted → settled).
-- **Everything else is events**: every transition and operational action emits an event that can be replayed.
-- **Trust is a black box**: telemetry/evidence are append-only, hash-chained, and (optionally) signed.
-- **Money is a ledger**: every settlement is double-entry and must always balance.
-
-## Bundle verification (CI / audit evidence)
-
-- Overview: `docs/OVERVIEW.md`
-- Quickstart: `docs/QUICKSTART_VERIFY.md`
-- Kernel v0 quickstart (local dev stack + conformance + explorer): `docs/QUICKSTART_KERNEL_V0.md`
-- Kernel v0 product surface (enforced vs not enforced): `docs/KERNEL_V0.md`
-- Kernel Compatible policy + listing format: `docs/KERNEL_COMPATIBLE.md`
-- Producer bootstrap: `docs/QUICKSTART_PRODUCE.md` (trust → produce → strict verify)
-- SDK quickstart (first verified run): `docs/QUICKSTART_SDK.md`
-- SDK quickstart (Python): `docs/QUICKSTART_SDK_PYTHON.md`
-- x402 gateway quickstart (verify-before-release wedge): `docs/QUICKSTART_X402_GATEWAY.md`
-- Integrations (GitHub Actions templates): `docs/integrations/README.md`
-- Protocol contract (schemas/specs): `docs/spec/README.md`
-- Conformance pack (portable oracle): `conformance/v1/README.md`
-- Audit packet generator: `npm run audit:packet` (see `docs/RELEASE_CHECKLIST.md`)
-- Support / filing bugs: `docs/SUPPORT.md`
-
-## Quick start
-
-Agent host onboarding (Codex / Claude / Cursor / OpenClaw), with guided wallet + policy setup:
+Onboard an agent host (Codex / Claude / Cursor / OpenClaw), with guided wallet + policy setup:
 
 ```sh
 npx -y settld setup
 ```
 
-Default interactive flow is now login-first:
+## OpenClaw (ClawHub Skill)
 
-1. pick host + wallet mode
-2. choose `quick` setup (recommended)
-3. login with OTP (creates tenant if needed)
-4. setup mints runtime API key automatically
-5. guided wallet fund + first paid call check runs
-
-Advanced mode is still available in setup when you need explicit base URL/bootstrap/API-key control.
-
-Preflight-only check (no host config write), with JSON report:
+Install the published skill and let your agent use Settld in natural language:
 
 ```sh
-npx -y settld setup --preflight-only --report-path ./.tmp/setup-preflight.json
+npx -y clawhub@latest install settld-mcp-payments
 ```
 
-If you prefer global install:
+Quick prompts:
+
+- “Use Settld to run a paid tool call and show me the receipt.”
+- “Use Settld to discover agents with capability X and create a work order under $Y.”
+
+More: [OpenClaw Quickstart](./docs/integrations/openclaw/PUBLIC_QUICKSTART.md)
+
+## What’s In This Repo
+
+- Settld API + control plane: `./src/api/`
+- x402 gateway proxy: `./services/x402-gateway/`
+- MCP stdio server (tool surface): `./scripts/mcp/settld-mcp-server.mjs`
+- CLI: `./bin/settld.js`
+- Magic Link onboarding service: `./services/magic-link/`
+- Conformance pack + verification tools: `./conformance/`
+
+## “Settld Verified” (Gates + Receipts)
+
+The public conformance contract lives in `./docs/spec/public/` and is enforced via ops gates.
 
 ```sh
-npm install -g settld
-settld setup
+npm run -s test:ops:settld-verified-gate -- --level guardrails
+npm run -s test:ops:settld-verified-gate -- --level collaboration
 ```
 
-Check wallet wiring and funding path:
+## Development
 
-```sh
-settld login
-settld wallet status
-settld wallet fund --open
-settld wallet fund --method transfer
-settld wallet balance --watch --min-usdc 1
-```
+See: [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)
 
-Hosted top-up (recommended): configure Coinbase Hosted Onramp on the backend so `settld wallet fund --open` launches funding directly:
+## Contributing
 
-```sh
-export MAGIC_LINK_WALLET_FUND_PROVIDER='coinbase'
-export MAGIC_LINK_COINBASE_API_KEY_VALUE='organizations/<org_id>/apiKeys/<key_id>'
-export MAGIC_LINK_COINBASE_API_SECRET_KEY='-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----'
-export MAGIC_LINK_COINBASE_PROJECT_ID='<project_id>'
-export MAGIC_LINK_COINBASE_DESTINATION_NETWORK='base'
-export MAGIC_LINK_COINBASE_ASSET='USDC'
-export MAGIC_LINK_COINBASE_FIAT_CURRENCY='USD'
-```
+See: [CONTRIBUTING.md](./CONTRIBUTING.md)
 
-Legacy setup wizard (advanced / old flags):
-
-```sh
-settld setup legacy
-```
-
-Start the API:
-
-```sh
-PROXY_OPS_TOKEN=tok_ops npm run dev:api
-```
-
-Or start the full local dev stack (Postgres + MinIO + API + receiver + finance sink):
-
-```sh
-./bin/settld.js dev up
-```
-
-Developer helper flow (recommended for local Neon/PG usage):
-
-```sh
-npm run dev:env:init
-# edit .env.dev once (DATABASE_URL, etc.)
-npm run dev:start
-```
-
-Optional: start local Postgres + MinIO (for `STORE=pg` and S3-style evidence storage):
-
-```sh
-docker compose up -d
-```
-
-Run the full stack (API + maintenance + receiver + finance sink) via compose profile:
-
-```sh
-docker compose --profile app up --build
-```
-
-Initialize MinIO buckets (optional; required for S3/MinIO-backed evidence/artifact demos):
-
-```sh
-docker compose --profile init run --rm minio-init
-```
-
-Run the API backed by Postgres:
-
-```sh
-export STORE=pg
-export DATABASE_URL=postgres://proxy:proxy@localhost:5432/proxy
-npm run dev:api
-```
-
-Use MinIO for evidence objects (S3-compatible, via presigned URLs):
-
-```sh
-export PROXY_EVIDENCE_STORE=minio
-export PROXY_EVIDENCE_S3_ENDPOINT=http://localhost:9000
-export PROXY_EVIDENCE_S3_REGION=us-east-1
-export PROXY_EVIDENCE_S3_BUCKET=proxy-evidence
-export PROXY_EVIDENCE_S3_ACCESS_KEY_ID=proxy
-export PROXY_EVIDENCE_S3_SECRET_ACCESS_KEY=proxysecret
-export PROXY_EVIDENCE_S3_FORCE_PATH_STYLE=1
-```
-
-Create a job:
-
-```sh
-curl -sS -X POST http://localhost:3000/jobs \
-  -H 'content-type: application/json' \
-  -d '{"templateId":"reset_lite","constraints":{"roomsAllowed":["kitchen","living_room"],"privacyMode":"minimal"}}' | jq
-```
-
-Run the agent simulator (registers an executor and runs a sample job lifecycle):
-
-```sh
-npm run agent:sim
-```
-
-Run tests:
-
-```sh
-npm test
-```
-
-Run conformance (bundle verification oracle):
-
-```sh
-./bin/settld.js conformance test
-```
-
-Run conformance (kernel control plane, disputes + holdback):
-
-```sh
-./bin/settld.js conformance kernel --ops-token tok_ops
-```
 
 Run local MCP host compatibility checks:
 

@@ -788,6 +788,357 @@ function buildTools() {
       }
     },
     {
+      name: "settld.delegation_grant_issue",
+      description: "Issue a DelegationGrant.v1 object (idempotent via idempotencyKey).",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["delegatorAgentId", "delegateeAgentId", "maxPerCallCents", "maxTotalCents"],
+        properties: {
+          grantId: { type: ["string", "null"], default: null },
+          delegatorAgentId: { type: "string" },
+          delegateeAgentId: { type: "string" },
+          allowedProviderIds: { type: ["array", "null"], items: { type: "string" }, default: null },
+          allowedToolIds: { type: ["array", "null"], items: { type: "string" }, default: null },
+          allowedRiskClasses: {
+            type: ["array", "null"],
+            items: { type: "string", enum: ["read", "compute", "action", "financial"] },
+            default: null
+          },
+          sideEffectingAllowed: { type: ["boolean", "null"], default: null },
+          currency: { type: "string", default: "USD" },
+          maxPerCallCents: { type: "integer", minimum: 0 },
+          maxTotalCents: { type: "integer", minimum: 0 },
+          rootGrantHash: { type: ["string", "null"], default: null },
+          parentGrantHash: { type: ["string", "null"], default: null },
+          depth: { type: ["integer", "null"], minimum: 0, default: null },
+          maxDelegationDepth: { type: ["integer", "null"], minimum: 0, default: null },
+          issuedAt: { type: ["string", "null"], default: null },
+          notBefore: { type: ["string", "null"], default: null },
+          expiresAt: { type: ["string", "null"], default: null },
+          revocable: { type: ["boolean", "null"], default: null },
+          metadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.delegation_grant_get",
+      description: "Fetch a delegation grant by grantId.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["grantId"],
+        properties: {
+          grantId: { type: "string" }
+        }
+      }
+    },
+    {
+      name: "settld.delegation_grant_list",
+      description: "List delegation grants with optional filters.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          grantId: { type: ["string", "null"], default: null },
+          grantHash: { type: ["string", "null"], default: null },
+          delegatorAgentId: { type: ["string", "null"], default: null },
+          delegateeAgentId: { type: ["string", "null"], default: null },
+          includeRevoked: { type: ["boolean", "null"], default: null },
+          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null }
+        }
+      }
+    },
+    {
+      name: "settld.delegation_grant_revoke",
+      description: "Revoke a delegation grant.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["grantId"],
+        properties: {
+          grantId: { type: "string" },
+          revocationReasonCode: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.agent_card_upsert",
+      description: "Create or update an AgentCard.v1 profile for discovery and matching.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["agentId"],
+        properties: {
+          agentId: { type: "string" },
+          displayName: { type: ["string", "null"], default: null },
+          description: { type: ["string", "null"], default: null },
+          capabilities: { type: ["array", "null"], items: { type: "string" }, default: null },
+          visibility: { type: ["string", "null"], enum: ["public", "tenant", "private", null], default: null },
+          hostRuntime: { type: ["string", "null"], default: null },
+          hostEndpoint: { type: ["string", "null"], default: null },
+          hostProtocols: { type: ["array", "null"], items: { type: "string" }, default: null },
+          priceHint: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            default: null,
+            properties: {
+              amountCents: { type: "integer", minimum: 0 },
+              currency: { type: ["string", "null"], default: "USD" },
+              unit: { type: ["string", "null"], default: "task" }
+            }
+          },
+          attestations: { type: ["array", "null"], items: { type: "object", additionalProperties: true }, default: null },
+          tags: { type: ["array", "null"], items: { type: "string" }, default: null },
+          metadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.agent_discover",
+      description: "Discover AgentCard.v1 records with capability/runtime/reputation filters.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          capability: { type: ["string", "null"], default: null },
+          status: { type: ["string", "null"], enum: ["active", "suspended", "revoked", "all", null], default: null },
+          visibility: { type: ["string", "null"], enum: ["public", "tenant", "private", "all", null], default: null },
+          runtime: { type: ["string", "null"], default: null },
+          requireCapabilityAttestation: { type: ["boolean", "null"], default: false },
+          attestationMinLevel: { type: ["string", "null"], enum: ["self_claim", "attested", "certified", null], default: null },
+          attestationIssuerAgentId: { type: ["string", "null"], default: null },
+          includeAttestationMetadata: { type: ["boolean", "null"], default: false },
+          minTrustScore: { type: ["integer", "null"], minimum: 0, maximum: 100, default: null },
+          riskTier: { type: ["string", "null"], enum: ["low", "guarded", "elevated", "high", null], default: null },
+          includeReputation: { type: ["boolean", "null"], default: true },
+          reputationVersion: { type: ["string", "null"], enum: ["v1", "v2", null], default: "v2" },
+          reputationWindow: { type: ["string", "null"], enum: ["7d", "30d", "allTime", null], default: "30d" },
+          scoreStrategy: { type: ["string", "null"], enum: ["balanced", "recent_bias", "trust_weighted", null], default: "balanced" },
+          requesterAgentId: { type: ["string", "null"], default: null },
+          includeRoutingFactors: { type: ["boolean", "null"], default: false },
+          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null }
+        }
+      }
+    },
+    {
+      name: "settld.capability_attest",
+      description: "Issue a signed capability attestation record for agent discovery/routing.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["subjectAgentId", "capability"],
+        properties: {
+          attestationId: { type: ["string", "null"], default: null },
+          subjectAgentId: { type: "string" },
+          capability: { type: "string" },
+          level: { type: ["string", "null"], enum: ["self_claim", "attested", "certified", null], default: "attested" },
+          issuerAgentId: { type: ["string", "null"], default: null },
+          issuedAt: { type: ["string", "null"], default: null },
+          notBefore: { type: ["string", "null"], default: null },
+          expiresAt: { type: ["string", "null"], default: null },
+          signatureKeyId: { type: ["string", "null"], default: null },
+          signature: { type: ["string", "null"], default: null },
+          verificationMethod: { type: ["object", "null"], additionalProperties: true, default: null },
+          evidenceRefs: { type: ["array", "null"], items: { type: "string" }, default: null },
+          metadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.capability_attestation_list",
+      description: "List capability attestations with runtime validity status.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          attestationId: { type: ["string", "null"], default: null },
+          subjectAgentId: { type: ["string", "null"], default: null },
+          issuerAgentId: { type: ["string", "null"], default: null },
+          capability: { type: ["string", "null"], default: null },
+          status: { type: ["string", "null"], enum: ["valid", "expired", "not_active", "revoked", "all", null], default: null },
+          at: { type: ["string", "null"], default: null },
+          includeInvalid: { type: ["boolean", "null"], default: false },
+          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null }
+        }
+      }
+    },
+    {
+      name: "settld.capability_attestation_revoke",
+      description: "Revoke an existing capability attestation.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["attestationId"],
+        properties: {
+          attestationId: { type: "string" },
+          revokedAt: { type: ["string", "null"], default: null },
+          reasonCode: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.work_order_create",
+      description: "Create a SubAgentWorkOrder.v1 for delegated paid execution.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["principalAgentId", "subAgentId", "requiredCapability", "amountCents"],
+        properties: {
+          workOrderId: { type: ["string", "null"], default: null },
+          parentTaskId: { type: ["string", "null"], default: null },
+          principalAgentId: { type: "string" },
+          subAgentId: { type: "string" },
+          requiredCapability: { type: "string" },
+          specification: { type: ["object", "null"], additionalProperties: true, default: null },
+          amountCents: { type: "integer", minimum: 1 },
+          currency: { type: ["string", "null"], default: "USD" },
+          quoteId: { type: ["string", "null"], default: null },
+          constraints: { type: ["object", "null"], additionalProperties: true, default: null },
+          evidencePolicy: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            default: null,
+            properties: {
+              schemaVersion: { type: ["string", "null"], default: "WorkOrderSettlementEvidencePolicy.v1" },
+              workOrderType: { type: ["string", "null"], default: null },
+              release: {
+                type: ["object", "null"],
+                additionalProperties: false,
+                default: null,
+                properties: {
+                  minEvidenceRefs: { type: ["integer", "null"], minimum: 0, default: null },
+                  requiredKinds: {
+                    type: ["array", "null"],
+                    items: { type: "string", enum: ["artifact", "hash", "verification_report"] },
+                    default: null
+                  },
+                  requireReceiptHashBinding: { type: ["boolean", "null"], default: null }
+                }
+              },
+              refund: {
+                type: ["object", "null"],
+                additionalProperties: false,
+                default: null,
+                properties: {
+                  minEvidenceRefs: { type: ["integer", "null"], minimum: 0, default: null },
+                  requiredKinds: {
+                    type: ["array", "null"],
+                    items: { type: "string", enum: ["artifact", "hash", "verification_report"] },
+                    default: null
+                  },
+                  requireReceiptHashBinding: { type: ["boolean", "null"], default: null }
+                }
+              }
+            }
+          },
+          attestationRequirement: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            required: ["required"],
+            default: null,
+            properties: {
+              required: { type: "boolean" },
+              minLevel: { type: ["string", "null"], enum: ["self_claim", "attested", "certified", null], default: null },
+              issuerAgentId: { type: ["string", "null"], default: null }
+            }
+          },
+          requireCapabilityAttestation: { type: ["boolean", "null"], default: null },
+          attestationMinLevel: { type: ["string", "null"], enum: ["self_claim", "attested", "certified", null], default: null },
+          attestationIssuerAgentId: { type: ["string", "null"], default: null },
+          delegationGrantRef: { type: ["string", "null"], default: null },
+          metadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.work_order_accept",
+      description: "Accept a SubAgentWorkOrder.v1 by id.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["workOrderId"],
+        properties: {
+          workOrderId: { type: "string" },
+          acceptedByAgentId: { type: ["string", "null"], default: null },
+          acceptedAt: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.work_order_progress",
+      description: "Append progress event to a SubAgentWorkOrder.v1.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["workOrderId"],
+        properties: {
+          workOrderId: { type: "string" },
+          progressId: { type: ["string", "null"], default: null },
+          eventType: { type: ["string", "null"], default: null },
+          message: { type: ["string", "null"], default: null },
+          percentComplete: { type: ["integer", "null"], minimum: 0, maximum: 100, default: null },
+          evidenceRefs: { type: ["array", "null"], items: { type: "string" }, default: null },
+          at: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.work_order_complete",
+      description: "Complete a SubAgentWorkOrder.v1 and attach SubAgentCompletionReceipt.v1.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["workOrderId"],
+        properties: {
+          workOrderId: { type: "string" },
+          receiptId: { type: ["string", "null"], default: null },
+          status: { type: ["string", "null"], enum: ["success", "failed", null], default: null },
+          outputs: { type: ["object", "array", "null"], default: null },
+          metrics: { type: ["object", "null"], additionalProperties: true, default: null },
+          evidenceRefs: { type: ["array", "null"], items: { type: "string" }, default: null },
+          amountCents: { type: ["integer", "null"], minimum: 0, default: null },
+          currency: { type: ["string", "null"], default: null },
+          deliveredAt: { type: ["string", "null"], default: null },
+          completedAt: { type: ["string", "null"], default: null },
+          metadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.work_order_settle",
+      description: "Bind x402 settlement evidence to a completed SubAgentWorkOrder.v1.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["workOrderId", "x402GateId", "x402RunId"],
+        properties: {
+          workOrderId: { type: "string" },
+          completionReceiptId: { type: ["string", "null"], default: null },
+          status: { type: ["string", "null"], enum: ["released", "refunded", null], default: null },
+          x402GateId: { type: "string" },
+          x402RunId: { type: "string" },
+          x402SettlementStatus: { type: ["string", "null"], default: null },
+          x402ReceiptId: { type: ["string", "null"], default: null },
+          completionReceiptHash: { type: ["string", "null"], default: null },
+          settledAt: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
       name: "settld.x402_gate_create",
       description: "Create an x402 gate (idempotent via idempotencyKey). Generates payer/payee agent ids when omitted.",
       inputSchema: {
@@ -801,6 +1152,7 @@ function buildTools() {
           currency: { type: "string", default: "USD" },
           autoFundPayerCents: { type: ["integer", "null"], minimum: 0, default: null },
           toolId: { type: ["string", "null"], default: null },
+          delegationGrantRef: { type: ["string", "null"], default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
         }
       }
@@ -1098,6 +1450,9 @@ async function main() {
               autoFundPayerCents
             };
             if (typeof args?.toolId === "string" && args.toolId.trim() !== "") body.toolId = args.toolId.trim();
+            if (typeof args?.delegationGrantRef === "string" && args.delegationGrantRef.trim() !== "") {
+              body.delegationGrantRef = args.delegationGrantRef.trim();
+            }
             const out = await client.requestJson("/x402/gate/create", {
               method: "POST",
               write: true,
@@ -1173,6 +1528,438 @@ async function main() {
             const path = `/agreements/${encodeURIComponent(agreementHash)}/delegations${query.toString() ? `?${query.toString()}` : ""}`;
             const out = await client.requestJson(path, { method: "GET" });
             result = { ok: true, agreementHash, ...redactSecrets(out) };
+          } else if (name === "settld.delegation_grant_issue") {
+            const delegatorAgentId = String(args?.delegatorAgentId ?? "").trim();
+            const delegateeAgentId = String(args?.delegateeAgentId ?? "").trim();
+            assertNonEmptyString(delegatorAgentId, "delegatorAgentId");
+            assertNonEmptyString(delegateeAgentId, "delegateeAgentId");
+            const maxPerCallCents = Number(args?.maxPerCallCents);
+            if (!Number.isSafeInteger(maxPerCallCents) || maxPerCallCents < 0) {
+              throw new TypeError("maxPerCallCents must be a non-negative safe integer");
+            }
+            const maxTotalCents = Number(args?.maxTotalCents);
+            if (!Number.isSafeInteger(maxTotalCents) || maxTotalCents < 0) {
+              throw new TypeError("maxTotalCents must be a non-negative safe integer");
+            }
+
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_delegation_grant_issue");
+
+            const body = {
+              delegatorAgentId,
+              delegateeAgentId,
+              scope: {
+                allowedRiskClasses: Array.isArray(args?.allowedRiskClasses)
+                  ? args.allowedRiskClasses.map((v) => String(v ?? "").trim().toLowerCase()).filter(Boolean)
+                  : ["financial"],
+                sideEffectingAllowed: args?.sideEffectingAllowed !== false
+              },
+              spendLimit: {
+                currency: args?.currency ? String(args.currency).trim().toUpperCase() : "USD",
+                maxPerCallCents,
+                maxTotalCents
+              },
+              chainBinding: {
+                rootGrantHash: typeof args?.rootGrantHash === "string" && args.rootGrantHash.trim() !== "" ? args.rootGrantHash.trim() : null,
+                parentGrantHash:
+                  typeof args?.parentGrantHash === "string" && args.parentGrantHash.trim() !== "" ? args.parentGrantHash.trim() : null,
+                depth: Number.isSafeInteger(Number(args?.depth)) ? Number(args.depth) : 0,
+                maxDelegationDepth:
+                  Number.isSafeInteger(Number(args?.maxDelegationDepth)) && Number(args.maxDelegationDepth) >= 0
+                    ? Number(args.maxDelegationDepth)
+                    : Number.isSafeInteger(Number(args?.depth))
+                      ? Number(args.depth)
+                      : 0
+              },
+              validity: {
+                ...(typeof args?.issuedAt === "string" && args.issuedAt.trim() !== "" ? { issuedAt: args.issuedAt.trim() } : {}),
+                ...(typeof args?.notBefore === "string" && args.notBefore.trim() !== "" ? { notBefore: args.notBefore.trim() } : {}),
+                ...(typeof args?.expiresAt === "string" && args.expiresAt.trim() !== "" ? { expiresAt: args.expiresAt.trim() } : {})
+              },
+              revocation: {
+                revocable: args?.revocable !== false
+              }
+            };
+            if (typeof args?.grantId === "string" && args.grantId.trim() !== "") body.grantId = args.grantId.trim();
+            if (Array.isArray(args?.allowedProviderIds)) {
+              body.scope.allowedProviderIds = args.allowedProviderIds.map((v) => String(v ?? "").trim()).filter(Boolean);
+            }
+            if (Array.isArray(args?.allowedToolIds)) {
+              body.scope.allowedToolIds = args.allowedToolIds.map((v) => String(v ?? "").trim()).filter(Boolean);
+            }
+            if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) {
+              body.metadata = args.metadata;
+            }
+
+            const out = await client.requestJson("/delegation-grants", {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.delegation_grant_get") {
+            const grantId = String(args?.grantId ?? "").trim();
+            assertNonEmptyString(grantId, "grantId");
+            const out = await client.requestJson(`/delegation-grants/${encodeURIComponent(grantId)}`, { method: "GET" });
+            result = { ok: true, grantId, ...redactSecrets(out) };
+          } else if (name === "settld.delegation_grant_list") {
+            const query = new URLSearchParams();
+            if (typeof args?.grantId === "string" && args.grantId.trim() !== "") query.set("grantId", args.grantId.trim());
+            if (typeof args?.grantHash === "string" && args.grantHash.trim() !== "") query.set("grantHash", args.grantHash.trim().toLowerCase());
+            if (typeof args?.delegatorAgentId === "string" && args.delegatorAgentId.trim() !== "") {
+              query.set("delegatorAgentId", args.delegatorAgentId.trim());
+            }
+            if (typeof args?.delegateeAgentId === "string" && args.delegateeAgentId.trim() !== "") {
+              query.set("delegateeAgentId", args.delegateeAgentId.trim());
+            }
+            if (typeof args?.includeRevoked === "boolean") query.set("includeRevoked", args.includeRevoked ? "true" : "false");
+            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
+            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const out = await client.requestJson(`/delegation-grants${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
+            result = { ok: true, ...redactSecrets(out) };
+          } else if (name === "settld.delegation_grant_revoke") {
+            const grantId = String(args?.grantId ?? "").trim();
+            assertNonEmptyString(grantId, "grantId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_delegation_grant_revoke");
+            const body = {};
+            if (typeof args?.revocationReasonCode === "string" && args.revocationReasonCode.trim() !== "") {
+              body.revocationReasonCode = args.revocationReasonCode.trim();
+            }
+            const out = await client.requestJson(`/delegation-grants/${encodeURIComponent(grantId)}/revoke`, {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, grantId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.agent_card_upsert") {
+            const agentId = String(args?.agentId ?? "").trim();
+            assertNonEmptyString(agentId, "agentId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_agent_card_upsert");
+
+            const body = { agentId };
+            if (typeof args?.displayName === "string" && args.displayName.trim() !== "") body.displayName = args.displayName.trim();
+            if (typeof args?.description === "string" && args.description.trim() !== "") body.description = args.description.trim();
+            if (Array.isArray(args?.capabilities)) body.capabilities = args.capabilities.map((v) => String(v ?? "").trim()).filter(Boolean);
+            if (typeof args?.visibility === "string" && args.visibility.trim() !== "") body.visibility = args.visibility.trim().toLowerCase();
+            if (typeof args?.hostRuntime === "string" && args.hostRuntime.trim() !== "") {
+              body.host = body.host && typeof body.host === "object" ? body.host : {};
+              body.host.runtime = args.hostRuntime.trim();
+            }
+            if (typeof args?.hostEndpoint === "string" && args.hostEndpoint.trim() !== "") {
+              body.host = body.host && typeof body.host === "object" ? body.host : {};
+              body.host.endpoint = args.hostEndpoint.trim();
+            }
+            if (Array.isArray(args?.hostProtocols)) {
+              body.host = body.host && typeof body.host === "object" ? body.host : {};
+              body.host.protocols = args.hostProtocols.map((v) => String(v ?? "").trim()).filter(Boolean);
+            }
+            if (args?.priceHint && typeof args.priceHint === "object" && !Array.isArray(args.priceHint)) {
+              const amountCents = Number(args.priceHint.amountCents);
+              if (!Number.isSafeInteger(amountCents) || amountCents < 0) {
+                throw new TypeError("priceHint.amountCents must be a non-negative safe integer");
+              }
+              body.priceHint = {
+                amountCents,
+                currency: typeof args.priceHint.currency === "string" && args.priceHint.currency.trim() !== "" ? args.priceHint.currency.trim() : "USD",
+                unit: typeof args.priceHint.unit === "string" && args.priceHint.unit.trim() !== "" ? args.priceHint.unit.trim() : "task"
+              };
+            }
+            if (Array.isArray(args?.attestations)) body.attestations = args.attestations;
+            if (Array.isArray(args?.tags)) body.tags = args.tags.map((v) => String(v ?? "").trim()).filter(Boolean);
+            if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
+
+            const out = await client.requestJson("/agent-cards", {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, agentId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.agent_discover") {
+            const query = new URLSearchParams();
+            if (typeof args?.capability === "string" && args.capability.trim() !== "") query.set("capability", args.capability.trim());
+            if (typeof args?.status === "string" && args.status.trim() !== "") query.set("status", args.status.trim().toLowerCase());
+            if (typeof args?.visibility === "string" && args.visibility.trim() !== "") query.set("visibility", args.visibility.trim().toLowerCase());
+            if (typeof args?.runtime === "string" && args.runtime.trim() !== "") query.set("runtime", args.runtime.trim().toLowerCase());
+            if (typeof args?.requireCapabilityAttestation === "boolean") {
+              query.set("requireCapabilityAttestation", args.requireCapabilityAttestation ? "true" : "false");
+            }
+            if (typeof args?.attestationMinLevel === "string" && args.attestationMinLevel.trim() !== "") {
+              query.set("attestationMinLevel", args.attestationMinLevel.trim().toLowerCase());
+            }
+            if (typeof args?.attestationIssuerAgentId === "string" && args.attestationIssuerAgentId.trim() !== "") {
+              query.set("attestationIssuerAgentId", args.attestationIssuerAgentId.trim());
+            }
+            if (typeof args?.includeAttestationMetadata === "boolean") {
+              query.set("includeAttestationMetadata", args.includeAttestationMetadata ? "true" : "false");
+            }
+            if (Number.isSafeInteger(Number(args?.minTrustScore)) && Number(args.minTrustScore) >= 0 && Number(args.minTrustScore) <= 100) {
+              query.set("minTrustScore", String(Number(args.minTrustScore)));
+            }
+            if (typeof args?.riskTier === "string" && args.riskTier.trim() !== "") query.set("riskTier", args.riskTier.trim().toLowerCase());
+            if (typeof args?.includeReputation === "boolean") query.set("includeReputation", args.includeReputation ? "true" : "false");
+            if (typeof args?.reputationVersion === "string" && args.reputationVersion.trim() !== "") {
+              query.set("reputationVersion", args.reputationVersion.trim().toLowerCase());
+            }
+            if (typeof args?.reputationWindow === "string" && args.reputationWindow.trim() !== "") {
+              query.set("reputationWindow", args.reputationWindow.trim());
+            }
+            if (typeof args?.scoreStrategy === "string" && args.scoreStrategy.trim() !== "") {
+              query.set("scoreStrategy", args.scoreStrategy.trim().toLowerCase());
+            }
+            if (typeof args?.requesterAgentId === "string" && args.requesterAgentId.trim() !== "") {
+              query.set("requesterAgentId", args.requesterAgentId.trim());
+            }
+            if (typeof args?.includeRoutingFactors === "boolean") {
+              query.set("includeRoutingFactors", args.includeRoutingFactors ? "true" : "false");
+            }
+            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
+            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const out = await client.requestJson(`/agent-cards/discover${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
+            result = { ok: true, ...redactSecrets(out) };
+          } else if (name === "settld.capability_attest") {
+            const subjectAgentId = String(args?.subjectAgentId ?? "").trim();
+            const capability = String(args?.capability ?? "").trim();
+            assertNonEmptyString(subjectAgentId, "subjectAgentId");
+            assertNonEmptyString(capability, "capability");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_capability_attest");
+            const body = { subjectAgentId, capability };
+            if (typeof args?.attestationId === "string" && args.attestationId.trim() !== "") body.attestationId = args.attestationId.trim();
+            if (typeof args?.level === "string" && args.level.trim() !== "") body.level = args.level.trim().toLowerCase();
+            if (typeof args?.issuerAgentId === "string" && args.issuerAgentId.trim() !== "") body.issuerAgentId = args.issuerAgentId.trim();
+            if (args?.verificationMethod && typeof args.verificationMethod === "object" && !Array.isArray(args.verificationMethod)) {
+              body.verificationMethod = args.verificationMethod;
+            }
+            if (Array.isArray(args?.evidenceRefs)) body.evidenceRefs = args.evidenceRefs.map((v) => String(v ?? "").trim()).filter(Boolean);
+            if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
+            const validity = {};
+            if (typeof args?.issuedAt === "string" && args.issuedAt.trim() !== "") validity.issuedAt = args.issuedAt.trim();
+            if (typeof args?.notBefore === "string" && args.notBefore.trim() !== "") validity.notBefore = args.notBefore.trim();
+            if (typeof args?.expiresAt === "string" && args.expiresAt.trim() !== "") validity.expiresAt = args.expiresAt.trim();
+            if (Object.keys(validity).length > 0) body.validity = validity;
+            const signature = {};
+            if (typeof args?.signatureKeyId === "string" && args.signatureKeyId.trim() !== "") signature.keyId = args.signatureKeyId.trim();
+            if (typeof args?.signature === "string" && args.signature.trim() !== "") signature.signature = args.signature.trim();
+            if (Object.keys(signature).length > 0) body.signature = signature;
+            const out = await client.requestJson("/capability-attestations", {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.capability_attestation_list") {
+            const query = new URLSearchParams();
+            if (typeof args?.attestationId === "string" && args.attestationId.trim() !== "") query.set("attestationId", args.attestationId.trim());
+            if (typeof args?.subjectAgentId === "string" && args.subjectAgentId.trim() !== "") query.set("subjectAgentId", args.subjectAgentId.trim());
+            if (typeof args?.issuerAgentId === "string" && args.issuerAgentId.trim() !== "") query.set("issuerAgentId", args.issuerAgentId.trim());
+            if (typeof args?.capability === "string" && args.capability.trim() !== "") query.set("capability", args.capability.trim());
+            if (typeof args?.status === "string" && args.status.trim() !== "") query.set("status", args.status.trim().toLowerCase());
+            if (typeof args?.at === "string" && args.at.trim() !== "") query.set("at", args.at.trim());
+            if (typeof args?.includeInvalid === "boolean") query.set("includeInvalid", args.includeInvalid ? "true" : "false");
+            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
+            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const out = await client.requestJson(`/capability-attestations${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
+            result = { ok: true, ...redactSecrets(out) };
+          } else if (name === "settld.capability_attestation_revoke") {
+            const attestationId = String(args?.attestationId ?? "").trim();
+            assertNonEmptyString(attestationId, "attestationId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_capability_attestation_revoke");
+            const body = {};
+            if (typeof args?.revokedAt === "string" && args.revokedAt.trim() !== "") body.revokedAt = args.revokedAt.trim();
+            if (typeof args?.reasonCode === "string" && args.reasonCode.trim() !== "") body.reasonCode = args.reasonCode.trim();
+            const out = await client.requestJson(`/capability-attestations/${encodeURIComponent(attestationId)}/revoke`, {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, attestationId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.work_order_create") {
+            const principalAgentId = String(args?.principalAgentId ?? "").trim();
+            const subAgentId = String(args?.subAgentId ?? "").trim();
+            const requiredCapability = String(args?.requiredCapability ?? "").trim();
+            assertNonEmptyString(principalAgentId, "principalAgentId");
+            assertNonEmptyString(subAgentId, "subAgentId");
+            assertNonEmptyString(requiredCapability, "requiredCapability");
+            const amountCents = Number(args?.amountCents);
+            if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new TypeError("amountCents must be a positive safe integer");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_work_order_create");
+            const body = {
+              principalAgentId,
+              subAgentId,
+              requiredCapability,
+              pricing: {
+                amountCents,
+                currency: typeof args?.currency === "string" && args.currency.trim() !== "" ? args.currency.trim() : "USD"
+              }
+            };
+            if (typeof args?.workOrderId === "string" && args.workOrderId.trim() !== "") body.workOrderId = args.workOrderId.trim();
+            if (typeof args?.parentTaskId === "string" && args.parentTaskId.trim() !== "") body.parentTaskId = args.parentTaskId.trim();
+            if (args?.specification && typeof args.specification === "object" && !Array.isArray(args.specification)) body.specification = args.specification;
+            if (typeof args?.quoteId === "string" && args.quoteId.trim() !== "") body.pricing.quoteId = args.quoteId.trim();
+            if (args?.constraints && typeof args.constraints === "object" && !Array.isArray(args.constraints)) body.constraints = args.constraints;
+            if (args?.evidencePolicy && typeof args.evidencePolicy === "object" && !Array.isArray(args.evidencePolicy)) {
+              body.evidencePolicy = args.evidencePolicy;
+            }
+            if (args?.attestationRequirement && typeof args.attestationRequirement === "object" && !Array.isArray(args.attestationRequirement)) {
+              const req = args.attestationRequirement;
+              if (typeof req.required !== "boolean") throw new TypeError("attestationRequirement.required must be boolean");
+              body.attestationRequirement = { required: req.required };
+              if (typeof req.minLevel === "string" && req.minLevel.trim() !== "") {
+                body.attestationRequirement.minLevel = req.minLevel.trim().toLowerCase();
+              }
+              if (typeof req.issuerAgentId === "string" && req.issuerAgentId.trim() !== "") {
+                body.attestationRequirement.issuerAgentId = req.issuerAgentId.trim();
+              }
+            }
+            if (typeof args?.requireCapabilityAttestation === "boolean") {
+              body.requireCapabilityAttestation = args.requireCapabilityAttestation;
+            }
+            if (typeof args?.attestationMinLevel === "string" && args.attestationMinLevel.trim() !== "") {
+              body.attestationMinLevel = args.attestationMinLevel.trim().toLowerCase();
+            }
+            if (typeof args?.attestationIssuerAgentId === "string" && args.attestationIssuerAgentId.trim() !== "") {
+              body.attestationIssuerAgentId = args.attestationIssuerAgentId.trim();
+            }
+            if (typeof args?.delegationGrantRef === "string" && args.delegationGrantRef.trim() !== "") {
+              body.delegationGrantRef = args.delegationGrantRef.trim();
+            }
+            if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
+
+            const out = await client.requestJson("/work-orders", {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.work_order_accept") {
+            const workOrderId = String(args?.workOrderId ?? "").trim();
+            assertNonEmptyString(workOrderId, "workOrderId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_work_order_accept");
+            const body = {};
+            if (typeof args?.acceptedByAgentId === "string" && args.acceptedByAgentId.trim() !== "") {
+              body.acceptedByAgentId = args.acceptedByAgentId.trim();
+            }
+            if (typeof args?.acceptedAt === "string" && args.acceptedAt.trim() !== "") body.acceptedAt = args.acceptedAt.trim();
+            const out = await client.requestJson(`/work-orders/${encodeURIComponent(workOrderId)}/accept`, {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, workOrderId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.work_order_progress") {
+            const workOrderId = String(args?.workOrderId ?? "").trim();
+            assertNonEmptyString(workOrderId, "workOrderId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_work_order_progress");
+            const body = {};
+            if (typeof args?.progressId === "string" && args.progressId.trim() !== "") body.progressId = args.progressId.trim();
+            if (typeof args?.eventType === "string" && args.eventType.trim() !== "") body.eventType = args.eventType.trim();
+            if (typeof args?.message === "string" && args.message.trim() !== "") body.message = args.message.trim();
+            if (args?.percentComplete !== null && args?.percentComplete !== undefined && args.percentComplete !== "") {
+              const percentComplete = Number(args.percentComplete);
+              if (!Number.isSafeInteger(percentComplete) || percentComplete < 0 || percentComplete > 100) {
+                throw new TypeError("percentComplete must be an integer within 0..100");
+              }
+              body.percentComplete = percentComplete;
+            }
+            if (Array.isArray(args?.evidenceRefs)) body.evidenceRefs = args.evidenceRefs.map((v) => String(v ?? "").trim()).filter(Boolean);
+            if (typeof args?.at === "string" && args.at.trim() !== "") body.at = args.at.trim();
+            const out = await client.requestJson(`/work-orders/${encodeURIComponent(workOrderId)}/progress`, {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, workOrderId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.work_order_complete") {
+            const workOrderId = String(args?.workOrderId ?? "").trim();
+            assertNonEmptyString(workOrderId, "workOrderId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_work_order_complete");
+            const body = {};
+            if (typeof args?.receiptId === "string" && args.receiptId.trim() !== "") body.receiptId = args.receiptId.trim();
+            if (typeof args?.status === "string" && args.status.trim() !== "") body.status = args.status.trim().toLowerCase();
+            if (Array.isArray(args?.outputs)) body.outputs = args.outputs;
+            else if (args?.outputs && typeof args.outputs === "object") body.outputs = args.outputs;
+            if (args?.metrics && typeof args.metrics === "object" && !Array.isArray(args.metrics)) body.metrics = args.metrics;
+            if (Array.isArray(args?.evidenceRefs)) body.evidenceRefs = args.evidenceRefs.map((v) => String(v ?? "").trim()).filter(Boolean);
+            if (args?.amountCents !== null && args?.amountCents !== undefined && args.amountCents !== "") {
+              const amountCents = Number(args.amountCents);
+              if (!Number.isSafeInteger(amountCents) || amountCents < 0) throw new TypeError("amountCents must be a non-negative safe integer");
+              body.amountCents = amountCents;
+            }
+            if (typeof args?.currency === "string" && args.currency.trim() !== "") body.currency = args.currency.trim();
+            if (typeof args?.deliveredAt === "string" && args.deliveredAt.trim() !== "") body.deliveredAt = args.deliveredAt.trim();
+            if (typeof args?.completedAt === "string" && args.completedAt.trim() !== "") body.completedAt = args.completedAt.trim();
+            if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
+            const out = await client.requestJson(`/work-orders/${encodeURIComponent(workOrderId)}/complete`, {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, workOrderId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.work_order_settle") {
+            const workOrderId = String(args?.workOrderId ?? "").trim();
+            const x402GateId = String(args?.x402GateId ?? "").trim();
+            const x402RunId = String(args?.x402RunId ?? "").trim();
+            assertNonEmptyString(workOrderId, "workOrderId");
+            assertNonEmptyString(x402GateId, "x402GateId");
+            assertNonEmptyString(x402RunId, "x402RunId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_work_order_settle");
+            const body = { x402GateId, x402RunId };
+            if (typeof args?.completionReceiptId === "string" && args.completionReceiptId.trim() !== "") {
+              body.completionReceiptId = args.completionReceiptId.trim();
+            }
+            if (typeof args?.status === "string" && args.status.trim() !== "") body.status = args.status.trim().toLowerCase();
+            if (typeof args?.x402SettlementStatus === "string" && args.x402SettlementStatus.trim() !== "") {
+              body.x402SettlementStatus = args.x402SettlementStatus.trim().toLowerCase();
+            }
+            if (typeof args?.x402ReceiptId === "string" && args.x402ReceiptId.trim() !== "") body.x402ReceiptId = args.x402ReceiptId.trim();
+            if (typeof args?.completionReceiptHash === "string" && args.completionReceiptHash.trim() !== "") {
+              body.completionReceiptHash = args.completionReceiptHash.trim().toLowerCase();
+            }
+            if (typeof args?.settledAt === "string" && args.settledAt.trim() !== "") body.settledAt = args.settledAt.trim();
+            const out = await client.requestJson(`/work-orders/${encodeURIComponent(workOrderId)}/settle`, {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, workOrderId, idempotencyKey, ...redactSecrets(out) };
           } else if (name === "settld.x402_gate_verify") {
             const gateId = String(args?.gateId ?? "").trim();
             assertNonEmptyString(gateId, "gateId");

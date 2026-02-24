@@ -2,6 +2,7 @@
   "name": "settld",
   "version": "0.2.8",
   "description": "Settld kernel CLI and local control-plane tooling",
+  "license": "Apache-2.0",
   "private": false,
   "type": "module",
   "engines": {
@@ -46,6 +47,7 @@
     "./mcp": "./scripts/mcp/settld-mcp-server.mjs"
   },
   "scripts": {
+    "preinstall": "node scripts/init/preinstall-node-version.mjs",
     "postinstall": "node scripts/init/postinstall-sanity.mjs",
     "dev:api": "node src/api/server.js",
     "dev:maintenance": "node src/api/maintenance.js",
@@ -106,6 +108,10 @@
     "dev:billing:doctor": "bash scripts/dev/billing-doctor.sh",
     "dev:billing:webhook:replay": "bash scripts/dev/billing-webhook-replay.sh",
     "dev:billing:smoke:prod": "bash scripts/dev/billing-smoke-prod.sh",
+    "lint": "npm run -s lint:syntax && npm run -s lint:eslint",
+    "lint:syntax": "node scripts/ci/run-syntax-lint.mjs",
+    "lint:eslint": "eslint bin openclaw scripts src services test packages dashboard/src --cache --cache-location .cache/eslint",
+    "lint:ci": "npm run -s lint && npm run -s test:ci:secret-hygiene",
     "test": "bash scripts/test/run.sh",
     "test:ops:arbitration:browser": "bash scripts/ci/run-arbitration-workspace-browser-e2e.sh",
     "test:ops:throughput:10x": "node scripts/ci/run-10x-throughput-drill.mjs",
@@ -117,6 +123,9 @@
     "test:ops:self-serve-gate": "node scripts/ci/run-self-serve-launch-gate.mjs",
     "test:ops:onboarding-policy-slo-gate": "node scripts/ci/run-onboarding-policy-slo-gate.mjs",
     "test:ops:onboarding-host-success-gate": "node scripts/ci/run-onboarding-host-success-gate.mjs",
+    "test:ops:agent-substrate-fast-loop": "node scripts/ci/run-agent-substrate-fast-loop.mjs --bootstrap-local",
+    "test:ops:agent-substrate-adversarial-harness": "node scripts/ci/run-agent-substrate-adversarial-harness.mjs",
+    "test:ops:settld-verified-gate": "node scripts/ci/run-settld-verified-gate.mjs --bootstrap-local",
     "test:ops:self-serve-benchmark": "node scripts/ci/build-self-serve-benchmark-report.mjs",
     "test:ops:launch-cutover-packet": "node scripts/ci/build-launch-cutover-packet.mjs",
     "test:ops:public-onboarding-gate": "node scripts/ci/run-public-onboarding-gate.mjs",
@@ -124,6 +133,7 @@
     "test:ops:release-promotion-guard": "node scripts/ci/run-release-promotion-guard.mjs",
     "test:ci:mcp-host-smoke": "node scripts/ci/run-mcp-host-smoke.mjs",
     "test:ci:mcp-host-cert-matrix": "node scripts/ci/run-mcp-host-cert-matrix.mjs",
+    "test:ci:openclaw-clawhub-install-smoke": "node scripts/ci/run-openclaw-clawhub-install-smoke.mjs --force --bootstrap-local",
     "test:x402:circle:sandbox:batch-e2e": "node --test test/circle-sandbox-batch-settlement-e2e.test.js",
     "test:x402:circle:sandbox:smoke": "node scripts/ci/run-circle-sandbox-smoke.mjs",
     "test:ci:runtime-import-smoke": "node scripts/ci/runtime-import-smoke.mjs",
@@ -147,10 +157,15 @@
   "dependencies": {
     "@circle-fin/developer-controlled-wallets": "^10.1.0",
     "@coinbase/cdp-sdk": "^1.44.1",
-    "pg": "^8.11.5",
-    "snarkjs": "^0.7.6"
+    "pg": "^8.11.5"
   },
   "devDependencies": {
-    "ajv": "^8.17.1"
+    "ajv": "^8.18.0",
+    "ajv-formats": "^3.0.1",
+    "eslint": "^9.39.3",
+    "globals": "^16.5.0"
+  },
+  "overrides": {
+    "minimatch": "^10.2.2"
   }
 }

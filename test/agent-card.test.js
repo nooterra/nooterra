@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildSettldAgentCard } from "../src/core/agent-card.js";
+import { buildAgentCardV1, buildSettldAgentCard, validateAgentCardV1 } from "../src/core/agent-card.js";
 
 test("agent card builder emits stable, minimal discovery payload", () => {
   const card = buildSettldAgentCard({ baseUrl: "https://api.settld.example", version: "0.0.0-test" });
@@ -13,3 +13,67 @@ test("agent card builder emits stable, minimal discovery payload", () => {
   assert.ok(card.capabilities && card.capabilities.settlement);
 });
 
+test("AgentCard.v1 builder emits deterministic card bound to identity capabilities", () => {
+  const nowAt = "2026-02-24T00:00:00.000Z";
+  const card = buildAgentCardV1({
+    tenantId: "tenant_default",
+    nowAt,
+    agentIdentity: {
+      schemaVersion: "AgentIdentity.v1",
+      agentId: "agt_card_1",
+      tenantId: "tenant_default",
+      displayName: "Agent One",
+      status: "active",
+      capabilities: ["travel.booking", "travel.search"],
+      keys: { keyId: "key_1" }
+    },
+    cardInput: {
+      displayName: "Travel Booker",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: {
+        runtime: "openclaw",
+        endpoint: "https://example.test/agents/1",
+        protocols: ["mcp", "http"]
+      },
+      priceHint: {
+        amountCents: 250,
+        currency: "USD",
+        unit: "task"
+      },
+      attestations: [{ type: "self-claim", level: "self_claim" }],
+      tags: ["travel", "booking"]
+    }
+  });
+
+  assert.equal(card.schemaVersion, "AgentCard.v1");
+  assert.equal(card.agentId, "agt_card_1");
+  assert.equal(card.status, "active");
+  assert.equal(card.visibility, "public");
+  assert.deepEqual(card.capabilities, ["travel.booking"]);
+  assert.equal(card.createdAt, nowAt);
+  assert.equal(card.updatedAt, nowAt);
+  assert.equal(validateAgentCardV1(card), true);
+});
+
+test("AgentCard.v1 rejects capabilities outside identity envelope", () => {
+  assert.throws(
+    () =>
+      buildAgentCardV1({
+        tenantId: "tenant_default",
+        agentIdentity: {
+          schemaVersion: "AgentIdentity.v1",
+          agentId: "agt_card_2",
+          tenantId: "tenant_default",
+          displayName: "Agent Two",
+          status: "active",
+          capabilities: ["travel.booking"],
+          keys: { keyId: "key_2" }
+        },
+        cardInput: {
+          capabilities: ["finance.trading"]
+        }
+      }),
+    /subset of agent identity capabilities/
+  );
+});

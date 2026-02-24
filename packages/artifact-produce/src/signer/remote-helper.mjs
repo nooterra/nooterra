@@ -35,7 +35,7 @@ async function main() {
     if (op === "publicKey") {
       const keyId = typeof req?.keyId === "string" ? req.keyId : null;
       if (!keyId) throw new Error("missing keyId");
-      const res = await fetch(`${url.replace(/\\/$/, "")}/v1/public-key?keyId=${encodeURIComponent(keyId)}`, { method: "GET" });
+      const res = await fetch(`${url.replace(/\/$/, "")}/v1/public-key?keyId=${encodeURIComponent(keyId)}`, { method: "GET" });
       const text = await res.text();
       if (!res.ok) {
         const err = new Error(`remote signer publicKey failed (HTTP ${res.status})`);
@@ -47,7 +47,7 @@ async function main() {
     }
     if (op === "sign") {
       const body = req?.body ?? null;
-      const res = await fetch(`${url.replace(/\\/$/, "")}/v1/sign`, {
+      const res = await fetch(`${url.replace(/\/$/, "")}/v1/sign`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body ?? {})
@@ -69,4 +69,3 @@ async function main() {
 }
 
 await main();
-

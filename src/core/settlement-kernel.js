@@ -215,6 +215,11 @@ function normalizeSettlementBindings(value, name, { allowNull = true } = {}) {
                 }
               : {}),
             agentKeyId: normalizeNullableString(value.spendAuthorization.agentKeyId, `${name}.spendAuthorization.agentKeyId`, { max: 200 }),
+            delegationGrantRef: normalizeNullableString(
+              value.spendAuthorization.delegationGrantRef,
+              `${name}.spendAuthorization.delegationGrantRef`,
+              { max: 200 }
+            ),
             delegationRef: normalizeNullableString(value.spendAuthorization.delegationRef, `${name}.spendAuthorization.delegationRef`, { max: 200 }),
             rootDelegationRef: normalizeNullableString(value.spendAuthorization.rootDelegationRef, `${name}.spendAuthorization.rootDelegationRef`, {
               max: 200

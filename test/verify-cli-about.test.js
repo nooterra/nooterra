@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-import Ajv from "ajv/dist/2020.js";
+import { createAjv2020 } from "./helpers/ajv-2020.js";
 
 async function runCli(args) {
   const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "settld-verify.js");
@@ -29,7 +29,7 @@ test("settld-verify --version prints semver only", async () => {
 test("settld-verify --about --format json matches schema", async () => {
   const schemaPath = path.resolve(process.cwd(), "docs", "spec", "schemas", "VerifyAboutOutput.v1.schema.json");
   const schema = JSON.parse(await fs.readFile(schemaPath, "utf8"));
-  const ajv = new Ajv({ allErrors: true, strict: false });
+  const ajv = createAjv2020();
   ajv.addSchema(schema);
   const validate = ajv.getSchema(schema.$id);
   assert.ok(validate);

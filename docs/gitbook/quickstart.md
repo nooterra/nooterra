@@ -4,7 +4,7 @@ Get from zero to a verified paid agent action in minutes.
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 20.x (`nvm use` in repo root). Install is fail-fast if you use a different major.
 - Public flow: no API key required up front (`settld setup` handles login/session bootstrap)
 - Advanced flow: optional explicit `--base-url`, `--tenant-id`, and `--settld-api-key`
 

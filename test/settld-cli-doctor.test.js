@@ -9,6 +9,13 @@ function escapeRegex(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function detectNodeMajor(version = process.versions?.node ?? "") {
+  const match = String(version).match(/^(\d+)\./);
+  if (!match) return null;
+  const major = Number(match[1]);
+  return Number.isSafeInteger(major) ? major : null;
+}
+
 async function makeCliFixture() {
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-cli-doctor-"));
   const binDir = path.join(tmpRoot, "bin");
@@ -58,7 +65,7 @@ test("CLI: settld doctor prints PASS and report path when smoke passes", async (
 
   const res = spawnSync(process.execPath, [cliPath, "doctor"], {
     cwd: tmpRoot,
-    env: { ...process.env },
+    env: { ...process.env, SETTLD_ALLOW_UNSUPPORTED_NODE: "1" },
     stdio: ["ignore", "pipe", "pipe"]
   });
   assert.equal(res.status, 0, `doctor failed\n\nstdout:\n${String(res.stdout)}\n\nstderr:\n${String(res.stderr)}`);
@@ -78,7 +85,7 @@ test("CLI: settld doctor prints FAIL and custom report path when smoke fails", a
 
   const res = spawnSync(process.execPath, [cliPath, "doctor", "--report", expectedReportPath], {
     cwd: tmpRoot,
-    env: { ...process.env, SMOKE_STUB_MODE: "fail" },
+    env: { ...process.env, SMOKE_STUB_MODE: "fail", SETTLD_ALLOW_UNSUPPORTED_NODE: "1" },
     stdio: ["ignore", "pipe", "pipe"]
   });
   assert.equal(res.status, 1, `doctor should fail\n\nstdout:\n${String(res.stdout)}\n\nstderr:\n${String(res.stderr)}`);
@@ -90,4 +97,23 @@ test("CLI: settld doctor prints FAIL and custom report path when smoke fails", a
 
   const report = JSON.parse(await fs.readFile(expectedReportPath, "utf8"));
   assert.equal(report.ok, false);
+});
+
+test("CLI: settld doctor fails closed on unsupported Node major unless explicitly allowed", async (t) => {
+  const major = detectNodeMajor();
+  if (major === 20) {
+    t.skip("current runtime is Node 20.x");
+    return;
+  }
+
+  const { tmpRoot, cliPath } = await makeCliFixture();
+  const res = spawnSync(process.execPath, [cliPath, "doctor"], {
+    cwd: tmpRoot,
+    env: { ...process.env, SETTLD_ALLOW_UNSUPPORTED_NODE: "" },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  assert.equal(res.status, 1, `doctor should fail on unsupported runtime\nstdout:\n${String(res.stdout)}\nstderr:\n${String(res.stderr)}`);
+  const stdout = String(res.stdout);
+  assert.match(stdout, /FAIL mcp-host-compatibility/);
+  assert.match(stdout, /Node\.js 20\.x required/i);
 });

@@ -115,10 +115,46 @@ import {
   validateAgreementDelegationV1
 } from "../core/agreement-delegation.js";
 import {
+  DELEGATION_GRANT_RISK_CLASS,
+  buildDelegationGrantV1,
+  revokeDelegationGrantV1,
+  validateDelegationGrantV1
+} from "../core/delegation-grant.js";
+import {
+  CAPABILITY_ATTESTATION_LEVEL,
+  CAPABILITY_ATTESTATION_REASON_CODE,
+  CAPABILITY_ATTESTATION_RUNTIME_STATUS,
+  buildCapabilityAttestationV1,
+  evaluateCapabilityAttestationV1,
+  getCapabilityAttestationLevelRank,
+  revokeCapabilityAttestationV1,
+  validateCapabilityAttestationV1
+} from "../core/capability-attestation.js";
+import {
+  SUB_AGENT_COMPLETION_STATUS,
+  SUB_AGENT_WORK_ORDER_SCHEMA_VERSION,
+  SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS,
+  SUB_AGENT_WORK_ORDER_STATUS,
+  acceptSubAgentWorkOrderV1,
+  appendSubAgentWorkOrderProgressV1,
+  buildSubAgentCompletionReceiptV1,
+  buildSubAgentWorkOrderV1,
+  completeSubAgentWorkOrderV1,
+  settleSubAgentWorkOrderV1,
+  validateSubAgentCompletionReceiptV1,
+  validateSubAgentWorkOrderV1
+} from "../core/subagent-work-order.js";
+import {
   DISPUTE_OPEN_ENVELOPE_SCHEMA_VERSION,
   validateDisputeOpenEnvelopeV1
 } from "../core/dispute-open-envelope.js";
-import { buildSettldAgentCard } from "../core/agent-card.js";
+import {
+  AGENT_CARD_STATUS,
+  AGENT_CARD_VISIBILITY,
+  buildAgentCardV1,
+  buildSettldAgentCard,
+  validateAgentCardV1
+} from "../core/agent-card.js";
 import { buildX402SettlementTerms, parseX402PaymentRequired } from "../core/x402-gate.js";
 import { createCircleReserveAdapter } from "../core/circle-reserve-adapter.js";
 import { signX402ReversalCommandV1, verifyX402ReversalCommandV1 } from "../core/x402-reversal-command.js";
@@ -374,11 +410,19 @@ export function createApi({
   x402PilotDailyLimitCents = null,
   x402RequireAgentPassport = null,
   x402RequireExecutionIntent = null,
+  x402PromptRiskForceMode = null,
+  x402PromptRiskForceModeByPrincipal = null,
   x402WebhookAutoDisableFailures = null,
   x402WebhookSecretRotationWindowSeconds = null,
   settldPayTokenTtlSeconds = null,
   settldPayFallbackKeys = null,
-  settldPayIssuer = null
+  settldPayIssuer = null,
+  agentCardPublicListingFeeCents = null,
+  agentCardPublicListingFeeCurrency = null,
+  agentCardPublicListingFeeCollectorAgentId = null,
+  agentCardPublicRequireCapabilityAttestation = null,
+  agentCardPublicAttestationMinLevel = null,
+  agentCardPublicAttestationIssuerAgentId = null
 } = {}) {
   const apiStartedAtMs = Date.now();
   const apiStartedAtIso = new Date(apiStartedAtMs).toISOString();
@@ -963,6 +1007,52 @@ export function createApi({
   const quotaPlatformMaxIngestDlqDepth = parseNonNegativeIntEnv("PROXY_QUOTA_PLATFORM_MAX_INGEST_DLQ_DEPTH", 0);
   const quotaPlatformMaxEvidenceRefsPerJob = parseNonNegativeIntEnv("PROXY_QUOTA_PLATFORM_MAX_EVIDENCE_REFS_PER_JOB", 0);
   const quotaPlatformMaxArtifactsPerJobType = parseNonNegativeIntEnv("PROXY_QUOTA_PLATFORM_MAX_ARTIFACTS_PER_JOB_TYPE", 0);
+  const agentCardPublicListingFeeCentsValue = (() => {
+    const raw =
+      agentCardPublicListingFeeCents ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_LISTING_FEE_CENTS ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 0;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n < 0) throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_FEE_CENTS must be a non-negative safe integer");
+    return n;
+  })();
+  const agentCardPublicListingFeeCurrencyValue = (() => {
+    const raw =
+      agentCardPublicListingFeeCurrency ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_LISTING_FEE_CURRENCY ?? null : null);
+    const normalized = raw === null || raw === undefined || String(raw).trim() === "" ? "USD" : String(raw).trim().toUpperCase();
+    if (!/^[A-Z0-9]{3,8}$/.test(normalized)) {
+      throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_FEE_CURRENCY must be 3-8 uppercase alphanumeric characters");
+    }
+    return normalized;
+  })();
+  const agentCardPublicListingFeeCollectorAgentIdValue = (() => {
+    const raw =
+      agentCardPublicListingFeeCollectorAgentId ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_LISTING_FEE_COLLECTOR_AGENT_ID ?? null : null);
+    const normalized = raw === null || raw === undefined || String(raw).trim() === "" ? "__settld_registry__" : String(raw).trim();
+    if (!normalized) throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_FEE_COLLECTOR_AGENT_ID must be a non-empty string");
+    return normalized;
+  })();
+  const agentCardPublicRequireCapabilityAttestationValue = (() => {
+    const raw =
+      agentCardPublicRequireCapabilityAttestation ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_REQUIRE_CAPABILITY_ATTESTATION ?? null : null);
+    return parseBooleanLike(raw, false);
+  })();
+  const agentCardPublicAttestationMinLevelValue = (() => {
+    const raw =
+      agentCardPublicAttestationMinLevel ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_ATTESTATION_MIN_LEVEL ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return CAPABILITY_ATTESTATION_LEVEL.ATTESTED;
+    return parseCapabilityAttestationLevel(raw, { allowNull: false });
+  })();
+  const agentCardPublicAttestationIssuerAgentIdValue = (() => {
+    const raw =
+      agentCardPublicAttestationIssuerAgentId ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_ATTESTATION_ISSUER_AGENT_ID ?? null : null);
+    return normalizeOptionalX402RefInput(raw, "PROXY_AGENT_CARD_PUBLIC_ATTESTATION_ISSUER_AGENT_ID", { allowNull: true, max: 200 });
+  })();
 
   const ingestRecordsRetentionMaxDays = parseNonNegativeIntEnv("PROXY_RETENTION_INGEST_RECORDS_MAX_DAYS", 0);
   const outboxMaxAttempts = (() => {
@@ -1358,6 +1448,55 @@ export function createApi({
     throw new TypeError("boolean-like value must be true|false");
   }
 
+  const X402_PROMPT_RISK_FORCE_MODE = Object.freeze({
+    CHALLENGE: "challenge",
+    ESCALATE: "escalate"
+  });
+  const X402_PROMPT_RISK_FORCE_MODE_SET = new Set(Object.values(X402_PROMPT_RISK_FORCE_MODE));
+
+  function normalizeX402PromptRiskForceModeInput(value, { fieldName = "X402_PROMPT_RISK_FORCE_MODE", allowNull = true } = {}) {
+    if (value === null || value === undefined || String(value).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (normalized === "off" || normalized === "none") return null;
+    if (!X402_PROMPT_RISK_FORCE_MODE_SET.has(normalized)) {
+      throw new TypeError(`${fieldName} must be challenge|escalate|off`);
+    }
+    return normalized;
+  }
+
+  function normalizeX402PromptRiskForceModeByPrincipalInput(
+    value,
+    { fieldName = "X402_PROMPT_RISK_FORCE_MODE_BY_PRINCIPAL" } = {}
+  ) {
+    if (value === null || value === undefined || String(value).trim() === "") return Object.freeze({});
+    let parsed = value;
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch (err) {
+        throw new TypeError(`${fieldName} must be valid JSON object: ${err?.message ?? String(err ?? "")}`);
+      }
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new TypeError(`${fieldName} must be an object keyed by principalId`);
+    }
+    const out = {};
+    for (const [principalIdRaw, modeRaw] of Object.entries(parsed)) {
+      const principalId = typeof principalIdRaw === "string" ? principalIdRaw.trim() : "";
+      if (!principalId) continue;
+      const mode = normalizeX402PromptRiskForceModeInput(modeRaw, {
+        fieldName: `${fieldName}.${principalId}`,
+        allowNull: true
+      });
+      if (!mode) continue;
+      out[principalId] = mode;
+    }
+    return Object.freeze(out);
+  }
+
   function normalizeX402PilotAllowedProviderIdsInput(value, { fieldName = "X402_PILOT_ALLOWED_PROVIDER_IDS" } = {}) {
     if (value === null || value === undefined || String(value).trim() === "") return null;
     let parsed = value;
@@ -1532,7 +1671,198 @@ export function createApi({
     }
     return n;
   })();
+  const x402PromptRiskForceModeValue = (() => {
+    const raw =
+      x402PromptRiskForceMode ??
+      (typeof process !== "undefined" ? process.env.X402_PROMPT_RISK_FORCE_MODE : null);
+    return normalizeX402PromptRiskForceModeInput(raw, { fieldName: "X402_PROMPT_RISK_FORCE_MODE", allowNull: true });
+  })();
+  const x402PromptRiskForceModeByPrincipalValue = (() => {
+    const raw =
+      x402PromptRiskForceModeByPrincipal ??
+      (typeof process !== "undefined" ? process.env.X402_PROMPT_RISK_FORCE_MODE_BY_PRINCIPAL : null);
+    return normalizeX402PromptRiskForceModeByPrincipalInput(raw, {
+      fieldName: "X402_PROMPT_RISK_FORCE_MODE_BY_PRINCIPAL"
+    });
+  })();
   const circleReserveAdapter = x402ReserveAdapter ?? createCircleReserveAdapter({ mode: x402ReserveModeValue, now: nowIso });
+
+  function normalizeX402PromptRiskSignalsInput(input, { fieldName = "promptRiskSignals", allowNull = true } = {}) {
+    if (input === null || input === undefined) {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new TypeError(`${fieldName} must be an object`);
+    }
+    const reasonCodes = Array.isArray(input.reasonCodes)
+      ? Array.from(
+          new Set(
+            input.reasonCodes
+              .map((value) => (typeof value === "string" ? value.trim() : ""))
+              .filter(Boolean)
+          )
+        ).sort((a, b) => a.localeCompare(b))
+      : [];
+    const evidenceRefs = Array.isArray(input.evidenceRefs)
+      ? Array.from(
+          new Set(
+            input.evidenceRefs
+              .map((value) => (typeof value === "string" ? value.trim() : ""))
+              .filter(Boolean)
+          )
+        ).sort((a, b) => a.localeCompare(b))
+      : [];
+    const notes = typeof input.notes === "string" && input.notes.trim() !== "" ? input.notes.trim().slice(0, 500) : null;
+    const promptContagion = input.promptContagion === true;
+    const badActorSuspected = input.badActorSuspected === true || input.badActor === true || input.abusePatternDetected === true;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "X402PromptRiskSignals.v1",
+        promptContagion,
+        badActorSuspected,
+        suspicious: promptContagion || badActorSuspected,
+        ...(reasonCodes.length > 0 ? { reasonCodes } : {}),
+        ...(evidenceRefs.length > 0 ? { evidenceRefs } : {}),
+        ...(notes ? { notes } : {})
+      },
+      { path: "$" }
+    );
+  }
+
+  function normalizeX402PromptRiskOverrideInput(input, { fieldName = "promptRiskOverride", allowNull = true } = {}) {
+    if (input === null || input === undefined) {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+      throw new TypeError(`${fieldName} must be an object`);
+    }
+    const enabled = input.enabled === true;
+    if (!enabled) return normalizeForCanonicalJson({ enabled: false }, { path: "$" });
+    const reason = typeof input.reason === "string" && input.reason.trim() !== "" ? input.reason.trim().slice(0, 500) : null;
+    if (!reason) throw new TypeError(`${fieldName}.reason is required when override is enabled`);
+    const ticketRef = typeof input.ticketRef === "string" && input.ticketRef.trim() !== "" ? input.ticketRef.trim().slice(0, 200) : null;
+    const approvedByPrincipalId =
+      typeof input.approvedByPrincipalId === "string" && input.approvedByPrincipalId.trim() !== ""
+        ? input.approvedByPrincipalId.trim().slice(0, 256)
+        : null;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "X402PromptRiskOverride.v1",
+        enabled: true,
+        reason,
+        ...(ticketRef ? { ticketRef } : {}),
+        ...(approvedByPrincipalId ? { approvedByPrincipalId } : {})
+      },
+      { path: "$" }
+    );
+  }
+
+  function normalizeX402PromptRiskStateInput(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+    const suspicious = input.suspicious === true;
+    const forcedMode =
+      typeof input.forcedMode === "string" && X402_PROMPT_RISK_FORCE_MODE_SET.has(input.forcedMode.trim().toLowerCase())
+        ? input.forcedMode.trim().toLowerCase()
+        : null;
+    const override =
+      input.override && typeof input.override === "object" && !Array.isArray(input.override)
+        ? normalizeForCanonicalJson(input.override, { path: "$.override" })
+        : null;
+    const signals =
+      input.signals && typeof input.signals === "object" && !Array.isArray(input.signals)
+        ? normalizeForCanonicalJson(input.signals, { path: "$.signals" })
+        : null;
+    const updatedAt = typeof input.updatedAt === "string" && input.updatedAt.trim() !== "" ? input.updatedAt.trim() : null;
+    if (!suspicious && !forcedMode && !override && !signals) return null;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "X402PromptRiskState.v1",
+        suspicious,
+        forcedMode,
+        signals,
+        override,
+        ...(updatedAt ? { updatedAt } : {})
+      },
+      { path: "$" }
+    );
+  }
+
+  function resolveX402PromptRiskForcedMode({ principalId } = {}) {
+    const principalKey = typeof principalId === "string" ? principalId.trim() : "";
+    const principalMode = principalKey ? x402PromptRiskForceModeByPrincipalValue[principalKey] ?? null : null;
+    return principalMode ?? x402PromptRiskForceModeValue ?? null;
+  }
+
+  function evaluateX402PromptRiskGuardrail({
+    gate,
+    principalId,
+    promptRiskSignals = null,
+    promptRiskOverride = null,
+    at = nowIso()
+  } = {}) {
+    const existingState = normalizeX402PromptRiskStateInput(gate?.promptRisk ?? null);
+    const forcedMode = resolveX402PromptRiskForcedMode({ principalId });
+    const signalSuspicious = promptRiskSignals?.suspicious === true;
+    const suspicious = signalSuspicious || existingState?.suspicious === true;
+    const existingOverride = existingState?.override && existingState.override.enabled === true ? existingState.override : null;
+    const overrideEnabled = promptRiskOverride?.enabled === true;
+    const nextOverride = overrideEnabled
+      ? normalizeForCanonicalJson(
+          {
+            ...promptRiskOverride,
+            enabled: true,
+            approvedByPrincipalId:
+              typeof promptRiskOverride.approvedByPrincipalId === "string" && promptRiskOverride.approvedByPrincipalId.trim() !== ""
+                ? promptRiskOverride.approvedByPrincipalId.trim()
+                : typeof principalId === "string" && principalId.trim() !== ""
+                  ? principalId.trim()
+                  : null,
+            approvedAt: at
+          },
+          { path: "$" }
+        )
+      : existingOverride;
+    const nextSignals = signalSuspicious ? promptRiskSignals : existingState?.signals ?? null;
+    const shouldPersistState = suspicious || !!forcedMode || !!nextOverride || !!nextSignals || !!existingState;
+    const nextState = shouldPersistState
+      ? normalizeForCanonicalJson(
+          {
+            schemaVersion: "X402PromptRiskState.v1",
+            suspicious,
+            forcedMode: forcedMode ?? null,
+            signals: nextSignals,
+            override: nextOverride ?? null,
+            updatedAt: at
+          },
+          { path: "$" }
+        )
+      : null;
+    const existingCanonical = canonicalJsonStringify(normalizeForCanonicalJson(existingState ?? null, { path: "$" }));
+    const nextCanonical = canonicalJsonStringify(normalizeForCanonicalJson(nextState ?? null, { path: "$" }));
+    const changed = existingCanonical !== nextCanonical;
+    const blocked = (suspicious || !!forcedMode) && !(nextOverride && nextOverride.enabled === true);
+    const code = forcedMode === "escalate"
+      ? "X402_PROMPT_RISK_FORCE_ESCALATE"
+      : forcedMode === "challenge"
+        ? "X402_PROMPT_RISK_FORCE_CHALLENGE"
+        : "X402_PROMPT_RISK_OVERRIDE_REQUIRED";
+    const message = forcedMode === "escalate"
+      ? "prompt-risk control forced escalation; human override is required"
+      : forcedMode === "challenge"
+        ? "prompt-risk control forced challenge; human override is required"
+        : "suspicious run is blocked until human override is recorded";
+    return {
+      blocked,
+      code,
+      message,
+      forcedMode,
+      suspicious,
+      nextState,
+      changed
+    };
+  }
 
   function computeX402DailyAuthorizedExposureCents({ tenantId, dayKey, excludeGateId = null, sponsorWalletRef = null } = {}) {
     if (!dayKey || !(store?.x402Gates instanceof Map)) return 0;
@@ -6579,24 +6909,835 @@ export function createApi({
     return value;
   }
 
+  function parseSubAgentWorkOrderStatus(rawValue, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError("status is required");
+    }
+    const value = String(rawValue).trim().toLowerCase();
+    if (!Object.values(SUB_AGENT_WORK_ORDER_STATUS).includes(value)) {
+      throw new TypeError(`status must be one of ${Object.values(SUB_AGENT_WORK_ORDER_STATUS).join("|")}`);
+    }
+    return value;
+  }
+
+  function parseCapabilityAttestationLevel(rawValue, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError("attestationLevel is required");
+    }
+    const value = String(rawValue).trim().toLowerCase();
+    if (!Object.values(CAPABILITY_ATTESTATION_LEVEL).includes(value)) {
+      throw new TypeError(`attestationLevel must be one of ${Object.values(CAPABILITY_ATTESTATION_LEVEL).join("|")}`);
+    }
+    return value;
+  }
+
+  function parseWorkOrderCapabilityAttestationRequirement(
+    rawRequirement = null,
+    { requireCapabilityAttestation = null, attestationMinLevel = null, attestationIssuerAgentId = null } = {},
+    { allowNull = true } = {}
+  ) {
+    const requirement =
+      rawRequirement && typeof rawRequirement === "object" && !Array.isArray(rawRequirement) ? rawRequirement : null;
+    const rawRequired =
+      requirement?.required ??
+      requirement?.requireCapabilityAttestation ??
+      requireCapabilityAttestation;
+    const rawMinLevel =
+      requirement?.minLevel ??
+      requirement?.attestationMinLevel ??
+      attestationMinLevel;
+    const rawIssuerAgentId =
+      requirement?.issuerAgentId ??
+      requirement?.attestationIssuerAgentId ??
+      attestationIssuerAgentId;
+    const hasAnyInput =
+      (rawRequired !== null && rawRequired !== undefined) ||
+      (rawMinLevel !== null && rawMinLevel !== undefined && String(rawMinLevel).trim() !== "") ||
+      (rawIssuerAgentId !== null && rawIssuerAgentId !== undefined && String(rawIssuerAgentId).trim() !== "");
+    if (!hasAnyInput) {
+      if (allowNull) return null;
+      throw new TypeError("attestationRequirement is required");
+    }
+
+    let required = false;
+    try {
+      required = parseBooleanLike(rawRequired, false);
+    } catch (err) {
+      throw new TypeError(`attestationRequirement.required must be boolean-like: ${err?.message ?? String(err)}`);
+    }
+    let minLevel = parseCapabilityAttestationLevel(rawMinLevel, { allowNull: true });
+    const issuerAgentId =
+      rawIssuerAgentId === null || rawIssuerAgentId === undefined || String(rawIssuerAgentId).trim() === ""
+        ? null
+        : String(rawIssuerAgentId).trim();
+
+    if (!required && (minLevel || issuerAgentId)) required = true;
+    if (required && !minLevel) minLevel = CAPABILITY_ATTESTATION_LEVEL.SELF_CLAIM;
+
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "WorkOrderCapabilityAttestationRequirement.v1",
+        required,
+        minLevel,
+        issuerAgentId
+      },
+      { path: "$.attestationRequirement" }
+    );
+  }
+
+  function classifyWorkOrderType({ requiredCapability, specification }) {
+    const capability = String(requiredCapability ?? "").trim().toLowerCase();
+    const taskType =
+      specification && typeof specification === "object" && !Array.isArray(specification)
+        ? String(specification.taskType ?? "").trim().toLowerCase()
+        : "";
+    if (
+      capability.startsWith("code.") ||
+      capability.includes("code") ||
+      taskType === "codegen" ||
+      taskType === "code_generation" ||
+      taskType === "coding"
+    ) {
+      return "code_generation";
+    }
+    if (capability.startsWith("travel.") || capability.includes("travel") || taskType === "travel_booking") {
+      return "travel_booking";
+    }
+    return "generic";
+  }
+
+  function normalizeWorkOrderEvidenceKinds(value, { fieldName = "evidenceKinds" } = {}) {
+    if (value === null || value === undefined) return [];
+    if (!Array.isArray(value)) throw new TypeError(`${fieldName} must be an array`);
+    const allowed = new Set(["artifact", "hash", "verification_report"]);
+    const out = [];
+    const seen = new Set();
+    for (let index = 0; index < value.length; index += 1) {
+      const raw = String(value[index] ?? "").trim().toLowerCase();
+      if (!raw) continue;
+      if (!allowed.has(raw)) throw new TypeError(`${fieldName}[${index}] must be artifact|hash|verification_report`);
+      if (seen.has(raw)) continue;
+      seen.add(raw);
+      out.push(raw);
+    }
+    return out;
+  }
+
+  function normalizeWorkOrderEvidencePolicyRule(rule, { fieldPath = "evidencePolicy.rule" } = {}) {
+    const source = rule && typeof rule === "object" && !Array.isArray(rule) ? rule : {};
+    const minEvidenceRefs = Number(source.minEvidenceRefs ?? 0);
+    if (!Number.isSafeInteger(minEvidenceRefs) || minEvidenceRefs < 0) {
+      throw new TypeError(`${fieldPath}.minEvidenceRefs must be a non-negative safe integer`);
+    }
+    const requiredKinds = normalizeWorkOrderEvidenceKinds(source.requiredKinds ?? [], { fieldName: `${fieldPath}.requiredKinds` });
+    const requireReceiptHashBinding = source.requireReceiptHashBinding === true;
+    return normalizeForCanonicalJson(
+      {
+        minEvidenceRefs,
+        requiredKinds,
+        requireReceiptHashBinding
+      },
+      { path: `$.${fieldPath}` }
+    );
+  }
+
+  function buildDefaultWorkOrderEvidencePolicy({ requiredCapability, specification } = {}) {
+    const workOrderType = classifyWorkOrderType({ requiredCapability, specification });
+    if (workOrderType === "code_generation") {
+      return normalizeForCanonicalJson(
+        {
+          schemaVersion: "WorkOrderSettlementEvidencePolicy.v1",
+          workOrderType,
+          release: {
+            minEvidenceRefs: 2,
+            requiredKinds: ["artifact", "verification_report"],
+            requireReceiptHashBinding: false
+          },
+          refund: {
+            minEvidenceRefs: 1,
+            requiredKinds: ["artifact"],
+            requireReceiptHashBinding: false
+          }
+        },
+        { path: "$.evidencePolicy" }
+      );
+    }
+    if (workOrderType === "travel_booking") {
+      return normalizeForCanonicalJson(
+        {
+          schemaVersion: "WorkOrderSettlementEvidencePolicy.v1",
+          workOrderType,
+          release: {
+            minEvidenceRefs: 2,
+            requiredKinds: ["artifact", "hash"],
+            requireReceiptHashBinding: false
+          },
+          refund: {
+            minEvidenceRefs: 1,
+            requiredKinds: ["artifact"],
+            requireReceiptHashBinding: false
+          }
+        },
+        { path: "$.evidencePolicy" }
+      );
+    }
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "WorkOrderSettlementEvidencePolicy.v1",
+        workOrderType,
+        release: {
+          minEvidenceRefs: 1,
+          requiredKinds: ["artifact"],
+          requireReceiptHashBinding: false
+        },
+        refund: {
+          minEvidenceRefs: 1,
+          requiredKinds: [],
+          requireReceiptHashBinding: false
+        }
+      },
+      { path: "$.evidencePolicy" }
+    );
+  }
+
+  function normalizeWorkOrderEvidencePolicy(rawPolicy, { requiredCapability, specification } = {}) {
+    const defaults = buildDefaultWorkOrderEvidencePolicy({ requiredCapability, specification });
+    if (rawPolicy === null || rawPolicy === undefined) return defaults;
+    if (!rawPolicy || typeof rawPolicy !== "object" || Array.isArray(rawPolicy)) {
+      throw new TypeError("evidencePolicy must be an object");
+    }
+    const schemaVersion =
+      typeof rawPolicy.schemaVersion === "string" && rawPolicy.schemaVersion.trim() !== ""
+        ? rawPolicy.schemaVersion.trim()
+        : "WorkOrderSettlementEvidencePolicy.v1";
+    if (schemaVersion !== "WorkOrderSettlementEvidencePolicy.v1") {
+      throw new TypeError("evidencePolicy.schemaVersion must be WorkOrderSettlementEvidencePolicy.v1");
+    }
+    const workOrderType =
+      typeof rawPolicy.workOrderType === "string" && rawPolicy.workOrderType.trim() !== ""
+        ? rawPolicy.workOrderType.trim().toLowerCase()
+        : String(defaults.workOrderType ?? "generic");
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "WorkOrderSettlementEvidencePolicy.v1",
+        workOrderType,
+        release: normalizeWorkOrderEvidencePolicyRule(rawPolicy.release ?? defaults.release, { fieldPath: "evidencePolicy.release" }),
+        refund: normalizeWorkOrderEvidencePolicyRule(rawPolicy.refund ?? defaults.refund, { fieldPath: "evidencePolicy.refund" })
+      },
+      { path: "$.evidencePolicy" }
+    );
+  }
+
+  function classifyEvidenceRefKinds(evidenceRefs = []) {
+    const kinds = new Set();
+    if (!Array.isArray(evidenceRefs)) return kinds;
+    for (const row of evidenceRefs) {
+      const ref = String(row ?? "").trim().toLowerCase();
+      if (!ref) continue;
+      if (ref.startsWith("artifact://") || ref.startsWith("obj://") || ref.startsWith("evidence://")) kinds.add("artifact");
+      if (
+        ref.startsWith("sha256:") ||
+        ref.includes("sha256:") ||
+        ref.startsWith("http:request_sha256:") ||
+        ref.startsWith("http:response_sha256:")
+      ) {
+        kinds.add("hash");
+      }
+      if (
+        ref.startsWith("report://") ||
+        ref.startsWith("verification://") ||
+        ref.includes("/verification/") ||
+        ref.includes("verification_report")
+      ) {
+        kinds.add("verification_report");
+      }
+    }
+    return kinds;
+  }
+
+  function validateWorkOrderSettlementEvidenceBinding({
+    workOrder,
+    completionReceipt,
+    settlementStatus,
+    completionReceiptHash = null
+  } = {}) {
+    const normalizedStatus = String(settlementStatus ?? "").trim().toLowerCase();
+    const policy = normalizeWorkOrderEvidencePolicy(workOrder?.evidencePolicy ?? null, {
+      requiredCapability: workOrder?.requiredCapability ?? null,
+      specification: workOrder?.specification ?? null
+    });
+    const rule = normalizedStatus === SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.RELEASED ? policy.release : policy.refund;
+    const evidenceRefs = Array.isArray(completionReceipt?.evidenceRefs) ? completionReceipt.evidenceRefs.map((row) => String(row ?? "").trim()).filter(Boolean) : [];
+    const evidenceKinds = classifyEvidenceRefKinds(evidenceRefs);
+
+    if (evidenceRefs.length < Number(rule.minEvidenceRefs ?? 0)) {
+      return {
+        ok: false,
+        reasonCode: "WORK_ORDER_EVIDENCE_MISSING",
+        details: {
+          requiredMinEvidenceRefs: Number(rule.minEvidenceRefs ?? 0),
+          actualEvidenceRefs: evidenceRefs.length
+        }
+      };
+    }
+
+    const missingKinds = [];
+    const requiredKinds = Array.isArray(rule.requiredKinds) ? rule.requiredKinds : [];
+    for (const requiredKind of requiredKinds) {
+      if (!evidenceKinds.has(String(requiredKind))) missingKinds.push(String(requiredKind));
+    }
+    if (missingKinds.length > 0) {
+      return {
+        ok: false,
+        reasonCode: "WORK_ORDER_EVIDENCE_KIND_MISMATCH",
+        details: {
+          requiredKinds,
+          missingKinds
+        }
+      };
+    }
+
+    const normalizedReceiptHash =
+      completionReceiptHash === null || completionReceiptHash === undefined || String(completionReceiptHash).trim() === ""
+        ? null
+        : String(completionReceiptHash).trim().toLowerCase();
+    const actualReceiptHash = String(completionReceipt?.receiptHash ?? "").trim().toLowerCase();
+    if (normalizedReceiptHash && actualReceiptHash && normalizedReceiptHash !== actualReceiptHash) {
+      return {
+        ok: false,
+        reasonCode: "WORK_ORDER_RECEIPT_HASH_MISMATCH",
+        details: {
+          expectedReceiptHash: normalizedReceiptHash,
+          actualReceiptHash
+        }
+      };
+    }
+    if (rule.requireReceiptHashBinding === true && (!normalizedReceiptHash || !actualReceiptHash)) {
+      return {
+        ok: false,
+        reasonCode: "WORK_ORDER_RECEIPT_HASH_REQUIRED",
+        details: {
+          requireReceiptHashBinding: true
+        }
+      };
+    }
+
+    return { ok: true, policy, rule };
+  }
+
+  function parseCapabilityAttestationQueryStatus(rawValue, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError("status is required");
+    }
+    const value = String(rawValue).trim().toLowerCase();
+    if (
+      value !== CAPABILITY_ATTESTATION_RUNTIME_STATUS.VALID &&
+      value !== CAPABILITY_ATTESTATION_RUNTIME_STATUS.EXPIRED &&
+      value !== CAPABILITY_ATTESTATION_RUNTIME_STATUS.NOT_ACTIVE &&
+      value !== CAPABILITY_ATTESTATION_RUNTIME_STATUS.REVOKED &&
+      value !== "all"
+    ) {
+      throw new TypeError("status must be valid|expired|not_active|revoked|all");
+    }
+    return value;
+  }
+
+  function parseAgentCardVisibility(rawValue, { allowAll = true, defaultVisibility = AGENT_CARD_VISIBILITY.PUBLIC } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultVisibility;
+    const value = String(rawValue).trim().toLowerCase();
+    if (
+      value === AGENT_CARD_VISIBILITY.PUBLIC ||
+      value === AGENT_CARD_VISIBILITY.TENANT ||
+      value === AGENT_CARD_VISIBILITY.PRIVATE
+    ) {
+      return value;
+    }
+    if (allowAll && value === "all") return value;
+    throw new TypeError("visibility must be public|tenant|private|all");
+  }
+
+  const TRUST_ROUTING_FACTORS_SCHEMA_VERSION = "TrustRoutingFactors.v1";
+  const TRUST_ROUTING_WEIGHTS = Object.freeze({
+    settlementOutcome: 35,
+    disputes: 25,
+    capabilityAttestation: 20,
+    relationshipHistory: 20
+  });
+  const TRUST_ROUTING_ATTESTATION_LEVEL_SCORE = Object.freeze({
+    [CAPABILITY_ATTESTATION_LEVEL.SELF_CLAIM]: 65,
+    [CAPABILITY_ATTESTATION_LEVEL.ATTESTED]: 85,
+    [CAPABILITY_ATTESTATION_LEVEL.CERTIFIED]: 100
+  });
+
+  function clampScore(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.min(100, Math.round(n)));
+  }
+
   function parseScoreStrategy(rawValue) {
     if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return "balanced";
     const value = String(rawValue).trim().toLowerCase();
-    if (value !== "balanced" && value !== "recent_bias") throw new TypeError("scoreStrategy must be balanced|recent_bias");
+    if (value !== "balanced" && value !== "recent_bias" && value !== "trust_weighted") {
+      throw new TypeError("scoreStrategy must be balanced|recent_bias|trust_weighted");
+    }
     return value;
   }
 
   function computeMarketplaceRankingScore({ reputation, strategy = "balanced", reputationVersion = "v2", reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS } = {}) {
     const baseScore = Number(reputation?.trustScore ?? 0);
-    if (strategy !== "recent_bias") return Math.max(0, Math.min(100, baseScore));
+    if (strategy === "trust_weighted") return clampScore(baseScore);
+    if (strategy !== "recent_bias") return clampScore(baseScore);
 
-    if (reputationVersion !== "v2") return Math.max(0, Math.min(100, baseScore));
+    if (reputationVersion !== "v2") return clampScore(baseScore);
     const recentWindow = reputation?.windows?.[AGENT_REPUTATION_WINDOW.SEVEN_DAYS];
     const selectedWindow = reputation?.windows?.[reputationWindow];
     const recentScore = Number(recentWindow?.trustScore ?? baseScore);
     const selectedScore = Number(selectedWindow?.trustScore ?? baseScore);
     const blended = Math.round(recentScore * 0.7 + selectedScore * 0.3);
-    return Math.max(0, Math.min(100, blended));
+    return clampScore(blended);
+  }
+
+  function safeIsoMs(value) {
+    const ms = Date.parse(String(value ?? ""));
+    return Number.isFinite(ms) ? ms : Number.NaN;
+  }
+
+  function averageOrNull(values) {
+    if (!Array.isArray(values) || values.length === 0) return null;
+    const sum = values.reduce((acc, value) => acc + Number(value), 0);
+    if (!Number.isFinite(sum)) return null;
+    return sum / values.length;
+  }
+
+  function computeRoutingReputationEventStats({
+    events = [],
+    counterpartyAgentId = null
+  } = {}) {
+    const counterpartyFilter =
+      typeof counterpartyAgentId === "string" && counterpartyAgentId.trim() !== "" ? counterpartyAgentId.trim() : null;
+    let eventCount = 0;
+    let decisionsTotal = 0;
+    let decisionsApproved = 0;
+    let disputesOpened = 0;
+    let lastInteractionAt = null;
+    const releaseRateValues = [];
+    for (const event of events) {
+      if (!event || typeof event !== "object" || Array.isArray(event)) continue;
+      const subject = event.subject && typeof event.subject === "object" && !Array.isArray(event.subject) ? event.subject : null;
+      if (counterpartyFilter && String(subject?.counterpartyAgentId ?? "") !== counterpartyFilter) continue;
+      eventCount += 1;
+      const occurredAtMs = safeIsoMs(event.occurredAt);
+      if (Number.isFinite(occurredAtMs)) {
+        if (!lastInteractionAt || occurredAtMs > safeIsoMs(lastInteractionAt)) lastInteractionAt = new Date(occurredAtMs).toISOString();
+      }
+      const kind = String(event.eventKind ?? "").toLowerCase();
+      if (kind === REPUTATION_EVENT_KIND.DECISION_APPROVED || kind === REPUTATION_EVENT_KIND.DECISION_REJECTED) {
+        decisionsTotal += 1;
+        if (kind === REPUTATION_EVENT_KIND.DECISION_APPROVED) decisionsApproved += 1;
+      } else if (kind === REPUTATION_EVENT_KIND.DISPUTE_OPENED) {
+        disputesOpened += 1;
+      }
+      const facts = event.facts && typeof event.facts === "object" && !Array.isArray(event.facts) ? event.facts : null;
+      if (facts && Number.isFinite(Number(facts.releaseRatePct))) {
+        const releaseRatePct = Number(facts.releaseRatePct);
+        if (releaseRatePct >= 0 && releaseRatePct <= 100) releaseRateValues.push(releaseRatePct);
+      }
+    }
+    const approvalRate = decisionsTotal > 0 ? decisionsApproved / decisionsTotal : null;
+    const disputeRate = decisionsTotal > 0 ? disputesOpened / decisionsTotal : null;
+    const releaseRateAvg = averageOrNull(releaseRateValues);
+    return {
+      eventCount,
+      decisionsTotal,
+      decisionsApproved,
+      disputesOpened,
+      approvalRate,
+      disputeRate,
+      releaseRateAvg,
+      lastInteractionAt
+    };
+  }
+
+  function computeSettlementOutcomeScoreFromStats(stats = {}) {
+    const approvalScore = Number.isFinite(Number(stats.approvalRate)) ? Number(stats.approvalRate) * 100 : null;
+    const releaseScore = Number.isFinite(Number(stats.releaseRateAvg)) ? Number(stats.releaseRateAvg) : null;
+    const blendedInputs = [];
+    if (approvalScore !== null) blendedInputs.push(approvalScore);
+    if (releaseScore !== null) blendedInputs.push(releaseScore);
+    if (blendedInputs.length === 0) return 50;
+    const blended = blendedInputs.reduce((acc, value) => acc + value, 0) / blendedInputs.length;
+    const volumeBoost =
+      Number.isFinite(Number(stats.decisionsTotal)) && Number(stats.decisionsTotal) > 0
+        ? Math.min(8, Math.log10(Number(stats.decisionsTotal) + 1) * 5)
+        : 0;
+    return clampScore(blended + volumeBoost);
+  }
+
+  function computeDisputeScoreFromStats(stats = {}) {
+    if (!Number.isFinite(Number(stats.disputeRate))) return 50;
+    const disputeRate = Math.max(0, Math.min(1, Number(stats.disputeRate)));
+    return clampScore(100 - disputeRate * 100);
+  }
+
+  function computeCapabilityAttestationScore({ capabilityAttestation = null, attestationRuntime = null, capabilityRequested = false } = {}) {
+    if (
+      capabilityAttestation &&
+      typeof capabilityAttestation === "object" &&
+      !Array.isArray(capabilityAttestation) &&
+      attestationRuntime &&
+      typeof attestationRuntime === "object" &&
+      attestationRuntime.isValid === true
+    ) {
+      const level = typeof capabilityAttestation.level === "string" ? capabilityAttestation.level.trim().toLowerCase() : "";
+      const scored = TRUST_ROUTING_ATTESTATION_LEVEL_SCORE[level];
+      return clampScore(scored ?? 50);
+    }
+    if (capabilityRequested) return 40;
+    return 50;
+  }
+
+  function computeRelationshipHistoryScore(stats = {}) {
+    const eventCount = Number(stats.eventCount ?? 0);
+    if (!Number.isSafeInteger(eventCount) || eventCount <= 0) return 50;
+    const approvalScore = Number.isFinite(Number(stats.approvalRate)) ? Number(stats.approvalRate) * 100 : 70;
+    const disputeScore = Number.isFinite(Number(stats.disputeRate)) ? 100 - Number(stats.disputeRate) * 100 : 85;
+    const familiarityBoost = Math.min(10, eventCount * 2);
+    return clampScore(approvalScore * 0.65 + disputeScore * 0.35 + familiarityBoost);
+  }
+
+  function computeTrustWeightedRoutingScore({
+    globalStats,
+    relationshipStats,
+    capabilityAttestation = null,
+    attestationRuntime = null,
+    capabilityRequested = false,
+    requesterAgentId = null
+  } = {}) {
+    const settlementOutcomeScore = computeSettlementOutcomeScoreFromStats(globalStats);
+    const disputeScore = computeDisputeScoreFromStats(globalStats);
+    const capabilityAttestationScore = computeCapabilityAttestationScore({
+      capabilityAttestation,
+      attestationRuntime,
+      capabilityRequested
+    });
+    const relationshipHistoryScore = computeRelationshipHistoryScore(relationshipStats);
+    const weighted =
+      settlementOutcomeScore * TRUST_ROUTING_WEIGHTS.settlementOutcome +
+      disputeScore * TRUST_ROUTING_WEIGHTS.disputes +
+      capabilityAttestationScore * TRUST_ROUTING_WEIGHTS.capabilityAttestation +
+      relationshipHistoryScore * TRUST_ROUTING_WEIGHTS.relationshipHistory;
+    const rankingScore = clampScore(weighted / 100);
+    return {
+      rankingScore,
+      routingFactors: normalizeForCanonicalJson(
+        {
+          schemaVersion: TRUST_ROUTING_FACTORS_SCHEMA_VERSION,
+          strategy: "trust_weighted",
+          weights: TRUST_ROUTING_WEIGHTS,
+          factors: {
+            settlementOutcomeScore,
+            disputeScore,
+            capabilityAttestationScore,
+            relationshipHistoryScore
+          },
+          signals: {
+            settlementOutcomes: {
+              decisionsTotal: Number(globalStats?.decisionsTotal ?? 0),
+              decisionsApproved: Number(globalStats?.decisionsApproved ?? 0),
+              releaseRateAvg:
+                Number.isFinite(Number(globalStats?.releaseRateAvg)) ? Number(Number(globalStats.releaseRateAvg).toFixed(2)) : null
+            },
+            disputes: {
+              disputesOpened: Number(globalStats?.disputesOpened ?? 0),
+              disputeRate: Number.isFinite(Number(globalStats?.disputeRate)) ? Number(Number(globalStats.disputeRate).toFixed(6)) : null
+            },
+            capabilityAttestation: {
+              requested: capabilityRequested,
+              level: capabilityAttestation?.level ?? null,
+              status:
+                attestationRuntime && typeof attestationRuntime === "object"
+                  ? attestationRuntime.status ?? null
+                  : capabilityRequested
+                    ? "missing"
+                    : "not_requested"
+            },
+            relationshipHistory: {
+              counterpartyAgentId: requesterAgentId,
+              eventCount: Number(relationshipStats?.eventCount ?? 0),
+              decisionsTotal: Number(relationshipStats?.decisionsTotal ?? 0),
+              decisionsApproved: Number(relationshipStats?.decisionsApproved ?? 0),
+              disputeRate:
+                Number.isFinite(Number(relationshipStats?.disputeRate)) ? Number(Number(relationshipStats.disputeRate).toFixed(6)) : null,
+              lastInteractionAt: relationshipStats?.lastInteractionAt ?? null
+            }
+          }
+        },
+        { path: "$" }
+      )
+    };
+  }
+
+  async function listCapabilityAttestations({
+    tenantId,
+    subjectAgentId = null,
+    issuerAgentId = null,
+    capability = null
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    if (typeof store.listCapabilityAttestations === "function") {
+      return store.listCapabilityAttestations({
+        tenantId: t,
+        subjectAgentId,
+        issuerAgentId,
+        capability,
+        limit: 10_000,
+        offset: 0
+      });
+    }
+    if (store.capabilityAttestations instanceof Map) {
+      const out = [];
+      const subjectFilter = typeof subjectAgentId === "string" && subjectAgentId.trim() !== "" ? subjectAgentId.trim() : null;
+      const issuerFilter = typeof issuerAgentId === "string" && issuerAgentId.trim() !== "" ? issuerAgentId.trim() : null;
+      const capabilityFilter = typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null;
+      for (const row of store.capabilityAttestations.values()) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
+        if (subjectFilter && String(row.subjectAgentId ?? "") !== subjectFilter) continue;
+        if (issuerFilter && String(row.issuerAgentId ?? "") !== issuerFilter) continue;
+        if (capabilityFilter && String(row.capability ?? "") !== capabilityFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.attestationId ?? "").localeCompare(String(right.attestationId ?? "")));
+      return out;
+    }
+    throw new TypeError("capability attestations not supported for this store");
+  }
+
+  async function assessCapabilityAttestationForDiscovery({
+    tenantId,
+    agentId,
+    capability,
+    minLevel = null,
+    issuerAgentId = null,
+    at = nowIso()
+  } = {}) {
+    const effectiveCapability = typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null;
+    if (!effectiveCapability) {
+      return {
+        isValid: false,
+        reasonCode: CAPABILITY_ATTESTATION_REASON_CODE.MISSING,
+        selectedAttestation: null,
+        runtime: null
+      };
+    }
+    const effectiveMinLevel = parseCapabilityAttestationLevel(minLevel, { allowNull: true });
+    const minRank = effectiveMinLevel ? getCapabilityAttestationLevelRank(effectiveMinLevel) : 0;
+    const effectiveIssuer = typeof issuerAgentId === "string" && issuerAgentId.trim() !== "" ? issuerAgentId.trim() : null;
+    const candidates = await listCapabilityAttestations({
+      tenantId,
+      subjectAgentId: agentId,
+      capability: effectiveCapability
+    });
+
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      return {
+        isValid: false,
+        reasonCode: CAPABILITY_ATTESTATION_REASON_CODE.MISSING,
+        selectedAttestation: null,
+        runtime: null
+      };
+    }
+
+    const evaluated = [];
+    for (const candidate of candidates) {
+      try {
+        validateCapabilityAttestationV1(candidate);
+      } catch {
+        evaluated.push({
+          candidate,
+          runtime: { status: "invalid", isValid: false, reasonCodes: [CAPABILITY_ATTESTATION_REASON_CODE.INVALID] },
+          levelRank: 0,
+          issuerMatch: false,
+          levelMatch: false
+        });
+        continue;
+      }
+      const runtime = evaluateCapabilityAttestationV1(candidate, { at });
+      const levelRank = getCapabilityAttestationLevelRank(candidate.level);
+      const issuerMatch = !effectiveIssuer || String(candidate.issuerAgentId ?? "") === effectiveIssuer;
+      const levelMatch = levelRank >= minRank;
+      evaluated.push({
+        candidate,
+        runtime,
+        levelRank,
+        issuerMatch,
+        levelMatch
+      });
+    }
+
+    const validMatches = evaluated
+      .filter((row) => row.runtime?.isValid === true)
+      .filter((row) => row.issuerMatch)
+      .filter((row) => row.levelMatch)
+      .sort((left, right) => {
+        if (right.levelRank !== left.levelRank) return right.levelRank - left.levelRank;
+        return String(left.candidate?.attestationId ?? "").localeCompare(String(right.candidate?.attestationId ?? ""));
+      });
+
+    if (validMatches.length > 0) {
+      const selected = validMatches[0];
+      return {
+        isValid: true,
+        reasonCode: null,
+        selectedAttestation: selected.candidate,
+        runtime: selected.runtime
+      };
+    }
+
+    const hasIssuerMismatch = evaluated.some((row) => row.runtime?.isValid === true && !row.issuerMatch);
+    const hasLevelMismatch = evaluated.some((row) => row.runtime?.isValid === true && row.issuerMatch && !row.levelMatch);
+    const hasRevoked = evaluated.some((row) => row.runtime?.status === CAPABILITY_ATTESTATION_RUNTIME_STATUS.REVOKED);
+    const hasExpired = evaluated.some((row) => row.runtime?.status === CAPABILITY_ATTESTATION_RUNTIME_STATUS.EXPIRED);
+    const hasNotActive = evaluated.some((row) => row.runtime?.status === CAPABILITY_ATTESTATION_RUNTIME_STATUS.NOT_ACTIVE);
+    const reasonCode = hasIssuerMismatch
+      ? CAPABILITY_ATTESTATION_REASON_CODE.ISSUER_MISMATCH
+      : hasLevelMismatch
+        ? CAPABILITY_ATTESTATION_REASON_CODE.LEVEL_MISMATCH
+        : hasRevoked
+          ? CAPABILITY_ATTESTATION_REASON_CODE.REVOKED
+          : hasExpired
+            ? CAPABILITY_ATTESTATION_REASON_CODE.EXPIRED
+            : hasNotActive
+              ? CAPABILITY_ATTESTATION_REASON_CODE.NOT_ACTIVE
+              : CAPABILITY_ATTESTATION_REASON_CODE.INVALID;
+    return {
+      isValid: false,
+      reasonCode,
+      selectedAttestation: null,
+      runtime: null
+    };
+  }
+
+  async function enforceWorkOrderCapabilityAttestation({
+    tenantId,
+    subjectAgentId,
+    requiredCapability,
+    attestationRequirement,
+    at = nowIso()
+  } = {}) {
+    const requirement = parseWorkOrderCapabilityAttestationRequirement(attestationRequirement, {}, { allowNull: true });
+    if (!requirement || requirement.required !== true) {
+      return {
+        ok: true,
+        enforced: false,
+        requirement: requirement ?? null,
+        capabilityAttestation: null,
+        runtime: null
+      };
+    }
+    let assessment = null;
+    try {
+      assessment = await assessCapabilityAttestationForDiscovery({
+        tenantId,
+        agentId: subjectAgentId,
+        capability: requiredCapability,
+        minLevel: requirement.minLevel,
+        issuerAgentId: requirement.issuerAgentId,
+        at
+      });
+    } catch (err) {
+      if (err?.message === "capability attestations not supported for this store") {
+        return {
+          ok: false,
+          httpStatus: 501,
+          code: "NOT_IMPLEMENTED",
+          message: "capability attestations are required for this work order",
+          details: { message: err?.message ?? String(err) }
+        };
+      }
+      throw err;
+    }
+
+    if (!assessment?.isValid) {
+      return {
+        ok: false,
+        httpStatus: 409,
+        code: "WORK_ORDER_ATTESTATION_BLOCKED",
+        message: "work order capability attestation requirement not satisfied",
+        details: {
+          requiredCapability,
+          subjectAgentId,
+          requirement,
+          reasonCode: assessment?.reasonCode ?? CAPABILITY_ATTESTATION_REASON_CODE.INVALID
+        }
+      };
+    }
+    return {
+      ok: true,
+      enforced: true,
+      requirement,
+      capabilityAttestation: assessment.selectedAttestation ?? null,
+      runtime: assessment.runtime ?? null
+    };
+  }
+
+  async function listRoutingReputationEvents({
+    tenantId,
+    agentId,
+    occurredAtGte = null,
+    occurredAtLte = null,
+    pageSize = 2000
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    const a = String(agentId ?? "").trim();
+    if (!a) throw new TypeError("agentId is required");
+    const safePageSize = Number.isSafeInteger(pageSize) && pageSize > 0 ? Math.min(5000, pageSize) : 2000;
+    const rows = await listReputationEventArtifactsBySubject({
+      tenantId: t,
+      agentId: a,
+      occurredAtGte,
+      occurredAtLte,
+      pageSize: safePageSize
+    });
+    return Array.isArray(rows) ? rows : [];
+  }
+
+  async function computeTrustWeightedRoutingFactors({
+    tenantId,
+    agentId,
+    requesterAgentId = null,
+    reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+    at = nowIso(),
+    capabilityAttestation = null,
+    attestationRuntime = null,
+    capabilityRequested = false
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    const a = String(agentId ?? "").trim();
+    if (!a) throw new TypeError("agentId is required");
+    const counterparty = typeof requesterAgentId === "string" && requesterAgentId.trim() !== "" ? requesterAgentId.trim() : null;
+    const window = parseReputationWindow(reputationWindow);
+    const windowStart = reputationWindowStartAt({ window, at });
+    const events = await listRoutingReputationEvents({
+      tenantId: t,
+      agentId: a,
+      occurredAtGte: windowStart,
+      occurredAtLte: at
+    });
+    const globalStats = computeRoutingReputationEventStats({ events });
+    const relationshipStats = computeRoutingReputationEventStats({ events, counterpartyAgentId: counterparty });
+    return computeTrustWeightedRoutingScore({
+      globalStats,
+      relationshipStats,
+      capabilityAttestation,
+      attestationRuntime,
+      capabilityRequested,
+      requesterAgentId: counterparty
+    });
   }
 
   async function computeAgentReputationSnapshotVersioned({ tenantId, agentId, at = nowIso(), reputationVersion = "v1", reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS } = {}) {
@@ -6747,6 +7888,251 @@ export function createApi({
       offset: safeOffset,
       results
     };
+  }
+
+  async function discoverAgentCards({
+    tenantId,
+    capability = null,
+    status = AGENT_CARD_STATUS.ACTIVE,
+    visibility = AGENT_CARD_VISIBILITY.PUBLIC,
+    runtime = null,
+    requireCapabilityAttestation = false,
+    attestationMinLevel = null,
+    attestationIssuerAgentId = null,
+    includeAttestationMetadata = false,
+    minTrustScore = null,
+    riskTier = null,
+    limit = 50,
+    offset = 0,
+    includeReputation = true,
+    reputationVersion = "v2",
+    reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+    scoreStrategy = "balanced",
+    requesterAgentId = null,
+    includeRoutingFactors = false
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(100, limit) : 50;
+    const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+    const statusFilter = parseDiscoveryStatus(status);
+    const visibilityFilter = parseAgentCardVisibility(visibility, { allowAll: true, defaultVisibility: AGENT_CARD_VISIBILITY.PUBLIC });
+    const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const runtimeFilter = runtime && String(runtime).trim() !== "" ? String(runtime).trim().toLowerCase() : null;
+    const parsedAttestationMinLevel = parseCapabilityAttestationLevel(attestationMinLevel, { allowNull: true });
+    const parsedAttestationIssuerAgentId =
+      typeof attestationIssuerAgentId === "string" && attestationIssuerAgentId.trim() !== "" ? attestationIssuerAgentId.trim() : null;
+    const requireAttestationByPolicy =
+      agentCardPublicRequireCapabilityAttestationValue === true && visibilityFilter === AGENT_CARD_VISIBILITY.PUBLIC;
+    const requireAttestation = requireCapabilityAttestation === true || requireAttestationByPolicy;
+    const policyAttestationMinLevel = requireAttestationByPolicy ? agentCardPublicAttestationMinLevelValue : null;
+    const policyAttestationIssuerAgentId = requireAttestationByPolicy ? agentCardPublicAttestationIssuerAgentIdValue : null;
+    const effectiveAttestationMinLevel = (() => {
+      if (!policyAttestationMinLevel) return parsedAttestationMinLevel;
+      if (!parsedAttestationMinLevel) return policyAttestationMinLevel;
+      const policyRank = getCapabilityAttestationLevelRank(policyAttestationMinLevel);
+      const requestedRank = getCapabilityAttestationLevelRank(parsedAttestationMinLevel);
+      return requestedRank > policyRank ? parsedAttestationMinLevel : policyAttestationMinLevel;
+    })();
+    const effectiveAttestationIssuerAgentId = policyAttestationIssuerAgentId ?? parsedAttestationIssuerAgentId;
+    if (requireCapabilityAttestation === true && !capabilityFilter) {
+      throw new TypeError("capability is required when requireCapabilityAttestation=true");
+    }
+    const version = parseReputationVersion(reputationVersion);
+    const window = parseReputationWindow(reputationWindow);
+    const rankingStrategy = parseScoreStrategy(scoreStrategy);
+    const parsedRequesterAgentId = normalizeOptionalX402RefInput(requesterAgentId, "requesterAgentId", { allowNull: true, max: 200 });
+    const includeRouting = includeRoutingFactors === true || rankingStrategy === "trust_weighted";
+    const evaluatedAt = nowIso();
+    const minScore = minTrustScore === null || minTrustScore === undefined ? null : Number(minTrustScore);
+    if (minScore !== null && (!Number.isSafeInteger(minScore) || minScore < 0 || minScore > 100)) {
+      throw new TypeError("minTrustScore must be an integer within 0..100");
+    }
+    const riskTierFilter = riskTier === null || riskTier === undefined ? null : String(riskTier).trim().toLowerCase();
+    if (riskTierFilter !== null && riskTierFilter !== "low" && riskTierFilter !== "guarded" && riskTierFilter !== "elevated" && riskTierFilter !== "high") {
+      throw new TypeError("riskTier must be low|guarded|elevated|high");
+    }
+
+    let cards = [];
+    if (typeof store.listAgentCards === "function") {
+      cards = await store.listAgentCards({
+        tenantId: t,
+        status: statusFilter === "all" ? null : statusFilter,
+        visibility: visibilityFilter === "all" ? null : visibilityFilter,
+        capability: capabilityFilter,
+        runtime: runtimeFilter,
+        limit: 10_000,
+        offset: 0
+      });
+    } else if (store.agentCards instanceof Map) {
+      for (const row of store.agentCards.values()) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
+        if (statusFilter !== "all" && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        if (visibilityFilter !== "all" && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
+        if (runtimeFilter) {
+          const rowRuntime =
+            row?.host && typeof row.host === "object" && !Array.isArray(row.host) && typeof row.host.runtime === "string"
+              ? row.host.runtime.trim().toLowerCase()
+              : "";
+          if (rowRuntime !== runtimeFilter) continue;
+        }
+        if (capabilityFilter) {
+          const rowCaps = Array.isArray(row.capabilities) ? row.capabilities : [];
+          if (!rowCaps.includes(capabilityFilter)) continue;
+        }
+        cards.push(row);
+      }
+      cards.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
+    }
+
+    const ranked = [];
+    const excludedAttestationCandidates = [];
+    for (const agentCard of cards) {
+      const agentId = String(agentCard?.agentId ?? "");
+      if (!agentId) continue;
+      if (requireAttestation && !capabilityFilter) {
+        const requestedCapabilities = Array.isArray(agentCard?.capabilities)
+          ? [...new Set(agentCard.capabilities.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort((left, right) =>
+              left.localeCompare(right)
+            )
+          : [];
+        if (requestedCapabilities.length === 0) {
+          excludedAttestationCandidates.push({
+            agentId,
+            capability: null,
+            reasonCode: CAPABILITY_ATTESTATION_REASON_CODE.MISSING
+          });
+          continue;
+        }
+        let blockedByAttestation = false;
+        for (const requestedCapability of requestedCapabilities) {
+          const capabilitySelection = await assessCapabilityAttestationForDiscovery({
+            tenantId: t,
+            agentId,
+            capability: requestedCapability,
+            minLevel: effectiveAttestationMinLevel,
+            issuerAgentId: effectiveAttestationIssuerAgentId,
+            at: evaluatedAt
+          });
+          if (capabilitySelection?.isValid !== true) {
+            excludedAttestationCandidates.push({
+              agentId,
+              capability: requestedCapability,
+              reasonCode: capabilitySelection?.reasonCode ?? CAPABILITY_ATTESTATION_REASON_CODE.INVALID
+            });
+            blockedByAttestation = true;
+          }
+        }
+        if (blockedByAttestation) continue;
+      }
+      let attestationSelection = null;
+      const shouldAssessAttestation =
+        capabilityFilter && (requireAttestation || rankingStrategy === "trust_weighted" || includeAttestationMetadata || includeRouting);
+      if (shouldAssessAttestation) {
+        attestationSelection = await assessCapabilityAttestationForDiscovery({
+          tenantId: t,
+          agentId,
+          capability: capabilityFilter,
+          minLevel: effectiveAttestationMinLevel,
+          issuerAgentId: effectiveAttestationIssuerAgentId,
+          at: evaluatedAt
+        });
+        if (requireAttestation && !attestationSelection?.isValid) {
+          excludedAttestationCandidates.push({
+            agentId,
+            capability: capabilityFilter,
+            reasonCode: attestationSelection?.reasonCode ?? CAPABILITY_ATTESTATION_REASON_CODE.INVALID
+          });
+          continue;
+        }
+      }
+      const reputation = await computeAgentReputationSnapshotVersioned({
+        tenantId: t,
+        agentId,
+        at: evaluatedAt,
+        reputationVersion: version,
+        reputationWindow: window
+      });
+      const trustScore = Number(reputation?.trustScore ?? 0);
+      const riskTierValue = String(reputation?.riskTier ?? "high");
+      if (minScore !== null && trustScore < minScore) continue;
+      if (riskTierFilter !== null && riskTierValue !== riskTierFilter) continue;
+      const runVolume =
+        version === "v2" ? Number(reputation?.windows?.[window]?.totalRuns ?? 0) : Number(reputation?.totalRuns ?? 0);
+      let rankingScore = computeMarketplaceRankingScore({
+        reputation,
+        strategy: rankingStrategy,
+        reputationVersion: version,
+        reputationWindow: window
+      });
+      let routingFactors = null;
+      if (rankingStrategy === "trust_weighted" || includeRouting) {
+        const routing = await computeTrustWeightedRoutingFactors({
+          tenantId: t,
+          agentId,
+          requesterAgentId: parsedRequesterAgentId,
+          reputationWindow: window,
+          at: evaluatedAt,
+          capabilityAttestation: attestationSelection?.selectedAttestation ?? null,
+          attestationRuntime: attestationSelection?.runtime ?? null,
+          capabilityRequested: Boolean(capabilityFilter)
+        });
+        if (rankingStrategy === "trust_weighted") rankingScore = routing.rankingScore;
+        routingFactors = routing.routingFactors;
+      }
+      ranked.push({
+        agentCard,
+        reputation,
+        trustScore,
+        riskTier: riskTierValue,
+        runVolume,
+        rankingScore,
+        capabilityAttestation: attestationSelection?.selectedAttestation ?? null,
+        routingFactors
+      });
+    }
+
+    ranked.sort((left, right) => {
+      if (right.rankingScore !== left.rankingScore) return right.rankingScore - left.rankingScore;
+      if (right.trustScore !== left.trustScore) return right.trustScore - left.trustScore;
+      if (right.runVolume !== left.runVolume) return right.runVolume - left.runVolume;
+      return String(left.agentCard?.agentId ?? "").localeCompare(String(right.agentCard?.agentId ?? ""));
+    });
+
+    const total = ranked.length;
+    const paged = ranked.slice(safeOffset, safeOffset + safeLimit);
+    const results = paged.map((entry, index) => {
+      const item = {
+        rank: safeOffset + index + 1,
+        rankingScore: entry.rankingScore,
+        riskTier: entry.riskTier,
+        agentCard: entry.agentCard
+      };
+      if (includeReputation) item.reputation = entry.reputation;
+      if (includeAttestationMetadata) item.capabilityAttestation = entry.capabilityAttestation ?? null;
+      if (includeRouting) item.routingFactors = entry.routingFactors ?? null;
+      return item;
+    });
+
+    const out = {
+      reputationVersion: version,
+      reputationWindow: window,
+      scoreStrategy: rankingStrategy,
+      total,
+      limit: safeLimit,
+      offset: safeOffset,
+      results
+    };
+    if (requireAttestation) out.excludedAttestationCandidates = excludedAttestationCandidates;
+    if (requireAttestationByPolicy) {
+      out.attestationPolicy = {
+        schemaVersion: "AgentCardPublicDiscoveryAttestationPolicy.v1",
+        source: "public_discovery_policy",
+        minLevel: effectiveAttestationMinLevel,
+        issuerAgentId: effectiveAttestationIssuerAgentId
+      };
+    }
+    return out;
   }
 
   function parseMarketplaceRfqStatus(rawValue, { allowAll = true, defaultStatus = "all" } = {}) {
@@ -9432,6 +10818,13 @@ export function createApi({
     return err;
   }
 
+  function buildX402DelegationGrantError(code, message, details = null) {
+    const err = new Error(message);
+    err.code = code;
+    if (details !== null && details !== undefined) err.details = details;
+    return err;
+  }
+
   function buildX402AgentPassportError(code, message, details = null) {
     const err = new Error(message);
     err.code = code;
@@ -10146,6 +11539,248 @@ export function createApi({
       { path: "$" }
     );
     return { lineage };
+  }
+
+  async function resolveX402DelegationGrantForAuthorization({
+    tenantId,
+    gate,
+    gateAgentPassport = null,
+    gateAuthorization = null,
+    delegationGrantRef = null,
+    nowAt,
+    amountCents,
+    currency,
+    payeeProviderId = null
+  } = {}) {
+    const explicitRef =
+      typeof delegationGrantRef === "string" && delegationGrantRef.trim() !== ""
+        ? delegationGrantRef.trim()
+        : null;
+    const gateRef =
+      typeof gate?.delegationGrantRef === "string" && gate.delegationGrantRef.trim() !== ""
+        ? gate.delegationGrantRef.trim()
+        : null;
+    const authRef =
+      typeof gateAuthorization?.delegationGrantRef === "string" && gateAuthorization.delegationGrantRef.trim() !== ""
+        ? gateAuthorization.delegationGrantRef.trim()
+        : null;
+    const passportRef =
+      typeof gateAgentPassport?.delegationGrantRef === "string" && gateAgentPassport.delegationGrantRef.trim() !== ""
+        ? gateAgentPassport.delegationGrantRef.trim()
+        : null;
+
+    const effectiveRef = explicitRef ?? gateRef ?? authRef ?? passportRef;
+    if (!effectiveRef) return { delegationGrant: null, delegationGrantRef: null };
+    const normalizedGrantId = normalizeOptionalX402RefInput(effectiveRef, "delegationGrantRef", { allowNull: false, max: 200 });
+    if (explicitRef && gateRef && explicitRef !== gateRef) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_MISMATCH", "delegationGrantRef does not match gate binding", {
+        gateDelegationGrantRef: gateRef,
+        requestedDelegationGrantRef: explicitRef
+      });
+    }
+    if (typeof store.getDelegationGrant !== "function") {
+      throw buildX402DelegationGrantError(
+        "X402_DELEGATION_GRANT_RESOLVER_UNAVAILABLE",
+        "delegation grant resolver is unavailable for this store",
+        { delegationGrantRef: normalizedGrantId }
+      );
+    }
+    const grant = await store.getDelegationGrant({ tenantId, grantId: normalizedGrantId });
+    if (!grant) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_NOT_FOUND", "delegation grant was not found", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    try {
+      validateDelegationGrantV1(grant);
+    } catch (err) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_SCHEMA_INVALID", "delegation grant failed schema validation", {
+        delegationGrantRef: normalizedGrantId,
+        message: err?.message ?? null
+      });
+    }
+
+    const atIso = typeof nowAt === "string" && nowAt.trim() !== "" ? nowAt.trim() : nowIso();
+    const nowMs = Date.parse(atIso);
+    if (!Number.isFinite(nowMs)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_TIME_INVALID", "authorization timestamp must be an ISO timestamp");
+    }
+
+    const revokedAt =
+      grant?.revocation && typeof grant.revocation === "object" && !Array.isArray(grant.revocation)
+        ? grant.revocation.revokedAt
+        : null;
+    if (typeof revokedAt === "string" && revokedAt.trim() !== "") {
+      const revokedMs = Date.parse(revokedAt);
+      if (Number.isFinite(revokedMs) && revokedMs <= nowMs) {
+        throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_REVOKED", "delegation grant is revoked", {
+          delegationGrantRef: normalizedGrantId,
+          revokedAt
+        });
+      }
+    }
+
+    const notBefore = String(grant?.validity?.notBefore ?? "");
+    const expiresAt = String(grant?.validity?.expiresAt ?? "");
+    const notBeforeMs = Date.parse(notBefore);
+    const expiresAtMs = Date.parse(expiresAt);
+    if (!Number.isFinite(notBeforeMs) || !Number.isFinite(expiresAtMs)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_VALIDITY_INVALID", "delegation grant validity window is invalid", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    if (nowMs < notBeforeMs) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_NOT_ACTIVE", "delegation grant is not active yet", {
+        delegationGrantRef: normalizedGrantId,
+        notBefore
+      });
+    }
+    if (nowMs >= expiresAtMs) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_EXPIRED", "delegation grant is expired", {
+        delegationGrantRef: normalizedGrantId,
+        expiresAt
+      });
+    }
+
+    const depth = Number(grant?.chainBinding?.depth);
+    const maxDepth = Number(grant?.chainBinding?.maxDelegationDepth);
+    if (!Number.isSafeInteger(depth) || !Number.isSafeInteger(maxDepth) || depth < 0 || maxDepth < 0 || depth > maxDepth) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_DEPTH_INVALID", "delegation grant chain depth exceeds max depth", {
+        delegationGrantRef: normalizedGrantId,
+        depth: grant?.chainBinding?.depth ?? null,
+        maxDelegationDepth: grant?.chainBinding?.maxDelegationDepth ?? null
+      });
+    }
+
+    const gatePayerAgentId =
+      typeof gate?.payerAgentId === "string" && gate.payerAgentId.trim() !== "" ? gate.payerAgentId.trim() : null;
+    if (gatePayerAgentId && String(grant.delegateeAgentId ?? "") !== gatePayerAgentId) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_ACTOR_MISMATCH", "delegation grant delegatee does not match gate payer", {
+        delegationGrantRef: normalizedGrantId,
+        delegateeAgentId: grant.delegateeAgentId ?? null,
+        payerAgentId: gatePayerAgentId
+      });
+    }
+
+    const sideEffectingAllowed =
+      grant?.scope && typeof grant.scope === "object" && !Array.isArray(grant.scope) ? grant.scope.sideEffectingAllowed === true : false;
+    if (!sideEffectingAllowed) {
+      throw buildX402DelegationGrantError(
+        "X402_DELEGATION_GRANT_SIDE_EFFECTING_DENIED",
+        "delegation grant does not allow side-effecting execution",
+        { delegationGrantRef: normalizedGrantId }
+      );
+    }
+    const allowedRiskClasses = Array.isArray(grant?.scope?.allowedRiskClasses) ? grant.scope.allowedRiskClasses.map((row) => String(row).toLowerCase()) : [];
+    if (!allowedRiskClasses.includes(DELEGATION_GRANT_RISK_CLASS.FINANCIAL)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_RISK_CLASS_DENIED", "delegation grant does not allow financial risk class", {
+        delegationGrantRef: normalizedGrantId,
+        allowedRiskClasses
+      });
+    }
+
+    const allowedProviders = Array.isArray(grant?.scope?.allowedProviderIds) ? grant.scope.allowedProviderIds.filter(Boolean) : [];
+    if (allowedProviders.length > 0) {
+      const provider = typeof payeeProviderId === "string" && payeeProviderId.trim() !== "" ? payeeProviderId.trim() : null;
+      if (!provider || !allowedProviders.includes(provider)) {
+        throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_PROVIDER_DENIED", "provider is not allowlisted by delegation grant", {
+          delegationGrantRef: normalizedGrantId,
+          payeeProviderId: provider,
+          allowedProviderIds: allowedProviders
+        });
+      }
+    }
+    const allowedTools = Array.isArray(grant?.scope?.allowedToolIds) ? grant.scope.allowedToolIds.filter(Boolean) : [];
+    if (allowedTools.length > 0) {
+      const toolId = typeof gate?.toolId === "string" && gate.toolId.trim() !== "" ? gate.toolId.trim() : null;
+      if (!toolId || !allowedTools.includes(toolId)) {
+        throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_TOOL_DENIED", "tool is not allowlisted by delegation grant", {
+          delegationGrantRef: normalizedGrantId,
+          toolId,
+          allowedToolIds: allowedTools
+        });
+      }
+    }
+
+    const spendCurrency = String(grant?.spendLimit?.currency ?? "").toUpperCase();
+    if (spendCurrency && spendCurrency !== String(currency ?? "").toUpperCase()) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_CURRENCY_MISMATCH", "delegation grant currency does not match gate currency", {
+        delegationGrantRef: normalizedGrantId,
+        grantCurrency: spendCurrency,
+        gateCurrency: currency
+      });
+    }
+    const maxPerCallCents = Number(grant?.spendLimit?.maxPerCallCents ?? 0);
+    if (!Number.isSafeInteger(maxPerCallCents) || maxPerCallCents < 0) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_SPEND_INVALID", "delegation grant maxPerCallCents is invalid", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    if (Number(amountCents) > maxPerCallCents) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_PER_CALL_EXCEEDED", "delegation grant maxPerCallCents exceeded", {
+        delegationGrantRef: normalizedGrantId,
+        amountCents,
+        maxPerCallCents
+      });
+    }
+
+    const maxTotalCents = Number(grant?.spendLimit?.maxTotalCents ?? 0);
+    if (!Number.isSafeInteger(maxTotalCents) || maxTotalCents < 0) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_SPEND_INVALID", "delegation grant maxTotalCents is invalid", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    if (maxTotalCents > 0) {
+      if (typeof store.listX402Receipts !== "function") {
+        throw buildX402DelegationGrantError(
+          "X402_DELEGATION_GRANT_RESOLVER_UNAVAILABLE",
+          "delegation grant cumulative spend check requires x402 receipt listing support",
+          { delegationGrantRef: normalizedGrantId }
+        );
+      }
+      const receipts = await store.listX402Receipts({
+        tenantId,
+        agentId: gatePayerAgentId,
+        limit: 50_000,
+        offset: 0
+      });
+      let usedCents = 0;
+      for (const row of Array.isArray(receipts) ? receipts : []) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        const spendAuth =
+          row?.bindings?.spendAuthorization && typeof row.bindings.spendAuthorization === "object" && !Array.isArray(row.bindings.spendAuthorization)
+            ? row.bindings.spendAuthorization
+            : null;
+        const receiptGrantRef =
+          typeof spendAuth?.delegationGrantRef === "string" && spendAuth.delegationGrantRef.trim() !== ""
+            ? spendAuth.delegationGrantRef.trim()
+            : null;
+        if (receiptGrantRef !== normalizedGrantId) continue;
+        const releasedAmountCents = Number(
+          row?.settlementReceipt?.releasedAmountCents ??
+            row?.releasedAmountCents ??
+            (String(row?.settlementState ?? "").toLowerCase() === "released" ? row?.amountCents : 0)
+        );
+        if (!Number.isSafeInteger(releasedAmountCents) || releasedAmountCents <= 0) continue;
+        usedCents += releasedAmountCents;
+      }
+      const projectedCents = usedCents + Number(amountCents);
+      if (projectedCents > maxTotalCents) {
+        throw buildX402DelegationGrantError(
+          "X402_DELEGATION_GRANT_TOTAL_EXCEEDED",
+          "delegation grant maxTotalCents exceeded",
+          {
+            delegationGrantRef: normalizedGrantId,
+            usedCents,
+            amountCents,
+            projectedCents,
+            maxTotalCents
+          }
+        );
+      }
+    }
+
+    return { delegationGrant: grant, delegationGrantRef: normalizedGrantId };
   }
 
   function tenantSettlementPolicyStoreKey({ tenantId, policyId, policyVersion }) {
@@ -11606,6 +13241,32 @@ export function createApi({
     if (typeof store.getAgentIdentity === "function") return store.getAgentIdentity({ tenantId, agentId });
     if (store.agentIdentities instanceof Map) return store.agentIdentities.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
     throw new TypeError("agent identities not supported for this store");
+  }
+
+  async function getAgentCardRecord({ tenantId, agentId }) {
+    if (typeof store.getAgentCard === "function") return store.getAgentCard({ tenantId, agentId });
+    if (store.agentCards instanceof Map) return store.agentCards.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
+    throw new TypeError("agent cards not supported for this store");
+  }
+
+  async function getSubAgentWorkOrderRecord({ tenantId, workOrderId }) {
+    if (typeof store.getSubAgentWorkOrder === "function") return store.getSubAgentWorkOrder({ tenantId, workOrderId });
+    if (store.subAgentWorkOrders instanceof Map) return store.subAgentWorkOrders.get(makeScopedKey({ tenantId, id: String(workOrderId) })) ?? null;
+    throw new TypeError("sub-agent work orders not supported for this store");
+  }
+
+  async function getCapabilityAttestationRecord({ tenantId, attestationId }) {
+    if (typeof store.getCapabilityAttestation === "function") return store.getCapabilityAttestation({ tenantId, attestationId });
+    if (store.capabilityAttestations instanceof Map) return store.capabilityAttestations.get(makeScopedKey({ tenantId, id: String(attestationId) })) ?? null;
+    throw new TypeError("capability attestations not supported for this store");
+  }
+
+  async function getSubAgentCompletionReceiptRecord({ tenantId, receiptId }) {
+    if (typeof store.getSubAgentCompletionReceipt === "function") return store.getSubAgentCompletionReceipt({ tenantId, receiptId });
+    if (store.subAgentCompletionReceipts instanceof Map) {
+      return store.subAgentCompletionReceipts.get(makeScopedKey({ tenantId, id: String(receiptId) })) ?? null;
+    }
+    throw new TypeError("sub-agent completion receipts not supported for this store");
   }
 
   async function getAgentPassportRecord({ tenantId, agentId }) {
@@ -13243,7 +14904,7 @@ export function createApi({
       Number.isSafeInteger(maxProvidersPerTenant) && maxProvidersPerTenant > 0
         ? Math.min(200, maxProvidersPerTenant)
         : effectiveMoneyRailReconcileMaxProvidersPerTenant;
-    const ids = Array.from(moneyRailAdaptersByProviderId.keys()).sort((a, b) => String(a).localeCompare(String(b)));
+    const ids = Array.from(moneyRailAdapters.keys()).sort((a, b) => String(a).localeCompare(String(b)));
     return ids.slice(0, safeMaxProviders);
   }
 
@@ -21576,6 +23237,9 @@ export function createApi({
       p.startsWith("/ops") ||
       p.startsWith("/x402") ||
       p.startsWith("/runs") ||
+      p.startsWith("/agent-cards") ||
+      p.startsWith("/capability-attestations") ||
+      p.startsWith("/work-orders") ||
       p.startsWith("/agents") ||
       p.startsWith("/tool-calls") ||
       p.startsWith("/jobs")
@@ -35866,6 +37530,192 @@ export function createApi({
 	          if (!delegation) return sendError(res, 404, "delegation not found", null, { code: "NOT_FOUND" });
 	          return sendJson(res, 200, { ok: true, delegation });
 	        }
+
+          if (parts[0] === "delegation-grants" && parts.length === 1 && req.method === "POST") {
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+
+            const body = await readJsonBody(req);
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            const nowAt = nowIso();
+            const grantId =
+              typeof body?.grantId === "string" && body.grantId.trim() !== "" ? body.grantId.trim() : createId("dgrant");
+            const delegatorAgentId =
+              typeof body?.delegatorAgentId === "string" && body.delegatorAgentId.trim() !== "" ? body.delegatorAgentId.trim() : null;
+            const delegateeAgentId =
+              typeof body?.delegateeAgentId === "string" && body.delegateeAgentId.trim() !== "" ? body.delegateeAgentId.trim() : null;
+            if (!delegatorAgentId || !delegateeAgentId) {
+              return sendError(res, 400, "delegatorAgentId and delegateeAgentId are required", null, { code: "SCHEMA_INVALID" });
+            }
+            const expiresAt =
+              typeof body?.validity?.expiresAt === "string" && body.validity.expiresAt.trim() !== ""
+                ? body.validity.expiresAt.trim()
+                : new Date(Date.parse(nowAt) + 24 * 60 * 60 * 1000).toISOString();
+            let delegationGrant = null;
+            try {
+              delegationGrant = buildDelegationGrantV1({
+                grantId,
+                tenantId,
+                delegatorAgentId,
+                delegateeAgentId,
+                scope: {
+                  allowedProviderIds: body?.scope?.allowedProviderIds,
+                  allowedToolIds: body?.scope?.allowedToolIds,
+                  allowedRiskClasses: body?.scope?.allowedRiskClasses ?? [DELEGATION_GRANT_RISK_CLASS.FINANCIAL],
+                  sideEffectingAllowed: body?.scope?.sideEffectingAllowed ?? true
+                },
+                spendLimit: {
+                  currency: body?.spendLimit?.currency ?? "USD",
+                  maxPerCallCents: body?.spendLimit?.maxPerCallCents,
+                  maxTotalCents: body?.spendLimit?.maxTotalCents
+                },
+                chainBinding: {
+                  rootGrantHash: body?.chainBinding?.rootGrantHash,
+                  parentGrantHash: body?.chainBinding?.parentGrantHash ?? null,
+                  depth: body?.chainBinding?.depth ?? 0,
+                  maxDelegationDepth: body?.chainBinding?.maxDelegationDepth ?? 0
+                },
+                validity: {
+                  issuedAt: body?.validity?.issuedAt ?? nowAt,
+                  notBefore: body?.validity?.notBefore ?? nowAt,
+                  expiresAt
+                },
+                revocation: {
+                  revocable: body?.revocation?.revocable !== false,
+                  revokedAt: body?.revocation?.revokedAt ?? null,
+                  revocationReasonCode: body?.revocation?.revocationReasonCode ?? null
+                },
+                metadata:
+                  body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : undefined,
+                createdAt: nowAt
+              });
+              validateDelegationGrantV1(delegationGrant);
+            } catch (err) {
+              return sendError(res, 400, "invalid delegation grant", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+
+            const responseBody = { ok: true, delegationGrant };
+            const ops = [{ kind: "DELEGATION_GRANT_UPSERT", tenantId, grantId: delegationGrant.grantId, delegationGrant }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+            }
+            await store.commitTx({ at: nowAt, ops });
+            return sendJson(res, 201, responseBody);
+          }
+
+          if (parts[0] === "delegation-grants" && parts.length === 1 && req.method === "GET") {
+            const grantId = url.searchParams.get("grantId");
+            const grantHash = url.searchParams.get("grantHash");
+            const delegatorAgentId = url.searchParams.get("delegatorAgentId");
+            const delegateeAgentId = url.searchParams.get("delegateeAgentId");
+            const includeRevokedRaw = url.searchParams.get("includeRevoked");
+            const limitRaw = url.searchParams.get("limit");
+            const offsetRaw = url.searchParams.get("offset");
+            const includeRevoked =
+              includeRevokedRaw === null
+                ? true
+                : !["0", "false", "no", "off"].includes(String(includeRevokedRaw).trim().toLowerCase());
+            const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
+            const offset = offsetRaw === null || offsetRaw === "" ? 0 : Number(offsetRaw);
+            if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 2000) {
+              return sendError(res, 400, "invalid list query", { message: "limit must be an integer in range 1..2000" }, { code: "SCHEMA_INVALID" });
+            }
+            if (!Number.isSafeInteger(offset) || offset < 0) {
+              return sendError(res, 400, "invalid list query", { message: "offset must be a non-negative integer" }, { code: "SCHEMA_INVALID" });
+            }
+            if (typeof store.listDelegationGrants !== "function") {
+              return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+            }
+            let grants = [];
+            try {
+              grants = await store.listDelegationGrants({
+                tenantId,
+                grantId: grantId && grantId.trim() !== "" ? grantId.trim() : null,
+                grantHash: grantHash && grantHash.trim() !== "" ? grantHash.trim() : null,
+                delegatorAgentId: delegatorAgentId && delegatorAgentId.trim() !== "" ? delegatorAgentId.trim() : null,
+                delegateeAgentId: delegateeAgentId && delegateeAgentId.trim() !== "" ? delegateeAgentId.trim() : null,
+                includeRevoked,
+                limit,
+                offset
+              });
+            } catch (err) {
+              return sendError(res, 400, "invalid delegation grant query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            return sendJson(res, 200, { ok: true, grants, limit, offset });
+          }
+
+          if (parts[0] === "delegation-grants" && parts[1] && parts.length === 2 && req.method === "GET") {
+            const grantId = parts[1];
+            if (typeof store.getDelegationGrant !== "function") {
+              return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+            }
+            const delegationGrant = await store.getDelegationGrant({ tenantId, grantId });
+            if (!delegationGrant) return sendError(res, 404, "delegation grant not found", null, { code: "NOT_FOUND" });
+            return sendJson(res, 200, { ok: true, delegationGrant });
+          }
+
+          if (parts[0] === "delegation-grants" && parts[1] && parts[2] === "revoke" && parts.length === 3 && req.method === "POST") {
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+
+            const grantId = parts[1];
+            const body = await readJsonBody(req);
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            if (typeof store.getDelegationGrant !== "function") {
+              return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+            }
+            const existingGrant = await store.getDelegationGrant({ tenantId, grantId });
+            if (!existingGrant) return sendError(res, 404, "delegation grant not found", null, { code: "NOT_FOUND" });
+            let revokedGrant = null;
+            try {
+              revokedGrant = revokeDelegationGrantV1({
+                grant: existingGrant,
+                revokedAt: nowIso(),
+                revocationReasonCode: body?.revocationReasonCode ?? body?.reasonCode ?? null
+              });
+            } catch (err) {
+              return sendError(res, 409, "delegation grant revoke blocked", { message: err?.message }, { code: "X402_DELEGATION_GRANT_REVOKE_BLOCKED" });
+            }
+
+            const at = nowIso();
+            const responseBody = { ok: true, delegationGrant: revokedGrant };
+            const ops = [{ kind: "DELEGATION_GRANT_UPSERT", tenantId, grantId: revokedGrant.grantId, delegationGrant: revokedGrant }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+            }
+            await store.commitTx({ at, ops });
+            return sendJson(res, 200, responseBody);
+          }
 	      }
 
 	      // x402 verification gate (HTTP middleware surface).
@@ -36664,10 +38514,8 @@ export function createApi({
             return sendError(res, 409, "x402 wallet policy fingerprint missing", null, { code: "X402_WALLET_POLICY_FINGERPRINT_MISSING" });
           }
 
-          let idemHeaderValue = null;
-          try {
-            idemHeaderValue = extractIdempotencyKey(req.headers["x-idempotency-key"] ?? null);
-          } catch {}
+          const idemHeaderRaw = req.headers["x-idempotency-key"] ?? null;
+          const idemHeaderValue = typeof idemHeaderRaw === "string" && idemHeaderRaw.trim() !== "" ? idemHeaderRaw.trim() : null;
           const decisionPayload = buildX402WalletIssuerDecisionPayloadV1({
             decisionId: createId("x402dec"),
             gateId,
@@ -37555,6 +39403,15 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid toolId", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          let delegationGrantRef = null;
+          try {
+            delegationGrantRef = normalizeOptionalX402RefInput(body?.delegationGrantRef ?? null, "delegationGrantRef", {
+              allowNull: true,
+              max: 200
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid delegationGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
 
           const existingGate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
           if (existingGate && !idemStoreKey) return sendError(res, 409, "gate already exists", null, { code: "ALREADY_EXISTS" });
@@ -37613,8 +39470,9 @@ export function createApi({
 	              payerAgentId,
 	              payeeAgentId,
 	              ...(agreementHash ? { agreementHash } : {}),
-	              ...(providerKey ? { providerKey } : {}),
+              ...(providerKey ? { providerKey } : {}),
                 ...(toolId ? { toolId } : {}),
+                ...(delegationGrantRef ? { delegationGrantRef } : {}),
                 ...(agentPassport ? { agentPassport } : {}),
 	              terms,
 	              upstream,
@@ -37874,6 +39732,15 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid quoteId", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          let requestedDelegationGrantRef = null;
+          try {
+            requestedDelegationGrantRef = normalizeOptionalX402RefInput(body?.delegationGrantRef ?? null, "delegationGrantRef", {
+              allowNull: true,
+              max: 200
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid delegationGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
           let walletAuthorizationDecisionToken = null;
           try {
             walletAuthorizationDecisionToken = normalizeX402WalletIssuerDecisionTokenInput(
@@ -37893,6 +39760,24 @@ export function createApi({
             );
           } catch (err) {
             return sendError(res, 400, "invalid escalationOverrideToken", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          let promptRiskSignals = null;
+          try {
+            promptRiskSignals = normalizeX402PromptRiskSignalsInput(
+              body?.promptRiskSignals ?? body?.riskSignals ?? null,
+              { fieldName: "promptRiskSignals", allowNull: true }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid promptRiskSignals", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          let promptRiskOverride = null;
+          try {
+            promptRiskOverride = normalizeX402PromptRiskOverrideInput(
+              body?.promptRiskOverride ?? body?.riskOverride ?? null,
+              { fieldName: "promptRiskOverride", allowNull: true }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid promptRiskOverride", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
 
           const gate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
@@ -37941,6 +39826,38 @@ export function createApi({
           const nowAt = nowIso();
           const nowMs = Date.parse(nowAt);
           const nowUnix = Math.floor(nowMs / 1000);
+          const promptRiskEvaluation = evaluateX402PromptRiskGuardrail({
+            gate,
+            principalId,
+            promptRiskSignals,
+            promptRiskOverride,
+            at: nowAt
+          });
+          if (promptRiskEvaluation.blocked) {
+            if (promptRiskEvaluation.changed && promptRiskEvaluation.nextState) {
+              const blockedGate = normalizeForCanonicalJson(
+                {
+                  ...gate,
+                  promptRisk: promptRiskEvaluation.nextState,
+                  updatedAt: nowAt
+                },
+                { path: "$" }
+              );
+              await store.commitTx({ at: nowAt, ops: [{ kind: "X402_GATE_UPSERT", tenantId, gateId, gate: blockedGate }] });
+            }
+            return sendError(
+              res,
+              409,
+              promptRiskEvaluation.message,
+              {
+                gateId,
+                forcedMode: promptRiskEvaluation.forcedMode ?? null,
+                suspicious: promptRiskEvaluation.suspicious,
+                overrideRequired: true
+              },
+              { code: promptRiskEvaluation.code }
+            );
+          }
           const defaultAuthorizationRef = `auth_${gateId}`;
           const existingAuthorization =
             gate?.authorization && typeof gate.authorization === "object" && !Array.isArray(gate.authorization) ? gate.authorization : null;
@@ -38077,6 +39994,7 @@ export function createApi({
           }
           let resolvedWalletPolicy = null;
           let resolvedDelegationLineage = null;
+          let resolvedDelegationGrant = null;
           if (gateAgentPassport) {
             const walletPolicyResolution = await resolveX402WalletPolicyForPassport({
               tenantId,
@@ -38113,6 +40031,49 @@ export function createApi({
                   { code: err?.code ?? "X402_DELEGATION_LINEAGE_INVALID" }
                 );
               }
+            }
+          }
+          const delegationGrantRefFromGate =
+            typeof gate?.delegationGrantRef === "string" && gate.delegationGrantRef.trim() !== "" ? gate.delegationGrantRef.trim() : null;
+          const delegationGrantRefFromAuthorization =
+            typeof existingAuthorization?.delegationGrantRef === "string" && existingAuthorization.delegationGrantRef.trim() !== ""
+              ? existingAuthorization.delegationGrantRef.trim()
+              : null;
+          if (requestedDelegationGrantRef && delegationGrantRefFromGate && requestedDelegationGrantRef !== delegationGrantRefFromGate) {
+            return sendError(
+              res,
+              409,
+              "delegationGrantRef does not match gate binding",
+              {
+                gateDelegationGrantRef: delegationGrantRefFromGate,
+                requestedDelegationGrantRef
+              },
+              { code: "X402_DELEGATION_GRANT_MISMATCH" }
+            );
+          }
+          const effectiveDelegationGrantRef = requestedDelegationGrantRef ?? delegationGrantRefFromGate ?? delegationGrantRefFromAuthorization ?? null;
+          if (effectiveDelegationGrantRef) {
+            try {
+              const grantResolution = await resolveX402DelegationGrantForAuthorization({
+                tenantId,
+                gate,
+                gateAgentPassport,
+                gateAuthorization: existingAuthorization,
+                delegationGrantRef: effectiveDelegationGrantRef,
+                nowAt,
+                amountCents,
+                currency,
+                payeeProviderId
+              });
+              resolvedDelegationGrant = grantResolution?.delegationGrant ?? null;
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "x402 delegation grant blocked authorization",
+                { message: err?.message ?? null, code: err?.code ?? null, details: err?.details ?? null },
+                { code: err?.code ?? "X402_DELEGATION_GRANT_INVALID" }
+              );
             }
           }
           const existingAuthorizationExecutionIntent =
@@ -38468,6 +40429,12 @@ export function createApi({
               tokenKid: existingToken.kid ?? null,
               quoteId: effectiveQuoteId,
               quoteSha256: effectiveQuoteSha256,
+              delegationGrantRef:
+                typeof existingAuthorization?.delegationGrantRef === "string" && existingAuthorization.delegationGrantRef.trim() !== ""
+                  ? existingAuthorization.delegationGrantRef.trim()
+                  : typeof gate?.delegationGrantRef === "string" && gate.delegationGrantRef.trim() !== ""
+                    ? gate.delegationGrantRef.trim()
+                    : null,
               reserve: {
                 amountCents,
                 currency,
@@ -38588,6 +40555,8 @@ export function createApi({
           const authorityGrantRef =
             typeof resolvedDelegationLineage?.leafDelegationId === "string" && resolvedDelegationLineage.leafDelegationId.trim() !== ""
               ? resolvedDelegationLineage.leafDelegationId.trim()
+              : typeof resolvedDelegationGrant?.grantId === "string" && resolvedDelegationGrant.grantId.trim() !== ""
+                ? resolvedDelegationGrant.grantId.trim()
               : deriveX402AuthorityGrantRef({
                   gateId,
                   gateAgentPassport,
@@ -38726,11 +40695,20 @@ export function createApi({
           const nextGate = normalizeForCanonicalJson(
             {
               ...gate,
+              ...(promptRiskEvaluation.nextState ? { promptRisk: promptRiskEvaluation.nextState } : {}),
               authorization: {
                 schemaVersion: "X402GateAuthorization.v1",
                 authorizationRef,
                 status: "reserved",
                 authorityGrantRef: effectiveAuthorityGrantRef,
+                delegationGrantRef:
+                  typeof resolvedDelegationGrant?.grantId === "string" && resolvedDelegationGrant.grantId.trim() !== ""
+                    ? resolvedDelegationGrant.grantId.trim()
+                    : typeof gate?.delegationGrantRef === "string" && gate.delegationGrantRef.trim() !== ""
+                      ? gate.delegationGrantRef.trim()
+                      : typeof existingAuthorization?.delegationGrantRef === "string" && existingAuthorization.delegationGrantRef.trim() !== ""
+                        ? existingAuthorization.delegationGrantRef.trim()
+                        : null,
                 ...(authorizationDelegationLineage ? { delegationLineage: authorizationDelegationLineage } : {}),
                 ...(effectiveExecutionIntent ? { executionIntent: effectiveExecutionIntent } : {}),
                 walletEscrow: {
@@ -38779,6 +40757,10 @@ export function createApi({
             tokenKid: minted.kid,
             quoteId: effectiveQuoteId,
             quoteSha256: effectiveQuoteSha256,
+            delegationGrantRef:
+              typeof resolvedDelegationGrant?.grantId === "string" && resolvedDelegationGrant.grantId.trim() !== ""
+                ? resolvedDelegationGrant.grantId.trim()
+                : null,
             reserve: {
               amountCents,
               currency,
@@ -38828,6 +40810,24 @@ export function createApi({
           if (!requireProtocolHeaderForWrite(req, res)) return;
 
           const body = await readJsonBody(req);
+          let promptRiskSignals = null;
+          try {
+            promptRiskSignals = normalizeX402PromptRiskSignalsInput(
+              body?.promptRiskSignals ?? body?.riskSignals ?? null,
+              { fieldName: "promptRiskSignals", allowNull: true }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid promptRiskSignals", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          let promptRiskOverride = null;
+          try {
+            promptRiskOverride = normalizeX402PromptRiskOverrideInput(
+              body?.promptRiskOverride ?? body?.riskOverride ?? null,
+              { fieldName: "promptRiskOverride", allowNull: true }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid promptRiskOverride", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
           let idemStoreKey = null;
           let idemRequestHash = null;
           try {
@@ -38857,6 +40857,14 @@ export function createApi({
           if (String(settlement.status ?? "").toLowerCase() !== "locked") {
             return sendJson(res, 200, { ok: true, gate, settlement, alreadyResolved: true });
           }
+          const promptRiskEvaluationAt = nowIso();
+          const promptRiskEvaluation = evaluateX402PromptRiskGuardrail({
+            gate,
+            principalId,
+            promptRiskSignals,
+            promptRiskOverride,
+            at: promptRiskEvaluationAt
+          });
 
           const gateAgentPassport =
             gate?.agentPassport && typeof gate.agentPassport === "object" && !Array.isArray(gate.agentPassport) ? gate.agentPassport : null;
@@ -39300,6 +41308,37 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid verification/policy inputs", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          if (
+            policyDecision?.settlementStatus === AGENT_RUN_SETTLEMENT_STATUS.RELEASED &&
+            promptRiskEvaluation.blocked
+          ) {
+            if (promptRiskEvaluation.changed && promptRiskEvaluation.nextState) {
+              const blockedGate = normalizeForCanonicalJson(
+                {
+                  ...gate,
+                  promptRisk: promptRiskEvaluation.nextState,
+                  updatedAt: promptRiskEvaluationAt
+                },
+                { path: "$" }
+              );
+              await store.commitTx({
+                at: promptRiskEvaluationAt,
+                ops: [{ kind: "X402_GATE_UPSERT", tenantId, gateId, gate: blockedGate }]
+              });
+            }
+            return sendError(
+              res,
+              409,
+              promptRiskEvaluation.message,
+              {
+                gateId,
+                forcedMode: promptRiskEvaluation.forcedMode ?? null,
+                suspicious: promptRiskEvaluation.suspicious,
+                overrideRequired: true
+              },
+              { code: promptRiskEvaluation.code }
+            );
+          }
           const policyHashUsed = computeSettlementPolicyHash(policyDecision.policy);
           let tokenPayloadForBindings = null;
           try {
@@ -39714,6 +41753,12 @@ export function createApi({
                     sponsorWalletRef: settlementAssignmentSponsorWalletRef,
                     ...(settlementAssignmentPolicyRef ? { policyRef: settlementAssignmentPolicyRef } : {}),
                     agentKeyId: typeof spendAuthorizationSource.agentKeyId === "string" ? spendAuthorizationSource.agentKeyId : null,
+                    delegationGrantRef:
+                      typeof gateAuthorization?.delegationGrantRef === "string" && gateAuthorization.delegationGrantRef.trim() !== ""
+                        ? gateAuthorization.delegationGrantRef.trim()
+                        : typeof gate?.delegationGrantRef === "string" && gate.delegationGrantRef.trim() !== ""
+                          ? gate.delegationGrantRef.trim()
+                          : null,
                     delegationRef: delegationBindingRefs.effectiveDelegationRef ?? authorityGrantRef,
                     rootDelegationRef: delegationBindingRefs.rootDelegationRef,
                     rootDelegationHash: delegationBindingRefs.rootDelegationHash,
@@ -39964,6 +42009,7 @@ export function createApi({
 	          const nextGate = normalizeForCanonicalJson(
 	            {
 	              ...gate,
+                ...(promptRiskEvaluation.nextState ? { promptRisk: promptRiskEvaluation.nextState } : {}),
 	              status: "resolved",
 	              resolvedAt: at,
               authorization:
@@ -41005,6 +43051,1364 @@ export function createApi({
 	              : null;
 	          return sendJson(res, 200, { ok: true, gate, settlement, holdbackSettlement });
 	        }
+      }
+
+      if (req.method === "POST" && path === "/agent-cards") {
+        if (typeof store.getAgentCard !== "function" && !(store.agentCards instanceof Map)) {
+          return sendError(res, 501, "agent cards not supported for this store");
+        }
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const agentId = typeof body?.agentId === "string" && body.agentId.trim() !== "" ? body.agentId.trim() : null;
+        if (!agentId) return sendError(res, 400, "agentId is required", null, { code: "SCHEMA_INVALID" });
+
+        let agentIdentity = null;
+        try {
+          agentIdentity = await getAgentIdentityRecord({ tenantId, agentId });
+        } catch (err) {
+          return sendError(res, 400, "invalid agentId", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        if (!agentIdentity) return sendError(res, 404, "agent identity not found", null, { code: "NOT_FOUND" });
+
+        let existingCard = null;
+        try {
+          existingCard = await getAgentCardRecord({ tenantId, agentId });
+        } catch (err) {
+          return sendError(res, 501, "agent cards not supported for this store", { message: err?.message });
+        }
+        let requestedVisibility = AGENT_CARD_VISIBILITY.PUBLIC;
+        try {
+          requestedVisibility = parseAgentCardVisibility(body?.visibility, {
+            allowAll: false,
+            defaultVisibility: existingCard?.visibility ?? AGENT_CARD_VISIBILITY.PUBLIC
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid agent card visibility", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const shouldChargePublicListingFee =
+          requestedVisibility === AGENT_CARD_VISIBILITY.PUBLIC &&
+          String(existingCard?.visibility ?? "").toLowerCase() !== AGENT_CARD_VISIBILITY.PUBLIC &&
+          agentCardPublicListingFeeCentsValue > 0;
+
+        const upsertedAt = nowIso();
+        let agentCard = null;
+        try {
+          agentCard = buildAgentCardV1({
+            tenantId,
+            agentIdentity,
+            previousCard: existingCard,
+            nowAt: upsertedAt,
+            cardInput: {
+              agentId,
+              displayName: body?.displayName ?? undefined,
+              description: body?.description ?? undefined,
+              capabilities: body?.capabilities ?? undefined,
+              visibility: body?.visibility ?? undefined,
+              host: body?.host ?? undefined,
+              priceHint: body?.priceHint ?? undefined,
+              attestations: body?.attestations ?? undefined,
+              tags: body?.tags ?? undefined,
+              metadata: body?.metadata ?? undefined
+            }
+          });
+          validateAgentCardV1(agentCard);
+        } catch (err) {
+          return sendError(res, 400, "invalid agent card", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        if (agentCard.visibility === AGENT_CARD_VISIBILITY.PUBLIC && agentCardPublicRequireCapabilityAttestationValue) {
+          const capabilities = Array.isArray(agentCard.capabilities) ? agentCard.capabilities : [];
+          if (capabilities.length === 0) {
+            return sendError(
+              res,
+              409,
+              "public agent card capability attestations are required",
+              {
+                agentId,
+                minLevel: agentCardPublicAttestationMinLevelValue,
+                issuerAgentId: agentCardPublicAttestationIssuerAgentIdValue,
+                blockingCapabilities: []
+              },
+              { code: "AGENT_CARD_PUBLIC_ATTESTATION_REQUIRED" }
+            );
+          }
+          const blockingCapabilities = [];
+          try {
+            for (const capabilityName of capabilities) {
+              const attestationCheck = await assessCapabilityAttestationForDiscovery({
+                tenantId,
+                agentId,
+                capability: capabilityName,
+                minLevel: agentCardPublicAttestationMinLevelValue,
+                issuerAgentId: agentCardPublicAttestationIssuerAgentIdValue,
+                at: upsertedAt
+              });
+              if (attestationCheck?.isValid !== true) {
+                blockingCapabilities.push({
+                  capability: capabilityName,
+                  reasonCode: attestationCheck?.reasonCode ?? CAPABILITY_ATTESTATION_REASON_CODE.INVALID
+                });
+              }
+            }
+          } catch (err) {
+            if (err?.message === "capability attestations not supported for this store") {
+              return sendError(
+                res,
+                501,
+                "capability attestations are required for public agent card publishing",
+                null,
+                { code: "AGENT_CARD_PUBLIC_ATTESTATION_UNSUPPORTED" }
+              );
+            }
+            return sendError(res, 400, "invalid capability attestation query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          if (blockingCapabilities.length > 0) {
+            return sendError(
+              res,
+              409,
+              "public agent card capability attestations are required",
+              {
+                agentId,
+                minLevel: agentCardPublicAttestationMinLevelValue,
+                issuerAgentId: agentCardPublicAttestationIssuerAgentIdValue,
+                blockingCapabilities
+              },
+              { code: "AGENT_CARD_PUBLIC_ATTESTATION_REQUIRED" }
+            );
+          }
+        }
+
+        let listingFeeMetadata = null;
+        const listingWalletOps = [];
+        if (shouldChargePublicListingFee) {
+          const hasWalletStore = typeof store.getAgentWallet === "function" || store.agentWallets instanceof Map;
+          if (!hasWalletStore) {
+            return sendError(
+              res,
+              501,
+              "agent wallets are required for public listing fee enforcement",
+              null,
+              { code: "AGENT_CARD_PUBLIC_LISTING_FEE_UNSUPPORTED" }
+            );
+          }
+          if (String(agentCardPublicListingFeeCollectorAgentIdValue) === String(agentId)) {
+            return sendError(
+              res,
+              409,
+              "public listing fee collector cannot equal agentId",
+              null,
+              { code: "AGENT_CARD_PUBLIC_LISTING_FEE_MISCONFIGURED" }
+            );
+          }
+          let collectorIdentity = null;
+          try {
+            collectorIdentity = await getAgentIdentityRecord({
+              tenantId,
+              agentId: agentCardPublicListingFeeCollectorAgentIdValue
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid collector agent identity", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          if (!collectorIdentity) {
+            return sendError(
+              res,
+              409,
+              "public listing fee collector agent identity not found",
+              null,
+              { code: "AGENT_CARD_PUBLIC_LISTING_FEE_MISCONFIGURED" }
+            );
+          }
+          let payerWalletExisting = null;
+          let collectorWalletExisting = null;
+          try {
+            payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId });
+            collectorWalletExisting = await getAgentWalletRecord({ tenantId, agentId: agentCardPublicListingFeeCollectorAgentIdValue });
+          } catch (err) {
+            return sendError(res, 400, "invalid agent wallet query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          let payerWallet = ensureAgentWallet({
+            wallet: payerWalletExisting,
+            tenantId,
+            agentId,
+            currency: agentCardPublicListingFeeCurrencyValue,
+            at: upsertedAt
+          });
+          let collectorWallet = ensureAgentWallet({
+            wallet: collectorWalletExisting,
+            tenantId,
+            agentId: agentCardPublicListingFeeCollectorAgentIdValue,
+            currency: agentCardPublicListingFeeCurrencyValue,
+            at: upsertedAt
+          });
+          try {
+            const moved = transferAgentWalletAvailable({
+              fromWallet: payerWallet,
+              toWallet: collectorWallet,
+              amountCents: agentCardPublicListingFeeCentsValue,
+              at: upsertedAt
+            });
+            payerWallet = moved.fromWallet;
+            collectorWallet = moved.toWallet;
+          } catch (err) {
+            if (err?.code === "INSUFFICIENT_WALLET_BALANCE") {
+              return sendError(res, 402, "insufficient wallet balance for public listing fee", { message: err?.message }, { code: "INSUFFICIENT_FUNDS" });
+            }
+            return sendError(res, 400, "public listing fee transfer failed", { message: err?.message }, { code: err?.code ?? "WALLET_TRANSFER_FAILED" });
+          }
+          listingWalletOps.push({ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet });
+          listingWalletOps.push({ kind: "AGENT_WALLET_UPSERT", tenantId, wallet: collectorWallet });
+          listingFeeMetadata = normalizeForCanonicalJson(
+            {
+              schemaVersion: "AgentCardPublicListingFee.v1",
+              amountCents: agentCardPublicListingFeeCentsValue,
+              currency: agentCardPublicListingFeeCurrencyValue,
+              collectorAgentId: agentCardPublicListingFeeCollectorAgentIdValue,
+              chargedAt: upsertedAt
+            },
+            { path: "$.metadata.publicListingFee" }
+          );
+        }
+
+        if (listingFeeMetadata) {
+          const metadataBase =
+            agentCard.metadata && typeof agentCard.metadata === "object" && !Array.isArray(agentCard.metadata) ? agentCard.metadata : {};
+          let cardMetadataInput = null;
+          try {
+            cardMetadataInput = normalizeForCanonicalJson(
+              {
+                ...metadataBase,
+                publicListingFee: listingFeeMetadata
+              },
+              { path: "$.metadata" }
+            );
+            agentCard = buildAgentCardV1({
+              tenantId,
+              agentIdentity,
+              previousCard: existingCard,
+              nowAt: upsertedAt,
+              cardInput: {
+                agentId,
+                displayName: body?.displayName ?? undefined,
+                description: body?.description ?? undefined,
+                capabilities: body?.capabilities ?? undefined,
+                visibility: body?.visibility ?? undefined,
+                host: body?.host ?? undefined,
+                priceHint: body?.priceHint ?? undefined,
+                attestations: body?.attestations ?? undefined,
+                tags: body?.tags ?? undefined,
+                metadata: cardMetadataInput
+              }
+            });
+            validateAgentCardV1(agentCard);
+          } catch (err) {
+            return sendError(res, 400, "invalid agent card", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+        }
+
+        const created = !existingCard;
+        const responseStatusCode = created ? 201 : 200;
+        const responseBody = { ok: true, agentCard };
+        const ops = [...listingWalletOps, { kind: "AGENT_CARD_UPSERT", tenantId, agentId, agentCard }];
+        if (idemStoreKey) {
+          ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: responseStatusCode, body: responseBody } });
+        }
+        await commitTx(ops);
+        return sendJson(res, responseStatusCode, responseBody);
+      }
+
+      if (req.method === "GET" && path === "/agent-cards/discover") {
+        const includeReputationRaw = url.searchParams.get("includeReputation");
+        const includeReputation =
+          includeReputationRaw === null ? true : ["1", "true", "yes", "on"].includes(String(includeReputationRaw).trim().toLowerCase());
+        const requireCapabilityAttestationRaw = url.searchParams.get("requireCapabilityAttestation");
+        const requireCapabilityAttestation =
+          requireCapabilityAttestationRaw === null
+            ? false
+            : ["1", "true", "yes", "on"].includes(String(requireCapabilityAttestationRaw).trim().toLowerCase());
+        const includeAttestationMetadataRaw = url.searchParams.get("includeAttestationMetadata");
+        const includeAttestationMetadata =
+          includeAttestationMetadataRaw === null
+            ? false
+            : ["1", "true", "yes", "on"].includes(String(includeAttestationMetadataRaw).trim().toLowerCase());
+        const includeRoutingFactorsRaw = url.searchParams.get("includeRoutingFactors");
+        const includeRoutingFactors =
+          includeRoutingFactorsRaw === null
+            ? false
+            : ["1", "true", "yes", "on"].includes(String(includeRoutingFactorsRaw).trim().toLowerCase());
+        try {
+          const result = await discoverAgentCards({
+            tenantId,
+            capability: url.searchParams.get("capability"),
+            status: url.searchParams.get("status"),
+            visibility: url.searchParams.get("visibility"),
+            runtime: url.searchParams.get("runtime"),
+            requireCapabilityAttestation,
+            attestationMinLevel: url.searchParams.get("attestationMinLevel"),
+            attestationIssuerAgentId: url.searchParams.get("attestationIssuerAgentId"),
+            includeAttestationMetadata,
+            minTrustScore: url.searchParams.get("minTrustScore"),
+            riskTier: url.searchParams.get("riskTier"),
+            limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 50,
+            offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0,
+            includeReputation,
+            reputationVersion: url.searchParams.get("reputationVersion") ?? "v2",
+            reputationWindow: url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+            scoreStrategy: url.searchParams.get("scoreStrategy") ?? "balanced",
+            requesterAgentId: url.searchParams.get("requesterAgentId"),
+            includeRoutingFactors
+          });
+          return sendJson(res, 200, { ok: true, ...result });
+        } catch (err) {
+          return sendError(res, 400, "invalid agent card discovery query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+      }
+
+      if (req.method === "GET" && path === "/agent-cards") {
+        const status = url.searchParams.get("status");
+        const visibility = url.searchParams.get("visibility");
+        const capability = url.searchParams.get("capability");
+        const runtime = url.searchParams.get("runtime");
+        const agentId = url.searchParams.get("agentId");
+        const limitRaw = url.searchParams.get("limit");
+        const offsetRaw = url.searchParams.get("offset");
+        const limit = limitRaw ? Number(limitRaw) : 200;
+        const offset = offsetRaw ? Number(offsetRaw) : 0;
+        const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+        const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+        let statusFilter = null;
+        let visibilityFilter = null;
+        try {
+          statusFilter = status && status.trim() !== "" ? parseDiscoveryStatus(status) : null;
+          visibilityFilter = visibility && visibility.trim() !== "" ? parseAgentCardVisibility(visibility, { allowAll: false }) : null;
+        } catch (err) {
+          return sendError(res, 400, "invalid agent card query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        let cards = [];
+        try {
+          if (typeof store.listAgentCards === "function") {
+            cards = await store.listAgentCards({
+              tenantId,
+              agentId: typeof agentId === "string" && agentId.trim() !== "" ? agentId.trim() : null,
+              status: statusFilter === "all" ? null : statusFilter,
+              visibility: visibilityFilter,
+              capability: typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null,
+              runtime: typeof runtime === "string" && runtime.trim() !== "" ? runtime.trim().toLowerCase() : null,
+              limit: safeLimit,
+              offset: safeOffset
+            });
+          } else if (store.agentCards instanceof Map) {
+            cards = Array.from(store.agentCards.values())
+              .filter((row) => row && typeof row === "object")
+              .filter((row) => normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) === tenantId)
+              .filter((row) => (statusFilter && statusFilter !== "all" ? String(row.status ?? "").toLowerCase() === statusFilter : true))
+              .filter((row) => (visibilityFilter ? String(row.visibility ?? "").toLowerCase() === visibilityFilter : true))
+              .filter((row) =>
+                typeof capability === "string" && capability.trim() !== ""
+                  ? Array.isArray(row.capabilities) && row.capabilities.includes(capability.trim())
+                  : true
+              )
+              .filter((row) => {
+                if (typeof runtime !== "string" || runtime.trim() === "") return true;
+                const hostRuntime =
+                  row?.host && typeof row.host === "object" && !Array.isArray(row.host) && typeof row.host.runtime === "string"
+                    ? row.host.runtime.trim().toLowerCase()
+                    : "";
+                return hostRuntime === runtime.trim().toLowerCase();
+              })
+              .filter((row) => (typeof agentId === "string" && agentId.trim() !== "" ? String(row.agentId ?? "") === agentId.trim() : true))
+              .sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")))
+              .slice(safeOffset, safeOffset + safeLimit);
+          } else {
+            return sendError(res, 501, "agent cards not supported for this store");
+          }
+        } catch (err) {
+          return sendError(res, 400, "invalid agent card query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        return sendJson(res, 200, { ok: true, agentCards: cards, limit: safeLimit, offset: safeOffset });
+      }
+
+      {
+        const parts = path.split("/").filter(Boolean);
+        if (parts[0] === "agent-cards" && parts[1] && parts.length === 2 && req.method === "GET") {
+          const targetAgentId = parts[1];
+          let agentCard = null;
+          try {
+            agentCard = await getAgentCardRecord({ tenantId, agentId: targetAgentId });
+          } catch (err) {
+            return sendError(res, 501, "agent cards not supported for this store", { message: err?.message });
+          }
+          if (!agentCard) return sendError(res, 404, "agent card not found", null, { code: "NOT_FOUND" });
+          return sendJson(res, 200, { ok: true, agentCard });
+        }
+      }
+
+      if (req.method === "POST" && path === "/capability-attestations") {
+        if (typeof store.getCapabilityAttestation !== "function" && !(store.capabilityAttestations instanceof Map)) {
+          return sendError(res, 501, "capability attestations not supported for this store");
+        }
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const attestationId =
+          typeof body?.attestationId === "string" && body.attestationId.trim() !== "" ? body.attestationId.trim() : createId("catt");
+        const subjectAgentId = typeof body?.subjectAgentId === "string" && body.subjectAgentId.trim() !== "" ? body.subjectAgentId.trim() : null;
+        const capability = typeof body?.capability === "string" && body.capability.trim() !== "" ? body.capability.trim() : null;
+        if (!subjectAgentId || !capability) {
+          return sendError(res, 400, "subjectAgentId and capability are required", null, { code: "SCHEMA_INVALID" });
+        }
+        const subjectIdentity = await getAgentIdentityRecord({ tenantId, agentId: subjectAgentId });
+        if (!subjectIdentity) return sendError(res, 404, "subject agent identity not found", null, { code: "NOT_FOUND" });
+        const subjectCard = await getAgentCardRecord({ tenantId, agentId: subjectAgentId }).catch(() => null);
+        const identityCapabilities = Array.isArray(subjectIdentity?.capabilities) ? subjectIdentity.capabilities : [];
+        const cardCapabilities = Array.isArray(subjectCard?.capabilities) ? subjectCard.capabilities : [];
+        const mergedCapabilities = [...new Set([...identityCapabilities, ...cardCapabilities])];
+        if (!mergedCapabilities.includes(capability)) {
+          return sendError(
+            res,
+            409,
+            "subject agent has not declared capability",
+            { subjectAgentId, capability },
+            { code: "CAPABILITY_NOT_DECLARED" }
+          );
+        }
+        const issuerAgentId =
+          typeof body?.issuerAgentId === "string" && body.issuerAgentId.trim() !== "" ? body.issuerAgentId.trim() : null;
+        if (issuerAgentId) {
+          const issuerIdentity = await getAgentIdentityRecord({ tenantId, agentId: issuerAgentId });
+          if (!issuerIdentity) return sendError(res, 404, "issuer agent identity not found", null, { code: "NOT_FOUND" });
+        }
+
+        let existing = null;
+        try {
+          existing = await getCapabilityAttestationRecord({ tenantId, attestationId });
+        } catch (err) {
+          return sendError(res, 501, "capability attestations not supported for this store", { message: err?.message });
+        }
+        if (existing) return sendError(res, 409, "capability attestation already exists", null, { code: "CONFLICT" });
+
+        let capabilityAttestation = null;
+        try {
+          const nowAt = nowIso();
+          capabilityAttestation = buildCapabilityAttestationV1({
+            attestationId,
+            tenantId,
+            subjectAgentId,
+            capability,
+            level: body?.level ?? CAPABILITY_ATTESTATION_LEVEL.ATTESTED,
+            issuerAgentId: issuerAgentId ?? subjectAgentId,
+            validity: {
+              issuedAt:
+                typeof body?.validity?.issuedAt === "string" && body.validity.issuedAt.trim() !== ""
+                  ? body.validity.issuedAt.trim()
+                  : nowAt,
+              notBefore:
+                typeof body?.validity?.notBefore === "string" && body.validity.notBefore.trim() !== ""
+                  ? body.validity.notBefore.trim()
+                  : nowAt,
+              expiresAt:
+                typeof body?.validity?.expiresAt === "string" && body.validity.expiresAt.trim() !== ""
+                  ? body.validity.expiresAt.trim()
+                  : new Date(Date.parse(nowAt) + 30 * 24 * 60 * 60 * 1000).toISOString()
+            },
+            signature: body?.signature ?? {
+              algorithm: "ed25519",
+              keyId: `key_${issuerAgentId ?? subjectAgentId}`,
+              signature: "sig_placeholder"
+            },
+            verificationMethod:
+              body?.verificationMethod && typeof body.verificationMethod === "object" && !Array.isArray(body.verificationMethod)
+                ? body.verificationMethod
+                : null,
+            evidenceRefs: Array.isArray(body?.evidenceRefs) ? body.evidenceRefs : [],
+            metadata: body?.metadata ?? null,
+            createdAt: nowAt
+          });
+          validateCapabilityAttestationV1(capabilityAttestation);
+        } catch (err) {
+          return sendError(res, 400, "invalid capability attestation", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const runtime = evaluateCapabilityAttestationV1(capabilityAttestation, { at: nowIso() });
+        const responseBody = { ok: true, capabilityAttestation, runtime };
+        const ops = [{ kind: "CAPABILITY_ATTESTATION_UPSERT", tenantId, attestationId, capabilityAttestation }];
+        if (idemStoreKey) {
+          ops.push({
+            kind: "IDEMPOTENCY_PUT",
+            key: idemStoreKey,
+            value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody }
+          });
+        }
+        await commitTx(ops);
+        return sendJson(res, 201, responseBody);
+      }
+
+      if (req.method === "GET" && path === "/capability-attestations") {
+        const attestationId = url.searchParams.get("attestationId");
+        const subjectAgentId = url.searchParams.get("subjectAgentId");
+        const issuerAgentId = url.searchParams.get("issuerAgentId");
+        const capability = url.searchParams.get("capability");
+        const statusRaw = url.searchParams.get("status");
+        const includeInvalidRaw = url.searchParams.get("includeInvalid");
+        const includeInvalid =
+          includeInvalidRaw === null ? false : ["1", "true", "yes", "on"].includes(String(includeInvalidRaw).trim().toLowerCase());
+        const at =
+          typeof url.searchParams.get("at") === "string" && url.searchParams.get("at").trim() !== ""
+            ? url.searchParams.get("at").trim()
+            : nowIso();
+        const limitRaw = url.searchParams.get("limit");
+        const offsetRaw = url.searchParams.get("offset");
+        const limit = limitRaw ? Number(limitRaw) : 200;
+        const offset = offsetRaw ? Number(offsetRaw) : 0;
+        const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+        const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+        let statusFilter = null;
+        try {
+          statusFilter = parseCapabilityAttestationQueryStatus(statusRaw, { allowNull: true });
+        } catch (err) {
+          return sendError(res, 400, "invalid capability attestation query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        let rows = [];
+        try {
+          rows = await listCapabilityAttestations({
+            tenantId,
+            attestationId: typeof attestationId === "string" && attestationId.trim() !== "" ? attestationId.trim() : null,
+            subjectAgentId: typeof subjectAgentId === "string" && subjectAgentId.trim() !== "" ? subjectAgentId.trim() : null,
+            issuerAgentId: typeof issuerAgentId === "string" && issuerAgentId.trim() !== "" ? issuerAgentId.trim() : null,
+            capability: typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid capability attestation query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const results = [];
+        for (const row of rows) {
+          try {
+            validateCapabilityAttestationV1(row);
+            const runtime = evaluateCapabilityAttestationV1(row, { at });
+            if (statusFilter && statusFilter !== "all" && runtime.status !== statusFilter) continue;
+            results.push({
+              capabilityAttestation: row,
+              runtime
+            });
+          } catch (err) {
+            if (!includeInvalid) continue;
+            if (statusFilter && statusFilter !== "all") continue;
+            results.push({
+              capabilityAttestation: row,
+              runtime: {
+                status: "invalid",
+                isValid: false,
+                reasonCodes: [CAPABILITY_ATTESTATION_REASON_CODE.INVALID],
+                message: err?.message ?? "invalid capability attestation"
+              }
+            });
+          }
+        }
+        const paged = results.slice(safeOffset, safeOffset + safeLimit);
+        return sendJson(res, 200, {
+          ok: true,
+          attestations: paged,
+          limit: safeLimit,
+          offset: safeOffset,
+          total: results.length
+        });
+      }
+
+      {
+        const parts = path.split("/").filter(Boolean);
+        if (parts[0] === "capability-attestations" && parts[1] && parts.length === 2 && req.method === "GET") {
+          const attestationId = decodePathPart(parts[1]);
+          let capabilityAttestation = null;
+          try {
+            capabilityAttestation = await getCapabilityAttestationRecord({ tenantId, attestationId });
+          } catch (err) {
+            return sendError(res, 501, "capability attestations not supported for this store", { message: err?.message });
+          }
+          if (!capabilityAttestation) return sendError(res, 404, "capability attestation not found", null, { code: "NOT_FOUND" });
+          let runtime = null;
+          try {
+            runtime = evaluateCapabilityAttestationV1(capabilityAttestation, { at: nowIso() });
+          } catch {
+            runtime = {
+              status: "invalid",
+              isValid: false,
+              reasonCodes: [CAPABILITY_ATTESTATION_REASON_CODE.INVALID]
+            };
+          }
+          return sendJson(res, 200, { ok: true, capabilityAttestation, runtime });
+        }
+
+        if (parts[0] === "capability-attestations" && parts[1] && parts[2] === "revoke" && parts.length === 3 && req.method === "POST") {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+
+          const attestationId = decodePathPart(parts[1]);
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+
+          const existingCapabilityAttestation = await getCapabilityAttestationRecord({ tenantId, attestationId });
+          if (!existingCapabilityAttestation) return sendError(res, 404, "capability attestation not found", null, { code: "NOT_FOUND" });
+          let revoked = null;
+          try {
+            revoked = revokeCapabilityAttestationV1({
+              attestation: existingCapabilityAttestation,
+              revokedAt:
+                typeof body?.revokedAt === "string" && body.revokedAt.trim() !== "" ? body.revokedAt.trim() : nowIso(),
+              reasonCode: typeof body?.reasonCode === "string" && body.reasonCode.trim() !== "" ? body.reasonCode.trim() : null
+            });
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "capability attestation revoke blocked",
+              { message: err?.message },
+              { code: "CAPABILITY_ATTESTATION_REVOKE_BLOCKED" }
+            );
+          }
+
+          const runtime = evaluateCapabilityAttestationV1(revoked, { at: nowIso() });
+          const responseBody = { ok: true, capabilityAttestation: revoked, runtime };
+          const ops = [{ kind: "CAPABILITY_ATTESTATION_UPSERT", tenantId, attestationId, capabilityAttestation: revoked }];
+          if (idemStoreKey) {
+            ops.push({
+              kind: "IDEMPOTENCY_PUT",
+              key: idemStoreKey,
+              value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody }
+            });
+          }
+          await commitTx(ops);
+          return sendJson(res, 200, responseBody);
+        }
+      }
+
+      if (req.method === "POST" && path === "/work-orders") {
+        if (typeof store.getSubAgentWorkOrder !== "function" && !(store.subAgentWorkOrders instanceof Map)) {
+          return sendError(res, 501, "sub-agent work orders not supported for this store");
+        }
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const nowAt = nowIso();
+        const workOrderId =
+          typeof body?.workOrderId === "string" && body.workOrderId.trim() !== "" ? body.workOrderId.trim() : createId("workord");
+        const principalAgentId =
+          typeof body?.principalAgentId === "string" && body.principalAgentId.trim() !== "" ? body.principalAgentId.trim() : null;
+        const subAgentId = typeof body?.subAgentId === "string" && body.subAgentId.trim() !== "" ? body.subAgentId.trim() : null;
+        const requiredCapability =
+          typeof body?.requiredCapability === "string" && body.requiredCapability.trim() !== "" ? body.requiredCapability.trim() : null;
+        if (!principalAgentId || !subAgentId || !requiredCapability) {
+          return sendError(res, 400, "principalAgentId, subAgentId, and requiredCapability are required", null, {
+            code: "SCHEMA_INVALID"
+          });
+        }
+        let workOrderAttestationRequirement = null;
+        try {
+          workOrderAttestationRequirement = parseWorkOrderCapabilityAttestationRequirement(
+            body?.attestationRequirement ?? null,
+            {
+              requireCapabilityAttestation: body?.requireCapabilityAttestation ?? null,
+              attestationMinLevel: body?.attestationMinLevel ?? null,
+              attestationIssuerAgentId: body?.attestationIssuerAgentId ?? null
+            },
+            { allowNull: true }
+          );
+        } catch (err) {
+          return sendError(res, 400, "invalid work order attestation requirement", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        let existingWorkOrder = null;
+        try {
+          existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
+        } catch (err) {
+          return sendError(res, 501, "sub-agent work orders not supported for this store", { message: err?.message });
+        }
+        if (existingWorkOrder) return sendError(res, 409, "work order already exists", null, { code: "CONFLICT" });
+
+        const amountCents = Number(body?.pricing?.amountCents);
+        if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+          return sendError(res, 400, "pricing.amountCents must be a positive safe integer", null, { code: "SCHEMA_INVALID" });
+        }
+        const currency =
+          typeof body?.pricing?.currency === "string" && body.pricing.currency.trim() !== "" ? body.pricing.currency.trim() : "USD";
+
+        const principalIdentity = await getAgentIdentityRecord({ tenantId, agentId: principalAgentId });
+        if (!principalIdentity) return sendError(res, 404, "principal agent identity not found", null, { code: "NOT_FOUND" });
+        const subIdentity = await getAgentIdentityRecord({ tenantId, agentId: subAgentId });
+        if (!subIdentity) return sendError(res, 404, "sub-agent identity not found", null, { code: "NOT_FOUND" });
+
+        const attestationCheck = await enforceWorkOrderCapabilityAttestation({
+          tenantId,
+          subjectAgentId: subAgentId,
+          requiredCapability,
+          attestationRequirement: workOrderAttestationRequirement,
+          at: nowAt
+        });
+        if (!attestationCheck.ok) {
+          return sendError(
+            res,
+            attestationCheck.httpStatus ?? 409,
+            attestationCheck.message ?? "work order capability attestation requirement not satisfied",
+            attestationCheck.details ?? null,
+            { code: attestationCheck.code ?? "WORK_ORDER_ATTESTATION_BLOCKED" }
+          );
+        }
+        let workOrderEvidencePolicy = null;
+        try {
+          workOrderEvidencePolicy = normalizeWorkOrderEvidencePolicy(body?.evidencePolicy ?? null, {
+            requiredCapability,
+            specification:
+              body?.specification && typeof body.specification === "object" && !Array.isArray(body.specification) ? body.specification : {}
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid work order evidence policy", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const delegationGrantRef =
+          typeof body?.delegationGrantRef === "string" && body.delegationGrantRef.trim() !== "" ? body.delegationGrantRef.trim() : null;
+        if (delegationGrantRef) {
+          if (typeof store.getDelegationGrant !== "function") {
+            return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+          }
+          const delegationGrant = await store.getDelegationGrant({ tenantId, grantId: delegationGrantRef });
+          if (!delegationGrant) return sendError(res, 404, "delegation grant not found", null, { code: "NOT_FOUND" });
+        }
+
+        let workOrder = null;
+        try {
+          workOrder = buildSubAgentWorkOrderV1({
+            workOrderId,
+            tenantId,
+            parentTaskId: typeof body?.parentTaskId === "string" && body.parentTaskId.trim() !== "" ? body.parentTaskId.trim() : null,
+            principalAgentId,
+            subAgentId,
+            requiredCapability,
+            specification:
+              body?.specification && typeof body.specification === "object" && !Array.isArray(body.specification) ? body.specification : {},
+            pricing: {
+              model: "fixed",
+              amountCents,
+              currency,
+              quoteId: typeof body?.pricing?.quoteId === "string" && body.pricing.quoteId.trim() !== "" ? body.pricing.quoteId.trim() : null
+            },
+            constraints: body?.constraints ?? null,
+            evidencePolicy: workOrderEvidencePolicy,
+            delegationGrantRef,
+            metadata: body?.metadata ?? null,
+            createdAt: nowAt
+          });
+          if (attestationCheck.enforced && attestationCheck.requirement) {
+            workOrder = normalizeForCanonicalJson(
+              {
+                ...workOrder,
+                attestationRequirement: attestationCheck.requirement
+              },
+              { path: "$" }
+            );
+          }
+          validateSubAgentWorkOrderV1(workOrder);
+        } catch (err) {
+          return sendError(res, 400, "invalid work order", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const responseBody = { ok: true, workOrder };
+        const ops = [{ kind: "SUB_AGENT_WORK_ORDER_UPSERT", tenantId, workOrderId, workOrder }];
+        if (idemStoreKey) {
+          ops.push({
+            kind: "IDEMPOTENCY_PUT",
+            key: idemStoreKey,
+            value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody }
+          });
+        }
+        await commitTx(ops);
+        return sendJson(res, 201, responseBody);
+      }
+
+      if (req.method === "GET" && path === "/work-orders") {
+        const workOrderId = url.searchParams.get("workOrderId");
+        const principalAgentId = url.searchParams.get("principalAgentId");
+        const subAgentId = url.searchParams.get("subAgentId");
+        const status = url.searchParams.get("status");
+        const limitRaw = url.searchParams.get("limit");
+        const offsetRaw = url.searchParams.get("offset");
+        const limit = limitRaw ? Number(limitRaw) : 200;
+        const offset = offsetRaw ? Number(offsetRaw) : 0;
+        const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+        const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+
+        let statusFilter = null;
+        try {
+          statusFilter = parseSubAgentWorkOrderStatus(status, { allowNull: true });
+        } catch (err) {
+          return sendError(res, 400, "invalid work order query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        let workOrders = [];
+        try {
+          if (typeof store.listSubAgentWorkOrders === "function") {
+            workOrders = await store.listSubAgentWorkOrders({
+              tenantId,
+              workOrderId: typeof workOrderId === "string" && workOrderId.trim() !== "" ? workOrderId.trim() : null,
+              principalAgentId: typeof principalAgentId === "string" && principalAgentId.trim() !== "" ? principalAgentId.trim() : null,
+              subAgentId: typeof subAgentId === "string" && subAgentId.trim() !== "" ? subAgentId.trim() : null,
+              status: statusFilter,
+              limit: safeLimit,
+              offset: safeOffset
+            });
+          } else if (store.subAgentWorkOrders instanceof Map) {
+            workOrders = Array.from(store.subAgentWorkOrders.values())
+              .filter((row) => row && typeof row === "object")
+              .filter((row) => normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) === tenantId)
+              .filter((row) => (typeof workOrderId === "string" && workOrderId.trim() !== "" ? String(row.workOrderId ?? "") === workOrderId.trim() : true))
+              .filter((row) =>
+                typeof principalAgentId === "string" && principalAgentId.trim() !== ""
+                  ? String(row.principalAgentId ?? "") === principalAgentId.trim()
+                  : true
+              )
+              .filter((row) => (typeof subAgentId === "string" && subAgentId.trim() !== "" ? String(row.subAgentId ?? "") === subAgentId.trim() : true))
+              .filter((row) => (statusFilter ? String(row.status ?? "").toLowerCase() === statusFilter : true))
+              .sort((left, right) => String(left.workOrderId ?? "").localeCompare(String(right.workOrderId ?? "")))
+              .slice(safeOffset, safeOffset + safeLimit);
+          } else {
+            return sendError(res, 501, "sub-agent work orders not supported for this store");
+          }
+        } catch (err) {
+          return sendError(res, 400, "invalid work order query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        return sendJson(res, 200, { ok: true, workOrders, limit: safeLimit, offset: safeOffset });
+      }
+
+      if (req.method === "GET" && path === "/work-orders/receipts") {
+        const receiptId = url.searchParams.get("receiptId");
+        const workOrderId = url.searchParams.get("workOrderId");
+        const principalAgentId = url.searchParams.get("principalAgentId");
+        const subAgentId = url.searchParams.get("subAgentId");
+        const status = url.searchParams.get("status");
+        const limitRaw = url.searchParams.get("limit");
+        const offsetRaw = url.searchParams.get("offset");
+        const limit = limitRaw ? Number(limitRaw) : 200;
+        const offset = offsetRaw ? Number(offsetRaw) : 0;
+        const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+        const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+        let statusFilter = null;
+        if (typeof status === "string" && status.trim() !== "") {
+          const normalized = status.trim().toLowerCase();
+          if (!Object.values(SUB_AGENT_COMPLETION_STATUS).includes(normalized)) {
+            return sendError(
+              res,
+              400,
+              "invalid completion receipt query",
+              { message: `status must be one of ${Object.values(SUB_AGENT_COMPLETION_STATUS).join("|")}` },
+              { code: "SCHEMA_INVALID" }
+            );
+          }
+          statusFilter = normalized;
+        }
+        let receipts = [];
+        try {
+          if (typeof store.listSubAgentCompletionReceipts === "function") {
+            receipts = await store.listSubAgentCompletionReceipts({
+              tenantId,
+              receiptId: typeof receiptId === "string" && receiptId.trim() !== "" ? receiptId.trim() : null,
+              workOrderId: typeof workOrderId === "string" && workOrderId.trim() !== "" ? workOrderId.trim() : null,
+              principalAgentId: typeof principalAgentId === "string" && principalAgentId.trim() !== "" ? principalAgentId.trim() : null,
+              subAgentId: typeof subAgentId === "string" && subAgentId.trim() !== "" ? subAgentId.trim() : null,
+              status: statusFilter,
+              limit: safeLimit,
+              offset: safeOffset
+            });
+          } else if (store.subAgentCompletionReceipts instanceof Map) {
+            receipts = Array.from(store.subAgentCompletionReceipts.values())
+              .filter((row) => row && typeof row === "object")
+              .filter((row) => normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) === tenantId)
+              .filter((row) => (typeof receiptId === "string" && receiptId.trim() !== "" ? String(row.receiptId ?? "") === receiptId.trim() : true))
+              .filter((row) => (typeof workOrderId === "string" && workOrderId.trim() !== "" ? String(row.workOrderId ?? "") === workOrderId.trim() : true))
+              .filter((row) =>
+                typeof principalAgentId === "string" && principalAgentId.trim() !== ""
+                  ? String(row.principalAgentId ?? "") === principalAgentId.trim()
+                  : true
+              )
+              .filter((row) => (typeof subAgentId === "string" && subAgentId.trim() !== "" ? String(row.subAgentId ?? "") === subAgentId.trim() : true))
+              .filter((row) => (statusFilter ? String(row.status ?? "").toLowerCase() === statusFilter : true))
+              .sort((left, right) => String(left.receiptId ?? "").localeCompare(String(right.receiptId ?? "")))
+              .slice(safeOffset, safeOffset + safeLimit);
+          } else {
+            return sendError(res, 501, "sub-agent completion receipts not supported for this store");
+          }
+        } catch (err) {
+          return sendError(res, 400, "invalid completion receipt query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        return sendJson(res, 200, { ok: true, receipts, limit: safeLimit, offset: safeOffset });
+      }
+
+      {
+        const parts = path.split("/").filter(Boolean);
+        if (parts[0] === "work-orders" && parts[1] && parts.length === 2 && req.method === "GET") {
+          const targetWorkOrderId = decodePathPart(parts[1]);
+          let workOrder = null;
+          try {
+            workOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId: targetWorkOrderId });
+          } catch (err) {
+            return sendError(res, 501, "sub-agent work orders not supported for this store", { message: err?.message });
+          }
+          if (!workOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          return sendJson(res, 200, { ok: true, workOrder });
+        }
+
+        if (parts[0] === "work-orders" && parts[1] === "receipts" && parts[2] && parts.length === 3 && req.method === "GET") {
+          const receiptId = decodePathPart(parts[2]);
+          let completionReceipt = null;
+          try {
+            completionReceipt = await getSubAgentCompletionReceiptRecord({ tenantId, receiptId });
+          } catch (err) {
+            return sendError(res, 501, "sub-agent completion receipts not supported for this store", { message: err?.message });
+          }
+          if (!completionReceipt) return sendError(res, 404, "completion receipt not found", null, { code: "NOT_FOUND" });
+          return sendJson(res, 200, { ok: true, completionReceipt });
+        }
+
+        if (parts[0] === "work-orders" && parts[1] && parts[2] === "accept" && parts.length === 3 && req.method === "POST") {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          const workOrderId = decodePathPart(parts[1]);
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+          const existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
+          if (!existingWorkOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          let existingWorkOrderAttestationRequirement = null;
+          try {
+            existingWorkOrderAttestationRequirement = parseWorkOrderCapabilityAttestationRequirement(
+              existingWorkOrder?.attestationRequirement ?? null,
+              {},
+              { allowNull: true }
+            );
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "work order accept blocked",
+              { message: err?.message ?? "invalid persisted attestation requirement" },
+              { code: "WORK_ORDER_ATTESTATION_BLOCKED" }
+            );
+          }
+          const acceptAt =
+            typeof body?.acceptedAt === "string" && body.acceptedAt.trim() !== "" ? body.acceptedAt.trim() : nowIso();
+          const attestationCheck = await enforceWorkOrderCapabilityAttestation({
+            tenantId,
+            subjectAgentId: String(existingWorkOrder?.subAgentId ?? ""),
+            requiredCapability: String(existingWorkOrder?.requiredCapability ?? ""),
+            attestationRequirement: existingWorkOrderAttestationRequirement,
+            at: acceptAt
+          });
+          if (!attestationCheck.ok) {
+            return sendError(
+              res,
+              attestationCheck.httpStatus ?? 409,
+              attestationCheck.message ?? "work order accept blocked",
+              attestationCheck.details ?? null,
+              { code: attestationCheck.code ?? "WORK_ORDER_ATTESTATION_BLOCKED" }
+            );
+          }
+          let accepted = null;
+          try {
+            accepted = acceptSubAgentWorkOrderV1({
+              workOrder: existingWorkOrder,
+              acceptedByAgentId:
+                typeof body?.acceptedByAgentId === "string" && body.acceptedByAgentId.trim() !== "" ? body.acceptedByAgentId.trim() : null,
+              acceptedAt: acceptAt
+            });
+            validateSubAgentWorkOrderV1(accepted);
+          } catch (err) {
+            return sendError(res, 409, "work order accept blocked", { message: err?.message }, { code: "WORK_ORDER_ACCEPT_BLOCKED" });
+          }
+          const responseBody = { ok: true, workOrder: accepted };
+          const ops = [{ kind: "SUB_AGENT_WORK_ORDER_UPSERT", tenantId, workOrderId, workOrder: accepted }];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await commitTx(ops);
+          return sendJson(res, 200, responseBody);
+        }
+
+        if (parts[0] === "work-orders" && parts[1] && parts[2] === "progress" && parts.length === 3 && req.method === "POST") {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          const workOrderId = decodePathPart(parts[1]);
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+          const existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
+          if (!existingWorkOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          let nextWorkOrder = null;
+          try {
+            nextWorkOrder = appendSubAgentWorkOrderProgressV1({
+              workOrder: existingWorkOrder,
+              progressId:
+                typeof body?.progressId === "string" && body.progressId.trim() !== "" ? body.progressId.trim() : createId("wprog"),
+              eventType: typeof body?.eventType === "string" && body.eventType.trim() !== "" ? body.eventType.trim() : "progress",
+              message: typeof body?.message === "string" && body.message.trim() !== "" ? body.message.trim() : null,
+              percentComplete: body?.percentComplete ?? null,
+              evidenceRefs: Array.isArray(body?.evidenceRefs) ? body.evidenceRefs : [],
+              at: typeof body?.at === "string" && body.at.trim() !== "" ? body.at.trim() : nowIso()
+            });
+            validateSubAgentWorkOrderV1(nextWorkOrder);
+          } catch (err) {
+            return sendError(res, 409, "work order progress blocked", { message: err?.message }, { code: "WORK_ORDER_PROGRESS_BLOCKED" });
+          }
+          const responseBody = { ok: true, workOrder: nextWorkOrder };
+          const ops = [{ kind: "SUB_AGENT_WORK_ORDER_UPSERT", tenantId, workOrderId, workOrder: nextWorkOrder }];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await commitTx(ops);
+          return sendJson(res, 200, responseBody);
+        }
+
+        if (parts[0] === "work-orders" && parts[1] && parts[2] === "complete" && parts.length === 3 && req.method === "POST") {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          const workOrderId = decodePathPart(parts[1]);
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+          const existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
+          if (!existingWorkOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          const receiptId =
+            typeof body?.receiptId === "string" && body.receiptId.trim() !== "" ? body.receiptId.trim() : createId("worec");
+          const existingReceipt = await getSubAgentCompletionReceiptRecord({ tenantId, receiptId });
+          if (existingReceipt) return sendError(res, 409, "completion receipt already exists", null, { code: "CONFLICT" });
+
+          let completionReceipt = null;
+          let nextWorkOrder = null;
+          try {
+            completionReceipt = buildSubAgentCompletionReceiptV1({
+              receiptId,
+              tenantId,
+              workOrder: existingWorkOrder,
+              status:
+                typeof body?.status === "string" && body.status.trim() !== ""
+                  ? body.status.trim().toLowerCase()
+                  : SUB_AGENT_COMPLETION_STATUS.SUCCESS,
+              outputs: body?.outputs ?? null,
+              metrics: body?.metrics ?? null,
+              evidenceRefs: Array.isArray(body?.evidenceRefs) ? body.evidenceRefs : [],
+              amountCents: body?.amountCents ?? null,
+              currency: typeof body?.currency === "string" && body.currency.trim() !== "" ? body.currency.trim() : null,
+              deliveredAt: typeof body?.deliveredAt === "string" && body.deliveredAt.trim() !== "" ? body.deliveredAt.trim() : nowIso(),
+              metadata: body?.metadata ?? null
+            });
+            validateSubAgentCompletionReceiptV1(completionReceipt);
+            nextWorkOrder = completeSubAgentWorkOrderV1({
+              workOrder: existingWorkOrder,
+              completionReceipt,
+              completedAt: typeof body?.completedAt === "string" && body.completedAt.trim() !== "" ? body.completedAt.trim() : null
+            });
+            validateSubAgentWorkOrderV1(nextWorkOrder);
+          } catch (err) {
+            return sendError(res, 409, "work order completion blocked", { message: err?.message }, { code: "WORK_ORDER_COMPLETION_BLOCKED" });
+          }
+          const responseBody = {
+            ok: true,
+            workOrder: nextWorkOrder,
+            completionReceipt
+          };
+          const ops = [
+            { kind: "SUB_AGENT_WORK_ORDER_UPSERT", tenantId, workOrderId, workOrder: nextWorkOrder },
+            { kind: "SUB_AGENT_COMPLETION_RECEIPT_UPSERT", tenantId, receiptId, completionReceipt }
+          ];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await commitTx(ops);
+          return sendJson(res, 200, responseBody);
+        }
+
+        if (parts[0] === "work-orders" && parts[1] && parts[2] === "settle" && parts.length === 3 && req.method === "POST") {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          const workOrderId = decodePathPart(parts[1]);
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+
+          const existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
+          if (!existingWorkOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          const completionReceiptId =
+            typeof body?.completionReceiptId === "string" && body.completionReceiptId.trim() !== ""
+              ? body.completionReceiptId.trim()
+              : typeof existingWorkOrder?.completionReceiptId === "string" && existingWorkOrder.completionReceiptId.trim() !== ""
+                ? existingWorkOrder.completionReceiptId.trim()
+                : null;
+          if (!completionReceiptId) {
+            return sendError(res, 409, "work order settlement blocked", { message: "completionReceiptId is required once work is completed" }, { code: "WORK_ORDER_SETTLEMENT_BLOCKED" });
+          }
+          const completionReceipt = await getSubAgentCompletionReceiptRecord({ tenantId, receiptId: completionReceiptId });
+          if (!completionReceipt) return sendError(res, 404, "completion receipt not found", null, { code: "NOT_FOUND" });
+
+          const settlementStatusRaw = typeof body?.status === "string" && body.status.trim() !== "" ? body.status.trim().toLowerCase() : null;
+          let settlementStatus = settlementStatusRaw;
+          if (!settlementStatus) {
+            settlementStatus =
+              String(completionReceipt?.status ?? "").toLowerCase() === SUB_AGENT_COMPLETION_STATUS.SUCCESS
+                ? SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.RELEASED
+                : SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.REFUNDED;
+          }
+          if (!Object.values(SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS).includes(settlementStatus)) {
+            return sendError(
+              res,
+              400,
+              "invalid work order settlement",
+              { message: `status must be one of ${Object.values(SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS).join("|")}` },
+              { code: "SCHEMA_INVALID" }
+            );
+          }
+          const evidenceBinding = validateWorkOrderSettlementEvidenceBinding({
+            workOrder: existingWorkOrder,
+            completionReceipt,
+            settlementStatus,
+            completionReceiptHash: body?.completionReceiptHash ?? null
+          });
+          if (!evidenceBinding.ok) {
+            return sendError(
+              res,
+              409,
+              "work order settlement blocked",
+              {
+                reasonCode: evidenceBinding.reasonCode,
+                ...(evidenceBinding.details && typeof evidenceBinding.details === "object" ? evidenceBinding.details : {})
+              },
+              { code: "WORK_ORDER_EVIDENCE_BINDING_BLOCKED" }
+            );
+          }
+          const x402GateId =
+            typeof body?.x402GateId === "string" && body.x402GateId.trim() !== "" ? body.x402GateId.trim() : null;
+          const x402RunId = typeof body?.x402RunId === "string" && body.x402RunId.trim() !== "" ? body.x402RunId.trim() : null;
+          if (!x402GateId || !x402RunId) {
+            return sendError(res, 400, "x402GateId and x402RunId are required", null, { code: "SCHEMA_INVALID" });
+          }
+          let promptRiskSignals = null;
+          try {
+            promptRiskSignals = normalizeX402PromptRiskSignalsInput(
+              body?.promptRiskSignals ?? body?.riskSignals ?? null,
+              { fieldName: "promptRiskSignals", allowNull: true }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid promptRiskSignals", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          let promptRiskOverride = null;
+          try {
+            promptRiskOverride = normalizeX402PromptRiskOverrideInput(
+              body?.promptRiskOverride ?? body?.riskOverride ?? null,
+              { fieldName: "promptRiskOverride", allowNull: true }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid promptRiskOverride", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const linkedX402Gate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId: x402GateId }) : null;
+          const promptRiskEvaluationAt = nowIso();
+          const promptRiskEvaluation = linkedX402Gate
+            ? evaluateX402PromptRiskGuardrail({
+                gate: linkedX402Gate,
+                principalId,
+                promptRiskSignals,
+                promptRiskOverride,
+                at: promptRiskEvaluationAt
+              })
+            : null;
+          if (
+            settlementStatus === SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.RELEASED &&
+            promptRiskEvaluation?.blocked
+          ) {
+            if (promptRiskEvaluation.changed && promptRiskEvaluation.nextState) {
+              const blockedGate = normalizeForCanonicalJson(
+                {
+                  ...linkedX402Gate,
+                  promptRisk: promptRiskEvaluation.nextState,
+                  updatedAt: promptRiskEvaluationAt
+                },
+                { path: "$" }
+              );
+              await store.commitTx({
+                at: promptRiskEvaluationAt,
+                ops: [{ kind: "X402_GATE_UPSERT", tenantId, gateId: x402GateId, gate: blockedGate }]
+              });
+            }
+            return sendError(
+              res,
+              409,
+              promptRiskEvaluation.message,
+              {
+                gateId: x402GateId,
+                workOrderId,
+                forcedMode: promptRiskEvaluation?.forcedMode ?? null,
+                suspicious: promptRiskEvaluation?.suspicious === true,
+                overrideRequired: true
+              },
+              { code: promptRiskEvaluation.code }
+            );
+          }
+
+          let nextWorkOrder = null;
+          try {
+            nextWorkOrder = settleSubAgentWorkOrderV1({
+              workOrder: existingWorkOrder,
+              completionReceiptId,
+              settlement: {
+                status: settlementStatus,
+                x402GateId,
+                x402RunId,
+                x402SettlementStatus:
+                  typeof body?.x402SettlementStatus === "string" && body.x402SettlementStatus.trim() !== ""
+                    ? body.x402SettlementStatus.trim().toLowerCase()
+                    : settlementStatus,
+                x402ReceiptId:
+                  typeof body?.x402ReceiptId === "string" && body.x402ReceiptId.trim() !== "" ? body.x402ReceiptId.trim() : null
+              },
+              settledAt: typeof body?.settledAt === "string" && body.settledAt.trim() !== "" ? body.settledAt.trim() : nowIso()
+            });
+            validateSubAgentWorkOrderV1(nextWorkOrder);
+          } catch (err) {
+            return sendError(res, 409, "work order settlement blocked", { message: err?.message }, { code: "WORK_ORDER_SETTLEMENT_BLOCKED" });
+          }
+
+          const responseBody = { ok: true, workOrder: nextWorkOrder, completionReceipt };
+          const ops = [{ kind: "SUB_AGENT_WORK_ORDER_UPSERT", tenantId, workOrderId, workOrder: nextWorkOrder }];
+          if (promptRiskEvaluation?.changed && promptRiskEvaluation?.nextState && linkedX402Gate) {
+            const nextLinkedGate = normalizeForCanonicalJson(
+              {
+                ...linkedX402Gate,
+                promptRisk: promptRiskEvaluation.nextState,
+                updatedAt: promptRiskEvaluationAt
+              },
+              { path: "$" }
+            );
+            ops.push({ kind: "X402_GATE_UPSERT", tenantId, gateId: x402GateId, gate: nextLinkedGate });
+          }
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await commitTx(ops);
+          return sendJson(res, 200, responseBody);
+        }
       }
 
       if (req.method === "GET" && path === "/agents") {

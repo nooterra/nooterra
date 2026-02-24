@@ -9,6 +9,7 @@ Run local MCP sanity checks first:
 ```bash
 npm run mcp:probe
 node --test test/mcp-stdio-spike.test.js test/mcp-http-gateway.test.js test/mcp-paid-exa-tool.test.js test/mcp-paid-weather-tool.test.js
+node --test test/openclaw-clawhub-install-smoke-script.test.js
 ```
 
 Confirm required files exist:
@@ -24,6 +25,8 @@ In `SKILL.md`, verify:
 - `name` is unique in ClawHub
 - `description` is short and explicit
 - `version` bumped for every publish
+- `user-invocable: true` is present for slash-invoked usage
+- prompt library includes discovery + delegation + work-order + receipt flows
 
 ## 3) Publish To ClawHub
 
@@ -45,6 +48,18 @@ Install the skill in a clean OpenClaw environment and verify:
    - `settld.exa_search_paid`, or
    - `settld.weather_current_paid`
 4. Result includes `x-settld-*` verification headers.
+
+Automated smoke (requires network and public ClawHub access):
+
+```bash
+npm run -s test:ci:openclaw-clawhub-install-smoke -- --slug settld-mcp-payments --bootstrap-local
+```
+
+If ClawHub blocks non-interactive install due suspicious-skill gating, rerun with:
+
+```bash
+npm run -s test:ci:openclaw-clawhub-install-smoke -- --slug settld-mcp-payments --force --bootstrap-local
+```
 
 ## 5) Rollback Plan
 

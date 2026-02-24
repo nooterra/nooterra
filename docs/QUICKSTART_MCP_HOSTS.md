@@ -15,7 +15,7 @@ For deeper tool-level examples, see `docs/QUICKSTART_MCP.md`.
 
 Public default path (recommended):
 
-- Node.js 20+
+- Node.js 20.x (`nvm use` in repo root). Install is fail-fast if you use a different major.
 - no API keys required up front
 - run `settld setup`, choose `quick`, then login with OTP
 - setup creates tenant (if needed), mints runtime key, and wires MCP

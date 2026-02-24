@@ -1,0 +1,101 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import {
+  parseArgs,
+  runAgentSubstrateAdversarialHarness
+} from "../scripts/ci/run-agent-substrate-adversarial-harness.mjs";
+
+test("agent substrate adversarial harness parser: supports help mode", () => {
+  const args = parseArgs(["--help"], {}, "/tmp/settld");
+  assert.equal(args.help, true);
+});
+
+test("agent substrate adversarial harness parser: supports profile and bootstrap overrides", () => {
+  const args = parseArgs(
+    [
+      "--profile",
+      "full",
+      "--out",
+      "artifacts/custom/adversarial.json",
+      "--bootstrap-local",
+      "--bootstrap-base-url",
+      "http://127.0.0.1:3310/",
+      "--bootstrap-tenant-id",
+      "tenant_override",
+      "--bootstrap-ops-token",
+      "ops_override"
+    ],
+    {
+      SETTLD_BASE_URL: "http://127.0.0.1:3000",
+      SETTLD_TENANT_ID: "tenant_default",
+      PROXY_OPS_TOKEN: "tok_ops"
+    },
+    "/tmp/settld"
+  );
+  assert.equal(args.profile, "full");
+  assert.equal(args.bootstrapLocal, true);
+  assert.equal(args.bootstrapBaseUrl, "http://127.0.0.1:3310/");
+  assert.equal(args.bootstrapTenantId, "tenant_override");
+  assert.equal(args.bootstrapOpsToken, "ops_override");
+  assert.match(args.out, /artifacts\/custom\/adversarial\.json$/);
+});
+
+test("agent substrate adversarial harness parser: rejects unknown args", () => {
+  assert.throws(() => parseArgs(["--nope"], process.env, process.cwd()), /unknown argument/i);
+});
+
+test("agent substrate adversarial harness runner: applies bootstrap env patch and runs cleanup", async () => {
+  const seenEnv = [];
+  let cleanupCalled = false;
+  const bootstrapFn = async () => ({
+    envPatch: {
+      SETTLD_BASE_URL: "http://127.0.0.1:3000",
+      SETTLD_TENANT_ID: "tenant_default",
+      SETTLD_API_KEY: "sk_test.k"
+    },
+    metadata: { enabled: true, startedLocalApi: false },
+    cleanup: async () => {
+      cleanupCalled = true;
+    }
+  });
+  const runCheckFn = (check) => {
+    seenEnv.push(check.env ?? {});
+    return {
+      id: check.id,
+      command: check.command,
+      startedAt: "2026-01-01T00:00:00.000Z",
+      completedAt: "2026-01-01T00:00:00.001Z",
+      ok: true,
+      exitCode: 0,
+      signal: null,
+      stdoutPreview: "",
+      stderrPreview: ""
+    };
+  };
+
+  const { report } = await runAgentSubstrateAdversarialHarness(
+    {
+      profile: "core",
+      out: "/tmp/agent-substrate-adversarial-harness.json",
+      help: false,
+      bootstrapLocal: true,
+      bootstrapBaseUrl: "http://127.0.0.1:3000",
+      bootstrapTenantId: "tenant_default",
+      bootstrapOpsToken: "tok_ops"
+    },
+    { runCheckFn, bootstrapFn }
+  );
+
+  assert.equal(report.ok, true);
+  assert.equal(report.schemaVersion, "AgentSubstrateAdversarialHarness.v1");
+  assert.equal(typeof report.generatedAt, "string");
+  assert.equal(report.summary.totalChecks, 5);
+  assert.equal(cleanupCalled, true);
+  assert.equal(seenEnv.length, 5);
+  for (const row of seenEnv) {
+    assert.equal(row.SETTLD_BASE_URL, "http://127.0.0.1:3000");
+    assert.equal(row.SETTLD_TENANT_ID, "tenant_default");
+    assert.equal(row.SETTLD_API_KEY, "sk_test.k");
+  }
+});

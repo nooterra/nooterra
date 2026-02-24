@@ -90,11 +90,6 @@ test("demo:mcp-paid-exa script completes and writes PASS artifact bundle", async
   });
 
   if (exit.timeout) {
-    try {
-      child.kill("SIGKILL");
-    } catch {
-      // ignore
-    }
     assert.fail(`demo script timed out; stderr=${stderr}`);
   }
 

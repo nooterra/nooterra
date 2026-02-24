@@ -46,7 +46,13 @@ async function registerEmergencyOperatorSigner(api, { description = "money-rail 
   return keypair;
 }
 
-function buildSignedEmergencyOperatorAction({ signer, action = "OVERRIDE_DENY", justificationCode = "OPS_EMERGENCY_CONTROL" } = {}) {
+function buildSignedEmergencyOperatorAction({
+  signer,
+  action = "OVERRIDE_DENY",
+  justificationCode = "OPS_EMERGENCY_CONTROL",
+  operatorId = "op_money_rails_oncall",
+  role = "ops_admin"
+} = {}) {
   emergencyOperatorActionSeq += 1;
   return signOperatorActionV1({
     action: {
@@ -55,7 +61,8 @@ function buildSignedEmergencyOperatorAction({ signer, action = "OVERRIDE_DENY", 
       action,
       justificationCode,
       justification: "money rail emergency test",
-      actor: { operatorId: "op_money_rails_oncall", role: "oncall", tenantId: "tenant_default" },
+      // Sensitive emergency controls (kill-switch/revoke) require ops_admin or incident_commander.
+      actor: { operatorId, role, tenantId: "tenant_default" },
       actedAt: new Date().toISOString()
     },
     publicKeyPem: signer.publicKeyPem,
@@ -263,7 +270,8 @@ test("API e2e: emergency kill-switch blocks finance write routes until resume", 
   const api = createApi({
     opsTokens: ["tok_opsw:ops_write", "tok_finw:finance_write", "tok_fin:finance_read"].join(";")
   });
-  const signer = await registerEmergencyOperatorSigner(api, { description: "money-rails emergency kill-switch signer" });
+  const signerA = await registerEmergencyOperatorSigner(api, { description: "money-rails emergency kill-switch signer A" });
+  const signerB = await registerEmergencyOperatorSigner(api, { description: "money-rails emergency kill-switch signer B" });
 
   const enableKillSwitch = await request(api, {
     method: "POST",
@@ -273,7 +281,13 @@ test("API e2e: emergency kill-switch blocks finance write routes until resume", 
       reasonCode: "OPS_EMERGENCY_KILL_SWITCH",
       reason: "integration test",
       operatorAction: buildSignedEmergencyOperatorAction({
-        signer,
+        signer: signerA,
+        operatorId: "op_money_rails_oncall_a",
+        justificationCode: "OPS_EMERGENCY_KILL_SWITCH"
+      }),
+      secondOperatorAction: buildSignedEmergencyOperatorAction({
+        signer: signerB,
+        operatorId: "op_money_rails_oncall_b",
         justificationCode: "OPS_EMERGENCY_KILL_SWITCH"
       })
     }
@@ -298,7 +312,14 @@ test("API e2e: emergency kill-switch blocks finance write routes until resume", 
       reasonCode: "OPS_EMERGENCY_RESUME",
       reason: "integration test recovery",
       operatorAction: buildSignedEmergencyOperatorAction({
-        signer,
+        signer: signerA,
+        operatorId: "op_money_rails_oncall_a",
+        action: "OVERRIDE_ALLOW",
+        justificationCode: "OPS_EMERGENCY_RESUME"
+      }),
+      secondOperatorAction: buildSignedEmergencyOperatorAction({
+        signer: signerB,
+        operatorId: "op_money_rails_oncall_b",
         action: "OVERRIDE_ALLOW",
         justificationCode: "OPS_EMERGENCY_RESUME"
       })

@@ -13,6 +13,7 @@ These specs are written so an independent implementer can build a verifier witho
 
 ## Documents
 
+- `public/` — public-facing collaboration substrate docs for integrators (`AgentCard.v1`, `DelegationGrant.v1`, `SubAgentWorkOrder.v1`, `SubAgentCompletionReceipt.v1`, `CapabilityAttestation.v1`).
 - `CANONICAL_JSON.md` — canonical JSON rules used before hashing/signing.
 - `VERSIONING.md` — tool vs protocol versioning policy (SemVer + protocol object evolution).
 - `REFERENCE_VERIFIER_BEHAVIOR.md` — filesystem/path/ordering rules to prevent cross-impl drift.

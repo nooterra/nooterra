@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import Ajv from "ajv/dist/2020.js";
+import { createAjv2020 } from "./helpers/ajv-2020.js";
 
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { sha256Hex } from "../src/core/crypto.js";
@@ -49,7 +49,7 @@ async function loadExample(name) {
 }
 
 test("agreement delegation schema validates published example", async () => {
-  const ajv = new Ajv({ allErrors: true, strict: false });
+  const ajv = createAjv2020();
   for (const schema of await loadSchemas()) {
     if (schema && typeof schema === "object" && typeof schema.$id === "string") {
       ajv.addSchema(schema, schema.$id);
