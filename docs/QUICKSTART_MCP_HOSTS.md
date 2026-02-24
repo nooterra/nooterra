@@ -302,4 +302,4 @@ Your helper should provide resolver/setup exports compatible with `scripts/setup
 - `SETTLD_API_KEY must be a non-empty string`
   - Ensure key is present in shell or setup flags.
 - Host cannot run `npx`
-  - Install Node.js 20+ and ensure `npx` is in `PATH`.
+  - Install Node.js 20.x and ensure `npx` is in `PATH`.
