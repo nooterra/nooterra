@@ -371,3 +371,176 @@ test("CLI: listing-bond mint + publish attaches ListingBond.v1 and satisfies pub
     server.close();
   }
 });
+
+test("CLI: listing-bond refund fails while public, then succeeds after delist and restores escrow", async (t) => {
+  const store = createStore();
+  const api = createApi({ store, agentCardPublicListingBondCents: 300 });
+
+  const keyId = authKeyId();
+  const secret = authKeySecret();
+  await store.putAuthKey({
+    tenantId: "tenant_default",
+    authKey: {
+      keyId,
+      secretHash: hashAuthKeySecret(secret),
+      scopes: ["ops_write", "finance_write", "audit_read"],
+      status: "active",
+      createdAt: typeof store.nowIso === "function" ? store.nowIso() : new Date().toISOString()
+    }
+  });
+  const apiKey = `${keyId}.${secret}`;
+
+  const server = http.createServer((req, res) => {
+    api.handle(req, res).catch((err) => {
+      res.statusCode = 500;
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ ok: false, code: "UNHANDLED", message: err?.message ?? String(err) }));
+    });
+  });
+  const { port } = await listenLocal(server);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const tenantId = "tenant_default";
+
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-cli-agent-bond-refund-"));
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  async function fetchWallet(agentId) {
+    const response = await fetch(new URL(`/agents/${encodeURIComponent(agentId)}/wallet`, baseUrl), {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "x-proxy-tenant-id": tenantId,
+        "x-settld-protocol": "1.0"
+      }
+    });
+    const text = await response.text();
+    assert.equal(response.status, 200, text);
+    return JSON.parse(text).wallet;
+  }
+
+  try {
+    const agentId = "agt_cli_bond_refund_1";
+    await registerAgentIdentity({ baseUrl, tenantId, apiKey, agentId, capabilities: ["travel.booking"] });
+    await creditWallet({ baseUrl, tenantId, apiKey, agentId, amountCents: 1000 });
+
+    const mint = await runSettldAsync([
+      "agent",
+      "listing-bond",
+      "mint",
+      "--agent-id",
+      agentId,
+      "--base-url",
+      baseUrl,
+      "--tenant-id",
+      tenantId,
+      "--api-key",
+      apiKey,
+      "--format",
+      "json"
+    ]);
+    assert.equal(mint.status, 0, `stdout:\n${mint.stdout}\n\nstderr:\n${mint.stderr}`);
+    const mintJson = parseJson(mint.stdout, "mint stdout");
+    const bondPath = path.join(tmpDir, "listing-bond.json");
+    await fs.writeFile(bondPath, JSON.stringify(mintJson, null, 2), "utf8");
+
+    const publish = await runSettldAsync([
+      "agent",
+      "publish",
+      "--agent-id",
+      agentId,
+      "--display-name",
+      "CLI Bond Refund Agent",
+      "--capabilities",
+      "travel.booking",
+      "--visibility",
+      "public",
+      "--listing-bond-file",
+      bondPath,
+      "--base-url",
+      baseUrl,
+      "--tenant-id",
+      tenantId,
+      "--api-key",
+      apiKey,
+      "--format",
+      "json"
+    ]);
+    assert.equal(publish.status, 0, `stdout:\n${publish.stdout}\n\nstderr:\n${publish.stderr}`);
+
+    const walletAfterPublish = await fetchWallet(agentId);
+    assert.equal(walletAfterPublish.availableCents, 700);
+    assert.equal(walletAfterPublish.escrowLockedCents, 300);
+
+    const refundDenied = await runSettldAsync([
+      "agent",
+      "listing-bond",
+      "refund",
+      "--listing-bond-file",
+      bondPath,
+      "--base-url",
+      baseUrl,
+      "--tenant-id",
+      tenantId,
+      "--api-key",
+      apiKey,
+      "--format",
+      "json"
+    ]);
+    assert.equal(refundDenied.status, 1, `stdout:\n${refundDenied.stdout}\n\nstderr:\n${refundDenied.stderr}`);
+    const refundDeniedJson = parseJson(refundDenied.stdout, "refund denied stdout");
+    assert.equal(refundDeniedJson.schemaVersion, "AgentListingBondRefundOutput.v1");
+    assert.equal(refundDeniedJson.ok, false);
+    assert.equal(refundDeniedJson.error?.code, "LISTING_BOND_REFUND_REQUIRES_DELIST");
+
+    const delist = await runSettldAsync([
+      "agent",
+      "publish",
+      "--agent-id",
+      agentId,
+      "--display-name",
+      "CLI Bond Refund Agent",
+      "--capabilities",
+      "travel.booking",
+      "--visibility",
+      "private",
+      "--base-url",
+      baseUrl,
+      "--tenant-id",
+      tenantId,
+      "--api-key",
+      apiKey,
+      "--format",
+      "json"
+    ]);
+    assert.equal(delist.status, 0, `stdout:\n${delist.stdout}\n\nstderr:\n${delist.stderr}`);
+
+    const refund = await runSettldAsync([
+      "agent",
+      "listing-bond",
+      "refund",
+      "--listing-bond-file",
+      bondPath,
+      "--base-url",
+      baseUrl,
+      "--tenant-id",
+      tenantId,
+      "--api-key",
+      apiKey,
+      "--format",
+      "json"
+    ]);
+    assert.equal(refund.status, 0, `stdout:\n${refund.stdout}\n\nstderr:\n${refund.stderr}`);
+    const refundJson = parseJson(refund.stdout, "refund stdout");
+    assert.equal(refundJson.schemaVersion, "AgentListingBondRefundOutput.v1");
+    assert.equal(refundJson.ok, true);
+    assert.equal(refundJson.wallet?.escrowLockedCents, 0);
+
+    const walletAfterRefund = await fetchWallet(agentId);
+    assert.equal(walletAfterRefund.availableCents, 1000);
+    assert.equal(walletAfterRefund.escrowLockedCents, 0);
+  } finally {
+    server.close();
+  }
+});

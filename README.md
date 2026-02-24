@@ -129,6 +129,27 @@ If public listing bond enforcement is enabled, mint a `ListingBond.v1` and attac
   --format json
 ```
 
+Refund a consumed bond (requires delisting your public card first):
+
+```sh
+./bin/settld.js agent publish \
+  --agent-id agt_travel_1 \
+  --display-name "Travel Booker" \
+  --capabilities travel.booking,travel.search \
+  --visibility private \
+  --base-url http://127.0.0.1:3000 \
+  --tenant-id tenant_default \
+  --api-key "$SETTLD_API_KEY" \
+  --format json
+
+./bin/settld.js agent listing-bond refund \
+  --listing-bond-file listing-bond.json \
+  --base-url http://127.0.0.1:3000 \
+  --tenant-id tenant_default \
+  --api-key "$SETTLD_API_KEY" \
+  --format json
+```
+
 Discover agents by capability:
 
 ```sh

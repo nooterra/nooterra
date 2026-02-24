@@ -11,7 +11,8 @@ const VISIBILITY_OPTIONS = new Set(["public", "tenant", "private"]);
 const SCHEMAS = Object.freeze({
   PUBLISH_OUTPUT: "AgentPublishOutput.v1",
   DISCOVER_OUTPUT: "AgentDiscoverOutput.v1",
-  LISTING_BOND_MINT_OUTPUT: "AgentListingBondMintOutput.v1"
+  LISTING_BOND_MINT_OUTPUT: "AgentListingBondMintOutput.v1",
+  LISTING_BOND_REFUND_OUTPUT: "AgentListingBondRefundOutput.v1"
 });
 
 function usage() {
@@ -20,6 +21,7 @@ function usage() {
     "  settld agent publish --agent-id <id> --display-name <name> [options]",
     "  settld agent discover --capability <name> [options]",
     "  settld agent listing-bond mint --agent-id <id> [options]",
+    "  settld agent listing-bond refund --bond-id <id> [options]",
     "",
     "common options:",
     "  --base-url <url>            Settld API base URL (or SETTLD_BASE_URL/SETTLD_API_URL)",
@@ -44,6 +46,9 @@ function usage() {
     "  --listing-bond-file <path>   Attach ListingBond.v1 JSON to satisfy bond enforcement",
     "  --listing-bond-json <json>   Attach ListingBond.v1 JSON inline",
     "  --idempotency-key <key>      Override idempotency key (default: deterministic by payload)",
+    "",
+    "listing bond refund options:",
+    "  --bond-id <id>               ListingBondRecord.v1 id to refund (or pass --listing-bond-file/json)",
     "",
     "discover options:",
     "  --visibility <public|tenant|private|all> (default: public)",
@@ -128,6 +133,7 @@ function parseArgs(argv, cwd = process.cwd()) {
     jsonOut: null,
     help: false,
     idempotencyKey: null,
+    bondId: null,
     agentId: null,
     displayName: null,
     description: null,
@@ -220,6 +226,13 @@ function parseArgs(argv, cwd = process.cwd()) {
     if (arg === "--idempotency-key" || arg.startsWith("--idempotency-key=")) {
       const parsed = readArgValue(argv, i, arg);
       out.idempotencyKey = String(parsed.value ?? "").trim();
+      i = parsed.nextIndex;
+      continue;
+    }
+
+    if (arg === "--bond-id" || arg.startsWith("--bond-id=")) {
+      const parsed = readArgValue(argv, i, arg);
+      out.bondId = String(parsed.value ?? "").trim();
       i = parsed.nextIndex;
       continue;
     }
@@ -479,6 +492,20 @@ function renderTextListingBondMint(out) {
   return `${lines.join("\n")}\n`;
 }
 
+function renderTextListingBondRefund(out) {
+  const lines = [
+    `ok: ${out.ok ? "true" : "false"}`,
+    `bondId: ${out.request.bondId}`
+  ];
+  if (out.ok && out.listingBond) {
+    lines.push(`status: ${out.listingBond.status ?? ""}`);
+  } else if (out.error) {
+    lines.push(`errorCode: ${out.error.code ?? "unknown"}`);
+    lines.push(`message: ${out.error.message ?? "unknown error"}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
 async function maybeWriteJsonOut(outPath, value) {
   if (!outPath) return;
   await fs.mkdir(path.dirname(outPath), { recursive: true });
@@ -679,6 +706,44 @@ async function main() {
 
     await maybeWriteJsonOut(args.jsonOut, out);
     process.stdout.write(args.format === "text" ? renderTextListingBondMint(out) : renderJson(out));
+    process.exit(response.ok ? 0 : 1);
+  }
+
+  if (cmd === "listing-bond" && sub === "refund") {
+    const bondFromFile = await readListingBond({ filePath: args.listingBondFile, jsonText: args.listingBondJson });
+    const bondId = String(args.bondId ?? bondFromFile?.bondId ?? "").trim();
+    if (!bondId) fail("--bond-id is required (or use --listing-bond-file/--listing-bond-json)");
+
+    const body = {};
+    const bodyHash = sha256Hex(JSON.stringify(body));
+    const idempotencyKey = args.idempotencyKey || `cli_agent_listing_bond_refund_${bondId}_${bodyHash.slice(0, 16)}`;
+
+    const url = new URL(`/agent-cards/listing-bonds/${encodeURIComponent(bondId)}/refund`, baseUrl);
+    const response = await fetchJson({
+      url,
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "x-proxy-tenant-id": tenantId,
+        "x-settld-protocol": protocol,
+        "x-idempotency-key": idempotencyKey,
+        "content-type": "application/json"
+      },
+      body
+    });
+
+    const out = {
+      schemaVersion: SCHEMAS.LISTING_BOND_REFUND_OUTPUT,
+      ok: response.ok,
+      request: { baseUrl, tenantId, bondId },
+      listingBond: response.ok ? response.body?.listingBond ?? null : null,
+      wallet: response.ok ? response.body?.wallet ?? null : null,
+      error: response.ok ? null : response.error,
+      details: response.ok ? null : response.body?.details ?? null
+    };
+
+    await maybeWriteJsonOut(args.jsonOut, out);
+    process.stdout.write(args.format === "text" ? renderTextListingBondRefund(out) : renderJson(out));
     process.exit(response.ok ? 0 : 1);
   }
 
