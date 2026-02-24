@@ -2,7 +2,7 @@
 
 Prereqs:
 
-- Node.js 20.x (`.nvmrc` / `.node-version`)
+- Node.js 20.x or 22.x (`.nvmrc` / `.node-version`)
 - Docker (optional; for Postgres/MinIO local stack)
 
 ## Install
@@ -109,4 +109,3 @@ Kernel control plane (disputes + holdback):
 ```sh
 ./bin/settld.js conformance kernel --ops-token tok_ops
 ```
-

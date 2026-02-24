@@ -11,6 +11,7 @@ For curated public docs, start here:
 - [API Reference](./gitbook/api-reference.md)
 - [Conformance](./gitbook/conformance.md)
 - [Closepacks](./gitbook/closepacks.md)
+- [Open Discovery](./OPEN_DISCOVERY.md)
 - [Guides](./gitbook/guides.md)
 - [Security Model](./gitbook/security-model.md)
 - [FAQ](./gitbook/faq.md)

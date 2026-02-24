@@ -6,7 +6,7 @@
   "private": false,
   "type": "module",
   "engines": {
-    "node": "20.x"
+    "node": "^20.0.0 || ^22.0.0"
   },
   "publishConfig": {
     "access": "public"

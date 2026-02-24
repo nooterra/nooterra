@@ -4,7 +4,7 @@ Use this when you want a public user to set up Settld from npm in a fresh machin
 
 Prereqs:
 
-- Node.js 20.x (install is fail-fast if you use a different major)
+- Node.js 20.x or 22.x (install is fail-fast if you use a different major)
 
 ## 1) Install and onboard OpenClaw
 

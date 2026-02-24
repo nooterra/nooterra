@@ -3,13 +3,13 @@
 [![CI](https://github.com/aidenlippert/settld/actions/workflows/tests.yml/badge.svg)](https://github.com/aidenlippert/settld/actions/workflows/tests.yml)
 [![npm](https://img.shields.io/npm/v/settld)](https://www.npmjs.com/package/settld)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
-[![Node 20.x](https://img.shields.io/badge/node-20.x-brightgreen)](./.nvmrc)
+[![Node 22.x](https://img.shields.io/badge/node-22.x-brightgreen)](./.nvmrc)
 
 Settld is a deterministic trust-and-settlement control plane for agent actions: **decision** (`allow|challenge|deny|escalate`) + **execution binding** + **verifiable receipts** + **recourse**.
 
 Current wedge: an x402-style gateway that turns `HTTP 402` into `hold -> verify -> release/refund`, with deterministic receipts.
 
-Docs: [Overview](./docs/OVERVIEW.md) · [Architecture](./docs/ARCHITECTURE.md) · [Docs Index](./docs/README.md) · [Public Specs](./docs/spec/public/README.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md)
+Docs: [Docs home](./docs/gitbook/README.md) · [Quickstart](./docs/gitbook/quickstart.md) · [Architecture](./docs/ARCHITECTURE.md) · [Public Specs](./docs/spec/public/README.md) · [Security model](./docs/gitbook/security-model.md) · [Security policy](./SECURITY.md) · [Support](./SUPPORT.md)
 
 ## Why Settld (vs “just MCP” or “just x402”)
 
@@ -29,9 +29,32 @@ MCP gives agents *capability* (they can call tools/APIs). x402 gives them *a way
 - MCP tool surface + OpenClaw ClawHub distribution
 - “Settld Verified” gates: deterministic conformance, receipts, and incident-ready artifacts
 
+## Who It’s For
+
+- Agent builders who want safe spend, receipts, and recourse (not “send money and pray”)
+- Tool/API providers who want verifiable, pay-per-action access for agents
+- Agent hosts/runtimes integrating a deterministic settlement + policy plane (OpenClaw, Codex, Claude Desktop, Cursor)
+- Marketplace/coordination systems that need delegations + work orders + receipts as a contract
+
+## What You Can Build
+
+- Paid MCP tool calls with verify-before-release settlement (x402-style)
+- A policy gate for paid/high-risk actions (`allow|challenge|deny|escalate`) with reason codes
+- Inter-agent delegation + paid work orders with signed completion receipts
+- Open discovery: publish `AgentCard.v1`, discover by capability/runtime/trust/attestation
+- “Settld Verified” conformance gates that produce audit-grade artifacts
+
+## Safety Model (Summary)
+
+- Fail-closed by default for paid/high-risk actions (policy gate)
+- Request/response binding + strict evidence requirements for release decisions
+- Deterministic, verifiable receipts (canonical hashes + signatures where configured)
+- Idempotency/retry discipline to prevent duplicate external side effects
+- Recourse primitives are first-class (hold/release/refund/dispute/arbitration)
+
 ## Get Started (Local x402 Demo)
 
-Prereqs: Node.js 20.x (install is fail-fast if you use a different major).
+Prereqs: Node.js 22.x (LTS). Node.js 20.x is also supported, but OpenClaw requires Node >= 22.
 
 ```sh
 nvm use
@@ -39,7 +62,7 @@ npm ci
 npm run quickstart:x402
 ```
 
-Note: if you see Node warnings like `ExperimentalWarning: CommonJS module ... is loading ES Module ...`, you are likely running an unsupported Node major (ex: Node 23). Use Node 20.x for deterministic behavior.
+Note: if you see Node warnings like `ExperimentalWarning: CommonJS module ... is loading ES Module ...`, you are likely running an unsupported Node major (ex: Node 23). Use Node 22.x (LTS) for deterministic behavior.
 
 CI-friendly one-shot run:
 
@@ -88,82 +111,16 @@ More: [OpenClaw Quickstart](./docs/integrations/openclaw/PUBLIC_QUICKSTART.md)
 
 ## Open Discovery (CLI: Publish + Discover)
 
-Publish/update an `AgentCard.v1`:
+Full guide: [docs/OPEN_DISCOVERY.md](./docs/OPEN_DISCOVERY.md)
+
+Quick examples (repo checkout):
 
 ```sh
-./bin/settld.js agent publish \
-  --agent-id agt_travel_1 \
-  --display-name "Travel Booker" \
-  --capabilities travel.booking,travel.search \
-  --visibility public \
-  --runtime openclaw \
-  --endpoint https://example.test/agents/travel \
-  --protocols mcp,http \
-  --price-cents 250 \
-  --tags travel,booking \
-  --base-url http://127.0.0.1:3000 \
-  --tenant-id tenant_default \
-  --api-key "$SETTLD_API_KEY" \
-  --format json
+./bin/settld.js agent publish --help
+./bin/settld.js agent discover --help
 ```
 
-If public listing bond enforcement is enabled, mint a `ListingBond.v1` and attach it:
-
-```sh
-./bin/settld.js agent listing-bond mint \
-  --agent-id agt_travel_1 \
-  --base-url http://127.0.0.1:3000 \
-  --tenant-id tenant_default \
-  --api-key "$SETTLD_API_KEY" \
-  --format json > listing-bond.json
-
-./bin/settld.js agent publish \
-  --agent-id agt_travel_1 \
-  --display-name "Travel Booker" \
-  --capabilities travel.booking,travel.search \
-  --visibility public \
-  --listing-bond-file listing-bond.json \
-  --base-url http://127.0.0.1:3000 \
-  --tenant-id tenant_default \
-  --api-key "$SETTLD_API_KEY" \
-  --format json
-```
-
-Refund a consumed bond (requires delisting your public card first):
-
-```sh
-./bin/settld.js agent publish \
-  --agent-id agt_travel_1 \
-  --display-name "Travel Booker" \
-  --capabilities travel.booking,travel.search \
-  --visibility private \
-  --base-url http://127.0.0.1:3000 \
-  --tenant-id tenant_default \
-  --api-key "$SETTLD_API_KEY" \
-  --format json
-
-./bin/settld.js agent listing-bond refund \
-  --listing-bond-file listing-bond.json \
-  --base-url http://127.0.0.1:3000 \
-  --tenant-id tenant_default \
-  --api-key "$SETTLD_API_KEY" \
-  --format json
-```
-
-Discover agents by capability:
-
-```sh
-./bin/settld.js agent discover \
-  --capability travel.booking \
-  --visibility public \
-  --runtime openclaw \
-  --min-trust-score 50 \
-  --limit 10 \
-  --base-url http://127.0.0.1:3000 \
-  --tenant-id tenant_default \
-  --api-key "$SETTLD_API_KEY" \
-  --format json
-```
+Note: public listing may require a refundable `ListingBond.v1` (anti-abuse). See the guide above.
 
 ## Repository Layout
 
@@ -219,7 +176,7 @@ Ops workspaces (HTML):
 
 ## Documentation
 
-Start at `docs/README.md` (curated index), `docs/OVERVIEW.md` (concepts), and `docs/QUICKSTART_MCP_HOSTS.md` (host onboarding).
+Start at `docs/gitbook/README.md` (docs home), `docs/gitbook/quickstart.md` (first run), and `docs/QUICKSTART_MCP_HOSTS.md` (host onboarding).
 
 Public protocol/spec contracts live in `docs/spec/` (especially `docs/spec/public/`).
 
