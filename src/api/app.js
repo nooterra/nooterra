@@ -25160,6 +25160,166 @@ export function createApi({
           return sendJson(res, 200, { ok: true });
         }
 
+        if (
+          req.method === "POST" &&
+          parts[1] === "agent-cards" &&
+          parts[2] === "listing-bonds" &&
+          parts[3] &&
+          parts[4] === "forfeit" &&
+          parts.length === 5
+        ) {
+          const hasScope = requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
+          if (!hasScope) return sendError(res, 403, "forbidden");
+          if (store.kind !== "memory") {
+            return sendError(res, 501, "listing bonds not supported for this store", null, { code: "LISTING_BONDS_UNSUPPORTED" });
+          }
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+
+          const bondId = decodePathPart(parts[3]);
+          if (!bondId) return sendError(res, 400, "bondId is required", null, { code: "SCHEMA_INVALID" });
+
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message }, { code: "IDEMPOTENCY_INVALID" });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+
+          const forfeitedAt = nowIso();
+          let bondRecord = null;
+          try {
+            bondRecord = await getListingBondRecord({ tenantId, bondId });
+          } catch (err) {
+            return sendError(res, 501, "listing bonds not supported for this store", { message: err?.message }, { code: "LISTING_BONDS_UNSUPPORTED" });
+          }
+          if (!bondRecord) return sendError(res, 404, "listing bond not found", null, { code: "NOT_FOUND" });
+
+          const status = String(bondRecord.status ?? "").trim().toLowerCase();
+          if (status !== "active" && status !== "consumed") {
+            return sendError(
+              res,
+              409,
+              "listing bond is not forfeitable",
+              { bondId: bondRecord.bondId ?? bondId, status: bondRecord.status ?? null },
+              { code: "LISTING_BOND_NOT_FORFEITABLE" }
+            );
+          }
+
+          const agentId = typeof bondRecord.agentId === "string" && bondRecord.agentId.trim() !== "" ? bondRecord.agentId.trim() : null;
+          if (!agentId) {
+            return sendError(res, 409, "listing bond record invalid", { bondId: bondRecord.bondId ?? bondId }, { code: "LISTING_BOND_RECORD_INVALID" });
+          }
+
+          const currency = typeof bondRecord.currency === "string" && bondRecord.currency.trim() !== "" ? bondRecord.currency.trim().toUpperCase() : null;
+          const amountCents = Number(bondRecord.amountCents ?? 0);
+          if (!currency || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+            return sendError(
+              res,
+              409,
+              "listing bond record invalid",
+              { bondId: bondRecord.bondId ?? bondId, currency: bondRecord.currency ?? null, amountCents: bondRecord.amountCents ?? null },
+              { code: "LISTING_BOND_RECORD_INVALID" }
+            );
+          }
+
+          if (String(agentCardPublicListingBondCollectorAgentIdValue) === String(agentId)) {
+            return sendError(res, 409, "listing bond collector cannot equal agentId", null, { code: "AGENT_CARD_PUBLIC_LISTING_BOND_MISCONFIGURED" });
+          }
+          let collectorIdentity = null;
+          try {
+            collectorIdentity = await getAgentIdentityRecord({
+              tenantId,
+              agentId: agentCardPublicListingBondCollectorAgentIdValue
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid collector agent identity", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          if (!collectorIdentity) {
+            return sendError(res, 409, "listing bond collector agent identity not found", null, { code: "AGENT_CARD_PUBLIC_LISTING_BOND_MISCONFIGURED" });
+          }
+
+          let payerWalletExisting = null;
+          let collectorWalletExisting = null;
+          try {
+            payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId });
+            collectorWalletExisting = await getAgentWalletRecord({ tenantId, agentId: agentCardPublicListingBondCollectorAgentIdValue });
+          } catch (err) {
+            return sendError(res, 400, "invalid agent wallet query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          let payerWallet = ensureAgentWallet({ wallet: payerWalletExisting, tenantId, agentId, currency, at: forfeitedAt });
+          let collectorWallet = ensureAgentWallet({
+            wallet: collectorWalletExisting,
+            tenantId,
+            agentId: agentCardPublicListingBondCollectorAgentIdValue,
+            currency,
+            at: forfeitedAt
+          });
+          try {
+            const moved = releaseAgentWalletEscrowToPayee({ payerWallet, payeeWallet: collectorWallet, amountCents, at: forfeitedAt });
+            payerWallet = moved.payerWallet;
+            collectorWallet = moved.payeeWallet;
+          } catch (err) {
+            if (err?.code === "INSUFFICIENT_ESCROW_BALANCE") {
+              return sendError(res, 409, "listing bond escrow mismatch", { message: err?.message }, { code: "LISTING_BOND_ESCROW_MISMATCH" });
+            }
+            return sendError(res, 400, "listing bond forfeit failed", { message: err?.message }, { code: err?.code ?? "LISTING_BOND_FORFEIT_FAILED" });
+          }
+
+          const forfeitedRecord = normalizeForCanonicalJson(
+            {
+              ...bondRecord,
+              status: "forfeited",
+              forfeitedAt,
+              forfeitedBy: normalizeForCanonicalJson(
+                {
+                  schemaVersion: "ListingBondForfeit.v1",
+                  kind: "listing_bond_forfeit",
+                  agentId,
+                  bondId: bondRecord.bondId ?? bondId,
+                  collectorAgentId: agentCardPublicListingBondCollectorAgentIdValue,
+                  forfeitedAt
+                },
+                { path: "$.forfeitedBy" }
+              ),
+              updatedAt: forfeitedAt
+            },
+            { path: "$" }
+          );
+
+          const responseBody = {
+            ok: true,
+            schemaVersion: "ListingBondForfeitDecision.v1",
+            bondId: forfeitedRecord.bondId ?? bondId,
+            agentId,
+            status: forfeitedRecord.status,
+            listingBond: forfeitedRecord,
+            payerWallet,
+            collectorWallet
+          };
+
+          const ops = [
+            { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
+            { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: collectorWallet },
+            { kind: "LISTING_BOND_UPSERT", tenantId, listingBond: forfeitedRecord }
+          ];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await commitTx(ops);
+          return sendJson(res, 200, responseBody);
+        }
+
         if (parts[1] === "emergency") {
           const hasReadScope = requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
           const hasWriteScope = requireScope(auth.scopes, OPS_SCOPES.OPS_WRITE);
@@ -43574,6 +43734,165 @@ export function createApi({
         }
         await commitTx(ops);
         return sendJson(res, 201, responseBody);
+      }
+
+      {
+        const parts = path.split("/").filter(Boolean);
+        if (
+          req.method === "POST" &&
+          parts[0] === "agent-cards" &&
+          parts[1] === "listing-bonds" &&
+          parts[2] &&
+          parts[3] === "refund" &&
+          parts.length === 4
+        ) {
+          if (store.kind !== "memory") {
+            return sendError(res, 501, "listing bonds not supported for this store", null, { code: "LISTING_BONDS_UNSUPPORTED" });
+          }
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+
+          const bondId = decodePathPart(parts[2]);
+          if (!bondId) return sendError(res, 400, "bondId is required", null, { code: "SCHEMA_INVALID" });
+
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message }, { code: "IDEMPOTENCY_INVALID" });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+
+          const refundedAt = nowIso();
+          let bondRecord = null;
+          try {
+            bondRecord = await getListingBondRecord({ tenantId, bondId });
+          } catch (err) {
+            return sendError(res, 501, "listing bonds not supported for this store", { message: err?.message }, { code: "LISTING_BONDS_UNSUPPORTED" });
+          }
+          if (!bondRecord) return sendError(res, 404, "listing bond not found", null, { code: "NOT_FOUND" });
+
+          const status = String(bondRecord.status ?? "").trim().toLowerCase();
+          if (status !== "active" && status !== "consumed") {
+            return sendError(
+              res,
+              409,
+              "listing bond is not refundable",
+              { bondId: bondRecord.bondId ?? bondId, status: bondRecord.status ?? null },
+              { code: "LISTING_BOND_NOT_REFUNDABLE" }
+            );
+          }
+
+          const agentId = typeof bondRecord.agentId === "string" && bondRecord.agentId.trim() !== "" ? bondRecord.agentId.trim() : null;
+          if (!agentId) {
+            return sendError(res, 409, "listing bond record invalid", { bondId: bondRecord.bondId ?? bondId }, { code: "LISTING_BOND_RECORD_INVALID" });
+          }
+
+          const emergencyControl = await findMatchingEmergencyControl({
+            tenantId,
+            controlTypes: [EMERGENCY_CONTROL_TYPE.QUARANTINE],
+            agentIds: [agentId],
+            adapterIds: []
+          });
+          if (emergencyControl) {
+            return sendError(res, 409, "agent is quarantined", { emergencyControl }, { code: "AGENT_QUARANTINED" });
+          }
+
+          if (status === "consumed") {
+            let currentCard = null;
+            try {
+              currentCard = await getAgentCardRecord({ tenantId, agentId });
+            } catch (err) {
+              return sendError(res, 501, "agent cards not supported for this store", { message: err?.message }, { code: "AGENT_CARDS_UNSUPPORTED" });
+            }
+            if (String(currentCard?.visibility ?? "").toLowerCase() === AGENT_CARD_VISIBILITY.PUBLIC) {
+              return sendError(
+                res,
+                409,
+                "listing bond refund requires delisting",
+                { agentId, bondId: bondRecord.bondId ?? bondId },
+                { code: "LISTING_BOND_REFUND_REQUIRES_DELIST" }
+              );
+            }
+          }
+
+          const currency = typeof bondRecord.currency === "string" && bondRecord.currency.trim() !== "" ? bondRecord.currency.trim().toUpperCase() : null;
+          const amountCents = Number(bondRecord.amountCents ?? 0);
+          if (!currency || !Number.isSafeInteger(amountCents) || amountCents <= 0) {
+            return sendError(
+              res,
+              409,
+              "listing bond record invalid",
+              { bondId: bondRecord.bondId ?? bondId, currency: bondRecord.currency ?? null, amountCents: bondRecord.amountCents ?? null },
+              { code: "LISTING_BOND_RECORD_INVALID" }
+            );
+          }
+
+          let payerWalletExisting = null;
+          try {
+            payerWalletExisting = await getAgentWalletRecord({ tenantId, agentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid agent wallet query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          let payerWallet = ensureAgentWallet({ wallet: payerWalletExisting, tenantId, agentId, currency, at: refundedAt });
+          try {
+            payerWallet = refundAgentWalletEscrow({ wallet: payerWallet, amountCents, at: refundedAt });
+          } catch (err) {
+            if (err?.code === "INSUFFICIENT_ESCROW_BALANCE") {
+              return sendError(res, 409, "listing bond escrow mismatch", { message: err?.message }, { code: "LISTING_BOND_ESCROW_MISMATCH" });
+            }
+            return sendError(res, 400, "listing bond refund failed", { message: err?.message }, { code: err?.code ?? "LISTING_BOND_REFUND_FAILED" });
+          }
+
+          const refundedRecord = normalizeForCanonicalJson(
+            {
+              ...bondRecord,
+              status: "refunded",
+              refundedAt,
+              refundedBy: normalizeForCanonicalJson(
+                {
+                  schemaVersion: "ListingBondRefund.v1",
+                  kind: "listing_bond_refund",
+                  agentId,
+                  bondId: bondRecord.bondId ?? bondId,
+                  refundedAt
+                },
+                { path: "$.refundedBy" }
+              ),
+              updatedAt: refundedAt
+            },
+            { path: "$" }
+          );
+
+          const responseBody = {
+            ok: true,
+            schemaVersion: "ListingBondRefundDecision.v1",
+            bondId: refundedRecord.bondId ?? bondId,
+            agentId,
+            status: refundedRecord.status,
+            listingBond: refundedRecord,
+            wallet: payerWallet
+          };
+
+          const ops = [
+            { kind: "AGENT_WALLET_UPSERT", tenantId, wallet: payerWallet },
+            { kind: "LISTING_BOND_UPSERT", tenantId, listingBond: refundedRecord }
+          ];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+          }
+          await commitTx(ops);
+          return sendJson(res, 200, responseBody);
+        }
       }
 
       if (req.method === "POST" && path === "/agent-cards") {

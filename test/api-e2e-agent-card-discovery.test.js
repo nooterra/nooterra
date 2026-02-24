@@ -442,6 +442,193 @@ test("API e2e: listing bond publish succeeds and is discoverable", async () => {
   assert.equal(discovered.json?.results?.[0]?.agentCard?.agentId, agentId);
 });
 
+test("API e2e: listing bond refund requires delisting and restores escrow", async () => {
+  let nowAt = "2026-02-24T00:00:00.000Z";
+  const api = createApi({
+    opsToken: "tok_ops",
+    now: () => nowAt,
+    agentCardPublicListingBondCents: 250,
+    agentCardPublicListingBondCurrency: "USD"
+  });
+  const agentId = "agt_card_bond_refund_1";
+  await registerAgent(api, { agentId, capabilities: ["travel.booking"] });
+
+  const funded = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(agentId)}/wallet/credit`,
+    headers: { "x-idempotency-key": "wallet_credit_agent_card_bond_refund_1" },
+    body: { amountCents: 2000, currency: "USD" }
+  });
+  assert.equal(funded.statusCode, 201, funded.body);
+
+  const issued = await request(api, {
+    method: "POST",
+    path: "/agent-cards/listing-bonds",
+    headers: { "x-idempotency-key": "listing_bond_issue_refund_1" },
+    body: { agentId }
+  });
+  assert.equal(issued.statusCode, 201, issued.body);
+  const bondId = issued.json?.bond?.bondId ?? null;
+  assert.ok(bondId, "expected bondId in listing bond issuance response");
+
+  const published = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_bond_refund_publish_1" },
+    body: {
+      agentId,
+      displayName: "Bond Refund Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/bond-refund", protocols: ["mcp"] },
+      listingBond: issued.json?.bond
+    }
+  });
+  assert.equal(published.statusCode, 201, published.body);
+
+  const walletAfterPublish = await request(api, {
+    method: "GET",
+    path: `/agents/${encodeURIComponent(agentId)}/wallet`
+  });
+  assert.equal(walletAfterPublish.statusCode, 200, walletAfterPublish.body);
+  assert.equal(walletAfterPublish.json?.wallet?.availableCents, 1750);
+  assert.equal(walletAfterPublish.json?.wallet?.escrowLockedCents, 250);
+
+  const refundDenied = await request(api, {
+    method: "POST",
+    path: `/agent-cards/listing-bonds/${encodeURIComponent(bondId)}/refund`,
+    headers: { "x-idempotency-key": "listing_bond_refund_denied_1" },
+    body: {}
+  });
+  assert.equal(refundDenied.statusCode, 409, refundDenied.body);
+  assert.equal(refundDenied.json?.code, "LISTING_BOND_REFUND_REQUIRES_DELIST");
+
+  const delisted = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_bond_refund_delist_1" },
+    body: {
+      agentId,
+      displayName: "Bond Refund Agent",
+      capabilities: ["travel.booking"],
+      visibility: "private",
+      host: { runtime: "openclaw", endpoint: "https://example.test/bond-refund", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(delisted.statusCode, 200, delisted.body);
+
+  const refunded = await request(api, {
+    method: "POST",
+    path: `/agent-cards/listing-bonds/${encodeURIComponent(bondId)}/refund`,
+    headers: { "x-idempotency-key": "listing_bond_refund_allowed_1" },
+    body: {}
+  });
+  assert.equal(refunded.statusCode, 200, refunded.body);
+  assert.equal(refunded.json?.schemaVersion, "ListingBondRefundDecision.v1");
+  assert.equal(refunded.json?.listingBond?.status, "refunded");
+
+  const walletAfterRefund = await request(api, {
+    method: "GET",
+    path: `/agents/${encodeURIComponent(agentId)}/wallet`
+  });
+  assert.equal(walletAfterRefund.statusCode, 200, walletAfterRefund.body);
+  assert.equal(walletAfterRefund.json?.wallet?.availableCents, 2000);
+  assert.equal(walletAfterRefund.json?.wallet?.escrowLockedCents, 0);
+
+  nowAt = "2026-02-24T00:02:00.000Z";
+  const republish = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_bond_refund_republish_1" },
+    body: {
+      agentId,
+      displayName: "Bond Refund Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/bond-refund", protocols: ["mcp"] },
+      listingBond: issued.json?.bond
+    }
+  });
+  assert.equal(republish.statusCode, 409, republish.body);
+  assert.equal(republish.json?.code, "AGENT_CARD_PUBLIC_LISTING_BOND_CONSUMED");
+});
+
+test("API e2e: ops listing bond forfeit releases escrow to collector wallet", async () => {
+  const collectorAgentId = "agt_card_bond_collector_1";
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicListingBondCents: 250,
+    agentCardPublicListingBondCurrency: "USD",
+    agentCardPublicListingBondCollectorAgentId: collectorAgentId
+  });
+
+  const agentId = "agt_card_bond_forfeit_1";
+  await registerAgent(api, { agentId: collectorAgentId });
+  await registerAgent(api, { agentId, capabilities: ["travel.booking"] });
+
+  const funded = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(agentId)}/wallet/credit`,
+    headers: { "x-idempotency-key": "wallet_credit_agent_card_bond_forfeit_1" },
+    body: { amountCents: 2000, currency: "USD" }
+  });
+  assert.equal(funded.statusCode, 201, funded.body);
+
+  const issued = await request(api, {
+    method: "POST",
+    path: "/agent-cards/listing-bonds",
+    headers: { "x-idempotency-key": "listing_bond_issue_forfeit_1" },
+    body: { agentId }
+  });
+  assert.equal(issued.statusCode, 201, issued.body);
+  const bondId = issued.json?.bond?.bondId ?? null;
+  assert.ok(bondId, "expected bondId in listing bond issuance response");
+
+  const published = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_bond_forfeit_publish_1" },
+    body: {
+      agentId,
+      displayName: "Bond Forfeit Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/bond-forfeit", protocols: ["mcp"] },
+      listingBond: issued.json?.bond
+    }
+  });
+  assert.equal(published.statusCode, 201, published.body);
+
+  const forfeited = await request(api, {
+    method: "POST",
+    path: `/ops/agent-cards/listing-bonds/${encodeURIComponent(bondId)}/forfeit`,
+    headers: {
+      "x-proxy-ops-token": "tok_ops",
+      "x-settld-protocol": "1.0",
+      "x-idempotency-key": "listing_bond_forfeit_1"
+    },
+    body: {}
+  });
+  assert.equal(forfeited.statusCode, 200, forfeited.body);
+  assert.equal(forfeited.json?.schemaVersion, "ListingBondForfeitDecision.v1");
+  assert.equal(forfeited.json?.listingBond?.status, "forfeited");
+
+  const payerWalletAfterForfeit = await request(api, {
+    method: "GET",
+    path: `/agents/${encodeURIComponent(agentId)}/wallet`
+  });
+  assert.equal(payerWalletAfterForfeit.statusCode, 200, payerWalletAfterForfeit.body);
+  assert.equal(payerWalletAfterForfeit.json?.wallet?.availableCents, 1750);
+  assert.equal(payerWalletAfterForfeit.json?.wallet?.escrowLockedCents, 0);
+
+  const collectorWalletAfterForfeit = await request(api, {
+    method: "GET",
+    path: `/agents/${encodeURIComponent(collectorAgentId)}/wallet`
+  });
+  assert.equal(collectorWalletAfterForfeit.statusCode, 200, collectorWalletAfterForfeit.body);
+  assert.equal(collectorWalletAfterForfeit.json?.wallet?.availableCents, 250);
+});
+
 test("API adversarial: flood publish is rate limited and invalid bond attempt quarantines agent from discovery", async () => {
   let nowAt = "2026-02-24T00:00:00.000Z";
   const api = createApi({
