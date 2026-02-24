@@ -34,6 +34,9 @@ function usage() {
   console.error(
     "  settld wallet balance [--watch] [--min-usdc <amount>] [--interval-seconds <n>] [--timeout-seconds <n>] [--base-url <url>] [--tenant-id <id>] [--session-file <path>] [--cookie <cookie>] [--magic-link-api-key <key>] [--format text|json] [--json-out <path>]"
   );
+  console.error("  settld agent publish [--help]");
+  console.error("  settld agent discover [--help]");
+  console.error("  settld agent listing-bond mint [--help]");
   console.error("  settld profile list [--format json|text] [--json-out <path>]");
   console.error("  settld profile init <profile-id> [--out <path>] [--force] [--format json|text] [--json-out <path>]");
   console.error(
@@ -295,6 +298,10 @@ function main() {
 
   if (cmd === "wallet") {
     return runNodeScript("scripts/wallet/cli.mjs", argv.slice(1));
+  }
+
+  if (cmd === "agent") {
+    return runNodeScript("scripts/agent/cli.mjs", argv.slice(1));
   }
 
   if (cmd === "profile") {
