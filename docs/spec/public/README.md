@@ -7,6 +7,8 @@ They are written for runtime integrators (OpenClaw, Codex, Claude Desktop, Curso
 ## Documents
 
 - `AgentCard.v1.md`
+- `CapabilityTrial.v1.md`
+- `CapabilityTrialRunReport.v1.md`
 - `DelegationGrant.v1.md`
 - `SubAgentWorkOrder.v1.md`
 - `SubAgentCompletionReceipt.v1.md`

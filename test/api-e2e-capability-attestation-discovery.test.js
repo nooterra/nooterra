@@ -3,11 +3,12 @@ import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
 import { createStore } from "../src/api/store.js";
-import { createEd25519Keypair } from "../src/core/crypto.js";
+import { createEd25519Keypair, signHashHexEd25519 } from "../src/core/crypto.js";
+import { buildCapabilityAttestationV1, computeCapabilityAttestationSignaturePayloadHashV1 } from "../src/core/capability-attestation.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
-  const { publicKeyPem } = createEd25519Keypair();
+  const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
   const response = await request(api, {
     method: "POST",
     path: "/agents/register",
@@ -21,6 +22,39 @@ async function registerAgent(api, { agentId, capabilities = [] }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+  const keyId = typeof response.json?.keyId === "string" && response.json.keyId.trim() !== "" ? response.json.keyId.trim() : null;
+  assert.ok(keyId, "registerAgent must return keyId");
+  return { agentId, keyId, publicKeyPem, privateKeyPem };
+}
+
+function signCapabilityAttestationCreate({
+  tenantId = "tenant_default",
+  issuerKeyId,
+  issuerPrivateKeyPem,
+  attestationId,
+  subjectAgentId,
+  capability,
+  level,
+  issuerAgentId,
+  validity,
+  verificationMethod = null,
+  evidenceRefs = []
+} = {}) {
+  const preview = buildCapabilityAttestationV1({
+    attestationId,
+    tenantId,
+    subjectAgentId,
+    capability,
+    level,
+    issuerAgentId,
+    validity,
+    signature: { algorithm: "ed25519", keyId: issuerKeyId, signature: "sig_preview" },
+    verificationMethod,
+    evidenceRefs,
+    createdAt: "2026-02-23T00:00:00.000Z"
+  });
+  const payloadHashHex = computeCapabilityAttestationSignaturePayloadHashV1(preview);
+  return signHashHexEd25519(payloadHashHex, issuerPrivateKeyPem);
 }
 
 async function upsertAgentCard(api, { agentId, runtime = "openclaw", capability = "travel.booking", idem }) {
@@ -58,7 +92,7 @@ test("API e2e: capability attestation registry + discovery filter with exclusion
     agentId: plainAgentId,
     capabilities: ["travel.booking"]
   });
-  await registerAgent(api, {
+  const issuer = await registerAgent(api, {
     agentId: issuerAgentId,
     capabilities: ["attestation.issue"]
   });
@@ -82,8 +116,27 @@ test("API e2e: capability attestation registry + discovery filter with exclusion
         expiresAt: "2027-02-23T00:00:00.000Z"
       },
       signature: {
-        keyId: `key_${issuerAgentId}`,
-        signature: "sig_attested_travel_1"
+        algorithm: "ed25519",
+        keyId: issuer.keyId,
+        signature: signCapabilityAttestationCreate({
+          issuerKeyId: issuer.keyId,
+          issuerPrivateKeyPem: issuer.privateKeyPem,
+          attestationId: "catt_travel_1",
+          subjectAgentId: attestedAgentId,
+          capability: "travel.booking",
+          level: "attested",
+          issuerAgentId,
+          validity: {
+            issuedAt: "2026-02-23T00:00:00.000Z",
+            notBefore: "2026-02-23T00:00:00.000Z",
+            expiresAt: "2027-02-23T00:00:00.000Z"
+          },
+          verificationMethod: {
+            mode: "attested",
+            source: "issuer_registry"
+          },
+          evidenceRefs: ["artifact://attestation/proof/1"]
+        })
       },
       verificationMethod: {
         mode: "attested",
@@ -161,7 +214,7 @@ test("API e2e: public agent-card publish fails closed without required capabilit
     agentCardPublicAttestationIssuerAgentId: issuerAgentId
   });
 
-  await registerAgent(api, { agentId: issuerAgentId, capabilities: ["attestation.issue"] });
+  const issuer = await registerAgent(api, { agentId: issuerAgentId, capabilities: ["attestation.issue"] });
   await registerAgent(api, { agentId: subjectAgentId, capabilities: ["travel.booking", "travel.search"] });
 
   const missingAll = await request(api, {
@@ -208,8 +261,22 @@ test("API e2e: public agent-card publish fails closed without required capabilit
         expiresAt: "2027-02-23T00:00:00.000Z"
       },
       signature: {
-        keyId: `key_${issuerAgentId}`,
-        signature: "sig_pub_booking_1"
+        algorithm: "ed25519",
+        keyId: issuer.keyId,
+        signature: signCapabilityAttestationCreate({
+          issuerKeyId: issuer.keyId,
+          issuerPrivateKeyPem: issuer.privateKeyPem,
+          attestationId: "catt_pub_booking_1",
+          subjectAgentId,
+          capability: "travel.booking",
+          level: "attested",
+          issuerAgentId,
+          validity: {
+            issuedAt: "2026-02-23T00:00:00.000Z",
+            notBefore: "2026-02-23T00:00:00.000Z",
+            expiresAt: "2027-02-23T00:00:00.000Z"
+          }
+        })
       }
     }
   });
@@ -231,8 +298,22 @@ test("API e2e: public agent-card publish fails closed without required capabilit
         expiresAt: "2027-02-23T00:00:00.000Z"
       },
       signature: {
-        keyId: `key_${issuerAgentId}`,
-        signature: "sig_pub_search_low_1"
+        algorithm: "ed25519",
+        keyId: issuer.keyId,
+        signature: signCapabilityAttestationCreate({
+          issuerKeyId: issuer.keyId,
+          issuerPrivateKeyPem: issuer.privateKeyPem,
+          attestationId: "catt_pub_search_low_1",
+          subjectAgentId,
+          capability: "travel.search",
+          level: "self_claim",
+          issuerAgentId,
+          validity: {
+            issuedAt: "2026-02-23T00:00:00.000Z",
+            notBefore: "2026-02-23T00:00:00.000Z",
+            expiresAt: "2027-02-23T00:00:00.000Z"
+          }
+        })
       }
     }
   });
@@ -274,8 +355,22 @@ test("API e2e: public agent-card publish fails closed without required capabilit
         expiresAt: "2027-02-23T00:00:00.000Z"
       },
       signature: {
-        keyId: `key_${issuerAgentId}`,
-        signature: "sig_pub_search_attested_1"
+        algorithm: "ed25519",
+        keyId: issuer.keyId,
+        signature: signCapabilityAttestationCreate({
+          issuerKeyId: issuer.keyId,
+          issuerPrivateKeyPem: issuer.privateKeyPem,
+          attestationId: "catt_pub_search_attested_1",
+          subjectAgentId,
+          capability: "travel.search",
+          level: "attested",
+          issuerAgentId,
+          validity: {
+            issuedAt: "2026-02-23T00:00:00.000Z",
+            notBefore: "2026-02-23T00:00:00.000Z",
+            expiresAt: "2027-02-23T00:00:00.000Z"
+          }
+        })
       }
     }
   });
@@ -314,7 +409,7 @@ test("API e2e: public discover auto-applies capability attestation policy", asyn
     agentCardPublicAttestationIssuerAgentId: issuerAgentId
   });
 
-  await registerAgent(setupApi, { agentId: issuerAgentId, capabilities: ["attestation.issue"] });
+  const issuer = await registerAgent(setupApi, { agentId: issuerAgentId, capabilities: ["attestation.issue"] });
   await registerAgent(setupApi, { agentId: attestedAgentId, capabilities: ["travel.booking"] });
   await registerAgent(setupApi, { agentId: plainAgentId, capabilities: ["travel.booking"] });
 
@@ -337,8 +432,22 @@ test("API e2e: public discover auto-applies capability attestation policy", asyn
         expiresAt: "2027-02-23T00:00:00.000Z"
       },
       signature: {
-        keyId: `key_${issuerAgentId}`,
-        signature: "sig_disc_policy_1"
+        algorithm: "ed25519",
+        keyId: issuer.keyId,
+        signature: signCapabilityAttestationCreate({
+          issuerKeyId: issuer.keyId,
+          issuerPrivateKeyPem: issuer.privateKeyPem,
+          attestationId: "catt_disc_policy_1",
+          subjectAgentId: attestedAgentId,
+          capability: "travel.booking",
+          level: "attested",
+          issuerAgentId,
+          validity: {
+            issuedAt: "2026-02-23T00:00:00.000Z",
+            notBefore: "2026-02-23T00:00:00.000Z",
+            expiresAt: "2027-02-23T00:00:00.000Z"
+          }
+        })
       }
     }
   });
@@ -380,7 +489,7 @@ test("API e2e: public discover policy min attestation level cannot be weakened b
     agentCardPublicAttestationIssuerAgentId: issuerAgentId
   });
 
-  await registerAgent(setupApi, { agentId: issuerAgentId, capabilities: ["attestation.issue"] });
+  const issuer = await registerAgent(setupApi, { agentId: issuerAgentId, capabilities: ["attestation.issue"] });
   await registerAgent(setupApi, { agentId: strongAgentId, capabilities: ["travel.booking"] });
   await registerAgent(setupApi, { agentId: weakAgentId, capabilities: ["travel.booking"] });
 
@@ -403,8 +512,22 @@ test("API e2e: public discover policy min attestation level cannot be weakened b
         expiresAt: "2027-02-23T00:00:00.000Z"
       },
       signature: {
-        keyId: `key_${issuerAgentId}`,
-        signature: "sig_disc_policy_floor_strong_1"
+        algorithm: "ed25519",
+        keyId: issuer.keyId,
+        signature: signCapabilityAttestationCreate({
+          issuerKeyId: issuer.keyId,
+          issuerPrivateKeyPem: issuer.privateKeyPem,
+          attestationId: "catt_disc_policy_floor_strong_1",
+          subjectAgentId: strongAgentId,
+          capability: "travel.booking",
+          level: "attested",
+          issuerAgentId,
+          validity: {
+            issuedAt: "2026-02-23T00:00:00.000Z",
+            notBefore: "2026-02-23T00:00:00.000Z",
+            expiresAt: "2027-02-23T00:00:00.000Z"
+          }
+        })
       }
     }
   });
@@ -426,8 +549,22 @@ test("API e2e: public discover policy min attestation level cannot be weakened b
         expiresAt: "2027-02-23T00:00:00.000Z"
       },
       signature: {
-        keyId: `key_${issuerAgentId}`,
-        signature: "sig_disc_policy_floor_weak_1"
+        algorithm: "ed25519",
+        keyId: issuer.keyId,
+        signature: signCapabilityAttestationCreate({
+          issuerKeyId: issuer.keyId,
+          issuerPrivateKeyPem: issuer.privateKeyPem,
+          attestationId: "catt_disc_policy_floor_weak_1",
+          subjectAgentId: weakAgentId,
+          capability: "travel.booking",
+          level: "self_claim",
+          issuerAgentId,
+          validity: {
+            issuedAt: "2026-02-23T00:00:00.000Z",
+            notBefore: "2026-02-23T00:00:00.000Z",
+            expiresAt: "2027-02-23T00:00:00.000Z"
+          }
+        })
       }
     }
   });
@@ -470,8 +607,8 @@ test("API e2e: public discover policy issuer cannot be overridden by query", asy
     agentCardPublicAttestationIssuerAgentId: policyIssuerAgentId
   });
 
-  await registerAgent(setupApi, { agentId: policyIssuerAgentId, capabilities: ["attestation.issue"] });
-  await registerAgent(setupApi, { agentId: nonPolicyIssuerAgentId, capabilities: ["attestation.issue"] });
+  const policyIssuer = await registerAgent(setupApi, { agentId: policyIssuerAgentId, capabilities: ["attestation.issue"] });
+  const nonPolicyIssuer = await registerAgent(setupApi, { agentId: nonPolicyIssuerAgentId, capabilities: ["attestation.issue"] });
   await registerAgent(setupApi, { agentId: policySignedAgentId, capabilities: ["travel.booking"] });
   await registerAgent(setupApi, { agentId: altSignedAgentId, capabilities: ["travel.booking"] });
 
@@ -502,8 +639,22 @@ test("API e2e: public discover policy issuer cannot be overridden by query", asy
         expiresAt: "2027-02-23T00:00:00.000Z"
       },
       signature: {
-        keyId: `key_${policyIssuerAgentId}`,
-        signature: "sig_disc_policy_issuer_lock_policy_1"
+        algorithm: "ed25519",
+        keyId: policyIssuer.keyId,
+        signature: signCapabilityAttestationCreate({
+          issuerKeyId: policyIssuer.keyId,
+          issuerPrivateKeyPem: policyIssuer.privateKeyPem,
+          attestationId: "catt_disc_policy_issuer_lock_policy_1",
+          subjectAgentId: policySignedAgentId,
+          capability: "travel.booking",
+          level: "attested",
+          issuerAgentId: policyIssuerAgentId,
+          validity: {
+            issuedAt: "2026-02-23T00:00:00.000Z",
+            notBefore: "2026-02-23T00:00:00.000Z",
+            expiresAt: "2027-02-23T00:00:00.000Z"
+          }
+        })
       }
     }
   });
@@ -525,8 +676,22 @@ test("API e2e: public discover policy issuer cannot be overridden by query", asy
         expiresAt: "2027-02-23T00:00:00.000Z"
       },
       signature: {
-        keyId: `key_${nonPolicyIssuerAgentId}`,
-        signature: "sig_disc_policy_issuer_lock_alt_1"
+        algorithm: "ed25519",
+        keyId: nonPolicyIssuer.keyId,
+        signature: signCapabilityAttestationCreate({
+          issuerKeyId: nonPolicyIssuer.keyId,
+          issuerPrivateKeyPem: nonPolicyIssuer.privateKeyPem,
+          attestationId: "catt_disc_policy_issuer_lock_alt_1",
+          subjectAgentId: altSignedAgentId,
+          capability: "travel.booking",
+          level: "attested",
+          issuerAgentId: nonPolicyIssuerAgentId,
+          validity: {
+            issuedAt: "2026-02-23T00:00:00.000Z",
+            notBefore: "2026-02-23T00:00:00.000Z",
+            expiresAt: "2027-02-23T00:00:00.000Z"
+          }
+        })
       }
     }
   });

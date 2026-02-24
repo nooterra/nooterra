@@ -51,6 +51,32 @@ They bind:
 - `attestationHash` is deterministic over canonicalized content.
 - validity windows must satisfy `issuedAt <= notBefore < expiresAt`.
 - revocation is explicit and reflected in runtime evaluation.
+- discovery is fail-closed: capability attestations with unverifiable signatures are treated as invalid candidates.
+
+## Signature semantics (Ed25519)
+
+`CapabilityAttestation.v1` signatures are required to be cryptographically meaningful:
+
+- `signature.algorithm` MUST be `ed25519`
+- `signature.keyId` MUST match the issuer agent identity’s registered key id: `AgentIdentity.v1.keys.keyId`
+- `signature.signature` MUST be a base64 Ed25519 signature over the signature-payload hash below
+
+### Signature payload hash
+
+The signed message is the 32-byte SHA-256 of the canonical JSON payload:
+
+- `schemaVersion`: `CapabilityAttestationSignaturePayload.v1`
+- `attestationId`, `tenantId`, `subjectAgentId`, `capability`, `level`, `issuerAgentId`
+- `validity`
+- `signature.algorithm`, `signature.keyId` (but NOT `signature.signature`)
+- `verificationMethod`
+- `evidenceRefs`
+- `metadata`
+
+Explicitly excluded from the signature payload:
+
+- server/derived bookkeeping: `attestationHash`, `createdAt`, `updatedAt`, `revision`
+- mutable state: `revocation` (revocation can be applied after issuance without re-signing)
 
 ## API surface
 

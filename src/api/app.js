@@ -124,6 +124,7 @@ import {
   CAPABILITY_ATTESTATION_LEVEL,
   CAPABILITY_ATTESTATION_REASON_CODE,
   CAPABILITY_ATTESTATION_RUNTIME_STATUS,
+  computeCapabilityAttestationSignaturePayloadHashV1,
   buildCapabilityAttestationV1,
   evaluateCapabilityAttestationV1,
   getCapabilityAttestationLevelRank,
@@ -7570,6 +7571,39 @@ export function createApi({
         });
         continue;
       }
+
+      // Capability attestations must be cryptographically meaningful. We require:
+      // 1) signature.keyId matches the issuer agent's registered keyId
+      // 2) signature verifies over the attestation signature payload hash (non-circular)
+      let signatureOk = false;
+      try {
+        const issuer = typeof candidate?.issuerAgentId === "string" && candidate.issuerAgentId.trim() !== "" ? candidate.issuerAgentId.trim() : null;
+        if (!issuer) throw new Error("issuerAgentId is required for signature verification");
+        const issuerIdentity = await getAgentIdentityRecord({ tenantId, agentId: issuer });
+        if (!issuerIdentity) throw new Error("issuer identity not found");
+        const expectedKeyId = String(issuerIdentity?.keys?.keyId ?? "").trim();
+        const signerKeyId = String(candidate?.signature?.keyId ?? "").trim();
+        if (!expectedKeyId || !signerKeyId || signerKeyId !== expectedKeyId) {
+          throw new Error("signature.keyId does not match issuer agent keyId");
+        }
+        const signatureBase64 = String(candidate?.signature?.signature ?? "").trim();
+        const publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+        const payloadHashHex = computeCapabilityAttestationSignaturePayloadHashV1(candidate);
+        signatureOk = verifyHashHexEd25519({ hashHex: payloadHashHex, signatureBase64, publicKeyPem }) === true;
+      } catch {
+        signatureOk = false;
+      }
+      if (!signatureOk) {
+        evaluated.push({
+          candidate,
+          runtime: { status: "invalid", isValid: false, reasonCodes: [CAPABILITY_ATTESTATION_REASON_CODE.SIGNATURE_INVALID] },
+          levelRank: 0,
+          issuerMatch: false,
+          levelMatch: false
+        });
+        continue;
+      }
+
       const runtime = evaluateCapabilityAttestationV1(candidate, { at });
       const levelRank = getCapabilityAttestationLevelRank(candidate.level);
       const issuerMatch = !effectiveIssuer || String(candidate.issuerAgentId ?? "") === effectiveIssuer;
@@ -7607,6 +7641,9 @@ export function createApi({
     const hasRevoked = evaluated.some((row) => row.runtime?.status === CAPABILITY_ATTESTATION_RUNTIME_STATUS.REVOKED);
     const hasExpired = evaluated.some((row) => row.runtime?.status === CAPABILITY_ATTESTATION_RUNTIME_STATUS.EXPIRED);
     const hasNotActive = evaluated.some((row) => row.runtime?.status === CAPABILITY_ATTESTATION_RUNTIME_STATUS.NOT_ACTIVE);
+    const hasSignatureInvalid = evaluated.some((row) =>
+      Array.isArray(row.runtime?.reasonCodes) && row.runtime.reasonCodes.includes(CAPABILITY_ATTESTATION_REASON_CODE.SIGNATURE_INVALID)
+    );
     const reasonCode = hasIssuerMismatch
       ? CAPABILITY_ATTESTATION_REASON_CODE.ISSUER_MISMATCH
       : hasLevelMismatch
@@ -7617,6 +7654,8 @@ export function createApi({
             ? CAPABILITY_ATTESTATION_REASON_CODE.EXPIRED
             : hasNotActive
               ? CAPABILITY_ATTESTATION_REASON_CODE.NOT_ACTIVE
+              : hasSignatureInvalid
+                ? CAPABILITY_ATTESTATION_REASON_CODE.SIGNATURE_INVALID
               : CAPABILITY_ATTESTATION_REASON_CODE.INVALID;
     return {
       isValid: false,
@@ -43607,10 +43646,9 @@ export function createApi({
         }
         const issuerAgentId =
           typeof body?.issuerAgentId === "string" && body.issuerAgentId.trim() !== "" ? body.issuerAgentId.trim() : null;
-        if (issuerAgentId) {
-          const issuerIdentity = await getAgentIdentityRecord({ tenantId, agentId: issuerAgentId });
-          if (!issuerIdentity) return sendError(res, 404, "issuer agent identity not found", null, { code: "NOT_FOUND" });
-        }
+        const effectiveIssuerAgentId = issuerAgentId ?? subjectAgentId;
+        const issuerIdentity = await getAgentIdentityRecord({ tenantId, agentId: effectiveIssuerAgentId }).catch(() => null);
+        if (!issuerIdentity) return sendError(res, 404, "issuer agent identity not found", null, { code: "NOT_FOUND" });
 
         let existing = null;
         try {
@@ -43629,7 +43667,7 @@ export function createApi({
             subjectAgentId,
             capability,
             level: body?.level ?? CAPABILITY_ATTESTATION_LEVEL.ATTESTED,
-            issuerAgentId: issuerAgentId ?? subjectAgentId,
+            issuerAgentId: effectiveIssuerAgentId,
             validity: {
               issuedAt:
                 typeof body?.validity?.issuedAt === "string" && body.validity.issuedAt.trim() !== ""
@@ -43646,7 +43684,7 @@ export function createApi({
             },
             signature: body?.signature ?? {
               algorithm: "ed25519",
-              keyId: `key_${issuerAgentId ?? subjectAgentId}`,
+              keyId: String(issuerIdentity?.keys?.keyId ?? ""),
               signature: "sig_placeholder"
             },
             verificationMethod:
@@ -43660,6 +43698,42 @@ export function createApi({
           validateCapabilityAttestationV1(capabilityAttestation);
         } catch (err) {
           return sendError(res, 400, "invalid capability attestation", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const expectedIssuerKeyId = String(issuerIdentity?.keys?.keyId ?? "").trim();
+        const signerKeyId = String(capabilityAttestation?.signature?.keyId ?? "").trim();
+        if (!expectedIssuerKeyId || !signerKeyId || signerKeyId !== expectedIssuerKeyId) {
+          return sendError(
+            res,
+            409,
+            "capability attestation signature blocked",
+            { message: "signature.keyId must match issuer agent keyId", signerKeyId, expectedIssuerKeyId },
+            { code: "CAPABILITY_ATTESTATION_SIGNATURE_BLOCKED" }
+          );
+        }
+        let publicKeyPem = null;
+        try {
+          publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
+        } catch (err) {
+          return sendError(
+            res,
+            409,
+            "capability attestation signature blocked",
+            { message: err?.message ?? "unknown signerKeyId" },
+            { code: "CAPABILITY_ATTESTATION_SIGNATURE_BLOCKED" }
+          );
+        }
+        const payloadHashHex = computeCapabilityAttestationSignaturePayloadHashV1(capabilityAttestation);
+        const signatureBase64 = String(capabilityAttestation?.signature?.signature ?? "").trim();
+        const verified = verifyHashHexEd25519({ hashHex: payloadHashHex, signatureBase64, publicKeyPem }) === true;
+        if (!verified) {
+          return sendError(
+            res,
+            409,
+            "capability attestation signature invalid",
+            { signerKeyId, payloadHashHex },
+            { code: "CAPABILITY_ATTESTATION_SIGNATURE_INVALID" }
+          );
         }
 
         const runtime = evaluateCapabilityAttestationV1(capabilityAttestation, { at: nowIso() });

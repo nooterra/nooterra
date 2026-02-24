@@ -19,6 +19,9 @@ function usage() {
   console.error("  settld conformance list");
   console.error("  settld conformance kernel --ops-token <tok_opsw> [--base-url http://127.0.0.1:3000] [--tenant-id tenant_default] [--protocol 1.0] [--case <id>]");
   console.error("  settld conformance kernel:list");
+  console.error("  settld trials list");
+  console.error("  settld trials run <trial-id> [--bootstrap-local] [--out <path>]");
+  console.error("  settld trials run <trial-id> [--base-url <url>] [--tenant-id <id>] [--api-key <key>] [--out <path>]");
   console.error("  settld closepack export --agreement-hash <sha256> --out <path.zip> [--ops-token tok_ops] [--base-url http://127.0.0.1:3000] [--tenant-id tenant_default] [--protocol 1.0]");
   console.error("  settld closepack verify <path.zip> [--json-out <path.json>]");
   console.error("  settld x402 receipt verify <receipt.json|-> [--strict] [--format json|text] [--json-out <path>]");
@@ -165,6 +168,16 @@ function main() {
     usage();
     // eslint-disable-next-line no-console
     console.error(`unknown conformance subcommand: ${sub}`);
+    process.exit(1);
+  }
+
+  if (cmd === "trials") {
+    const sub = argv[1] ? String(argv[1]) : "";
+    if (sub === "list") return runNodeScript("scripts/trials/run-capability-trial.mjs", ["--list", ...argv.slice(2)]);
+    if (!sub || sub === "run") return runNodeScript("scripts/trials/run-capability-trial.mjs", argv.slice(sub ? 2 : 1));
+    usage();
+    // eslint-disable-next-line no-console
+    console.error(`unknown trials subcommand: ${sub}`);
     process.exit(1);
   }
 

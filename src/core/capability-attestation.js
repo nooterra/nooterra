@@ -1,7 +1,8 @@
 import { canonicalJsonStringify, normalizeForCanonicalJson } from "./canonical-json.js";
-import { sha256Hex } from "./crypto.js";
+import { sha256Hex, verifyHashHexEd25519 } from "./crypto.js";
 
 export const CAPABILITY_ATTESTATION_SCHEMA_VERSION = "CapabilityAttestation.v1";
+export const CAPABILITY_ATTESTATION_SIGNATURE_PAYLOAD_SCHEMA_VERSION = "CapabilityAttestationSignaturePayload.v1";
 
 export const CAPABILITY_ATTESTATION_LEVEL = Object.freeze({
   SELF_CLAIM: "self_claim",
@@ -23,6 +24,7 @@ export const CAPABILITY_ATTESTATION_REASON_CODE = Object.freeze({
   REVOKED: "CAPABILITY_ATTESTATION_REVOKED",
   LEVEL_MISMATCH: "CAPABILITY_ATTESTATION_LEVEL_MISMATCH",
   ISSUER_MISMATCH: "CAPABILITY_ATTESTATION_ISSUER_MISMATCH",
+  SIGNATURE_INVALID: "CAPABILITY_ATTESTATION_SIGNATURE_INVALID",
   INVALID: "CAPABILITY_ATTESTATION_INVALID"
 });
 
@@ -145,6 +147,71 @@ function computeAttestationHash(record) {
     attestationHash: null
   });
   return sha256Hex(canonical);
+}
+
+export function computeCapabilityAttestationSignaturePayloadHashV1(attestation) {
+  validateCapabilityAttestationV1(attestation);
+  const sig = attestation.signature && typeof attestation.signature === "object" && !Array.isArray(attestation.signature) ? attestation.signature : null;
+  if (!sig) throw new TypeError("capabilityAttestation.signature is required");
+
+  // Signatures must not be circular and must be client-signable. We sign a canonical payload that:
+  // - excludes derived/server-side bookkeeping (attestationHash/createdAt/updatedAt/revision)
+  // - excludes mutable state that can change after issuance without re-signing (revocation)
+  // - excludes signature.signature (the signature itself)
+  // This enables pre-signing on the client without knowing server timestamps.
+  const payload = normalizeForCanonicalJson(
+    {
+      schemaVersion: CAPABILITY_ATTESTATION_SIGNATURE_PAYLOAD_SCHEMA_VERSION,
+      attestationId: attestation.attestationId,
+      tenantId: attestation.tenantId,
+      subjectAgentId: attestation.subjectAgentId,
+      capability: attestation.capability,
+      level: attestation.level,
+      issuerAgentId: attestation.issuerAgentId ?? null,
+      validity: attestation.validity,
+      signature: {
+        algorithm: String(sig.algorithm ?? "ed25519").trim().toLowerCase(),
+        keyId: String(sig.keyId ?? "").trim(),
+        signature: null
+      },
+      verificationMethod: attestation.verificationMethod ?? null,
+      evidenceRefs: Array.isArray(attestation.evidenceRefs) ? attestation.evidenceRefs.slice() : [],
+      metadata: attestation.metadata ?? null
+    },
+    { path: "$" }
+  );
+  return sha256Hex(canonicalJsonStringify(payload));
+}
+
+export function verifyCapabilityAttestationSignatureV1({ attestation, publicKeyPem } = {}) {
+  if (!attestation || typeof attestation !== "object" || Array.isArray(attestation)) {
+    return { ok: false, code: CAPABILITY_ATTESTATION_REASON_CODE.INVALID, message: "capabilityAttestation must be an object" };
+  }
+  try {
+    validateCapabilityAttestationV1(attestation);
+  } catch (err) {
+    return { ok: false, code: CAPABILITY_ATTESTATION_REASON_CODE.INVALID, message: err?.message ?? "invalid capability attestation" };
+  }
+
+  const sig = attestation.signature && typeof attestation.signature === "object" && !Array.isArray(attestation.signature) ? attestation.signature : null;
+  if (!sig) return { ok: false, code: CAPABILITY_ATTESTATION_REASON_CODE.SIGNATURE_INVALID, message: "signature missing" };
+  if (String(sig.algorithm ?? "").trim().toLowerCase() !== "ed25519") {
+    return { ok: false, code: CAPABILITY_ATTESTATION_REASON_CODE.SIGNATURE_INVALID, message: "signature.algorithm must be ed25519" };
+  }
+  const signatureBase64 = typeof sig.signature === "string" && sig.signature.trim() !== "" ? sig.signature.trim() : null;
+  if (!signatureBase64) {
+    return { ok: false, code: CAPABILITY_ATTESTATION_REASON_CODE.SIGNATURE_INVALID, message: "signature.signature is required" };
+  }
+
+  const pub = typeof publicKeyPem === "string" && publicKeyPem.trim() !== "" ? publicKeyPem : null;
+  if (!pub) return { ok: false, code: CAPABILITY_ATTESTATION_REASON_CODE.SIGNATURE_INVALID, message: "publicKeyPem is required" };
+
+  const payloadHashHex = computeCapabilityAttestationSignaturePayloadHashV1(attestation);
+  const verified = verifyHashHexEd25519({ hashHex: payloadHashHex, signatureBase64, publicKeyPem: pub });
+  if (verified !== true) {
+    return { ok: false, code: CAPABILITY_ATTESTATION_REASON_CODE.SIGNATURE_INVALID, payloadHashHex };
+  }
+  return { ok: true, payloadHashHex };
 }
 
 export function getCapabilityAttestationLevelRank(level) {

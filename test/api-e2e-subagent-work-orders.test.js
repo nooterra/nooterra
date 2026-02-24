@@ -2,11 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
-import { createEd25519Keypair } from "../src/core/crypto.js";
+import { createEd25519Keypair, signHashHexEd25519 } from "../src/core/crypto.js";
+import { buildCapabilityAttestationV1, computeCapabilityAttestationSignaturePayloadHashV1 } from "../src/core/capability-attestation.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
-  const { publicKeyPem } = createEd25519Keypair();
+  const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
   const response = await request(api, {
     method: "POST",
     path: "/agents/register",
@@ -20,9 +21,45 @@ async function registerAgent(api, { agentId, capabilities = [] }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+  const keyId = typeof response.json?.keyId === "string" && response.json.keyId.trim() !== "" ? response.json.keyId.trim() : null;
+  assert.ok(keyId, "registerAgent must return keyId");
+  return { agentId, keyId, publicKeyPem, privateKeyPem };
 }
 
-async function issueCapabilityAttestation(api, { attestationId, subjectAgentId, capability, level = "attested", issuerAgentId }) {
+function signCapabilityAttestationCreate({
+  tenantId = "tenant_default",
+  issuerKeyId,
+  issuerPrivateKeyPem,
+  attestationId,
+  subjectAgentId,
+  capability,
+  level,
+  issuerAgentId,
+  validity,
+  verificationMethod = null,
+  evidenceRefs = []
+} = {}) {
+  const preview = buildCapabilityAttestationV1({
+    attestationId,
+    tenantId,
+    subjectAgentId,
+    capability,
+    level,
+    issuerAgentId,
+    validity,
+    signature: { algorithm: "ed25519", keyId: issuerKeyId, signature: "sig_preview" },
+    verificationMethod,
+    evidenceRefs,
+    createdAt: "2026-02-23T00:00:00.000Z"
+  });
+  const payloadHashHex = computeCapabilityAttestationSignaturePayloadHashV1(preview);
+  return signHashHexEd25519(payloadHashHex, issuerPrivateKeyPem);
+}
+
+async function issueCapabilityAttestation(
+  api,
+  { issuer, attestationId, subjectAgentId, capability, level = "attested", issuerAgentId }
+) {
   const response = await request(api, {
     method: "POST",
     path: "/capability-attestations",
@@ -39,8 +76,27 @@ async function issueCapabilityAttestation(api, { attestationId, subjectAgentId, 
         expiresAt: "2027-02-23T00:00:00.000Z"
       },
       signature: {
-        keyId: `key_${issuerAgentId}`,
-        signature: `sig_${attestationId}`
+        algorithm: "ed25519",
+        keyId: issuer.keyId,
+        signature: signCapabilityAttestationCreate({
+          issuerKeyId: issuer.keyId,
+          issuerPrivateKeyPem: issuer.privateKeyPem,
+          attestationId,
+          subjectAgentId,
+          capability,
+          level,
+          issuerAgentId,
+          validity: {
+            issuedAt: "2026-02-23T00:00:00.000Z",
+            notBefore: "2026-02-23T00:00:00.000Z",
+            expiresAt: "2027-02-23T00:00:00.000Z"
+          },
+          verificationMethod: {
+            mode: level,
+            source: "issuer_registry"
+          },
+          evidenceRefs: [`artifact://attestation/${attestationId}`]
+        })
       },
       verificationMethod: {
         mode: level,
@@ -296,7 +352,7 @@ test("API e2e: work-order attestation requirement is enforced on create and acce
     agentId: subAgentId,
     capabilities: ["code.generation"]
   });
-  await registerAgent(api, {
+  const issuer = await registerAgent(api, {
     agentId: issuerAgentId,
     capabilities: ["attestation.issue"]
   });
@@ -326,6 +382,7 @@ test("API e2e: work-order attestation requirement is enforced on create and acce
   assert.equal(createBlocked.json?.details?.reasonCode, "CAPABILITY_ATTESTATION_MISSING");
 
   await issueCapabilityAttestation(api, {
+    issuer,
     attestationId: "catt_workord_att_1",
     subjectAgentId: subAgentId,
     capability: "code.generation",
