@@ -9,7 +9,15 @@ Settld is a deterministic trust-and-settlement control plane for agent actions: 
 
 Current wedge: an x402-style gateway that turns `HTTP 402` into `hold -> verify -> release/refund`, with deterministic receipts.
 
-Docs: [Overview](./docs/OVERVIEW.md) · [Architecture](./docs/ARCHITECTURE.md) · [x402 Quickstart](./docs/QUICKSTART_X402_GATEWAY.md) · [MCP Hosts](./docs/QUICKSTART_MCP_HOSTS.md) · [Public Specs](./docs/spec/public/README.md) · [Security](./SECURITY.md) · [Support](./docs/SUPPORT.md)
+Docs: [Overview](./docs/OVERVIEW.md) · [Architecture](./docs/ARCHITECTURE.md) · [Docs Index](./docs/README.md) · [Public Specs](./docs/spec/public/README.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md)
+
+## Highlights
+
+- Policy decisioning that fails closed by default (deny/challenge/escalate) for paid/high-risk actions
+- x402 verify-before-release: `402 -> hold -> verify -> release/refund`
+- Inter-agent delegation primitives: `AgentCard.v1` + `DelegationGrant.v1` + `SubAgentWorkOrder.v1` + `SubAgentCompletionReceipt.v1`
+- MCP tool surface + OpenClaw ClawHub distribution
+- “Settld Verified” gates: deterministic conformance, receipts, and incident-ready artifacts
 
 ## Get Started (Local x402 Demo)
 
@@ -52,7 +60,7 @@ Quick prompts:
 
 More: [OpenClaw Quickstart](./docs/integrations/openclaw/PUBLIC_QUICKSTART.md)
 
-## What’s In This Repo
+## Repository Layout
 
 - Settld API + control plane: `./src/api/`
 - x402 gateway proxy: `./services/x402-gateway/`
@@ -74,9 +82,12 @@ npm run -s test:ops:settld-verified-gate -- --level collaboration
 
 See: [docs/DEVELOPMENT.md](./docs/DEVELOPMENT.md)
 
-## Contributing
+```sh
+npm run -s lint
+npm test
+```
 
-See: [CONTRIBUTING.md](./CONTRIBUTING.md)
+## Advanced
 
 
 Run local MCP host compatibility checks:
@@ -101,37 +112,12 @@ Ops workspaces (HTML):
 
 - Kernel Explorer: `GET /ops/kernel/workspace` (requires ops token)
 
-## Docs
+## Documentation
 
-- `docs/PRD.md`
-- `docs/ARCHITECTURE.md`
-- `docs/DOMAIN_MODEL.md`
-- `docs/JOB_STATE_MACHINE.md`
-- `docs/EVENT_ENVELOPE.md`
-- `docs/ACCESS.md`
-- `docs/SKILLS.md`
-- `docs/TRUST.md`
-- `docs/LEDGER.md`
-- `docs/SKILL_BUNDLE_FORMAT.md`
-- `docs/CERTIFICATION_CHECKLIST.md`
-- `docs/THREAT_MODEL.md`
-- `docs/INCIDENT_TAXONOMY.md`
-- `docs/ONCALL_PLAYBOOK.md`
-- `docs/MVP_BUILD_ORDER.md`
-- `docs/QUICKSTART_VERIFY.md`
-- `docs/QUICKSTART_PRODUCE.md`
-- `docs/QUICKSTART_SDK.md`
-- `docs/QUICKSTART_SDK_PYTHON.md`
-- `docs/QUICKSTART_POLICY_PACKS.md`
-- `docs/QUICKSTART_MCP.md`
-- `docs/QUICKSTART_MCP_HOSTS.md`
-- `docs/ADOPTION_CHECKLIST.md`
-- `docs/SUPPORT.md`
-- `docs/OPERATIONS_SIGNING.md`
-- `docs/KERNEL_V0.md`
-- `docs/KERNEL_COMPATIBLE.md`
-- `docs/ops/PAYMENTS_ALPHA_R5.md`
-- `docs/ops/X402_PILOT_WEEKLY_METRICS.md`
-- `docs/ops/ARTIFACT_VERIFICATION_STATUS.md`
-- `docs/ops/TRUST_CONFIG_WIZARD.md`
-- `docs/integrations/README.md`
+Start at `docs/README.md` (curated index), `docs/OVERVIEW.md` (concepts), and `docs/QUICKSTART_MCP_HOSTS.md` (host onboarding).
+
+Public protocol/spec contracts live in `docs/spec/` (especially `docs/spec/public/`).
+
+## Contributing
+
+See: [CONTRIBUTING.md](./CONTRIBUTING.md)
