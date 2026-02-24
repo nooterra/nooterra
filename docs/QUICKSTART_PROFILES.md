@@ -4,7 +4,7 @@ Goal: scaffold, validate, and simulate a policy profile with the Settld CLI.
 
 ## Prerequisites
 
-- Node.js 20+
+- Node.js 20.x or 22.x
 - Repo checkout with dependencies installed (`npm ci`)
 
 ## 0) One-command runtime setup (recommended before `profile apply`)

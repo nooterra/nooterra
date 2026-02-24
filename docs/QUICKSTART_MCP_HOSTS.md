@@ -15,7 +15,7 @@ For deeper tool-level examples, see `docs/QUICKSTART_MCP.md`.
 
 Public default path (recommended):
 
-- Node.js 20.x (`nvm use` in repo root). Install is fail-fast if you use a different major.
+- Node.js 20.x or 22.x (`nvm use` in repo root). Install is fail-fast if you use a different major.
 - no API keys required up front
 - run `settld setup`, choose `quick`, then login with OTP
 - setup creates tenant (if needed), mints runtime key, and wires MCP
@@ -302,4 +302,4 @@ Your helper should provide resolver/setup exports compatible with `scripts/setup
 - `SETTLD_API_KEY must be a non-empty string`
   - Ensure key is present in shell or setup flags.
 - Host cannot run `npx`
-  - Install Node.js 20.x and ensure `npx` is in `PATH`.
+  - Install Node.js 20.x or 22.x and ensure `npx` is in `PATH`.

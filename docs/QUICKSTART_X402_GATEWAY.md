@@ -30,7 +30,7 @@ Ports can be overridden if you already have something running on `3000/8402/9402
 
 ## 0) Prereqs
 
-- Node.js 20.x (`nvm use` in repo root)
+- Node.js 20.x or 22.x (`nvm use` in repo root)
 - Bash (for the copy/paste snippets below)
 - `curl`
 

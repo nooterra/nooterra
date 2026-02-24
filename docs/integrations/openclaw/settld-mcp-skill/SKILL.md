@@ -1,7 +1,7 @@
 ---
 name: settld-mcp-payments
 description: Connect OpenClaw agents to Settld MCP for paid tool calls with quote-bound authorization and verifiable receipts.
-version: 0.1.0
+version: 0.2.0
 author: Settld
 user-invocable: true
 ---
@@ -40,7 +40,7 @@ If the request implies spend, delegation, or settlement evidence, prefer Settld 
 
 ## Prerequisites
 
-- Node.js 20.x (install is fail-fast if you use a different major)
+- Node.js 20.x or 22.x (install is fail-fast if you use a different major)
 - Settld runtime env from setup (`SETTLD_API_KEY`, `SETTLD_BASE_URL`, `SETTLD_TENANT_ID`)
 - Optional paid tools base URL (`SETTLD_PAID_TOOLS_BASE_URL`)
 
@@ -65,6 +65,75 @@ Optional env vars:
 
 - `SETTLD_PAID_TOOLS_BASE_URL`
 - `SETTLD_PROTOCOL`
+
+## Publish Your Agent Card (Get Discovered)
+
+Settld discovery is based on `AgentCard.v1`. Publish a card when you want other agents to find you by **capability**, **policy**, and **attestation** filters.
+
+### Path A: publish from inside OpenClaw (private / tenant discovery)
+
+Use `settld.agent_card_upsert` to publish/update your card.
+
+Recommended default: start with `visibility=private` until you have a public endpoint and are ready for open discovery.
+
+Prompt template:
+
+- "Use Settld to publish my AgentCard with: agentId, displayName, capabilities, runtime=openclaw, protocols, endpoint, and visibility=private. Return JSON only."
+
+### Path B: publish publicly (anti-abuse ListingBond.v1 when enabled)
+
+When listing bond enforcement is enabled, `visibility=public` requires attaching a refundable `ListingBond.v1`.
+
+Use the env exported by `settld setup` (`SETTLD_BASE_URL`, `SETTLD_TENANT_ID`, `SETTLD_API_KEY`) and mint/publish from a terminal:
+
+```bash
+npx -y settld@latest agent listing-bond mint \
+  --agent-id agt_example_1 \
+  --base-url "$SETTLD_BASE_URL" \
+  --tenant-id "$SETTLD_TENANT_ID" \
+  --api-key "$SETTLD_API_KEY" \
+  --format json > listing-bond.json
+
+npx -y settld@latest agent publish \
+  --agent-id agt_example_1 \
+  --display-name "Example Agent" \
+  --capabilities travel.booking,travel.search \
+  --visibility public \
+  --runtime openclaw \
+  --endpoint https://example.invalid/agents/example \
+  --protocols mcp,http \
+  --listing-bond-file listing-bond.json \
+  --base-url "$SETTLD_BASE_URL" \
+  --tenant-id "$SETTLD_TENANT_ID" \
+  --api-key "$SETTLD_API_KEY" \
+  --format json
+```
+
+Delist and refund:
+
+```bash
+npx -y settld@latest agent publish \
+  --agent-id agt_example_1 \
+  --display-name "Example Agent" \
+  --capabilities travel.booking,travel.search \
+  --visibility private \
+  --base-url "$SETTLD_BASE_URL" \
+  --tenant-id "$SETTLD_TENANT_ID" \
+  --api-key "$SETTLD_API_KEY" \
+  --format json
+
+npx -y settld@latest agent listing-bond refund \
+  --listing-bond-file listing-bond.json \
+  --base-url "$SETTLD_BASE_URL" \
+  --tenant-id "$SETTLD_TENANT_ID" \
+  --api-key "$SETTLD_API_KEY" \
+  --format json
+```
+
+Notes:
+
+- Keep `agentId` stable; changing it resets any reputation/relationship history derived from receipts.
+- If a card/agent is quarantined by deterministic anti-abuse rules, public listing and bond refund can fail closed.
 
 ## Agent Usage Pattern
 
@@ -139,3 +208,4 @@ Every paid call should be explainable and auditable:
 - Do not print full API keys in chat output.
 - Keep paid tools scoped to trusted providers and tenant policy.
 - Fail closed on missing/mismatched settlement evidence for release decisions.
+- Prefer `visibility=private` until you are ready for open discovery (and have an endpoint you intend to expose).

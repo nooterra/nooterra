@@ -9,7 +9,7 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
 const DEFAULT_REPORT_PATH = "artifacts/ops/mcp-host-smoke.json";
 const SMOKE_SCRIPT_PATH = path.join(REPO_ROOT, "scripts", "ci", "run-mcp-host-smoke.mjs");
-const REQUIRED_NODE_MAJOR = 20;
+const ALLOWED_NODE_MAJORS = new Set([20, 22]);
 
 function usage() {
   process.stderr.write("usage:\n");
@@ -109,7 +109,7 @@ function detectNodeMajor(version = process.versions?.node ?? "") {
 function checkNodeRuntime({ allowUnsupportedNode }) {
   const version = String(process.versions?.node ?? "unknown");
   const major = detectNodeMajor(version);
-  const isSupported = major === REQUIRED_NODE_MAJOR;
+  const isSupported = ALLOWED_NODE_MAJORS.has(major);
   if (isSupported) {
     return { ok: true, version, major, message: null };
   }
@@ -118,14 +118,16 @@ function checkNodeRuntime({ allowUnsupportedNode }) {
       ok: true,
       version,
       major,
-      message: `Node.js ${REQUIRED_NODE_MAJOR}.x required, current v${version}; continuing due to --allow-unsupported-node/SETTLD_ALLOW_UNSUPPORTED_NODE=1`
+      message:
+        `Node.js 20.x or 22.x required, current v${version}; ` +
+        "continuing due to --allow-unsupported-node/SETTLD_ALLOW_UNSUPPORTED_NODE=1"
     };
   }
   return {
     ok: false,
     version,
     major,
-    message: `Node.js ${REQUIRED_NODE_MAJOR}.x required, current v${version}. Run \`nvm use\` and retry.`
+    message: `Node.js 20.x or 22.x required, current v${version}. Run \`nvm use\` and retry.`
   };
 }
 
