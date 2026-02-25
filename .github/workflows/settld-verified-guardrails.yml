@@ -1,0 +1,58 @@
+name: settld-verified-guardrails
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: settld-verified-guardrails-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  guardrails_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run Settld Verified guardrails gate
+        run: |
+          set -euo pipefail
+          npm run -s test:ops:settld-verified-gate -- \
+            --level guardrails \
+            --include-pg \
+            --out artifacts/gates/settld-verified-guardrails-gate.json
+      - name: Upload Settld Verified guardrails artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: settld-verified-guardrails-${{ github.run_id }}
+          path: |
+            artifacts/gates/settld-verified-guardrails-gate.json
+            artifacts/gates/settld-verified-gate.json
+            artifacts/ops/mcp-host-cert-matrix.json
+            artifacts/ops/agent-substrate-adversarial-harness.json
+          if-no-files-found: warn

@@ -17,6 +17,7 @@ function usage() {
     "options:",
     "  --level <core|collaboration|guardrails>  Verification level (default: guardrails)",
     "  --out <file>                              Report path (default: artifacts/gates/settld-verified-gate.json)",
+    "  --include-pg                              Include PG durability check (requires DATABASE_URL)",
     "  --bootstrap-local                         Bootstrap local API + temporary API key for local runs only",
     "  --bootstrap-base-url <url>               Bootstrap API base URL (default: SETTLD_BASE_URL or http://127.0.0.1:3000)",
     "  --bootstrap-tenant-id <id>               Bootstrap tenant id (default: SETTLD_TENANT_ID or tenant_default)",
@@ -31,6 +32,8 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     out: path.resolve(cwd, "artifacts/gates/settld-verified-gate.json"),
     help: false,
     bootstrapLocal: false,
+    includePg: String(env?.SETTLD_VERIFIED_INCLUDE_PG ?? "").trim() === "1",
+    databaseUrl: String(env?.DATABASE_URL ?? "").trim(),
     bootstrapBaseUrl: String(env?.SETTLD_BASE_URL ?? "http://127.0.0.1:3000").trim(),
     bootstrapTenantId: String(env?.SETTLD_TENANT_ID ?? "tenant_default").trim(),
     bootstrapOpsToken: String(env?.PROXY_OPS_TOKEN ?? "tok_ops").trim()
@@ -49,6 +52,7 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     else if (arg === "--out") out.out = path.resolve(cwd, next());
     else if (arg.startsWith("--out=")) out.out = path.resolve(cwd, arg.slice("--out=".length).trim());
     else if (arg === "--bootstrap-local") out.bootstrapLocal = true;
+    else if (arg === "--include-pg") out.includePg = true;
     else if (arg === "--bootstrap-base-url") out.bootstrapBaseUrl = next();
     else if (arg.startsWith("--bootstrap-base-url=")) out.bootstrapBaseUrl = arg.slice("--bootstrap-base-url=".length).trim();
     else if (arg === "--bootstrap-tenant-id") out.bootstrapTenantId = next();
@@ -66,6 +70,9 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     if (!String(out.bootstrapBaseUrl ?? "").trim()) throw new Error("--bootstrap-base-url must be non-empty");
     if (!String(out.bootstrapTenantId ?? "").trim()) throw new Error("--bootstrap-tenant-id must be non-empty");
     if (!String(out.bootstrapOpsToken ?? "").trim()) throw new Error("--bootstrap-ops-token must be non-empty");
+  }
+  if (out.includePg && !out.databaseUrl) {
+    throw new Error("--include-pg requires DATABASE_URL");
   }
   return out;
 }
@@ -92,17 +99,220 @@ function runCheck({ id, command, args = [], env = {} }) {
   };
 }
 
-function checksForLevel(level) {
+function checksForLevel(level, { includePg = false, databaseUrl = "" } = {}) {
   const core = [
     { id: "mcp_host_cert_matrix", command: "npm", args: ["run", "-s", "test:ci:mcp-host-cert-matrix"] },
-    { id: "mcp_probe_about", command: "npm", args: ["run", "-s", "mcp:probe", "--", "--call", "settld.about", "{}"] },
+    {
+      id: "mcp_probe_about",
+      command: "npm",
+      args: [
+        "run",
+        "-s",
+        "mcp:probe",
+        "--",
+        "--call",
+        "settld.about",
+        "{}",
+        "--require-tool",
+        "settld.relationships_list",
+        "--require-tool",
+        "settld.public_reputation_summary_get",
+        "--require-tool",
+        "settld.interaction_graph_pack_get"
+      ]
+    },
+    {
+      id: "mcp_interaction_graph_signed_smoke",
+      command: "npm",
+      args: ["run", "-s", "mcp:probe", "--", "--interaction-graph-smoke"]
+    },
     { id: "mcp_probe_x402_smoke", command: "npm", args: ["run", "-s", "mcp:probe", "--", "--x402-smoke"] }
   ];
   const collaboration = [
+    {
+      id: "mcp_work_order_binding_fail_closed",
+      command: "node",
+      args: ["--test", "--test-name-pattern", "mcp spike: work order tool mappings", "test/mcp-stdio-spike.test.js"]
+    },
+    {
+      id: "mcp_relationship_graph_tools",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "mcp spike: relationship and interaction graph tools map to reputation APIs",
+        "test/mcp-stdio-spike.test.js"
+      ]
+    },
+    {
+      id: "mcp_interaction_graph_signer_fail_closed",
+      command: "npm",
+      args: [
+        "run",
+        "-s",
+        "mcp:probe",
+        "--",
+        "--call",
+        "settld.interaction_graph_pack_get",
+        "{\"agentId\":\"agt_probe_missing\",\"signerKeyId\":\"settld_test_ed25519\"}",
+        "--expect-tool-error"
+      ]
+    },
+    {
+      id: "mcp_work_order_binding_runtime_fail_closed",
+      command: "node",
+      args: ["--test", "test/mcp-runtime-work-order-binding-fail-closed.test.js"]
+    },
+    { id: "e2e_public_agent_card_discovery", command: "node", args: ["--test", "test/api-e2e-agent-card-discovery.test.js"] },
+    { id: "e2e_billable_usage_events", command: "node", args: ["--test", "test/api-e2e-billable-events.test.js"] },
     { id: "e2e_subagent_work_orders", command: "node", args: ["--test", "test/api-e2e-subagent-work-orders.test.js"] },
+    {
+      id: "e2e_work_order_metered_settlement",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "metered work-order settle fails closed without meter evidence and succeeds after top-up coverage",
+        "test/api-e2e-subagent-work-orders.test.js"
+      ]
+    },
+    {
+      id: "e2e_work_order_metered_topup_envelope_fail_closed",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "work-order metering top-up fails closed when projected coverage exceeds max envelope",
+        "test/api-e2e-subagent-work-orders.test.js"
+      ]
+    },
+    {
+      id: "e2e_work_order_settlement_split_binding",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "work-order settle enforces deterministic split contract fail-closed and binds split hash",
+        "test/api-e2e-subagent-work-orders.test.js"
+      ]
+    },
+    {
+      id: "e2e_public_relationship_summary_opt_in",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "relationships are tenant-scoped private-by-default and public summary is opt-in",
+        "test/api-e2e-agent-reputation.test.js"
+      ]
+    },
+    {
+      id: "e2e_relationship_anti_gaming_dampening",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "relationships apply anti-gaming dampening on reciprocal micro-loops",
+        "test/api-e2e-agent-reputation.test.js"
+      ]
+    },
+    {
+      id: "e2e_interaction_graph_pack_export",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "interaction graph pack export is deterministic and hash-bound",
+        "test/api-e2e-agent-reputation.test.js"
+      ]
+    },
+    {
+      id: "e2e_interaction_graph_pack_signed_export",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "interaction graph pack export supports optional signature and fails closed on invalid signer override",
+        "test/api-e2e-agent-reputation.test.js"
+      ]
+    },
+    { id: "e2e_task_negotiation", command: "node", args: ["--test", "test/api-e2e-task-negotiation.test.js"] },
+    {
+      id: "e2e_session_replay_integrity",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "SessionReplayPack.v1 fails closed on tampered event chain",
+        "test/api-e2e-sessions.test.js"
+      ]
+    },
+    {
+      id: "e2e_prompt_contagion_guardrails",
+      command: "node",
+      args: ["--test", "--test-name-pattern", "prompt risk", "test/api-e2e-x402-delegation-grant.test.js"]
+    },
+    {
+      id: "e2e_x402_tainted_session_evidence_refs",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "tainted session verify fails closed until provenance evidence refs are submitted",
+        "test/api-e2e-x402-delegation-grant.test.js"
+      ]
+    },
+    {
+      id: "e2e_work_order_tainted_session_evidence_refs",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "work-order settle fails closed until tainted-session provenance evidence refs are included",
+        "test/api-e2e-subagent-work-orders.test.js"
+      ]
+    },
+    { id: "e2e_x402_authority_grants", command: "node", args: ["--test", "test/api-e2e-x402-authority-grant.test.js"] },
     { id: "e2e_x402_delegation_grants", command: "node", args: ["--test", "test/api-e2e-x402-delegation-grant.test.js"] },
     { id: "e2e_openclaw_substrate_demo", command: "node", args: ["--test", "test/openclaw-substrate-demo-script.test.js"] }
   ];
+  if (includePg && String(databaseUrl).trim() !== "") {
+    collaboration.push({
+      id: "mcp_work_order_binding_runtime_fail_closed_pg",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "mcp runtime pg: work-order settle fails closed on x402 tool binding mismatch",
+        "test/mcp-runtime-work-order-binding-fail-closed.test.js"
+      ]
+    });
+    collaboration.push({
+      id: "mcp_work_order_provider_binding_runtime_fail_closed_pg",
+      command: "node",
+      args: [
+        "--test",
+        "--test-name-pattern",
+        "mcp runtime pg: work-order settle fails closed on x402 provider binding mismatch",
+        "test/mcp-runtime-work-order-binding-fail-closed.test.js"
+      ]
+    });
+    collaboration.push({
+      id: "pg_substrate_durability",
+      command: "node",
+      args: ["--test", "test/pg-agent-substrate-primitives-durability.test.js"]
+    });
+    collaboration.push({
+      id: "pg_e2e_billable_usage_events",
+      command: "node",
+      args: ["--test", "test/pg-api-e2e-billable-events.test.js"]
+    });
+    collaboration.push({
+      id: "pg_e2e_x402_authority_grant_windows",
+      command: "node",
+      args: ["--test", "test/pg-api-e2e-x402-authority-grant.test.js"]
+    });
+  }
   const guardrails = [
     { id: "agent_substrate_adversarial_harness", command: "npm", args: ["run", "-s", "test:ops:agent-substrate-adversarial-harness"] }
   ];
@@ -114,7 +324,10 @@ function checksForLevel(level) {
 export async function runSettldVerifiedGate(args, options = {}) {
   const runCheckFn = typeof options.runCheckFn === "function" ? options.runCheckFn : runCheck;
   const bootstrapFn = typeof options.bootstrapFn === "function" ? options.bootstrapFn : bootstrapLocalGateEnv;
-  const checks = checksForLevel(args.level);
+  const checks = checksForLevel(args.level, {
+    includePg: args.includePg === true,
+    databaseUrl: args.databaseUrl ?? process.env.DATABASE_URL ?? ""
+  });
   const bootstrap = await bootstrapFn({
     enabled: args.bootstrapLocal,
     baseUrl: args.bootstrapBaseUrl,

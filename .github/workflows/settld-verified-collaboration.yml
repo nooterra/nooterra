@@ -1,0 +1,57 @@
+name: settld-verified-collaboration
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: settld-verified-collaboration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  collaboration_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run Settld Verified collaboration gate
+        run: |
+          set -euo pipefail
+          npm run -s test:ops:settld-verified-gate -- \
+            --level collaboration \
+            --include-pg \
+            --out artifacts/gates/settld-verified-collaboration-gate.json
+      - name: Upload Settld Verified collaboration artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: settld-verified-collaboration-${{ github.run_id }}
+          path: |
+            artifacts/gates/settld-verified-collaboration-gate.json
+            artifacts/gates/settld-verified-gate.json
+            artifacts/ops/mcp-host-cert-matrix.json
+          if-no-files-found: error
