@@ -11,6 +11,19 @@ export const AGENT_CARD_VISIBILITY = Object.freeze({
   TENANT: "tenant",
   PRIVATE: "private"
 });
+export const TOOL_DESCRIPTOR_SCHEMA_VERSION = "ToolDescriptor.v1";
+export const TOOL_DESCRIPTOR_RISK_CLASS = Object.freeze({
+  READ: "read",
+  COMPUTE: "compute",
+  ACTION: "action",
+  FINANCIAL: "financial"
+});
+
+const TOOL_DESCRIPTOR_EVIDENCE_KIND = Object.freeze({
+  ARTIFACT: "artifact",
+  HASH: "hash",
+  VERIFICATION_REPORT: "verification_report"
+});
 
 function assertPlainObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
@@ -103,6 +116,107 @@ function normalizeBaseUrl(value) {
     throw new TypeError("baseUrl must use http or https");
   }
   return parsed.toString().replace(/\/+$/, "");
+}
+
+function normalizeToolDescriptorRiskClass(value, name, { allowNull = true } = {}) {
+  const normalized = normalizeOptionalString(value, name, { max: 32 });
+  if (!normalized) {
+    if (allowNull) return null;
+    throw new TypeError(`${name} is required`);
+  }
+  const parsed = normalized.toLowerCase();
+  if (
+    parsed !== TOOL_DESCRIPTOR_RISK_CLASS.READ &&
+    parsed !== TOOL_DESCRIPTOR_RISK_CLASS.COMPUTE &&
+    parsed !== TOOL_DESCRIPTOR_RISK_CLASS.ACTION &&
+    parsed !== TOOL_DESCRIPTOR_RISK_CLASS.FINANCIAL
+  ) {
+    throw new TypeError(`${name} must be read|compute|action|financial`);
+  }
+  return parsed;
+}
+
+function normalizeToolDescriptorEvidenceKinds(value, name) {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) throw new TypeError(`${name} must be an array`);
+  const allowedKinds = new Set(Object.values(TOOL_DESCRIPTOR_EVIDENCE_KIND));
+  const out = [];
+  const seen = new Set();
+  for (let index = 0; index < value.length; index += 1) {
+    const entry = normalizeOptionalString(value[index], `${name}[${index}]`, { max: 64 });
+    if (!entry) continue;
+    const parsed = entry.toLowerCase();
+    if (!allowedKinds.has(parsed)) {
+      throw new TypeError(`${name}[${index}] must be artifact|hash|verification_report`);
+    }
+    if (seen.has(parsed)) continue;
+    seen.add(parsed);
+    out.push(parsed);
+  }
+  out.sort((left, right) => left.localeCompare(right));
+  return out;
+}
+
+function normalizeToolDescriptorPricing(value, name) {
+  if (value === null || value === undefined) return null;
+  assertPlainObject(value, name);
+  const amountCents = Number(value.amountCents);
+  if (!Number.isSafeInteger(amountCents) || amountCents < 0) {
+    throw new TypeError(`${name}.amountCents must be a non-negative integer`);
+  }
+  const currency = normalizeOptionalString(value.currency, `${name}.currency`, { max: 8 }) ?? "USD";
+  const unit = normalizeOptionalString(value.unit, `${name}.unit`, { max: 64 }) ?? "call";
+  return normalizeForCanonicalJson(
+    {
+      amountCents,
+      currency: currency.toUpperCase(),
+      unit
+    },
+    { path: "$.pricing" }
+  );
+}
+
+function normalizeToolDescriptors(value, name) {
+  if (value === null || value === undefined) return [];
+  if (!Array.isArray(value)) throw new TypeError(`${name} must be an array`);
+  const out = [];
+  const seenToolIds = new Set();
+  for (let index = 0; index < value.length; index += 1) {
+    const row = value[index];
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      throw new TypeError(`${name}[${index}] must be an object`);
+    }
+    const schemaVersion =
+      normalizeOptionalString(row.schemaVersion, `${name}[${index}].schemaVersion`, { max: 64 }) ?? TOOL_DESCRIPTOR_SCHEMA_VERSION;
+    if (schemaVersion !== TOOL_DESCRIPTOR_SCHEMA_VERSION) {
+      throw new TypeError(`${name}[${index}].schemaVersion must be ${TOOL_DESCRIPTOR_SCHEMA_VERSION}`);
+    }
+    const toolId = normalizeOptionalString(row.toolId, `${name}[${index}].toolId`, { max: 200 });
+    if (!toolId) throw new TypeError(`${name}[${index}].toolId is required`);
+    if (seenToolIds.has(toolId)) throw new TypeError(`${name} contains duplicate toolId: ${toolId}`);
+    seenToolIds.add(toolId);
+    const descriptor = normalizeForCanonicalJson(
+      {
+        schemaVersion,
+        toolId,
+        mcpToolName: normalizeOptionalString(row.mcpToolName, `${name}[${index}].mcpToolName`, { max: 200 }),
+        name: normalizeOptionalString(row.name, `${name}[${index}].name`, { max: 200 }),
+        description: normalizeOptionalString(row.description, `${name}[${index}].description`, { max: 2000 }),
+        riskClass: normalizeToolDescriptorRiskClass(row.riskClass, `${name}[${index}].riskClass`, { allowNull: true }),
+        sideEffecting: row.sideEffecting === true,
+        pricing: normalizeToolDescriptorPricing(row.pricing, `${name}[${index}].pricing`),
+        requiresEvidenceKinds: normalizeToolDescriptorEvidenceKinds(row.requiresEvidenceKinds, `${name}[${index}].requiresEvidenceKinds`),
+        metadata:
+          row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+            ? normalizeForCanonicalJson(row.metadata, { path: `${name}[${index}].metadata` })
+            : null
+      },
+      { path: `${name}[${index}]` }
+    );
+    out.push(descriptor);
+  }
+  out.sort((left, right) => String(left.toolId ?? "").localeCompare(String(right.toolId ?? "")));
+  return out;
 }
 
 export function buildSettldAgentCard({
@@ -279,6 +393,13 @@ export function buildAgentCardV1({
     : (() => {
         throw new TypeError("attestations must be an array");
       })();
+  const sourceTools =
+    cardInput?.tools !== undefined
+      ? cardInput.tools
+      : previousCard?.tools !== undefined
+        ? previousCard.tools
+        : undefined;
+  const tools = sourceTools === undefined ? undefined : normalizeToolDescriptors(sourceTools, "tools");
 
   const createdAt =
     normalizeOptionalString(previousCard?.createdAt, "previousCard.createdAt", { max: 128 }) ?? resolvedNowAt;
@@ -299,6 +420,7 @@ export function buildAgentCardV1({
       host,
       priceHint,
       attestations,
+      ...(tools !== undefined ? { tools } : {}),
       tags,
       metadata: metadata && typeof metadata === "object" && !Array.isArray(metadata) ? metadata : null,
       identityRef: {
@@ -351,6 +473,9 @@ export function validateAgentCardV1(agentCard) {
     if (!Number.isSafeInteger(amountCents) || amountCents < 0) {
       throw new TypeError("agentCard.priceHint.amountCents must be a non-negative integer");
     }
+  }
+  if (agentCard.tools !== null && agentCard.tools !== undefined) {
+    normalizeToolDescriptors(agentCard.tools, "agentCard.tools");
   }
   return true;
 }

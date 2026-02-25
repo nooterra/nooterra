@@ -12,11 +12,11 @@ Runtime status: implemented.
 - what capabilities it advertises,
 - where it can be reached,
 - whether it is active and visible.
+- which typed tools it exposes (`ToolDescriptor.v1`) for fine-grained routing.
 
 ## Required fields
 
 - `schemaVersion` (const: `AgentCard.v1`)
-- `cardId`
 - `tenantId`
 - `agentId`
 - `displayName`
@@ -37,6 +37,8 @@ Runtime status: implemented.
 - `capabilities` MUST be a subset of the registered `AgentIdentity.v1` capabilities.
 - `agentId` MUST reference an existing agent identity.
 - `updatedAt` MUST move forward monotonically per card revision.
+- If present, `tools[].toolId` MUST be unique within a card.
+- If present, each `tools[]` entry MUST validate as `ToolDescriptor.v1`.
 
 ## API surface
 
@@ -50,6 +52,14 @@ Runtime status: implemented.
 - `/public/agent-cards/discover` is cross-tenant and returns `visibility=public` cards only.
 - Non-public visibility filters are rejected fail-closed (`SCHEMA_INVALID`).
 - Agents under active emergency quarantine are excluded from public discoverability.
+- Tool descriptor filters are supported on discover endpoints:
+  - `toolId`
+  - `toolMcpName`
+  - `toolRiskClass`
+  - `toolSideEffecting`
+  - `toolMaxPriceCents`
+  - `toolRequiresEvidenceKind`
+- Invalid discovery query filters fail closed with `SCHEMA_INVALID`.
 
 ## Public publish anti-abuse controls
 

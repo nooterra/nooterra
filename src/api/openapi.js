@@ -407,6 +407,33 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const ToolDescriptorV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "toolId", "sideEffecting", "requiresEvidenceKinds"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["ToolDescriptor.v1"] },
+      toolId: { type: "string" },
+      mcpToolName: { type: "string", nullable: true },
+      name: { type: "string", nullable: true },
+      description: { type: "string", nullable: true },
+      riskClass: { type: "string", enum: ["read", "compute", "action", "financial"], nullable: true },
+      sideEffecting: { type: "boolean" },
+      pricing: {
+        type: "object",
+        additionalProperties: false,
+        nullable: true,
+        properties: {
+          amountCents: { type: "integer", minimum: 0 },
+          currency: { type: "string" },
+          unit: { type: "string" }
+        }
+      },
+      requiresEvidenceKinds: { type: "array", items: { type: "string", enum: ["artifact", "hash", "verification_report"] } },
+      metadata: { type: "object", nullable: true, additionalProperties: true }
+    }
+  };
+
   const AgentCardV1 = {
     type: "object",
     additionalProperties: false,
@@ -434,6 +461,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       host: AgentCardHostV1,
       priceHint: AgentCardPriceHintV1,
       attestations: { type: "array", items: AgentCardAttestationV1 },
+      tools: { type: "array", items: ToolDescriptorV1 },
       tags: { type: "array", items: { type: "string" } },
       metadata: { type: "object", nullable: true, additionalProperties: true },
       identityRef: {
@@ -464,6 +492,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       host: AgentCardHostV1,
       priceHint: AgentCardPriceHintV1,
       attestations: { type: "array", items: AgentCardAttestationV1 },
+      tools: { type: "array", items: ToolDescriptorV1 },
       tags: { type: "array", items: { type: "string" } },
       metadata: { type: "object", additionalProperties: true }
     }
@@ -6048,6 +6077,17 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             ProtocolHeader,
             RequestIdHeader,
             { name: "capability", in: "query", required: false, schema: { type: "string" } },
+            { name: "toolId", in: "query", required: false, schema: { type: "string" } },
+            { name: "toolMcpName", in: "query", required: false, schema: { type: "string" } },
+            { name: "toolRiskClass", in: "query", required: false, schema: { type: "string", enum: ["read", "compute", "action", "financial"] } },
+            { name: "toolSideEffecting", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "toolMaxPriceCents", in: "query", required: false, schema: { type: "integer", minimum: 0 } },
+            {
+              name: "toolRequiresEvidenceKind",
+              in: "query",
+              required: false,
+              schema: { type: "string", enum: ["artifact", "hash", "verification_report"] }
+            },
             { name: "status", in: "query", required: false, schema: { type: "string", enum: ["active", "suspended", "revoked", "all"] } },
             { name: "visibility", in: "query", required: false, schema: { type: "string", enum: ["public", "tenant", "private", "all"] } },
             { name: "runtime", in: "query", required: false, schema: { type: "string" } },

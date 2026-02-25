@@ -37869,6 +37869,88 @@
                               }
                             }
                           },
+                          "tools": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "additionalProperties": false,
+                              "required": [
+                                "schemaVersion",
+                                "toolId",
+                                "sideEffecting",
+                                "requiresEvidenceKinds"
+                              ],
+                              "properties": {
+                                "schemaVersion": {
+                                  "type": "string",
+                                  "enum": [
+                                    "ToolDescriptor.v1"
+                                  ]
+                                },
+                                "toolId": {
+                                  "type": "string"
+                                },
+                                "mcpToolName": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "name": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "description": {
+                                  "type": "string",
+                                  "nullable": true
+                                },
+                                "riskClass": {
+                                  "type": "string",
+                                  "enum": [
+                                    "read",
+                                    "compute",
+                                    "action",
+                                    "financial"
+                                  ],
+                                  "nullable": true
+                                },
+                                "sideEffecting": {
+                                  "type": "boolean"
+                                },
+                                "pricing": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "nullable": true,
+                                  "properties": {
+                                    "amountCents": {
+                                      "type": "integer",
+                                      "minimum": 0
+                                    },
+                                    "currency": {
+                                      "type": "string"
+                                    },
+                                    "unit": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "requiresEvidenceKinds": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "artifact",
+                                      "hash",
+                                      "verification_report"
+                                    ]
+                                  }
+                                },
+                                "metadata": {
+                                  "type": "object",
+                                  "nullable": true,
+                                  "additionalProperties": true
+                                }
+                              }
+                            }
+                          },
                           "tags": {
                             "type": "array",
                             "items": {
@@ -38107,6 +38189,88 @@
                       }
                     }
                   },
+                  "tools": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "toolId",
+                        "sideEffecting",
+                        "requiresEvidenceKinds"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "ToolDescriptor.v1"
+                          ]
+                        },
+                        "toolId": {
+                          "type": "string"
+                        },
+                        "mcpToolName": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "name": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "description": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "riskClass": {
+                          "type": "string",
+                          "enum": [
+                            "read",
+                            "compute",
+                            "action",
+                            "financial"
+                          ],
+                          "nullable": true
+                        },
+                        "sideEffecting": {
+                          "type": "boolean"
+                        },
+                        "pricing": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "nullable": true,
+                          "properties": {
+                            "amountCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "currency": {
+                              "type": "string"
+                            },
+                            "unit": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "requiresEvidenceKinds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "artifact",
+                              "hash",
+                              "verification_report"
+                            ]
+                          }
+                        },
+                        "metadata": {
+                          "type": "object",
+                          "nullable": true,
+                          "additionalProperties": true
+                        }
+                      }
+                    }
+                  },
                   "tags": {
                     "type": "array",
                     "items": {
@@ -38267,6 +38431,88 @@
                                 "type": "string",
                                 "format": "date-time",
                                 "nullable": true
+                              }
+                            }
+                          }
+                        },
+                        "tools": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "toolId",
+                              "sideEffecting",
+                              "requiresEvidenceKinds"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "ToolDescriptor.v1"
+                                ]
+                              },
+                              "toolId": {
+                                "type": "string"
+                              },
+                              "mcpToolName": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "name": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "description": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "riskClass": {
+                                "type": "string",
+                                "enum": [
+                                  "read",
+                                  "compute",
+                                  "action",
+                                  "financial"
+                                ],
+                                "nullable": true
+                              },
+                              "sideEffecting": {
+                                "type": "boolean"
+                              },
+                              "pricing": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "amountCents": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "currency": {
+                                    "type": "string"
+                                  },
+                                  "unit": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "requiresEvidenceKinds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "artifact",
+                                    "hash",
+                                    "verification_report"
+                                  ]
+                                }
+                              },
+                              "metadata": {
+                                "type": "object",
+                                "nullable": true,
+                                "additionalProperties": true
                               }
                             }
                           }
@@ -38464,6 +38710,88 @@
                             }
                           }
                         },
+                        "tools": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "toolId",
+                              "sideEffecting",
+                              "requiresEvidenceKinds"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "ToolDescriptor.v1"
+                                ]
+                              },
+                              "toolId": {
+                                "type": "string"
+                              },
+                              "mcpToolName": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "name": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "description": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "riskClass": {
+                                "type": "string",
+                                "enum": [
+                                  "read",
+                                  "compute",
+                                  "action",
+                                  "financial"
+                                ],
+                                "nullable": true
+                              },
+                              "sideEffecting": {
+                                "type": "boolean"
+                              },
+                              "pricing": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "amountCents": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "currency": {
+                                    "type": "string"
+                                  },
+                                  "unit": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "requiresEvidenceKinds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "artifact",
+                                    "hash",
+                                    "verification_report"
+                                  ]
+                                }
+                              },
+                              "metadata": {
+                                "type": "object",
+                                "nullable": true,
+                                "additionalProperties": true
+                              }
+                            }
+                          }
+                        },
                         "tags": {
                           "type": "array",
                           "items": {
@@ -38591,6 +38919,66 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "toolId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "toolMcpName",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "toolRiskClass",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "read",
+                "compute",
+                "action",
+                "financial"
+              ]
+            }
+          },
+          {
+            "name": "toolSideEffecting",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "toolMaxPriceCents",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "toolRequiresEvidenceKind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "artifact",
+                "hash",
+                "verification_report"
+              ]
             }
           },
           {
@@ -38958,6 +39346,88 @@
                                       "type": "string",
                                       "format": "date-time",
                                       "nullable": true
+                                    }
+                                  }
+                                }
+                              },
+                              "tools": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "schemaVersion",
+                                    "toolId",
+                                    "sideEffecting",
+                                    "requiresEvidenceKinds"
+                                  ],
+                                  "properties": {
+                                    "schemaVersion": {
+                                      "type": "string",
+                                      "enum": [
+                                        "ToolDescriptor.v1"
+                                      ]
+                                    },
+                                    "toolId": {
+                                      "type": "string"
+                                    },
+                                    "mcpToolName": {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    "name": {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    "description": {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    "riskClass": {
+                                      "type": "string",
+                                      "enum": [
+                                        "read",
+                                        "compute",
+                                        "action",
+                                        "financial"
+                                      ],
+                                      "nullable": true
+                                    },
+                                    "sideEffecting": {
+                                      "type": "boolean"
+                                    },
+                                    "pricing": {
+                                      "type": "object",
+                                      "additionalProperties": false,
+                                      "nullable": true,
+                                      "properties": {
+                                        "amountCents": {
+                                          "type": "integer",
+                                          "minimum": 0
+                                        },
+                                        "currency": {
+                                          "type": "string"
+                                        },
+                                        "unit": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    },
+                                    "requiresEvidenceKinds": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "artifact",
+                                          "hash",
+                                          "verification_report"
+                                        ]
+                                      }
+                                    },
+                                    "metadata": {
+                                      "type": "object",
+                                      "nullable": true,
+                                      "additionalProperties": true
                                     }
                                   }
                                 }
@@ -40163,6 +40633,88 @@
                                 "type": "string",
                                 "format": "date-time",
                                 "nullable": true
+                              }
+                            }
+                          }
+                        },
+                        "tools": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "toolId",
+                              "sideEffecting",
+                              "requiresEvidenceKinds"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "ToolDescriptor.v1"
+                                ]
+                              },
+                              "toolId": {
+                                "type": "string"
+                              },
+                              "mcpToolName": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "name": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "description": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "riskClass": {
+                                "type": "string",
+                                "enum": [
+                                  "read",
+                                  "compute",
+                                  "action",
+                                  "financial"
+                                ],
+                                "nullable": true
+                              },
+                              "sideEffecting": {
+                                "type": "boolean"
+                              },
+                              "pricing": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "amountCents": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "currency": {
+                                    "type": "string"
+                                  },
+                                  "unit": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "requiresEvidenceKinds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "enum": [
+                                    "artifact",
+                                    "hash",
+                                    "verification_report"
+                                  ]
+                                }
+                              },
+                              "metadata": {
+                                "type": "object",
+                                "nullable": true,
+                                "additionalProperties": true
                               }
                             }
                           }

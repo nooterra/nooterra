@@ -179,6 +179,7 @@ import {
 import {
   AGENT_CARD_STATUS,
   AGENT_CARD_VISIBILITY,
+  TOOL_DESCRIPTOR_RISK_CLASS,
   buildAgentCardV1,
   buildSettldAgentCard,
   validateAgentCardV1
@@ -2626,8 +2627,8 @@ export function createApi({
   function parseBooleanQueryValue(raw, { defaultValue = false, name = "query parameter" } = {}) {
     if (raw === null || raw === undefined || String(raw).trim() === "") return Boolean(defaultValue);
     const value = String(raw).trim().toLowerCase();
-    if (value === "1" || value === "true" || value === "yes") return true;
-    if (value === "0" || value === "false" || value === "no") return false;
+    if (value === "1" || value === "true" || value === "yes" || value === "on") return true;
+    if (value === "0" || value === "false" || value === "no" || value === "off") return false;
     throw new TypeError(`${name} must be boolean`);
   }
 
@@ -7927,6 +7928,66 @@ export function createApi({
     throw new TypeError("visibility must be public|tenant|private|all");
   }
 
+  function parseToolDescriptorRiskClass(rawValue, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError("toolRiskClass is required");
+    }
+    const value = String(rawValue).trim().toLowerCase();
+    if (!Object.values(TOOL_DESCRIPTOR_RISK_CLASS).includes(value)) {
+      throw new TypeError(`toolRiskClass must be one of ${Object.values(TOOL_DESCRIPTOR_RISK_CLASS).join("|")}`);
+    }
+    return value;
+  }
+
+  function parseToolDescriptorEvidenceKind(rawValue, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError("toolRequiresEvidenceKind is required");
+    }
+    const value = String(rawValue).trim().toLowerCase();
+    if (value !== "artifact" && value !== "hash" && value !== "verification_report") {
+      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report");
+    }
+    return value;
+  }
+
+  function normalizeAgentCardToolDescriptorsForDiscovery(agentCard) {
+    const source = Array.isArray(agentCard?.tools) ? agentCard.tools : [];
+    const out = [];
+    for (const row of source) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const toolId = typeof row.toolId === "string" && row.toolId.trim() !== "" ? row.toolId.trim() : null;
+      if (!toolId) continue;
+      const mcpToolName = typeof row.mcpToolName === "string" && row.mcpToolName.trim() !== "" ? row.mcpToolName.trim() : null;
+      const riskClass =
+        typeof row.riskClass === "string" && row.riskClass.trim() !== "" ? row.riskClass.trim().toLowerCase() : null;
+      const sideEffecting = row.sideEffecting === true;
+      const requiresEvidenceKinds = Array.isArray(row.requiresEvidenceKinds)
+        ? [...new Set(row.requiresEvidenceKinds.map((entry) => String(entry ?? "").trim().toLowerCase()).filter(Boolean))].sort((a, b) =>
+            a.localeCompare(b)
+          )
+        : [];
+      const amountCentsRaw = Number(row?.pricing?.amountCents);
+      const amountCents = Number.isSafeInteger(amountCentsRaw) && amountCentsRaw >= 0 ? amountCentsRaw : null;
+      out.push(
+        normalizeForCanonicalJson(
+          {
+            toolId,
+            mcpToolName,
+            riskClass,
+            sideEffecting,
+            requiresEvidenceKinds,
+            pricingAmountCents: amountCents
+          },
+          { path: "$.toolDescriptor" }
+        )
+      );
+    }
+    out.sort((left, right) => String(left.toolId ?? "").localeCompare(String(right.toolId ?? "")));
+    return out;
+  }
+
   function parseSessionVisibility(rawValue, { allowAll = true, defaultVisibility = SESSION_VISIBILITY.TENANT } = {}) {
     if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultVisibility;
     const value = String(rawValue).trim().toLowerCase();
@@ -9094,6 +9155,12 @@ export function createApi({
     tenantId,
     scope = "tenant",
     capability = null,
+    toolId = null,
+    toolMcpName = null,
+    toolRiskClass = null,
+    toolSideEffecting = null,
+    toolMaxPriceCents = null,
+    toolRequiresEvidenceKind = null,
     status = AGENT_CARD_STATUS.ACTIVE,
     visibility = AGENT_CARD_VISIBILITY.PUBLIC,
     runtime = null,
@@ -9126,6 +9193,36 @@ export function createApi({
       throw new TypeError("public discovery visibility must be public");
     }
     const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const toolIdFilter =
+      toolId === null || toolId === undefined || String(toolId).trim() === ""
+        ? null
+        : (() => {
+            if (typeof toolId !== "string") throw new TypeError("toolId must be a string");
+            const value = toolId.trim();
+            if (!value) return null;
+            if (value.length > 200) throw new TypeError("toolId must be <= 200 chars");
+            return value;
+          })();
+    const toolMcpNameFilter =
+      toolMcpName === null || toolMcpName === undefined || String(toolMcpName).trim() === "" ? null : String(toolMcpName).trim();
+    const parsedToolRiskClass = parseToolDescriptorRiskClass(toolRiskClass, { allowNull: true });
+    const parsedToolSideEffecting =
+      toolSideEffecting === null || toolSideEffecting === undefined ? null : Boolean(toolSideEffecting);
+    if (toolSideEffecting !== null && toolSideEffecting !== undefined && typeof toolSideEffecting !== "boolean") {
+      throw new TypeError("toolSideEffecting must be boolean");
+    }
+    const parsedToolMaxPriceCents =
+      toolMaxPriceCents === null || toolMaxPriceCents === undefined || toolMaxPriceCents === ""
+        ? null
+        : normalizeOptionalX402PositiveSafeInt(toolMaxPriceCents, "toolMaxPriceCents", { allowNull: true });
+    const parsedToolRequiresEvidenceKind = parseToolDescriptorEvidenceKind(toolRequiresEvidenceKind, { allowNull: true });
+    const hasToolDescriptorFilter =
+      toolIdFilter !== null ||
+      toolMcpNameFilter !== null ||
+      parsedToolRiskClass !== null ||
+      parsedToolSideEffecting !== null ||
+      parsedToolMaxPriceCents !== null ||
+      parsedToolRequiresEvidenceKind !== null;
     const runtimeFilter = runtime && String(runtime).trim() !== "" ? String(runtime).trim().toLowerCase() : null;
     const parsedAttestationMinLevel = parseCapabilityAttestationLevel(attestationMinLevel, { allowNull: true });
     const parsedAttestationIssuerAgentId =
@@ -9251,6 +9348,34 @@ export function createApi({
     for (const agentCard of cards) {
       const agentId = String(agentCard?.agentId ?? "");
       if (!agentId) continue;
+      const normalizedToolDescriptors = normalizeAgentCardToolDescriptorsForDiscovery(agentCard);
+      if (hasToolDescriptorFilter) {
+        const hasToolMatch = normalizedToolDescriptors.some((descriptor) => {
+          if (toolIdFilter !== null && String(descriptor.toolId ?? "") !== toolIdFilter) return false;
+          if (
+            toolMcpNameFilter !== null &&
+            String(descriptor.mcpToolName ?? "").toLowerCase() !== toolMcpNameFilter.toLowerCase()
+          ) {
+            return false;
+          }
+          if (parsedToolRiskClass !== null && String(descriptor.riskClass ?? "") !== parsedToolRiskClass) return false;
+          if (parsedToolSideEffecting !== null && Boolean(descriptor.sideEffecting) !== parsedToolSideEffecting) return false;
+          if (
+            parsedToolMaxPriceCents !== null &&
+            (!Number.isSafeInteger(Number(descriptor.pricingAmountCents)) || Number(descriptor.pricingAmountCents) > parsedToolMaxPriceCents)
+          ) {
+            return false;
+          }
+          if (
+            parsedToolRequiresEvidenceKind !== null &&
+            (!Array.isArray(descriptor.requiresEvidenceKinds) || !descriptor.requiresEvidenceKinds.includes(parsedToolRequiresEvidenceKind))
+          ) {
+            return false;
+          }
+          return true;
+        });
+        if (!hasToolMatch) continue;
+      }
       const cardTenantId = normalizeTenantId(agentCard?.tenantId ?? t ?? DEFAULT_TENANT_ID);
       if (isPublicScope && quarantinedAgentScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
       if (requireAttestation && !capabilityFilter) {
@@ -45864,6 +45989,7 @@ export function createApi({
               host: body?.host ?? undefined,
               priceHint: body?.priceHint ?? undefined,
               attestations: body?.attestations ?? undefined,
+              tools: body?.tools ?? undefined,
               tags: body?.tags ?? undefined,
               metadata: body?.metadata ?? undefined
             }
@@ -46052,6 +46178,7 @@ export function createApi({
                 host: body?.host ?? undefined,
                 priceHint: body?.priceHint ?? undefined,
                 attestations: body?.attestations ?? undefined,
+                tools: body?.tools ?? undefined,
                 tags: body?.tags ?? undefined,
                 metadata: cardMetadataInput
               }
@@ -46074,28 +46201,37 @@ export function createApi({
       }
 
       if (req.method === "GET" && path === "/public/agent-cards/discover") {
-        const includeReputationRaw = url.searchParams.get("includeReputation");
-        const includeReputation =
-          includeReputationRaw === null ? true : ["1", "true", "yes", "on"].includes(String(includeReputationRaw).trim().toLowerCase());
-        const requireCapabilityAttestationRaw = url.searchParams.get("requireCapabilityAttestation");
-        const requireCapabilityAttestation =
-          requireCapabilityAttestationRaw === null
-            ? false
-            : ["1", "true", "yes", "on"].includes(String(requireCapabilityAttestationRaw).trim().toLowerCase());
-        const includeAttestationMetadataRaw = url.searchParams.get("includeAttestationMetadata");
-        const includeAttestationMetadata =
-          includeAttestationMetadataRaw === null
-            ? false
-            : ["1", "true", "yes", "on"].includes(String(includeAttestationMetadataRaw).trim().toLowerCase());
-        const includeRoutingFactorsRaw = url.searchParams.get("includeRoutingFactors");
-        const includeRoutingFactors =
-          includeRoutingFactorsRaw === null
-            ? false
-            : ["1", "true", "yes", "on"].includes(String(includeRoutingFactorsRaw).trim().toLowerCase());
         try {
+          const includeReputation = parseBooleanQueryValue(url.searchParams.get("includeReputation"), {
+            defaultValue: true,
+            name: "includeReputation"
+          });
+          const requireCapabilityAttestation = parseBooleanQueryValue(url.searchParams.get("requireCapabilityAttestation"), {
+            defaultValue: false,
+            name: "requireCapabilityAttestation"
+          });
+          const includeAttestationMetadata = parseBooleanQueryValue(url.searchParams.get("includeAttestationMetadata"), {
+            defaultValue: false,
+            name: "includeAttestationMetadata"
+          });
+          const includeRoutingFactors = parseBooleanQueryValue(url.searchParams.get("includeRoutingFactors"), {
+            defaultValue: false,
+            name: "includeRoutingFactors"
+          });
+          const toolSideEffectingRaw = url.searchParams.get("toolSideEffecting");
+          const toolSideEffecting =
+            toolSideEffectingRaw === null
+              ? null
+              : parseBooleanQueryValue(toolSideEffectingRaw, { defaultValue: false, name: "toolSideEffecting" });
           const result = await discoverAgentCards({
             scope: "public",
             capability: url.searchParams.get("capability"),
+            toolId: url.searchParams.get("toolId"),
+            toolMcpName: url.searchParams.get("toolMcpName"),
+            toolRiskClass: url.searchParams.get("toolRiskClass"),
+            toolSideEffecting,
+            toolMaxPriceCents: url.searchParams.get("toolMaxPriceCents"),
+            toolRequiresEvidenceKind: url.searchParams.get("toolRequiresEvidenceKind"),
             status: url.searchParams.get("status"),
             visibility: url.searchParams.get("visibility"),
             runtime: url.searchParams.get("runtime"),
@@ -46105,8 +46241,8 @@ export function createApi({
             includeAttestationMetadata,
             minTrustScore: url.searchParams.get("minTrustScore"),
             riskTier: url.searchParams.get("riskTier"),
-            limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 50,
-            offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0,
+            limit: parseThresholdIntegerQueryValue(url.searchParams.get("limit"), { defaultValue: 50, min: 1, max: 100, name: "limit" }),
+            offset: parseThresholdIntegerQueryValue(url.searchParams.get("offset"), { defaultValue: 0, min: 0, name: "offset" }),
             includeReputation,
             reputationVersion: url.searchParams.get("reputationVersion") ?? "v2",
             reputationWindow: url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
@@ -46315,29 +46451,38 @@ export function createApi({
       }
 
       if (req.method === "GET" && path === "/agent-cards/discover") {
-        const includeReputationRaw = url.searchParams.get("includeReputation");
-        const includeReputation =
-          includeReputationRaw === null ? true : ["1", "true", "yes", "on"].includes(String(includeReputationRaw).trim().toLowerCase());
-        const requireCapabilityAttestationRaw = url.searchParams.get("requireCapabilityAttestation");
-        const requireCapabilityAttestation =
-          requireCapabilityAttestationRaw === null
-            ? false
-            : ["1", "true", "yes", "on"].includes(String(requireCapabilityAttestationRaw).trim().toLowerCase());
-        const includeAttestationMetadataRaw = url.searchParams.get("includeAttestationMetadata");
-        const includeAttestationMetadata =
-          includeAttestationMetadataRaw === null
-            ? false
-            : ["1", "true", "yes", "on"].includes(String(includeAttestationMetadataRaw).trim().toLowerCase());
-        const includeRoutingFactorsRaw = url.searchParams.get("includeRoutingFactors");
-        const includeRoutingFactors =
-          includeRoutingFactorsRaw === null
-            ? false
-            : ["1", "true", "yes", "on"].includes(String(includeRoutingFactorsRaw).trim().toLowerCase());
         try {
+          const includeReputation = parseBooleanQueryValue(url.searchParams.get("includeReputation"), {
+            defaultValue: true,
+            name: "includeReputation"
+          });
+          const requireCapabilityAttestation = parseBooleanQueryValue(url.searchParams.get("requireCapabilityAttestation"), {
+            defaultValue: false,
+            name: "requireCapabilityAttestation"
+          });
+          const includeAttestationMetadata = parseBooleanQueryValue(url.searchParams.get("includeAttestationMetadata"), {
+            defaultValue: false,
+            name: "includeAttestationMetadata"
+          });
+          const includeRoutingFactors = parseBooleanQueryValue(url.searchParams.get("includeRoutingFactors"), {
+            defaultValue: false,
+            name: "includeRoutingFactors"
+          });
+          const toolSideEffectingRaw = url.searchParams.get("toolSideEffecting");
+          const toolSideEffecting =
+            toolSideEffectingRaw === null
+              ? null
+              : parseBooleanQueryValue(toolSideEffectingRaw, { defaultValue: false, name: "toolSideEffecting" });
           const result = await discoverAgentCards({
             tenantId,
             scope: "tenant",
             capability: url.searchParams.get("capability"),
+            toolId: url.searchParams.get("toolId"),
+            toolMcpName: url.searchParams.get("toolMcpName"),
+            toolRiskClass: url.searchParams.get("toolRiskClass"),
+            toolSideEffecting,
+            toolMaxPriceCents: url.searchParams.get("toolMaxPriceCents"),
+            toolRequiresEvidenceKind: url.searchParams.get("toolRequiresEvidenceKind"),
             status: url.searchParams.get("status"),
             visibility: url.searchParams.get("visibility"),
             runtime: url.searchParams.get("runtime"),
@@ -46347,8 +46492,8 @@ export function createApi({
             includeAttestationMetadata,
             minTrustScore: url.searchParams.get("minTrustScore"),
             riskTier: url.searchParams.get("riskTier"),
-            limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 50,
-            offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0,
+            limit: parseThresholdIntegerQueryValue(url.searchParams.get("limit"), { defaultValue: 50, min: 1, max: 100, name: "limit" }),
+            offset: parseThresholdIntegerQueryValue(url.searchParams.get("offset"), { defaultValue: 0, min: 0, name: "offset" }),
             includeReputation,
             reputationVersion: url.searchParams.get("reputationVersion") ?? "v2",
             reputationWindow: url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS,

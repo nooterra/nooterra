@@ -42,6 +42,17 @@ test("AgentCard.v1 builder emits deterministic card bound to identity capabiliti
         unit: "task"
       },
       attestations: [{ type: "self-claim", level: "self_claim" }],
+      tools: [
+        {
+          schemaVersion: "ToolDescriptor.v1",
+          toolId: "travel.book_flight",
+          mcpToolName: "travel_book_flight",
+          riskClass: "action",
+          sideEffecting: true,
+          pricing: { amountCents: 250, currency: "USD", unit: "booking" },
+          requiresEvidenceKinds: ["artifact", "hash"]
+        }
+      ],
       tags: ["travel", "booking"]
     }
   });
@@ -53,6 +64,10 @@ test("AgentCard.v1 builder emits deterministic card bound to identity capabiliti
   assert.deepEqual(card.capabilities, ["travel.booking"]);
   assert.equal(card.createdAt, nowAt);
   assert.equal(card.updatedAt, nowAt);
+  assert.equal(Array.isArray(card.tools), true);
+  assert.equal(card.tools[0]?.toolId, "travel.book_flight");
+  assert.equal(card.tools[0]?.riskClass, "action");
+  assert.equal(card.tools[0]?.sideEffecting, true);
   assert.equal(validateAgentCardV1(card), true);
 });
 
@@ -75,5 +90,28 @@ test("AgentCard.v1 rejects capabilities outside identity envelope", () => {
         }
       }),
     /subset of agent identity capabilities/
+  );
+});
+
+test("AgentCard.v1 rejects invalid tool descriptors", () => {
+  assert.throws(
+    () =>
+      buildAgentCardV1({
+        tenantId: "tenant_default",
+        agentIdentity: {
+          schemaVersion: "AgentIdentity.v1",
+          agentId: "agt_card_3",
+          tenantId: "tenant_default",
+          displayName: "Agent Three",
+          status: "active",
+          capabilities: ["travel.booking"],
+          keys: { keyId: "key_3" }
+        },
+        cardInput: {
+          capabilities: ["travel.booking"],
+          tools: [{ toolId: "travel.book", riskClass: "invalid-risk-class" }]
+        }
+      }),
+    /riskClass must be read\|compute\|action\|financial/
   );
 });

@@ -1511,6 +1511,19 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   assert.equal(discoveredParsed?.tool, "settld.agent_discover");
   assert.equal(discoveredParsed?.result?.results?.[0]?.agentCard?.agentId, "agt_card_1");
 
+  const invalidDiscover = await rpc("tools/call", {
+    name: "settld.agent_discover",
+    arguments: {
+      capability: "travel.booking",
+      minTrustScore: "90",
+      unexpected: true
+    }
+  });
+  assert.equal(invalidDiscover.result?.isError, true);
+  const invalidDiscoverParsed = JSON.parse(invalidDiscover.result?.content?.[0]?.text || "{}");
+  assert.equal(invalidDiscoverParsed?.tool, "settld.agent_discover");
+  assert.match(String(invalidDiscoverParsed?.error ?? ""), /unsupported keys|minTrustScore must be a safe integer/i);
+
   child.kill("SIGTERM");
   await Promise.race([onceEvent(child, "exit"), new Promise((r) => setTimeout(r, 100))]);
   api.close();

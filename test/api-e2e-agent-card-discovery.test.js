@@ -198,6 +198,111 @@ test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
   assert.equal(invalidCapability.json?.code, "SCHEMA_INVALID");
 });
 
+test("API e2e: /agent-cards/discover supports ToolDescriptor.v1 filters", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  await registerAgent(api, { agentId: "agt_tool_desc_1", capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: "agt_tool_desc_2", capabilities: ["travel.booking"] });
+
+  const upsertAction = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_tool_desc_action_1" },
+    body: {
+      agentId: "agt_tool_desc_1",
+      displayName: "Travel Action Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      tools: [
+        {
+          schemaVersion: "ToolDescriptor.v1",
+          toolId: "travel.book_flight",
+          mcpToolName: "travel_book_flight",
+          riskClass: "action",
+          sideEffecting: true,
+          pricing: { amountCents: 500, currency: "USD", unit: "booking" },
+          requiresEvidenceKinds: ["artifact", "hash"]
+        }
+      ]
+    }
+  });
+  assert.equal(upsertAction.statusCode, 201, upsertAction.body);
+
+  const upsertRead = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_tool_desc_read_1" },
+    body: {
+      agentId: "agt_tool_desc_2",
+      displayName: "Travel Search Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      tools: [
+        {
+          schemaVersion: "ToolDescriptor.v1",
+          toolId: "travel.search_flights",
+          mcpToolName: "travel_search_flights",
+          riskClass: "read",
+          sideEffecting: false,
+          pricing: { amountCents: 75, currency: "USD", unit: "call" },
+          requiresEvidenceKinds: ["artifact"]
+        }
+      ]
+    }
+  });
+  assert.equal(upsertRead.statusCode, 201, upsertRead.body);
+
+  const filteredRead = await request(api, {
+    method: "GET",
+    path:
+      "/agent-cards/discover?capability=travel.booking&visibility=public&status=active" +
+      "&includeReputation=false&toolRiskClass=read&toolSideEffecting=false&toolMaxPriceCents=100&toolRequiresEvidenceKind=artifact"
+  });
+  assert.equal(filteredRead.statusCode, 200, filteredRead.body);
+  assert.equal(filteredRead.json?.results?.length, 1);
+  assert.equal(filteredRead.json?.results?.[0]?.agentCard?.agentId, "agt_tool_desc_2");
+
+  const filteredAction = await request(api, {
+    method: "GET",
+    path:
+      "/agent-cards/discover?capability=travel.booking&visibility=public&status=active" +
+      "&includeReputation=false&toolId=travel.book_flight"
+  });
+  assert.equal(filteredAction.statusCode, 200, filteredAction.body);
+  assert.equal(filteredAction.json?.results?.length, 1);
+  assert.equal(filteredAction.json?.results?.[0]?.agentCard?.agentId, "agt_tool_desc_1");
+});
+
+test("API e2e: /agent-cards/discover rejects invalid boolean tool filters", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  await registerAgent(api, { agentId: "agt_tool_desc_invalid_query_1", capabilities: ["travel.booking"] });
+  const upserted = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_tool_desc_invalid_query_upsert_1" },
+    body: {
+      agentId: "agt_tool_desc_invalid_query_1",
+      displayName: "Travel Invalid Query Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public"
+    }
+  });
+  assert.equal(upserted.statusCode, 201, upserted.body);
+
+  const invalidToolSideEffecting = await request(api, {
+    method: "GET",
+    path: "/agent-cards/discover?capability=travel.booking&toolSideEffecting=maybe"
+  });
+  assert.equal(invalidToolSideEffecting.statusCode, 400, invalidToolSideEffecting.body);
+  assert.equal(invalidToolSideEffecting.json?.code, "SCHEMA_INVALID");
+
+  const invalidIncludeReputation = await request(api, {
+    method: "GET",
+    path: "/agent-cards/discover?capability=travel.booking&includeReputation=maybe"
+  });
+  assert.equal(invalidIncludeReputation.statusCode, 400, invalidIncludeReputation.body);
+  assert.equal(invalidIncludeReputation.json?.code, "SCHEMA_INVALID");
+});
+
 test("API e2e: /public/agent-cards/discover returns cross-tenant public cards", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const tenantA = "tenant_agent_card_public_a";

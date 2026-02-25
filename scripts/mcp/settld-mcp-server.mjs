@@ -25,6 +25,54 @@ function assertNonEmptyString(v, name) {
   if (typeof v !== "string" || v.trim() === "") throw new TypeError(`${name} must be a non-empty string`);
 }
 
+function assertPlainObject(value, name) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new TypeError(`${name} must be an object`);
+  }
+}
+
+function assertNoUnknownKeys(value, allowedKeys, name) {
+  const allowed = new Set(allowedKeys);
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) {
+    throw new TypeError(`${name} has unsupported keys: ${unknown.join(", ")}`);
+  }
+}
+
+function parseOptionalStringArg(value, name, { max = 512 } = {}) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") throw new TypeError(`${name} must be a string`);
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > max) throw new TypeError(`${name} must be <= ${max} characters`);
+  return trimmed;
+}
+
+function parseOptionalBooleanArg(value, name) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "boolean") throw new TypeError(`${name} must be boolean`);
+  return value;
+}
+
+function parseOptionalIntegerArg(value, name, { min = Number.MIN_SAFE_INTEGER, max = Number.MAX_SAFE_INTEGER } = {}) {
+  if (value === null || value === undefined) return null;
+  if (!Number.isSafeInteger(value)) throw new TypeError(`${name} must be a safe integer`);
+  if (value < min) throw new TypeError(`${name} must be >= ${min}`);
+  if (value > max) throw new TypeError(`${name} must be <= ${max}`);
+  return value;
+}
+
+function parseOptionalEnumArg(value, name, allowedValues) {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== "string") throw new TypeError(`${name} must be a string`);
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return null;
+  if (!allowedValues.includes(trimmed)) {
+    throw new TypeError(`${name} must be one of: ${allowedValues.join("|")}`);
+  }
+  return trimmed;
+}
+
 function parseOptionalJsonObject(value, name) {
   if (value === null || value === undefined || String(value).trim() === "") return null;
   const raw = String(value).trim();
@@ -981,6 +1029,40 @@ function buildTools() {
             }
           },
           attestations: { type: ["array", "null"], items: { type: "object", additionalProperties: true }, default: null },
+          tools: {
+            type: ["array", "null"],
+            default: null,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              required: ["toolId"],
+              properties: {
+                schemaVersion: { type: ["string", "null"], default: "ToolDescriptor.v1" },
+                toolId: { type: "string" },
+                mcpToolName: { type: ["string", "null"], default: null },
+                name: { type: ["string", "null"], default: null },
+                description: { type: ["string", "null"], default: null },
+                riskClass: { type: ["string", "null"], enum: ["read", "compute", "action", "financial", null], default: null },
+                sideEffecting: { type: ["boolean", "null"], default: null },
+                pricing: {
+                  type: ["object", "null"],
+                  additionalProperties: false,
+                  default: null,
+                  properties: {
+                    amountCents: { type: "integer", minimum: 0 },
+                    currency: { type: ["string", "null"], default: "USD" },
+                    unit: { type: ["string", "null"], default: "call" }
+                  }
+                },
+                requiresEvidenceKinds: {
+                  type: ["array", "null"],
+                  default: null,
+                  items: { type: "string", enum: ["artifact", "hash", "verification_report"] }
+                },
+                metadata: { type: ["object", "null"], additionalProperties: true, default: null }
+              }
+            }
+          },
           tags: { type: ["array", "null"], items: { type: "string" }, default: null },
           metadata: { type: ["object", "null"], additionalProperties: true, default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
@@ -995,6 +1077,12 @@ function buildTools() {
         additionalProperties: false,
         properties: {
           capability: { type: ["string", "null"], default: null },
+          toolId: { type: ["string", "null"], default: null },
+          toolMcpName: { type: ["string", "null"], default: null },
+          toolRiskClass: { type: ["string", "null"], enum: ["read", "compute", "action", "financial", null], default: null },
+          toolSideEffecting: { type: ["boolean", "null"], default: null },
+          toolMaxPriceCents: { type: ["integer", "null"], minimum: 0, default: null },
+          toolRequiresEvidenceKind: { type: ["string", "null"], enum: ["artifact", "hash", "verification_report", null], default: null },
           status: { type: ["string", "null"], enum: ["active", "suspended", "revoked", "all", null], default: null },
           visibility: { type: ["string", "null"], enum: ["public", "tenant", "private", "all", null], default: null },
           runtime: { type: ["string", "null"], default: null },
@@ -1010,7 +1098,7 @@ function buildTools() {
           scoreStrategy: { type: ["string", "null"], enum: ["balanced", "recent_bias", "trust_weighted", null], default: "balanced" },
           requesterAgentId: { type: ["string", "null"], default: null },
           includeRoutingFactors: { type: ["boolean", "null"], default: false },
-          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          limit: { type: ["integer", "null"], minimum: 1, maximum: 100, default: null },
           offset: { type: ["integer", "null"], minimum: 0, default: null }
         }
       }
@@ -2158,6 +2246,66 @@ async function main() {
               };
             }
             if (Array.isArray(args?.attestations)) body.attestations = args.attestations;
+            if (args?.tools !== null && args?.tools !== undefined) {
+              if (!Array.isArray(args.tools)) throw new TypeError("tools must be an array");
+              body.tools = args.tools.map((row, index) => {
+                if (!row || typeof row !== "object" || Array.isArray(row)) {
+                  throw new TypeError(`tools[${index}] must be an object`);
+                }
+                const toolId = parseOptionalStringArg(row.toolId, `tools[${index}].toolId`, { max: 200 });
+                if (!toolId) throw new TypeError(`tools[${index}].toolId is required`);
+                const out = { toolId };
+                const schemaVersion = parseOptionalStringArg(row.schemaVersion, `tools[${index}].schemaVersion`, { max: 64 });
+                if (schemaVersion) out.schemaVersion = schemaVersion;
+                const mcpToolName = parseOptionalStringArg(row.mcpToolName, `tools[${index}].mcpToolName`, { max: 200 });
+                if (mcpToolName) out.mcpToolName = mcpToolName;
+                const nameText = parseOptionalStringArg(row.name, `tools[${index}].name`, { max: 200 });
+                if (nameText) out.name = nameText;
+                const description = parseOptionalStringArg(row.description, `tools[${index}].description`, { max: 2000 });
+                if (description) out.description = description;
+                const riskClass = parseOptionalEnumArg(row.riskClass, `tools[${index}].riskClass`, [
+                  "read",
+                  "compute",
+                  "action",
+                  "financial"
+                ]);
+                if (riskClass) out.riskClass = riskClass;
+                const sideEffecting = parseOptionalBooleanArg(row.sideEffecting, `tools[${index}].sideEffecting`);
+                if (sideEffecting !== null) out.sideEffecting = sideEffecting;
+                if (row.pricing !== null && row.pricing !== undefined) {
+                  assertPlainObject(row.pricing, `tools[${index}].pricing`);
+                  const amountCents = parseOptionalIntegerArg(row.pricing.amountCents, `tools[${index}].pricing.amountCents`, {
+                    min: 0
+                  });
+                  if (amountCents === null) throw new TypeError(`tools[${index}].pricing.amountCents is required`);
+                  out.pricing = { amountCents };
+                  const currency = parseOptionalStringArg(row.pricing.currency, `tools[${index}].pricing.currency`, { max: 8 });
+                  if (currency) out.pricing.currency = currency;
+                  const unit = parseOptionalStringArg(row.pricing.unit, `tools[${index}].pricing.unit`, { max: 64 });
+                  if (unit) out.pricing.unit = unit;
+                }
+                if (row.requiresEvidenceKinds !== null && row.requiresEvidenceKinds !== undefined) {
+                  if (!Array.isArray(row.requiresEvidenceKinds)) {
+                    throw new TypeError(`tools[${index}].requiresEvidenceKinds must be an array`);
+                  }
+                  const kinds = row.requiresEvidenceKinds
+                    .map((entry, kindIndex) =>
+                      parseOptionalEnumArg(entry, `tools[${index}].requiresEvidenceKinds[${kindIndex}]`, [
+                        "artifact",
+                        "hash",
+                        "verification_report"
+                      ])
+                    )
+                    .filter(Boolean);
+                  out.requiresEvidenceKinds = [...new Set(kinds)];
+                }
+                if (row.metadata !== null && row.metadata !== undefined) {
+                  assertPlainObject(row.metadata, `tools[${index}].metadata`);
+                  out.metadata = row.metadata;
+                }
+                return out;
+              });
+            }
             if (Array.isArray(args?.tags)) body.tags = args.tags.map((v) => String(v ?? "").trim()).filter(Boolean);
             if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
 
@@ -2169,45 +2317,113 @@ async function main() {
             });
             result = { ok: true, agentId, idempotencyKey, ...redactSecrets(out) };
           } else if (name === "settld.agent_discover") {
+            const discoverArgs = args === null || args === undefined ? {} : args;
+            assertPlainObject(discoverArgs, "arguments");
+            assertNoUnknownKeys(
+              discoverArgs,
+              [
+                "capability",
+                "toolId",
+                "toolMcpName",
+                "toolRiskClass",
+                "toolSideEffecting",
+                "toolMaxPriceCents",
+                "toolRequiresEvidenceKind",
+                "status",
+                "visibility",
+                "runtime",
+                "requireCapabilityAttestation",
+                "attestationMinLevel",
+                "attestationIssuerAgentId",
+                "includeAttestationMetadata",
+                "minTrustScore",
+                "riskTier",
+                "includeReputation",
+                "reputationVersion",
+                "reputationWindow",
+                "scoreStrategy",
+                "requesterAgentId",
+                "includeRoutingFactors",
+                "limit",
+                "offset"
+              ],
+              "settld.agent_discover arguments"
+            );
             const query = new URLSearchParams();
-            if (typeof args?.capability === "string" && args.capability.trim() !== "") query.set("capability", args.capability.trim());
-            if (typeof args?.status === "string" && args.status.trim() !== "") query.set("status", args.status.trim().toLowerCase());
-            if (typeof args?.visibility === "string" && args.visibility.trim() !== "") query.set("visibility", args.visibility.trim().toLowerCase());
-            if (typeof args?.runtime === "string" && args.runtime.trim() !== "") query.set("runtime", args.runtime.trim().toLowerCase());
-            if (typeof args?.requireCapabilityAttestation === "boolean") {
-              query.set("requireCapabilityAttestation", args.requireCapabilityAttestation ? "true" : "false");
+            const capability = parseOptionalStringArg(discoverArgs.capability, "capability", { max: 256 });
+            if (capability) query.set("capability", capability);
+            const toolId = parseOptionalStringArg(discoverArgs.toolId, "toolId", { max: 200 });
+            if (toolId) query.set("toolId", toolId);
+            const toolMcpName = parseOptionalStringArg(discoverArgs.toolMcpName, "toolMcpName", { max: 200 });
+            if (toolMcpName) query.set("toolMcpName", toolMcpName);
+            const toolRiskClass = parseOptionalEnumArg(discoverArgs.toolRiskClass, "toolRiskClass", [
+              "read",
+              "compute",
+              "action",
+              "financial"
+            ]);
+            if (toolRiskClass) query.set("toolRiskClass", toolRiskClass);
+            const toolSideEffecting = parseOptionalBooleanArg(discoverArgs.toolSideEffecting, "toolSideEffecting");
+            if (toolSideEffecting !== null) query.set("toolSideEffecting", toolSideEffecting ? "true" : "false");
+            const toolMaxPriceCents = parseOptionalIntegerArg(discoverArgs.toolMaxPriceCents, "toolMaxPriceCents", { min: 0 });
+            if (toolMaxPriceCents !== null) query.set("toolMaxPriceCents", String(toolMaxPriceCents));
+            const toolRequiresEvidenceKind = parseOptionalEnumArg(discoverArgs.toolRequiresEvidenceKind, "toolRequiresEvidenceKind", [
+              "artifact",
+              "hash",
+              "verification_report"
+            ]);
+            if (toolRequiresEvidenceKind) query.set("toolRequiresEvidenceKind", toolRequiresEvidenceKind);
+            const status = parseOptionalEnumArg(discoverArgs.status, "status", ["active", "suspended", "revoked", "all"]);
+            if (status) query.set("status", status);
+            const visibility = parseOptionalEnumArg(discoverArgs.visibility, "visibility", ["public", "tenant", "private", "all"]);
+            if (visibility) query.set("visibility", visibility);
+            const runtime = parseOptionalStringArg(discoverArgs.runtime, "runtime", { max: 64 });
+            if (runtime) query.set("runtime", runtime.toLowerCase());
+            const requireCapabilityAttestation = parseOptionalBooleanArg(
+              discoverArgs.requireCapabilityAttestation,
+              "requireCapabilityAttestation"
+            );
+            if (requireCapabilityAttestation !== null) {
+              query.set("requireCapabilityAttestation", requireCapabilityAttestation ? "true" : "false");
             }
-            if (typeof args?.attestationMinLevel === "string" && args.attestationMinLevel.trim() !== "") {
-              query.set("attestationMinLevel", args.attestationMinLevel.trim().toLowerCase());
+            const attestationMinLevel = parseOptionalEnumArg(discoverArgs.attestationMinLevel, "attestationMinLevel", [
+              "self_claim",
+              "attested",
+              "certified"
+            ]);
+            if (attestationMinLevel) query.set("attestationMinLevel", attestationMinLevel);
+            const attestationIssuerAgentId = parseOptionalStringArg(discoverArgs.attestationIssuerAgentId, "attestationIssuerAgentId", {
+              max: 200
+            });
+            if (attestationIssuerAgentId) query.set("attestationIssuerAgentId", attestationIssuerAgentId);
+            const includeAttestationMetadata = parseOptionalBooleanArg(discoverArgs.includeAttestationMetadata, "includeAttestationMetadata");
+            if (includeAttestationMetadata !== null) {
+              query.set("includeAttestationMetadata", includeAttestationMetadata ? "true" : "false");
             }
-            if (typeof args?.attestationIssuerAgentId === "string" && args.attestationIssuerAgentId.trim() !== "") {
-              query.set("attestationIssuerAgentId", args.attestationIssuerAgentId.trim());
-            }
-            if (typeof args?.includeAttestationMetadata === "boolean") {
-              query.set("includeAttestationMetadata", args.includeAttestationMetadata ? "true" : "false");
-            }
-            if (Number.isSafeInteger(Number(args?.minTrustScore)) && Number(args.minTrustScore) >= 0 && Number(args.minTrustScore) <= 100) {
-              query.set("minTrustScore", String(Number(args.minTrustScore)));
-            }
-            if (typeof args?.riskTier === "string" && args.riskTier.trim() !== "") query.set("riskTier", args.riskTier.trim().toLowerCase());
-            if (typeof args?.includeReputation === "boolean") query.set("includeReputation", args.includeReputation ? "true" : "false");
-            if (typeof args?.reputationVersion === "string" && args.reputationVersion.trim() !== "") {
-              query.set("reputationVersion", args.reputationVersion.trim().toLowerCase());
-            }
-            if (typeof args?.reputationWindow === "string" && args.reputationWindow.trim() !== "") {
-              query.set("reputationWindow", args.reputationWindow.trim());
-            }
-            if (typeof args?.scoreStrategy === "string" && args.scoreStrategy.trim() !== "") {
-              query.set("scoreStrategy", args.scoreStrategy.trim().toLowerCase());
-            }
-            if (typeof args?.requesterAgentId === "string" && args.requesterAgentId.trim() !== "") {
-              query.set("requesterAgentId", args.requesterAgentId.trim());
-            }
-            if (typeof args?.includeRoutingFactors === "boolean") {
-              query.set("includeRoutingFactors", args.includeRoutingFactors ? "true" : "false");
-            }
-            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
-            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const minTrustScore = parseOptionalIntegerArg(discoverArgs.minTrustScore, "minTrustScore", { min: 0, max: 100 });
+            if (minTrustScore !== null) query.set("minTrustScore", String(minTrustScore));
+            const riskTier = parseOptionalEnumArg(discoverArgs.riskTier, "riskTier", ["low", "guarded", "elevated", "high"]);
+            if (riskTier) query.set("riskTier", riskTier);
+            const includeReputation = parseOptionalBooleanArg(discoverArgs.includeReputation, "includeReputation");
+            if (includeReputation !== null) query.set("includeReputation", includeReputation ? "true" : "false");
+            const reputationVersion = parseOptionalEnumArg(discoverArgs.reputationVersion, "reputationVersion", ["v1", "v2"]);
+            if (reputationVersion) query.set("reputationVersion", reputationVersion);
+            const reputationWindow = parseOptionalEnumArg(discoverArgs.reputationWindow, "reputationWindow", ["7d", "30d", "alltime"]);
+            if (reputationWindow) query.set("reputationWindow", reputationWindow === "alltime" ? "allTime" : reputationWindow);
+            const scoreStrategy = parseOptionalEnumArg(discoverArgs.scoreStrategy, "scoreStrategy", [
+              "balanced",
+              "recent_bias",
+              "trust_weighted"
+            ]);
+            if (scoreStrategy) query.set("scoreStrategy", scoreStrategy);
+            const requesterAgentId = parseOptionalStringArg(discoverArgs.requesterAgentId, "requesterAgentId", { max: 200 });
+            if (requesterAgentId) query.set("requesterAgentId", requesterAgentId);
+            const includeRoutingFactors = parseOptionalBooleanArg(discoverArgs.includeRoutingFactors, "includeRoutingFactors");
+            if (includeRoutingFactors !== null) query.set("includeRoutingFactors", includeRoutingFactors ? "true" : "false");
+            const limit = parseOptionalIntegerArg(discoverArgs.limit, "limit", { min: 1, max: 100 });
+            if (limit !== null) query.set("limit", String(limit));
+            const offset = parseOptionalIntegerArg(discoverArgs.offset, "offset", { min: 0 });
+            if (offset !== null) query.set("offset", String(offset));
             const out = await client.requestJson(`/agent-cards/discover${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
             result = { ok: true, ...redactSecrets(out) };
           } else if (name === "settld.relationships_list") {
