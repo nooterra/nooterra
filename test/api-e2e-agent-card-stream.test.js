@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import http from "node:http";
 
 import { createApi } from "../src/api/app.js";
+import { authKeyId, authKeySecret, hashAuthKeySecret } from "../src/core/auth.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
+import { DEFAULT_TENANT_ID } from "../src/core/tenancy.js";
 import { request } from "./api-test-harness.js";
 import { listenOnEphemeralLoopback } from "./lib/listen.js";
 
@@ -51,6 +53,31 @@ async function upsertPublicAgentCard(api, { agentId, keySuffix, description }) {
   });
   assert.ok(response.statusCode === 200 || response.statusCode === 201, response.body);
   return response;
+}
+
+async function putAuthKey(api, { scopes = ["ops_write", "finance_write", "audit_read"] } = {}) {
+  const keyId = authKeyId();
+  const secret = authKeySecret();
+  const secretHash = hashAuthKeySecret(secret);
+  const createdAt = typeof api.store.nowIso === "function" ? api.store.nowIso() : new Date().toISOString();
+  if (typeof api.store.putAuthKey === "function") {
+    await api.store.putAuthKey({
+      tenantId: DEFAULT_TENANT_ID,
+      authKey: { keyId, secretHash, scopes, status: "active", createdAt }
+    });
+  } else {
+    if (!(api.store.authKeys instanceof Map)) api.store.authKeys = new Map();
+    api.store.authKeys.set(`${DEFAULT_TENANT_ID}\n${keyId}`, {
+      tenantId: DEFAULT_TENANT_ID,
+      keyId,
+      secretHash,
+      scopes,
+      status: "active",
+      createdAt,
+      updatedAt: createdAt
+    });
+  }
+  return `Bearer ${keyId}.${secret}`;
 }
 
 function createSseFrameReader(reader, decoder) {
@@ -212,6 +239,70 @@ test("API e2e: /public/agent-cards/stream fails closed on invalid cursor", async
   const body = await res.json();
   assert.equal(res.status, 400);
   assert.equal(body.code, "SCHEMA_INVALID");
+});
+
+test("API e2e: /public/agent-cards/stream paid bypass requires valid API key + matching toolId", async (t) => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicDiscoveryWindowSeconds: 300,
+    agentCardPublicDiscoveryMaxPerKey: 1,
+    agentCardPublicDiscoveryPaidBypassEnabled: true,
+    agentCardPublicDiscoveryPaidToolId: "travel_book_flight"
+  });
+
+  const workerId = "agt_public_stream_paid_bypass_1";
+  await registerAgent(api, { agentId: workerId, capabilities: ["travel.booking"] });
+  await upsertPublicAgentCard(api, { agentId: workerId, keySuffix: "paid_bypass_v1", description: "stream paid bypass v1" });
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const streamBaseUrl =
+    `http://127.0.0.1:${port}/public/agent-cards/stream` +
+    "?capability=travel.booking&status=active&runtime=openclaw";
+  const streamUrl = `${streamBaseUrl}&toolId=travel_book_flight`;
+
+  const requesterIp = "203.0.113.77";
+
+  const firstController = new AbortController();
+  const first = await fetch(streamUrl, {
+    signal: firstController.signal,
+    headers: { "x-forwarded-for": requesterIp }
+  });
+  assert.equal(first.status, 200);
+  firstController.abort();
+
+  const secondBlocked = await fetch(streamUrl, {
+    headers: { "x-forwarded-for": requesterIp }
+  });
+  assert.equal(secondBlocked.status, 429);
+  const blockedBody = await secondBlocked.json();
+  assert.equal(blockedBody.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
+
+  const authorization = await putAuthKey(api, { scopes: ["ops_write", "audit_read"] });
+  const bypassController = new AbortController();
+  const bypassed = await fetch(streamUrl, {
+    signal: bypassController.signal,
+    headers: {
+      authorization,
+      "x-forwarded-for": requesterIp
+    }
+  });
+  assert.equal(bypassed.status, 200);
+  bypassController.abort();
+
+  const mismatchedToolId = await fetch(`${streamBaseUrl}&toolId=travel_list_hotels`, {
+    headers: {
+      authorization,
+      "x-forwarded-for": requesterIp
+    }
+  });
+  assert.equal(mismatchedToolId.status, 429);
+  const mismatchBody = await mismatchedToolId.json();
+  assert.equal(mismatchBody.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
 });
 
 test("API e2e: /public/agent-cards/stream emits agent_card.removed when visibility changes out of scope", async (t) => {
