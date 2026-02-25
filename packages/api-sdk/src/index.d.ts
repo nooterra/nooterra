@@ -73,6 +73,13 @@ export type SettldResponse<T> = {
   headers: Record<string, string>;
 };
 
+export type SettldSseEvent<T = unknown> = {
+  event: string;
+  id: string | null;
+  rawData: string;
+  data: T | string | null;
+};
+
 export declare function fetchWithSettldAutopay(
   url: string | URL,
   init?: RequestInit,
@@ -1103,6 +1110,21 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<SettldResponse<Record<string, unknown>>>;
+  streamPublicAgentCards(
+    params?: {
+      capability?: string;
+      toolId?: string;
+      toolMcpName?: string;
+      toolRiskClass?: "read" | "compute" | "action" | "financial";
+      toolSideEffecting?: boolean;
+      toolMaxPriceCents?: number;
+      toolRequiresEvidenceKind?: "artifact" | "hash" | "verification_report";
+      status?: "active" | "suspended" | "revoked" | "all";
+      runtime?: string;
+      sinceCursor?: string;
+    },
+    opts?: Pick<RequestOptions, "requestId" | "signal"> & { lastEventId?: string }
+  ): AsyncGenerator<SettldSseEvent, void, unknown>;
   getPublicAgentReputationSummary(
     agentId: string,
     params?: {

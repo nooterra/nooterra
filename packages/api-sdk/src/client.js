@@ -100,6 +100,79 @@ function appendAgentCardToolDescriptorQueryParams(qs, params = {}) {
   if (params.toolRequiresEvidenceKind) qs.set("toolRequiresEvidenceKind", String(params.toolRequiresEvidenceKind));
 }
 
+function parseSseFrame(frameText) {
+  if (typeof frameText !== "string") return null;
+  const normalized = frameText.replace(/\r/g, "");
+  if (normalized.trim() === "") return null;
+  const lines = normalized.split("\n");
+  let eventName = "message";
+  let eventId = null;
+  const dataLines = [];
+  let sawCommentOnlyLine = false;
+  for (const line of lines) {
+    if (line === "") continue;
+    if (line.startsWith(":")) {
+      sawCommentOnlyLine = true;
+      continue;
+    }
+    const sepIndex = line.indexOf(":");
+    const field = sepIndex === -1 ? line : line.slice(0, sepIndex);
+    let value = sepIndex === -1 ? "" : line.slice(sepIndex + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+    if (field === "event") eventName = value.trim() || "message";
+    if (field === "id") eventId = value.trim() || null;
+    if (field === "data") dataLines.push(value);
+  }
+  if (dataLines.length === 0) {
+    if (sawCommentOnlyLine) return null;
+    return { event: eventName, id: eventId, rawData: "", data: null };
+  }
+  const rawData = dataLines.join("\n");
+  let data = rawData;
+  if (rawData === "null") data = null;
+  else {
+    try {
+      data = JSON.parse(rawData);
+    } catch {
+      data = rawData;
+    }
+  }
+  return { event: eventName, id: eventId, rawData, data };
+}
+
+async function* parseSseResponse(res) {
+  if (!res?.body || typeof res.body.getReader !== "function") {
+    throw new TypeError("response body is not a readable stream");
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      for (;;) {
+        const splitIndex = buffer.indexOf("\n\n");
+        if (splitIndex === -1) break;
+        const frame = buffer.slice(0, splitIndex);
+        buffer = buffer.slice(splitIndex + 2);
+        const parsed = parseSseFrame(frame);
+        if (parsed) yield parsed;
+      }
+    }
+    buffer += decoder.decode();
+    const parsed = parseSseFrame(buffer);
+    if (parsed) yield parsed;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {
+      // no-op
+    }
+  }
+}
+
 async function readJson(res) {
   const text = await res.text();
   if (!text) return null;
@@ -321,6 +394,61 @@ export class SettldClient {
     appendAgentCardToolDescriptorQueryParams(qs, params);
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return this.request("GET", `/public/agent-cards/discover${suffix}`, opts);
+  }
+
+  async *streamPublicAgentCards(params = {}, opts = {}) {
+    const qs = new URLSearchParams();
+    if (params.capability) qs.set("capability", String(params.capability));
+    if (params.toolId) qs.set("toolId", String(params.toolId));
+    if (params.toolMcpName) qs.set("toolMcpName", String(params.toolMcpName));
+    if (params.toolRiskClass) qs.set("toolRiskClass", String(params.toolRiskClass));
+    if (params.toolSideEffecting !== undefined && params.toolSideEffecting !== null) {
+      qs.set("toolSideEffecting", String(Boolean(params.toolSideEffecting)));
+    }
+    if (params.toolMaxPriceCents !== undefined && params.toolMaxPriceCents !== null) {
+      qs.set("toolMaxPriceCents", String(params.toolMaxPriceCents));
+    }
+    if (params.toolRequiresEvidenceKind) qs.set("toolRequiresEvidenceKind", String(params.toolRequiresEvidenceKind));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.sinceCursor) qs.set("sinceCursor", String(params.sinceCursor));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+
+    const rid = opts.requestId ?? randomRequestId();
+    const headers = {
+      accept: "text/event-stream",
+      "x-proxy-tenant-id": this.tenantId,
+      "x-settld-protocol": this.protocol,
+      "x-request-id": rid
+    };
+    if (this.userAgent) headers["user-agent"] = this.userAgent;
+    if (this.apiKey) headers["authorization"] = `Bearer ${this.apiKey}`;
+    if (this.xApiKey) headers["x-api-key"] = this.xApiKey;
+    if (this.opsToken) headers["x-proxy-ops-token"] = this.opsToken;
+    if (opts.lastEventId) headers["last-event-id"] = String(opts.lastEventId);
+
+    const url = new URL(`/public/agent-cards/stream${suffix}`, this.baseUrl);
+    const res = await this.fetchImpl(url.toString(), { method: "GET", headers, signal: opts.signal });
+    const outHeaders = headersToRecord(res.headers);
+    const responseRequestId = outHeaders["x-request-id"] ?? null;
+    if (!res.ok) {
+      const parsed = await readJson(res);
+      const errBody = parsed && typeof parsed === "object" ? parsed : {};
+      const e = {
+        status: res.status,
+        code: errBody?.code ?? null,
+        message: errBody?.error ?? `request failed (${res.status})`,
+        details: errBody?.details,
+        requestId: responseRequestId
+      };
+      const thrown = new Error(e.message);
+      thrown.settld = e;
+      throw thrown;
+    }
+
+    for await (const event of parseSseResponse(res)) {
+      yield event;
+    }
   }
 
   getPublicAgentReputationSummary(agentId, params = {}, opts) {
