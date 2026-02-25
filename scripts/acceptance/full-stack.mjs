@@ -557,8 +557,26 @@ async function main() {
     throw new Error(`failed to append robot event ${type} after retry`);
   }
 
-  await postServerJobEvent("MATCHED", { robotId }, `m_${jobId}`);
-  await postServerJobEvent("RESERVED", { robotId, startAt: bookingStartAt, endAt: bookingEndAt, reservationId: `rsv_${jobId}` }, `r_${jobId}`);
+  // Dispatch transitions can be advanced by server-side flows (or prior idempotent events).
+  // Acceptance should be robust: only append transitions that are valid for the current job status.
+  let dispatchStatus = String(book.json?.job?.status ?? "").trim().toUpperCase();
+  if (!dispatchStatus) {
+    const latest = await httpJson({ baseUrl: API_BASE_URL, method: "GET", path: `/jobs/${jobId}/events`, headers: headersBase });
+    const events = Array.isArray(latest.json?.events) ? latest.json.events : [];
+    dispatchStatus = String(events.length ? events[events.length - 1]?.jobStatusAfter ?? "" : "").trim().toUpperCase();
+  }
+  if (!dispatchStatus) throw new Error("acceptance: dispatch status is missing after booking");
+  if (!["BOOKED", "MATCHED", "RESERVED", "EN_ROUTE", "ACCESS_GRANTED", "EXECUTING", "ASSISTED", "COMPLETED", "ABORTED"].includes(dispatchStatus)) {
+    throw new Error(`acceptance: unexpected dispatch status after booking: ${dispatchStatus}`);
+  }
+  if (dispatchStatus === "BOOKED") {
+    await postServerJobEvent("MATCHED", { robotId }, `m_${jobId}`);
+    dispatchStatus = "MATCHED";
+  }
+  if (dispatchStatus === "MATCHED") {
+    await postServerJobEvent("RESERVED", { robotId, startAt: bookingStartAt, endAt: bookingEndAt, reservationId: `rsv_${jobId}` }, `r_${jobId}`);
+    dispatchStatus = "RESERVED";
+  }
 
   const accessPlanId = `ap_${jobId}`;
   const nowIso = new Date().toISOString();
