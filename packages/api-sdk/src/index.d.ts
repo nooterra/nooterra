@@ -1025,6 +1025,84 @@ export class SettldClient {
     agentId: string,
     opts?: RequestOptions & { reputationVersion?: "v1" | "v2"; reputationWindow?: "7d" | "30d" | "allTime" }
   ): Promise<SettldResponse<{ reputation: AgentReputation }>>;
+  upsertAgentCard(body: Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  getAgentCard(agentId: string, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  listAgentCards(
+    params?: {
+      agentId?: string;
+      status?: "active" | "suspended" | "revoked";
+      visibility?: "public" | "tenant" | "private";
+      capability?: string;
+      runtime?: string;
+      toolId?: string;
+      toolMcpName?: string;
+      toolRiskClass?: "read" | "compute" | "action" | "financial";
+      toolSideEffecting?: boolean;
+      toolMaxPriceCents?: number;
+      toolRequiresEvidenceKind?: "artifact" | "hash" | "verification_report";
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<Record<string, unknown>>>;
+  discoverAgentCards(
+    params?: {
+      status?: "active" | "suspended" | "revoked" | "all";
+      visibility?: "all" | "public" | "tenant" | "private";
+      capability?: string;
+      runtime?: string;
+      toolId?: string;
+      toolMcpName?: string;
+      toolRiskClass?: "read" | "compute" | "action" | "financial";
+      toolSideEffecting?: boolean;
+      toolMaxPriceCents?: number;
+      toolRequiresEvidenceKind?: "artifact" | "hash" | "verification_report";
+      requireCapabilityAttestation?: boolean;
+      attestationMinLevel?: "self_claimed" | "historical" | "benchmark" | "attested" | "certified";
+      attestationIssuerAgentId?: string;
+      includeAttestationMetadata?: boolean;
+      minTrustScore?: number;
+      riskTier?: "low" | "guarded" | "elevated" | "high";
+      includeReputation?: boolean;
+      reputationVersion?: "v1" | "v2";
+      reputationWindow?: "7d" | "30d" | "allTime";
+      scoreStrategy?: "balanced" | "recent_bias" | "trust_weighted";
+      requesterAgentId?: string;
+      includeRoutingFactors?: boolean;
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<Record<string, unknown>>>;
+  discoverPublicAgentCards(
+    params?: {
+      status?: "active" | "suspended" | "revoked" | "all";
+      visibility?: "public";
+      capability?: string;
+      runtime?: string;
+      toolId?: string;
+      toolMcpName?: string;
+      toolRiskClass?: "read" | "compute" | "action" | "financial";
+      toolSideEffecting?: boolean;
+      toolMaxPriceCents?: number;
+      toolRequiresEvidenceKind?: "artifact" | "hash" | "verification_report";
+      requireCapabilityAttestation?: boolean;
+      attestationMinLevel?: "self_claimed" | "historical" | "benchmark" | "attested" | "certified";
+      attestationIssuerAgentId?: string;
+      includeAttestationMetadata?: boolean;
+      minTrustScore?: number;
+      riskTier?: "low" | "guarded" | "elevated" | "high";
+      includeReputation?: boolean;
+      reputationVersion?: "v1" | "v2";
+      reputationWindow?: "7d" | "30d" | "allTime";
+      scoreStrategy?: "balanced" | "recent_bias" | "trust_weighted";
+      requesterAgentId?: string;
+      includeRoutingFactors?: boolean;
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<Record<string, unknown>>>;
   getPublicAgentReputationSummary(
     agentId: string,
     params?: {

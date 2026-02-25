@@ -87,6 +87,19 @@ function assertReasonCode(value, name) {
   return normalized;
 }
 
+function appendAgentCardToolDescriptorQueryParams(qs, params = {}) {
+  if (params.toolId) qs.set("toolId", String(params.toolId));
+  if (params.toolMcpName) qs.set("toolMcpName", String(params.toolMcpName));
+  if (params.toolRiskClass) qs.set("toolRiskClass", String(params.toolRiskClass));
+  if (params.toolSideEffecting !== undefined && params.toolSideEffecting !== null) {
+    qs.set("toolSideEffecting", String(Boolean(params.toolSideEffecting)));
+  }
+  if (params.toolMaxPriceCents !== undefined && params.toolMaxPriceCents !== null) {
+    qs.set("toolMaxPriceCents", String(params.toolMaxPriceCents));
+  }
+  if (params.toolRequiresEvidenceKind) qs.set("toolRequiresEvidenceKind", String(params.toolRequiresEvidenceKind));
+}
+
 async function readJson(res) {
   const text = await res.text();
   if (!text) return null;
@@ -218,6 +231,96 @@ export class SettldClient {
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     const { reputationVersion: _rVersion, reputationWindow: _rWindow, ...requestOpts } = opts ?? {};
     return this.request("GET", `/agents/${encodeURIComponent(agentId)}/reputation${suffix}`, requestOpts);
+  }
+
+  upsertAgentCard(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    return this.request("POST", "/agent-cards", { ...opts, body });
+  }
+
+  getAgentCard(agentId, opts) {
+    assertNonEmptyString(agentId, "agentId");
+    return this.request("GET", `/agent-cards/${encodeURIComponent(agentId)}`, opts);
+  }
+
+  listAgentCards(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.agentId) qs.set("agentId", String(params.agentId));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.capability) qs.set("capability", String(params.capability));
+    if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    appendAgentCardToolDescriptorQueryParams(qs, params);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/agent-cards${suffix}`, opts);
+  }
+
+  discoverAgentCards(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set("status", String(params.status));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.capability) qs.set("capability", String(params.capability));
+    if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.requireCapabilityAttestation !== undefined && params.requireCapabilityAttestation !== null) {
+      qs.set("requireCapabilityAttestation", String(Boolean(params.requireCapabilityAttestation)));
+    }
+    if (params.attestationMinLevel) qs.set("attestationMinLevel", String(params.attestationMinLevel));
+    if (params.attestationIssuerAgentId) qs.set("attestationIssuerAgentId", String(params.attestationIssuerAgentId));
+    if (params.includeAttestationMetadata !== undefined && params.includeAttestationMetadata !== null) {
+      qs.set("includeAttestationMetadata", String(Boolean(params.includeAttestationMetadata)));
+    }
+    if (params.minTrustScore !== undefined && params.minTrustScore !== null) qs.set("minTrustScore", String(params.minTrustScore));
+    if (params.riskTier) qs.set("riskTier", String(params.riskTier));
+    if (params.includeReputation !== undefined && params.includeReputation !== null) {
+      qs.set("includeReputation", String(Boolean(params.includeReputation)));
+    }
+    if (params.reputationVersion) qs.set("reputationVersion", String(params.reputationVersion));
+    if (params.reputationWindow) qs.set("reputationWindow", String(params.reputationWindow));
+    if (params.scoreStrategy) qs.set("scoreStrategy", String(params.scoreStrategy));
+    if (params.requesterAgentId) qs.set("requesterAgentId", String(params.requesterAgentId));
+    if (params.includeRoutingFactors !== undefined && params.includeRoutingFactors !== null) {
+      qs.set("includeRoutingFactors", String(Boolean(params.includeRoutingFactors)));
+    }
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    appendAgentCardToolDescriptorQueryParams(qs, params);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/agent-cards/discover${suffix}`, opts);
+  }
+
+  discoverPublicAgentCards(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set("status", String(params.status));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.capability) qs.set("capability", String(params.capability));
+    if (params.runtime) qs.set("runtime", String(params.runtime));
+    if (params.requireCapabilityAttestation !== undefined && params.requireCapabilityAttestation !== null) {
+      qs.set("requireCapabilityAttestation", String(Boolean(params.requireCapabilityAttestation)));
+    }
+    if (params.attestationMinLevel) qs.set("attestationMinLevel", String(params.attestationMinLevel));
+    if (params.attestationIssuerAgentId) qs.set("attestationIssuerAgentId", String(params.attestationIssuerAgentId));
+    if (params.includeAttestationMetadata !== undefined && params.includeAttestationMetadata !== null) {
+      qs.set("includeAttestationMetadata", String(Boolean(params.includeAttestationMetadata)));
+    }
+    if (params.minTrustScore !== undefined && params.minTrustScore !== null) qs.set("minTrustScore", String(params.minTrustScore));
+    if (params.riskTier) qs.set("riskTier", String(params.riskTier));
+    if (params.includeReputation !== undefined && params.includeReputation !== null) {
+      qs.set("includeReputation", String(Boolean(params.includeReputation)));
+    }
+    if (params.reputationVersion) qs.set("reputationVersion", String(params.reputationVersion));
+    if (params.reputationWindow) qs.set("reputationWindow", String(params.reputationWindow));
+    if (params.scoreStrategy) qs.set("scoreStrategy", String(params.scoreStrategy));
+    if (params.requesterAgentId) qs.set("requesterAgentId", String(params.requesterAgentId));
+    if (params.includeRoutingFactors !== undefined && params.includeRoutingFactors !== null) {
+      qs.set("includeRoutingFactors", String(Boolean(params.includeRoutingFactors)));
+    }
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    appendAgentCardToolDescriptorQueryParams(qs, params);
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/public/agent-cards/discover${suffix}`, opts);
   }
 
   getPublicAgentReputationSummary(agentId, params = {}, opts) {
