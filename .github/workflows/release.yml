@@ -37,6 +37,7 @@ jobs:
             const sha = context.sha;
             const requiredJobNames = [
               "noo_44_47_48_regressions",
+              "mcp_paid_call_kernel_suite",
               "kernel_v0_ship_gate",
               "production_cutover_gate",
               "offline_verification_parity_gate"
