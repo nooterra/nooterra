@@ -1071,11 +1071,12 @@ function buildTools() {
     },
     {
       name: "settld.agent_discover",
-      description: "Discover AgentCard.v1 records with capability/runtime/reputation filters.",
+      description: "Discover AgentCard.v1 records with capability/runtime/reputation filters (tenant or public scope).",
       inputSchema: {
         type: "object",
         additionalProperties: false,
         properties: {
+          scope: { type: ["string", "null"], enum: ["tenant", "public", null], default: "tenant" },
           capability: { type: ["string", "null"], default: null },
           toolId: { type: ["string", "null"], default: null },
           toolMcpName: { type: ["string", "null"], default: null },
@@ -2322,6 +2323,7 @@ async function main() {
             assertNoUnknownKeys(
               discoverArgs,
               [
+                "scope",
                 "capability",
                 "toolId",
                 "toolMcpName",
@@ -2350,6 +2352,7 @@ async function main() {
               "settld.agent_discover arguments"
             );
             const query = new URLSearchParams();
+            const scope = parseOptionalEnumArg(discoverArgs.scope, "scope", ["tenant", "public"]) ?? "tenant";
             const capability = parseOptionalStringArg(discoverArgs.capability, "capability", { max: 256 });
             if (capability) query.set("capability", capability);
             const toolId = parseOptionalStringArg(discoverArgs.toolId, "toolId", { max: 200 });
@@ -2376,6 +2379,9 @@ async function main() {
             const status = parseOptionalEnumArg(discoverArgs.status, "status", ["active", "suspended", "revoked", "all"]);
             if (status) query.set("status", status);
             const visibility = parseOptionalEnumArg(discoverArgs.visibility, "visibility", ["public", "tenant", "private", "all"]);
+            if (scope === "public" && visibility && visibility !== "public") {
+              throw new TypeError("visibility must be public when scope=public");
+            }
             if (visibility) query.set("visibility", visibility);
             const runtime = parseOptionalStringArg(discoverArgs.runtime, "runtime", { max: 64 });
             if (runtime) query.set("runtime", runtime.toLowerCase());
@@ -2424,7 +2430,8 @@ async function main() {
             if (limit !== null) query.set("limit", String(limit));
             const offset = parseOptionalIntegerArg(discoverArgs.offset, "offset", { min: 0 });
             if (offset !== null) query.set("offset", String(offset));
-            const out = await client.requestJson(`/agent-cards/discover${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
+            const discoverPath = scope === "public" ? "/public/agent-cards/discover" : "/agent-cards/discover";
+            const out = await client.requestJson(`${discoverPath}${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
             result = { ok: true, ...redactSecrets(out) };
           } else if (name === "settld.relationships_list") {
             const agentId = String(args?.agentId ?? "").trim();

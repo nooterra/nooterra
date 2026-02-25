@@ -1413,6 +1413,32 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
         return;
       }
 
+      if (
+        req.method === "GET" &&
+        req.url ===
+          "/public/agent-cards/discover?capability=travel.booking&status=active&visibility=public&runtime=openclaw&includeReputation=false&limit=5&offset=0"
+      ) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            scope: "public",
+            total: 1,
+            limit: 5,
+            offset: 0,
+            results: [
+              {
+                rank: 1,
+                rankingScore: 95,
+                riskTier: "guarded",
+                agentCard: { agentId: "agt_card_1" }
+              }
+            ]
+          })
+        );
+        return;
+      }
+
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "not found" }));
     });
@@ -1511,18 +1537,35 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   assert.equal(discoveredParsed?.tool, "settld.agent_discover");
   assert.equal(discoveredParsed?.result?.results?.[0]?.agentCard?.agentId, "agt_card_1");
 
+  const discoveredPublic = await rpc("tools/call", {
+    name: "settld.agent_discover",
+    arguments: {
+      scope: "public",
+      capability: "travel.booking",
+      status: "active",
+      visibility: "public",
+      runtime: "openclaw",
+      includeReputation: false,
+      limit: 5,
+      offset: 0
+    }
+  });
+  assert.equal(discoveredPublic.result?.isError, false);
+  const discoveredPublicParsed = JSON.parse(discoveredPublic.result?.content?.[0]?.text || "{}");
+  assert.equal(discoveredPublicParsed?.tool, "settld.agent_discover");
+  assert.equal(discoveredPublicParsed?.result?.results?.[0]?.agentCard?.agentId, "agt_card_1");
+
   const invalidDiscover = await rpc("tools/call", {
     name: "settld.agent_discover",
     arguments: {
-      capability: "travel.booking",
-      minTrustScore: "90",
-      unexpected: true
+      scope: "public",
+      visibility: "all"
     }
   });
   assert.equal(invalidDiscover.result?.isError, true);
   const invalidDiscoverParsed = JSON.parse(invalidDiscover.result?.content?.[0]?.text || "{}");
   assert.equal(invalidDiscoverParsed?.tool, "settld.agent_discover");
-  assert.match(String(invalidDiscoverParsed?.error ?? ""), /unsupported keys|minTrustScore must be a safe integer/i);
+  assert.match(String(invalidDiscoverParsed?.error ?? ""), /visibility must be public when scope=public/i);
 
   child.kill("SIGTERM");
   await Promise.race([onceEvent(child, "exit"), new Promise((r) => setTimeout(r, 100))]);
@@ -1531,7 +1574,8 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   const methodsAndUrls = requests.map((r) => `${r.method} ${r.url}`);
   assert.deepEqual(methodsAndUrls, [
     "POST /agent-cards",
-    "GET /agent-cards/discover?capability=travel.booking&status=active&visibility=public&runtime=openclaw&minTrustScore=60&includeReputation=true&reputationVersion=v2&reputationWindow=30d&scoreStrategy=balanced&limit=10&offset=0"
+    "GET /agent-cards/discover?capability=travel.booking&status=active&visibility=public&runtime=openclaw&minTrustScore=60&includeReputation=true&reputationVersion=v2&reputationWindow=30d&scoreStrategy=balanced&limit=10&offset=0",
+    "GET /public/agent-cards/discover?capability=travel.booking&status=active&visibility=public&runtime=openclaw&includeReputation=false&limit=5&offset=0"
   ]);
 });
 

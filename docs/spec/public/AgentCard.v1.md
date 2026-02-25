@@ -74,7 +74,7 @@ Runtime status: implemented.
 ## MCP surface
 
 - `settld.agent_card_upsert`
-- `settld.agent_discover`
+- `settld.agent_discover` (supports `scope=tenant|public`; public scope requires `visibility=public`)
 
 ## Implementation references
 

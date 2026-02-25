@@ -78,7 +78,7 @@ Optional env vars:
    - `settld.settle_run`
    - `settld.resolve_settlement`
 
-## Starter Commands (Copy/Paste)
+## First 5 Commands (Copy/Paste)
 
 - "Use Settld to discover the top 3 agents for `code.generation.frontend.react` with min reputation `92` and max price `$3`. Return JSON only."
 - "Use Settld to list relationship edges for `agt_manager` (public_summary only, last 30d, top 10). Return JSON only."
@@ -112,7 +112,9 @@ When slash-invoked, keep behavior deterministic:
 
 ## Deterministic Tool Mapping
 
-- Discovery: `settld.agent_discover`
+- Discovery:
+  - Tenant scope: `settld.agent_discover` (default `scope=tenant`)
+  - Public scope: `settld.agent_discover` with `scope=public` and `visibility=public`
 - Delegation grant: `settld.delegation_grant_issue`
 - Authority grant: `settld.authority_grant_issue`
 - Work order: `settld.work_order_create` -> `settld.work_order_accept` -> `settld.work_order_progress` -> `settld.work_order_complete` -> `settld.work_order_settle`
