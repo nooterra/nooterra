@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { evaluateLighthouseTracker } from "./lib/lighthouse-tracker.mjs";
 import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
 import { sha256Hex, signHashHexEd25519 } from "../../src/core/crypto.js";
@@ -61,6 +61,20 @@ async function readJson(pathname) {
   }
 }
 
+function deriveArtifactsRootFromPath(pathname) {
+  // Walk upward until we find an "artifacts" directory, then return its parent (workspace root).
+  // This makes relative artifact refs portable when the script is executed from a different cwd.
+  let cur = resolve(pathname);
+  let prev = null;
+  while (cur && cur !== prev) {
+    const dir = dirname(cur);
+    if (basename(dir) === "artifacts") return dirname(dir);
+    prev = cur;
+    cur = dir;
+  }
+  return null;
+}
+
 function checkFromGoLiveGate(gateReport) {
   const checks = Array.isArray(gateReport?.checks) ? gateReport.checks : [];
   const byId = new Map(checks.map((row) => [String(row?.id ?? ""), row]));
@@ -114,7 +128,12 @@ async function main() {
     process.env.LIGHTHOUSE_TRACKER_PATH || "planning/launch/lighthouse-production-tracker.json"
   );
   const settldVerifiedCollabReportPathRef = process.env.SETTLD_VERIFIED_COLLAB_REPORT_PATH || DEFAULT_SETTLD_VERIFIED_COLLAB_REPORT_PATH;
-  const settldVerifiedCollabReportPath = resolve(process.cwd(), settldVerifiedCollabReportPathRef);
+  const artifactsRoot =
+    deriveArtifactsRootFromPath(gateReportPath) ?? deriveArtifactsRootFromPath(packetPath) ?? process.cwd();
+  const settldVerifiedCollabReportPathFromArtifactsRoot = resolve(artifactsRoot, settldVerifiedCollabReportPathRef);
+  const settldVerifiedCollabReportPathFromCwd = resolve(process.cwd(), settldVerifiedCollabReportPathRef);
+  const preferArtifactsRoot = typeof settldVerifiedCollabReportPathRef === "string" && settldVerifiedCollabReportPathRef.startsWith("artifacts/");
+  const settldVerifiedCollabReportPath = preferArtifactsRoot ? settldVerifiedCollabReportPathFromArtifactsRoot : settldVerifiedCollabReportPathFromCwd;
   const signingConfig = resolveSigningConfig(process.env);
   const generatedAtIso = resolveGeneratedAtIso(process.env);
   await mkdir(dirname(packetPath), { recursive: true });
@@ -123,7 +142,13 @@ async function main() {
   const throughputRead = await readJson(throughputReportPath);
   const incidentRehearsalRead = await readJson(incidentRehearsalReportPath);
   const lighthouseRead = await readJson(lighthouseTrackerPath);
-  const settldVerifiedCollabRead = await readJson(settldVerifiedCollabReportPath);
+  let settldVerifiedCollabRead = await readJson(settldVerifiedCollabReportPath);
+  if (!settldVerifiedCollabRead.ok && settldVerifiedCollabReportPathFromArtifactsRoot !== settldVerifiedCollabReportPath) {
+    settldVerifiedCollabRead = await readJson(settldVerifiedCollabReportPathFromArtifactsRoot);
+  }
+  if (!settldVerifiedCollabRead.ok && settldVerifiedCollabReportPathFromCwd !== settldVerifiedCollabReportPath) {
+    settldVerifiedCollabRead = await readJson(settldVerifiedCollabReportPathFromCwd);
+  }
   const lighthouse = lighthouseRead.ok ? evaluateLighthouseTracker(lighthouseRead.value) : null;
 
   const gateCheckRefs = gateRead.ok ? checkFromGoLiveGate(gateRead.value) : null;
