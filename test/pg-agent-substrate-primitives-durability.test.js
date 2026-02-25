@@ -153,7 +153,18 @@ async function createTerminalRun({
         displayName: "PG Worker A",
         capabilities: ["travel.booking"],
         visibility: "public",
-        host: { runtime: "openclaw", endpoint: "https://example.test/worker-a", protocols: ["mcp"] }
+        host: { runtime: "openclaw", endpoint: "https://example.test/worker-a", protocols: ["mcp"] },
+        tools: [
+          {
+            schemaVersion: "ToolDescriptor.v1",
+            toolId: "travel.book_flight",
+            mcpToolName: "travel_book_flight",
+            riskClass: "action",
+            sideEffecting: true,
+            pricing: { amountCents: 500, currency: "USD", unit: "booking" },
+            requiresEvidenceKinds: ["artifact", "hash"]
+          }
+        ]
       }
     });
     assert.equal(upsertCardA.statusCode, 201, upsertCardA.body);
@@ -168,7 +179,18 @@ async function createTerminalRun({
         displayName: "PG Worker B",
         capabilities: ["travel.booking"],
         visibility: "public",
-        host: { runtime: "openclaw", endpoint: "https://example.test/worker-b", protocols: ["mcp"] }
+        host: { runtime: "openclaw", endpoint: "https://example.test/worker-b", protocols: ["mcp"] },
+        tools: [
+          {
+            schemaVersion: "ToolDescriptor.v1",
+            toolId: "travel.search_flights",
+            mcpToolName: "travel_search_flights",
+            riskClass: "read",
+            sideEffecting: false,
+            pricing: { amountCents: 90, currency: "USD", unit: "call" },
+            requiresEvidenceKinds: ["artifact"]
+          }
+        ]
       }
     });
     assert.equal(upsertCardB.statusCode, 201, upsertCardB.body);
@@ -610,6 +632,18 @@ async function createTerminalRun({
     assert.equal(publicIds.has(workerA), true);
     assert.equal(publicIds.has(workerB), true);
 
+    const publicDiscoverToolFiltered = await request(apiB, {
+      method: "GET",
+      path:
+        "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active" +
+        "&includeReputation=false&toolMcpName=TRAVEL_SEARCH_FLIGHTS&toolRiskClass=read&toolSideEffecting=false&toolMaxPriceCents=100&toolRequiresEvidenceKind=artifact&limit=10&offset=0",
+      auth: "none"
+    });
+    assert.equal(publicDiscoverToolFiltered.statusCode, 200, publicDiscoverToolFiltered.body);
+    assert.equal(publicDiscoverToolFiltered.json?.scope, "public");
+    assert.equal(publicDiscoverToolFiltered.json?.results?.length, 1);
+    assert.equal(publicDiscoverToolFiltered.json?.results?.[0]?.agentCard?.agentId, workerB);
+
     const tenantDiscover = await tenantRequest(apiB, {
       tenantId: tenantA,
       method: "GET",
@@ -621,6 +655,27 @@ async function createTerminalRun({
     const tenantIds = new Set((tenantDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
     assert.equal(tenantIds.has(workerA), true);
     assert.equal(tenantIds.has(workerB), false);
+
+    const tenantDiscoverToolFiltered = await tenantRequest(apiB, {
+      tenantId: tenantA,
+      method: "GET",
+      path:
+        "/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active" +
+        "&includeReputation=false&toolId=travel.book_flight&toolRiskClass=action&toolSideEffecting=true&toolMaxPriceCents=600&toolRequiresEvidenceKind=hash&limit=10&offset=0"
+    });
+    assert.equal(tenantDiscoverToolFiltered.statusCode, 200, tenantDiscoverToolFiltered.body);
+    assert.equal(tenantDiscoverToolFiltered.json?.results?.length, 1);
+    assert.equal(tenantDiscoverToolFiltered.json?.results?.[0]?.agentCard?.agentId, workerA);
+
+    const tenantDiscoverToolNotVisibleCrossTenant = await tenantRequest(apiB, {
+      tenantId: tenantA,
+      method: "GET",
+      path:
+        "/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active" +
+        "&includeReputation=false&toolId=travel.search_flights&limit=10&offset=0"
+    });
+    assert.equal(tenantDiscoverToolNotVisibleCrossTenant.statusCode, 200, tenantDiscoverToolNotVisibleCrossTenant.body);
+    assert.equal(tenantDiscoverToolNotVisibleCrossTenant.json?.results?.length, 0);
   } finally {
     try {
       await storeB?.close?.();

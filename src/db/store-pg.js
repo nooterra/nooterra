@@ -4220,6 +4220,12 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     status = null,
     visibility = null,
     capability = null,
+    toolId = null,
+    toolMcpName = null,
+    toolRiskClass = null,
+    toolSideEffecting = null,
+    toolMaxPriceCents = null,
+    toolRequiresEvidenceKind = null,
     runtime = null,
     limit = 200,
     offset = 0
@@ -4234,7 +4240,89 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     const visibilityFilter =
       visibility === null || visibility === undefined || String(visibility).trim() === "" ? null : String(visibility).trim().toLowerCase();
     const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+    const toolIdFilter = toolId === null || toolId === undefined || String(toolId).trim() === "" ? null : String(toolId).trim();
+    const toolMcpNameFilter =
+      toolMcpName === null || toolMcpName === undefined || String(toolMcpName).trim() === "" ? null : String(toolMcpName).trim().toLowerCase();
+    const toolRiskClassFilter =
+      toolRiskClass === null || toolRiskClass === undefined || String(toolRiskClass).trim() === ""
+        ? null
+        : String(toolRiskClass).trim().toLowerCase();
+    if (
+      toolRiskClassFilter !== null &&
+      toolRiskClassFilter !== "read" &&
+      toolRiskClassFilter !== "compute" &&
+      toolRiskClassFilter !== "action" &&
+      toolRiskClassFilter !== "financial"
+    ) {
+      throw new TypeError("toolRiskClass must be read|compute|action|financial");
+    }
+    const toolSideEffectingFilter =
+      toolSideEffecting === null || toolSideEffecting === undefined
+        ? null
+        : typeof toolSideEffecting === "boolean"
+          ? toolSideEffecting
+          : (() => {
+              throw new TypeError("toolSideEffecting must be boolean");
+            })();
+    const toolMaxPriceCentsFilter =
+      toolMaxPriceCents === null || toolMaxPriceCents === undefined || toolMaxPriceCents === ""
+        ? null
+        : (() => {
+            const parsed = Number(toolMaxPriceCents);
+            if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TypeError("toolMaxPriceCents must be a non-negative safe integer");
+            return parsed;
+          })();
+    const toolRequiresEvidenceKindFilter =
+      toolRequiresEvidenceKind === null || toolRequiresEvidenceKind === undefined || String(toolRequiresEvidenceKind).trim() === ""
+        ? null
+        : String(toolRequiresEvidenceKind).trim().toLowerCase();
+    if (
+      toolRequiresEvidenceKindFilter !== null &&
+      toolRequiresEvidenceKindFilter !== "artifact" &&
+      toolRequiresEvidenceKindFilter !== "hash" &&
+      toolRequiresEvidenceKindFilter !== "verification_report"
+    ) {
+      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report");
+    }
     const runtimeFilter = runtime === null || runtime === undefined || String(runtime).trim() === "" ? null : String(runtime).trim().toLowerCase();
+    const hasToolDescriptorFilter =
+      toolIdFilter !== null ||
+      toolMcpNameFilter !== null ||
+      toolRiskClassFilter !== null ||
+      toolSideEffectingFilter !== null ||
+      toolMaxPriceCentsFilter !== null ||
+      toolRequiresEvidenceKindFilter !== null;
+
+    const matchesToolDescriptorFilters = (row) => {
+      if (!hasToolDescriptorFilter) return true;
+      const tools = Array.isArray(row?.tools) ? row.tools : [];
+      if (tools.length === 0) return false;
+      return tools.some((tool) => {
+        if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false;
+        const descriptorToolId = typeof tool.toolId === "string" ? tool.toolId.trim() : "";
+        if (toolIdFilter !== null && descriptorToolId !== toolIdFilter) return false;
+        const descriptorMcpName = typeof tool.mcpToolName === "string" ? tool.mcpToolName.trim().toLowerCase() : "";
+        if (toolMcpNameFilter !== null && descriptorMcpName !== toolMcpNameFilter) return false;
+        const descriptorRiskClass = typeof tool.riskClass === "string" ? tool.riskClass.trim().toLowerCase() : "";
+        if (toolRiskClassFilter !== null && descriptorRiskClass !== toolRiskClassFilter) return false;
+        const descriptorSideEffecting = tool.sideEffecting === true;
+        if (toolSideEffectingFilter !== null && descriptorSideEffecting !== toolSideEffectingFilter) return false;
+        const descriptorAmountCents = Number(tool?.pricing?.amountCents);
+        if (
+          toolMaxPriceCentsFilter !== null &&
+          (!Number.isSafeInteger(descriptorAmountCents) || descriptorAmountCents > toolMaxPriceCentsFilter)
+        ) {
+          return false;
+        }
+        if (toolRequiresEvidenceKindFilter !== null) {
+          const evidenceKinds = Array.isArray(tool.requiresEvidenceKinds)
+            ? tool.requiresEvidenceKinds.map((entry) => String(entry ?? "").trim().toLowerCase())
+            : [];
+          if (!evidenceKinds.includes(toolRequiresEvidenceKindFilter)) return false;
+        }
+        return true;
+      });
+    };
 
     const applyFilters = (rows) => {
       const filtered = [];
@@ -4255,6 +4343,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
               : "";
           if (rowRuntime !== runtimeFilter) continue;
         }
+        if (!matchesToolDescriptorFilters(row)) continue;
         filtered.push(row);
       }
       filtered.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
@@ -4262,14 +4351,95 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
 
     try {
+      const params = [tenantId];
+      const where = ["tenant_id = $1", "aggregate_type = 'agent_card'"];
+      if (agentIdFilter !== null) {
+        params.push(agentIdFilter);
+        where.push(`aggregate_id = $${params.length}`);
+      }
+      if (statusFilter !== null) {
+        params.push(statusFilter);
+        where.push(`lower(coalesce(snapshot_json->>'status', '')) = $${params.length}`);
+      }
+      if (visibilityFilter !== null) {
+        params.push(visibilityFilter);
+        where.push(`lower(coalesce(snapshot_json->>'visibility', '')) = $${params.length}`);
+      }
+      if (capabilityFilter !== null) {
+        params.push(capabilityFilter);
+        where.push(
+          `EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(snapshot_json->'capabilities') = 'array' THEN snapshot_json->'capabilities' ELSE '[]'::jsonb END
+            ) AS capability(value)
+            WHERE capability.value = $${params.length}
+          )`
+        );
+      }
+      if (runtimeFilter !== null) {
+        params.push(runtimeFilter);
+        where.push(`lower(coalesce(snapshot_json->'host'->>'runtime', '')) = $${params.length}`);
+      }
+      if (hasToolDescriptorFilter) {
+        const toolClauses = [];
+        if (toolIdFilter !== null) {
+          params.push(toolIdFilter);
+          toolClauses.push(`btrim(tool->>'toolId') = $${params.length}`);
+        }
+        if (toolMcpNameFilter !== null) {
+          params.push(toolMcpNameFilter);
+          toolClauses.push(`lower(btrim(tool->>'mcpToolName')) = $${params.length}`);
+        }
+        if (toolRiskClassFilter !== null) {
+          params.push(toolRiskClassFilter);
+          toolClauses.push(`lower(btrim(tool->>'riskClass')) = $${params.length}`);
+        }
+        if (toolSideEffectingFilter !== null) {
+          params.push(toolSideEffectingFilter);
+          toolClauses.push(
+            `(CASE WHEN jsonb_typeof(tool->'sideEffecting') = 'boolean' THEN (tool->>'sideEffecting')::boolean ELSE false END) = $${params.length}`
+          );
+        }
+        if (toolMaxPriceCentsFilter !== null) {
+          params.push(toolMaxPriceCentsFilter);
+          toolClauses.push(
+            `(CASE WHEN (tool->'pricing'->>'amountCents') ~ '^[0-9]+$' THEN (tool->'pricing'->>'amountCents')::bigint ELSE NULL END) <= $${params.length}`
+          );
+        }
+        if (toolRequiresEvidenceKindFilter !== null) {
+          params.push(toolRequiresEvidenceKindFilter);
+          toolClauses.push(
+            `EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements_text(
+                CASE
+                  WHEN jsonb_typeof(tool->'requiresEvidenceKinds') = 'array' THEN tool->'requiresEvidenceKinds'
+                  ELSE '[]'::jsonb
+                END
+              ) AS kind(value)
+              WHERE lower(btrim(kind.value)) = $${params.length}
+            )`
+          );
+        }
+        where.push(
+          `EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(snapshot_json->'tools') = 'array' THEN snapshot_json->'tools' ELSE '[]'::jsonb END
+            ) AS tool
+            WHERE ${toolClauses.join(" AND ")}
+          )`
+        );
+      }
       const res = await pool.query(
         `
           SELECT tenant_id, aggregate_id, snapshot_json
           FROM snapshots
-          WHERE tenant_id = $1 AND aggregate_type = 'agent_card'
+          WHERE ${where.join(" AND ")}
           ORDER BY aggregate_id ASC
         `,
-        [tenantId]
+        params
       );
       return applyFilters(res.rows.map(agentCardSnapshotRowToRecord).filter(Boolean));
     } catch (err) {
@@ -4379,6 +4549,12 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     status = null,
     visibility = "public",
     capability = null,
+    toolId = null,
+    toolMcpName = null,
+    toolRiskClass = null,
+    toolSideEffecting = null,
+    toolMaxPriceCents = null,
+    toolRequiresEvidenceKind = null,
     runtime = null,
     limit = 200,
     offset = 0
@@ -4392,7 +4568,89 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       visibility === null || visibility === undefined || String(visibility).trim() === "" ? "public" : String(visibility).trim().toLowerCase();
     if (visibilityFilter !== "public") throw new TypeError("visibility must be public");
     const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+    const toolIdFilter = toolId === null || toolId === undefined || String(toolId).trim() === "" ? null : String(toolId).trim();
+    const toolMcpNameFilter =
+      toolMcpName === null || toolMcpName === undefined || String(toolMcpName).trim() === "" ? null : String(toolMcpName).trim().toLowerCase();
+    const toolRiskClassFilter =
+      toolRiskClass === null || toolRiskClass === undefined || String(toolRiskClass).trim() === ""
+        ? null
+        : String(toolRiskClass).trim().toLowerCase();
+    if (
+      toolRiskClassFilter !== null &&
+      toolRiskClassFilter !== "read" &&
+      toolRiskClassFilter !== "compute" &&
+      toolRiskClassFilter !== "action" &&
+      toolRiskClassFilter !== "financial"
+    ) {
+      throw new TypeError("toolRiskClass must be read|compute|action|financial");
+    }
+    const toolSideEffectingFilter =
+      toolSideEffecting === null || toolSideEffecting === undefined
+        ? null
+        : typeof toolSideEffecting === "boolean"
+          ? toolSideEffecting
+          : (() => {
+              throw new TypeError("toolSideEffecting must be boolean");
+            })();
+    const toolMaxPriceCentsFilter =
+      toolMaxPriceCents === null || toolMaxPriceCents === undefined || toolMaxPriceCents === ""
+        ? null
+        : (() => {
+            const parsed = Number(toolMaxPriceCents);
+            if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TypeError("toolMaxPriceCents must be a non-negative safe integer");
+            return parsed;
+          })();
+    const toolRequiresEvidenceKindFilter =
+      toolRequiresEvidenceKind === null || toolRequiresEvidenceKind === undefined || String(toolRequiresEvidenceKind).trim() === ""
+        ? null
+        : String(toolRequiresEvidenceKind).trim().toLowerCase();
+    if (
+      toolRequiresEvidenceKindFilter !== null &&
+      toolRequiresEvidenceKindFilter !== "artifact" &&
+      toolRequiresEvidenceKindFilter !== "hash" &&
+      toolRequiresEvidenceKindFilter !== "verification_report"
+    ) {
+      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report");
+    }
     const runtimeFilter = runtime === null || runtime === undefined || String(runtime).trim() === "" ? null : String(runtime).trim().toLowerCase();
+    const hasToolDescriptorFilter =
+      toolIdFilter !== null ||
+      toolMcpNameFilter !== null ||
+      toolRiskClassFilter !== null ||
+      toolSideEffectingFilter !== null ||
+      toolMaxPriceCentsFilter !== null ||
+      toolRequiresEvidenceKindFilter !== null;
+
+    const matchesToolDescriptorFilters = (row) => {
+      if (!hasToolDescriptorFilter) return true;
+      const tools = Array.isArray(row?.tools) ? row.tools : [];
+      if (tools.length === 0) return false;
+      return tools.some((tool) => {
+        if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false;
+        const descriptorToolId = typeof tool.toolId === "string" ? tool.toolId.trim() : "";
+        if (toolIdFilter !== null && descriptorToolId !== toolIdFilter) return false;
+        const descriptorMcpName = typeof tool.mcpToolName === "string" ? tool.mcpToolName.trim().toLowerCase() : "";
+        if (toolMcpNameFilter !== null && descriptorMcpName !== toolMcpNameFilter) return false;
+        const descriptorRiskClass = typeof tool.riskClass === "string" ? tool.riskClass.trim().toLowerCase() : "";
+        if (toolRiskClassFilter !== null && descriptorRiskClass !== toolRiskClassFilter) return false;
+        const descriptorSideEffecting = tool.sideEffecting === true;
+        if (toolSideEffectingFilter !== null && descriptorSideEffecting !== toolSideEffectingFilter) return false;
+        const descriptorAmountCents = Number(tool?.pricing?.amountCents);
+        if (
+          toolMaxPriceCentsFilter !== null &&
+          (!Number.isSafeInteger(descriptorAmountCents) || descriptorAmountCents > toolMaxPriceCentsFilter)
+        ) {
+          return false;
+        }
+        if (toolRequiresEvidenceKindFilter !== null) {
+          const evidenceKinds = Array.isArray(tool.requiresEvidenceKinds)
+            ? tool.requiresEvidenceKinds.map((entry) => String(entry ?? "").trim().toLowerCase())
+            : [];
+          if (!evidenceKinds.includes(toolRequiresEvidenceKindFilter)) return false;
+        }
+        return true;
+      });
+    };
 
     const applyFilters = (rows) => {
       const filtered = [];
@@ -4411,6 +4669,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
               : "";
           if (rowRuntime !== runtimeFilter) continue;
         }
+        if (!matchesToolDescriptorFilters(row)) continue;
         filtered.push(row);
       }
       filtered.sort((left, right) => {
@@ -4422,13 +4681,89 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
 
     try {
+      const params = [];
+      const where = ["aggregate_type = 'agent_card'"];
+      params.push("public");
+      where.push(`lower(coalesce(snapshot_json->>'visibility', '')) = $${params.length}`);
+      if (statusFilter !== null) {
+        params.push(statusFilter);
+        where.push(`lower(coalesce(snapshot_json->>'status', '')) = $${params.length}`);
+      }
+      if (capabilityFilter !== null) {
+        params.push(capabilityFilter);
+        where.push(
+          `EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements_text(
+              CASE WHEN jsonb_typeof(snapshot_json->'capabilities') = 'array' THEN snapshot_json->'capabilities' ELSE '[]'::jsonb END
+            ) AS capability(value)
+            WHERE capability.value = $${params.length}
+          )`
+        );
+      }
+      if (runtimeFilter !== null) {
+        params.push(runtimeFilter);
+        where.push(`lower(coalesce(snapshot_json->'host'->>'runtime', '')) = $${params.length}`);
+      }
+      if (hasToolDescriptorFilter) {
+        const toolClauses = [];
+        if (toolIdFilter !== null) {
+          params.push(toolIdFilter);
+          toolClauses.push(`btrim(tool->>'toolId') = $${params.length}`);
+        }
+        if (toolMcpNameFilter !== null) {
+          params.push(toolMcpNameFilter);
+          toolClauses.push(`lower(btrim(tool->>'mcpToolName')) = $${params.length}`);
+        }
+        if (toolRiskClassFilter !== null) {
+          params.push(toolRiskClassFilter);
+          toolClauses.push(`lower(btrim(tool->>'riskClass')) = $${params.length}`);
+        }
+        if (toolSideEffectingFilter !== null) {
+          params.push(toolSideEffectingFilter);
+          toolClauses.push(
+            `(CASE WHEN jsonb_typeof(tool->'sideEffecting') = 'boolean' THEN (tool->>'sideEffecting')::boolean ELSE false END) = $${params.length}`
+          );
+        }
+        if (toolMaxPriceCentsFilter !== null) {
+          params.push(toolMaxPriceCentsFilter);
+          toolClauses.push(
+            `(CASE WHEN (tool->'pricing'->>'amountCents') ~ '^[0-9]+$' THEN (tool->'pricing'->>'amountCents')::bigint ELSE NULL END) <= $${params.length}`
+          );
+        }
+        if (toolRequiresEvidenceKindFilter !== null) {
+          params.push(toolRequiresEvidenceKindFilter);
+          toolClauses.push(
+            `EXISTS (
+              SELECT 1
+              FROM jsonb_array_elements_text(
+                CASE
+                  WHEN jsonb_typeof(tool->'requiresEvidenceKinds') = 'array' THEN tool->'requiresEvidenceKinds'
+                  ELSE '[]'::jsonb
+                END
+              ) AS kind(value)
+              WHERE lower(btrim(kind.value)) = $${params.length}
+            )`
+          );
+        }
+        where.push(
+          `EXISTS (
+            SELECT 1
+            FROM jsonb_array_elements(
+              CASE WHEN jsonb_typeof(snapshot_json->'tools') = 'array' THEN snapshot_json->'tools' ELSE '[]'::jsonb END
+            ) AS tool
+            WHERE ${toolClauses.join(" AND ")}
+          )`
+        );
+      }
       const res = await pool.query(
         `
           SELECT tenant_id, aggregate_id, snapshot_json
           FROM snapshots
-          WHERE aggregate_type = 'agent_card'
+          WHERE ${where.join(" AND ")}
           ORDER BY tenant_id ASC, aggregate_id ASC
-        `
+        `,
+        params
       );
       return applyFilters(res.rows.map(agentCardSnapshotRowToRecord).filter(Boolean));
     } catch (err) {
