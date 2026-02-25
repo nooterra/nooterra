@@ -484,6 +484,7 @@ async function main() {
       throw new Error("audit lineage response missing lineage payload");
     }
     const demoArtifactsDir = path.dirname(args.out);
+    await mkdir(demoArtifactsDir, { recursive: true });
     const lineageInputPath = path.resolve(demoArtifactsDir, `openclaw-substrate-demo-lineage-${demoSeed}.json`);
     const lineageVerificationPath = path.resolve(demoArtifactsDir, `openclaw-substrate-demo-lineage-verify-${demoSeed}.json`);
     await writeFile(lineageInputPath, `${JSON.stringify({ lineage: lineageObject }, null, 2)}\n`, "utf8");

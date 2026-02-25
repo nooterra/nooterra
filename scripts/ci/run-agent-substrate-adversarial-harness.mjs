@@ -100,9 +100,9 @@ function checksForProfile(profile) {
       command: "node",
       args: [
         "--test",
-        "test/api-e2e-x402-delegation-grant.test.js",
         "--test-name-pattern",
-        "x402 prompt risk forced challenge|suspicious x402 verify cannot release until human override is recorded|x402 prompt risk forced mode can target a specific principal"
+        "x402 prompt risk forced challenge|suspicious x402 verify cannot release until human override is recorded|x402 prompt risk forced mode can target a specific principal",
+        "test/api-e2e-x402-delegation-grant.test.js"
       ]
     },
     {
@@ -125,9 +125,9 @@ function checksForProfile(profile) {
       command: "node",
       args: [
         "--test",
-        "test/api-e2e-capability-attestation-discovery.test.js",
         "--test-name-pattern",
-        "capability attestation registry \\+ discovery filter with exclusion reasons|public discover auto-applies capability attestation policy"
+        "capability attestation registry \\+ discovery filter with exclusion reasons|public discover auto-applies capability attestation policy",
+        "test/api-e2e-capability-attestation-discovery.test.js"
       ]
     }
   ];
