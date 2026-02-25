@@ -37,6 +37,7 @@ jobs:
             const sha = context.sha;
             const requiredJobNames = [
               "noo_44_47_48_regressions",
+              "mcp_paid_call_kernel_suite",
               "kernel_v0_ship_gate",
               "production_cutover_gate",
               "offline_verification_parity_gate"
@@ -367,6 +368,8 @@ jobs:
           copy_required "/tmp/release-upstream/tests" "production-cutover-gate.json" "artifacts/gates/production-cutover-gate.json"
           copy_required "/tmp/release-upstream/tests" "offline-verification-parity-gate.json" "artifacts/gates/offline-verification-parity-gate.json"
           copy_required "/tmp/release-upstream/tests" "onboarding-host-success-gate.json" "artifacts/gates/onboarding-host-success-gate.json"
+          copy_required "/tmp/release-upstream/tests" "negotiation-replay-contract-gate.json" "artifacts/gates/negotiation-replay-contract-gate.json"
+          copy_required "/tmp/release-upstream/tests" "pg-substrate-check.json" "artifacts/gates/pg-substrate-check.json"
           copy_required "/tmp/release-upstream/go-live" "s13-go-live-gate.json" "artifacts/gates/s13-go-live-gate.json"
           copy_required "/tmp/release-upstream/go-live" "s13-launch-cutover-packet.json" "artifacts/gates/s13-launch-cutover-packet.json"
           copy_required "/tmp/release-upstream/release-gate" "hosted-baseline-release-gate.json" "artifacts/ops/hosted-baseline-release-gate.json"
@@ -382,9 +385,18 @@ jobs:
             --offline-parity-gate artifacts/gates/offline-verification-parity-gate.json \
             --onboarding-host-success-gate artifacts/gates/onboarding-host-success-gate.json \
             --go-live-gate artifacts/gates/s13-go-live-gate.json \
+            --negotiation-replay-gate artifacts/gates/negotiation-replay-contract-gate.json \
+            --pg-substrate-check artifacts/gates/pg-substrate-check.json \
             --launch-packet artifacts/gates/s13-launch-cutover-packet.json \
             --baseline-evidence artifacts/ops/hosted-baseline-release-gate.json \
             --promotion-ref "${{ github.sha }}"
+
+      - name: Validate release promotion guard report schema (release_gate)
+        run: |
+          set -euo pipefail
+          npm run -s test:ci:release-promotion-guard-schema -- \
+            --report artifacts/gates/release-promotion-guard.json \
+            --schema docs/spec/schemas/ReleasePromotionGuardReport.v1.schema.json
 
       - name: Upload release promotion guard artifacts
         if: always()
@@ -397,6 +409,8 @@ jobs:
             artifacts/gates/production-cutover-gate.json
             artifacts/gates/offline-verification-parity-gate.json
             artifacts/gates/onboarding-host-success-gate.json
+            artifacts/gates/negotiation-replay-contract-gate.json
+            artifacts/gates/pg-substrate-check.json
             artifacts/gates/s13-go-live-gate.json
             artifacts/gates/s13-launch-cutover-packet.json
             artifacts/ops/hosted-baseline-release-gate.json
@@ -1037,6 +1051,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Install release validation dependencies
+        run: npm ci --ignore-scripts
 
       - name: Compute version
         id: v
@@ -1124,6 +1140,13 @@ jobs:
           ls /tmp/release-assets/settld_api_sdk_python-*.whl >/dev/null
           ls /tmp/release-assets/settld_api_sdk_python-*.tar.gz >/dev/null
           test -f /tmp/release-assets/python-SHA256SUMS
+
+      - name: Validate release promotion guard report schema
+        run: |
+          set -euo pipefail
+          npm run -s test:ci:release-promotion-guard-schema -- \
+            --report /tmp/release-assets/release-promotion-guard.json \
+            --schema docs/spec/schemas/ReleasePromotionGuardReport.v1.schema.json
 
       - name: Gate ReleaseIndex signing key
         id: release_signing_guard

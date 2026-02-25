@@ -152,13 +152,57 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Run negotiation replay-contract gate
+        run: npm run -s test:ops:negotiation-replay-contract-gate -- --out artifacts/gates/negotiation-replay-contract-gate.json
+      - name: Upload negotiation replay-contract gate artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: negotiation-replay-contract-gate-${{ github.run_id }}
+          path: artifacts/gates/negotiation-replay-contract-gate.json
+          if-no-files-found: warn
       - name: Run paid-call kernel suite (MCP + demo path)
         run: >
           node --test
-          test/mcp-stdio-spike.test.js
           test/mcp-paid-exa-tool.test.js
           test/mcp-paid-weather-tool.test.js
           test/demo-mcp-paid-exa.test.js
+      - name: Run OpenClaw substrate demo regression
+        run: npm run -s test:ops:openclaw-substrate-demo
+
+  pg_substrate_check_gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run PG substrate durability check gate
+        env:
+          DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres
+        run: npm run -s test:ops:pg-substrate-check -- --out artifacts/gates/pg-substrate-check.json
+      - name: Upload PG substrate durability gate artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pg-substrate-check-gate-${{ github.run_id }}
+          path: artifacts/gates/pg-substrate-check.json
+          if-no-files-found: warn
 
   mcp_host_smoke:
     runs-on: ubuntu-latest

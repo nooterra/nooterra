@@ -90,3 +90,44 @@ test("settld verified gate runner: applies bootstrap env patch to checks and run
     assert.equal(row.SETTLD_API_KEY, "sk_test.k");
   }
 });
+
+test("settld verified gate runner: collaboration level includes pg substrate durability check", async () => {
+  const seenIds = [];
+  const runCheckFn = (check) => {
+    seenIds.push(check.id);
+    return {
+      id: check.id,
+      command: check.command,
+      startedAt: "2026-01-01T00:00:00.000Z",
+      completedAt: "2026-01-01T00:00:00.001Z",
+      ok: true,
+      exitCode: 0,
+      signal: null,
+      stdoutPreview: "",
+      stderrPreview: ""
+    };
+  };
+  const bootstrapFn = async () => ({
+    envPatch: {},
+    metadata: { enabled: false },
+    cleanup: async () => {}
+  });
+  const { report } = await runSettldVerifiedGate(
+    {
+      level: "collaboration",
+      out: "/tmp/settld-verified-gate.json",
+      help: false,
+      bootstrapLocal: false,
+      bootstrapBaseUrl: "http://127.0.0.1:3000",
+      bootstrapTenantId: "tenant_default",
+      bootstrapOpsToken: "tok_ops"
+    },
+    { runCheckFn, bootstrapFn }
+  );
+  assert.equal(report.ok, true);
+  assert.equal(report.summary.totalChecks, 9);
+  assert.equal(seenIds.includes("e2e_x402_authority_grants"), true);
+  assert.equal(seenIds.includes("e2e_sessions_replay_and_stream_resume"), true);
+  assert.equal(seenIds.includes("e2e_openclaw_substrate_demo"), true);
+  assert.equal(seenIds.includes("pg_substrate_durability"), true);
+});

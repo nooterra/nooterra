@@ -100,7 +100,11 @@ function checksForLevel(level) {
   ];
   const collaboration = [
     { id: "e2e_subagent_work_orders", command: "node", args: ["--test", "test/api-e2e-subagent-work-orders.test.js"] },
-    { id: "e2e_x402_delegation_grants", command: "node", args: ["--test", "test/api-e2e-x402-delegation-grant.test.js"] }
+    { id: "e2e_x402_delegation_grants", command: "node", args: ["--test", "test/api-e2e-x402-delegation-grant.test.js"] },
+    { id: "e2e_x402_authority_grants", command: "node", args: ["--test", "test/api-e2e-x402-authority-grant.test.js"] },
+    { id: "e2e_sessions_replay_and_stream_resume", command: "node", args: ["--test", "test/api-e2e-sessions.test.js"] },
+    { id: "e2e_openclaw_substrate_demo", command: "node", args: ["--test", "test/openclaw-substrate-demo-script.test.js"] },
+    { id: "pg_substrate_durability", command: "node", args: ["scripts/ci/run-pg-substrate-check.mjs"] }
   ];
   const guardrails = [
     { id: "agent_substrate_adversarial_harness", command: "npm", args: ["run", "-s", "test:ops:agent-substrate-adversarial-harness"] }
