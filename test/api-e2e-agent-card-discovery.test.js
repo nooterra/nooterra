@@ -577,6 +577,59 @@ test("API e2e: public agent-card publish rate limit is fail-closed (tenant + age
   assert.equal(republishAgentCBlocked.json?.details?.scope, "agent");
 });
 
+test("API e2e: public agent-card discovery rate limit is fail-closed by requester key", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicDiscoveryWindowSeconds: 300,
+    agentCardPublicDiscoveryMaxPerKey: 1
+  });
+
+  const agentId = "agt_card_public_discovery_rate_1";
+  await registerAgent(api, { agentId, capabilities: ["travel.booking"] });
+
+  const upserted = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_discovery_rate_upsert_1" },
+    body: {
+      agentId,
+      displayName: "Public Discovery Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/rate-discovery", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upserted.statusCode, 201, upserted.body);
+
+  const first = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active",
+    auth: "none",
+    headers: { "x-forwarded-for": "203.0.113.10" }
+  });
+  assert.equal(first.statusCode, 200, first.body);
+  assert.equal(first.json?.ok, true);
+
+  const secondBlocked = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active",
+    auth: "none",
+    headers: { "x-forwarded-for": "203.0.113.10" }
+  });
+  assert.equal(secondBlocked.statusCode, 429, secondBlocked.body);
+  assert.equal(secondBlocked.json?.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
+  assert.equal(secondBlocked.json?.details?.scope, "requester");
+
+  const thirdDifferentRequester = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active",
+    auth: "none",
+    headers: { "x-forwarded-for": "203.0.113.11" }
+  });
+  assert.equal(thirdDifferentRequester.statusCode, 200, thirdDifferentRequester.body);
+  assert.equal(thirdDifferentRequester.json?.ok, true);
+});
+
 test("API e2e: public AgentCard listing fee is fail-closed and charged once", async () => {
   const api = createApi({
     opsToken: "tok_ops",

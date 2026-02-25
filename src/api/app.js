@@ -453,6 +453,8 @@ export function createApi({
   agentCardPublicPublishWindowSeconds = null,
   agentCardPublicPublishMaxPerTenant = null,
   agentCardPublicPublishMaxPerAgent = null,
+  agentCardPublicDiscoveryWindowSeconds = null,
+  agentCardPublicDiscoveryMaxPerKey = null,
   agentCardPublicRequireCapabilityAttestation = null,
   agentCardPublicAttestationMinLevel = null,
   agentCardPublicAttestationIssuerAgentId = null
@@ -699,6 +701,7 @@ export function createApi({
 
   const publicAgentCardPublishBucketsByTenant = new Map(); // tenantId -> { windowStartMs, count }
   const publicAgentCardPublishBucketsByAgent = new Map(); // `${tenantId}\n${agentId}` -> { windowStartMs, count }
+  const publicAgentCardDiscoveryBucketsByKey = new Map(); // requesterKey -> { windowStartMs, count }
 
   function readFixedWindowCount(bucketMap, key, windowStartMs) {
     const existing = bucketMap.get(key) ?? null;
@@ -736,6 +739,44 @@ export function createApi({
 
     if (maxPerTenant > 0) writeFixedWindowCount(publicAgentCardPublishBucketsByTenant, normalizedTenantId, windowStartMs, tenantCount + 1);
     if (maxPerAgent > 0) writeFixedWindowCount(publicAgentCardPublishBucketsByAgent, agentScopedKey, windowStartMs, agentCount + 1);
+    return { ok: true };
+  }
+
+  function readHeaderFirstToken(req, headerName) {
+    const raw = req?.headers?.[headerName];
+    if (typeof raw !== "string" || raw.trim() === "") return null;
+    const token = raw.split(",")[0]?.trim() ?? "";
+    return token || null;
+  }
+
+  function resolvePublicAgentCardDiscoveryRequesterKey({ req, tenantId }) {
+    const forwardedFor = readHeaderFirstToken(req, "x-forwarded-for");
+    if (forwardedFor) return `ip:${forwardedFor.slice(0, 128)}`;
+    const realIp = readHeaderFirstToken(req, "x-real-ip");
+    if (realIp) return `ip:${realIp.slice(0, 128)}`;
+    const remoteAddress =
+      req?.socket && typeof req.socket.remoteAddress === "string" && req.socket.remoteAddress.trim() !== ""
+        ? req.socket.remoteAddress.trim()
+        : null;
+    if (remoteAddress) return `ip:${remoteAddress.slice(0, 128)}`;
+    return `tenant:${normalizeTenant(tenantId)}`;
+  }
+
+  function takePublicAgentCardDiscoveryToken({ req, tenantId }) {
+    const windowSeconds = agentCardPublicDiscoveryWindowSecondsValue;
+    const maxPerKey = agentCardPublicDiscoveryMaxPerKeyValue;
+    if (windowSeconds <= 0 || maxPerKey <= 0) return { ok: true };
+
+    const requesterKey = resolvePublicAgentCardDiscoveryRequesterKey({ req, tenantId });
+    const nowMs = Date.now();
+    const windowMs = windowSeconds * 1000;
+    const windowStartMs = Math.floor(nowMs / windowMs) * windowMs;
+    const retryAfterSeconds = Math.max(1, Math.ceil((windowStartMs + windowMs - nowMs) / 1000));
+    const count = readFixedWindowCount(publicAgentCardDiscoveryBucketsByKey, requesterKey, windowStartMs);
+    if (count + 1 > maxPerKey) {
+      return { ok: false, scope: "requester", max: maxPerKey, retryAfterSeconds, windowSeconds };
+    }
+    writeFixedWindowCount(publicAgentCardDiscoveryBucketsByKey, requesterKey, windowStartMs, count + 1);
     return { ok: true };
   }
 
@@ -1148,6 +1189,33 @@ export function createApi({
   ) {
     throw new TypeError(
       "PROXY_AGENT_CARD_PUBLIC_PUBLISH_WINDOW_SECONDS must be configured when public publish limits are enabled"
+    );
+  }
+  const agentCardPublicDiscoveryWindowSecondsValue = (() => {
+    const raw =
+      agentCardPublicDiscoveryWindowSeconds ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_DISCOVERY_WINDOW_SECONDS ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 0;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      throw new TypeError("PROXY_AGENT_CARD_PUBLIC_DISCOVERY_WINDOW_SECONDS must be a positive safe integer");
+    }
+    return n;
+  })();
+  const agentCardPublicDiscoveryMaxPerKeyValue = (() => {
+    const raw =
+      agentCardPublicDiscoveryMaxPerKey ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_DISCOVERY_MAX_PER_KEY ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 0;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      throw new TypeError("PROXY_AGENT_CARD_PUBLIC_DISCOVERY_MAX_PER_KEY must be a positive safe integer");
+    }
+    return n;
+  })();
+  if (agentCardPublicDiscoveryMaxPerKeyValue > 0 && agentCardPublicDiscoveryWindowSecondsValue <= 0) {
+    throw new TypeError(
+      "PROXY_AGENT_CARD_PUBLIC_DISCOVERY_WINDOW_SECONDS must be configured when public discovery limits are enabled"
     );
   }
   const agentCardPublicRequireCapabilityAttestationValue = (() => {
@@ -26020,6 +26088,32 @@ export function createApi({
           : await authenticateRequest({ req, store, tenantId, legacyTokenScopes: opsTokenScopes, nowIso });
         if (!authExempt && !auth.ok) return sendError(res, 403, "forbidden", null, { code: "FORBIDDEN" });
         if (auth.ok && auth.principalId) principalId = auth.principalId;
+
+        const publicAgentCardDiscoveryRoute =
+          req.method === "GET" && (path === "/public/agent-cards/discover" || path === "/public/agent-cards/stream");
+        if (publicAgentCardDiscoveryRoute) {
+          const discoveryRate = takePublicAgentCardDiscoveryToken({ req, tenantId });
+          if (!discoveryRate.ok) {
+            metricInc("agent_card_public_discovery_rate_limited_total", { scope: discoveryRate.scope ?? "requester" }, 1);
+            try {
+              res.setHeader("retry-after", String(discoveryRate.retryAfterSeconds));
+            } catch {
+              // ignore
+            }
+            return sendError(
+              res,
+              429,
+              "public agent card discovery rate limit exceeded",
+              {
+                scope: discoveryRate.scope ?? "requester",
+                max: discoveryRate.max ?? null,
+                retryAfterSeconds: discoveryRate.retryAfterSeconds ?? null,
+                windowSeconds: discoveryRate.windowSeconds ?? null
+              },
+              { code: "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED" }
+            );
+          }
+        }
 
         if (!rateLimitExempt && auth.ok && auth.method === "api_key") {
           const keyRate = takeApiKeyRateLimitToken({ tenantId, apiKeyId: auth.keyId ?? null });
