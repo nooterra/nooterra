@@ -157,6 +157,35 @@ jobs:
       - name: Run OpenClaw substrate demo regression
         run: npm run -s test:ops:openclaw-substrate-demo
 
+  mcp_runtime_pg_binding_fail_closed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run MCP runtime PG fail-closed binding tests
+        env:
+          DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres
+        run: |
+          set -euo pipefail
+          node --test --test-name-pattern "mcp runtime pg:" test/mcp-runtime-work-order-binding-fail-closed.test.js
+
   mcp_host_smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15

@@ -449,9 +449,15 @@ test("mcp runtime: work-order settle fails closed on x402 provider binding misma
   });
 });
 
-const databaseUrl = process.env.DATABASE_URL ?? null;
+const databaseUrl = (() => {
+  const value = process.env.DATABASE_URL;
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+})();
+const isCi = String(process.env.CI ?? "").toLowerCase() === "true";
+const pgRuntimeTest = isCi ? test : databaseUrl ? test : test.skip;
 
-(databaseUrl ? test : test.skip)("mcp runtime pg: work-order settle fails closed on x402 tool binding mismatch", async () => {
+pgRuntimeTest("mcp runtime pg: work-order settle fails closed on x402 tool binding mismatch", async () => {
+  assert.ok(databaseUrl, "DATABASE_URL is required for mcp runtime pg runtime binding tests");
   const schema = makePgSchema();
   try {
     await runRuntimeBindingMismatchScenario({
@@ -470,7 +476,8 @@ const databaseUrl = process.env.DATABASE_URL ?? null;
   }
 });
 
-(databaseUrl ? test : test.skip)("mcp runtime pg: work-order settle fails closed on x402 provider binding mismatch", async () => {
+pgRuntimeTest("mcp runtime pg: work-order settle fails closed on x402 provider binding mismatch", async () => {
+  assert.ok(databaseUrl, "DATABASE_URL is required for mcp runtime pg runtime binding tests");
   const schema = makePgSchema();
   try {
     await runRuntimeBindingMismatchScenario({
