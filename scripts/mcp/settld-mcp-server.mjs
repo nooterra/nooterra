@@ -320,6 +320,9 @@ function makeSettldClient({ baseUrl, tenantId, apiKey, protocol }) {
         `HTTP ${res.status}`;
       const err = new Error(msg);
       err.statusCode = res.status;
+      if (json && typeof json.code === "string" && json.code.trim() !== "") {
+        err.code = json.code.trim();
+      }
       err.details = json && (json.details || json.errorDetails) ? (json.details || json.errorDetails) : json;
       throw err;
     }
@@ -866,6 +869,92 @@ function buildTools() {
       }
     },
     {
+      name: "settld.authority_grant_issue",
+      description: "Issue an AuthorityGrant.v1 object (idempotent via idempotencyKey).",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["principalRef", "granteeAgentId", "maxPerCallCents", "maxTotalCents"],
+        properties: {
+          grantId: { type: ["string", "null"], default: null },
+          principalRef: {
+            type: "object",
+            additionalProperties: false,
+            required: ["principalType", "principalId"],
+            properties: {
+              principalType: { type: "string", enum: ["human", "org", "service", "agent"] },
+              principalId: { type: "string" }
+            }
+          },
+          granteeAgentId: { type: "string" },
+          allowedProviderIds: { type: ["array", "null"], items: { type: "string" }, default: null },
+          allowedToolIds: { type: ["array", "null"], items: { type: "string" }, default: null },
+          allowedRiskClasses: {
+            type: ["array", "null"],
+            items: { type: "string", enum: ["read", "compute", "action", "financial"] },
+            default: null
+          },
+          sideEffectingAllowed: { type: ["boolean", "null"], default: null },
+          currency: { type: "string", default: "USD" },
+          maxPerCallCents: { type: "integer", minimum: 0 },
+          maxTotalCents: { type: "integer", minimum: 0 },
+          rootGrantHash: { type: ["string", "null"], default: null },
+          parentGrantHash: { type: ["string", "null"], default: null },
+          depth: { type: ["integer", "null"], minimum: 0, default: null },
+          maxDelegationDepth: { type: ["integer", "null"], minimum: 0, default: null },
+          issuedAt: { type: ["string", "null"], default: null },
+          notBefore: { type: ["string", "null"], default: null },
+          expiresAt: { type: ["string", "null"], default: null },
+          revocable: { type: ["boolean", "null"], default: null },
+          metadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.authority_grant_get",
+      description: "Fetch an authority grant by grantId.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["grantId"],
+        properties: {
+          grantId: { type: "string" }
+        }
+      }
+    },
+    {
+      name: "settld.authority_grant_list",
+      description: "List authority grants with optional filters.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          grantId: { type: ["string", "null"], default: null },
+          grantHash: { type: ["string", "null"], default: null },
+          principalId: { type: ["string", "null"], default: null },
+          granteeAgentId: { type: ["string", "null"], default: null },
+          includeRevoked: { type: ["boolean", "null"], default: null },
+          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null }
+        }
+      }
+    },
+    {
+      name: "settld.authority_grant_revoke",
+      description: "Revoke an authority grant.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["grantId"],
+        properties: {
+          grantId: { type: "string" },
+          revocationReasonCode: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
       name: "settld.agent_card_upsert",
       description: "Create or update an AgentCard.v1 profile for discovery and matching.",
       inputSchema: {
@@ -986,6 +1075,120 @@ function buildTools() {
       }
     },
     {
+      name: "settld.task_quote_issue",
+      description: "Issue a TaskQuote.v1 for a proposed delegated task.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["buyerAgentId", "sellerAgentId", "requiredCapability", "amountCents"],
+        properties: {
+          quoteId: { type: ["string", "null"], default: null },
+          buyerAgentId: { type: "string" },
+          sellerAgentId: { type: "string" },
+          requiredCapability: { type: "string" },
+          amountCents: { type: "integer", minimum: 1 },
+          currency: { type: ["string", "null"], default: "USD" },
+          constraints: { type: ["object", "null"], additionalProperties: true, default: null },
+          attestationRequirement: { type: ["object", "null"], additionalProperties: true, default: null },
+          expiresAt: { type: ["string", "null"], default: null },
+          metadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.task_quote_list",
+      description: "List TaskQuote.v1 records.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          quoteId: { type: ["string", "null"], default: null },
+          buyerAgentId: { type: ["string", "null"], default: null },
+          sellerAgentId: { type: ["string", "null"], default: null },
+          requiredCapability: { type: ["string", "null"], default: null },
+          status: { type: ["string", "null"], enum: ["open", "accepted", "expired", "revoked", null], default: null },
+          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null }
+        }
+      }
+    },
+    {
+      name: "settld.task_offer_issue",
+      description: "Issue a TaskOffer.v1 in response to a task quote.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["buyerAgentId", "sellerAgentId", "amountCents"],
+        properties: {
+          offerId: { type: ["string", "null"], default: null },
+          buyerAgentId: { type: "string" },
+          sellerAgentId: { type: "string" },
+          quoteId: { type: ["string", "null"], default: null },
+          quoteHash: { type: ["string", "null"], default: null },
+          amountCents: { type: "integer", minimum: 1 },
+          currency: { type: ["string", "null"], default: "USD" },
+          constraints: { type: ["object", "null"], additionalProperties: true, default: null },
+          expiresAt: { type: ["string", "null"], default: null },
+          metadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.task_offer_list",
+      description: "List TaskOffer.v1 records.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          offerId: { type: ["string", "null"], default: null },
+          buyerAgentId: { type: ["string", "null"], default: null },
+          sellerAgentId: { type: ["string", "null"], default: null },
+          quoteId: { type: ["string", "null"], default: null },
+          status: { type: ["string", "null"], enum: ["open", "accepted", "expired", "revoked", null], default: null },
+          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null }
+        }
+      }
+    },
+    {
+      name: "settld.task_acceptance_issue",
+      description: "Issue a TaskAcceptance.v1 to bind quote+offer for settlement.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["quoteId", "offerId", "acceptedByAgentId"],
+        properties: {
+          acceptanceId: { type: ["string", "null"], default: null },
+          quoteId: { type: "string" },
+          offerId: { type: "string" },
+          acceptedByAgentId: { type: "string" },
+          acceptedAt: { type: ["string", "null"], default: null },
+          metadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.task_acceptance_list",
+      description: "List TaskAcceptance.v1 records.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          acceptanceId: { type: ["string", "null"], default: null },
+          buyerAgentId: { type: ["string", "null"], default: null },
+          sellerAgentId: { type: ["string", "null"], default: null },
+          quoteId: { type: ["string", "null"], default: null },
+          offerId: { type: ["string", "null"], default: null },
+          status: { type: ["string", "null"], enum: ["open", "accepted", "expired", "revoked", null], default: null },
+          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null }
+        }
+      }
+    },
+    {
       name: "settld.work_order_create",
       description: "Create a SubAgentWorkOrder.v1 for delegated paid execution.",
       inputSchema: {
@@ -998,6 +1201,8 @@ function buildTools() {
           principalAgentId: { type: "string" },
           subAgentId: { type: "string" },
           requiredCapability: { type: "string" },
+          x402ToolId: { type: ["string", "null"], default: null },
+          x402ProviderId: { type: ["string", "null"], default: null },
           specification: { type: ["object", "null"], additionalProperties: true, default: null },
           amountCents: { type: "integer", minimum: 1 },
           currency: { type: ["string", "null"], default: "USD" },
@@ -1055,6 +1260,16 @@ function buildTools() {
           attestationMinLevel: { type: ["string", "null"], enum: ["self_claim", "attested", "certified", null], default: null },
           attestationIssuerAgentId: { type: ["string", "null"], default: null },
           delegationGrantRef: { type: ["string", "null"], default: null },
+          authorityGrantRef: { type: ["string", "null"], default: null },
+          acceptanceRef: {
+            type: ["object", "null"],
+            additionalProperties: false,
+            default: null,
+            properties: {
+              acceptanceId: { type: "string" },
+              acceptanceHash: { type: ["string", "null"], default: null }
+            }
+          },
           metadata: { type: ["object", "null"], additionalProperties: true, default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
         }
@@ -1133,8 +1348,157 @@ function buildTools() {
           x402SettlementStatus: { type: ["string", "null"], default: null },
           x402ReceiptId: { type: ["string", "null"], default: null },
           completionReceiptHash: { type: ["string", "null"], default: null },
+          acceptanceHash: { type: ["string", "null"], default: null },
+          authorityGrantRef: { type: ["string", "null"], default: null },
           settledAt: { type: ["string", "null"], default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.session_create",
+      description: "Create a Session.v1 container for agent collaboration.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["sessionId"],
+        properties: {
+          sessionId: { type: "string" },
+          visibility: { type: ["string", "null"], enum: ["public", "tenant", "private", null], default: null },
+          participants: { type: ["array", "null"], items: { type: "string" }, default: null },
+          policyRef: { type: ["string", "null"], default: null },
+          metadata: { type: ["object", "null"], additionalProperties: true, default: null },
+          createdAt: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.session_list",
+      description: "List sessions with optional visibility/participant filters.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          sessionId: { type: ["string", "null"], default: null },
+          visibility: { type: ["string", "null"], enum: ["public", "tenant", "private", null], default: null },
+          participantAgentId: { type: ["string", "null"], default: null },
+          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null }
+        }
+      }
+    },
+    {
+      name: "settld.session_get",
+      description: "Fetch a Session.v1 by sessionId.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["sessionId"],
+        properties: {
+          sessionId: { type: "string" }
+        }
+      }
+    },
+    {
+      name: "settld.session_events_list",
+      description: "List SessionEvent entries for a session.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["sessionId"],
+        properties: {
+          sessionId: { type: "string" },
+          eventType: { type: ["string", "null"], default: null },
+          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null }
+        }
+      }
+    },
+    {
+      name: "settld.session_event_append",
+      description: "Append a SessionEvent.v1 to a session with chain precondition checks.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["sessionId", "eventType"],
+        properties: {
+          sessionId: { type: "string" },
+          eventType: { type: "string" },
+          payload: { type: ["object", "array", "string", "number", "boolean", "null"], default: null },
+          traceId: { type: ["string", "null"], default: null },
+          at: { type: ["string", "null"], default: null },
+          actor: { type: ["object", "null"], additionalProperties: true, default: null },
+          expectedPrevChainHash: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
+        }
+      }
+    },
+    {
+      name: "settld.session_replay_pack_get",
+      description: "Fetch a deterministic SessionReplayPack.v1 export for audit/replay.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["sessionId"],
+        properties: {
+          sessionId: { type: "string" }
+        }
+      }
+    },
+    {
+      name: "settld.relationships_list",
+      description: "List tenant-scoped RelationshipEdge.v1 records for an agent.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["agentId"],
+        properties: {
+          agentId: { type: "string" },
+          counterpartyAgentId: { type: ["string", "null"], default: null },
+          reputationWindow: { type: ["string", "null"], enum: ["7d", "30d", "allTime", null], default: null },
+          asOf: { type: ["string", "null"], default: null },
+          visibility: { type: ["string", "null"], enum: ["all", "private", "public_summary", null], default: null },
+          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null }
+        }
+      }
+    },
+    {
+      name: "settld.public_reputation_summary_get",
+      description: "Fetch PublicAgentReputationSummary.v1 for an opted-in public agent.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["agentId"],
+        properties: {
+          agentId: { type: "string" },
+          reputationVersion: { type: ["string", "null"], enum: ["v1", "v2", null], default: null },
+          reputationWindow: { type: ["string", "null"], enum: ["7d", "30d", "allTime", null], default: null },
+          asOf: { type: ["string", "null"], default: null },
+          includeRelationships: { type: ["boolean", "null"], default: null },
+          relationshipLimit: { type: ["integer", "null"], minimum: 1, maximum: 100, default: null }
+        }
+      }
+    },
+    {
+      name: "settld.interaction_graph_pack_get",
+      description: "Fetch VerifiedInteractionGraphPack.v1 with optional deterministic signing.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["agentId"],
+        properties: {
+          agentId: { type: "string" },
+          reputationVersion: { type: ["string", "null"], enum: ["v1", "v2", null], default: null },
+          reputationWindow: { type: ["string", "null"], enum: ["7d", "30d", "allTime", null], default: null },
+          asOf: { type: ["string", "null"], default: null },
+          counterpartyAgentId: { type: ["string", "null"], default: null },
+          visibility: { type: ["string", "null"], enum: ["all", "private", "public_summary", null], default: null },
+          sign: { type: ["boolean", "null"], default: false },
+          signerKeyId: { type: ["string", "null"], default: null },
+          limit: { type: ["integer", "null"], minimum: 1, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null }
         }
       }
     },
@@ -1638,6 +2002,125 @@ async function main() {
               idem: idempotencyKey
             });
             result = { ok: true, grantId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.authority_grant_issue") {
+            const principalRef = args?.principalRef && typeof args.principalRef === "object" && !Array.isArray(args.principalRef) ? args.principalRef : null;
+            if (!principalRef) throw new TypeError("principalRef must be an object");
+            const principalType = String(principalRef.principalType ?? "").trim().toLowerCase();
+            const principalId = String(principalRef.principalId ?? "").trim();
+            if (!["human", "org", "service", "agent"].includes(principalType)) {
+              throw new TypeError("principalRef.principalType must be one of: human|org|service|agent");
+            }
+            assertNonEmptyString(principalId, "principalRef.principalId");
+            const granteeAgentId = String(args?.granteeAgentId ?? "").trim();
+            assertNonEmptyString(granteeAgentId, "granteeAgentId");
+            const maxPerCallCents = Number(args?.maxPerCallCents);
+            if (!Number.isSafeInteger(maxPerCallCents) || maxPerCallCents < 0) {
+              throw new TypeError("maxPerCallCents must be a non-negative safe integer");
+            }
+            const maxTotalCents = Number(args?.maxTotalCents);
+            if (!Number.isSafeInteger(maxTotalCents) || maxTotalCents < 0) {
+              throw new TypeError("maxTotalCents must be a non-negative safe integer");
+            }
+
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_authority_grant_issue");
+
+            const body = {
+              principalRef: {
+                principalType,
+                principalId
+              },
+              granteeAgentId,
+              scope: {
+                allowedRiskClasses: Array.isArray(args?.allowedRiskClasses)
+                  ? args.allowedRiskClasses.map((v) => String(v ?? "").trim().toLowerCase()).filter(Boolean)
+                  : ["financial"],
+                sideEffectingAllowed: args?.sideEffectingAllowed !== false
+              },
+              spendEnvelope: {
+                currency: args?.currency ? String(args.currency).trim().toUpperCase() : "USD",
+                maxPerCallCents,
+                maxTotalCents
+              },
+              chainBinding: {
+                rootGrantHash: typeof args?.rootGrantHash === "string" && args.rootGrantHash.trim() !== "" ? args.rootGrantHash.trim() : null,
+                parentGrantHash:
+                  typeof args?.parentGrantHash === "string" && args.parentGrantHash.trim() !== "" ? args.parentGrantHash.trim() : null,
+                depth: Number.isSafeInteger(Number(args?.depth)) ? Number(args.depth) : 0,
+                maxDelegationDepth:
+                  Number.isSafeInteger(Number(args?.maxDelegationDepth)) && Number(args.maxDelegationDepth) >= 0
+                    ? Number(args.maxDelegationDepth)
+                    : Number.isSafeInteger(Number(args?.depth))
+                      ? Number(args.depth)
+                      : 0
+              },
+              validity: {
+                ...(typeof args?.issuedAt === "string" && args.issuedAt.trim() !== "" ? { issuedAt: args.issuedAt.trim() } : {}),
+                ...(typeof args?.notBefore === "string" && args.notBefore.trim() !== "" ? { notBefore: args.notBefore.trim() } : {}),
+                ...(typeof args?.expiresAt === "string" && args.expiresAt.trim() !== "" ? { expiresAt: args.expiresAt.trim() } : {})
+              },
+              revocation: {
+                revocable: args?.revocable !== false
+              }
+            };
+            if (typeof args?.grantId === "string" && args.grantId.trim() !== "") body.grantId = args.grantId.trim();
+            if (Array.isArray(args?.allowedProviderIds)) {
+              body.scope.allowedProviderIds = args.allowedProviderIds.map((v) => String(v ?? "").trim()).filter(Boolean);
+            }
+            if (Array.isArray(args?.allowedToolIds)) {
+              body.scope.allowedToolIds = args.allowedToolIds.map((v) => String(v ?? "").trim()).filter(Boolean);
+            }
+            if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) {
+              body.metadata = args.metadata;
+            }
+
+            const out = await client.requestJson("/authority-grants", {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.authority_grant_get") {
+            const grantId = String(args?.grantId ?? "").trim();
+            assertNonEmptyString(grantId, "grantId");
+            const out = await client.requestJson(`/authority-grants/${encodeURIComponent(grantId)}`, { method: "GET" });
+            result = { ok: true, grantId, ...redactSecrets(out) };
+          } else if (name === "settld.authority_grant_list") {
+            const query = new URLSearchParams();
+            if (typeof args?.grantId === "string" && args.grantId.trim() !== "") query.set("grantId", args.grantId.trim());
+            if (typeof args?.grantHash === "string" && args.grantHash.trim() !== "") query.set("grantHash", args.grantHash.trim().toLowerCase());
+            if (typeof args?.principalId === "string" && args.principalId.trim() !== "") {
+              query.set("principalId", args.principalId.trim());
+            }
+            if (typeof args?.granteeAgentId === "string" && args.granteeAgentId.trim() !== "") {
+              query.set("granteeAgentId", args.granteeAgentId.trim());
+            }
+            if (typeof args?.includeRevoked === "boolean") query.set("includeRevoked", args.includeRevoked ? "true" : "false");
+            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
+            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const out = await client.requestJson(`/authority-grants${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
+            result = { ok: true, ...redactSecrets(out) };
+          } else if (name === "settld.authority_grant_revoke") {
+            const grantId = String(args?.grantId ?? "").trim();
+            assertNonEmptyString(grantId, "grantId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_authority_grant_revoke");
+            const body = {};
+            if (typeof args?.revocationReasonCode === "string" && args.revocationReasonCode.trim() !== "") {
+              body.revocationReasonCode = args.revocationReasonCode.trim();
+            }
+            const out = await client.requestJson(`/authority-grants/${encodeURIComponent(grantId)}/revoke`, {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, grantId, idempotencyKey, ...redactSecrets(out) };
           } else if (name === "settld.agent_card_upsert") {
             const agentId = String(args?.agentId ?? "").trim();
             assertNonEmptyString(agentId, "agentId");
@@ -1727,6 +2210,77 @@ async function main() {
             if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
             const out = await client.requestJson(`/agent-cards/discover${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
             result = { ok: true, ...redactSecrets(out) };
+          } else if (name === "settld.relationships_list") {
+            const agentId = String(args?.agentId ?? "").trim();
+            assertNonEmptyString(agentId, "agentId");
+            const query = new URLSearchParams();
+            query.set("agentId", agentId);
+            if (typeof args?.counterpartyAgentId === "string" && args.counterpartyAgentId.trim() !== "") {
+              query.set("counterpartyAgentId", args.counterpartyAgentId.trim());
+            }
+            if (typeof args?.reputationWindow === "string" && args.reputationWindow.trim() !== "") {
+              query.set("reputationWindow", args.reputationWindow.trim());
+            }
+            if (typeof args?.asOf === "string" && args.asOf.trim() !== "") query.set("asOf", args.asOf.trim());
+            if (typeof args?.visibility === "string" && args.visibility.trim() !== "") {
+              query.set("visibility", args.visibility.trim().toLowerCase());
+            }
+            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
+            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const out = await client.requestJson(`/relationships?${query.toString()}`, { method: "GET" });
+            result = { ok: true, agentId, ...redactSecrets(out) };
+          } else if (name === "settld.public_reputation_summary_get") {
+            const agentId = String(args?.agentId ?? "").trim();
+            assertNonEmptyString(agentId, "agentId");
+            const query = new URLSearchParams();
+            if (typeof args?.reputationVersion === "string" && args.reputationVersion.trim() !== "") {
+              query.set("reputationVersion", args.reputationVersion.trim().toLowerCase());
+            }
+            if (typeof args?.reputationWindow === "string" && args.reputationWindow.trim() !== "") {
+              query.set("reputationWindow", args.reputationWindow.trim());
+            }
+            if (typeof args?.asOf === "string" && args.asOf.trim() !== "") query.set("asOf", args.asOf.trim());
+            if (typeof args?.includeRelationships === "boolean") {
+              query.set("includeRelationships", args.includeRelationships ? "true" : "false");
+            }
+            if (Number.isSafeInteger(Number(args?.relationshipLimit)) && Number(args.relationshipLimit) > 0) {
+              query.set("relationshipLimit", String(Number(args.relationshipLimit)));
+            }
+            const out = await client.requestJson(
+              `/public/agents/${encodeURIComponent(agentId)}/reputation-summary${query.toString() ? `?${query.toString()}` : ""}`,
+              { method: "GET" }
+            );
+            result = { ok: true, agentId, ...redactSecrets(out) };
+          } else if (name === "settld.interaction_graph_pack_get") {
+            const agentId = String(args?.agentId ?? "").trim();
+            assertNonEmptyString(agentId, "agentId");
+            const query = new URLSearchParams();
+            if (typeof args?.reputationVersion === "string" && args.reputationVersion.trim() !== "") {
+              query.set("reputationVersion", args.reputationVersion.trim().toLowerCase());
+            }
+            if (typeof args?.reputationWindow === "string" && args.reputationWindow.trim() !== "") {
+              query.set("reputationWindow", args.reputationWindow.trim());
+            }
+            if (typeof args?.asOf === "string" && args.asOf.trim() !== "") query.set("asOf", args.asOf.trim());
+            if (typeof args?.counterpartyAgentId === "string" && args.counterpartyAgentId.trim() !== "") {
+              query.set("counterpartyAgentId", args.counterpartyAgentId.trim());
+            }
+            if (typeof args?.visibility === "string" && args.visibility.trim() !== "") {
+              query.set("visibility", args.visibility.trim().toLowerCase());
+            }
+            const sign = args?.sign === true;
+            if (sign) query.set("sign", "true");
+            if (typeof args?.signerKeyId === "string" && args.signerKeyId.trim() !== "") {
+              if (!sign) throw new TypeError("signerKeyId requires sign=true");
+              query.set("signerKeyId", args.signerKeyId.trim());
+            }
+            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
+            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const out = await client.requestJson(
+              `/agents/${encodeURIComponent(agentId)}/interaction-graph-pack${query.toString() ? `?${query.toString()}` : ""}`,
+              { method: "GET" }
+            );
+            result = { ok: true, agentId, signed: sign, ...redactSecrets(out) };
           } else if (name === "settld.capability_attest") {
             const subjectAgentId = String(args?.subjectAgentId ?? "").trim();
             const capability = String(args?.capability ?? "").trim();
@@ -1791,6 +2345,142 @@ async function main() {
               idem: idempotencyKey
             });
             result = { ok: true, attestationId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.task_quote_issue") {
+            const buyerAgentId = String(args?.buyerAgentId ?? "").trim();
+            const sellerAgentId = String(args?.sellerAgentId ?? "").trim();
+            const requiredCapability = String(args?.requiredCapability ?? "").trim();
+            assertNonEmptyString(buyerAgentId, "buyerAgentId");
+            assertNonEmptyString(sellerAgentId, "sellerAgentId");
+            assertNonEmptyString(requiredCapability, "requiredCapability");
+            const amountCents = Number(args?.amountCents);
+            if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new TypeError("amountCents must be a positive safe integer");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_task_quote_issue");
+            const body = {
+              buyerAgentId,
+              sellerAgentId,
+              requiredCapability,
+              pricing: {
+                amountCents,
+                currency: typeof args?.currency === "string" && args.currency.trim() !== "" ? args.currency.trim() : "USD"
+              }
+            };
+            if (typeof args?.quoteId === "string" && args.quoteId.trim() !== "") body.quoteId = args.quoteId.trim();
+            if (args?.constraints && typeof args.constraints === "object" && !Array.isArray(args.constraints)) body.constraints = args.constraints;
+            if (args?.attestationRequirement && typeof args.attestationRequirement === "object" && !Array.isArray(args.attestationRequirement)) {
+              body.attestationRequirement = args.attestationRequirement;
+            }
+            if (typeof args?.expiresAt === "string" && args.expiresAt.trim() !== "") body.expiresAt = args.expiresAt.trim();
+            if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
+            const out = await client.requestJson("/task-quotes", {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.task_quote_list") {
+            const query = new URLSearchParams();
+            if (typeof args?.quoteId === "string" && args.quoteId.trim() !== "") query.set("quoteId", args.quoteId.trim());
+            if (typeof args?.buyerAgentId === "string" && args.buyerAgentId.trim() !== "") query.set("buyerAgentId", args.buyerAgentId.trim());
+            if (typeof args?.sellerAgentId === "string" && args.sellerAgentId.trim() !== "") query.set("sellerAgentId", args.sellerAgentId.trim());
+            if (typeof args?.requiredCapability === "string" && args.requiredCapability.trim() !== "") {
+              query.set("requiredCapability", args.requiredCapability.trim());
+            }
+            if (typeof args?.status === "string" && args.status.trim() !== "") query.set("status", args.status.trim().toLowerCase());
+            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
+            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const out = await client.requestJson(`/task-quotes${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
+            result = { ok: true, ...redactSecrets(out) };
+          } else if (name === "settld.task_offer_issue") {
+            const buyerAgentId = String(args?.buyerAgentId ?? "").trim();
+            const sellerAgentId = String(args?.sellerAgentId ?? "").trim();
+            assertNonEmptyString(buyerAgentId, "buyerAgentId");
+            assertNonEmptyString(sellerAgentId, "sellerAgentId");
+            const amountCents = Number(args?.amountCents);
+            if (!Number.isSafeInteger(amountCents) || amountCents <= 0) throw new TypeError("amountCents must be a positive safe integer");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_task_offer_issue");
+            const body = {
+              buyerAgentId,
+              sellerAgentId,
+              pricing: {
+                amountCents,
+                currency: typeof args?.currency === "string" && args.currency.trim() !== "" ? args.currency.trim() : "USD"
+              }
+            };
+            if (typeof args?.offerId === "string" && args.offerId.trim() !== "") body.offerId = args.offerId.trim();
+            if (typeof args?.quoteId === "string" && args.quoteId.trim() !== "") {
+              body.quoteRef = {
+                quoteId: args.quoteId.trim()
+              };
+              if (typeof args?.quoteHash === "string" && args.quoteHash.trim() !== "") {
+                body.quoteRef.quoteHash = args.quoteHash.trim().toLowerCase();
+              }
+            }
+            if (args?.constraints && typeof args.constraints === "object" && !Array.isArray(args.constraints)) body.constraints = args.constraints;
+            if (typeof args?.expiresAt === "string" && args.expiresAt.trim() !== "") body.expiresAt = args.expiresAt.trim();
+            if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
+            const out = await client.requestJson("/task-offers", {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.task_offer_list") {
+            const query = new URLSearchParams();
+            if (typeof args?.offerId === "string" && args.offerId.trim() !== "") query.set("offerId", args.offerId.trim());
+            if (typeof args?.buyerAgentId === "string" && args.buyerAgentId.trim() !== "") query.set("buyerAgentId", args.buyerAgentId.trim());
+            if (typeof args?.sellerAgentId === "string" && args.sellerAgentId.trim() !== "") query.set("sellerAgentId", args.sellerAgentId.trim());
+            if (typeof args?.quoteId === "string" && args.quoteId.trim() !== "") query.set("quoteId", args.quoteId.trim());
+            if (typeof args?.status === "string" && args.status.trim() !== "") query.set("status", args.status.trim().toLowerCase());
+            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
+            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const out = await client.requestJson(`/task-offers${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
+            result = { ok: true, ...redactSecrets(out) };
+          } else if (name === "settld.task_acceptance_issue") {
+            const quoteId = String(args?.quoteId ?? "").trim();
+            const offerId = String(args?.offerId ?? "").trim();
+            const acceptedByAgentId = String(args?.acceptedByAgentId ?? "").trim();
+            assertNonEmptyString(quoteId, "quoteId");
+            assertNonEmptyString(offerId, "offerId");
+            assertNonEmptyString(acceptedByAgentId, "acceptedByAgentId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_task_acceptance_issue");
+            const body = {
+              quoteId,
+              offerId,
+              acceptedByAgentId
+            };
+            if (typeof args?.acceptanceId === "string" && args.acceptanceId.trim() !== "") body.acceptanceId = args.acceptanceId.trim();
+            if (typeof args?.acceptedAt === "string" && args.acceptedAt.trim() !== "") body.acceptedAt = args.acceptedAt.trim();
+            if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
+            const out = await client.requestJson("/task-acceptances", {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.task_acceptance_list") {
+            const query = new URLSearchParams();
+            if (typeof args?.acceptanceId === "string" && args.acceptanceId.trim() !== "") query.set("acceptanceId", args.acceptanceId.trim());
+            if (typeof args?.buyerAgentId === "string" && args.buyerAgentId.trim() !== "") query.set("buyerAgentId", args.buyerAgentId.trim());
+            if (typeof args?.sellerAgentId === "string" && args.sellerAgentId.trim() !== "") query.set("sellerAgentId", args.sellerAgentId.trim());
+            if (typeof args?.quoteId === "string" && args.quoteId.trim() !== "") query.set("quoteId", args.quoteId.trim());
+            if (typeof args?.offerId === "string" && args.offerId.trim() !== "") query.set("offerId", args.offerId.trim());
+            if (typeof args?.status === "string" && args.status.trim() !== "") query.set("status", args.status.trim().toLowerCase());
+            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
+            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const out = await client.requestJson(`/task-acceptances${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
+            result = { ok: true, ...redactSecrets(out) };
           } else if (name === "settld.work_order_create") {
             const principalAgentId = String(args?.principalAgentId ?? "").trim();
             const subAgentId = String(args?.subAgentId ?? "").trim();
@@ -1817,6 +2507,8 @@ async function main() {
             if (typeof args?.parentTaskId === "string" && args.parentTaskId.trim() !== "") body.parentTaskId = args.parentTaskId.trim();
             if (args?.specification && typeof args.specification === "object" && !Array.isArray(args.specification)) body.specification = args.specification;
             if (typeof args?.quoteId === "string" && args.quoteId.trim() !== "") body.pricing.quoteId = args.quoteId.trim();
+            if (typeof args?.x402ToolId === "string" && args.x402ToolId.trim() !== "") body.x402ToolId = args.x402ToolId.trim();
+            if (typeof args?.x402ProviderId === "string" && args.x402ProviderId.trim() !== "") body.x402ProviderId = args.x402ProviderId.trim();
             if (args?.constraints && typeof args.constraints === "object" && !Array.isArray(args.constraints)) body.constraints = args.constraints;
             if (args?.evidencePolicy && typeof args.evidencePolicy === "object" && !Array.isArray(args.evidencePolicy)) {
               body.evidencePolicy = args.evidencePolicy;
@@ -1843,6 +2535,17 @@ async function main() {
             }
             if (typeof args?.delegationGrantRef === "string" && args.delegationGrantRef.trim() !== "") {
               body.delegationGrantRef = args.delegationGrantRef.trim();
+            }
+            if (typeof args?.authorityGrantRef === "string" && args.authorityGrantRef.trim() !== "") {
+              body.authorityGrantRef = args.authorityGrantRef.trim();
+            }
+            if (args?.acceptanceRef && typeof args.acceptanceRef === "object" && !Array.isArray(args.acceptanceRef)) {
+              const acceptanceId = String(args.acceptanceRef.acceptanceId ?? "").trim();
+              if (!acceptanceId) throw new TypeError("acceptanceRef.acceptanceId is required when acceptanceRef is provided");
+              body.acceptanceRef = { acceptanceId };
+              if (typeof args.acceptanceRef.acceptanceHash === "string" && args.acceptanceRef.acceptanceHash.trim() !== "") {
+                body.acceptanceRef.acceptanceHash = args.acceptanceRef.acceptanceHash.trim().toLowerCase();
+              }
             }
             if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
 
@@ -1952,6 +2655,12 @@ async function main() {
             if (typeof args?.completionReceiptHash === "string" && args.completionReceiptHash.trim() !== "") {
               body.completionReceiptHash = args.completionReceiptHash.trim().toLowerCase();
             }
+            if (typeof args?.acceptanceHash === "string" && args.acceptanceHash.trim() !== "") {
+              body.acceptanceHash = args.acceptanceHash.trim().toLowerCase();
+            }
+            if (typeof args?.authorityGrantRef === "string" && args.authorityGrantRef.trim() !== "") {
+              body.authorityGrantRef = args.authorityGrantRef.trim();
+            }
             if (typeof args?.settledAt === "string" && args.settledAt.trim() !== "") body.settledAt = args.settledAt.trim();
             const out = await client.requestJson(`/work-orders/${encodeURIComponent(workOrderId)}/settle`, {
               method: "POST",
@@ -1960,6 +2669,98 @@ async function main() {
               idem: idempotencyKey
             });
             result = { ok: true, workOrderId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.session_create") {
+            const sessionId = String(args?.sessionId ?? "").trim();
+            assertNonEmptyString(sessionId, "sessionId");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_session_create");
+            const body = { sessionId };
+            if (typeof args?.visibility === "string" && args.visibility.trim() !== "") {
+              body.visibility = args.visibility.trim().toLowerCase();
+            }
+            if (Array.isArray(args?.participants)) {
+              body.participants = args.participants.map((v) => String(v ?? "").trim()).filter(Boolean);
+            }
+            if (typeof args?.policyRef === "string" && args.policyRef.trim() !== "") body.policyRef = args.policyRef.trim();
+            if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
+            if (typeof args?.createdAt === "string" && args.createdAt.trim() !== "") body.createdAt = args.createdAt.trim();
+            const out = await client.requestJson("/sessions", {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, sessionId, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.session_list") {
+            const query = new URLSearchParams();
+            if (typeof args?.sessionId === "string" && args.sessionId.trim() !== "") query.set("sessionId", args.sessionId.trim());
+            if (typeof args?.visibility === "string" && args.visibility.trim() !== "") query.set("visibility", args.visibility.trim().toLowerCase());
+            if (typeof args?.participantAgentId === "string" && args.participantAgentId.trim() !== "") {
+              query.set("participantAgentId", args.participantAgentId.trim());
+            }
+            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
+            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const out = await client.requestJson(`/sessions${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
+            result = { ok: true, ...redactSecrets(out) };
+          } else if (name === "settld.session_get") {
+            const sessionId = String(args?.sessionId ?? "").trim();
+            assertNonEmptyString(sessionId, "sessionId");
+            const out = await client.requestJson(`/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" });
+            result = { ok: true, sessionId, ...redactSecrets(out) };
+          } else if (name === "settld.session_events_list") {
+            const sessionId = String(args?.sessionId ?? "").trim();
+            assertNonEmptyString(sessionId, "sessionId");
+            const query = new URLSearchParams();
+            if (typeof args?.eventType === "string" && args.eventType.trim() !== "") query.set("eventType", args.eventType.trim());
+            if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
+            if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
+            const out = await client.requestJson(
+              `/sessions/${encodeURIComponent(sessionId)}/events${query.toString() ? `?${query.toString()}` : ""}`,
+              { method: "GET" }
+            );
+            result = { ok: true, sessionId, ...redactSecrets(out) };
+          } else if (name === "settld.session_event_append") {
+            const sessionId = String(args?.sessionId ?? "").trim();
+            const eventType = String(args?.eventType ?? "").trim();
+            assertNonEmptyString(sessionId, "sessionId");
+            assertNonEmptyString(eventType, "eventType");
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_session_event_append");
+            let expectedPrevChainHash =
+              typeof args?.expectedPrevChainHash === "string" && args.expectedPrevChainHash.trim() !== ""
+                ? args.expectedPrevChainHash.trim()
+                : null;
+            if (!expectedPrevChainHash) {
+              const eventsOut = await client.requestJson(`/sessions/${encodeURIComponent(sessionId)}/events?limit=1&offset=0`, {
+                method: "GET"
+              });
+              expectedPrevChainHash =
+                typeof eventsOut?.currentPrevChainHash === "string" && eventsOut.currentPrevChainHash.trim() !== ""
+                  ? eventsOut.currentPrevChainHash.trim()
+                  : "null";
+            }
+            const body = { eventType };
+            if (args?.payload !== undefined) body.payload = args.payload;
+            if (typeof args?.traceId === "string" && args.traceId.trim() !== "") body.traceId = args.traceId.trim();
+            if (typeof args?.at === "string" && args.at.trim() !== "") body.at = args.at.trim();
+            if (args?.actor && typeof args.actor === "object" && !Array.isArray(args.actor)) body.actor = args.actor;
+            const out = await client.requestJson(`/sessions/${encodeURIComponent(sessionId)}/events`, {
+              method: "POST",
+              write: true,
+              body,
+              headers: { "x-proxy-expected-prev-chain-hash": expectedPrevChainHash },
+              idem: idempotencyKey
+            });
+            result = { ok: true, sessionId, expectedPrevChainHash, idempotencyKey, ...redactSecrets(out) };
+          } else if (name === "settld.session_replay_pack_get") {
+            const sessionId = String(args?.sessionId ?? "").trim();
+            assertNonEmptyString(sessionId, "sessionId");
+            const out = await client.requestJson(`/sessions/${encodeURIComponent(sessionId)}/replay-pack`, { method: "GET" });
+            result = { ok: true, sessionId, ...redactSecrets(out) };
           } else if (name === "settld.x402_gate_verify") {
             const gateId = String(args?.gateId ?? "").trim();
             assertNonEmptyString(gateId, "gateId");
@@ -2274,7 +3075,34 @@ async function main() {
           if (!isNotification) stream.send({ jsonrpc: "2.0", id, result: toolResult });
         } catch (err) {
           const durationMs = nowMs() - started;
-          const toolResult = { ...asErrorResult(err), content: [contentText(JSON.stringify({ tool: name, durationMs, error: err?.message ?? String(err) }, null, 2))] };
+          const details =
+            err?.details && typeof err.details === "object"
+              ? err.details
+              : null;
+          const toolResult = {
+            ...asErrorResult(err),
+            content: [
+              contentText(
+                JSON.stringify(
+                  {
+                    tool: name,
+                    durationMs,
+                    error: err?.message ?? String(err),
+                    code:
+                      (details && typeof details.code === "string" && details.code.trim() !== ""
+                        ? details.code.trim()
+                        : typeof err?.code === "string" && err.code.trim() !== ""
+                          ? err.code.trim()
+                          : null),
+                    statusCode: Number.isInteger(err?.statusCode) ? err.statusCode : null,
+                    details
+                  },
+                  null,
+                  2
+                )
+              )
+            ]
+          };
           if (!isNotification) stream.send({ jsonrpc: "2.0", id, result: toolResult });
         }
         return;

@@ -72,9 +72,9 @@ test("agent substrate fast loop runner: applies bootstrap env patch to checks an
   );
 
   assert.equal(report.ok, true);
-  assert.equal(report.summary.totalChecks, 3);
+  assert.equal(report.summary.totalChecks, 4);
   assert.equal(cleanupCalled, true);
-  assert.equal(seenEnv.length, 3);
+  assert.equal(seenEnv.length, 4);
   for (const row of seenEnv) {
     assert.equal(row.SETTLD_BASE_URL, "http://127.0.0.1:3000");
     assert.equal(row.SETTLD_TENANT_ID, "tenant_default");

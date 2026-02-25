@@ -179,6 +179,8 @@ async function main() {
   const demoSeed = `${Date.now()}`;
   const principalAgentId = sanitizeId(`agt_openclaw_demo_principal_${demoSeed}`, `agt_openclaw_demo_principal`);
   const workerAgentId = sanitizeId(`agt_openclaw_demo_worker_${demoSeed}`, `agt_openclaw_demo_worker`);
+  const x402ToolId = "openclaw_substrate_demo";
+  const x402ProviderId = workerAgentId;
   const startedAt = nowIso();
   const transcript = [];
   let child = null;
@@ -233,7 +235,15 @@ async function main() {
         response?.result?.isError === true || (parsed && typeof parsed.error === "string" && parsed.error.trim() !== "");
       transcript.push({ step: name, ok: !isToolError, result: parsed });
       if (isToolError) {
-        throw new Error(`${name} failed: ${String(parsed.error ?? "tool returned isError")}`);
+        const errorCode =
+          typeof parsed?.code === "string" && parsed.code.trim() !== "" ? parsed.code.trim() : null;
+        const details =
+          parsed?.details && typeof parsed.details === "object" ? JSON.stringify(parsed.details) : null;
+        throw new Error(
+          `${name} failed: ${String(parsed.error ?? "tool returned isError")}${
+            errorCode ? ` [${errorCode}]` : ""
+          }${details ? ` details=${details}` : ""}`
+        );
       }
       return parsed;
     }
@@ -245,7 +255,7 @@ async function main() {
       payerAgentId: principalAgentId,
       payeeAgentId: workerAgentId,
       autoFundPayerCents: 5000,
-      toolId: "openclaw_substrate_demo",
+      toolId: x402ToolId,
       idempotencyKey: `demo_gate_create_${demoSeed}`
     });
     const gateId =
@@ -318,6 +328,8 @@ async function main() {
       },
       amountCents: 275,
       currency: "USD",
+      x402ToolId,
+      x402ProviderId,
       delegationGrantRef,
       idempotencyKey: `demo_workorder_create_${demoSeed}`
     });

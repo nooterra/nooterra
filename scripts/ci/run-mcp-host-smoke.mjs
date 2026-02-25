@@ -11,6 +11,36 @@ function randomId(prefix) {
   return `${prefix}_${crypto.randomBytes(6).toString("hex")}`;
 }
 
+function normalizeBaseUrlForCompare(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  try {
+    const url = new URL(raw);
+    url.pathname = "/";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return raw.replace(/\/+$/, "");
+  }
+}
+
+function normalizeBaseUrlEndpointForCompare(value) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  const host = String(url.hostname ?? "").trim().toLowerCase();
+  const normalizedHost = host === "localhost" ? "127.0.0.1" : host;
+  const port = url.port ? String(url.port).trim() : url.protocol === "https:" ? "443" : "80";
+  const pathname = String(url.pathname ?? "/").replace(/\/+$/, "") || "/";
+  return { protocol: String(url.protocol ?? "").toLowerCase(), host: normalizedHost, port, pathname };
+}
+
 function buildScopedOpsToken(token) {
   return `${String(token ?? "").trim()}:ops_read,ops_write,finance_read,finance_write,audit_read`;
 }
@@ -342,6 +372,30 @@ async function main() {
     if (typeof mcpEnv.SETTLD_BASE_URL !== "string" || !mcpEnv.SETTLD_BASE_URL.trim()) {
       throw new Error("runtime bootstrap did not return SETTLD_BASE_URL");
     }
+    const projectedBaseUrl = normalizeBaseUrlForCompare(mcpEnv.SETTLD_BASE_URL);
+    const expectedBaseUrl = normalizeBaseUrlForCompare(baseApiUrl);
+    const projectedEndpoint = normalizeBaseUrlEndpointForCompare(mcpEnv.SETTLD_BASE_URL);
+    const expectedEndpoint = normalizeBaseUrlEndpointForCompare(baseApiUrl);
+    if (!projectedEndpoint || !expectedEndpoint) {
+      throw new Error("runtime bootstrap SETTLD_BASE_URL is not a valid URL");
+    }
+    const sameEndpoint =
+      projectedEndpoint.host === expectedEndpoint.host &&
+      projectedEndpoint.port === expectedEndpoint.port &&
+      projectedEndpoint.pathname === expectedEndpoint.pathname;
+    if (!sameEndpoint) {
+      throw new Error(
+        `runtime bootstrap returned SETTLD_BASE_URL mismatch (expected ${expectedBaseUrl}, got ${projectedBaseUrl || "<empty>"})`
+      );
+    }
+    report.checks.push({
+      id: "runtime_bootstrap_base_url_matches_local_api",
+      ok: true,
+      expectedBaseUrl,
+      observedBaseUrl: projectedBaseUrl,
+      expectedEndpoint,
+      observedEndpoint: projectedEndpoint
+    });
     if (mcpEnv.SETTLD_TENANT_ID !== tenantId) {
       throw new Error("runtime bootstrap returned SETTLD_TENANT_ID mismatch");
     }
@@ -359,6 +413,12 @@ async function main() {
       }
     }
     report.checks.push({ id: "runtime_bootstrap_metadata_projection", ok: true, requiredRuntimeKeys });
+
+    const runtimeMcpEnv = {
+      ...mcpEnv,
+      SETTLD_BASE_URL: baseApiUrl,
+      SETTLD_TENANT_ID: tenantId
+    };
 
     const mismatchTenantEnv = {
       ...mcpEnv,
@@ -395,11 +455,30 @@ async function main() {
     report.checks.push({ id: "runtime_smoke_test", ok: true });
 
     // verify initialize/tools list + tool invocation from an MCP host perspective
-    await runNodeScript("scripts/mcp/probe.mjs", ["--call", "settld.about", "{}"], {
-      env: { ...process.env, ...mcpEnv, MCP_PROBE_TIMEOUT_MS: "30000" }
-    });
+    await runNodeScript(
+      "scripts/mcp/probe.mjs",
+      [
+        "--call",
+        "settld.about",
+        "{}",
+        "--require-tool",
+        "settld.relationships_list",
+        "--require-tool",
+        "settld.public_reputation_summary_get",
+        "--require-tool",
+        "settld.interaction_graph_pack_get"
+      ],
+      {
+        env: { ...process.env, ...runtimeMcpEnv, MCP_PROBE_TIMEOUT_MS: "30000" }
+      }
+    );
     report.checks.push({ id: "mcp_initialize_tools_list", ok: true });
     report.checks.push({ id: "mcp_tool_call_settld_about", ok: true });
+
+    await runNodeScript("scripts/mcp/probe.mjs", ["--interaction-graph-smoke"], {
+      env: { ...process.env, ...runtimeMcpEnv, MCP_PROBE_TIMEOUT_MS: "30000" }
+    });
+    report.checks.push({ id: "mcp_interaction_graph_signed_smoke", ok: true });
 
     const paidToolsPort = await pickPort();
     policyBypassProbe = await startPolicyBypassProbeServer({ port: paidToolsPort });
@@ -409,7 +488,7 @@ async function main() {
       {
         env: {
           ...process.env,
-          ...mcpEnv,
+          ...runtimeMcpEnv,
           SETTLD_PAID_TOOLS_BASE_URL: `http://127.0.0.1:${paidToolsPort}`,
           MCP_PROBE_TIMEOUT_MS: "30000"
         },

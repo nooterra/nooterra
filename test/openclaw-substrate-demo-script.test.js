@@ -202,6 +202,11 @@ test("demo:openclaw-substrate settles with evidence binding and receipt hash", a
     const completeStep = report.transcript?.find((row) => row?.step === "settld.work_order_complete");
     assert.equal(Boolean(completeStep?.ok), true);
 
+    const createStep = report.transcript?.find((row) => row?.step === "settld.work_order_create");
+    assert.equal(Boolean(createStep?.ok), true);
+    assert.equal(createStep?.result?.result?.workOrder?.x402ToolId, "openclaw_substrate_demo");
+    assert.equal(createStep?.result?.result?.workOrder?.x402ProviderId, report?.ids?.workerAgentId);
+
     const completionReceipt = completeStep?.result?.result?.completionReceipt;
     assert.match(String(completionReceipt?.receiptHash ?? ""), /^[a-f0-9]{64}$/);
     assert.ok(Array.isArray(completionReceipt?.evidenceRefs));

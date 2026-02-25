@@ -401,6 +401,25 @@ async function runSmoke(args) {
     checkRpcSuccess(mcpCall.initialize, "initialize");
     checkRpcSuccess(mcpCall.toolsList, "tools/list");
     checkRpcSuccess(mcpCall.toolCall, "tools/call settld.about");
+    const requiredTools = [
+      "settld.relationships_list",
+      "settld.public_reputation_summary_get",
+      "settld.interaction_graph_pack_get"
+    ];
+    const listedTools = Array.isArray(mcpCall.toolsList?.result?.tools) ? mcpCall.toolsList.result.tools : [];
+    const listedNames = new Set(listedTools.map((row) => String(row?.name ?? "").trim()).filter(Boolean));
+    const missingRequiredTools = requiredTools.filter((name) => !listedNames.has(name));
+    checks.push({
+      id: "mcp_required_substrate_tools_present",
+      ok: missingRequiredTools.length === 0,
+      details: {
+        requiredTools,
+        missingRequiredTools
+      }
+    });
+    if (missingRequiredTools.length) {
+      throw new Error(`missing required substrate MCP tools: ${missingRequiredTools.join(", ")}`);
+    }
 
     checks.push({
       id: "mcp_initialize_tools_list_tools_call",

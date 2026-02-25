@@ -102,7 +102,26 @@ export async function runAgentSubstrateFastLoop(args, options = {}) {
     {
       id: "mcp_probe_about",
       command: "npm",
-      args: ["run", "-s", "mcp:probe", "--", "--call", "settld.about", "{}"]
+      args: [
+        "run",
+        "-s",
+        "mcp:probe",
+        "--",
+        "--call",
+        "settld.about",
+        "{}",
+        "--require-tool",
+        "settld.relationships_list",
+        "--require-tool",
+        "settld.public_reputation_summary_get",
+        "--require-tool",
+        "settld.interaction_graph_pack_get"
+      ]
+    },
+    {
+      id: "mcp_interaction_graph_signed_smoke",
+      command: "npm",
+      args: ["run", "-s", "mcp:probe", "--", "--interaction-graph-smoke"]
     },
     {
       id: "mcp_probe_x402_smoke",

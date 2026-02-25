@@ -119,6 +119,14 @@ test("mcp spike: initialize -> tools/list -> tools/call (submit_evidence)", asyn
   assert.ok(names.includes("settld.dispute_close"));
   assert.ok(names.includes("settld.arbitration_open"));
   assert.ok(names.includes("settld.arbitration_issue_verdict"));
+  assert.ok(names.includes("settld.delegation_grant_issue"));
+  assert.ok(names.includes("settld.delegation_grant_get"));
+  assert.ok(names.includes("settld.delegation_grant_list"));
+  assert.ok(names.includes("settld.delegation_grant_revoke"));
+  assert.ok(names.includes("settld.authority_grant_issue"));
+  assert.ok(names.includes("settld.authority_grant_get"));
+  assert.ok(names.includes("settld.authority_grant_list"));
+  assert.ok(names.includes("settld.authority_grant_revoke"));
   assert.ok(names.includes("settld.agent_card_upsert"));
   assert.ok(names.includes("settld.agent_discover"));
   assert.ok(names.includes("settld.capability_attest"));
@@ -129,6 +137,15 @@ test("mcp spike: initialize -> tools/list -> tools/call (submit_evidence)", asyn
   assert.ok(names.includes("settld.work_order_progress"));
   assert.ok(names.includes("settld.work_order_complete"));
   assert.ok(names.includes("settld.work_order_settle"));
+  assert.ok(names.includes("settld.session_create"));
+  assert.ok(names.includes("settld.session_list"));
+  assert.ok(names.includes("settld.session_get"));
+  assert.ok(names.includes("settld.session_events_list"));
+  assert.ok(names.includes("settld.session_event_append"));
+  assert.ok(names.includes("settld.session_replay_pack_get"));
+  assert.ok(names.includes("settld.relationships_list"));
+  assert.ok(names.includes("settld.public_reputation_summary_get"));
+  assert.ok(names.includes("settld.interaction_graph_pack_get"));
   assert.ok(names.includes("settld.x402_gate_create"));
   assert.ok(names.includes("settld.x402_gate_verify"));
   assert.ok(names.includes("settld.x402_gate_get"));
@@ -330,6 +347,213 @@ test("mcp spike: dispute and arbitration tools map to dispute APIs", async () =>
     `POST /runs/${runId}/dispute/close`,
     `POST /runs/${runId}/arbitration/open`,
     `POST /runs/${runId}/arbitration/verdict`
+  ]);
+});
+
+test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async () => {
+  const requests = [];
+  const sessionId = "sess_mcp_1";
+  const api = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const bodyText = Buffer.concat(chunks).toString("utf8");
+      const body = bodyText ? JSON.parse(bodyText) : null;
+      requests.push({
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body
+      });
+
+      if (req.method === "POST" && req.url === "/sessions") {
+        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.ok(typeof req.headers["x-idempotency-key"] === "string" && req.headers["x-idempotency-key"].length > 0);
+        assert.equal(body?.sessionId, sessionId);
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, session: { sessionId, schemaVersion: "Session.v1" } }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === `/sessions?participantAgentId=agt_worker_1&limit=25&offset=0`) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, sessions: [{ sessionId, schemaVersion: "Session.v1" }], limit: 25, offset: 0 }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === `/sessions/${sessionId}`) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, session: { sessionId, schemaVersion: "Session.v1" } }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === `/sessions/${sessionId}/events?eventType=TASK_REQUESTED&limit=10&offset=0`) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, sessionId, events: [], limit: 10, offset: 0, currentPrevChainHash: "null" }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === `/sessions/${sessionId}/events?limit=1&offset=0`) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, sessionId, events: [], limit: 1, offset: 0, currentPrevChainHash: "null" }));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === `/sessions/${sessionId}/events`) {
+        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-proxy-expected-prev-chain-hash"], "null");
+        assert.ok(typeof req.headers["x-idempotency-key"] === "string" && req.headers["x-idempotency-key"].length > 0);
+        assert.equal(body?.eventType, "TASK_REQUESTED");
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, session: { sessionId, revision: 1 }, event: { id: "evt_session_1", type: "TASK_REQUESTED" } }));
+        return;
+      }
+
+      if (req.method === "GET" && req.url === `/sessions/${sessionId}/replay-pack`) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            replayPack: {
+              schemaVersion: "SessionReplayPack.v1",
+              sessionId,
+              packHash: "a".repeat(64)
+            }
+          })
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+  });
+
+  const addr = await listen(api);
+  const baseUrl = `http://${addr.address}:${addr.port}`;
+
+  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      SETTLD_BASE_URL: baseUrl,
+      SETTLD_TENANT_ID: "tenant_default",
+      SETTLD_API_KEY: "sk_test_1.secret",
+      SETTLD_PROTOCOL: "1.0"
+    }
+  });
+
+  child.stdout.setEncoding("utf8");
+  const pending = new Map();
+  let buf = "";
+  child.stdout.on("data", (chunk) => {
+    buf += chunk;
+    for (;;) {
+      const idx = buf.indexOf("\n");
+      if (idx === -1) break;
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line);
+      if (msg && msg.id !== undefined && pending.has(msg.id)) {
+        const { resolve } = pending.get(msg.id);
+        pending.delete(msg.id);
+        resolve(msg);
+      }
+    }
+  });
+
+  const rpc = async (method, params = {}) => {
+    const id = String(Math.random()).slice(2);
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    return await new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        reject(new Error(`timeout waiting for ${method}`));
+      }, 5000).unref?.();
+    });
+  };
+
+  await rpc("initialize", {
+    protocolVersion: "2024-11-05",
+    clientInfo: { name: "node-test", version: "0" },
+    capabilities: {}
+  });
+
+  const created = await rpc("tools/call", {
+    name: "settld.session_create",
+    arguments: {
+      sessionId,
+      visibility: "tenant",
+      participants: ["agt_principal_1", "agt_worker_1"]
+    }
+  });
+  assert.equal(created.result?.isError, false);
+  assert.equal(JSON.parse(created.result?.content?.[0]?.text ?? "{}")?.result?.session?.sessionId, sessionId);
+
+  const listed = await rpc("tools/call", {
+    name: "settld.session_list",
+    arguments: {
+      participantAgentId: "agt_worker_1",
+      limit: 25,
+      offset: 0
+    }
+  });
+  assert.equal(listed.result?.isError, false);
+  assert.equal(JSON.parse(listed.result?.content?.[0]?.text ?? "{}")?.result?.sessions?.[0]?.sessionId, sessionId);
+
+  const got = await rpc("tools/call", {
+    name: "settld.session_get",
+    arguments: { sessionId }
+  });
+  assert.equal(got.result?.isError, false);
+  assert.equal(JSON.parse(got.result?.content?.[0]?.text ?? "{}")?.result?.session?.sessionId, sessionId);
+
+  const events = await rpc("tools/call", {
+    name: "settld.session_events_list",
+    arguments: { sessionId, eventType: "TASK_REQUESTED", limit: 10, offset: 0 }
+  });
+  assert.equal(events.result?.isError, false);
+  assert.equal(JSON.parse(events.result?.content?.[0]?.text ?? "{}")?.result?.sessionId, sessionId);
+
+  const appended = await rpc("tools/call", {
+    name: "settld.session_event_append",
+    arguments: {
+      sessionId,
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_mcp_1" }
+    }
+  });
+  assert.equal(appended.result?.isError, false);
+  const appendedParsed = JSON.parse(appended.result?.content?.[0]?.text ?? "{}");
+  assert.equal(appendedParsed?.result?.expectedPrevChainHash, "null");
+  assert.equal(appendedParsed?.result?.event?.id, "evt_session_1");
+
+  const replayPack = await rpc("tools/call", {
+    name: "settld.session_replay_pack_get",
+    arguments: { sessionId }
+  });
+  assert.equal(replayPack.result?.isError, false);
+  const replayPackParsed = JSON.parse(replayPack.result?.content?.[0]?.text ?? "{}");
+  assert.equal(replayPackParsed?.result?.replayPack?.schemaVersion, "SessionReplayPack.v1");
+  assert.equal(replayPackParsed?.result?.replayPack?.sessionId, sessionId);
+
+  child.kill("SIGTERM");
+  await Promise.race([onceEvent(child, "exit"), new Promise((r) => setTimeout(r, 100))]);
+  api.close();
+
+  const endpoints = requests.map((row) => `${row.method} ${row.url}`);
+  assert.deepEqual(endpoints, [
+    "POST /sessions",
+    "GET /sessions?participantAgentId=agt_worker_1&limit=25&offset=0",
+    `GET /sessions/${sessionId}`,
+    `GET /sessions/${sessionId}/events?eventType=TASK_REQUESTED&limit=10&offset=0`,
+    `GET /sessions/${sessionId}/events?limit=1&offset=0`,
+    `POST /sessions/${sessionId}/events`,
+    `GET /sessions/${sessionId}/replay-pack`
   ]);
 });
 
@@ -908,6 +1132,225 @@ test("mcp spike: delegation grant issue/get/list/revoke tool mappings", async ()
   ]);
 });
 
+test("mcp spike: authority grant issue/get/list/revoke tool mappings", async () => {
+  const requests = [];
+  const grantId = "agrant_mcp_1";
+  const api = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const bodyText = Buffer.concat(chunks).toString("utf8");
+      const parsedBody = bodyText ? JSON.parse(bodyText) : null;
+      requests.push({
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body: parsedBody
+      });
+
+      if (req.method === "POST" && req.url === "/authority-grants") {
+        assert.equal(req.headers["x-idempotency-key"], "idem_authority_grant_issue_1");
+        assert.equal(parsedBody?.grantId, grantId);
+        assert.equal(parsedBody?.principalRef?.principalType, "org");
+        assert.equal(parsedBody?.principalRef?.principalId, "org_acme");
+        assert.equal(parsedBody?.granteeAgentId, "agt_worker");
+        assert.equal(parsedBody?.spendEnvelope?.maxPerCallCents, 120);
+        assert.equal(parsedBody?.spendEnvelope?.maxTotalCents, 600);
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            authorityGrant: {
+              schemaVersion: "AuthorityGrant.v1",
+              grantId,
+              tenantId: "tenant_default",
+              principalRef: { principalType: "org", principalId: "org_acme" },
+              granteeAgentId: "agt_worker",
+              scope: {
+                allowedRiskClasses: ["financial"],
+                sideEffectingAllowed: true
+              },
+              spendEnvelope: {
+                currency: "USD",
+                maxPerCallCents: 120,
+                maxTotalCents: 600
+              },
+              chainBinding: {
+                rootGrantHash: "1".repeat(64),
+                parentGrantHash: null,
+                depth: 0,
+                maxDelegationDepth: 1
+              },
+              validity: {
+                issuedAt: "2026-01-01T00:00:00.000Z",
+                notBefore: "2026-01-01T00:00:00.000Z",
+                expiresAt: "2027-01-01T00:00:00.000Z"
+              },
+              revocation: {
+                revocable: true,
+                revokedAt: null,
+                revocationReasonCode: null
+              },
+              createdAt: "2026-01-01T00:00:00.000Z",
+              grantHash: "2".repeat(64)
+            }
+          })
+        );
+        return;
+      }
+
+      if (req.method === "GET" && req.url === `/authority-grants/${grantId}`) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            authorityGrant: { grantId, grantHash: "2".repeat(64) }
+          })
+        );
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/authority-grants?granteeAgentId=agt_worker&includeRevoked=false&limit=20&offset=0") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, grants: [{ grantId }], limit: 20, offset: 0 }));
+        return;
+      }
+
+      if (req.method === "POST" && req.url === `/authority-grants/${grantId}/revoke`) {
+        assert.equal(req.headers["x-idempotency-key"], "idem_authority_grant_revoke_1");
+        assert.equal(parsedBody?.revocationReasonCode, "MANUAL_REVOKE");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            authorityGrant: {
+              grantId,
+              revocation: {
+                revokedAt: "2026-02-01T00:00:00.000Z",
+                revocationReasonCode: "MANUAL_REVOKE"
+              }
+            }
+          })
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+  });
+
+  const addr = await listen(api);
+  const baseUrl = `http://${addr.address}:${addr.port}`;
+
+  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      SETTLD_BASE_URL: baseUrl,
+      SETTLD_TENANT_ID: "tenant_default",
+      SETTLD_API_KEY: "sk_test_1.secret",
+      SETTLD_PROTOCOL: "1.0"
+    }
+  });
+
+  child.stdout.setEncoding("utf8");
+
+  const pending = new Map();
+  let buf = "";
+  child.stdout.on("data", (chunk) => {
+    buf += chunk;
+    for (;;) {
+      const idx = buf.indexOf("\n");
+      if (idx === -1) break;
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line);
+      if (msg && msg.id !== undefined && pending.has(msg.id)) {
+        const { resolve } = pending.get(msg.id);
+        pending.delete(msg.id);
+        resolve(msg);
+      }
+    }
+  });
+
+  const rpc = async (method, params = {}) => {
+    const id = String(Math.random()).slice(2);
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    return await new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        reject(new Error(`timeout waiting for ${method}`));
+      }, 5000).unref?.();
+    });
+  };
+
+  await rpc("initialize", {
+    protocolVersion: "2024-11-05",
+    clientInfo: { name: "node-test", version: "0" },
+    capabilities: {}
+  });
+
+  const issued = await rpc("tools/call", {
+    name: "settld.authority_grant_issue",
+    arguments: {
+      grantId,
+      principalRef: { principalType: "org", principalId: "org_acme" },
+      granteeAgentId: "agt_worker",
+      maxPerCallCents: 120,
+      maxTotalCents: 600,
+      idempotencyKey: "idem_authority_grant_issue_1"
+    }
+  });
+  assert.equal(issued.result?.isError, false);
+  const issueParsed = JSON.parse(issued.result?.content?.[0]?.text || "{}");
+  assert.equal(issueParsed?.tool, "settld.authority_grant_issue");
+  assert.equal(issueParsed?.result?.authorityGrant?.grantId, grantId);
+
+  const fetched = await rpc("tools/call", {
+    name: "settld.authority_grant_get",
+    arguments: { grantId }
+  });
+  assert.equal(fetched.result?.isError, false);
+  const fetchedParsed = JSON.parse(fetched.result?.content?.[0]?.text || "{}");
+  assert.equal(fetchedParsed?.tool, "settld.authority_grant_get");
+  assert.equal(fetchedParsed?.result?.authorityGrant?.grantId, grantId);
+
+  const listed = await rpc("tools/call", {
+    name: "settld.authority_grant_list",
+    arguments: { granteeAgentId: "agt_worker", includeRevoked: false, limit: 20, offset: 0 }
+  });
+  assert.equal(listed.result?.isError, false);
+  const listedParsed = JSON.parse(listed.result?.content?.[0]?.text || "{}");
+  assert.equal(listedParsed?.tool, "settld.authority_grant_list");
+  assert.equal(listedParsed?.result?.grants?.[0]?.grantId, grantId);
+
+  const revoked = await rpc("tools/call", {
+    name: "settld.authority_grant_revoke",
+    arguments: { grantId, revocationReasonCode: "MANUAL_REVOKE", idempotencyKey: "idem_authority_grant_revoke_1" }
+  });
+  assert.equal(revoked.result?.isError, false);
+  const revokedParsed = JSON.parse(revoked.result?.content?.[0]?.text || "{}");
+  assert.equal(revokedParsed?.tool, "settld.authority_grant_revoke");
+  assert.equal(revokedParsed?.result?.authorityGrant?.grantId, grantId);
+
+  child.kill("SIGTERM");
+  await Promise.race([onceEvent(child, "exit"), new Promise((r) => setTimeout(r, 100))]);
+  api.close();
+
+  const methodsAndUrls = requests.map((r) => `${r.method} ${r.url}`);
+  assert.deepEqual(methodsAndUrls, [
+    "POST /authority-grants",
+    `GET /authority-grants/${grantId}`,
+    "GET /authority-grants?granteeAgentId=agt_worker&includeRevoked=false&limit=20&offset=0",
+    `POST /authority-grants/${grantId}/revoke`
+  ]);
+});
+
 test("mcp spike: agent card upsert/discover tool mappings", async () => {
   const requests = [];
   const api = http.createServer((req, res) => {
@@ -1076,6 +1519,205 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   assert.deepEqual(methodsAndUrls, [
     "POST /agent-cards",
     "GET /agent-cards/discover?capability=travel.booking&status=active&visibility=public&runtime=openclaw&minTrustScore=60&includeReputation=true&reputationVersion=v2&reputationWindow=30d&scoreStrategy=balanced&limit=10&offset=0"
+  ]);
+});
+
+test("mcp spike: relationship and interaction graph tools map to reputation APIs", async () => {
+  const requests = [];
+  const api = http.createServer((req, res) => {
+    requests.push({ method: req.method, url: req.url, headers: req.headers });
+
+    if (
+      req.method === "GET" &&
+      req.url ===
+        "/relationships?agentId=agt_card_1&counterpartyAgentId=agt_card_2&reputationWindow=30d&visibility=public_summary&limit=10&offset=0"
+    ) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          agentId: "agt_card_1",
+          reputationWindow: "30d",
+          total: 1,
+          limit: 10,
+          offset: 0,
+          relationships: [{ schemaVersion: "RelationshipEdge.v1", agentId: "agt_card_1", counterpartyAgentId: "agt_card_2" }]
+        })
+      );
+      return;
+    }
+
+    if (
+      req.method === "GET" &&
+      req.url ===
+        "/public/agents/agt_card_1/reputation-summary?reputationVersion=v2&reputationWindow=30d&includeRelationships=true&relationshipLimit=3"
+    ) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          summary: {
+            schemaVersion: "PublicAgentReputationSummary.v1",
+            agentId: "agt_card_1",
+            trustScore: 91,
+            riskTier: "guarded"
+          }
+        })
+      );
+      return;
+    }
+
+    if (
+      req.method === "GET" &&
+      req.url ===
+        "/agents/agt_card_1/interaction-graph-pack?reputationVersion=v2&reputationWindow=30d&visibility=public_summary&sign=true&signerKeyId=settld_test_ed25519&limit=5&offset=0"
+    ) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          graphPack: {
+            schemaVersion: "VerifiedInteractionGraphPack.v1",
+            agentId: "agt_card_1",
+            relationshipsHash: "a".repeat(64),
+            summaryHash: "b".repeat(64),
+            signatures: [{ schemaVersion: "VerifiedInteractionGraphPackSignature.v1", keyId: "settld_test_ed25519" }]
+          }
+        })
+      );
+      return;
+    }
+
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "not found" }));
+  });
+
+  const addr = await listen(api);
+  const baseUrl = `http://${addr.address}:${addr.port}`;
+
+  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      SETTLD_BASE_URL: baseUrl,
+      SETTLD_TENANT_ID: "tenant_default",
+      SETTLD_API_KEY: "sk_test_1.secret",
+      SETTLD_PROTOCOL: "1.0"
+    }
+  });
+
+  child.stdout.setEncoding("utf8");
+
+  const pending = new Map();
+  let buf = "";
+  child.stdout.on("data", (chunk) => {
+    buf += chunk;
+    for (;;) {
+      const idx = buf.indexOf("\n");
+      if (idx === -1) break;
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line);
+      if (msg && msg.id !== undefined && pending.has(msg.id)) {
+        const { resolve } = pending.get(msg.id);
+        pending.delete(msg.id);
+        resolve(msg);
+      }
+    }
+  });
+
+  const rpc = async (method, params = {}) => {
+    const id = String(Math.random()).slice(2);
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    return await new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        reject(new Error(`timeout waiting for ${method}`));
+      }, 5000).unref?.();
+    });
+  };
+
+  await rpc("initialize", {
+    protocolVersion: "2024-11-05",
+    clientInfo: { name: "node-test", version: "0" },
+    capabilities: {}
+  });
+
+  const relationships = await rpc("tools/call", {
+    name: "settld.relationships_list",
+    arguments: {
+      agentId: "agt_card_1",
+      counterpartyAgentId: "agt_card_2",
+      reputationWindow: "30d",
+      visibility: "public_summary",
+      limit: 10,
+      offset: 0
+    }
+  });
+  assert.equal(relationships.result?.isError, false);
+  const relationshipsParsed = JSON.parse(relationships.result?.content?.[0]?.text || "{}");
+  assert.equal(relationshipsParsed?.tool, "settld.relationships_list");
+  assert.equal(relationshipsParsed?.result?.relationships?.[0]?.counterpartyAgentId, "agt_card_2");
+
+  const summary = await rpc("tools/call", {
+    name: "settld.public_reputation_summary_get",
+    arguments: {
+      agentId: "agt_card_1",
+      reputationVersion: "v2",
+      reputationWindow: "30d",
+      includeRelationships: true,
+      relationshipLimit: 3
+    }
+  });
+  assert.equal(summary.result?.isError, false);
+  const summaryParsed = JSON.parse(summary.result?.content?.[0]?.text || "{}");
+  assert.equal(summaryParsed?.tool, "settld.public_reputation_summary_get");
+  assert.equal(summaryParsed?.result?.summary?.agentId, "agt_card_1");
+
+  const graphPack = await rpc("tools/call", {
+    name: "settld.interaction_graph_pack_get",
+    arguments: {
+      agentId: "agt_card_1",
+      reputationVersion: "v2",
+      reputationWindow: "30d",
+      visibility: "public_summary",
+      sign: true,
+      signerKeyId: "settld_test_ed25519",
+      limit: 5,
+      offset: 0
+    }
+  });
+  assert.equal(graphPack.result?.isError, false);
+  const graphPackParsed = JSON.parse(graphPack.result?.content?.[0]?.text || "{}");
+  assert.equal(graphPackParsed?.tool, "settld.interaction_graph_pack_get");
+  assert.equal(graphPackParsed?.result?.signed, true);
+  assert.equal(graphPackParsed?.result?.graphPack?.signatures?.[0]?.keyId, "settld_test_ed25519");
+
+  const invalidGraphPack = await rpc("tools/call", {
+    name: "settld.interaction_graph_pack_get",
+    arguments: {
+      agentId: "agt_card_1",
+      signerKeyId: "settld_test_ed25519"
+    }
+  });
+  assert.equal(invalidGraphPack.result?.isError, true);
+  const invalidGraphPackParsed = JSON.parse(invalidGraphPack.result?.content?.[0]?.text || "{}");
+  assert.equal(invalidGraphPackParsed?.tool, "settld.interaction_graph_pack_get");
+  assert.match(String(invalidGraphPackParsed?.error ?? ""), /signerKeyId requires sign=true/i);
+
+  child.kill("SIGTERM");
+  await Promise.race([onceEvent(child, "exit"), new Promise((r) => setTimeout(r, 100))]);
+  api.close();
+
+  const methodsAndUrls = requests.map((r) => `${r.method} ${r.url}`);
+  assert.deepEqual(methodsAndUrls, [
+    "GET /relationships?agentId=agt_card_1&counterpartyAgentId=agt_card_2&reputationWindow=30d&visibility=public_summary&limit=10&offset=0",
+    "GET /public/agents/agt_card_1/reputation-summary?reputationVersion=v2&reputationWindow=30d&includeRelationships=true&relationshipLimit=3",
+    "GET /agents/agt_card_1/interaction-graph-pack?reputationVersion=v2&reputationWindow=30d&visibility=public_summary&sign=true&signerKeyId=settld_test_ed25519&limit=5&offset=0"
   ]);
 });
 
@@ -1265,6 +1907,270 @@ test("mcp spike: capability attestation tool mappings", async () => {
   ]);
 });
 
+test("mcp spike: task negotiation tool mappings", async () => {
+  const requests = [];
+  const api = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const bodyText = Buffer.concat(chunks).toString("utf8");
+      const parsedBody = bodyText ? JSON.parse(bodyText) : null;
+      requests.push({
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body: parsedBody
+      });
+
+      if (req.method === "POST" && req.url === "/task-quotes") {
+        assert.equal(req.headers["x-idempotency-key"], "idem_task_quote_issue_1");
+        assert.equal(parsedBody?.buyerAgentId, "agt_buyer_1");
+        assert.equal(parsedBody?.sellerAgentId, "agt_seller_1");
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            taskQuote: {
+              schemaVersion: "TaskQuote.v1",
+              quoteId: "tquote_mcp_1",
+              status: "open",
+              quoteHash: "a".repeat(64)
+            }
+          })
+        );
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/task-quotes?buyerAgentId=agt_buyer_1&status=open&limit=10&offset=0") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            taskQuotes: [{ quoteId: "tquote_mcp_1", schemaVersion: "TaskQuote.v1", status: "open", quoteHash: "a".repeat(64) }],
+            total: 1,
+            limit: 10,
+            offset: 0
+          })
+        );
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/task-offers") {
+        assert.equal(req.headers["x-idempotency-key"], "idem_task_offer_issue_1");
+        assert.equal(parsedBody?.quoteRef?.quoteId, "tquote_mcp_1");
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            taskOffer: {
+              schemaVersion: "TaskOffer.v1",
+              offerId: "toffer_mcp_1",
+              status: "open",
+              offerHash: "b".repeat(64)
+            }
+          })
+        );
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/task-offers?quoteId=tquote_mcp_1&status=open&limit=10&offset=0") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            taskOffers: [{ offerId: "toffer_mcp_1", schemaVersion: "TaskOffer.v1", status: "open", offerHash: "b".repeat(64) }],
+            total: 1,
+            limit: 10,
+            offset: 0
+          })
+        );
+        return;
+      }
+
+      if (req.method === "POST" && req.url === "/task-acceptances") {
+        assert.equal(req.headers["x-idempotency-key"], "idem_task_acceptance_issue_1");
+        assert.equal(parsedBody?.quoteId, "tquote_mcp_1");
+        assert.equal(parsedBody?.offerId, "toffer_mcp_1");
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            taskAcceptance: {
+              schemaVersion: "TaskAcceptance.v1",
+              acceptanceId: "taccept_mcp_1",
+              status: "accepted",
+              acceptanceHash: "c".repeat(64)
+            }
+          })
+        );
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/task-acceptances?quoteId=tquote_mcp_1&status=accepted&limit=10&offset=0") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            taskAcceptances: [
+              { acceptanceId: "taccept_mcp_1", schemaVersion: "TaskAcceptance.v1", status: "accepted", acceptanceHash: "c".repeat(64) }
+            ],
+            total: 1,
+            limit: 10,
+            offset: 0
+          })
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+  });
+
+  const addr = await listen(api);
+  const baseUrl = `http://${addr.address}:${addr.port}`;
+
+  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      SETTLD_BASE_URL: baseUrl,
+      SETTLD_TENANT_ID: "tenant_default",
+      SETTLD_API_KEY: "sk_test_1.secret",
+      SETTLD_PROTOCOL: "1.0"
+    }
+  });
+
+  child.stdout.setEncoding("utf8");
+
+  const pending = new Map();
+  let buf = "";
+  child.stdout.on("data", (chunk) => {
+    buf += chunk;
+    for (;;) {
+      const idx = buf.indexOf("\n");
+      if (idx === -1) break;
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line);
+      if (msg && msg.id !== undefined && pending.has(msg.id)) {
+        const { resolve } = pending.get(msg.id);
+        pending.delete(msg.id);
+        resolve(msg);
+      }
+    }
+  });
+
+  const rpc = async (method, params = {}) => {
+    const id = String(Math.random()).slice(2);
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    return await new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        reject(new Error(`timeout waiting for ${method}`));
+      }, 5000).unref?.();
+    });
+  };
+
+  await rpc("initialize", {
+    protocolVersion: "2024-11-05",
+    clientInfo: { name: "node-test", version: "0" },
+    capabilities: {}
+  });
+
+  const quote = await rpc("tools/call", {
+    name: "settld.task_quote_issue",
+    arguments: {
+      buyerAgentId: "agt_buyer_1",
+      sellerAgentId: "agt_seller_1",
+      requiredCapability: "analysis.generic",
+      amountCents: 400,
+      currency: "USD",
+      quoteId: "tquote_mcp_1",
+      idempotencyKey: "idem_task_quote_issue_1"
+    }
+  });
+  assert.equal(quote.result?.isError, false);
+  assert.equal(JSON.parse(quote.result?.content?.[0]?.text || "{}")?.result?.taskQuote?.quoteId, "tquote_mcp_1");
+
+  const quoteList = await rpc("tools/call", {
+    name: "settld.task_quote_list",
+    arguments: {
+      buyerAgentId: "agt_buyer_1",
+      status: "open",
+      limit: 10,
+      offset: 0
+    }
+  });
+  assert.equal(quoteList.result?.isError, false);
+  assert.equal(JSON.parse(quoteList.result?.content?.[0]?.text || "{}")?.result?.taskQuotes?.[0]?.quoteId, "tquote_mcp_1");
+
+  const offer = await rpc("tools/call", {
+    name: "settld.task_offer_issue",
+    arguments: {
+      buyerAgentId: "agt_buyer_1",
+      sellerAgentId: "agt_seller_1",
+      quoteId: "tquote_mcp_1",
+      quoteHash: "a".repeat(64),
+      amountCents: 400,
+      currency: "USD",
+      offerId: "toffer_mcp_1",
+      idempotencyKey: "idem_task_offer_issue_1"
+    }
+  });
+  assert.equal(offer.result?.isError, false);
+  assert.equal(JSON.parse(offer.result?.content?.[0]?.text || "{}")?.result?.taskOffer?.offerId, "toffer_mcp_1");
+
+  const offerList = await rpc("tools/call", {
+    name: "settld.task_offer_list",
+    arguments: {
+      quoteId: "tquote_mcp_1",
+      status: "open",
+      limit: 10,
+      offset: 0
+    }
+  });
+  assert.equal(offerList.result?.isError, false);
+  assert.equal(JSON.parse(offerList.result?.content?.[0]?.text || "{}")?.result?.taskOffers?.[0]?.offerId, "toffer_mcp_1");
+
+  const acceptance = await rpc("tools/call", {
+    name: "settld.task_acceptance_issue",
+    arguments: {
+      quoteId: "tquote_mcp_1",
+      offerId: "toffer_mcp_1",
+      acceptedByAgentId: "agt_buyer_1",
+      acceptanceId: "taccept_mcp_1",
+      idempotencyKey: "idem_task_acceptance_issue_1"
+    }
+  });
+  assert.equal(acceptance.result?.isError, false);
+  assert.equal(JSON.parse(acceptance.result?.content?.[0]?.text || "{}")?.result?.taskAcceptance?.acceptanceId, "taccept_mcp_1");
+
+  const acceptanceList = await rpc("tools/call", {
+    name: "settld.task_acceptance_list",
+    arguments: {
+      quoteId: "tquote_mcp_1",
+      status: "accepted",
+      limit: 10,
+      offset: 0
+    }
+  });
+  assert.equal(acceptanceList.result?.isError, false);
+  assert.equal(JSON.parse(acceptanceList.result?.content?.[0]?.text || "{}")?.result?.taskAcceptances?.[0]?.acceptanceId, "taccept_mcp_1");
+
+  child.kill("SIGTERM");
+  await Promise.race([onceEvent(child, "exit"), new Promise((r) => setTimeout(r, 100))]);
+  api.close();
+
+  const methodsAndUrls = requests.map((r) => `${r.method} ${r.url}`);
+  assert.deepEqual(methodsAndUrls, [
+    "POST /task-quotes",
+    "GET /task-quotes?buyerAgentId=agt_buyer_1&status=open&limit=10&offset=0",
+    "POST /task-offers",
+    "GET /task-offers?quoteId=tquote_mcp_1&status=open&limit=10&offset=0",
+    "POST /task-acceptances",
+    "GET /task-acceptances?quoteId=tquote_mcp_1&status=accepted&limit=10&offset=0"
+  ]);
+});
+
 test("mcp spike: work order tool mappings", async () => {
   const requests = [];
   const api = http.createServer((req, res) => {
@@ -1285,6 +2191,8 @@ test("mcp spike: work order tool mappings", async () => {
         assert.equal(parsedBody?.principalAgentId, "agt_principal_1");
         assert.equal(parsedBody?.subAgentId, "agt_worker_1");
         assert.equal(parsedBody?.requiredCapability, "code.generation");
+        assert.equal(parsedBody?.x402ToolId, "tool_codegen_1");
+        assert.equal(parsedBody?.x402ProviderId, "provider_openclaw_1");
         assert.equal(parsedBody?.pricing?.amountCents, 450);
         assert.equal(parsedBody?.attestationRequirement?.required, true);
         assert.equal(parsedBody?.attestationRequirement?.minLevel, "attested");
@@ -1365,9 +2273,23 @@ test("mcp spike: work order tool mappings", async () => {
 
       if (req.method === "POST" && req.url === "/work-orders/workord_1/settle") {
         assert.equal(req.headers["x-idempotency-key"], "idem_work_order_settle_1");
+        if (parsedBody?.x402GateId === "x402gate_conflict_1") {
+          res.writeHead(409, { "content-type": "application/json" });
+          res.end(
+            JSON.stringify({
+              error: "work order settlement conflict",
+              details: {
+                code: "WORK_ORDER_SETTLEMENT_CONFLICT",
+                message: "x402ToolId does not match x402 gate binding"
+              }
+            })
+          );
+          return;
+        }
         assert.equal(parsedBody?.x402GateId, "x402gate_1");
         assert.equal(parsedBody?.x402RunId, "run_1");
         assert.equal(parsedBody?.status, "released");
+        assert.equal(parsedBody?.authorityGrantRef, "agrant_mcp_1");
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -1375,7 +2297,11 @@ test("mcp spike: work order tool mappings", async () => {
             workOrder: {
               schemaVersion: "SubAgentWorkOrder.v1",
               workOrderId: "workord_1",
-              status: "settled"
+              status: "settled",
+              settlement: {
+                status: "released",
+                authorityGrantRef: "agrant_mcp_1"
+              }
             },
             completionReceipt: {
               schemaVersion: "SubAgentCompletionReceipt.v1",
@@ -1454,6 +2380,8 @@ test("mcp spike: work order tool mappings", async () => {
       principalAgentId: "agt_principal_1",
       subAgentId: "agt_worker_1",
       requiredCapability: "code.generation",
+      x402ToolId: "tool_codegen_1",
+      x402ProviderId: "provider_openclaw_1",
       amountCents: 450,
       currency: "USD",
       attestationRequirement: {
@@ -1518,6 +2446,7 @@ test("mcp spike: work order tool mappings", async () => {
       status: "released",
       x402GateId: "x402gate_1",
       x402RunId: "run_1",
+      authorityGrantRef: "agrant_mcp_1",
       idempotencyKey: "idem_work_order_settle_1"
     }
   });
@@ -1525,6 +2454,25 @@ test("mcp spike: work order tool mappings", async () => {
   const settledParsed = JSON.parse(settled.result?.content?.[0]?.text || "{}");
   assert.equal(settledParsed?.tool, "settld.work_order_settle");
   assert.equal(settledParsed?.result?.workOrder?.status, "settled");
+  assert.equal(settledParsed?.result?.workOrder?.settlement?.authorityGrantRef, "agrant_mcp_1");
+
+  const settleConflict = await rpc("tools/call", {
+    name: "settld.work_order_settle",
+    arguments: {
+      workOrderId: "workord_1",
+      completionReceiptId: "worec_1",
+      status: "released",
+      x402GateId: "x402gate_conflict_1",
+      x402RunId: "run_conflict_1",
+      authorityGrantRef: "agrant_mcp_1",
+      idempotencyKey: "idem_work_order_settle_1"
+    }
+  });
+  assert.equal(settleConflict.result?.isError, true);
+  const settleConflictParsed = JSON.parse(settleConflict.result?.content?.[0]?.text || "{}");
+  assert.equal(settleConflictParsed?.tool, "settld.work_order_settle");
+  assert.equal(settleConflictParsed?.code, "WORK_ORDER_SETTLEMENT_CONFLICT");
+  assert.match(String(settleConflictParsed?.error ?? ""), /settlement conflict/i);
 
   child.kill("SIGTERM");
   await Promise.race([onceEvent(child, "exit"), new Promise((r) => setTimeout(r, 100))]);
@@ -1536,6 +2484,7 @@ test("mcp spike: work order tool mappings", async () => {
     "POST /work-orders/workord_1/accept",
     "POST /work-orders/workord_1/progress",
     "POST /work-orders/workord_1/complete",
+    "POST /work-orders/workord_1/settle",
     "POST /work-orders/workord_1/settle"
   ]);
 });
