@@ -8015,6 +8015,56 @@ export function createApi({
     return String(rawValue).trim();
   }
 
+  const AGENT_CARD_STREAM_EVENT_SCHEMA_VERSION = "AgentCardStreamEvent.v1";
+
+  function buildAgentCardStreamCursor({ updatedAt, tenantId, agentId } = {}) {
+    if (typeof updatedAt !== "string" || !Number.isFinite(Date.parse(updatedAt))) {
+      throw new TypeError("updatedAt must be an ISO date-time");
+    }
+    const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedAgentId = typeof agentId === "string" && agentId.trim() !== "" ? agentId.trim() : null;
+    if (!normalizedAgentId) throw new TypeError("agentId is required");
+    return `${encodeURIComponent(updatedAt)}|${encodeURIComponent(normalizedTenantId)}|${encodeURIComponent(normalizedAgentId)}`;
+  }
+
+  function parseAgentCardStreamCursor(rawValue, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError("cursor is required");
+    }
+    const text = String(rawValue).trim();
+    const parts = text.split("|");
+    if (parts.length !== 3) throw new TypeError("cursor must be formatted as updatedAt|tenantId|agentId");
+    let updatedAt = null;
+    let tenantId = null;
+    let agentId = null;
+    try {
+      updatedAt = decodeURIComponent(parts[0] ?? "");
+      tenantId = decodeURIComponent(parts[1] ?? "");
+      agentId = decodeURIComponent(parts[2] ?? "");
+    } catch {
+      throw new TypeError("cursor contains invalid encoding");
+    }
+    if (!Number.isFinite(Date.parse(updatedAt))) throw new TypeError("cursor updatedAt must be an ISO date-time");
+    if (!tenantId || !agentId) throw new TypeError("cursor tenantId and agentId are required");
+    return {
+      updatedAt,
+      tenantId: normalizeTenantId(tenantId),
+      agentId: String(agentId).trim(),
+      raw: buildAgentCardStreamCursor({ updatedAt, tenantId, agentId })
+    };
+  }
+
+  function compareAgentCardStreamCursor(left, right) {
+    const leftAt = Number(Date.parse(String(left?.updatedAt ?? "")));
+    const rightAt = Number(Date.parse(String(right?.updatedAt ?? "")));
+    if (leftAt < rightAt) return -1;
+    if (leftAt > rightAt) return 1;
+    const tenantOrder = String(left?.tenantId ?? "").localeCompare(String(right?.tenantId ?? ""));
+    if (tenantOrder !== 0) return tenantOrder;
+    return String(left?.agentId ?? "").localeCompare(String(right?.agentId ?? ""));
+  }
+
   const TRUST_ROUTING_FACTORS_SCHEMA_VERSION = "TrustRoutingFactors.v1";
   const RELATIONSHIP_EDGE_SCHEMA_VERSION = "RelationshipEdge.v1";
   const INTERACTION_GRAPH_SUMMARY_SCHEMA_VERSION = "InteractionGraphSummary.v1";
@@ -9536,6 +9586,187 @@ export function createApi({
       };
     }
     return out;
+  }
+
+  async function listPublicAgentCardsForStream({
+    capability = null,
+    toolId = null,
+    toolMcpName = null,
+    toolRiskClass = null,
+    toolSideEffecting = null,
+    toolMaxPriceCents = null,
+    toolRequiresEvidenceKind = null,
+    status = AGENT_CARD_STATUS.ACTIVE,
+    runtime = null
+  } = {}) {
+    const statusFilter = parseDiscoveryStatus(status);
+    const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const toolIdFilter =
+      toolId === null || toolId === undefined || String(toolId).trim() === ""
+        ? null
+        : (() => {
+            if (typeof toolId !== "string") throw new TypeError("toolId must be a string");
+            const value = toolId.trim();
+            if (!value) return null;
+            if (value.length > 200) throw new TypeError("toolId must be <= 200 chars");
+            return value;
+          })();
+    const toolMcpNameFilter =
+      toolMcpName === null || toolMcpName === undefined || String(toolMcpName).trim() === "" ? null : String(toolMcpName).trim();
+    const parsedToolRiskClass = parseToolDescriptorRiskClass(toolRiskClass, { allowNull: true });
+    const parsedToolSideEffecting =
+      toolSideEffecting === null || toolSideEffecting === undefined ? null : Boolean(toolSideEffecting);
+    if (toolSideEffecting !== null && toolSideEffecting !== undefined && typeof toolSideEffecting !== "boolean") {
+      throw new TypeError("toolSideEffecting must be boolean");
+    }
+    const parsedToolMaxPriceCents =
+      toolMaxPriceCents === null || toolMaxPriceCents === undefined || toolMaxPriceCents === ""
+        ? null
+        : normalizeOptionalX402PositiveSafeInt(toolMaxPriceCents, "toolMaxPriceCents", { allowNull: true });
+    const parsedToolRequiresEvidenceKind = parseToolDescriptorEvidenceKind(toolRequiresEvidenceKind, { allowNull: true });
+    const hasToolDescriptorFilter =
+      toolIdFilter !== null ||
+      toolMcpNameFilter !== null ||
+      parsedToolRiskClass !== null ||
+      parsedToolSideEffecting !== null ||
+      parsedToolMaxPriceCents !== null ||
+      parsedToolRequiresEvidenceKind !== null;
+    const runtimeFilter = runtime && String(runtime).trim() !== "" ? String(runtime).trim().toLowerCase() : null;
+
+    let cards = [];
+    if (typeof store.listAgentCardsPublic === "function") {
+      cards = await store.listAgentCardsPublic({
+        status: statusFilter === "all" ? null : statusFilter,
+        visibility: AGENT_CARD_VISIBILITY.PUBLIC,
+        capability: capabilityFilter,
+        toolId: toolIdFilter,
+        toolMcpName: toolMcpNameFilter,
+        toolRiskClass: parsedToolRiskClass,
+        toolSideEffecting: parsedToolSideEffecting,
+        toolMaxPriceCents: parsedToolMaxPriceCents,
+        toolRequiresEvidenceKind: parsedToolRequiresEvidenceKind,
+        runtime: runtimeFilter,
+        limit: 10_000,
+        offset: 0
+      });
+    } else if (store.agentCards instanceof Map) {
+      for (const row of store.agentCards.values()) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (String(row.visibility ?? "").toLowerCase() !== AGENT_CARD_VISIBILITY.PUBLIC) continue;
+        if (statusFilter !== "all" && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        if (runtimeFilter) {
+          const rowRuntime =
+            row?.host && typeof row.host === "object" && !Array.isArray(row.host) && typeof row.host.runtime === "string"
+              ? row.host.runtime.trim().toLowerCase()
+              : "";
+          if (rowRuntime !== runtimeFilter) continue;
+        }
+        if (capabilityFilter) {
+          const rowCaps = Array.isArray(row.capabilities) ? row.capabilities : [];
+          if (!rowCaps.includes(capabilityFilter)) continue;
+        }
+        cards.push(row);
+      }
+      cards.sort((left, right) => {
+        const tenantOrder = String(left.tenantId ?? "").localeCompare(String(right.tenantId ?? ""));
+        if (tenantOrder !== 0) return tenantOrder;
+        return String(left.agentId ?? "").localeCompare(String(right.agentId ?? ""));
+      });
+    } else {
+      throw new Error("agent cards not supported for this store");
+    }
+
+    if (hasToolDescriptorFilter) {
+      cards = cards.filter((agentCard) => {
+        const normalizedToolDescriptors = normalizeAgentCardToolDescriptorsForDiscovery(agentCard);
+        return normalizedToolDescriptors.some((descriptor) => {
+          if (toolIdFilter !== null && String(descriptor.toolId ?? "") !== toolIdFilter) return false;
+          if (
+            toolMcpNameFilter !== null &&
+            String(descriptor.mcpToolName ?? "").toLowerCase() !== toolMcpNameFilter.toLowerCase()
+          ) {
+            return false;
+          }
+          if (parsedToolRiskClass !== null && String(descriptor.riskClass ?? "") !== parsedToolRiskClass) return false;
+          if (parsedToolSideEffecting !== null && Boolean(descriptor.sideEffecting) !== parsedToolSideEffecting) return false;
+          if (
+            parsedToolMaxPriceCents !== null &&
+            (!Number.isSafeInteger(Number(descriptor.pricingAmountCents)) || Number(descriptor.pricingAmountCents) > parsedToolMaxPriceCents)
+          ) {
+            return false;
+          }
+          if (
+            parsedToolRequiresEvidenceKind !== null &&
+            (!Array.isArray(descriptor.requiresEvidenceKinds) || !descriptor.requiresEvidenceKinds.includes(parsedToolRequiresEvidenceKind))
+          ) {
+            return false;
+          }
+          return true;
+        });
+      });
+    }
+
+    const tenantIds = [...new Set(cards.map((row) => normalizeTenantId(row?.tenantId ?? DEFAULT_TENANT_ID)))].sort((left, right) =>
+      left.localeCompare(right)
+    );
+    const quarantinedAgentScopedKeys = new Set();
+    if (typeof store.listEmergencyControlState === "function") {
+      for (const cardTenantId of tenantIds) {
+        // eslint-disable-next-line no-await-in-loop
+        const controls = await store.listEmergencyControlState({
+          tenantId: cardTenantId,
+          active: true,
+          scopeType: EMERGENCY_SCOPE_TYPE.AGENT,
+          controlType: EMERGENCY_CONTROL_TYPE.QUARANTINE,
+          limit: 10_000,
+          offset: 0
+        });
+        for (const control of controls ?? []) {
+          const scope = control?.scope && typeof control.scope === "object" && !Array.isArray(control.scope) ? control.scope : {};
+          const scopeAgentId =
+            typeof scope.id === "string" && scope.id.trim() !== ""
+              ? scope.id.trim()
+              : typeof control?.scopeId === "string" && control.scopeId.trim() !== ""
+                ? control.scopeId.trim()
+                : null;
+          if (!scopeAgentId) continue;
+          quarantinedAgentScopedKeys.add(makeScopedKey({ tenantId: cardTenantId, id: scopeAgentId }));
+        }
+      }
+    } else if (store?.emergencyControlState instanceof Map) {
+      for (const control of store.emergencyControlState.values()) {
+        if (!control || typeof control !== "object" || Array.isArray(control)) continue;
+        if (control.active !== true) continue;
+        if (String(control.controlType ?? "").toLowerCase() !== EMERGENCY_CONTROL_TYPE.QUARANTINE) continue;
+        if (String(control.scopeType ?? "").toLowerCase() !== EMERGENCY_SCOPE_TYPE.AGENT) continue;
+        const scopeId = typeof control.scopeId === "string" && control.scopeId.trim() !== "" ? control.scopeId.trim() : null;
+        if (!scopeId) continue;
+        const controlTenantId = normalizeTenantId(control.tenantId ?? DEFAULT_TENANT_ID);
+        quarantinedAgentScopedKeys.add(makeScopedKey({ tenantId: controlTenantId, id: scopeId }));
+      }
+    }
+
+    const rows = [];
+    for (const agentCard of cards) {
+      const tenantId = normalizeTenantId(agentCard?.tenantId ?? DEFAULT_TENANT_ID);
+      const agentId = typeof agentCard?.agentId === "string" && agentCard.agentId.trim() !== "" ? agentCard.agentId.trim() : null;
+      if (!agentId) continue;
+      if (quarantinedAgentScopedKeys.has(makeScopedKey({ tenantId, id: agentId }))) continue;
+      const updatedAt = typeof agentCard?.updatedAt === "string" && agentCard.updatedAt.trim() !== "" ? agentCard.updatedAt.trim() : null;
+      const createdAt = typeof agentCard?.createdAt === "string" && agentCard.createdAt.trim() !== "" ? agentCard.createdAt.trim() : null;
+      const effectiveAt = updatedAt ?? createdAt;
+      if (!effectiveAt || !Number.isFinite(Date.parse(effectiveAt))) continue;
+      rows.push({
+        tenantId,
+        agentId,
+        updatedAt: effectiveAt,
+        cursor: buildAgentCardStreamCursor({ updatedAt: effectiveAt, tenantId, agentId }),
+        agentCard
+      });
+    }
+
+    rows.sort((left, right) => compareAgentCardStreamCursor(left, right));
+    return rows;
   }
 
   function parseMarketplaceRfqStatus(rawValue, { allowAll = true, defaultStatus = "all" } = {}) {
@@ -25735,6 +25966,7 @@ export function createApi({
           (req.method === "GET" && path === "/healthz") ||
           (req.method === "GET" && path === "/capabilities") ||
           (req.method === "GET" && path === "/public/agent-cards/discover") ||
+          (req.method === "GET" && path === "/public/agent-cards/stream") ||
           (req.method === "GET" && /^\/public\/agents\/[^/]+\/reputation-summary$/.test(path)) ||
           (req.method === "GET" && path === "/.well-known/agent.json") ||
           (req.method === "GET" && path === "/.well-known/settld-keys.json") ||
@@ -46266,6 +46498,167 @@ export function createApi({
         } catch (err) {
           return sendError(res, 400, "invalid public agent card discovery query", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
+      }
+
+      if (req.method === "GET" && path === "/public/agent-cards/stream") {
+        let toolSideEffecting = null;
+        let sinceCursor = null;
+        try {
+          const toolSideEffectingRaw = url.searchParams.get("toolSideEffecting");
+          toolSideEffecting =
+            toolSideEffectingRaw === null
+              ? null
+              : parseBooleanQueryValue(toolSideEffectingRaw, { defaultValue: false, name: "toolSideEffecting" });
+          sinceCursor = parseAgentCardStreamCursor(
+            url.searchParams.get("sinceCursor") ??
+              (typeof req.headers["last-event-id"] === "string" ? req.headers["last-event-id"] : null),
+            { allowNull: true }
+          );
+        } catch (err) {
+          return sendError(res, 400, "invalid public agent card stream query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const query = {
+          capability: url.searchParams.get("capability"),
+          toolId: url.searchParams.get("toolId"),
+          toolMcpName: url.searchParams.get("toolMcpName"),
+          toolRiskClass: url.searchParams.get("toolRiskClass"),
+          toolSideEffecting,
+          toolMaxPriceCents: url.searchParams.get("toolMaxPriceCents"),
+          toolRequiresEvidenceKind: url.searchParams.get("toolRequiresEvidenceKind"),
+          status: url.searchParams.get("status"),
+          runtime: url.searchParams.get("runtime")
+        };
+
+        res.writeHead(200, {
+          "content-type": "text/event-stream; charset=utf-8",
+          "cache-control": "no-cache, no-transform",
+          connection: "keep-alive",
+          "x-accel-buffering": "no"
+        });
+        if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+        const writeSseEvent = ({ eventName, eventId = null, data = null } = {}) => {
+          if (eventId !== null && eventId !== undefined && String(eventId).trim() !== "") {
+            res.write(`id: ${String(eventId).trim()}\n`);
+          }
+          if (eventName) res.write(`event: ${eventName}\n`);
+          if (data !== null && data !== undefined) {
+            const dataString = typeof data === "string" ? data : JSON.stringify(data);
+            const lines = String(dataString).split("\n");
+            for (const line of lines) res.write(`data: ${line}\n`);
+          } else {
+            res.write("data: null\n");
+          }
+          res.write("\n");
+        };
+
+        writeSseEvent({
+          eventName: "agent_cards.ready",
+          data: {
+            ok: true,
+            scope: "public",
+            sinceCursor: sinceCursor?.raw ?? null,
+            query: normalizeForCanonicalJson(
+              {
+                capability: query.capability ?? null,
+                toolId: query.toolId ?? null,
+                toolMcpName: query.toolMcpName ?? null,
+                toolRiskClass: query.toolRiskClass ?? null,
+                toolSideEffecting: query.toolSideEffecting,
+                toolMaxPriceCents: query.toolMaxPriceCents ?? null,
+                toolRequiresEvidenceKind: query.toolRequiresEvidenceKind ?? null,
+                status: query.status ?? null,
+                runtime: query.runtime ?? null
+              },
+              { path: "$.query" }
+            )
+          }
+        });
+
+        let closed = false;
+        let pollTimer = null;
+        let heartbeatTimer = null;
+        let lastCursor = sinceCursor;
+
+        const closeStream = () => {
+          if (closed) return;
+          closed = true;
+          if (pollTimer) clearTimeout(pollTimer);
+          if (heartbeatTimer) clearInterval(heartbeatTimer);
+          try {
+            res.end();
+          } catch {
+            // no-op
+          }
+        };
+        req.on("close", closeStream);
+        req.on("aborted", closeStream);
+
+        const emitRows = (rows) => {
+          if (!Array.isArray(rows) || rows.length === 0) return;
+          for (const row of rows) {
+            if (lastCursor && compareAgentCardStreamCursor(row, lastCursor) <= 0) continue;
+            writeSseEvent({
+              eventName: "agent_card.upsert",
+              eventId: row.cursor,
+              data: normalizeForCanonicalJson(
+                {
+                  schemaVersion: AGENT_CARD_STREAM_EVENT_SCHEMA_VERSION,
+                  type: "AGENT_CARD_UPSERT",
+                  scope: "public",
+                  cursor: row.cursor,
+                  updatedAt: row.updatedAt,
+                  tenantId: row.tenantId,
+                  agentId: row.agentId,
+                  agentCard: row.agentCard
+                },
+                { path: "$.event" }
+              )
+            });
+            lastCursor = {
+              updatedAt: row.updatedAt,
+              tenantId: row.tenantId,
+              agentId: row.agentId,
+              raw: row.cursor
+            };
+          }
+        };
+
+        const schedulePoll = (delayMs = 300) => {
+          if (closed) return;
+          pollTimer = setTimeout(() => {
+            void pollAndFlush();
+          }, delayMs);
+        };
+
+        const pollAndFlush = async () => {
+          if (closed) return;
+          let rows = [];
+          try {
+            rows = await listPublicAgentCardsForStream(query);
+          } catch (err) {
+            writeSseEvent({
+              eventName: "agent_cards.error",
+              data: {
+                ok: false,
+                code: "PUBLIC_AGENT_CARD_STREAM_READ_FAILED",
+                message: err?.message ?? "failed to read public agent cards"
+              }
+            });
+            return closeStream();
+          }
+          emitRows(rows);
+          schedulePoll(300);
+        };
+
+        heartbeatTimer = setInterval(() => {
+          if (closed) return;
+          res.write(": keepalive\n\n");
+        }, 10_000);
+
+        void pollAndFlush();
+        return;
       }
 
       {
