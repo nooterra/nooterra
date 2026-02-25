@@ -657,6 +657,17 @@ test("API e2e: public agent-card discovery rate limit is fail-closed by requeste
   assert.equal(thirdDifferentRequester.json?.ok, true);
 });
 
+test("API e2e: public discovery paid bypass config fails closed when toolId is missing", () => {
+  assert.throws(
+    () =>
+      createApi({
+        opsToken: "tok_ops",
+        agentCardPublicDiscoveryPaidBypassEnabled: true
+      }),
+    /PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_TOOL_ID/
+  );
+});
+
 test("API e2e: public agent-card discovery paid bypass requires valid API key + matching toolId", async () => {
   const api = createApi({
     opsToken: "tok_ops",
@@ -726,6 +737,18 @@ test("API e2e: public agent-card discovery paid bypass requires valid API key + 
   });
   assert.equal(blockedOnToolMismatch.statusCode, 429, blockedOnToolMismatch.body);
   assert.equal(blockedOnToolMismatch.json?.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
+
+  const blockedWithInvalidApiKey = await request(api, {
+    method: "GET",
+    path: `${basePath}&toolId=travel_book_flight`,
+    auth: "none",
+    headers: {
+      authorization: "Bearer sk_test_invalid.invalid_secret",
+      "x-forwarded-for": requesterIp
+    }
+  });
+  assert.equal(blockedWithInvalidApiKey.statusCode, 429, blockedWithInvalidApiKey.body);
+  assert.equal(blockedWithInvalidApiKey.json?.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
 });
 
 test("API e2e: public AgentCard listing fee is fail-closed and charged once", async () => {

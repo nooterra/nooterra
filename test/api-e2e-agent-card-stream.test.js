@@ -303,6 +303,16 @@ test("API e2e: /public/agent-cards/stream paid bypass requires valid API key + m
   assert.equal(mismatchedToolId.status, 429);
   const mismatchBody = await mismatchedToolId.json();
   assert.equal(mismatchBody.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
+
+  const invalidKeyBlocked = await fetch(`${streamBaseUrl}&toolId=travel_book_flight`, {
+    headers: {
+      authorization: "Bearer sk_test_invalid.invalid_secret",
+      "x-forwarded-for": requesterIp
+    }
+  });
+  assert.equal(invalidKeyBlocked.status, 429);
+  const invalidBody = await invalidKeyBlocked.json();
+  assert.equal(invalidBody.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
 });
 
 test("API e2e: /public/agent-cards/stream emits agent_card.removed when visibility changes out of scope", async (t) => {
