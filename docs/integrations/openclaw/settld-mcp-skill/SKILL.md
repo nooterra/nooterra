@@ -115,6 +115,7 @@ When slash-invoked, keep behavior deterministic:
 - Discovery:
   - Tenant scope: `settld.agent_discover` (default `scope=tenant`)
   - Public scope: `settld.agent_discover` with `scope=public` and `visibility=public`
+  - Public stream snapshot: `settld.agent_discover_stream`
 - Delegation grant: `settld.delegation_grant_issue`
 - Authority grant: `settld.authority_grant_issue`
 - Work order: `settld.work_order_create` -> `settld.work_order_accept` -> `settld.work_order_progress` -> `settld.work_order_complete` -> `settld.work_order_settle`

@@ -129,6 +129,7 @@ test("mcp spike: initialize -> tools/list -> tools/call (submit_evidence)", asyn
   assert.ok(names.includes("settld.authority_grant_revoke"));
   assert.ok(names.includes("settld.agent_card_upsert"));
   assert.ok(names.includes("settld.agent_discover"));
+  assert.ok(names.includes("settld.agent_discover_stream"));
   assert.ok(names.includes("settld.capability_attest"));
   assert.ok(names.includes("settld.capability_attestation_list"));
   assert.ok(names.includes("settld.capability_attestation_revoke"));
@@ -1439,6 +1440,28 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
         return;
       }
 
+      if (
+        req.method === "GET" &&
+        req.url ===
+          "/public/agent-cards/stream?capability=travel.booking&status=active&runtime=openclaw&sinceCursor=cursor_start_1"
+      ) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.end(
+          [
+            "id: cursor_ready",
+            "event: agent_cards.ready",
+            'data: {"ok":true,"scope":"public"}',
+            "",
+            "id: cursor_1",
+            "event: agent_card.upsert",
+            'data: {"schemaVersion":"AgentCardStreamEvent.v1","type":"AGENT_CARD_UPSERT","agentId":"agt_card_1"}',
+            "",
+            ""
+          ].join("\n")
+        );
+        return;
+      }
+
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "not found" }));
     });
@@ -1555,6 +1578,24 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   assert.equal(discoveredPublicParsed?.tool, "settld.agent_discover");
   assert.equal(discoveredPublicParsed?.result?.results?.[0]?.agentCard?.agentId, "agt_card_1");
 
+  const streamDiscover = await rpc("tools/call", {
+    name: "settld.agent_discover_stream",
+    arguments: {
+      capability: "travel.booking",
+      status: "active",
+      runtime: "openclaw",
+      sinceCursor: "cursor_start_1",
+      maxEvents: 5,
+      timeoutMs: 2000
+    }
+  });
+  assert.equal(streamDiscover.result?.isError, false);
+  const streamDiscoverParsed = JSON.parse(streamDiscover.result?.content?.[0]?.text || "{}");
+  assert.equal(streamDiscoverParsed?.tool, "settld.agent_discover_stream");
+  assert.equal(streamDiscoverParsed?.result?.scope, "public");
+  assert.equal(streamDiscoverParsed?.result?.eventCount, 2);
+  assert.equal(streamDiscoverParsed?.result?.lastEventId, "cursor_1");
+
   const invalidDiscover = await rpc("tools/call", {
     name: "settld.agent_discover",
     arguments: {
@@ -1575,7 +1616,8 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   assert.deepEqual(methodsAndUrls, [
     "POST /agent-cards",
     "GET /agent-cards/discover?capability=travel.booking&status=active&visibility=public&runtime=openclaw&minTrustScore=60&includeReputation=true&reputationVersion=v2&reputationWindow=30d&scoreStrategy=balanced&limit=10&offset=0",
-    "GET /public/agent-cards/discover?capability=travel.booking&status=active&visibility=public&runtime=openclaw&includeReputation=false&limit=5&offset=0"
+    "GET /public/agent-cards/discover?capability=travel.booking&status=active&visibility=public&runtime=openclaw&includeReputation=false&limit=5&offset=0",
+    "GET /public/agent-cards/stream?capability=travel.booking&status=active&runtime=openclaw&sinceCursor=cursor_start_1"
   ]);
 });
 

@@ -316,6 +316,46 @@ class StdioJsonRpcStream {
 function makeSettldClient({ baseUrl, tenantId, apiKey, protocol }) {
   let cachedProtocol = protocol || null;
 
+  function parseSseFrame(frameText) {
+    if (typeof frameText !== "string") return null;
+    const normalized = frameText.replace(/\r/g, "");
+    if (normalized.trim() === "") return null;
+    const lines = normalized.split("\n");
+    let eventName = "message";
+    let eventId = null;
+    const dataLines = [];
+    let sawCommentOnlyLine = false;
+    for (const line of lines) {
+      if (line === "") continue;
+      if (line.startsWith(":")) {
+        sawCommentOnlyLine = true;
+        continue;
+      }
+      const sepIndex = line.indexOf(":");
+      const field = sepIndex === -1 ? line : line.slice(0, sepIndex);
+      let value = sepIndex === -1 ? "" : line.slice(sepIndex + 1);
+      if (value.startsWith(" ")) value = value.slice(1);
+      if (field === "event") eventName = value.trim() || "message";
+      if (field === "id") eventId = value.trim() || null;
+      if (field === "data") dataLines.push(value);
+    }
+    if (dataLines.length === 0) {
+      if (sawCommentOnlyLine) return null;
+      return { event: eventName, id: eventId, rawData: "", data: null };
+    }
+    const rawData = dataLines.join("\n");
+    let data = rawData;
+    if (rawData === "null") data = null;
+    else {
+      try {
+        data = JSON.parse(rawData);
+      } catch {
+        data = rawData;
+      }
+    }
+    return { event: eventName, id: eventId, rawData, data };
+  }
+
   async function discoverProtocol() {
     if (cachedProtocol) return cachedProtocol;
     try {
@@ -377,6 +417,124 @@ function makeSettldClient({ baseUrl, tenantId, apiKey, protocol }) {
     return json;
   }
 
+  async function requestSseEvents(path, { headers = {}, maxEvents = 20, timeoutMs = 2000 } = {}) {
+    const url = new URL(path, baseUrl);
+    const controller = new AbortController();
+    const timeout = Number(timeoutMs);
+    const safeTimeoutMs = Number.isSafeInteger(timeout) && timeout >= 200 && timeout <= 30_000 ? timeout : 2000;
+    const safeMaxEvents = Number.isSafeInteger(Number(maxEvents)) && Number(maxEvents) >= 1 ? Math.min(200, Number(maxEvents)) : 20;
+    const h = {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-api-key": apiKey,
+      accept: "text/event-stream",
+      ...headers
+    };
+    let timer = null;
+    try {
+      timer = setTimeout(() => {
+        try {
+          controller.abort();
+        } catch {}
+      }, safeTimeoutMs);
+      timer.unref?.();
+
+      let res;
+      try {
+        res = await fetch(url, {
+          method: "GET",
+          headers: h,
+          signal: controller.signal
+        });
+      } catch (err) {
+        if (err?.name === "AbortError") {
+          return { events: [], lastEventId: null, truncated: false, timedOut: true };
+        }
+        throw err;
+      }
+
+      if (!res.ok) {
+        const text = await res.text();
+        let json = null;
+        try {
+          json = text ? JSON.parse(text) : null;
+        } catch {
+          json = null;
+        }
+        const msg =
+          (json && (json.message || json.error)) ? String(json.message || json.error) :
+          text ? String(text) :
+          `HTTP ${res.status}`;
+        const err = new Error(msg);
+        err.statusCode = res.status;
+        if (json && typeof json.code === "string" && json.code.trim() !== "") {
+          err.code = json.code.trim();
+        }
+        err.details = json && (json.details || json.errorDetails) ? (json.details || json.errorDetails) : json;
+        throw err;
+      }
+
+      if (!res.body || typeof res.body.getReader !== "function") {
+        throw new TypeError("SSE response body is not a readable stream");
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      const events = [];
+      let buffer = "";
+      let lastEventId = null;
+      let truncated = false;
+      try {
+        for (;;) {
+          let chunk;
+          try {
+            chunk = await reader.read();
+          } catch (err) {
+            if (err?.name === "AbortError") break;
+            throw err;
+          }
+          if (chunk.done) break;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          for (;;) {
+            const splitIndex = buffer.indexOf("\n\n");
+            if (splitIndex === -1) break;
+            const frame = buffer.slice(0, splitIndex);
+            buffer = buffer.slice(splitIndex + 2);
+            const parsed = parseSseFrame(frame);
+            if (!parsed) continue;
+            if (parsed.id) lastEventId = parsed.id;
+            events.push(parsed);
+            if (events.length >= safeMaxEvents) {
+              truncated = true;
+              try {
+                controller.abort();
+              } catch {}
+              break;
+            }
+          }
+          if (truncated) break;
+        }
+        if (!truncated) {
+          buffer += decoder.decode();
+          const parsed = parseSseFrame(buffer);
+          if (parsed) {
+            if (parsed.id) lastEventId = parsed.id;
+            events.push(parsed);
+            if (events.length > safeMaxEvents) {
+              events.length = safeMaxEvents;
+              truncated = true;
+            }
+          }
+        }
+      } finally {
+        try {
+          reader.releaseLock();
+        } catch {}
+      }
+      return { events, lastEventId, truncated, timedOut: controller.signal.aborted && !truncated };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async function getRunPrevChainHash({ agentId, runId }) {
     const out = await requestJson(`/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/events`, { method: "GET" });
     const events = Array.isArray(out?.events) ? out.events : [];
@@ -388,6 +546,7 @@ function makeSettldClient({ baseUrl, tenantId, apiKey, protocol }) {
   return {
     discoverProtocol,
     requestJson,
+    requestSseEvents,
     getRunPrevChainHash
   };
 }
@@ -1101,6 +1260,29 @@ function buildTools() {
           includeRoutingFactors: { type: ["boolean", "null"], default: false },
           limit: { type: ["integer", "null"], minimum: 1, maximum: 100, default: null },
           offset: { type: ["integer", "null"], minimum: 0, default: null }
+        }
+      }
+    },
+    {
+      name: "settld.agent_discover_stream",
+      description: "Read bounded public AgentCard stream events (SSE) for discovery updates.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          capability: { type: ["string", "null"], default: null },
+          toolId: { type: ["string", "null"], default: null },
+          toolMcpName: { type: ["string", "null"], default: null },
+          toolRiskClass: { type: ["string", "null"], enum: ["read", "compute", "action", "financial", null], default: null },
+          toolSideEffecting: { type: ["boolean", "null"], default: null },
+          toolMaxPriceCents: { type: ["integer", "null"], minimum: 0, default: null },
+          toolRequiresEvidenceKind: { type: ["string", "null"], enum: ["artifact", "hash", "verification_report", null], default: null },
+          status: { type: ["string", "null"], enum: ["active", "suspended", "revoked", "all", null], default: null },
+          runtime: { type: ["string", "null"], default: null },
+          sinceCursor: { type: ["string", "null"], default: null },
+          lastEventId: { type: ["string", "null"], default: null },
+          maxEvents: { type: ["integer", "null"], minimum: 1, maximum: 200, default: 20 },
+          timeoutMs: { type: ["integer", "null"], minimum: 200, maximum: 30000, default: 2000 }
         }
       }
     },
@@ -2433,6 +2615,75 @@ async function main() {
             const discoverPath = scope === "public" ? "/public/agent-cards/discover" : "/agent-cards/discover";
             const out = await client.requestJson(`${discoverPath}${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
             result = { ok: true, ...redactSecrets(out) };
+          } else if (name === "settld.agent_discover_stream") {
+            const streamArgs = args === null || args === undefined ? {} : args;
+            assertPlainObject(streamArgs, "arguments");
+            assertNoUnknownKeys(
+              streamArgs,
+              [
+                "capability",
+                "toolId",
+                "toolMcpName",
+                "toolRiskClass",
+                "toolSideEffecting",
+                "toolMaxPriceCents",
+                "toolRequiresEvidenceKind",
+                "status",
+                "runtime",
+                "sinceCursor",
+                "lastEventId",
+                "maxEvents",
+                "timeoutMs"
+              ],
+              "settld.agent_discover_stream arguments"
+            );
+            const query = new URLSearchParams();
+            const capability = parseOptionalStringArg(streamArgs.capability, "capability", { max: 256 });
+            if (capability) query.set("capability", capability);
+            const toolId = parseOptionalStringArg(streamArgs.toolId, "toolId", { max: 200 });
+            if (toolId) query.set("toolId", toolId);
+            const toolMcpName = parseOptionalStringArg(streamArgs.toolMcpName, "toolMcpName", { max: 200 });
+            if (toolMcpName) query.set("toolMcpName", toolMcpName);
+            const toolRiskClass = parseOptionalEnumArg(streamArgs.toolRiskClass, "toolRiskClass", [
+              "read",
+              "compute",
+              "action",
+              "financial"
+            ]);
+            if (toolRiskClass) query.set("toolRiskClass", toolRiskClass);
+            const toolSideEffecting = parseOptionalBooleanArg(streamArgs.toolSideEffecting, "toolSideEffecting");
+            if (toolSideEffecting !== null) query.set("toolSideEffecting", toolSideEffecting ? "true" : "false");
+            const toolMaxPriceCents = parseOptionalIntegerArg(streamArgs.toolMaxPriceCents, "toolMaxPriceCents", { min: 0 });
+            if (toolMaxPriceCents !== null) query.set("toolMaxPriceCents", String(toolMaxPriceCents));
+            const toolRequiresEvidenceKind = parseOptionalEnumArg(streamArgs.toolRequiresEvidenceKind, "toolRequiresEvidenceKind", [
+              "artifact",
+              "hash",
+              "verification_report"
+            ]);
+            if (toolRequiresEvidenceKind) query.set("toolRequiresEvidenceKind", toolRequiresEvidenceKind);
+            const status = parseOptionalEnumArg(streamArgs.status, "status", ["active", "suspended", "revoked", "all"]);
+            if (status) query.set("status", status);
+            const runtime = parseOptionalStringArg(streamArgs.runtime, "runtime", { max: 64 });
+            if (runtime) query.set("runtime", runtime.toLowerCase());
+            const sinceCursor = parseOptionalStringArg(streamArgs.sinceCursor, "sinceCursor", { max: 512 });
+            if (sinceCursor) query.set("sinceCursor", sinceCursor);
+            const lastEventId = parseOptionalStringArg(streamArgs.lastEventId, "lastEventId", { max: 512 });
+            const maxEvents = parseOptionalIntegerArg(streamArgs.maxEvents, "maxEvents", { min: 1, max: 200 });
+            const timeoutMs = parseOptionalIntegerArg(streamArgs.timeoutMs, "timeoutMs", { min: 200, max: 30_000 });
+            const out = await client.requestSseEvents(`/public/agent-cards/stream${query.toString() ? `?${query.toString()}` : ""}`, {
+              headers: lastEventId ? { "last-event-id": lastEventId } : {},
+              ...(maxEvents === null ? {} : { maxEvents }),
+              ...(timeoutMs === null ? {} : { timeoutMs })
+            });
+            result = {
+              ok: true,
+              scope: "public",
+              eventCount: Array.isArray(out?.events) ? out.events.length : 0,
+              lastEventId: out?.lastEventId ?? null,
+              truncated: out?.truncated === true,
+              timedOut: out?.timedOut === true,
+              events: redactSecrets(out?.events ?? [])
+            };
           } else if (name === "settld.relationships_list") {
             const agentId = String(args?.agentId ?? "").trim();
             assertNonEmptyString(agentId, "agentId");
