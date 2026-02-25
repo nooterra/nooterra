@@ -16,6 +16,14 @@ const DEFAULT_ONBOARDING_HOST_SUCCESS_GATE_PATH = "artifacts/gates/onboarding-ho
 const DEFAULT_GO_LIVE_GATE_PATH = "artifacts/gates/s13-go-live-gate.json";
 const DEFAULT_LAUNCH_CUTOVER_PACKET_PATH = "artifacts/gates/s13-launch-cutover-packet.json";
 const DEFAULT_HOSTED_BASELINE_EVIDENCE_PATH = "artifacts/ops/hosted-baseline-evidence-production.json";
+const PRODUCTION_COLLAB_CHECK_ID = "settld_verified_collaboration";
+const PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID = "openclaw_substrate_demo_lineage_verified";
+const PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID = "openclaw_substrate_demo_transcript_verified";
+const REQUIRED_PRODUCTION_CUTOVER_CHECK_IDS = Object.freeze([
+  PRODUCTION_COLLAB_CHECK_ID,
+  PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID,
+  PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID
+]);
 
 const REQUIRED_ARTIFACT_SPECS = [
   {
@@ -28,7 +36,8 @@ const REQUIRED_ARTIFACT_SPECS = [
     id: "production_cutover_gate",
     label: "Production cutover gate",
     expectedSchemaVersion: "ProductionCutoverGateReport.v1",
-    pathKey: "productionCutoverGatePath"
+    pathKey: "productionCutoverGatePath",
+    requiredCheckIds: [...REQUIRED_PRODUCTION_CUTOVER_CHECK_IDS]
   },
   {
     id: "offline_verification_parity_gate",
@@ -134,6 +143,21 @@ function parseTimestampOptional(raw, fieldName) {
   const epochMs = Date.parse(value);
   if (!Number.isFinite(epochMs)) return { value, valid: false, epochMs: null, errorCode: fieldName };
   return { value: new Date(epochMs).toISOString(), valid: true, epochMs };
+}
+
+function markArtifactFailed(artifact, failureCode, failureMessage) {
+  if (!artifact || typeof artifact !== "object") return;
+  const code = normalizeOptionalString(failureCode);
+  if (!code) return;
+  const existing = Array.isArray(artifact.failureCodes) ? artifact.failureCodes : [];
+  const next = new Set(existing.map((value) => String(value)));
+  next.add(code);
+  artifact.failureCodes = [...next].sort(cmpString);
+  artifact.status = "failed";
+  artifact.verdictOk = false;
+  if (!artifact.failureMessage && normalizeOptionalString(failureMessage)) {
+    artifact.failureMessage = failureMessage;
+  }
 }
 
 export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
@@ -300,17 +324,40 @@ async function loadJsonArtifact(filePath) {
   }
 }
 
-function evaluateGateJson({ json, expectedSchemaVersion }) {
+function evaluateGateJson({ json, expectedSchemaVersion, requiredCheckIds = [] }) {
   const observedSchemaVersion = typeof json?.schemaVersion === "string" ? json.schemaVersion : null;
   const observedVerdictOk = typeof json?.verdict?.ok === "boolean" ? json.verdict.ok : null;
   const schemaOk = observedSchemaVersion === expectedSchemaVersion;
   const verdictOk = schemaOk && observedVerdictOk === true;
   const failureCodes = [];
+  const requiredChecks = Array.isArray(requiredCheckIds)
+    ? requiredCheckIds
+        .map((value) => (typeof value === "string" ? value.trim() : ""))
+        .filter((value) => value !== "")
+        .sort(cmpString)
+    : [];
+  let requiredChecksPresent = true;
   if (!schemaOk) failureCodes.push("schema_mismatch");
   if (!verdictOk) failureCodes.push("verdict_not_ok");
+  if (schemaOk && requiredChecks.length > 0) {
+    const checks = Array.isArray(json?.checks) ? json.checks : [];
+    const seen = new Set(
+      checks
+        .map((row) => (typeof row?.id === "string" ? row.id.trim() : ""))
+        .filter((value) => value !== "")
+    );
+    for (const requiredId of requiredChecks) {
+      if (!seen.has(requiredId)) {
+        requiredChecksPresent = false;
+        failureCodes.push("required_check_missing");
+        break;
+      }
+    }
+  }
   return {
     schemaOk,
     verdictOk,
+    requiredChecksPresent,
     observedSchemaVersion,
     observedStatus: null,
     observedVerdictOk,
@@ -378,7 +425,11 @@ async function evaluateRequiredArtifact(spec, args) {
   }
 
   const evaluated = spec.expectedSchemaVersion
-    ? evaluateGateJson({ json: loaded.json, expectedSchemaVersion: spec.expectedSchemaVersion })
+    ? evaluateGateJson({
+        json: loaded.json,
+        expectedSchemaVersion: spec.expectedSchemaVersion,
+        requiredCheckIds: spec.requiredCheckIds ?? []
+      })
     : evaluateHostedBaselineEvidenceJson({ json: loaded.json, expectedType: spec.expectedType, expectedVersion: spec.expectedVersion });
 
   const failureCodes = [...evaluated.failureCodes].sort(cmpString);
@@ -395,6 +446,141 @@ async function evaluateRequiredArtifact(spec, args) {
     failureCodes,
     failureMessage: failureCodes.length ? "artifact did not satisfy required promotion guard checks" : null
   };
+}
+
+async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd }) {
+  const result = {
+    id: "launch_packet_settld_verified_collaboration_binding",
+    status: "failed",
+    ok: false,
+    failureCodes: [],
+    details: {}
+  };
+
+  const launchArtifact = artifacts.find((row) => row?.id === "launch_cutover_packet") ?? null;
+  if (!launchArtifact) {
+    result.failureCodes.push("launch_packet_artifact_row_missing");
+    return result;
+  }
+  if (launchArtifact.readOk !== true || launchArtifact.parseOk !== true) {
+    markArtifactFailed(launchArtifact, "binding_unverifiable_launch_packet_invalid", "launch packet unavailable for binding verification");
+    result.failureCodes.push("launch_packet_unreadable");
+    return result;
+  }
+
+  const launchLoaded = await loadJsonArtifact(args.launchCutoverPacketPath);
+  if (!launchLoaded.readOk || !launchLoaded.parseOk) {
+    markArtifactFailed(launchArtifact, "binding_unverifiable_launch_packet_invalid", "launch packet unavailable for binding verification");
+    result.failureCodes.push(launchLoaded.readOk ? "launch_packet_json_invalid" : "launch_packet_missing");
+    return result;
+  }
+  const launchJson = launchLoaded.json;
+  const boundPathRaw = normalizeOptionalString(launchJson?.sources?.settldVerifiedCollaborationGateReportPath);
+  const boundSha256 = normalizeSha256Hex(launchJson?.sources?.settldVerifiedCollaborationGateReportSha256);
+  const boundPath = boundPathRaw ? path.resolve(cwd, boundPathRaw) : null;
+  result.details.boundPath = boundPath;
+  result.details.boundSha256 = boundSha256;
+
+  if (!boundPath) {
+    markArtifactFailed(launchArtifact, "binding_source_path_missing", "launch packet missing Settld Verified collaboration binding path");
+    result.failureCodes.push("binding_source_path_missing");
+  }
+  if (!boundSha256) {
+    markArtifactFailed(launchArtifact, "binding_source_sha_missing", "launch packet missing Settld Verified collaboration binding hash");
+    result.failureCodes.push("binding_source_sha_missing");
+  }
+
+  let collabLoaded = null;
+  if (boundPath) {
+    collabLoaded = await loadJsonArtifact(boundPath);
+    if (!collabLoaded.readOk) {
+      markArtifactFailed(launchArtifact, "binding_source_missing", "bound Settld Verified collaboration report is missing");
+      result.failureCodes.push("binding_source_missing");
+    } else if (!collabLoaded.parseOk) {
+      markArtifactFailed(launchArtifact, "binding_source_json_invalid", "bound Settld Verified collaboration report is not valid JSON");
+      result.failureCodes.push("binding_source_json_invalid");
+    } else {
+      if (collabLoaded.json?.schemaVersion !== "SettldVerifiedGateReport.v1") {
+        markArtifactFailed(launchArtifact, "binding_source_schema_mismatch", "bound Settld Verified collaboration report schema mismatch");
+        result.failureCodes.push("binding_source_schema_mismatch");
+      }
+      if (collabLoaded.json?.ok !== true) {
+        markArtifactFailed(launchArtifact, "binding_source_verdict_not_ok", "bound Settld Verified collaboration report verdict not ok");
+        result.failureCodes.push("binding_source_verdict_not_ok");
+      }
+    }
+    if (boundSha256 && collabLoaded?.sourceSha256 && boundSha256 !== collabLoaded.sourceSha256) {
+      markArtifactFailed(launchArtifact, "binding_source_sha_mismatch", "launch packet bound hash does not match Settld Verified collaboration report");
+      result.failureCodes.push("binding_source_sha_mismatch");
+    }
+  }
+
+  const productionArtifact = artifacts.find((row) => row?.id === "production_cutover_gate") ?? null;
+  if (productionArtifact && productionArtifact.readOk === true && productionArtifact.parseOk === true) {
+    const productionLoaded = await loadJsonArtifact(args.productionCutoverGatePath);
+    if (productionLoaded.readOk && productionLoaded.parseOk) {
+      const checks = Array.isArray(productionLoaded.json?.checks) ? productionLoaded.json.checks : [];
+      const collabCheck = checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_COLLAB_CHECK_ID) ?? null;
+      if (!collabCheck) {
+        markArtifactFailed(launchArtifact, "production_gate_binding_check_missing", "production cutover gate missing Settld Verified collaboration check");
+        result.failureCodes.push("production_gate_binding_check_missing");
+      } else {
+        const productionCheckPathRaw = normalizeOptionalString(collabCheck?.reportPath);
+        const productionCheckPath = productionCheckPathRaw ? path.resolve(cwd, productionCheckPathRaw) : null;
+        if (productionCheckPath && boundPath && productionCheckPath !== boundPath) {
+          markArtifactFailed(launchArtifact, "production_gate_binding_path_mismatch", "production cutover gate collaboration path does not match launch packet binding");
+          result.failureCodes.push("production_gate_binding_path_mismatch");
+        }
+        if (normalizeOptionalString(collabCheck?.status) !== "passed") {
+          markArtifactFailed(
+            launchArtifact,
+            "production_gate_binding_check_not_passed",
+            "production cutover gate collaboration check is not passed"
+          );
+          result.failureCodes.push("production_gate_binding_check_not_passed");
+        }
+      }
+
+      const lineageCheck = checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID) ?? null;
+      if (!lineageCheck) {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_lineage_check_missing",
+          "production cutover gate missing OpenClaw substrate demo lineage verification check"
+        );
+        result.failureCodes.push("production_gate_lineage_check_missing");
+      } else if (normalizeOptionalString(lineageCheck?.status) !== "passed") {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_lineage_check_not_passed",
+          "production cutover gate lineage verification check is not passed"
+        );
+        result.failureCodes.push("production_gate_lineage_check_not_passed");
+      }
+
+      const transcriptCheck = checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID) ?? null;
+      if (!transcriptCheck) {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_transcript_check_missing",
+          "production cutover gate missing OpenClaw substrate demo transcript verification check"
+        );
+        result.failureCodes.push("production_gate_transcript_check_missing");
+      } else if (normalizeOptionalString(transcriptCheck?.status) !== "passed") {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_transcript_check_not_passed",
+          "production cutover gate transcript verification check is not passed"
+        );
+        result.failureCodes.push("production_gate_transcript_check_not_passed");
+      }
+    }
+  }
+
+  result.failureCodes = [...new Set(result.failureCodes)].sort(cmpString);
+  result.ok = result.failureCodes.length === 0;
+  result.status = result.ok ? "passed" : "failed";
+  return result;
 }
 
 export function buildPromotionContext({ artifacts, promotionRef = null }) {
@@ -695,6 +881,8 @@ export async function runReleasePromotionGuard(args, env = process.env, cwd = pr
     artifacts.push(await evaluateRequiredArtifact(spec, args));
   }
 
+  const bindingChecks = [await enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })];
+
   const promotionContext = buildPromotionContext({
     artifacts,
     promotionRef: args.promotionRef
@@ -713,6 +901,7 @@ export async function runReleasePromotionGuard(args, env = process.env, cwd = pr
     generatedAt: nowIso,
     promotionRef: args.promotionRef ?? null,
     artifacts,
+    bindingChecks,
     promotionContext: {
       schemaVersion: CONTEXT_SCHEMA_VERSION,
       sha256: promotionContext.sha256,

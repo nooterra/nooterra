@@ -52,6 +52,26 @@ async function issueCapabilityAttestation(api, { attestationId, subjectAgentId, 
   assert.equal(response.statusCode, 201, response.body);
 }
 
+async function setX402AgentLifecycle(
+  api,
+  { agentId, status, idempotencyKey, reasonCode = null, reasonMessage = null }
+) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
+    headers: {
+      "x-idempotency-key": idempotencyKey,
+      "x-settld-protocol": "1.0"
+    },
+    body: {
+      status,
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(reasonMessage ? { reasonMessage } : {})
+    }
+  });
+  return response;
+}
+
 test("API e2e: SubAgentWorkOrder.v1 lifecycle create->accept->progress->complete->settle", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 
@@ -279,6 +299,155 @@ test("API e2e: SubAgentWorkOrder.v1 lifecycle create->accept->progress->complete
   });
   assert.equal(blockedAfterSettle.statusCode, 409, blockedAfterSettle.body);
   assert.equal(blockedAfterSettle.json?.code, "WORK_ORDER_PROGRESS_BLOCKED");
+});
+
+test("API e2e: work-order routes fail closed when principal or sub-agent lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const principalAgentId = "agt_workord_lifecycle_principal_1";
+  const subAgentId = "agt_workord_lifecycle_worker_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: ["code.generation"] });
+
+  const principalSuspended = await setX402AgentLifecycle(api, {
+    agentId: principalAgentId,
+    status: "suspended",
+    idempotencyKey: "workord_lifecycle_principal_suspend_1",
+    reasonCode: "X402_AGENT_SUSPENDED_POLICY",
+    reasonMessage: "work order lifecycle create guard"
+  });
+  assert.equal(principalSuspended.statusCode, 200, principalSuspended.body);
+
+  const createBlockedPrincipal = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "workord_lifecycle_create_blocked_principal_1" },
+    body: {
+      workOrderId: "workord_lifecycle_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: { amountCents: 300, currency: "USD" }
+    }
+  });
+  assert.equal(createBlockedPrincipal.statusCode, 410, createBlockedPrincipal.body);
+  assert.equal(createBlockedPrincipal.json?.code, "X402_AGENT_SUSPENDED");
+  assert.equal(createBlockedPrincipal.json?.details?.role, "principal");
+  assert.equal(createBlockedPrincipal.json?.details?.operation, "work_order.create");
+
+  const principalReactivated = await setX402AgentLifecycle(api, {
+    agentId: principalAgentId,
+    status: "active",
+    idempotencyKey: "workord_lifecycle_principal_active_1",
+    reasonCode: "X402_AGENT_REACTIVATED_MANUAL",
+    reasonMessage: "work order lifecycle create unblock"
+  });
+  assert.equal(principalReactivated.statusCode, 200, principalReactivated.body);
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "workord_lifecycle_create_ok_1" },
+    body: {
+      workOrderId: "workord_lifecycle_2",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: { amountCents: 320, currency: "USD" }
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const subSuspended = await setX402AgentLifecycle(api, {
+    agentId: subAgentId,
+    status: "suspended",
+    idempotencyKey: "workord_lifecycle_sub_suspend_1",
+    reasonCode: "X402_AGENT_SUSPENDED_POLICY",
+    reasonMessage: "work order lifecycle accept guard"
+  });
+  assert.equal(subSuspended.statusCode, 200, subSuspended.body);
+
+  const acceptBlockedSub = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_lifecycle_2/accept",
+    headers: { "x-idempotency-key": "workord_lifecycle_accept_blocked_sub_1" },
+    body: {
+      acceptedByAgentId: subAgentId,
+      acceptedAt: "2026-02-24T02:00:00.000Z"
+    }
+  });
+  assert.equal(acceptBlockedSub.statusCode, 410, acceptBlockedSub.body);
+  assert.equal(acceptBlockedSub.json?.code, "X402_AGENT_SUSPENDED");
+  assert.equal(acceptBlockedSub.json?.details?.role, "sub_agent");
+  assert.equal(acceptBlockedSub.json?.details?.operation, "work_order.accept");
+
+  const subReactivated = await setX402AgentLifecycle(api, {
+    agentId: subAgentId,
+    status: "active",
+    idempotencyKey: "workord_lifecycle_sub_active_1",
+    reasonCode: "X402_AGENT_REACTIVATED_MANUAL",
+    reasonMessage: "work order lifecycle accept unblock"
+  });
+  assert.equal(subReactivated.statusCode, 200, subReactivated.body);
+
+  const accepted = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_lifecycle_2/accept",
+    headers: { "x-idempotency-key": "workord_lifecycle_accept_ok_1" },
+    body: {
+      acceptedByAgentId: subAgentId,
+      acceptedAt: "2026-02-24T02:05:00.000Z"
+    }
+  });
+  assert.equal(accepted.statusCode, 200, accepted.body);
+
+  const completed = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_lifecycle_2/complete",
+    headers: { "x-idempotency-key": "workord_lifecycle_complete_ok_1" },
+    body: {
+      receiptId: "worec_lifecycle_2",
+      status: "success",
+      outputs: {
+        artifactRef: "artifact://code/lifecycle/2"
+      },
+      evidenceRefs: ["artifact://code/lifecycle/2", "report://verification/lifecycle/2"],
+      amountCents: 320,
+      currency: "USD",
+      deliveredAt: "2026-02-24T02:10:00.000Z",
+      completedAt: "2026-02-24T02:11:00.000Z"
+    }
+  });
+  assert.equal(completed.statusCode, 200, completed.body);
+
+  const principalThrottled = await setX402AgentLifecycle(api, {
+    agentId: principalAgentId,
+    status: "throttled",
+    idempotencyKey: "workord_lifecycle_principal_throttle_1",
+    reasonCode: "X402_AGENT_THROTTLED_MANUAL",
+    reasonMessage: "work order lifecycle settle guard"
+  });
+  assert.equal(principalThrottled.statusCode, 200, principalThrottled.body);
+
+  const settleBlockedPrincipal = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_lifecycle_2/settle",
+    headers: { "x-idempotency-key": "workord_lifecycle_settle_blocked_principal_1" },
+    body: {
+      completionReceiptId: "worec_lifecycle_2",
+      completionReceiptHash: completed.json?.completionReceipt?.receiptHash,
+      status: "released",
+      x402GateId: "x402gate_lifecycle_2",
+      x402RunId: "run_lifecycle_2",
+      x402SettlementStatus: "released",
+      x402ReceiptId: "x402rcpt_lifecycle_2",
+      settledAt: "2026-02-24T02:20:00.000Z"
+    }
+  });
+  assert.equal(settleBlockedPrincipal.statusCode, 429, settleBlockedPrincipal.body);
+  assert.equal(settleBlockedPrincipal.json?.code, "X402_AGENT_THROTTLED");
+  assert.equal(settleBlockedPrincipal.json?.details?.role, "principal");
+  assert.equal(settleBlockedPrincipal.json?.details?.operation, "work_order.settle");
 });
 
 test("API e2e: work-order attestation requirement is enforced on create and accept", async () => {

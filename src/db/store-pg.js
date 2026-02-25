@@ -1659,8 +1659,19 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       agentId ? String(agentId) : agentLifecycle.agentId ? String(agentLifecycle.agentId) : null;
     if (!normalizedAgentId) throw new TypeError("agentId is required");
     const status = String(agentLifecycle.status ?? "").trim().toLowerCase();
-    if (status !== "active" && status !== "frozen" && status !== "archived") {
-      throw new TypeError("agentLifecycle.status must be active|frozen|archived");
+    if (
+      status !== "provisioned" &&
+      status !== "active" &&
+      status !== "throttled" &&
+      status !== "suspended" &&
+      status !== "quarantined" &&
+      status !== "decommissioned" &&
+      status !== "frozen" &&
+      status !== "archived"
+    ) {
+      throw new TypeError(
+        "agentLifecycle.status must be provisioned|active|throttled|suspended|quarantined|decommissioned|frozen|archived"
+      );
     }
 
     const updatedAt = parseIsoOrNull(agentLifecycle.updatedAt) ?? new Date().toISOString();

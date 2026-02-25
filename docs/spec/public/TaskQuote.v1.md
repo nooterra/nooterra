@@ -26,6 +26,7 @@ A quote advertises executable terms for a task request and is hash-bindable for 
 
 ## Key optional fields
 
+- `traceId` (shared trace for quote -> offer -> acceptance -> work-order lineage)
 - `constraints`
 - `attestationRequirement`
 - `expiresAt`
@@ -36,6 +37,7 @@ A quote advertises executable terms for a task request and is hash-bindable for 
 - `quoteHash` is canonical `sha256` over quote content with `quoteHash: null`.
 - `status` is one of `open|accepted|expired|revoked`.
 - `pricing.model` is currently `fixed`.
+- when present, `traceId` must be propagated or explicitly matched by downstream offer/acceptance objects.
 
 ## API surface
 

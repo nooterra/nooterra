@@ -40,8 +40,8 @@ Already implemented and tested:
 
 ## 2.1) Execution Status Snapshot (2026-02-25)
 Machine status anchors:
-1. `artifacts/gates/settld-verified-gate.json`: collaboration gate passing (`totalChecks=21`).
-2. `artifacts/gates/settld-verified-gate.json` with `--include-pg`: collaboration+PG passing (`totalChecks=20`).
+1. `artifacts/gates/settld-verified-gate.json`: collaboration gate passing (`totalChecks=22`).
+2. `artifacts/gates/settld-verified-gate.json` with `--include-pg`: collaboration + PG durability gate passing (`totalChecks=23`).
 3. `artifacts/gates/settld-verified-guardrails-gate.json`: guardrails gate passing (`totalChecks=11`).
 
 Chunk status:
@@ -68,7 +68,89 @@ Chunk status:
 - Added reciprocal-collusion symmetry heuristic and edge-level impact multiplier fields.
 - Added collaboration gate check `e2e_relationship_anti_gaming_dampening`.
 - Added deterministic `VerifiedInteractionGraphPack.v1` export (`GET /agents/:agentId/interaction-graph-pack`) with hash-bound summary/edge payloads.
-6. Chunk G+ (governance lifecycle hardening, observability productization, federation): **pending**.
+6. Chunk G (governance lifecycle hardening): **in progress**.
+- Added expanded x402 runtime lifecycle states (`provisioned|active|throttled|suspended|quarantined|decommissioned|frozen|archived`).
+- Added fail-closed transition matrix enforcement (`X402_AGENT_LIFECYCLE_TRANSITION_BLOCKED`).
+- Added lifecycle API surface:
+  - `GET /x402/gate/agents/:agentId/lifecycle`
+  - `POST /x402/gate/agents/:agentId/lifecycle`
+- Extended x402 gate/create blocking semantics by lifecycle status (`not_active`, `throttled`, `suspended`, `quarantined`, `decommissioned`, `frozen`, `archived`).
+- Added public stream lifecycle regression coverage:
+  - `/public/agent-cards/stream` emits `agent_card.removed` when lifecycle becomes non-active.
+  - Re-activation + card update emits deterministic `agent_card.upsert` reappearance event.
+- Added x402 quote-path lifecycle fail-closed enforcement:
+  - `POST /x402/gate/quote` blocks when payer/payee lifecycle is non-active.
+- Added lifecycle fail-closed enforcement on work-order mutation routes:
+  - `POST /work-orders`
+  - `POST /work-orders/:workOrderId/accept`
+  - `POST /work-orders/:workOrderId/progress`
+  - `POST /work-orders/:workOrderId/topup`
+  - `POST /work-orders/:workOrderId/complete`
+  - `POST /work-orders/:workOrderId/settle`
+- Added lifecycle fail-closed enforcement on grant issuance routes:
+  - `POST /delegation-grants` (delegator + delegatee lifecycle checks)
+  - `POST /authority-grants` (grantee lifecycle check)
+- Added lifecycle fail-closed enforcement on task negotiation mutation routes:
+  - `POST /task-quotes` (buyer + seller lifecycle checks)
+  - `POST /task-offers` (buyer + seller lifecycle checks)
+  - `POST /task-acceptances` (buyer + seller + accepted-by lifecycle checks)
+- Added lifecycle fail-closed enforcement on agreement delegation mutation routes:
+  - `POST /agreements/:agreementHash/delegations` (delegator + delegatee lifecycle checks)
+- Added lifecycle fail-closed enforcement on marketplace negotiation/accept mutation routes:
+  - `POST /marketplace/rfqs` (poster lifecycle checks)
+  - `POST /marketplace/rfqs/:rfqId/bids` (poster + bidder lifecycle checks)
+  - `POST /marketplace/rfqs/:rfqId/bids/:bidId/counter-offer` (poster + bidder + proposer lifecycle checks)
+  - `POST /marketplace/rfqs/:rfqId/accept` (payer + payee + accepted-by lifecycle checks)
+- Added lifecycle fail-closed enforcement on marketplace agreement mutation routes:
+  - `POST /runs/:runId/agreement/change-order` (payer + payee + requested-by + accepted-by lifecycle checks)
+  - `POST /runs/:runId/agreement/cancel` (payer + payee + cancelled-by + accepted-by lifecycle checks)
+- Added lifecycle fail-closed enforcement on run settlement/dispute/arbitration mutation routes:
+  - `POST /runs/:runId/settlement/resolve` (payer + payee + resolved-by lifecycle checks)
+  - `POST /runs/:runId/dispute/open|close|evidence|escalate` (payer + payee + actor lifecycle checks)
+  - `POST /runs/:runId/arbitration/open|assign|evidence|verdict|close|appeal` (payer + payee + arbiter lifecycle checks)
+- Added lifecycle fail-closed enforcement on tool-call arbitration mutation routes:
+  - `POST /tool-calls/arbitration/open` (payer + payee + opened-by + arbiter lifecycle checks)
+  - `POST /tool-calls/arbitration/verdict` (payer + payee + arbiter lifecycle checks)
+- Added e2e coverage for principal/sub-agent lifecycle blocking on create/accept/settle.
+- Added e2e coverage for delegation/authority grant issue blocking when participant lifecycle is non-active.
+- Added e2e coverage for task negotiation lifecycle blocking on quote/offer/accept issuance.
+- Added e2e coverage for agreement delegation lifecycle blocking on create.
+- Added e2e coverage for marketplace lifecycle blocking on RFQ issue, bid issue, counter-offer, and accept.
+- Added e2e coverage for marketplace agreement lifecycle blocking on change-order and cancel.
+- Added e2e coverage for run settlement/dispute/arbitration lifecycle blocking.
+- Added e2e coverage for tool-call arbitration lifecycle blocking on open/verdict.
+- Added collaboration gate enforcement checks:
+  - `e2e_agent_card_stream_lifecycle`
+  - `e2e_task_negotiation_lifecycle_enforcement`
+  - `e2e_x402_agent_lifecycle_enforcement`
+  - `e2e_x402_quote_lifecycle_enforcement`
+  - `e2e_agreement_delegation_lifecycle_enforcement`
+  - `e2e_marketplace_lifecycle_enforcement`
+  - `e2e_marketplace_agreement_lifecycle_enforcement`
+  - `e2e_settlement_dispute_arbitration_lifecycle_enforcement`
+  - `e2e_tool_call_arbitration_lifecycle_enforcement`
+  - `e2e_grant_issue_lifecycle_enforcement`
+7. Chunk H (observability productization): **in progress**.
+- Added unified read-only lineage endpoint:
+  - `GET /ops/audit/lineage`
+  - Deterministic `AuditLineage.v1` payload with stable pagination and `lineageHash`.
+  - Cross-family coverage in one query surface: sessions/events, task negotiation objects, work orders/receipts, runs/settlements, arbitration cases, agreement delegations.
+- Added MCP audit-lineage primitive and demo-path proof:
+  - `settld.audit_lineage_list` in MCP server.
+  - OpenClaw substrate demo now binds a shared `traceId` across session/negotiation/work-order/settlement and exports lineage in-report.
+  - Demo now runs `scripts/ops/verify-audit-lineage.mjs` against exported lineage and fails closed on verification error.
+- Added offline verification tooling:
+  - Core verifier: `verifyAuditLineageV1` (`src/core/audit-lineage.js`)
+  - CLI verifier: `scripts/ops/verify-audit-lineage.mjs`
+  - npm wrapper: `npm run -s ops:audit:lineage:verify -- --in <lineage.json>`
+- Added fail-closed verification coverage:
+  - `test/audit-lineage.test.js`
+  - `test/audit-lineage-verify-script.test.js`
+- Added trace-filtered deterministic e2e coverage:
+  - `test/api-e2e-ops-audit-lineage.test.js`
+- Added collaboration gate enforcement check:
+  - `e2e_ops_audit_lineage`
+  - `e2e_ops_audit_lineage_verify_fail_closed`
 
 5. Distribution surfaces:
 - MCP server has substrate tools for authority/session/negotiation/work-orders.

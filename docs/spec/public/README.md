@@ -8,6 +8,11 @@ They are written for runtime integrators (OpenClaw, Codex, Claude Desktop, Curso
 
 - `AgentCard.v1.md`
 - `AgentCardStreamEvent.v1.md`
+- `Session.v1.md`
+- `SessionEvent.v1.md`
+- `SessionEventProvenance.v1.md`
+- `SessionReplayPack.v1.md`
+- `SessionTranscript.v1.md`
 - `ToolDescriptor.v1.md`
 - `AuthorityGrant.v1.md`
 - `DelegationGrant.v1.md`
@@ -20,6 +25,7 @@ They are written for runtime integrators (OpenClaw, Codex, Claude Desktop, Curso
 - `ReputationEvent.v1.md`
 - `RelationshipEdge.v1.md`
 - `PublicAgentReputationSummary.v1.md`
+- `AuditLineage.v1.md`
 - `VerifiedInteractionGraphPack.v1.md`
 - `SettldVerified.v1.md`
 

@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 
-import { evaluateGateVerdict, parseArgs } from "../scripts/ci/run-production-cutover-gate.mjs";
+import {
+  evaluateGateVerdict,
+  evaluateOpenclawSubstrateDemoLineageCheck,
+  evaluateOpenclawSubstrateDemoTranscriptCheck,
+  parseArgs
+} from "../scripts/ci/run-production-cutover-gate.mjs";
 
 test("production cutover gate parser: uses env default report path", () => {
   const cwd = "/tmp/settld";
@@ -49,4 +54,76 @@ test("production cutover gate verdict: computes pass/fail counts from status row
   assert.equal(verdict.requiredChecks, 3);
   assert.equal(verdict.passedChecks, 2);
   assert.equal(verdict.failedChecks, 1);
+});
+
+test("production cutover gate: derives openclaw lineage check as pass from Settld Verified collaboration report", () => {
+  const evaluated = evaluateOpenclawSubstrateDemoLineageCheck(
+    {
+      checks: [
+        { id: "mcp_host_cert_matrix", ok: true },
+        {
+          id: "openclaw_substrate_demo_lineage_verified",
+          ok: true,
+          exitCode: 0,
+          command: "derive e2e_openclaw_substrate_demo sessionLineageVerified"
+        }
+      ]
+    },
+    "artifacts/gates/settld-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "passed");
+  assert.equal(evaluated.exitCode, 0);
+  assert.equal(evaluated.details?.sourceCheckId, "openclaw_substrate_demo_lineage_verified");
+});
+
+test("production cutover gate: derives openclaw lineage check fail-closed when source check is missing", () => {
+  const evaluated = evaluateOpenclawSubstrateDemoLineageCheck(
+    {
+      checks: [{ id: "mcp_host_cert_matrix", ok: true }]
+    },
+    "artifacts/gates/settld-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "failed");
+  assert.equal(evaluated.exitCode, 1);
+  assert.match(String(evaluated.details?.message ?? ""), /missing source check/i);
+});
+
+test("production cutover gate: derives openclaw transcript check as pass from Settld Verified collaboration report", () => {
+  const evaluated = evaluateOpenclawSubstrateDemoTranscriptCheck(
+    {
+      checks: [
+        { id: "mcp_host_cert_matrix", ok: true },
+        {
+          id: "openclaw_substrate_demo_transcript_verified",
+          ok: true,
+          exitCode: 0,
+          command: "derive e2e_openclaw_substrate_demo sessionTranscriptVerified"
+        }
+      ]
+    },
+    "artifacts/gates/settld-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "passed");
+  assert.equal(evaluated.exitCode, 0);
+  assert.equal(evaluated.details?.sourceCheckId, "openclaw_substrate_demo_transcript_verified");
+});
+
+test("production cutover gate: derives openclaw transcript check fail-closed when source check is failed", () => {
+  const evaluated = evaluateOpenclawSubstrateDemoTranscriptCheck(
+    {
+      checks: [
+        { id: "mcp_host_cert_matrix", ok: true },
+        {
+          id: "openclaw_substrate_demo_transcript_verified",
+          ok: false,
+          exitCode: 1,
+          command: "derive e2e_openclaw_substrate_demo sessionTranscriptVerified"
+        }
+      ]
+    },
+    "artifacts/gates/settld-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "failed");
+  assert.equal(evaluated.exitCode, 1);
+  assert.equal(evaluated.details?.sourceCheckId, "openclaw_substrate_demo_transcript_verified");
 });

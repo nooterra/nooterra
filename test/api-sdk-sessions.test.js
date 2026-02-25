@@ -59,6 +59,9 @@ test("api-sdk: session methods call expected endpoints", async () => {
     if (String(url).endsWith("/sessions/sess_sdk_1/replay-pack") && String(init?.method) === "GET") {
       return makeJsonResponse({ replayPack: { sessionId: "sess_sdk_1", schemaVersion: "SessionReplayPack.v1" } });
     }
+    if (String(url).endsWith("/sessions/sess_sdk_1/transcript") && String(init?.method) === "GET") {
+      return makeJsonResponse({ transcript: { sessionId: "sess_sdk_1", schemaVersion: "SessionTranscript.v1" } });
+    }
     if (String(url).includes("/sessions/sess_sdk_1/events/stream?") && String(init?.method) === "GET") {
       return makeSseResponse([
         "id: evt_ready\nevent: session.ready\ndata: {\"ok\":true,\"sessionId\":\"sess_sdk_1\"}\n\n",
@@ -121,6 +124,10 @@ test("api-sdk: session methods call expected endpoints", async () => {
   assert.equal(calls[5].url, "https://api.settld.local/sessions/sess_sdk_1/replay-pack");
   assert.equal(calls[5].init?.method, "GET");
 
+  await client.getSessionTranscript("sess_sdk_1");
+  assert.equal(calls[6].url, "https://api.settld.local/sessions/sess_sdk_1/transcript");
+  assert.equal(calls[6].init?.method, "GET");
+
   const streamEvents = [];
   for await (const event of client.streamSessionEvents(
     "sess_sdk_1",
@@ -134,10 +141,10 @@ test("api-sdk: session methods call expected endpoints", async () => {
   )) {
     streamEvents.push(event);
   }
-  assert.equal(calls[6].url, "https://api.settld.local/sessions/sess_sdk_1/events/stream?eventType=TASK_REQUESTED&sinceEventId=evt_prev_1");
-  assert.equal(calls[6].init?.method, "GET");
-  assert.equal(calls[6].init?.headers?.["last-event-id"], "evt_resume_1");
-  assert.equal(calls[6].init?.headers?.accept, "text/event-stream");
+  assert.equal(calls[7].url, "https://api.settld.local/sessions/sess_sdk_1/events/stream?eventType=TASK_REQUESTED&sinceEventId=evt_prev_1");
+  assert.equal(calls[7].init?.method, "GET");
+  assert.equal(calls[7].init?.headers?.["last-event-id"], "evt_resume_1");
+  assert.equal(calls[7].init?.headers?.accept, "text/event-stream");
   assert.equal(streamEvents.length, 2);
   assert.equal(streamEvents[0].event, "session.ready");
   assert.equal(streamEvents[0].id, "evt_ready");

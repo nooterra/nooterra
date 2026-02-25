@@ -32,6 +32,7 @@ async function seedPassingInputs(tmpDir) {
   const throughputReportPath = path.join(tmpDir, "artifacts", "throughput", "10x-drill-summary.json");
   const incidentRehearsalReportPath = path.join(tmpDir, "artifacts", "throughput", "10x-incident-rehearsal-summary.json");
   const lighthouseTrackerPath = path.join(tmpDir, "planning", "launch", "lighthouse-production-tracker.json");
+  const settldVerifiedCollabReportPath = path.join(tmpDir, "artifacts", "gates", "settld-verified-collaboration-gate.json");
 
   await writeJson(gateReportPath, {
     schemaVersion: "GoLiveGateReport.v1",
@@ -50,6 +51,12 @@ async function seedPassingInputs(tmpDir) {
   await writeJson(incidentRehearsalReportPath, {
     schemaVersion: "ThroughputIncidentRehearsalReport.v1",
     verdict: { ok: true }
+  });
+  await writeJson(settldVerifiedCollabReportPath, {
+    schemaVersion: "SettldVerifiedGateReport.v1",
+    level: "collaboration",
+    ok: true,
+    summary: { totalChecks: 10, passedChecks: 10, failedChecks: 0 }
   });
   await writeJson(lighthouseTrackerPath, {
     schemaVersion: "LighthouseProductionTracker.v1",
@@ -83,7 +90,8 @@ async function seedPassingInputs(tmpDir) {
     gateReportPath,
     throughputReportPath,
     incidentRehearsalReportPath,
-    lighthouseTrackerPath
+    lighthouseTrackerPath,
+    settldVerifiedCollabReportPath
   };
 }
 
@@ -93,6 +101,7 @@ function buildEnv(paths, packetPath, overrides = null) {
     THROUGHPUT_REPORT_PATH: paths.throughputReportPath,
     THROUGHPUT_INCIDENT_REHEARSAL_REPORT_PATH: paths.incidentRehearsalReportPath,
     LIGHTHOUSE_TRACKER_PATH: paths.lighthouseTrackerPath,
+    SETTLD_VERIFIED_COLLAB_REPORT_PATH: paths.settldVerifiedCollabReportPath,
     LAUNCH_CUTOVER_PACKET_PATH: packetPath,
     ...(overrides ?? {})
   };
@@ -137,6 +146,26 @@ test("launch cutover packet: checksum is deterministic across repeated runs", as
   assert.equal(second.status, 0, `expected success\nstdout:\n${second.stdout}\n\nstderr:\n${second.stderr}`);
   const packetSecond = JSON.parse(await fs.readFile(packetPath, "utf8"));
   assert.deepEqual(packetSecond, packetFirst);
+});
+
+test("launch cutover packet: preserves relative collaboration report source path for portable binding", async (t) => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-portable-path-"));
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const paths = await seedPassingInputs(tmpDir);
+  const packetPath = path.join(tmpDir, "artifacts", "gates", "s13-launch-cutover-packet.json");
+  const env = buildEnv(paths, packetPath, {
+    LAUNCH_CUTOVER_PACKET_NOW: "2026-02-21T18:00:00.000Z",
+    SETTLD_VERIFIED_COLLAB_REPORT_PATH: "artifacts/gates/settld-verified-collaboration-gate.json"
+  });
+
+  const result = runLaunchCutoverPacket(env);
+  assert.equal(result.status, 0, `expected success\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+  const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
+  assert.equal(packet.verdict?.ok, true);
+  assert.equal(packet.sources?.settldVerifiedCollaborationGateReportPath, "artifacts/gates/settld-verified-collaboration-gate.json");
 });
 
 test("launch cutover packet: optional signing emits verifiable signature", async (t) => {
@@ -201,6 +230,28 @@ test("launch cutover packet: fail-closed when required source input is missing",
     : null;
   assert.ok(missingGate);
   assert.equal(missingGate.details?.code, "file_missing");
+});
+
+test("launch cutover packet: fail-closed when Settld Verified collaboration gate report is missing", async (t) => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-missing-verified-"));
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const paths = await seedPassingInputs(tmpDir);
+  const packetPath = path.join(tmpDir, "artifacts", "gates", "s13-launch-cutover-packet.json");
+  await fs.rm(paths.settldVerifiedCollabReportPath, { force: true });
+
+  const result = runLaunchCutoverPacket(buildEnv(paths, packetPath));
+  assert.equal(result.status, 1, `expected fail-closed exit\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+
+  const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
+  assert.equal(packet.verdict?.ok, false);
+  const missingVerified = Array.isArray(packet.blockingIssues)
+    ? packet.blockingIssues.find((row) => row?.checkId === "settld_verified_collaboration_report_present")
+    : null;
+  assert.ok(missingVerified);
+  assert.equal(missingVerified.details?.code, "file_missing");
 });
 
 test("launch cutover packet: fail-closed when required source verdict is failed", async (t) => {

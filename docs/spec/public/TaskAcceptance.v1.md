@@ -28,6 +28,7 @@ Acceptance is the deterministic handshake artifact:
 
 ## Key optional fields
 
+- `traceId` (must align with bound quote/offer trace lineage)
 - `metadata`
 
 ## Invariants
@@ -35,6 +36,7 @@ Acceptance is the deterministic handshake artifact:
 - `acceptanceHash` is canonical `sha256` over acceptance content with `acceptanceHash: null`.
 - `status` must be `accepted` in v1.
 - quote and offer refs are required and hash-addressed.
+- quote/offer trace divergence is fail-closed; acceptance `traceId` cannot silently override negotiated trace lineage.
 
 ## Settlement binding
 

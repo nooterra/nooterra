@@ -8,6 +8,7 @@ Use this checklist to launch and verify a real hosted Settld environment.
    - `tests / kernel_v0_ship_gate`
    - `tests / production_cutover_gate`
    - `tests / offline_verification_parity_gate` (NOO-50)
+   - `tests / release_promotion_materialization_chain` (NOO-65 input chain)
    - `tests / onboarding_policy_slo_gate`
    - `tests / onboarding_host_success_gate`
    - `tests / deploy_safety_smoke` (hosted baseline evidence path)
@@ -128,6 +129,7 @@ Ship only when all are true:
 5. Go-live gate and launch cutover packet reports are present:
    - `artifacts/gates/s13-go-live-gate.json`
    - `artifacts/gates/s13-launch-cutover-packet.json`
+   - `artifacts/gates/settld-verified-collaboration-gate.json`
    - generated from a successful `go-live-gate` workflow run for the release commit
 6. NOO-65 promotion guard passes with required artifact binding (`artifacts/gates/release-promotion-guard.json`).
 7. MCP compatibility matrix is green for supported hosts.
@@ -137,6 +139,9 @@ Ship only when all are true:
 Run the live environment cutover gate before opening traffic:
 
 `Actions -> production-cutover-gate -> Run workflow`
+
+Note: the production cutover gate includes both `settld_verified_collaboration` and
+`openclaw_substrate_demo_lineage_verified`, and `openclaw_substrate_demo_transcript_verified` as required checks (`ProductionCutoverGateReport.v1`), and the launch packet must bind `sources.settldVerifiedCollaborationGateReportSha256` to the collaboration gate artifact hash.
 
 ## Phase 7: Post-release
 

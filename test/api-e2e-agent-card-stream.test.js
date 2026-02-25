@@ -80,6 +80,23 @@ async function putAuthKey(api, { scopes = ["ops_write", "finance_write", "audit_
   return `Bearer ${keyId}.${secret}`;
 }
 
+async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, reasonCode = null, reasonMessage = null }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
+    headers: {
+      "x-idempotency-key": idempotencyKey,
+      "x-settld-protocol": "1.0"
+    },
+    body: {
+      status,
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(reasonMessage ? { reasonMessage } : {})
+    }
+  });
+  return response;
+}
+
 function createSseFrameReader(reader, decoder) {
   let buffer = "";
   return async function nextSseFrame({ timeoutMs = 6_000 } = {}) {
@@ -378,6 +395,93 @@ test("API e2e: /public/agent-cards/stream emits agent_card.removed when visibili
   assert.equal(removedPayload.type, "AGENT_CARD_REMOVED");
   assert.equal(removedPayload.agentId, workerId);
   assert.equal(removedPayload.reasonCode, "NO_LONGER_VISIBLE");
+  controller.abort();
+});
+
+test("API e2e: /public/agent-cards/stream emits removal when lifecycle becomes non-active, then resumes on reactivation", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const workerId = "agt_public_stream_worker_lifecycle_1";
+
+  await registerAgent(api, { agentId: workerId, capabilities: ["travel.booking"] });
+  await upsertPublicAgentCard(api, { agentId: workerId, keySuffix: "lifecycle_v1", description: "stream lifecycle v1" });
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const streamUrl =
+    `http://127.0.0.1:${port}/public/agent-cards/stream` +
+    "?capability=travel.booking&status=active&runtime=openclaw&toolId=travel.book_flight&toolSideEffecting=true";
+
+  const controller = new AbortController();
+  let reader = null;
+  t.after(() => {
+    if (reader) {
+      void reader.cancel().catch(() => {
+        // best effort cleanup
+      });
+    }
+    controller.abort();
+  });
+  const stream = await fetch(streamUrl, { signal: controller.signal });
+  assert.equal(stream.status, 200);
+  assert.ok(stream.body);
+
+  reader = stream.body.getReader();
+  const nextFrame = createSseFrameReader(reader, new TextDecoder());
+  const ready = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+  assert.equal(ready.event, "agent_cards.ready");
+  const initialUpsert = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+  assert.equal(initialUpsert.event, "agent_card.upsert");
+  const initialPayload = JSON.parse(initialUpsert.dataLines.join("\n"));
+  assert.equal(initialPayload.agentId, workerId);
+
+  const suspended = await setX402AgentLifecycle(api, {
+    agentId: workerId,
+    status: "suspended",
+    reasonCode: "X402_AGENT_SUSPENDED_POLICY",
+    reasonMessage: "stream lifecycle removal test",
+    idempotencyKey: `stream_lifecycle_suspend_${workerId}`
+  });
+  assert.equal(suspended.statusCode, 200, suspended.body);
+  assert.equal(suspended.json?.lifecycle?.status, "suspended");
+
+  const removed = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+  assert.equal(removed.event, "agent_card.removed");
+  const removedPayload = JSON.parse(removed.dataLines.join("\n"));
+  assert.equal(removedPayload.type, "AGENT_CARD_REMOVED");
+  assert.equal(removedPayload.agentId, workerId);
+  assert.equal(removedPayload.reasonCode, "NO_LONGER_VISIBLE");
+
+  const reactivated = await setX402AgentLifecycle(api, {
+    agentId: workerId,
+    status: "active",
+    reasonCode: "X402_AGENT_REACTIVATED_MANUAL",
+    reasonMessage: "stream lifecycle reactivation test",
+    idempotencyKey: `stream_lifecycle_active_${workerId}`
+  });
+  assert.equal(reactivated.statusCode, 200, reactivated.body);
+  assert.equal(reactivated.json?.lifecycle?.status, "active");
+
+  await upsertPublicAgentCard(api, {
+    agentId: workerId,
+    keySuffix: "lifecycle_v2",
+    description: "stream lifecycle v2"
+  });
+
+  const reappeared = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+  assert.equal(reappeared.event, "agent_card.upsert");
+  const reappearedPayload = JSON.parse(reappeared.dataLines.join("\n"));
+  assert.equal(reappearedPayload.agentId, workerId);
+  assert.equal(reappearedPayload.type, "AGENT_CARD_UPSERT");
+  assert.equal(reappearedPayload.agentCard?.description, "stream lifecycle v2");
+  if (reader) {
+    void reader.cancel().catch(() => {
+      // best effort cleanup
+    });
+  }
   controller.abort();
 });
 

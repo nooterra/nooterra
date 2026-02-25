@@ -2,7 +2,7 @@
 
 import crypto from "node:crypto";
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 
@@ -11,6 +11,9 @@ const DEFAULT_GATE_REPORT_PATH = "artifacts/gates/production-cutover-gate.json";
 const DEFAULT_MCP_HOST_SMOKE_REPORT_PATH = "artifacts/ops/mcp-host-smoke.json";
 const DEFAULT_MCP_HOST_CERT_MATRIX_REPORT_PATH = "artifacts/ops/mcp-host-cert-matrix.json";
 const DEFAULT_X402_HITL_SMOKE_REPORT_PATH = "artifacts/ops/x402-hitl-smoke.json";
+const DEFAULT_SETTLD_VERIFIED_COLLAB_REPORT_PATH = "artifacts/gates/settld-verified-collaboration-gate.json";
+const OPENCLAW_SUBSTRATE_DEMO_LINEAGE_CHECK_ID = "openclaw_substrate_demo_lineage_verified";
+const OPENCLAW_SUBSTRATE_DEMO_TRANSCRIPT_CHECK_ID = "openclaw_substrate_demo_transcript_verified";
 
 function usage() {
   return [
@@ -270,6 +273,102 @@ function toStatus(exitCode) {
   return exitCode === 0 ? "passed" : "failed";
 }
 
+function evaluateOpenclawSubstrateDemoDerivedCheck(settldVerifiedReport, reportPath, { sourceCheckId, sourceCheckLabel }) {
+  const sourceChecks = Array.isArray(settldVerifiedReport?.checks) ? settldVerifiedReport.checks : [];
+  const source = sourceChecks.find((row) => String(row?.id ?? "").trim() === sourceCheckId) ?? null;
+  if (!source) {
+    return {
+      status: "failed",
+      exitCode: 1,
+      details: {
+        sourceCheckId,
+        message: `missing source check in ${reportPath}`
+      }
+    };
+  }
+  const passed = source?.ok === true || source?.status === "passed";
+  return {
+    status: passed ? "passed" : "failed",
+    exitCode: passed ? 0 : 1,
+    details: {
+      sourceCheckId,
+      sourceCheckLabel,
+      sourceOk: source?.ok ?? null,
+      sourceStatus: source?.status ?? null,
+      sourceExitCode: Number.isInteger(source?.exitCode) ? source.exitCode : null,
+      sourceCommand: typeof source?.command === "string" ? source.command : null
+    }
+  };
+}
+
+export function evaluateOpenclawSubstrateDemoLineageCheck(settldVerifiedReport, reportPath) {
+  return evaluateOpenclawSubstrateDemoDerivedCheck(settldVerifiedReport, reportPath, {
+    sourceCheckId: OPENCLAW_SUBSTRATE_DEMO_LINEAGE_CHECK_ID,
+    sourceCheckLabel: "OpenClaw substrate demo lineage verification"
+  });
+}
+
+export function evaluateOpenclawSubstrateDemoTranscriptCheck(settldVerifiedReport, reportPath) {
+  return evaluateOpenclawSubstrateDemoDerivedCheck(settldVerifiedReport, reportPath, {
+    sourceCheckId: OPENCLAW_SUBSTRATE_DEMO_TRANSCRIPT_CHECK_ID,
+    sourceCheckLabel: "OpenClaw substrate demo transcript verification"
+  });
+}
+
+async function runOpenclawSubstrateDemoLineageCheck({ reportPath }) {
+  const startedAt = Date.now();
+  const row = {
+    id: OPENCLAW_SUBSTRATE_DEMO_LINEAGE_CHECK_ID,
+    label: "OpenClaw substrate demo lineage verification",
+    status: "failed",
+    exitCode: 1,
+    reportPath,
+    durationMs: 0,
+    command: ["derive", "settld_verified_collaboration", OPENCLAW_SUBSTRATE_DEMO_LINEAGE_CHECK_ID]
+  };
+  try {
+    const raw = await readFile(reportPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const evaluated = evaluateOpenclawSubstrateDemoLineageCheck(parsed, reportPath);
+    row.status = evaluated.status;
+    row.exitCode = evaluated.exitCode;
+    row.details = evaluated.details;
+  } catch (err) {
+    row.status = "failed";
+    row.exitCode = 1;
+    row.error = err?.message ?? String(err);
+  }
+  row.durationMs = Date.now() - startedAt;
+  return row;
+}
+
+async function runOpenclawSubstrateDemoTranscriptCheck({ reportPath }) {
+  const startedAt = Date.now();
+  const row = {
+    id: OPENCLAW_SUBSTRATE_DEMO_TRANSCRIPT_CHECK_ID,
+    label: "OpenClaw substrate demo transcript verification",
+    status: "failed",
+    exitCode: 1,
+    reportPath,
+    durationMs: 0,
+    command: ["derive", "settld_verified_collaboration", OPENCLAW_SUBSTRATE_DEMO_TRANSCRIPT_CHECK_ID]
+  };
+  try {
+    const raw = await readFile(reportPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const evaluated = evaluateOpenclawSubstrateDemoTranscriptCheck(parsed, reportPath);
+    row.status = evaluated.status;
+    row.exitCode = evaluated.exitCode;
+    row.details = evaluated.details;
+  } catch (err) {
+    row.status = "failed";
+    row.exitCode = 1;
+    row.error = err?.message ?? String(err);
+  }
+  row.durationMs = Date.now() - startedAt;
+  return row;
+}
+
 export function evaluateGateVerdict(checks) {
   const rows = Array.isArray(checks) ? checks : [];
   const passedChecks = rows.filter((row) => row?.status === "passed").length;
@@ -431,12 +530,29 @@ export async function runProductionCutoverGate(args, env = process.env, cwd = pr
     normalizeOptionalString(env.MCP_HOST_CERT_MATRIX_REPORT_PATH) ?? DEFAULT_MCP_HOST_CERT_MATRIX_REPORT_PATH
   );
   const x402HitlSmokeReportPath = path.resolve(cwd, normalizeOptionalString(env.X402_HITL_SMOKE_REPORT_PATH) ?? DEFAULT_X402_HITL_SMOKE_REPORT_PATH);
+  const settldVerifiedCollabReportPath = path.resolve(
+    cwd,
+    normalizeOptionalString(env.SETTLD_VERIFIED_COLLAB_REPORT_PATH) ?? DEFAULT_SETTLD_VERIFIED_COLLAB_REPORT_PATH
+  );
 
   const checks = [];
 
   if (args.mode === "local") {
     const tenantId = normalizeOptionalString(args.tenantId) ?? normalizeOptionalString(env.SETTLD_TENANT_ID) ?? "tenant_default";
     const protocol = normalizeOptionalString(args.protocol) ?? normalizeOptionalString(env.SETTLD_PROTOCOL) ?? "1.0";
+
+    checks.push(
+      await runCheck({
+        id: "settld_verified_collaboration",
+        label: "Settld Verified collaboration gate",
+        scriptPath: "scripts/ci/run-settld-verified-gate.mjs",
+        args: ["--level", "collaboration", "--bootstrap-local", "--out", settldVerifiedCollabReportPath],
+        env,
+        reportPath: settldVerifiedCollabReportPath
+      })
+    );
+    checks.push(await runOpenclawSubstrateDemoLineageCheck({ reportPath: settldVerifiedCollabReportPath }));
+    checks.push(await runOpenclawSubstrateDemoTranscriptCheck({ reportPath: settldVerifiedCollabReportPath }));
 
     checks.push(
       await runCheck({
@@ -470,6 +586,19 @@ export async function runProductionCutoverGate(args, env = process.env, cwd = pr
     );
   } else {
     checks.push(await runApiHealthCheck({ baseUrl: args.baseUrl }));
+
+    checks.push(
+      await runCheck({
+        id: "settld_verified_collaboration",
+        label: "Settld Verified collaboration gate",
+        scriptPath: "scripts/ci/run-settld-verified-gate.mjs",
+        args: ["--level", "collaboration", "--bootstrap-local", "--out", settldVerifiedCollabReportPath],
+        env,
+        reportPath: settldVerifiedCollabReportPath
+      })
+    );
+    checks.push(await runOpenclawSubstrateDemoLineageCheck({ reportPath: settldVerifiedCollabReportPath }));
+    checks.push(await runOpenclawSubstrateDemoTranscriptCheck({ reportPath: settldVerifiedCollabReportPath }));
 
     checks.push(
       await runCheck({

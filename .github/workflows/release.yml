@@ -40,7 +40,8 @@ jobs:
               "mcp_paid_call_kernel_suite",
               "kernel_v0_ship_gate",
               "production_cutover_gate",
-              "offline_verification_parity_gate"
+              "offline_verification_parity_gate",
+              "release_promotion_materialization_chain"
             ];
 
             const runs = await github.paginate(
@@ -346,33 +347,11 @@ jobs:
       - name: Materialize promotion-guard input artifacts
         run: |
           set -euo pipefail
-          mkdir -p artifacts/gates artifacts/ops
-          copy_required() {
-            local root="$1"
-            local file_name="$2"
-            local dest="$3"
-            local matches=()
-            mapfile -t matches < <(find "$root" -type f -name "$file_name" | sort)
-            if [[ "${#matches[@]}" -eq 0 ]]; then
-              echo "missing required artifact: $file_name under $root" >&2
-              exit 1
-            fi
-            if [[ "${#matches[@]}" -gt 1 ]]; then
-              echo "ambiguous required artifact: $file_name under $root resolved ${#matches[@]} files" >&2
-              printf '%s\n' "${matches[@]}" >&2
-              exit 1
-            fi
-            cp "${matches[0]}" "$dest"
-          }
-          copy_required "/tmp/release-upstream/tests" "kernel-v0-ship-gate.json" "artifacts/gates/kernel-v0-ship-gate.json"
-          copy_required "/tmp/release-upstream/tests" "production-cutover-gate.json" "artifacts/gates/production-cutover-gate.json"
-          copy_required "/tmp/release-upstream/tests" "offline-verification-parity-gate.json" "artifacts/gates/offline-verification-parity-gate.json"
-          copy_required "/tmp/release-upstream/tests" "onboarding-host-success-gate.json" "artifacts/gates/onboarding-host-success-gate.json"
-          copy_required "/tmp/release-upstream/go-live" "s13-go-live-gate.json" "artifacts/gates/s13-go-live-gate.json"
-          copy_required "/tmp/release-upstream/go-live" "s13-launch-cutover-packet.json" "artifacts/gates/s13-launch-cutover-packet.json"
-          copy_required "/tmp/release-upstream/release-gate" "hosted-baseline-release-gate.json" "artifacts/ops/hosted-baseline-release-gate.json"
-          ls -la artifacts/gates
-          ls -la artifacts/ops
+          node scripts/ci/materialize-release-promotion-guard-inputs.mjs \
+            --tests-root /tmp/release-upstream/tests \
+            --go-live-root /tmp/release-upstream/go-live \
+            --release-gate-root /tmp/release-upstream/release-gate \
+            --report artifacts/gates/release-promotion-guard-input-materialization.json
 
       - name: Run release promotion guard (NOO-65)
         run: |
@@ -387,19 +366,29 @@ jobs:
             --baseline-evidence artifacts/ops/hosted-baseline-release-gate.json \
             --promotion-ref "${{ github.sha }}"
 
+      - name: Assert production cutover required checks (collaboration + lineage + transcript)
+        run: |
+          set -euo pipefail
+          node scripts/ci/assert-production-cutover-required-checks.mjs \
+            --in artifacts/gates/production-cutover-gate.json \
+            --json-out artifacts/gates/production-cutover-required-checks.json
+
       - name: Upload release promotion guard artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: release-promotion-guard-${{ github.run_id }}
           path: |
+            artifacts/gates/release-promotion-guard-input-materialization.json
             artifacts/gates/release-promotion-guard.json
             artifacts/gates/kernel-v0-ship-gate.json
             artifacts/gates/production-cutover-gate.json
+            artifacts/gates/production-cutover-required-checks.json
             artifacts/gates/offline-verification-parity-gate.json
             artifacts/gates/onboarding-host-success-gate.json
             artifacts/gates/s13-go-live-gate.json
             artifacts/gates/s13-launch-cutover-packet.json
+            artifacts/gates/settld-verified-collaboration-gate.json
             artifacts/ops/hosted-baseline-release-gate.json
           if-no-files-found: error
 
@@ -1112,6 +1101,7 @@ jobs:
           test -f /tmp/release-assets/settld-audit-packet-v1.zip
           test -f /tmp/release-assets/settld-audit-packet-v1.zip.sha256
           test -f /tmp/release-assets/release-promotion-guard.json
+          test -f /tmp/release-assets/production-cutover-required-checks.json
           # npm tgz artifacts + checksums
           ls /tmp/release-assets/settld-api-sdk-*.tgz >/dev/null
           ls /tmp/release-assets/settld-artifact-produce-*.tgz >/dev/null
@@ -1125,6 +1115,17 @@ jobs:
           ls /tmp/release-assets/settld_api_sdk_python-*.whl >/dev/null
           ls /tmp/release-assets/settld_api_sdk_python-*.tar.gz >/dev/null
           test -f /tmp/release-assets/python-SHA256SUMS
+
+      - name: Build release notes (gate summary)
+        run: |
+          set -euo pipefail
+          node scripts/release/build-release-notes-from-gates.mjs \
+            --promotion-guard /tmp/release-assets/release-promotion-guard.json \
+            --required-checks /tmp/release-assets/production-cutover-required-checks.json \
+            --tag "${{ steps.v.outputs.tag }}" \
+            --version "${{ steps.v.outputs.version }}" \
+            --out /tmp/release-notes.md \
+            --json-out /tmp/release-notes.json
 
       - name: Gate ReleaseIndex signing key
         id: release_signing_guard
@@ -1167,4 +1168,15 @@ jobs:
         with:
           tag_name: ${{ steps.v.outputs.tag }}
           name: ${{ steps.v.outputs.tag }}
+          body_path: /tmp/release-notes.md
           files: /tmp/release-assets/*
+
+      - name: Upload release notes artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-${{ steps.v.outputs.version }}
+          path: |
+            /tmp/release-notes.md
+            /tmp/release-notes.json
+          if-no-files-found: warn

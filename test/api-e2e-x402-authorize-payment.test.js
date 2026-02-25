@@ -107,6 +107,26 @@ async function windDownX402Agent(api, { agentId, reasonCode = "X402_AGENT_WIND_D
   return response;
 }
 
+async function setX402AgentLifecycle(
+  api,
+  { agentId, status, reasonCode = null, reasonMessage = null, idempotencyKey }
+) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
+    headers: {
+      "x-idempotency-key": idempotencyKey,
+      "x-settld-protocol": "1.0"
+    },
+    body: {
+      status,
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(reasonMessage ? { reasonMessage } : {})
+    }
+  });
+  return response;
+}
+
 function parseWebhookSignatures(headerValue) {
   const raw = typeof headerValue === "string" ? headerValue.trim() : "";
   if (!raw) return [];
@@ -1431,6 +1451,251 @@ test("API e2e: x402 authorize-payment is blocked when gate payer is manually fro
   });
   assert.equal(authz.statusCode, 410, authz.body);
   assert.equal(authz.json?.code, "X402_AGENT_FROZEN");
+});
+
+test("API e2e: x402 gate create is blocked when payer agent lifecycle is provisioned", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_auth_provisioned_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_auth_provisioned_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_auth_provisioned_1" });
+
+  const lifecycle = await setX402AgentLifecycle(api, {
+    agentId: payerAgentId,
+    status: "provisioned",
+    reasonCode: "AGENT_WAITING_ACTIVATION",
+    idempotencyKey: "x402_lifecycle_provisioned_1"
+  });
+  assert.equal(lifecycle.statusCode, 200, lifecycle.body);
+  assert.equal(lifecycle.json?.lifecycle?.status, "provisioned");
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_provisioned_1" },
+    body: {
+      gateId: "gate_auth_provisioned_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 500,
+      currency: "USD"
+    }
+  });
+  assert.equal(created.statusCode, 409, created.body);
+  assert.equal(created.json?.code, "X402_AGENT_NOT_ACTIVE");
+});
+
+test("API e2e: x402 gate create is blocked with 429 when payer agent lifecycle is throttled", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_auth_throttled_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_auth_throttled_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_auth_throttled_1" });
+
+  const lifecycle = await setX402AgentLifecycle(api, {
+    agentId: payerAgentId,
+    status: "throttled",
+    reasonCode: "AGENT_RATE_LIMITED",
+    idempotencyKey: "x402_lifecycle_throttled_1"
+  });
+  assert.equal(lifecycle.statusCode, 200, lifecycle.body);
+  assert.equal(lifecycle.json?.lifecycle?.status, "throttled");
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_throttled_1" },
+    body: {
+      gateId: "gate_auth_throttled_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 500,
+      currency: "USD"
+    }
+  });
+  assert.equal(created.statusCode, 429, created.body);
+  assert.equal(created.json?.code, "X402_AGENT_THROTTLED");
+});
+
+test("API e2e: x402 agent lifecycle transition from decommissioned to active fails closed", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const agentId = await registerAgent(api, { agentId: "agt_x402_lifecycle_transition_blocked_1" });
+
+  const decommissioned = await setX402AgentLifecycle(api, {
+    agentId,
+    status: "decommissioned",
+    reasonCode: "AGENT_RETIRED",
+    idempotencyKey: "x402_lifecycle_decommissioned_1"
+  });
+  assert.equal(decommissioned.statusCode, 200, decommissioned.body);
+  assert.equal(decommissioned.json?.lifecycle?.status, "decommissioned");
+
+  const blocked = await setX402AgentLifecycle(api, {
+    agentId,
+    status: "active",
+    reasonCode: "AGENT_REACTIVATED",
+    idempotencyKey: "x402_lifecycle_decommissioned_to_active_1"
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AGENT_LIFECYCLE_TRANSITION_BLOCKED");
+});
+
+test("API e2e: x402 agent lifecycle get returns implicit active when unset", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const agentId = await registerAgent(api, { agentId: "agt_x402_lifecycle_get_default_1" });
+
+  const response = await request(api, {
+    method: "GET",
+    path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json?.agentId, agentId);
+  assert.equal(response.json?.lifecycle?.status, "active");
+});
+
+test("API e2e: agreement delegation create fails closed when delegator or delegatee lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const delegatorAgentId = await registerAgent(api, { agentId: "agt_agreement_delegation_lifecycle_delegator_1" });
+  const delegateeAgentId = await registerAgent(api, { agentId: "agt_agreement_delegation_lifecycle_delegatee_1" });
+  const parentAgreementHash = sha256Hex("agreement_lifecycle_parent_1");
+  const childAgreementHash = sha256Hex("agreement_lifecycle_child_1");
+
+  const suspendDelegator = await setX402AgentLifecycle(api, {
+    agentId: delegatorAgentId,
+    status: "suspended",
+    reasonCode: "AGENT_POLICY_SUSPENDED",
+    idempotencyKey: "agreement_delegation_lifecycle_suspend_delegator_1"
+  });
+  assert.equal(suspendDelegator.statusCode, 200, suspendDelegator.body);
+  assert.equal(suspendDelegator.json?.lifecycle?.status, "suspended");
+
+  const blockedDelegator = await request(api, {
+    method: "POST",
+    path: `/agreements/${encodeURIComponent(parentAgreementHash)}/delegations`,
+    headers: { "x-idempotency-key": "agreement_delegation_lifecycle_block_delegator_1" },
+    body: {
+      delegationId: "dlg_agreement_lifecycle_block_delegator_1",
+      childAgreementHash,
+      delegatorAgentId,
+      delegateeAgentId,
+      budgetCapCents: 500,
+      currency: "USD",
+      delegationDepth: 0,
+      maxDelegationDepth: 1
+    }
+  });
+  assert.equal(blockedDelegator.statusCode, 410, blockedDelegator.body);
+  assert.equal(blockedDelegator.json?.code, "X402_AGENT_SUSPENDED");
+  assert.equal(blockedDelegator.json?.details?.role, "delegator");
+  assert.equal(blockedDelegator.json?.details?.operation, "agreement_delegation.issue");
+
+  const reactivateDelegator = await setX402AgentLifecycle(api, {
+    agentId: delegatorAgentId,
+    status: "active",
+    reasonCode: "AGENT_REACTIVATED",
+    idempotencyKey: "agreement_delegation_lifecycle_reactivate_delegator_1"
+  });
+  assert.equal(reactivateDelegator.statusCode, 200, reactivateDelegator.body);
+  assert.equal(reactivateDelegator.json?.lifecycle?.status, "active");
+
+  const throttleDelegatee = await setX402AgentLifecycle(api, {
+    agentId: delegateeAgentId,
+    status: "throttled",
+    reasonCode: "AGENT_RATE_LIMITED",
+    idempotencyKey: "agreement_delegation_lifecycle_throttle_delegatee_1"
+  });
+  assert.equal(throttleDelegatee.statusCode, 200, throttleDelegatee.body);
+  assert.equal(throttleDelegatee.json?.lifecycle?.status, "throttled");
+
+  const blockedDelegatee = await request(api, {
+    method: "POST",
+    path: `/agreements/${encodeURIComponent(parentAgreementHash)}/delegations`,
+    headers: { "x-idempotency-key": "agreement_delegation_lifecycle_block_delegatee_1" },
+    body: {
+      delegationId: "dlg_agreement_lifecycle_block_delegatee_1",
+      childAgreementHash: sha256Hex("agreement_lifecycle_child_2"),
+      delegatorAgentId,
+      delegateeAgentId,
+      budgetCapCents: 500,
+      currency: "USD",
+      delegationDepth: 0,
+      maxDelegationDepth: 1
+    }
+  });
+  assert.equal(blockedDelegatee.statusCode, 429, blockedDelegatee.body);
+  assert.equal(blockedDelegatee.json?.code, "X402_AGENT_THROTTLED");
+  assert.equal(blockedDelegatee.json?.details?.role, "delegatee");
+  assert.equal(blockedDelegatee.json?.details?.operation, "agreement_delegation.issue");
+});
+
+test("API e2e: x402 gate quote is blocked when payer or payee lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_quote_lifecycle_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_quote_lifecycle_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_quote_lifecycle_1" });
+
+  const gateId = "gate_x402_quote_lifecycle_1";
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_quote_lifecycle_1" },
+    body: {
+      gateId,
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 500,
+      currency: "USD",
+      toolId: "mock_weather"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const suspendPayer = await setX402AgentLifecycle(api, {
+    agentId: payerAgentId,
+    status: "suspended",
+    reasonCode: "AGENT_POLICY_SUSPENDED",
+    idempotencyKey: "x402_quote_lifecycle_suspend_payer_1"
+  });
+  assert.equal(suspendPayer.statusCode, 200, suspendPayer.body);
+  assert.equal(suspendPayer.json?.lifecycle?.status, "suspended");
+
+  const blockedPayer = await request(api, {
+    method: "POST",
+    path: "/x402/gate/quote",
+    headers: { "x-idempotency-key": "x402_gate_quote_lifecycle_block_payer_1" },
+    body: { gateId }
+  });
+  assert.equal(blockedPayer.statusCode, 410, blockedPayer.body);
+  assert.equal(blockedPayer.json?.code, "X402_AGENT_SUSPENDED");
+  assert.equal(blockedPayer.json?.details?.role, "payer");
+
+  const reactivatePayer = await setX402AgentLifecycle(api, {
+    agentId: payerAgentId,
+    status: "active",
+    reasonCode: "AGENT_REACTIVATED",
+    idempotencyKey: "x402_quote_lifecycle_reactivate_payer_1"
+  });
+  assert.equal(reactivatePayer.statusCode, 200, reactivatePayer.body);
+  assert.equal(reactivatePayer.json?.lifecycle?.status, "active");
+
+  const throttlePayee = await setX402AgentLifecycle(api, {
+    agentId: payeeAgentId,
+    status: "throttled",
+    reasonCode: "AGENT_RATE_LIMITED",
+    idempotencyKey: "x402_quote_lifecycle_throttle_payee_1"
+  });
+  assert.equal(throttlePayee.statusCode, 200, throttlePayee.body);
+  assert.equal(throttlePayee.json?.lifecycle?.status, "throttled");
+
+  const blockedPayee = await request(api, {
+    method: "POST",
+    path: "/x402/gate/quote",
+    headers: { "x-idempotency-key": "x402_gate_quote_lifecycle_block_payee_1" },
+    body: { gateId }
+  });
+  assert.equal(blockedPayee.statusCode, 429, blockedPayee.body);
+  assert.equal(blockedPayee.json?.code, "X402_AGENT_THROTTLED");
+  assert.equal(blockedPayee.json?.details?.role, "payee");
 });
 
 test("API e2e: strict request binding mints request-bound token and reuses reserve", async () => {

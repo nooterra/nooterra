@@ -335,6 +335,12 @@ jobs:
       - run: npm ci
       - name: Run production cutover gate
         run: npm run -s test:ops:production-cutover-gate
+      - name: Assert production cutover required checks (collaboration + lineage + transcript)
+        run: |
+          set -euo pipefail
+          node scripts/ci/assert-production-cutover-required-checks.mjs \
+            --in artifacts/gates/production-cutover-gate.json \
+            --json-out artifacts/gates/production-cutover-required-checks.json
       - name: Upload production cutover gate artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -342,6 +348,7 @@ jobs:
           name: production-cutover-gate-${{ github.run_id }}
           path: |
             artifacts/gates/production-cutover-gate.json
+            artifacts/gates/production-cutover-required-checks.json
             artifacts/ops/mcp-host-smoke.json
             artifacts/ops/mcp-host-cert-matrix.json
             artifacts/ops/x402-hitl-smoke.json
@@ -384,6 +391,40 @@ jobs:
           name: offline-verification-parity-gate-${{ github.run_id }}
           path: artifacts/gates/offline-verification-parity-gate.json
           if-no-files-found: error
+
+  release_promotion_materialization_chain:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SETTLD_RELEASE_PROMOTION_E2E_ARTIFACT_DIR: artifacts/ops/release-promotion-materialization-chain
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run release promotion input materialization fail-closed tests
+        run: node --test test/release-promotion-guard-input-materialization-script.test.js
+      - name: Run release promotion guard fail-closed suite
+        run: node --test test/release-promotion-guard-script.test.js
+      - name: Run release promotion guard e2e materialized chain
+        run: node --test test/release-promotion-guard-e2e-materialized.test.js
+      - name: Run required production cutover checks assertion tests
+        run: node --test test/assert-production-cutover-required-checks-script.test.js
+      - name: Run release notes from gates generator tests
+        run: node --test test/build-release-notes-from-gates-script.test.js
+      - name: Run release workflow contract tests
+        run: node --test test/release-workflow-contract.test.js
+      - name: Upload release promotion materialization chain artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-promotion-materialization-chain-${{ github.run_id }}
+          path: |
+            artifacts/ops/release-promotion-materialization-chain/
+          if-no-files-found: warn
 
   flake_budget_guard:
     runs-on: ubuntu-latest

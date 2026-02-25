@@ -145,12 +145,16 @@ test("mcp spike: initialize -> tools/list -> tools/call (submit_evidence)", asyn
   assert.ok(names.includes("settld.session_events_stream"));
   assert.ok(names.includes("settld.session_event_append"));
   assert.ok(names.includes("settld.session_replay_pack_get"));
+  assert.ok(names.includes("settld.session_transcript_get"));
+  assert.ok(names.includes("settld.audit_lineage_list"));
   assert.ok(names.includes("settld.relationships_list"));
   assert.ok(names.includes("settld.public_reputation_summary_get"));
   assert.ok(names.includes("settld.interaction_graph_pack_get"));
   assert.ok(names.includes("settld.x402_gate_create"));
   assert.ok(names.includes("settld.x402_gate_verify"));
   assert.ok(names.includes("settld.x402_gate_get"));
+  assert.ok(names.includes("settld.x402_agent_lifecycle_get"));
+  assert.ok(names.includes("settld.x402_agent_lifecycle_set"));
 
   const called = await rpc("tools/call", {
     name: "settld.submit_evidence",
@@ -444,6 +448,21 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
         return;
       }
 
+      if (req.method === "GET" && req.url === `/sessions/${sessionId}/transcript`) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            transcript: {
+              schemaVersion: "SessionTranscript.v1",
+              sessionId,
+              transcriptHash: "b".repeat(64)
+            }
+          })
+        );
+        return;
+      }
+
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "not found" }));
     });
@@ -577,6 +596,15 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
   assert.equal(replayPackParsed?.result?.replayPack?.schemaVersion, "SessionReplayPack.v1");
   assert.equal(replayPackParsed?.result?.replayPack?.sessionId, sessionId);
 
+  const transcript = await rpc("tools/call", {
+    name: "settld.session_transcript_get",
+    arguments: { sessionId }
+  });
+  assert.equal(transcript.result?.isError, false);
+  const transcriptParsed = JSON.parse(transcript.result?.content?.[0]?.text ?? "{}");
+  assert.equal(transcriptParsed?.result?.transcript?.schemaVersion, "SessionTranscript.v1");
+  assert.equal(transcriptParsed?.result?.transcript?.sessionId, sessionId);
+
   child.kill("SIGTERM");
   await Promise.race([onceEvent(child, "exit"), new Promise((r) => setTimeout(r, 100))]);
   api.close();
@@ -590,7 +618,138 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
     `GET /sessions/${sessionId}/events/stream?eventType=TASK_REQUESTED&sinceEventId=evt_prev_1`,
     `GET /sessions/${sessionId}/events?limit=1&offset=0`,
     `POST /sessions/${sessionId}/events`,
-    `GET /sessions/${sessionId}/replay-pack`
+    `GET /sessions/${sessionId}/replay-pack`,
+    `GET /sessions/${sessionId}/transcript`
+  ]);
+});
+
+test("mcp spike: audit lineage tool mapping", async () => {
+  const requests = [];
+  const api = http.createServer((req, res) => {
+    requests.push({ method: req.method, url: req.url, headers: req.headers });
+    if (
+      req.method === "GET" &&
+      req.url ===
+        "/ops/audit/lineage?agentId=agt_audit_1&traceId=trace_audit_1&includeSessionEvents=true&limit=50&offset=0&scanLimit=500"
+    ) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          lineage: {
+            schemaVersion: "AuditLineage.v1",
+            tenantId: "tenant_default",
+            generatedAt: "2026-02-25T00:00:00.000Z",
+            filters: {
+              agentId: "agt_audit_1",
+              traceId: "trace_audit_1",
+              includeSessionEvents: true
+            },
+            records: [],
+            totalMatched: 0,
+            totalRecords: 0,
+            limit: 50,
+            offset: 0,
+            lineageHash: "a".repeat(64)
+          }
+        })
+      );
+      return;
+    }
+
+    res.writeHead(404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ error: "not found" }));
+  });
+
+  const addr = await listen(api);
+  const baseUrl = `http://${addr.address}:${addr.port}`;
+
+  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      SETTLD_BASE_URL: baseUrl,
+      SETTLD_TENANT_ID: "tenant_default",
+      SETTLD_API_KEY: "sk_test_1.secret",
+      SETTLD_PROTOCOL: "1.0"
+    }
+  });
+
+  child.stdout.setEncoding("utf8");
+
+  const pending = new Map();
+  let buf = "";
+  child.stdout.on("data", (chunk) => {
+    buf += chunk;
+    for (;;) {
+      const idx = buf.indexOf("\n");
+      if (idx === -1) break;
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line);
+      if (msg && msg.id !== undefined && pending.has(msg.id)) {
+        const { resolve } = pending.get(msg.id);
+        pending.delete(msg.id);
+        resolve(msg);
+      }
+    }
+  });
+
+  const rpc = async (method, params = {}) => {
+    const id = String(Math.random()).slice(2);
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    return await new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        reject(new Error(`timeout waiting for ${method}`));
+      }, 5000).unref?.();
+    });
+  };
+
+  await rpc("initialize", {
+    protocolVersion: "2024-11-05",
+    clientInfo: { name: "node-test", version: "0" },
+    capabilities: {}
+  });
+
+  const listed = await rpc("tools/call", {
+    name: "settld.audit_lineage_list",
+    arguments: {
+      agentId: "agt_audit_1",
+      traceId: "trace_audit_1",
+      includeSessionEvents: true,
+      limit: 50,
+      offset: 0,
+      scanLimit: 500
+    }
+  });
+  assert.equal(listed.result?.isError, false);
+  const listedParsed = JSON.parse(listed.result?.content?.[0]?.text ?? "{}");
+  assert.equal(listedParsed?.tool, "settld.audit_lineage_list");
+  assert.equal(listedParsed?.result?.lineage?.schemaVersion, "AuditLineage.v1");
+  assert.equal(listedParsed?.result?.lineage?.lineageHash, "a".repeat(64));
+
+  const invalid = await rpc("tools/call", {
+    name: "settld.audit_lineage_list",
+    arguments: {
+      limit: 1001
+    }
+  });
+  assert.equal(invalid.result?.isError, true);
+  const invalidParsed = JSON.parse(invalid.result?.content?.[0]?.text ?? "{}");
+  assert.equal(invalidParsed?.tool, "settld.audit_lineage_list");
+  assert.match(String(invalidParsed?.error ?? ""), /limit must be <= 1000/i);
+
+  child.kill("SIGTERM");
+  await Promise.race([onceEvent(child, "exit"), new Promise((r) => setTimeout(r, 100))]);
+  api.close();
+
+  const endpoints = requests.map((row) => `${row.method} ${row.url}`);
+  assert.deepEqual(endpoints, [
+    "GET /ops/audit/lineage?agentId=agt_audit_1&traceId=trace_audit_1&includeSessionEvents=true&limit=50&offset=0&scanLimit=500"
   ]);
 });
 
@@ -790,6 +949,156 @@ test("mcp spike: x402 gate create -> verify -> get with idempotency", async () =
     "POST /x402/gate/authorize-payment",
     "POST /x402/gate/verify",
     `GET /x402/gate/${gateId}`
+  ]);
+});
+
+test("mcp spike: x402 agent lifecycle get/set tool mappings", async () => {
+  const requests = [];
+  const agentId = "agt_lifecycle_1";
+  const api = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      const bodyText = Buffer.concat(chunks).toString("utf8");
+      const parsedBody = bodyText ? JSON.parse(bodyText) : null;
+      requests.push({
+        method: req.method,
+        url: req.url,
+        headers: req.headers,
+        body: parsedBody
+      });
+
+      if (req.method === "POST" && req.url === `/x402/gate/agents/${agentId}/lifecycle`) {
+        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-idempotency-key"], "idem_lifecycle_set_1");
+        assert.equal(parsedBody?.status, "throttled");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            agentId,
+            lifecycle: {
+              schemaVersion: "X402AgentLifecycle.v1",
+              agentId,
+              status: "throttled",
+              reasonCode: "AGENT_RATE_LIMITED"
+            }
+          })
+        );
+        return;
+      }
+
+      if (req.method === "GET" && req.url === `/x402/gate/agents/${agentId}/lifecycle`) {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            agentId,
+            lifecycle: {
+              schemaVersion: "X402AgentLifecycle.v1",
+              agentId,
+              status: "throttled",
+              reasonCode: "AGENT_RATE_LIMITED"
+            }
+          })
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+  });
+
+  const addr = await listen(api);
+  const baseUrl = `http://${addr.address}:${addr.port}`;
+
+  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+    cwd: process.cwd(),
+    stdio: ["pipe", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      SETTLD_BASE_URL: baseUrl,
+      SETTLD_TENANT_ID: "tenant_default",
+      SETTLD_API_KEY: "sk_test_1.secret",
+      SETTLD_PROTOCOL: "1.0"
+    }
+  });
+
+  child.stdout.setEncoding("utf8");
+
+  const pending = new Map();
+  let buf = "";
+  child.stdout.on("data", (chunk) => {
+    buf += chunk;
+    for (;;) {
+      const idx = buf.indexOf("\n");
+      if (idx === -1) break;
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line) continue;
+      const msg = JSON.parse(line);
+      if (msg && msg.id !== undefined && pending.has(msg.id)) {
+        const { resolve } = pending.get(msg.id);
+        pending.delete(msg.id);
+        resolve(msg);
+      }
+    }
+  });
+
+  const rpc = async (method, params = {}) => {
+    const id = String(Math.random()).slice(2);
+    const payload = JSON.stringify({ jsonrpc: "2.0", id, method, params });
+    child.stdin.write(payload + "\n");
+    return await new Promise((resolve, reject) => {
+      pending.set(id, { resolve, reject });
+      setTimeout(() => {
+        if (!pending.has(id)) return;
+        pending.delete(id);
+        reject(new Error(`timeout waiting for ${method}`));
+      }, 5_000).unref?.();
+    });
+  };
+
+  await rpc("initialize", {
+    protocolVersion: "2024-11-05",
+    clientInfo: { name: "node-test", version: "0" },
+    capabilities: {}
+  });
+
+  const setLifecycle = await rpc("tools/call", {
+    name: "settld.x402_agent_lifecycle_set",
+    arguments: {
+      agentId,
+      status: "throttled",
+      reasonCode: "AGENT_RATE_LIMITED",
+      idempotencyKey: "idem_lifecycle_set_1"
+    }
+  });
+  assert.equal(setLifecycle.result?.isError, false);
+  const setParsed = JSON.parse(setLifecycle.result?.content?.[0]?.text || "{}");
+  assert.equal(setParsed?.tool, "settld.x402_agent_lifecycle_set");
+  assert.equal(setParsed?.result?.ok, true);
+  assert.equal(setParsed?.result?.lifecycle?.status, "throttled");
+
+  const getLifecycle = await rpc("tools/call", {
+    name: "settld.x402_agent_lifecycle_get",
+    arguments: { agentId }
+  });
+  assert.equal(getLifecycle.result?.isError, false);
+  const getParsed = JSON.parse(getLifecycle.result?.content?.[0]?.text || "{}");
+  assert.equal(getParsed?.tool, "settld.x402_agent_lifecycle_get");
+  assert.equal(getParsed?.result?.ok, true);
+  assert.equal(getParsed?.result?.lifecycle?.status, "throttled");
+
+  child.kill("SIGTERM");
+  await Promise.race([onceEvent(child, "exit"), new Promise((r) => setTimeout(r, 100))]);
+  api.close();
+
+  const methodsAndUrls = requests.map((row) => `${row.method} ${row.url}`);
+  assert.deepEqual(methodsAndUrls, [
+    `POST /x402/gate/agents/${agentId}/lifecycle`,
+    `GET /x402/gate/agents/${agentId}/lifecycle`
   ]);
 });
 
@@ -2061,6 +2370,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
         assert.equal(req.headers["x-idempotency-key"], "idem_task_quote_issue_1");
         assert.equal(parsedBody?.buyerAgentId, "agt_buyer_1");
         assert.equal(parsedBody?.sellerAgentId, "agt_seller_1");
+        assert.equal(parsedBody?.traceId, "trace_mcp_task_1");
         res.writeHead(201, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -2091,6 +2401,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
       if (req.method === "POST" && req.url === "/task-offers") {
         assert.equal(req.headers["x-idempotency-key"], "idem_task_offer_issue_1");
         assert.equal(parsedBody?.quoteRef?.quoteId, "tquote_mcp_1");
+        assert.equal(parsedBody?.traceId, "trace_mcp_task_1");
         res.writeHead(201, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -2122,6 +2433,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
         assert.equal(req.headers["x-idempotency-key"], "idem_task_acceptance_issue_1");
         assert.equal(parsedBody?.quoteId, "tquote_mcp_1");
         assert.equal(parsedBody?.offerId, "toffer_mcp_1");
+        assert.equal(parsedBody?.traceId, "trace_mcp_task_1");
         res.writeHead(201, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -2220,6 +2532,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
       amountCents: 400,
       currency: "USD",
       quoteId: "tquote_mcp_1",
+      traceId: "trace_mcp_task_1",
       idempotencyKey: "idem_task_quote_issue_1"
     }
   });
@@ -2247,6 +2560,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
       quoteHash: "a".repeat(64),
       amountCents: 400,
       currency: "USD",
+      traceId: "trace_mcp_task_1",
       offerId: "toffer_mcp_1",
       idempotencyKey: "idem_task_offer_issue_1"
     }
@@ -2272,6 +2586,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
       quoteId: "tquote_mcp_1",
       offerId: "toffer_mcp_1",
       acceptedByAgentId: "agt_buyer_1",
+      traceId: "trace_mcp_task_1",
       acceptanceId: "taccept_mcp_1",
       idempotencyKey: "idem_task_acceptance_issue_1"
     }
@@ -2326,6 +2641,7 @@ test("mcp spike: work order tool mappings", async () => {
         assert.equal(parsedBody?.principalAgentId, "agt_principal_1");
         assert.equal(parsedBody?.subAgentId, "agt_worker_1");
         assert.equal(parsedBody?.requiredCapability, "code.generation");
+        assert.equal(parsedBody?.traceId, "trace_mcp_work_order_1");
         assert.equal(parsedBody?.x402ToolId, "tool_codegen_1");
         assert.equal(parsedBody?.x402ProviderId, "provider_openclaw_1");
         assert.equal(parsedBody?.pricing?.amountCents, 450);
@@ -2385,6 +2701,7 @@ test("mcp spike: work order tool mappings", async () => {
         assert.equal(req.headers["x-idempotency-key"], "idem_work_order_complete_1");
         assert.equal(parsedBody?.status, "success");
         assert.equal(parsedBody?.receiptId, "worec_1");
+        assert.equal(parsedBody?.traceId, "trace_mcp_work_order_1");
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -2408,6 +2725,7 @@ test("mcp spike: work order tool mappings", async () => {
 
       if (req.method === "POST" && req.url === "/work-orders/workord_1/settle") {
         assert.equal(req.headers["x-idempotency-key"], "idem_work_order_settle_1");
+        assert.equal(parsedBody?.traceId, "trace_mcp_work_order_1");
         if (parsedBody?.x402GateId === "x402gate_conflict_1") {
           res.writeHead(409, { "content-type": "application/json" });
           res.end(
@@ -2519,6 +2837,7 @@ test("mcp spike: work order tool mappings", async () => {
       x402ProviderId: "provider_openclaw_1",
       amountCents: 450,
       currency: "USD",
+      traceId: "trace_mcp_work_order_1",
       attestationRequirement: {
         required: true,
         minLevel: "attested",
@@ -2565,6 +2884,7 @@ test("mcp spike: work order tool mappings", async () => {
       workOrderId: "workord_1",
       receiptId: "worec_1",
       status: "success",
+      traceId: "trace_mcp_work_order_1",
       idempotencyKey: "idem_work_order_complete_1"
     }
   });
@@ -2581,6 +2901,7 @@ test("mcp spike: work order tool mappings", async () => {
       status: "released",
       x402GateId: "x402gate_1",
       x402RunId: "run_1",
+      traceId: "trace_mcp_work_order_1",
       authorityGrantRef: "agrant_mcp_1",
       idempotencyKey: "idem_work_order_settle_1"
     }
@@ -2599,6 +2920,7 @@ test("mcp spike: work order tool mappings", async () => {
       status: "released",
       x402GateId: "x402gate_conflict_1",
       x402RunId: "run_conflict_1",
+      traceId: "trace_mcp_work_order_1",
       authorityGrantRef: "agrant_mcp_1",
       idempotencyKey: "idem_work_order_settle_1"
     }

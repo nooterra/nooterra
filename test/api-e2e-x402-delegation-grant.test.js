@@ -63,6 +63,25 @@ async function authorizeGate(api, { gateId, idempotencyKey, extraBody = null }) 
   });
 }
 
+async function setX402AgentLifecycle(
+  api,
+  { agentId, status, idempotencyKey, reasonCode = null, reasonMessage = null }
+) {
+  return await request(api, {
+    method: "POST",
+    path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
+    headers: {
+      "x-idempotency-key": idempotencyKey,
+      "x-settld-protocol": "1.0"
+    },
+    body: {
+      status,
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(reasonMessage ? { reasonMessage } : {})
+    }
+  });
+}
+
 async function createTaintedSession(api, { sessionId, participantAgentId }) {
   const created = await request(api, {
     method: "POST",
@@ -263,6 +282,100 @@ test("API e2e: DelegationGrant.v1 routes + x402 authorization enforcement", asyn
   });
   assert.equal(blockedRevoked.statusCode, 409, blockedRevoked.body);
   assert.equal(blockedRevoked.json?.code, "X402_DELEGATION_GRANT_REVOKED");
+});
+
+test("API e2e: delegation grant issue fails closed when delegator or delegatee lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const delegatorAgentId = "agt_dgrant_lifecycle_delegator_1";
+  const delegateeAgentId = "agt_dgrant_lifecycle_delegatee_1";
+
+  await registerAgent(api, { agentId: delegatorAgentId });
+  await registerAgent(api, { agentId: delegateeAgentId });
+
+  const suspendDelegator = await setX402AgentLifecycle(api, {
+    agentId: delegatorAgentId,
+    status: "suspended",
+    reasonCode: "X402_AGENT_SUSPENDED_MANUAL",
+    idempotencyKey: "dgrant_lifecycle_suspend_delegator_1"
+  });
+  assert.equal(suspendDelegator.statusCode, 200, suspendDelegator.body);
+  assert.equal(suspendDelegator.json?.lifecycle?.status, "suspended");
+
+  const blockedDelegator = await request(api, {
+    method: "POST",
+    path: "/delegation-grants",
+    headers: { "x-idempotency-key": "delegation_grant_issue_lifecycle_block_delegator_1" },
+    body: {
+      grantId: "dgrant_lifecycle_block_delegator_1",
+      delegatorAgentId,
+      delegateeAgentId,
+      scope: {
+        allowedRiskClasses: ["financial"],
+        sideEffectingAllowed: true
+      },
+      spendLimit: {
+        currency: "USD",
+        maxPerCallCents: 400,
+        maxTotalCents: 1_000
+      },
+      validity: {
+        issuedAt: "2026-02-26T00:00:00.000Z",
+        notBefore: "2026-02-26T00:00:00.000Z",
+        expiresAt: "2027-02-26T00:00:00.000Z"
+      }
+    }
+  });
+  assert.equal(blockedDelegator.statusCode, 410, blockedDelegator.body);
+  assert.equal(blockedDelegator.json?.code, "X402_AGENT_SUSPENDED");
+  assert.equal(blockedDelegator.json?.details?.role, "delegator");
+  assert.equal(blockedDelegator.json?.details?.operation, "delegation_grant.issue");
+
+  const reactivateDelegator = await setX402AgentLifecycle(api, {
+    agentId: delegatorAgentId,
+    status: "active",
+    reasonCode: "X402_AGENT_ACTIVE_MANUAL",
+    idempotencyKey: "dgrant_lifecycle_reactivate_delegator_1"
+  });
+  assert.equal(reactivateDelegator.statusCode, 200, reactivateDelegator.body);
+  assert.equal(reactivateDelegator.json?.lifecycle?.status, "active");
+
+  const throttleDelegatee = await setX402AgentLifecycle(api, {
+    agentId: delegateeAgentId,
+    status: "throttled",
+    reasonCode: "X402_AGENT_THROTTLED_MANUAL",
+    idempotencyKey: "dgrant_lifecycle_throttle_delegatee_1"
+  });
+  assert.equal(throttleDelegatee.statusCode, 200, throttleDelegatee.body);
+  assert.equal(throttleDelegatee.json?.lifecycle?.status, "throttled");
+
+  const blockedDelegatee = await request(api, {
+    method: "POST",
+    path: "/delegation-grants",
+    headers: { "x-idempotency-key": "delegation_grant_issue_lifecycle_block_delegatee_1" },
+    body: {
+      grantId: "dgrant_lifecycle_block_delegatee_1",
+      delegatorAgentId,
+      delegateeAgentId,
+      scope: {
+        allowedRiskClasses: ["financial"],
+        sideEffectingAllowed: true
+      },
+      spendLimit: {
+        currency: "USD",
+        maxPerCallCents: 400,
+        maxTotalCents: 1_000
+      },
+      validity: {
+        issuedAt: "2026-02-26T00:00:00.000Z",
+        notBefore: "2026-02-26T00:00:00.000Z",
+        expiresAt: "2027-02-26T00:00:00.000Z"
+      }
+    }
+  });
+  assert.equal(blockedDelegatee.statusCode, 429, blockedDelegatee.body);
+  assert.equal(blockedDelegatee.json?.code, "X402_AGENT_THROTTLED");
+  assert.equal(blockedDelegatee.json?.details?.role, "delegatee");
+  assert.equal(blockedDelegatee.json?.details?.operation, "delegation_grant.issue");
 });
 
 test("API e2e: x402 prompt risk forced challenge blocks authorize unless override is recorded", async () => {

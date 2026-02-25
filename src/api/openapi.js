@@ -729,6 +729,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     required: ["status", "x402GateId", "x402RunId", "x402SettlementStatus", "completionReceiptId", "settledAt"],
     properties: {
       status: { type: "string", enum: ["released", "refunded"] },
+      traceId: { type: "string", nullable: true },
       x402GateId: { type: "string" },
       x402RunId: { type: "string" },
       x402SettlementStatus: { type: "string" },
@@ -765,6 +766,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       principalAgentId: { type: "string" },
       subAgentId: { type: "string" },
       requiredCapability: { type: "string" },
+      traceId: { type: "string", nullable: true },
       x402ToolId: { type: "string", nullable: true },
       x402ProviderId: { type: "string", nullable: true },
       specification: { type: "object", additionalProperties: true },
@@ -815,6 +817,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       principalAgentId: { type: "string" },
       subAgentId: { type: "string" },
       status: { type: "string", enum: ["success", "failed"] },
+      traceId: { type: "string", nullable: true },
       outputs: {
         nullable: true,
         oneOf: [{ type: "object", additionalProperties: true }, { type: "array", items: { type: "object", additionalProperties: true } }]
@@ -846,6 +849,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       principalAgentId: { type: "string" },
       subAgentId: { type: "string" },
       requiredCapability: { type: "string" },
+      traceId: { type: "string", nullable: true },
       x402ToolId: { type: "string", nullable: true },
       x402ProviderId: { type: "string", nullable: true },
       specification: { type: "object", additionalProperties: true },
@@ -895,6 +899,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       evidenceRefs: { type: "array", items: { type: "string" } },
       amountCents: { type: "integer", minimum: 0, nullable: true },
       currency: { type: "string", nullable: true },
+      traceId: { type: "string", nullable: true },
       deliveredAt: { type: "string", format: "date-time" },
       completedAt: { type: "string", format: "date-time" },
       metadata: { type: "object", additionalProperties: true }
@@ -913,6 +918,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       x402SettlementStatus: { type: "string" },
       x402ReceiptId: { type: "string" },
       completionReceiptHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      traceId: { type: "string", nullable: true },
       authorityGrantRef: { type: "string" },
       settledAt: { type: "string", format: "date-time" }
     }

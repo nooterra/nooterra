@@ -812,8 +812,19 @@ export function applyTxRecord(store, record) {
       const agentId = agentLifecycle.agentId ?? op.agentId ?? null;
       if (!agentId) throw new TypeError("X402_AGENT_LIFECYCLE_UPSERT requires agentLifecycle.agentId");
       const status = typeof agentLifecycle.status === "string" ? agentLifecycle.status.trim().toLowerCase() : "";
-      if (status !== "active" && status !== "frozen" && status !== "archived") {
-        throw new TypeError("X402_AGENT_LIFECYCLE_UPSERT requires status active|frozen|archived");
+      if (
+        status !== "provisioned" &&
+        status !== "active" &&
+        status !== "throttled" &&
+        status !== "suspended" &&
+        status !== "quarantined" &&
+        status !== "decommissioned" &&
+        status !== "frozen" &&
+        status !== "archived"
+      ) {
+        throw new TypeError(
+          "X402_AGENT_LIFECYCLE_UPSERT requires status provisioned|active|throttled|suspended|quarantined|decommissioned|frozen|archived"
+        );
       }
       if (!(store.x402AgentLifecycles instanceof Map)) store.x402AgentLifecycles = new Map();
       const key = makeScopedKey({ tenantId, id: String(agentId) });

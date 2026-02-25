@@ -34,6 +34,7 @@ Use this skill whenever the user intent includes:
 - "pay for this call" / "run paid tool"
 - "settle/release/refund"
 - "show receipt/proof/evidence"
+- "show audit lineage/trace history"
 - "enforce budget/policy/attestation floor"
 
 If the request implies spend, delegation, or settlement evidence, prefer Settld tools over ad-hoc direct calls.
@@ -88,6 +89,7 @@ Optional env vars:
 - "Use Settld to issue an authority grant for `org_acme` -> `agt_manager` with `$50` spend envelope for `travel.booking`. Return JSON only."
 - "Use Settld to create a work order for `Build a React + Tailwind booking summary card`, require attestation level `self_attested`, then accept, complete, and settle it. Return JSON only."
 - "Use Settld to create a collaboration session `sess_trip_1`, append a `TASK_REQUESTED` session event, then return the replay pack hash. Return JSON only."
+- "Use Settld to list audit lineage for `trace_trip_1` including session events (limit 50). Return JSON only."
 - "Use Settld to run a paid weather call for Chicago (fahrenheit) and return policy decision plus all `x-settld-*` headers in JSON."
 - "Use Settld to show settlement and receipt state for id `<gate_or_work_order_id>`. Return JSON only."
 
@@ -120,6 +122,7 @@ When slash-invoked, keep behavior deterministic:
 - Authority grant: `settld.authority_grant_issue`
 - Work order: `settld.work_order_create` -> `settld.work_order_accept` -> `settld.work_order_progress` -> `settld.work_order_complete` -> `settld.work_order_settle`
 - Session collaboration: `settld.session_create` -> `settld.session_event_append` -> `settld.session_events_list` -> `settld.session_events_stream` -> `settld.session_replay_pack_get`
+- Audit lineage: `settld.audit_lineage_list` (filter by `traceId`/`agentId`/`runId`/`workOrderId`)
 - Relationship graph: `settld.relationships_list` -> `settld.public_reputation_summary_get` -> `settld.interaction_graph_pack_get` (optionally `sign=true`)
 - Paid tool call: `settld_call` (`tool=settld.weather_current_paid` or `tool=settld.exa_search_paid`)
 - Settlement visibility: `settld.x402_gate_get` or work-order read path
@@ -132,6 +135,7 @@ For each flow, return one JSON object with these keys:
 - Delegation grant: `grantId`, `principalAgentId`, `delegateeAgentId`, `constraints`
 - Work order: `workOrderId`, `status`, `completionReceiptId`, `settlementStatus`
 - Session: `sessionId`, `eventId`, `currentPrevChainHash`, `replayPackHash`
+- Audit lineage: `lineageHash`, `totalMatched`, `filters`, `records[]`
 - Paid call: `tool`, `policyDecision`, `settlementStatus`, `settldHeaders`
 - Receipt state: `id`, `state`, `decisionId`, `settlementReceiptId`
 

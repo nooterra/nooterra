@@ -128,6 +128,22 @@ async function openRunDispute({
   assert.equal(opened.statusCode, 200, opened.body);
 }
 
+async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, reasonCode = null }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
+    headers: {
+      "x-idempotency-key": idempotencyKey,
+      "x-settld-protocol": "1.0"
+    },
+    body: {
+      status,
+      ...(reasonCode ? { reasonCode } : {})
+    }
+  });
+  return response;
+}
+
 test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 
@@ -510,6 +526,62 @@ test("API e2e: /public/agent-cards/discover excludes quarantined agents", async 
   const agentIds = new Set((publicDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
   assert.equal(agentIds.has(activeAgentId), true);
   assert.equal(agentIds.has(quarantinedAgentId), false);
+});
+
+test("API e2e: /public/agent-cards/discover excludes non-active x402 lifecycle agents", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const activeAgentId = "agt_card_public_lifecycle_active_1";
+  const suspendedAgentId = "agt_card_public_lifecycle_suspended_1";
+  await registerAgent(api, { agentId: activeAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: suspendedAgentId, capabilities: ["travel.booking"] });
+
+  const upsertActive = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_lifecycle_active_upsert_1" },
+    body: {
+      agentId: activeAgentId,
+      displayName: "Lifecycle Active Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/lifecycle-active", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertActive.statusCode, 201, upsertActive.body);
+
+  const upsertSuspended = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_lifecycle_suspended_upsert_1" },
+    body: {
+      agentId: suspendedAgentId,
+      displayName: "Lifecycle Suspended Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/lifecycle-suspended", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertSuspended.statusCode, 201, upsertSuspended.body);
+
+  const suspendedLifecycle = await setX402AgentLifecycle(api, {
+    agentId: suspendedAgentId,
+    status: "suspended",
+    reasonCode: "AGENT_COMPLIANCE_HOLD",
+    idempotencyKey: "agent_card_public_lifecycle_suspend_1"
+  });
+  assert.equal(suspendedLifecycle.statusCode, 200, suspendedLifecycle.body);
+  assert.equal(suspendedLifecycle.json?.lifecycle?.status, "suspended");
+
+  const publicDiscover = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(publicDiscover.statusCode, 200, publicDiscover.body);
+  const agentIds = new Set((publicDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(agentIds.has(activeAgentId), true);
+  assert.equal(agentIds.has(suspendedAgentId), false);
 });
 
 test("API e2e: public agent-card publish rate limit is fail-closed (tenant + agent scopes)", async () => {

@@ -10,6 +10,7 @@ This checklist is the “no surprises” gate for shipping Settld as a product (
   - `kernel_v0_ship_gate`
   - `production_cutover_gate`
   - `offline_verification_parity_gate` (NOO-50)
+  - `release_promotion_materialization_chain` (NOO-65 input materialization + guard chain)
   - `onboarding_host_success_gate`
 - Public package smoke for OpenClaw onboarding is green:
   - `npm run test:ci:public-openclaw-npx-smoke`
@@ -59,6 +60,7 @@ Release-gate evidence should also include:
 - `artifacts/throughput/10x-drill-summary.json`
 - `artifacts/gates/s13-go-live-gate.json`
 - `artifacts/gates/s13-launch-cutover-packet.json`
+- `artifacts/gates/settld-verified-collaboration-gate.json`
 - when signing is configured, packet includes `signature` with `schemaVersion=LaunchCutoverPacketSignature.v1`
 - `artifacts/gates/production-cutover-gate.json`
 - `artifacts/gates/offline-verification-parity-gate.json` (NOO-50)
@@ -171,8 +173,30 @@ Promotion guard order (fail-closed):
 
 1. NOO-50 parity gate report is generated on main (`artifacts/gates/offline-verification-parity-gate.json`).
 2. S13 go-live workflow report set is generated for the same release commit (`s13-go-live-gate.json` + `s13-launch-cutover-packet.json`).
-3. Release workflow binds all required gate artifacts (kernel, production cutover, NOO-50 parity, onboarding host success, S13 go-live, S13 launch packet, hosted baseline evidence) into NOO-65.
-4. Release workflow must emit `artifacts/gates/release-promotion-guard.json` with `verdict.ok=true` before artifact publish jobs execute.
+3. Launch cutover packet must bind `sources.settldVerifiedCollaborationGateReportSha256` to the exact hash of
+   `sources.settldVerifiedCollaborationGateReportPath`.
+4. NOO-65 promotion guard validates the launch-packet-to-collaboration binding and fail-closes on mismatch.
+5. Release workflow binds all required gate artifacts (kernel, production cutover, NOO-50 parity, onboarding host success, S13 go-live, S13 launch packet, hosted baseline evidence) into NOO-65.
+   - Production cutover must include `settld_verified_collaboration`, `openclaw_substrate_demo_lineage_verified`, and `openclaw_substrate_demo_transcript_verified` as passed checks.
+6. Release workflow must emit `artifacts/gates/release-promotion-guard.json` with `verdict.ok=true` before artifact publish jobs execute.
+
+Manual parity with CI materialization:
+
+```sh
+npm run -s test:ops:release-promotion-materialize-inputs -- \
+  --tests-root /tmp/release-upstream/tests \
+  --go-live-root /tmp/release-upstream/go-live \
+  --release-gate-root /tmp/release-upstream/release-gate \
+  --report artifacts/gates/release-promotion-guard-input-materialization.json
+```
+
+Then run NOO-65 guard against the materialized files:
+
+```sh
+npm run -s test:ops:release-promotion-guard -- \
+  --report artifacts/gates/release-promotion-guard.json \
+  --promotion-ref "<release-commit-sha>"
+```
 
 Related runbooks:
 

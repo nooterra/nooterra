@@ -2001,8 +2001,19 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     const agentId = typeof agentLifecycle.agentId === "string" ? agentLifecycle.agentId.trim() : "";
     if (!agentId) throw new TypeError("agentLifecycle.agentId is required");
     const status = typeof agentLifecycle.status === "string" ? agentLifecycle.status.trim().toLowerCase() : "";
-    if (status !== "active" && status !== "frozen" && status !== "archived") {
-      throw new TypeError("agentLifecycle.status must be active|frozen|archived");
+    if (
+      status !== "provisioned" &&
+      status !== "active" &&
+      status !== "throttled" &&
+      status !== "suspended" &&
+      status !== "quarantined" &&
+      status !== "decommissioned" &&
+      status !== "frozen" &&
+      status !== "archived"
+    ) {
+      throw new TypeError(
+        "agentLifecycle.status must be provisioned|active|throttled|suspended|quarantined|decommissioned|frozen|archived"
+      );
     }
     const at = agentLifecycle.updatedAt ?? agentLifecycle.createdAt ?? new Date().toISOString();
     await store.commitTx({

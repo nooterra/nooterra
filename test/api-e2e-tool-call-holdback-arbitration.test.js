@@ -34,6 +34,26 @@ async function creditWallet(api, { agentId, amountCents, tenantId = "tenant_defa
   assert.equal(res.statusCode, 201, res.body);
 }
 
+async function setX402AgentLifecycle(
+  api,
+  { agentId, status, idempotencyKey, reasonCode = null, reasonMessage = null, tenantId = "tenant_default" }
+) {
+  return await request(api, {
+    method: "POST",
+    path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-idempotency-key": idempotencyKey,
+      "x-settld-protocol": "1.0"
+    },
+    body: {
+      status,
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(reasonMessage ? { reasonMessage } : {})
+    }
+  });
+}
+
 async function getWallet(api, { agentId, tenantId = "tenant_default" } = {}) {
   const res = await request(api, {
     method: "GET",
@@ -128,7 +148,7 @@ test("API e2e: tool-call dispute freezes holdback auto-release; payee-win verdic
   const arbiterAgentId = "agt_tc_arbiter_1";
   const arbiterKeypair = createEd25519Keypair();
 
-  const payerRegistration = await registerAgent(api, { tenantId, agentId: payerAgentId });
+  await registerAgent(api, { tenantId, agentId: payerAgentId });
   const payeeRegistration = await registerAgent(api, { tenantId, agentId: payeeAgentId });
   const arbiterRegistration = await registerAgent(api, { tenantId, agentId: arbiterAgentId, publicKeyPem: arbiterKeypair.publicKeyPem });
   assert.ok(typeof arbiterRegistration.keyId === "string" && arbiterRegistration.keyId.length > 0);
@@ -534,4 +554,162 @@ test("API e2e: tool-call holdback auto-release emits reputation facts when no di
   });
   assert.equal(reputationFacts.statusCode, 200, reputationFacts.body);
   assert.equal(reputationFacts.json?.facts?.totals?.economics?.autoReleasedCents, 1000);
+});
+
+test("API e2e: tool-call arbitration routes fail closed when payer/arbiter lifecycle is non-active", async () => {
+  let nowMs = Date.parse("2026-02-12T00:00:00.000Z");
+  const api = createApi({ now: () => new Date(nowMs).toISOString(), opsToken: "tok_ops" });
+  const tenantId = "tenant_default";
+
+  const payerAgentId = "agt_tc_lifecycle_payer_1";
+  const payeeAgentId = "agt_tc_lifecycle_payee_1";
+  const arbiterAgentId = "agt_tc_lifecycle_arbiter_1";
+  const arbiterKeypair = createEd25519Keypair();
+
+  const payerRegistration = await registerAgent(api, { tenantId, agentId: payerAgentId });
+  const payeeRegistration = await registerAgent(api, { tenantId, agentId: payeeAgentId });
+  const arbiterRegistration = await registerAgent(api, { tenantId, agentId: arbiterAgentId, publicKeyPem: arbiterKeypair.publicKeyPem });
+  assert.ok(typeof arbiterRegistration.keyId === "string" && arbiterRegistration.keyId.length > 0);
+
+  await creditWallet(api, { tenantId, agentId: payerAgentId, amountCents: 10_000, key: "idmp_tc_lifecycle_credit_1" });
+
+  const agreementHash = "3".repeat(64);
+  const receiptHash = "4".repeat(64);
+
+  const lock = await request(api, {
+    method: "POST",
+    path: "/ops/tool-calls/holds/lock",
+    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_hold_1" },
+    body: {
+      agreementHash,
+      receiptHash,
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 10_000,
+      currency: "USD",
+      holdbackBps: 2000,
+      challengeWindowMs: 1000
+    }
+  });
+  assert.equal(lock.statusCode, 201, lock.body);
+  const hold = lock.json?.hold ?? null;
+  assert.ok(hold);
+  const holdHash = String(hold.holdHash ?? "");
+  assert.match(holdHash, /^[0-9a-f]{64}$/);
+
+  const suspendPayer = await setX402AgentLifecycle(api, {
+    tenantId,
+    agentId: payerAgentId,
+    status: "suspended",
+    reasonCode: "X402_AGENT_SUSPENDED_MANUAL",
+    idempotencyKey: "idmp_tc_lifecycle_suspend_payer_1"
+  });
+  assert.equal(suspendPayer.statusCode, 200, suspendPayer.body);
+  assert.equal(suspendPayer.json?.lifecycle?.status, "suspended");
+
+  const blockedOpen = await request(api, {
+    method: "POST",
+    path: "/tool-calls/arbitration/open",
+    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_open_block_1" },
+    body: {
+      agreementHash,
+      receiptHash,
+      holdHash,
+      openedByAgentId: payeeAgentId,
+      disputeOpenEnvelope: buildSignedDisputeOpenEnvelope({
+        tenantId,
+        agreementHash,
+        receiptHash,
+        holdHash,
+        openedByAgentId: payeeAgentId,
+        signerKeyId: payeeRegistration.keyId,
+        signerPrivateKeyPem: payeeRegistration.keypair.privateKeyPem,
+        openedAt: new Date(nowMs).toISOString()
+      }),
+      arbiterAgentId,
+      summary: "tool-call lifecycle dispute",
+      evidenceRefs: []
+    }
+  });
+  assert.equal(blockedOpen.statusCode, 410, blockedOpen.body);
+  assert.equal(blockedOpen.json?.code, "X402_AGENT_SUSPENDED");
+  assert.equal(blockedOpen.json?.details?.role, "payer");
+  assert.equal(blockedOpen.json?.details?.operation, "tool_call_arbitration.open");
+
+  const activatePayer = await setX402AgentLifecycle(api, {
+    tenantId,
+    agentId: payerAgentId,
+    status: "active",
+    reasonCode: "X402_AGENT_ACTIVE_MANUAL",
+    idempotencyKey: "idmp_tc_lifecycle_activate_payer_1"
+  });
+  assert.equal(activatePayer.statusCode, 200, activatePayer.body);
+  assert.equal(activatePayer.json?.lifecycle?.status, "active");
+
+  const open = await request(api, {
+    method: "POST",
+    path: "/tool-calls/arbitration/open",
+    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_open_ok_1" },
+    body: {
+      agreementHash,
+      receiptHash,
+      holdHash,
+      openedByAgentId: payeeAgentId,
+      disputeOpenEnvelope: buildSignedDisputeOpenEnvelope({
+        tenantId,
+        agreementHash,
+        receiptHash,
+        holdHash,
+        openedByAgentId: payeeAgentId,
+        signerKeyId: payeeRegistration.keyId,
+        signerPrivateKeyPem: payeeRegistration.keypair.privateKeyPem,
+        openedAt: new Date(nowMs).toISOString()
+      }),
+      arbiterAgentId,
+      summary: "tool-call lifecycle dispute",
+      evidenceRefs: []
+    }
+  });
+  assert.equal(open.statusCode, 201, open.body);
+  const arbitrationCase = open.json?.arbitrationCase ?? null;
+  assert.ok(arbitrationCase);
+  assert.equal(arbitrationCase.caseId, `arb_case_tc_${agreementHash}`);
+
+  const suspendArbiter = await setX402AgentLifecycle(api, {
+    tenantId,
+    agentId: arbiterAgentId,
+    status: "suspended",
+    reasonCode: "X402_AGENT_SUSPENDED_MANUAL",
+    idempotencyKey: "idmp_tc_lifecycle_suspend_arbiter_1"
+  });
+  assert.equal(suspendArbiter.statusCode, 200, suspendArbiter.body);
+  assert.equal(suspendArbiter.json?.lifecycle?.status, "suspended");
+
+  const signedVerdict = buildSignedToolCallVerdict({
+    tenantId,
+    caseId: arbitrationCase.caseId,
+    runId: arbitrationCase.runId,
+    settlementId: arbitrationCase.settlementId,
+    disputeId: arbitrationCase.disputeId,
+    arbiterAgentId,
+    signerKeyId: arbiterRegistration.keyId,
+    signerPrivateKeyPem: arbiterKeypair.privateKeyPem,
+    releaseRatePct: 100,
+    outcome: "accepted",
+    evidenceRefs: [],
+    issuedAt: new Date(nowMs).toISOString()
+  });
+  const blockedVerdict = await request(api, {
+    method: "POST",
+    path: "/tool-calls/arbitration/verdict",
+    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_verdict_block_1" },
+    body: {
+      caseId: arbitrationCase.caseId,
+      arbitrationVerdict: signedVerdict
+    }
+  });
+  assert.equal(blockedVerdict.statusCode, 410, blockedVerdict.body);
+  assert.equal(blockedVerdict.json?.code, "X402_AGENT_SUSPENDED");
+  assert.equal(blockedVerdict.json?.details?.role, "arbiter");
+  assert.equal(blockedVerdict.json?.details?.operation, "tool_call_arbitration.verdict");
 });

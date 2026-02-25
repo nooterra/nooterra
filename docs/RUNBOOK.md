@@ -8,7 +8,7 @@
 | `delivery_dlq_pending_total_gauge` > 0 | repeated delivery failures | inspect DLQ; fix destination; requeue (audited) |
 | `ingest_rejected_total` spike | integration bug or hostile input | check `/ops/status` top reject codes; identify client from logs |
 | stripe billing rejects/replayable dead-letter rising | dropped/invalid webhook windows or apply failures | follow `docs/ops/BILLING_WEBHOOK_REPLAY.md` |
-| go-live gate blocked | one or more S13 checks failed | run `node scripts/ci/run-go-live-gate.mjs` + `node scripts/ci/build-launch-cutover-packet.mjs`, inspect `artifacts/gates/s13-go-live-gate.json` + `artifacts/gates/s13-launch-cutover-packet.json` |
+| go-live gate blocked | one or more S13 checks failed | run `node scripts/ci/run-go-live-gate.mjs` + `npm run -s test:ops:settld-verified-gate -- --level collaboration --include-pg --out artifacts/gates/settld-verified-collaboration-gate.json` + `node scripts/ci/build-launch-cutover-packet.mjs`, inspect `artifacts/gates/s13-go-live-gate.json` + `artifacts/gates/settld-verified-collaboration-gate.json` + `artifacts/gates/s13-launch-cutover-packet.json` |
 | `/healthz` dbOk=false | Postgres down/unreachable | fix DB connectivity; do not restart-loop workers |
 | `ARTIFACT_HASH_MISMATCH` | non-determinism or duplicate IDs | **stop ingestion**, preserve state, investigate |
 
@@ -80,6 +80,33 @@ Do not resume ingestion until:
 - deterministic critical suites pass,
 - 10x throughput drill pass,
 - lighthouse tracker indicates >=3 paid production settlements.
+- Settld Verified collaboration binding source passes:
+  `npm run -s test:ops:settld-verified-gate -- --level collaboration --include-pg --out artifacts/gates/settld-verified-collaboration-gate.json`
+
+### Release promotion input materialization (NOO-65)
+
+Before running release promotion guard manually, materialize upstream artifacts exactly like CI:
+
+```bash
+npm run -s test:ops:release-promotion-materialize-inputs -- \
+  --tests-root /tmp/release-upstream/tests \
+  --go-live-root /tmp/release-upstream/go-live \
+  --release-gate-root /tmp/release-upstream/release-gate \
+  --report artifacts/gates/release-promotion-guard-input-materialization.json
+```
+
+Then run:
+
+```bash
+npm run -s test:ops:release-promotion-guard -- \
+  --kernel-gate artifacts/gates/kernel-v0-ship-gate.json \
+  --production-gate artifacts/gates/production-cutover-gate.json \
+  --offline-parity-gate artifacts/gates/offline-verification-parity-gate.json \
+  --onboarding-host-success-gate artifacts/gates/onboarding-host-success-gate.json \
+  --go-live-gate artifacts/gates/s13-go-live-gate.json \
+  --launch-packet artifacts/gates/s13-launch-cutover-packet.json \
+  --baseline-evidence artifacts/ops/hosted-baseline-release-gate.json
+```
 
 ## DR: backup/restore drill
 

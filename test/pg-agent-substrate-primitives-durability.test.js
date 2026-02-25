@@ -54,6 +54,27 @@ async function creditWallet(api, { tenantId, agentId, amountCents, idempotencyKe
   assert.equal(response.statusCode, 201, response.body);
 }
 
+async function setX402AgentLifecycle(
+  api,
+  { tenantId, agentId, status, idempotencyKey, reasonCode = null, reasonMessage = null }
+) {
+  const response = await tenantRequest(api, {
+    tenantId,
+    method: "POST",
+    path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
+    headers: {
+      "x-idempotency-key": idempotencyKey,
+      "x-settld-protocol": "1.0"
+    },
+    body: {
+      status,
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(reasonMessage ? { reasonMessage } : {})
+    }
+  });
+  return response;
+}
+
 async function createTerminalRun({
   api,
   tenantId,
@@ -129,6 +150,7 @@ async function createTerminalRun({
   const offerId = "pg_sub_offer_1";
   const acceptanceId = "pg_sub_acceptance_1";
   let replayPackHashBeforeRestart = null;
+  let transcriptHashBeforeRestart = null;
   let interactionGraphPackHashBeforeRestart = null;
 
   let storeA = null;
@@ -142,6 +164,61 @@ async function createTerminalRun({
     await registerAgent(apiA, { tenantId: tenantA, agentId: issuerA, capabilities: ["attestation.issue"] });
     await registerAgent(apiA, { tenantId: tenantB, agentId: workerB, capabilities: ["travel.booking"] });
     await registerAgent(apiA, { tenantId: tenantB, agentId: issuerB, capabilities: ["attestation.issue"] });
+
+    const suspendPrincipal = await setX402AgentLifecycle(apiA, {
+      tenantId: tenantA,
+      agentId: principalA,
+      status: "suspended",
+      reasonCode: "X402_AGENT_SUSPENDED_MANUAL",
+      idempotencyKey: "pg_sub_lifecycle_suspend_principal_1"
+    });
+    assert.equal(suspendPrincipal.statusCode, 200, suspendPrincipal.body);
+    assert.equal(suspendPrincipal.json?.lifecycle?.status, "suspended");
+
+    const blockedDelegationGrantIssue = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "POST",
+      path: "/delegation-grants",
+      headers: { "x-idempotency-key": "pg_sub_grant_issue_lifecycle_blocked_1" },
+      body: {
+        grantId: "pg_sub_grant_blocked_1",
+        delegatorAgentId: principalA,
+        delegateeAgentId: workerA,
+        scope: {
+          allowedProviderIds: [workerA],
+          allowedToolIds: ["travel_booking"],
+          allowedRiskClasses: ["financial"],
+          sideEffectingAllowed: true
+        },
+        spendLimit: {
+          currency: "USD",
+          maxPerCallCents: 50_000,
+          maxTotalCents: 200_000
+        },
+        chainBinding: {
+          depth: 0,
+          maxDelegationDepth: 1
+        },
+        validity: {
+          issuedAt: "2026-02-25T00:00:00.000Z",
+          notBefore: "2026-02-25T00:00:00.000Z",
+          expiresAt: "2027-02-25T00:00:00.000Z"
+        }
+      }
+    });
+    assert.equal(blockedDelegationGrantIssue.statusCode, 410, blockedDelegationGrantIssue.body);
+    assert.equal(blockedDelegationGrantIssue.json?.code, "X402_AGENT_SUSPENDED");
+    assert.equal(blockedDelegationGrantIssue.json?.details?.operation, "delegation_grant.issue");
+
+    const reactivatePrincipal = await setX402AgentLifecycle(apiA, {
+      tenantId: tenantA,
+      agentId: principalA,
+      status: "active",
+      reasonCode: "X402_AGENT_ACTIVE_MANUAL",
+      idempotencyKey: "pg_sub_lifecycle_reactivate_principal_1"
+    });
+    assert.equal(reactivatePrincipal.statusCode, 200, reactivatePrincipal.body);
+    assert.equal(reactivatePrincipal.json?.lifecycle?.status, "active");
 
     const upsertCardA = await tenantRequest(apiA, {
       tenantId: tenantA,
@@ -260,6 +337,64 @@ async function createTerminalRun({
       }
     });
     assert.equal(issueAuthorityGrant.statusCode, 201, issueAuthorityGrant.body);
+
+    const throttleWorker = await setX402AgentLifecycle(apiA, {
+      tenantId: tenantA,
+      agentId: workerA,
+      status: "throttled",
+      reasonCode: "X402_AGENT_THROTTLED_MANUAL",
+      idempotencyKey: "pg_sub_lifecycle_throttle_worker_1"
+    });
+    assert.equal(throttleWorker.statusCode, 200, throttleWorker.body);
+    assert.equal(throttleWorker.json?.lifecycle?.status, "throttled");
+
+    const blockedAgreementDelegationIssue = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "POST",
+      path: `/agreements/${"c".repeat(64)}/delegations`,
+      headers: { "x-idempotency-key": "pg_sub_agreement_delegation_lifecycle_blocked_1" },
+      body: {
+        delegationId: "pg_sub_agreement_delegation_blocked_1",
+        childAgreementHash: "d".repeat(64),
+        delegatorAgentId: principalA,
+        delegateeAgentId: workerA,
+        budgetCapCents: 1_000,
+        currency: "USD",
+        delegationDepth: 0,
+        maxDelegationDepth: 1
+      }
+    });
+    assert.equal(blockedAgreementDelegationIssue.statusCode, 429, blockedAgreementDelegationIssue.body);
+    assert.equal(blockedAgreementDelegationIssue.json?.code, "X402_AGENT_THROTTLED");
+    assert.equal(blockedAgreementDelegationIssue.json?.details?.operation, "agreement_delegation.issue");
+
+    const blockedTaskQuoteIssue = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "POST",
+      path: "/task-quotes",
+      headers: { "x-idempotency-key": "pg_sub_task_quote_lifecycle_blocked_1" },
+      body: {
+        quoteId: "pg_sub_quote_blocked_1",
+        buyerAgentId: principalA,
+        sellerAgentId: workerA,
+        requiredCapability: "travel.booking",
+        pricing: { amountCents: 1200, currency: "USD" },
+        quoteAt: "2026-02-25T00:04:00.000Z"
+      }
+    });
+    assert.equal(blockedTaskQuoteIssue.statusCode, 429, blockedTaskQuoteIssue.body);
+    assert.equal(blockedTaskQuoteIssue.json?.code, "X402_AGENT_THROTTLED");
+    assert.equal(blockedTaskQuoteIssue.json?.details?.operation, "task_quote.issue");
+
+    const reactivateWorker = await setX402AgentLifecycle(apiA, {
+      tenantId: tenantA,
+      agentId: workerA,
+      status: "active",
+      reasonCode: "X402_AGENT_ACTIVE_MANUAL",
+      idempotencyKey: "pg_sub_lifecycle_reactivate_worker_1"
+    });
+    assert.equal(reactivateWorker.statusCode, 200, reactivateWorker.body);
+    assert.equal(reactivateWorker.json?.lifecycle?.status, "active");
 
     const issueAttestationA = await tenantRequest(apiA, {
       tenantId: tenantA,
@@ -471,6 +606,18 @@ async function createTerminalRun({
     replayPackHashBeforeRestart = replayPackBeforeRestart.json?.replayPack?.packHash ?? null;
     assert.equal(typeof replayPackHashBeforeRestart, "string");
 
+    const transcriptBeforeRestart = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "GET",
+      path: "/sessions/pg_sub_session_1/transcript"
+    });
+    assert.equal(transcriptBeforeRestart.statusCode, 200, transcriptBeforeRestart.body);
+    assert.equal(transcriptBeforeRestart.json?.transcript?.schemaVersion, "SessionTranscript.v1");
+    assert.equal(transcriptBeforeRestart.json?.transcript?.eventCount, 1);
+    assert.equal(transcriptBeforeRestart.json?.transcript?.verification?.chainOk, true);
+    transcriptHashBeforeRestart = transcriptBeforeRestart.json?.transcript?.transcriptHash ?? null;
+    assert.equal(typeof transcriptHashBeforeRestart, "string");
+
     await creditWallet(apiA, {
       tenantId: tenantA,
       agentId: principalA,
@@ -607,6 +754,15 @@ async function createTerminalRun({
     assert.equal(replayPackAfterRestart.statusCode, 200, replayPackAfterRestart.body);
     assert.equal(replayPackAfterRestart.json?.replayPack?.schemaVersion, "SessionReplayPack.v1");
     assert.equal(replayPackAfterRestart.json?.replayPack?.packHash, replayPackHashBeforeRestart);
+
+    const transcriptAfterRestart = await tenantRequest(apiB, {
+      tenantId: tenantA,
+      method: "GET",
+      path: "/sessions/pg_sub_session_1/transcript"
+    });
+    assert.equal(transcriptAfterRestart.statusCode, 200, transcriptAfterRestart.body);
+    assert.equal(transcriptAfterRestart.json?.transcript?.schemaVersion, "SessionTranscript.v1");
+    assert.equal(transcriptAfterRestart.json?.transcript?.transcriptHash, transcriptHashBeforeRestart);
 
     const interactionGraphAfterRestart = await tenantRequest(apiB, {
       tenantId: tenantA,

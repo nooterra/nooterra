@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createEd25519Keypair } from "../../src/core/crypto.js";
 
@@ -179,6 +179,8 @@ async function main() {
   const demoSeed = `${Date.now()}`;
   const principalAgentId = sanitizeId(`agt_openclaw_demo_principal_${demoSeed}`, `agt_openclaw_demo_principal`);
   const workerAgentId = sanitizeId(`agt_openclaw_demo_worker_${demoSeed}`, `agt_openclaw_demo_worker`);
+  const sessionId = sanitizeId(`sess_openclaw_demo_${demoSeed}`, "sess_openclaw_demo");
+  const traceId = sanitizeId(`trace_openclaw_demo_${demoSeed}`, "trace_openclaw_demo");
   const x402ToolId = "openclaw_substrate_demo";
   const x402ProviderId = workerAgentId;
   const startedAt = nowIso();
@@ -299,6 +301,25 @@ async function main() {
       hostProtocols: ["mcp", "json-rpc"]
     });
 
+    await tool("settld.session_create", {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId, workerAgentId],
+      policyRef: "policy://openclaw/substrate-demo/session-default",
+      idempotencyKey: `demo_session_create_${demoSeed}`
+    });
+    await tool("settld.session_event_append", {
+      sessionId,
+      eventType: "TASK_REQUESTED",
+      traceId,
+      payload: {
+        taskId: `task_openclaw_demo_${demoSeed}`,
+        requiredCapability: "travel.booking.flights",
+        budgetCents: 27500
+      },
+      idempotencyKey: `demo_session_event_${demoSeed}`
+    });
+
     const delegationGrant = await tool("settld.delegation_grant_issue", {
       grantId: `dgrant_openclaw_demo_${demoSeed}`,
       delegatorAgentId: principalAgentId,
@@ -316,11 +337,65 @@ async function main() {
       delegationGrant?.result?.delegationGrant?.grantId ??
       `dgrant_openclaw_demo_${demoSeed}`;
 
+    const taskQuote = await tool("settld.task_quote_issue", {
+      quoteId: `tquote_openclaw_demo_${demoSeed}`,
+      buyerAgentId: principalAgentId,
+      sellerAgentId: workerAgentId,
+      requiredCapability: "travel.booking.flights",
+      amountCents: 275,
+      currency: "USD",
+      traceId,
+      idempotencyKey: `demo_task_quote_${demoSeed}`
+    });
+    const quoteId =
+      taskQuote?.taskQuote?.quoteId ??
+      taskQuote?.result?.taskQuote?.quoteId ??
+      `tquote_openclaw_demo_${demoSeed}`;
+    const quoteHash =
+      taskQuote?.taskQuote?.quoteHash ??
+      taskQuote?.result?.taskQuote?.quoteHash ??
+      null;
+    if (!quoteHash) throw new Error("task quote hash missing from settld.task_quote_issue");
+
+    const taskOffer = await tool("settld.task_offer_issue", {
+      offerId: `toffer_openclaw_demo_${demoSeed}`,
+      buyerAgentId: principalAgentId,
+      sellerAgentId: workerAgentId,
+      quoteId,
+      quoteHash,
+      amountCents: 275,
+      currency: "USD",
+      traceId,
+      idempotencyKey: `demo_task_offer_${demoSeed}`
+    });
+    const offerId =
+      taskOffer?.taskOffer?.offerId ??
+      taskOffer?.result?.taskOffer?.offerId ??
+      `toffer_openclaw_demo_${demoSeed}`;
+
+    const taskAcceptance = await tool("settld.task_acceptance_issue", {
+      acceptanceId: `taccept_openclaw_demo_${demoSeed}`,
+      quoteId,
+      offerId,
+      acceptedByAgentId: principalAgentId,
+      traceId,
+      idempotencyKey: `demo_task_acceptance_${demoSeed}`
+    });
+    const acceptanceId =
+      taskAcceptance?.taskAcceptance?.acceptanceId ??
+      taskAcceptance?.result?.taskAcceptance?.acceptanceId ??
+      `taccept_openclaw_demo_${demoSeed}`;
+    const acceptanceHash =
+      taskAcceptance?.taskAcceptance?.acceptanceHash ??
+      taskAcceptance?.result?.taskAcceptance?.acceptanceHash ??
+      null;
+
     const workOrderCreate = await tool("settld.work_order_create", {
       workOrderId: `workord_openclaw_demo_${demoSeed}`,
       principalAgentId,
       subAgentId: workerAgentId,
       requiredCapability: "travel.booking.flights",
+      traceId,
       specification: {
         intent: "book cheapest direct flight under budget",
         budgetCents: 27500,
@@ -331,6 +406,10 @@ async function main() {
       x402ToolId,
       x402ProviderId,
       delegationGrantRef,
+      acceptanceRef: {
+        acceptanceId,
+        ...(acceptanceHash ? { acceptanceHash } : {})
+      },
       idempotencyKey: `demo_workorder_create_${demoSeed}`
     });
     const workOrderId =
@@ -364,6 +443,7 @@ async function main() {
         `sha256:${"a".repeat(64)}`,
         `verification://openclaw_demo/${demoSeed}/itinerary_check`
       ],
+      traceId,
       amountCents: 275,
       currency: "USD",
       idempotencyKey: `demo_workorder_complete_${demoSeed}`
@@ -385,8 +465,108 @@ async function main() {
       x402GateId: gateId,
       x402RunId,
       x402SettlementStatus: "released",
+      traceId,
       idempotencyKey: `demo_workorder_settle_${demoSeed}`
     });
+
+    const auditLineage = await tool("settld.audit_lineage_list", {
+      traceId,
+      includeSessionEvents: true,
+      limit: 200,
+      offset: 0,
+      scanLimit: 1000
+    });
+    const lineageObject =
+      auditLineage?.lineage ??
+      auditLineage?.result?.lineage ??
+      null;
+    if (!lineageObject || typeof lineageObject !== "object") {
+      throw new Error("audit lineage response missing lineage payload");
+    }
+    const demoArtifactsDir = path.dirname(args.out);
+    const lineageInputPath = path.resolve(demoArtifactsDir, `openclaw-substrate-demo-lineage-${demoSeed}.json`);
+    const lineageVerificationPath = path.resolve(demoArtifactsDir, `openclaw-substrate-demo-lineage-verify-${demoSeed}.json`);
+    await writeFile(lineageInputPath, `${JSON.stringify({ lineage: lineageObject }, null, 2)}\n`, "utf8");
+    const verifyResult = spawnSync(
+      process.execPath,
+      ["scripts/ops/verify-audit-lineage.mjs", "--in", lineageInputPath, "--json-out", lineageVerificationPath],
+      { cwd: process.cwd(), encoding: "utf8" }
+    );
+    const verifyStdout = String(verifyResult.stdout ?? "").trim();
+    const verifyStderr = String(verifyResult.stderr ?? "").trim();
+    const verifyStatus = Number.isInteger(verifyResult.status) ? verifyResult.status : -1;
+    if (verifyStatus !== 0) {
+      transcript.push({
+        step: "ops.audit_lineage_verify",
+        ok: false,
+        exitCode: verifyStatus,
+        stdout: verifyStdout || null,
+        stderr: verifyStderr || null
+      });
+      throw new Error(
+        `audit lineage verification failed (exit=${verifyStatus})${
+          verifyStderr ? ` stderr=${verifyStderr}` : verifyStdout ? ` stdout=${verifyStdout}` : ""
+        }`
+      );
+    }
+    let lineageVerification = null;
+    try {
+      const verificationRaw = await readFile(lineageVerificationPath, "utf8");
+      lineageVerification = JSON.parse(verificationRaw);
+    } catch (err) {
+      throw new Error(`failed to read lineage verification report: ${err?.message ?? String(err)}`);
+    }
+    transcript.push({
+      step: "ops.audit_lineage_verify",
+      ok: lineageVerification?.ok === true,
+      result: lineageVerification
+    });
+    if (lineageVerification?.ok !== true) {
+      throw new Error(`audit lineage verification report is not ok: ${lineageVerification?.code ?? "UNKNOWN"}`);
+    }
+
+    const sessionReplayPackResult = await tool("settld.session_replay_pack_get", { sessionId });
+    const sessionReplayPack =
+      sessionReplayPackResult?.replayPack ??
+      sessionReplayPackResult?.result?.replayPack ??
+      null;
+    if (!sessionReplayPack || typeof sessionReplayPack !== "object") {
+      throw new Error("session replay pack payload missing");
+    }
+    if (sessionReplayPack?.schemaVersion !== "SessionReplayPack.v1") {
+      throw new Error(`unexpected session replay pack schema: ${sessionReplayPack?.schemaVersion ?? "null"}`);
+    }
+
+    const sessionTranscriptResult = await tool("settld.session_transcript_get", { sessionId });
+    const sessionTranscript =
+      sessionTranscriptResult?.transcript ??
+      sessionTranscriptResult?.result?.transcript ??
+      null;
+    if (!sessionTranscript || typeof sessionTranscript !== "object") {
+      throw new Error("session transcript payload missing");
+    }
+    if (sessionTranscript?.schemaVersion !== "SessionTranscript.v1") {
+      throw new Error(`unexpected session transcript schema: ${sessionTranscript?.schemaVersion ?? "null"}`);
+    }
+    if (sessionTranscript?.verification?.chainOk !== true) {
+      throw new Error("session transcript verification.chainOk must be true");
+    }
+    if (sessionTranscript?.verification?.provenance?.ok !== true) {
+      throw new Error("session transcript verification.provenance.ok must be true");
+    }
+    if (Number(sessionTranscript?.eventCount ?? -1) !== Number(sessionReplayPack?.eventCount ?? -2)) {
+      throw new Error("session transcript eventCount mismatch vs replay pack");
+    }
+    if (String(sessionTranscript?.headChainHash ?? "") !== String(sessionReplayPack?.headChainHash ?? "")) {
+      throw new Error("session transcript headChainHash mismatch vs replay pack");
+    }
+    if (
+      typeof sessionTranscript?.sessionHash === "string" &&
+      typeof sessionReplayPack?.sessionHash === "string" &&
+      sessionTranscript.sessionHash !== sessionReplayPack.sessionHash
+    ) {
+      throw new Error("session transcript sessionHash mismatch vs replay pack");
+    }
 
     const discover = await tool("settld.agent_discover", {
       capability: "travel.booking.flights",
@@ -404,9 +584,17 @@ async function main() {
         x402RunId,
         principalAgentId,
         workerAgentId,
+        sessionId,
+        traceId,
+        quoteId,
+        offerId,
+        acceptanceId,
+        acceptanceHash,
         workOrderId,
         completionReceiptId,
-        delegationGrantRef
+        delegationGrantRef,
+        lineageInputPath,
+        lineageVerificationPath
       },
       summary: {
         aboutOk: Boolean(about?.ok ?? true),
@@ -414,6 +602,27 @@ async function main() {
           workOrderSettle?.workOrder?.settlement?.status ??
           workOrderSettle?.result?.workOrder?.settlement?.status ??
           null,
+        auditLineageHash:
+          auditLineage?.lineage?.lineageHash ??
+          auditLineage?.result?.lineage?.lineageHash ??
+          null,
+        auditLineageTotalRecords:
+          auditLineage?.lineage?.totalRecords ??
+          auditLineage?.lineage?.summary?.totalRecords ??
+          auditLineage?.result?.lineage?.totalRecords ??
+          auditLineage?.result?.lineage?.summary?.totalRecords ??
+          null,
+        auditLineageVerificationOk: lineageVerification?.ok === true,
+        auditLineageVerificationCode: lineageVerification?.code ?? null,
+        sessionReplayPackHash: sessionReplayPack?.packHash ?? null,
+        sessionReplayPackEventCount: sessionReplayPack?.eventCount ?? null,
+        sessionTranscriptHash: sessionTranscript?.transcriptHash ?? null,
+        sessionTranscriptEventCount: sessionTranscript?.eventCount ?? null,
+        sessionTranscriptVerificationOk: sessionTranscript?.verification?.chainOk === true,
+        sessionTranscriptProvenanceVerificationOk: sessionTranscript?.verification?.provenance?.ok === true,
+        workOrderAcceptanceBound:
+          workOrderCreate?.workOrder?.acceptanceBinding?.acceptanceId === acceptanceId ||
+          workOrderCreate?.result?.workOrder?.acceptanceBinding?.acceptanceId === acceptanceId,
         discoveredAgents:
           Array.isArray(discover?.result?.results) ? discover.result.results.length : Array.isArray(discover?.results) ? discover.results.length : null
       },

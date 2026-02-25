@@ -165,6 +165,25 @@ test("API e2e: Session.v1 create/list/get and SessionEvent.v1 append/list", asyn
   });
   assert.equal(replayPackB.statusCode, 200, replayPackB.body);
   assert.equal(replayPackB.json?.replayPack?.packHash, replayPackA.json?.replayPack?.packHash);
+
+  const transcriptA = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_e2e_1/transcript"
+  });
+  assert.equal(transcriptA.statusCode, 200, transcriptA.body);
+  assert.equal(transcriptA.json?.transcript?.schemaVersion, "SessionTranscript.v1");
+  assert.equal(transcriptA.json?.transcript?.sessionId, "sess_e2e_1");
+  assert.equal(transcriptA.json?.transcript?.eventCount, 1);
+  assert.equal(transcriptA.json?.transcript?.verification?.chainOk, true);
+  assert.equal(transcriptA.json?.transcript?.verification?.verifiedEventCount, 1);
+  assert.match(String(transcriptA.json?.transcript?.transcriptHash ?? ""), /^[0-9a-f]{64}$/);
+
+  const transcriptB = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_e2e_1/transcript"
+  });
+  assert.equal(transcriptB.statusCode, 200, transcriptB.body);
+  assert.equal(transcriptB.json?.transcript?.transcriptHash, transcriptA.json?.transcript?.transcriptHash);
 });
 
 test("API e2e: SessionReplayPack.v1 fails closed on tampered event chain", async () => {
@@ -213,6 +232,13 @@ test("API e2e: SessionReplayPack.v1 fails closed on tampered event chain", async
   });
   assert.equal(replayPack.statusCode, 409, replayPack.body);
   assert.equal(replayPack.json?.code, "SESSION_REPLAY_CHAIN_INVALID");
+
+  const transcript = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_tamper_1/transcript"
+  });
+  assert.equal(transcript.statusCode, 409, transcript.body);
+  assert.equal(transcript.json?.code, "SESSION_REPLAY_CHAIN_INVALID");
 });
 
 test("API e2e: SessionEvent.v1 provenance taint propagates deterministically and replay pack reports provenance verification", async () => {
@@ -370,4 +396,11 @@ test("API e2e: SessionReplayPack.v1 fails closed on provenance mismatch even whe
   });
   assert.equal(replayPack.statusCode, 409, replayPack.body);
   assert.equal(replayPack.json?.code, "SESSION_REPLAY_PROVENANCE_INVALID");
+
+  const transcript = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_provenance_tamper_1/transcript"
+  });
+  assert.equal(transcript.statusCode, 409, transcript.body);
+  assert.equal(transcript.json?.code, "SESSION_REPLAY_PROVENANCE_INVALID");
 });

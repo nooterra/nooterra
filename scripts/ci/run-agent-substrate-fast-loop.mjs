@@ -127,6 +127,16 @@ export async function runAgentSubstrateFastLoop(args, options = {}) {
       id: "mcp_probe_x402_smoke",
       command: "npm",
       args: ["run", "-s", "mcp:probe", "--", "--x402-smoke"]
+    },
+    {
+      id: "openclaw_substrate_demo_lineage_verified",
+      command: process.execPath,
+      args: ["--test", "test/openclaw-substrate-demo-script.test.js"]
+    },
+    {
+      id: "openclaw_substrate_demo_transcript_verified",
+      command: process.execPath,
+      args: ["--test", "test/openclaw-substrate-demo-script.test.js"]
     }
   ];
 

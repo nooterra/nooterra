@@ -717,6 +717,11 @@ export class SettldClient {
     return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/replay-pack`, opts);
   }
 
+  getSessionTranscript(sessionId, opts) {
+    assertNonEmptyString(sessionId, "sessionId");
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/transcript`, opts);
+  }
+
   async *streamSessionEvents(sessionId, params = {}, opts = {}) {
     assertNonEmptyString(sessionId, "sessionId");
     const qs = new URLSearchParams();

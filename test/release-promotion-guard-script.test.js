@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { createHash } from "node:crypto";
 
 import { createEd25519Keypair, keyIdFromPublicKeyPem, signHashHexEd25519 } from "../src/core/crypto.js";
 import { evaluatePromotionVerdict, parseArgs, runReleasePromotionGuard } from "../scripts/ci/run-release-promotion-guard.mjs";
@@ -13,14 +14,62 @@ async function writeJson(root, relPath, value) {
   await fs.writeFile(fp, JSON.stringify(value, null, 2) + "\n", "utf8");
 }
 
-async function writeRequiredArtifacts(root, { productionGateOk = true } = {}) {
+async function writeRequiredArtifacts(
+  root,
+  {
+    productionGateOk = true,
+    includeProductionRequiredCheck = true,
+    includeProductionLineageCheck = true,
+    includeProductionTranscriptCheck = true
+  } = {}
+) {
+  await writeJson(root, "artifacts/gates/settld-verified-collaboration-gate.json", {
+    schemaVersion: "SettldVerifiedGateReport.v1",
+    level: "collaboration",
+    ok: true,
+    summary: { totalChecks: 10, passedChecks: 10, failedChecks: 0 }
+  });
+  const collabReportRelPath = "artifacts/gates/settld-verified-collaboration-gate.json";
+  const collabReportAbsPath = path.join(root, collabReportRelPath);
+  const collabReportRaw = await fs.readFile(collabReportAbsPath, "utf8");
+  const collabReportSha256 = createHash("sha256").update(collabReportRaw).digest("hex");
+
   await writeJson(root, "artifacts/gates/kernel-v0-ship-gate.json", {
     schemaVersion: "KernelV0ShipGateReport.v1",
     verdict: { ok: true, requiredChecks: 1, passedChecks: 1 }
   });
+  const productionChecks = [];
+  if (includeProductionRequiredCheck) {
+    productionChecks.push({
+      id: "settld_verified_collaboration",
+      status: productionGateOk ? "passed" : "failed",
+      reportPath: collabReportRelPath
+    });
+  }
+  if (includeProductionLineageCheck) {
+    productionChecks.push({
+      id: "openclaw_substrate_demo_lineage_verified",
+      status: productionGateOk ? "passed" : "failed"
+    });
+  }
+  if (includeProductionTranscriptCheck) {
+    productionChecks.push({
+      id: "openclaw_substrate_demo_transcript_verified",
+      status: productionGateOk ? "passed" : "failed"
+    });
+  }
+  if (productionChecks.length === 0) {
+    productionChecks.push({ id: "mcp_host_runtime_smoke", status: "passed" });
+  }
+
   await writeJson(root, "artifacts/gates/production-cutover-gate.json", {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: productionGateOk, requiredChecks: 1, passedChecks: productionGateOk ? 1 : 0 }
+    verdict: {
+      ok: productionGateOk,
+      requiredChecks: productionChecks.length,
+      passedChecks: productionChecks.filter((row) => row.status === "passed").length
+    },
+    checks: productionChecks
   });
   await writeJson(root, "artifacts/gates/offline-verification-parity-gate.json", {
     schemaVersion: "OfflineVerificationParityGateReport.v1",
@@ -36,6 +85,10 @@ async function writeRequiredArtifacts(root, { productionGateOk = true } = {}) {
   });
   await writeJson(root, "artifacts/gates/s13-launch-cutover-packet.json", {
     schemaVersion: "LaunchCutoverPacket.v1",
+    sources: {
+      settldVerifiedCollaborationGateReportPath: collabReportRelPath,
+      settldVerifiedCollaborationGateReportSha256: collabReportSha256
+    },
     verdict: { ok: true, requiredChecks: 1, passedChecks: 1 }
   });
   await writeJson(root, "artifacts/ops/hosted-baseline-evidence-production.json", {
@@ -158,6 +211,113 @@ test("release promotion guard: fails closed when offline parity gate report sche
   assert.ok(parityArtifact);
   assert.equal(parityArtifact.status, "failed");
   assert.equal(parityArtifact.failureCodes.includes("schema_mismatch"), true);
+});
+
+test("release promotion guard: fails closed when production cutover report misses required collaboration check", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-guard-prodcheck-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  await writeRequiredArtifacts(tmpRoot, { productionGateOk: true, includeProductionRequiredCheck: false });
+  const env = {
+    RELEASE_PROMOTION_GUARD_NOW: "2026-02-21T18:00:00.000Z"
+  };
+  const { report } = await runReleasePromotionGuard(parseArgs([], env, tmpRoot), env, tmpRoot);
+  assert.equal(report.verdict.ok, false);
+  assert.equal(report.verdict.status, "fail");
+  const productionArtifact = report.artifacts.find((row) => row.id === "production_cutover_gate");
+  assert.ok(productionArtifact);
+  assert.equal(productionArtifact.status, "failed");
+  assert.equal(productionArtifact.failureCodes.includes("required_check_missing"), true);
+});
+
+test("release promotion guard: fails closed when production cutover report misses required lineage check", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-guard-prodlineage-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  await writeRequiredArtifacts(tmpRoot, {
+    productionGateOk: true,
+    includeProductionRequiredCheck: true,
+    includeProductionLineageCheck: false
+  });
+  const env = {
+    RELEASE_PROMOTION_GUARD_NOW: "2026-02-21T18:00:00.000Z"
+  };
+  const { report } = await runReleasePromotionGuard(parseArgs([], env, tmpRoot), env, tmpRoot);
+  assert.equal(report.verdict.ok, false);
+  assert.equal(report.verdict.status, "fail");
+  const productionArtifact = report.artifacts.find((row) => row.id === "production_cutover_gate");
+  assert.ok(productionArtifact);
+  assert.equal(productionArtifact.status, "failed");
+  assert.equal(productionArtifact.failureCodes.includes("required_check_missing"), true);
+  const launchPacketArtifact = report.artifacts.find((row) => row.id === "launch_cutover_packet");
+  assert.ok(launchPacketArtifact);
+  assert.equal(launchPacketArtifact.status, "failed");
+  assert.equal(launchPacketArtifact.failureCodes.includes("production_gate_lineage_check_missing"), true);
+});
+
+test("release promotion guard: fails closed when production cutover report misses required transcript check", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-guard-prodtranscript-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  await writeRequiredArtifacts(tmpRoot, {
+    productionGateOk: true,
+    includeProductionRequiredCheck: true,
+    includeProductionLineageCheck: true,
+    includeProductionTranscriptCheck: false
+  });
+  const env = {
+    RELEASE_PROMOTION_GUARD_NOW: "2026-02-21T18:00:00.000Z"
+  };
+  const { report } = await runReleasePromotionGuard(parseArgs([], env, tmpRoot), env, tmpRoot);
+  assert.equal(report.verdict.ok, false);
+  assert.equal(report.verdict.status, "fail");
+  const productionArtifact = report.artifacts.find((row) => row.id === "production_cutover_gate");
+  assert.ok(productionArtifact);
+  assert.equal(productionArtifact.status, "failed");
+  assert.equal(productionArtifact.failureCodes.includes("required_check_missing"), true);
+  const launchPacketArtifact = report.artifacts.find((row) => row.id === "launch_cutover_packet");
+  assert.ok(launchPacketArtifact);
+  assert.equal(launchPacketArtifact.status, "failed");
+  assert.equal(launchPacketArtifact.failureCodes.includes("production_gate_transcript_check_missing"), true);
+});
+
+test("release promotion guard: fails closed when launch packet collaboration hash binding mismatches source", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-guard-binding-mismatch-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  await writeRequiredArtifacts(tmpRoot, { productionGateOk: true, includeProductionRequiredCheck: true });
+  await writeJson(tmpRoot, "artifacts/gates/s13-launch-cutover-packet.json", {
+    schemaVersion: "LaunchCutoverPacket.v1",
+    sources: {
+      settldVerifiedCollaborationGateReportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
+      settldVerifiedCollaborationGateReportSha256: "0".repeat(64)
+    },
+    verdict: { ok: true, requiredChecks: 1, passedChecks: 1 }
+  });
+
+  const env = {
+    RELEASE_PROMOTION_GUARD_NOW: "2026-02-21T18:00:00.000Z"
+  };
+  const { report } = await runReleasePromotionGuard(parseArgs([], env, tmpRoot), env, tmpRoot);
+  assert.equal(report.verdict.ok, false);
+  assert.equal(report.verdict.status, "fail");
+  const launchPacketArtifact = report.artifacts.find((row) => row.id === "launch_cutover_packet");
+  assert.ok(launchPacketArtifact);
+  assert.equal(launchPacketArtifact.status, "failed");
+  assert.equal(launchPacketArtifact.failureCodes.includes("binding_source_sha_mismatch"), true);
+  const bindingCheck = Array.isArray(report.bindingChecks)
+    ? report.bindingChecks.find((row) => row.id === "launch_packet_settld_verified_collaboration_binding")
+    : null;
+  assert.ok(bindingCheck);
+  assert.equal(bindingCheck.ok, false);
 });
 
 test("release promotion guard: accepts valid Ed25519 signed override for blocking artifacts", async (t) => {

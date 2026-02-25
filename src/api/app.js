@@ -171,6 +171,7 @@ import {
   validateSessionV1
 } from "../core/session-collab.js";
 import { buildSessionReplayPackV1 } from "../core/session-replay-pack.js";
+import { buildSessionTranscriptV1 } from "../core/session-transcript.js";
 import { buildVerifiedInteractionGraphPackV1, signVerifiedInteractionGraphPackV1 } from "../core/interaction-graph-pack.js";
 import {
   DISPUTE_OPEN_ENVELOPE_SCHEMA_VERSION,
@@ -224,6 +225,7 @@ import {
   validateSlaCreditIssuedPayload
 } from "../core/sla-events.js";
 import { buildAuditExport, buildEvidenceExport } from "../core/audit-export.js";
+import { buildAuditLineageV1 } from "../core/audit-lineage.js";
 import { DEFAULT_TENANT_ID, makeScopedKey, normalizeTenantId, parseScopedKey } from "../core/tenancy.js";
 import {
   COVERAGE_FEE_MODEL,
@@ -439,6 +441,7 @@ export function createApi({
   x402PilotDailyLimitCents = null,
   x402RequireAgentPassport = null,
   x402RequireExecutionIntent = null,
+  x402RequireAuthorityGrant = null,
   x402PromptRiskForceMode = null,
   x402PromptRiskForceModeByPrincipal = null,
   x402SessionTaintEscalateAmountCents = null,
@@ -1919,6 +1922,12 @@ export function createApi({
     const raw =
       x402RequireExecutionIntent ??
       (typeof process !== "undefined" ? process.env.X402_REQUIRE_EXECUTION_INTENT : null);
+    return parseBooleanLike(raw, false);
+  })();
+  const x402RequireAuthorityGrantValue = (() => {
+    const raw =
+      x402RequireAuthorityGrant ??
+      (typeof process !== "undefined" ? process.env.X402_REQUIRE_AUTHORITY_GRANT : null);
     return parseBooleanLike(raw, false);
   })();
   const x402QuoteTtlSecondsValue = (() => {
@@ -8158,6 +8167,82 @@ export function createApi({
     return String(rawValue).trim();
   }
 
+  function parseAuditLineageFilter(rawValue, { name, max = 256, allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined) {
+      if (allowNull) return null;
+      throw new TypeError(`${name} is required`);
+    }
+    const value = String(rawValue).trim();
+    if (!value) {
+      if (allowNull) throw new TypeError(`${name} must be a non-empty string when provided`);
+      throw new TypeError(`${name} is required`);
+    }
+    if (value.length > max) throw new TypeError(`${name} must be <= ${max} chars`);
+    return value;
+  }
+
+  function parseSubstrateTraceIdInput(rawValue, { name = "traceId", allowNull = true } = {}) {
+    return parseAuditLineageFilter(rawValue, { name, max: 256, allowNull });
+  }
+
+  function collectTraceIdsForAuditLineage(value) {
+    const out = new Set();
+    const add = (candidate) => {
+      if (candidate === null || candidate === undefined) return;
+      const text = String(candidate).trim();
+      if (!text) return;
+      out.add(text);
+    };
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    add(source.traceId);
+    add(source?.payload?.traceId);
+    add(source?.metadata?.traceId);
+    add(source?.refs?.traceId);
+    if (Array.isArray(source.traceIds)) {
+      for (const traceId of source.traceIds) add(traceId);
+    }
+    return [...out.values()].sort((left, right) => left.localeCompare(right));
+  }
+
+  function collectAgentIdsForAuditLineage(value) {
+    const out = new Set();
+    const add = (candidate) => {
+      if (candidate === null || candidate === undefined) return;
+      const text = String(candidate).trim();
+      if (!text) return;
+      out.add(text);
+    };
+    const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const candidateFields = [
+      "agentId",
+      "actorAgentId",
+      "principalAgentId",
+      "subAgentId",
+      "buyerAgentId",
+      "sellerAgentId",
+      "acceptedByAgentId",
+      "payerAgentId",
+      "payeeAgentId",
+      "arbiterAgentId",
+      "openedByAgentId",
+      "closedByAgentId",
+      "submittedByAgentId",
+      "escalatedByAgentId",
+      "resolvedByAgentId",
+      "delegatorAgentId",
+      "delegateeAgentId"
+    ];
+    for (const field of candidateFields) add(source[field]);
+    add(source?.actor?.agentId);
+    if (Array.isArray(source.participants)) {
+      for (const participant of source.participants) add(participant);
+    }
+    if (Array.isArray(source.agentIds)) {
+      for (const agentId of source.agentIds) add(agentId);
+    }
+    return [...out.values()].sort((left, right) => left.localeCompare(right));
+  }
+
   const AGENT_CARD_STREAM_EVENT_SCHEMA_VERSION = "AgentCardStreamEvent.v1";
 
   function buildAgentCardStreamCursor({ updatedAt, tenantId, agentId } = {}) {
@@ -9490,6 +9575,32 @@ export function createApi({
       throw new TypeError("riskTier must be low|guarded|elevated|high");
     }
 
+    const inactiveLifecycleScopedKeys = (() => {
+      if (!(store?.x402AgentLifecycles instanceof Map)) return null;
+      const scoped = new Set();
+      for (const lifecycle of store.x402AgentLifecycles.values()) {
+        if (!lifecycle || typeof lifecycle !== "object" || Array.isArray(lifecycle)) continue;
+        const lifecycleTenantId = normalizeTenantId(lifecycle.tenantId ?? DEFAULT_TENANT_ID);
+        if (!isPublicScope && lifecycleTenantId !== t) continue;
+        const lifecycleAgentId =
+          typeof lifecycle.agentId === "string" && lifecycle.agentId.trim() !== "" ? lifecycle.agentId.trim() : null;
+        if (!lifecycleAgentId) continue;
+        let lifecycleStatus = X402_AGENT_LIFECYCLE_STATUS.ACTIVE;
+        try {
+          lifecycleStatus = normalizeX402AgentLifecycleStatusInput(lifecycle.status ?? X402_AGENT_LIFECYCLE_STATUS.ACTIVE, {
+            fieldPath: "x402AgentLifecycle.status",
+            allowNull: false
+          });
+        } catch {
+          lifecycleStatus = "invalid";
+        }
+        if (lifecycleStatus !== X402_AGENT_LIFECYCLE_STATUS.ACTIVE) {
+          scoped.add(makeScopedKey({ tenantId: lifecycleTenantId, id: lifecycleAgentId }));
+        }
+      }
+      return scoped;
+    })();
+
     let cards = [];
     if (isPublicScope && typeof store.listAgentCardsPublic === "function") {
       cards = await store.listAgentCardsPublic({
@@ -9622,6 +9733,7 @@ export function createApi({
       }
       const cardTenantId = normalizeTenantId(agentCard?.tenantId ?? t ?? DEFAULT_TENANT_ID);
       if (isPublicScope && quarantinedAgentScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
+      if (inactiveLifecycleScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
       if (requireAttestation && !capabilityFilter) {
         const requestedCapabilities = Array.isArray(agentCard?.capabilities)
           ? [...new Set(agentCard.capabilities.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort((left, right) =>
@@ -9928,12 +10040,38 @@ export function createApi({
       }
     }
 
+    const inactiveLifecycleScopedKeys = (() => {
+      if (!(store?.x402AgentLifecycles instanceof Map)) return null;
+      const scoped = new Set();
+      for (const lifecycle of store.x402AgentLifecycles.values()) {
+        if (!lifecycle || typeof lifecycle !== "object" || Array.isArray(lifecycle)) continue;
+        const lifecycleTenantId = normalizeTenantId(lifecycle.tenantId ?? DEFAULT_TENANT_ID);
+        const lifecycleAgentId =
+          typeof lifecycle.agentId === "string" && lifecycle.agentId.trim() !== "" ? lifecycle.agentId.trim() : null;
+        if (!lifecycleAgentId) continue;
+        let lifecycleStatus = X402_AGENT_LIFECYCLE_STATUS.ACTIVE;
+        try {
+          lifecycleStatus = normalizeX402AgentLifecycleStatusInput(lifecycle.status ?? X402_AGENT_LIFECYCLE_STATUS.ACTIVE, {
+            fieldPath: "x402AgentLifecycle.status",
+            allowNull: false
+          });
+        } catch {
+          lifecycleStatus = "invalid";
+        }
+        if (lifecycleStatus !== X402_AGENT_LIFECYCLE_STATUS.ACTIVE) {
+          scoped.add(makeScopedKey({ tenantId: lifecycleTenantId, id: lifecycleAgentId }));
+        }
+      }
+      return scoped;
+    })();
+
     const rows = [];
     for (const agentCard of cards) {
       const tenantId = normalizeTenantId(agentCard?.tenantId ?? DEFAULT_TENANT_ID);
       const agentId = typeof agentCard?.agentId === "string" && agentCard.agentId.trim() !== "" ? agentCard.agentId.trim() : null;
       if (!agentId) continue;
       if (quarantinedAgentScopedKeys.has(makeScopedKey({ tenantId, id: agentId }))) continue;
+      if (inactiveLifecycleScopedKeys?.has(makeScopedKey({ tenantId, id: agentId }))) continue;
       const updatedAt = typeof agentCard?.updatedAt === "string" && agentCard.updatedAt.trim() !== "" ? agentCard.updatedAt.trim() : null;
       const createdAt = typeof agentCard?.createdAt === "string" && agentCard.createdAt.trim() !== "" ? agentCard.createdAt.trim() : null;
       const effectiveAt = updatedAt ?? createdAt;
@@ -10045,7 +10183,12 @@ export function createApi({
   const X402_ZK_VERIFICATION_KEY_SCHEMA_VERSION = "X402ZkVerificationKey.v1";
   const X402_AGENT_LIFECYCLE_SCHEMA_VERSION = "X402AgentLifecycle.v1";
   const X402_AGENT_LIFECYCLE_STATUS = Object.freeze({
+    PROVISIONED: "provisioned",
     ACTIVE: "active",
+    THROTTLED: "throttled",
+    SUSPENDED: "suspended",
+    QUARANTINED: "quarantined",
+    DECOMMISSIONED: "decommissioned",
     FROZEN: "frozen",
     ARCHIVED: "archived"
   });
@@ -10765,11 +10908,18 @@ export function createApi({
     }
     const value = String(rawValue).trim().toLowerCase();
     if (
+      value !== X402_AGENT_LIFECYCLE_STATUS.PROVISIONED &&
       value !== X402_AGENT_LIFECYCLE_STATUS.ACTIVE &&
+      value !== X402_AGENT_LIFECYCLE_STATUS.THROTTLED &&
+      value !== X402_AGENT_LIFECYCLE_STATUS.SUSPENDED &&
+      value !== X402_AGENT_LIFECYCLE_STATUS.QUARANTINED &&
+      value !== X402_AGENT_LIFECYCLE_STATUS.DECOMMISSIONED &&
       value !== X402_AGENT_LIFECYCLE_STATUS.FROZEN &&
       value !== X402_AGENT_LIFECYCLE_STATUS.ARCHIVED
     ) {
-      throw new TypeError(`${fieldPath} must be active|frozen|archived`);
+      throw new TypeError(
+        `${fieldPath} must be provisioned|active|throttled|suspended|quarantined|decommissioned|frozen|archived`
+      );
     }
     return value;
   }
@@ -15298,6 +15448,80 @@ export function createApi({
     throw new TypeError("session events not supported for this store");
   }
 
+  async function resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel = "session artifact" } = {}) {
+    const session = await getSessionRecord({ tenantId, sessionId });
+    if (!session) {
+      return {
+        ok: false,
+        httpStatus: 404,
+        code: "NOT_FOUND",
+        message: "session not found",
+        details: null
+      };
+    }
+    let events = await getSessionEventRecords({ tenantId, sessionId });
+    if (!Array.isArray(events)) events = [];
+    for (const event of events) {
+      await ensureSignerContextFresh({ tenantId, event });
+    }
+    const streamMismatch = events.find((row) => String(row?.streamId ?? "") !== sessionId);
+    if (streamMismatch) {
+      return {
+        ok: false,
+        httpStatus: 409,
+        code: "SESSION_REPLAY_CHAIN_INVALID",
+        message: `${artifactLabel} blocked`,
+        details: {
+          sessionId,
+          reason: "event streamId mismatch",
+          eventId: streamMismatch.id ?? null
+        }
+      };
+    }
+    const chainVerification = verifyChainedEvents(events, { publicKeyByKeyId: store.publicKeyByKeyId });
+    if (!chainVerification.ok) {
+      return {
+        ok: false,
+        httpStatus: 409,
+        code: "SESSION_REPLAY_CHAIN_INVALID",
+        message: `${artifactLabel} blocked`,
+        details: {
+          sessionId,
+          reason: chainVerification.error ?? "chain verification failed"
+        }
+      };
+    }
+    const provenanceVerification = verifySessionEventProvenanceChain(events);
+    if (!provenanceVerification.ok) {
+      return {
+        ok: false,
+        httpStatus: 409,
+        code: "SESSION_REPLAY_PROVENANCE_INVALID",
+        message: `${artifactLabel} blocked`,
+        details: {
+          sessionId,
+          reason: provenanceVerification.error ?? "provenance verification failed"
+        }
+      };
+    }
+    return {
+      ok: true,
+      session,
+      events,
+      verification: {
+        chainOk: true,
+        verifiedEventCount: events.length,
+        error: null,
+        provenance: {
+          ok: true,
+          verifiedEventCount: provenanceVerification.verifiedEventCount ?? 0,
+          taintedEventCount: provenanceVerification.taintedEventCount ?? 0,
+          error: null
+        }
+      }
+    };
+  }
+
   function parseX402SessionRefInput(rawValue, { fieldName = "sessionRef", allowNull = true } = {}) {
     return normalizeOptionalX402RefInput(rawValue, fieldName, { allowNull, max: 200 });
   }
@@ -15497,6 +15721,213 @@ export function createApi({
     return { status, record };
   }
 
+  const X402_AGENT_LIFECYCLE_ALLOWED_TRANSITIONS = Object.freeze({
+    [X402_AGENT_LIFECYCLE_STATUS.PROVISIONED]: Object.freeze([
+      X402_AGENT_LIFECYCLE_STATUS.PROVISIONED,
+      X402_AGENT_LIFECYCLE_STATUS.ACTIVE,
+      X402_AGENT_LIFECYCLE_STATUS.DECOMMISSIONED,
+      X402_AGENT_LIFECYCLE_STATUS.ARCHIVED
+    ]),
+    [X402_AGENT_LIFECYCLE_STATUS.ACTIVE]: Object.freeze([
+      X402_AGENT_LIFECYCLE_STATUS.ACTIVE,
+      X402_AGENT_LIFECYCLE_STATUS.PROVISIONED,
+      X402_AGENT_LIFECYCLE_STATUS.THROTTLED,
+      X402_AGENT_LIFECYCLE_STATUS.SUSPENDED,
+      X402_AGENT_LIFECYCLE_STATUS.QUARANTINED,
+      X402_AGENT_LIFECYCLE_STATUS.FROZEN,
+      X402_AGENT_LIFECYCLE_STATUS.DECOMMISSIONED,
+      X402_AGENT_LIFECYCLE_STATUS.ARCHIVED
+    ]),
+    [X402_AGENT_LIFECYCLE_STATUS.THROTTLED]: Object.freeze([
+      X402_AGENT_LIFECYCLE_STATUS.THROTTLED,
+      X402_AGENT_LIFECYCLE_STATUS.ACTIVE,
+      X402_AGENT_LIFECYCLE_STATUS.SUSPENDED,
+      X402_AGENT_LIFECYCLE_STATUS.QUARANTINED,
+      X402_AGENT_LIFECYCLE_STATUS.FROZEN,
+      X402_AGENT_LIFECYCLE_STATUS.DECOMMISSIONED,
+      X402_AGENT_LIFECYCLE_STATUS.ARCHIVED
+    ]),
+    [X402_AGENT_LIFECYCLE_STATUS.SUSPENDED]: Object.freeze([
+      X402_AGENT_LIFECYCLE_STATUS.SUSPENDED,
+      X402_AGENT_LIFECYCLE_STATUS.ACTIVE,
+      X402_AGENT_LIFECYCLE_STATUS.QUARANTINED,
+      X402_AGENT_LIFECYCLE_STATUS.FROZEN,
+      X402_AGENT_LIFECYCLE_STATUS.DECOMMISSIONED,
+      X402_AGENT_LIFECYCLE_STATUS.ARCHIVED
+    ]),
+    [X402_AGENT_LIFECYCLE_STATUS.QUARANTINED]: Object.freeze([
+      X402_AGENT_LIFECYCLE_STATUS.QUARANTINED,
+      X402_AGENT_LIFECYCLE_STATUS.SUSPENDED,
+      X402_AGENT_LIFECYCLE_STATUS.FROZEN,
+      X402_AGENT_LIFECYCLE_STATUS.DECOMMISSIONED,
+      X402_AGENT_LIFECYCLE_STATUS.ARCHIVED
+    ]),
+    [X402_AGENT_LIFECYCLE_STATUS.FROZEN]: Object.freeze([
+      X402_AGENT_LIFECYCLE_STATUS.FROZEN,
+      X402_AGENT_LIFECYCLE_STATUS.ACTIVE,
+      X402_AGENT_LIFECYCLE_STATUS.SUSPENDED,
+      X402_AGENT_LIFECYCLE_STATUS.DECOMMISSIONED,
+      X402_AGENT_LIFECYCLE_STATUS.ARCHIVED
+    ]),
+    [X402_AGENT_LIFECYCLE_STATUS.DECOMMISSIONED]: Object.freeze([
+      X402_AGENT_LIFECYCLE_STATUS.DECOMMISSIONED,
+      X402_AGENT_LIFECYCLE_STATUS.ARCHIVED
+    ]),
+    [X402_AGENT_LIFECYCLE_STATUS.ARCHIVED]: Object.freeze([X402_AGENT_LIFECYCLE_STATUS.ARCHIVED])
+  });
+
+  function assertX402AgentLifecycleTransitionAllowed({ previousStatus, nextStatus }) {
+    const allowed = X402_AGENT_LIFECYCLE_ALLOWED_TRANSITIONS[previousStatus] ?? [previousStatus];
+    if (allowed.includes(nextStatus)) return;
+    throw new TypeError(
+      `x402 lifecycle transition blocked: ${previousStatus}->${nextStatus} is not allowed`
+    );
+  }
+
+  function resolveX402AgentLifecycleBlock({ status }) {
+    if (status === X402_AGENT_LIFECYCLE_STATUS.ACTIVE) return { blocked: false };
+    if (status === X402_AGENT_LIFECYCLE_STATUS.THROTTLED) {
+      return {
+        blocked: true,
+        httpStatus: 429,
+        code: "X402_AGENT_THROTTLED",
+        message: "agent is throttled and cannot authorize new x402 flows"
+      };
+    }
+    if (status === X402_AGENT_LIFECYCLE_STATUS.PROVISIONED) {
+      return {
+        blocked: true,
+        httpStatus: 409,
+        code: "X402_AGENT_NOT_ACTIVE",
+        message: "agent is provisioned and cannot authorize new x402 flows"
+      };
+    }
+    if (status === X402_AGENT_LIFECYCLE_STATUS.SUSPENDED) {
+      return {
+        blocked: true,
+        httpStatus: 410,
+        code: "X402_AGENT_SUSPENDED",
+        message: "agent is suspended and cannot authorize new x402 flows"
+      };
+    }
+    if (status === X402_AGENT_LIFECYCLE_STATUS.QUARANTINED) {
+      return {
+        blocked: true,
+        httpStatus: 423,
+        code: "X402_AGENT_QUARANTINED",
+        message: "agent is quarantined and cannot authorize new x402 flows"
+      };
+    }
+    if (status === X402_AGENT_LIFECYCLE_STATUS.DECOMMISSIONED) {
+      return {
+        blocked: true,
+        httpStatus: 410,
+        code: "X402_AGENT_DECOMMISSIONED",
+        message: "agent is decommissioned and cannot authorize new x402 flows"
+      };
+    }
+    if (status === X402_AGENT_LIFECYCLE_STATUS.ARCHIVED) {
+      return {
+        blocked: true,
+        httpStatus: 410,
+        code: "X402_AGENT_ARCHIVED",
+        message: "agent is archived and cannot authorize new x402 flows"
+      };
+    }
+    if (status === X402_AGENT_LIFECYCLE_STATUS.FROZEN) {
+      return {
+        blocked: true,
+        httpStatus: 410,
+        code: "X402_AGENT_FROZEN",
+        message: "agent is frozen and cannot authorize new x402 flows"
+      };
+    }
+    return {
+      blocked: true,
+      httpStatus: 409,
+      code: "X402_AGENT_LIFECYCLE_INVALID",
+      message: "agent lifecycle is invalid and cannot authorize new x402 flows"
+    };
+  }
+
+  async function upsertX402AgentLifecycleStatus({
+    tenantId,
+    agentId,
+    status,
+    reasonCode = null,
+    reasonMessage = null,
+    source = "manual",
+    requestedByPrincipalId = null,
+    requestedByActorKeyId = null,
+    nowAt = null
+  } = {}) {
+    const normalizedTenantId = normalizeTenant(tenantId);
+    const normalizedAgentId = normalizeOptionalX402RefInput(agentId, "agentId", { allowNull: false, max: 200 });
+    const normalizedStatus = normalizeX402AgentLifecycleStatusInput(status, {
+      fieldPath: "status",
+      allowNull: false
+    });
+    const at = typeof nowAt === "string" && nowAt.trim() !== "" ? nowAt.trim() : nowIso();
+    const normalizedReasonCode =
+      reasonCode === null || reasonCode === undefined || String(reasonCode).trim() === ""
+        ? `X402_AGENT_${normalizedStatus.toUpperCase()}`
+        : normalizeOptionalX402RefInput(reasonCode, "reasonCode", { allowNull: false, max: 200 });
+    const normalizedReasonMessage =
+      reasonMessage === null || reasonMessage === undefined || String(reasonMessage).trim() === ""
+        ? null
+        : String(reasonMessage).trim().slice(0, 500);
+
+    const existingLifecycle = await getX402AgentLifecycleRecord({ tenantId: normalizedTenantId, agentId: normalizedAgentId });
+    const previousStatus = normalizeX402AgentLifecycleStatusInput(existingLifecycle?.status ?? X402_AGENT_LIFECYCLE_STATUS.ACTIVE, {
+      fieldPath: "existingLifecycle.status",
+      allowNull: false
+    });
+    assertX402AgentLifecycleTransitionAllowed({ previousStatus, nextStatus: normalizedStatus });
+
+    if (
+      previousStatus === normalizedStatus &&
+      String(existingLifecycle?.reasonCode ?? "") === normalizedReasonCode &&
+      String(existingLifecycle?.reasonMessage ?? "") === String(normalizedReasonMessage ?? "")
+    ) {
+      return { changed: false, lifecycle: existingLifecycle ?? null, previousStatus };
+    }
+
+    const nextLifecycle = normalizeForCanonicalJson(
+      {
+        schemaVersion: X402_AGENT_LIFECYCLE_SCHEMA_VERSION,
+        tenantId: normalizedTenantId,
+        agentId: normalizedAgentId,
+        status: normalizedStatus,
+        previousStatus,
+        reasonCode: normalizedReasonCode,
+        reasonMessage: normalizedReasonMessage,
+        source,
+        requestedByPrincipalId,
+        requestedByActorKeyId,
+        requestedAt:
+          typeof existingLifecycle?.requestedAt === "string" && existingLifecycle.requestedAt.trim() !== ""
+            ? existingLifecycle.requestedAt
+            : at,
+        updatedAt: at
+      },
+      { path: "$" }
+    );
+
+    await store.commitTx({
+      at,
+      ops: [
+        {
+          kind: "X402_AGENT_LIFECYCLE_UPSERT",
+          tenantId: normalizedTenantId,
+          agentId: normalizedAgentId,
+          agentLifecycle: nextLifecycle
+        }
+      ]
+    });
+
+    return { changed: true, lifecycle: nextLifecycle, previousStatus };
+  }
+
   async function blockIfX402AgentLifecycleInactive({ tenantId, agentId, role = "agent" }) {
     const emergencyControl = await findMatchingEmergencyControl({
       tenantId,
@@ -15519,21 +15950,13 @@ export function createApi({
     }
 
     const lifecycle = await getX402AgentLifecycleStatus({ tenantId, agentId });
-    if (
-      lifecycle.status === X402_AGENT_LIFECYCLE_STATUS.FROZEN ||
-      lifecycle.status === X402_AGENT_LIFECYCLE_STATUS.ARCHIVED
-    ) {
+    const lifecycleBlock = resolveX402AgentLifecycleBlock({ status: lifecycle.status });
+    if (lifecycleBlock.blocked) {
       return {
         blocked: true,
-        httpStatus: 410,
-        code:
-          lifecycle.status === X402_AGENT_LIFECYCLE_STATUS.ARCHIVED
-            ? "X402_AGENT_ARCHIVED"
-            : "X402_AGENT_FROZEN",
-        message:
-          lifecycle.status === X402_AGENT_LIFECYCLE_STATUS.ARCHIVED
-            ? "agent is archived and cannot authorize new x402 flows"
-            : "agent is frozen and cannot authorize new x402 flows",
+        httpStatus: lifecycleBlock.httpStatus,
+        code: lifecycleBlock.code,
+        message: lifecycleBlock.message,
         details: {
           agentId,
           role,
@@ -15541,6 +15964,160 @@ export function createApi({
           lifecycle: lifecycle.record ?? null
         }
       };
+    }
+    return { blocked: false };
+  }
+
+  async function enforceWorkOrderParticipantLifecycleGuards({
+    tenantId,
+    principalAgentId = null,
+    subAgentId = null,
+    operation = "work_order"
+  } = {}) {
+    const participants = [
+      { role: "principal", agentId: principalAgentId },
+      { role: "sub_agent", agentId: subAgentId }
+    ];
+    for (const participant of participants) {
+      const agentId = typeof participant.agentId === "string" ? participant.agentId.trim() : "";
+      if (!agentId) continue;
+      const lifecycleBlocked = await blockIfX402AgentLifecycleInactive({
+        tenantId,
+        agentId,
+        role: participant.role
+      });
+      if (lifecycleBlocked?.blocked) {
+        return {
+          blocked: true,
+          httpStatus: lifecycleBlocked.httpStatus ?? 409,
+          code: lifecycleBlocked.code ?? "X402_AGENT_LIFECYCLE_INVALID",
+          message: `${participant.role} agent lifecycle blocked for ${operation}`,
+          details: normalizeForCanonicalJson(
+            {
+              operation,
+              role: participant.role,
+              ...(lifecycleBlocked.details && typeof lifecycleBlocked.details === "object" ? lifecycleBlocked.details : {})
+            },
+            { path: "$.details" }
+          )
+        };
+      }
+    }
+    return { blocked: false };
+  }
+
+  async function enforceGrantParticipantLifecycleGuards({
+    tenantId,
+    delegatorAgentId = null,
+    delegateeAgentId = null,
+    granteeAgentId = null,
+    operation = "grant.issue"
+  } = {}) {
+    const participants = [
+      { role: "delegator", agentId: delegatorAgentId },
+      { role: "delegatee", agentId: delegateeAgentId },
+      { role: "grantee", agentId: granteeAgentId }
+    ];
+    for (const participant of participants) {
+      const agentId = typeof participant.agentId === "string" ? participant.agentId.trim() : "";
+      if (!agentId) continue;
+      const lifecycleBlocked = await blockIfX402AgentLifecycleInactive({
+        tenantId,
+        agentId,
+        role: participant.role
+      });
+      if (lifecycleBlocked?.blocked) {
+        return {
+          blocked: true,
+          httpStatus: lifecycleBlocked.httpStatus ?? 409,
+          code: lifecycleBlocked.code ?? "X402_AGENT_LIFECYCLE_INVALID",
+          message: `${participant.role} agent lifecycle blocked for ${operation}`,
+          details: normalizeForCanonicalJson(
+            {
+              operation,
+              role: participant.role,
+              ...(lifecycleBlocked.details && typeof lifecycleBlocked.details === "object" ? lifecycleBlocked.details : {})
+            },
+            { path: "$.details" }
+          )
+        };
+      }
+    }
+    return { blocked: false };
+  }
+
+  async function enforceTaskNegotiationParticipantLifecycleGuards({
+    tenantId,
+    buyerAgentId = null,
+    sellerAgentId = null,
+    acceptedByAgentId = null,
+    operation = "task_negotiation.issue"
+  } = {}) {
+    const participants = [
+      { role: "buyer", agentId: buyerAgentId },
+      { role: "seller", agentId: sellerAgentId },
+      { role: "accepted_by", agentId: acceptedByAgentId }
+    ];
+    for (const participant of participants) {
+      const agentId = typeof participant.agentId === "string" ? participant.agentId.trim() : "";
+      if (!agentId) continue;
+      const lifecycleBlocked = await blockIfX402AgentLifecycleInactive({
+        tenantId,
+        agentId,
+        role: participant.role
+      });
+      if (lifecycleBlocked?.blocked) {
+        return {
+          blocked: true,
+          httpStatus: lifecycleBlocked.httpStatus ?? 409,
+          code: lifecycleBlocked.code ?? "X402_AGENT_LIFECYCLE_INVALID",
+          message: `${participant.role} agent lifecycle blocked for ${operation}`,
+          details: normalizeForCanonicalJson(
+            {
+              operation,
+              role: participant.role,
+              ...(lifecycleBlocked.details && typeof lifecycleBlocked.details === "object" ? lifecycleBlocked.details : {})
+            },
+            { path: "$.details" }
+          )
+        };
+      }
+    }
+    return { blocked: false };
+  }
+
+  async function enforceMarketplaceParticipantLifecycleGuards({
+    tenantId,
+    participants = [],
+    operation = "marketplace_mutation"
+  } = {}) {
+    const normalizedParticipants = Array.isArray(participants) ? participants : [];
+    for (const participant of normalizedParticipants) {
+      if (!participant || typeof participant !== "object" || Array.isArray(participant)) continue;
+      const role = typeof participant.role === "string" && participant.role.trim() !== "" ? participant.role.trim() : "agent";
+      const agentId = typeof participant.agentId === "string" ? participant.agentId.trim() : "";
+      if (!agentId) continue;
+      const lifecycleBlocked = await blockIfX402AgentLifecycleInactive({
+        tenantId,
+        agentId,
+        role
+      });
+      if (lifecycleBlocked?.blocked) {
+        return {
+          blocked: true,
+          httpStatus: lifecycleBlocked.httpStatus ?? 409,
+          code: lifecycleBlocked.code ?? "X402_AGENT_LIFECYCLE_INVALID",
+          message: `${role} agent lifecycle blocked for ${operation}`,
+          details: normalizeForCanonicalJson(
+            {
+              operation,
+              role,
+              ...(lifecycleBlocked.details && typeof lifecycleBlocked.details === "object" ? lifecycleBlocked.details : {})
+            },
+            { path: "$.details" }
+          )
+        };
+      }
     }
     return { blocked: false };
   }
@@ -25940,6 +26517,13 @@ export function createApi({
     if (m === "GET" && p === "/openapi.json") return "/openapi.json";
     if (m === "GET" && p === "/public/agent-cards/discover") return "/public/agent-cards/discover";
     if (m === "GET" && p === "/public/agent-cards/stream") return "/public/agent-cards/stream";
+    if (m === "POST" && p === "/sessions") return "/sessions";
+    if (m === "GET" && p === "/sessions") return "/sessions";
+    if (/^\/sessions\/[^/]+$/.test(p)) return "/sessions/:sessionId";
+    if (/^\/sessions\/[^/]+\/events\/stream$/.test(p)) return "/sessions/:sessionId/events/stream";
+    if (/^\/sessions\/[^/]+\/events$/.test(p)) return "/sessions/:sessionId/events";
+    if (/^\/sessions\/[^/]+\/replay-pack$/.test(p)) return "/sessions/:sessionId/replay-pack";
+    if (/^\/sessions\/[^/]+\/transcript$/.test(p)) return "/sessions/:sessionId/transcript";
     if (/^\/public\/agents\/[^/]+\/reputation-summary$/.test(p)) return "/public/agents/:agentId/reputation-summary";
     if (/^\/agents\/[^/]+\/interaction-graph-pack$/.test(p)) return "/agents/:agentId/interaction-graph-pack";
     if (m === "POST" && p === "/ingest/proxy") return "/ingest/proxy";
@@ -34681,6 +35265,406 @@ export function createApi({
         const opsSubresource = parts[1] ?? null;
         const isAuthKeyResource = opsSubresource === "auth-keys" || opsSubresource === "api-keys";
 
+        if (opsSubresource === "audit" && parts[2] === "lineage" && parts.length === 3 && req.method === "GET") {
+          if (!(requireScope(auth.scopes, OPS_SCOPES.OPS_READ) || requireScope(auth.scopes, OPS_SCOPES.AUDIT_READ))) {
+            return sendError(res, 403, "forbidden");
+          }
+          const requiredStoreMethods = [
+            "listSessions",
+            "getSessionEvents",
+            "listTaskQuotes",
+            "listTaskOffers",
+            "listTaskAcceptances",
+            "listSubAgentWorkOrders",
+            "listSubAgentCompletionReceipts",
+            "listAgentRuns",
+            "getAgentRunSettlement",
+            "listArbitrationCases",
+            "listAgreementDelegations"
+          ];
+          for (const methodName of requiredStoreMethods) {
+            if (typeof store[methodName] !== "function") {
+              return sendError(res, 501, "audit lineage not supported for this store", { method: methodName }, { code: "AUDIT_LINEAGE_UNSUPPORTED" });
+            }
+          }
+
+          let agentIdFilter = null;
+          let sessionIdFilter = null;
+          let runIdFilter = null;
+          let workOrderIdFilter = null;
+          let traceIdFilter = null;
+          let includeSessionEvents = false;
+          let limit = 200;
+          let offset = 0;
+          let scanLimit = 1000;
+          try {
+            agentIdFilter = parseAuditLineageFilter(url.searchParams.get("agentId"), { name: "agentId", allowNull: true });
+            sessionIdFilter = parseAuditLineageFilter(url.searchParams.get("sessionId"), { name: "sessionId", allowNull: true });
+            runIdFilter = parseAuditLineageFilter(url.searchParams.get("runId"), { name: "runId", allowNull: true });
+            workOrderIdFilter = parseAuditLineageFilter(url.searchParams.get("workOrderId"), { name: "workOrderId", allowNull: true });
+            traceIdFilter = parseAuditLineageFilter(url.searchParams.get("traceId"), { name: "traceId", allowNull: true });
+            includeSessionEvents =
+              traceIdFilter !== null
+                ? true
+                : parseBooleanQueryValue(url.searchParams.get("includeSessionEvents"), {
+                    defaultValue: false,
+                    name: "includeSessionEvents"
+                  });
+            ({ limit, offset } = parsePagination({
+              limitRaw: url.searchParams.get("limit"),
+              offsetRaw: url.searchParams.get("offset"),
+              defaultLimit: 200,
+              maxLimit: 1000
+            }));
+            const parsedScanLimit = parsePagination({
+              limitRaw: url.searchParams.get("scanLimit"),
+              offsetRaw: 0,
+              defaultLimit: 1000,
+              maxLimit: 5000
+            });
+            scanLimit = parsedScanLimit.limit;
+          } catch (err) {
+            return sendError(res, 400, "invalid audit lineage query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const matchesFilters = ({ agentIds = [], traceIds = [] } = {}) => {
+            if (agentIdFilter && !agentIds.includes(agentIdFilter)) return false;
+            if (traceIdFilter && !traceIds.includes(traceIdFilter)) return false;
+            return true;
+          };
+
+          let sessionRows = [];
+          let taskQuotes = [];
+          let taskOffers = [];
+          let taskAcceptances = [];
+          let workOrders = [];
+          let completionReceipts = [];
+          let runRows = [];
+          let arbitrationCases = [];
+          let agreementDelegations = [];
+          try {
+            [
+              sessionRows,
+              taskQuotes,
+              taskOffers,
+              taskAcceptances,
+              workOrders,
+              completionReceipts,
+              runRows,
+              arbitrationCases,
+              agreementDelegations
+            ] = await Promise.all([
+              store.listSessions({
+                tenantId,
+                sessionId: sessionIdFilter,
+                participantAgentId: agentIdFilter,
+                limit: scanLimit,
+                offset: 0
+              }),
+              store.listTaskQuotes({ tenantId, limit: scanLimit, offset: 0 }),
+              store.listTaskOffers({ tenantId, limit: scanLimit, offset: 0 }),
+              store.listTaskAcceptances({ tenantId, limit: scanLimit, offset: 0 }),
+              store.listSubAgentWorkOrders({ tenantId, limit: scanLimit, offset: 0 }),
+              store.listSubAgentCompletionReceipts({ tenantId, limit: scanLimit, offset: 0 }),
+              store.listAgentRuns({ tenantId, agentId: agentIdFilter, limit: scanLimit, offset: 0 }),
+              store.listArbitrationCases({ tenantId, runId: runIdFilter, limit: scanLimit, offset: 0 }),
+              store.listAgreementDelegations({ tenantId, limit: scanLimit, offset: 0 })
+            ]);
+          } catch (err) {
+            return sendError(res, 500, "failed to read audit lineage records", { message: err?.message }, { code: "AUDIT_LINEAGE_READ_FAILED" });
+          }
+
+          const sessionEventPairs = includeSessionEvents
+            ? await Promise.all(
+                (Array.isArray(sessionRows) ? sessionRows : []).map(async (session) => ({
+                  sessionId: String(session?.sessionId ?? ""),
+                  events: await getSessionEventRecords({ tenantId, sessionId: session?.sessionId })
+                }))
+              )
+            : [];
+          const sessionEventsBySessionId = new Map(
+            sessionEventPairs.map((row) => [row.sessionId, (Array.isArray(row.events) ? row.events : [])])
+          );
+
+          const runSettlementPairs = await Promise.all(
+            (Array.isArray(runRows) ? runRows : []).map(async (run) => ({
+              runId: String(run?.runId ?? ""),
+              settlement: await store.getAgentRunSettlement({ tenantId, runId: run?.runId })
+            }))
+          );
+          const settlementsByRunId = new Map(runSettlementPairs.map((row) => [row.runId, row.settlement ?? null]));
+
+          const records = [];
+
+          for (const session of Array.isArray(sessionRows) ? sessionRows : []) {
+            if (!session || typeof session !== "object") continue;
+            const sessionId = String(session.sessionId ?? "").trim();
+            if (!sessionId) continue;
+            const sessionTraceIds = collectTraceIdsForAuditLineage(session);
+            const sessionAgentIds = collectAgentIdsForAuditLineage(session);
+            const eventRows = sessionEventsBySessionId.get(sessionId) ?? [];
+            let matchedByEvent = false;
+            const matchedEventTraceIds = new Set();
+            if (includeSessionEvents) {
+              for (let eventIndex = 0; eventIndex < eventRows.length; eventIndex += 1) {
+                const event = eventRows[eventIndex];
+                if (!event || typeof event !== "object") continue;
+                const payload = event.payload && typeof event.payload === "object" && !Array.isArray(event.payload) ? event.payload : {};
+                const eventTraceIds = collectTraceIdsForAuditLineage({
+                  ...event,
+                  ...payload,
+                  traceId: payload.traceId ?? event.traceId ?? null
+                });
+                const eventAgentIds = collectAgentIdsForAuditLineage({
+                  ...event,
+                  ...payload,
+                  actor: event.actor ?? null
+                });
+                if (!matchesFilters({ agentIds: eventAgentIds, traceIds: eventTraceIds })) continue;
+                matchedByEvent = true;
+                for (const traceId of eventTraceIds) matchedEventTraceIds.add(traceId);
+                records.push({
+                  kind: "SESSION_EVENT",
+                  recordId: String(event.id ?? event.chainHash ?? `${sessionId}:${eventIndex}`),
+                  at: event.at ?? null,
+                  status: null,
+                  traceIds: eventTraceIds,
+                  agentIds: eventAgentIds,
+                  refs: {
+                    sessionId,
+                    eventId: event.id ?? null,
+                    eventType: event.type ?? null,
+                    chainHash: event.chainHash ?? null,
+                    prevChainHash: event.prevChainHash ?? null,
+                    payloadHash: event.payloadHash ?? null
+                  }
+                });
+              }
+            }
+            if (!matchesFilters({ agentIds: sessionAgentIds, traceIds: sessionTraceIds }) && !matchedByEvent) continue;
+            const sessionRecordTraceIds = [...new Set([...sessionTraceIds, ...matchedEventTraceIds])].sort((left, right) =>
+              left.localeCompare(right)
+            );
+            records.push({
+              kind: "SESSION",
+              recordId: sessionId,
+              at: session.updatedAt ?? session.createdAt ?? null,
+              status: null,
+              traceIds: sessionRecordTraceIds,
+              agentIds: sessionAgentIds,
+              refs: {
+                sessionId,
+                visibility: session.visibility ?? null,
+                revision: Number.isSafeInteger(session.revision) ? session.revision : null
+              }
+            });
+          }
+
+          for (const quote of Array.isArray(taskQuotes) ? taskQuotes : []) {
+            if (!quote || typeof quote !== "object") continue;
+            const agentIds = collectAgentIdsForAuditLineage(quote);
+            const traceIds = collectTraceIdsForAuditLineage(quote);
+            if (!matchesFilters({ agentIds, traceIds })) continue;
+            records.push({
+              kind: "TASK_QUOTE",
+              recordId: String(quote.quoteId ?? ""),
+              at: quote.updatedAt ?? quote.createdAt ?? null,
+              status: quote.status ?? null,
+              traceIds,
+              agentIds,
+              refs: {
+                quoteId: quote.quoteId ?? null,
+                quoteHash: quote.quoteHash ?? null,
+                requiredCapability: quote.requiredCapability ?? null
+              }
+            });
+          }
+
+          for (const offer of Array.isArray(taskOffers) ? taskOffers : []) {
+            if (!offer || typeof offer !== "object") continue;
+            const agentIds = collectAgentIdsForAuditLineage(offer);
+            const traceIds = collectTraceIdsForAuditLineage(offer);
+            if (!matchesFilters({ agentIds, traceIds })) continue;
+            records.push({
+              kind: "TASK_OFFER",
+              recordId: String(offer.offerId ?? ""),
+              at: offer.updatedAt ?? offer.createdAt ?? null,
+              status: offer.status ?? null,
+              traceIds,
+              agentIds,
+              refs: {
+                offerId: offer.offerId ?? null,
+                offerHash: offer.offerHash ?? null,
+                quoteId: offer?.quoteRef?.quoteId ?? null
+              }
+            });
+          }
+
+          for (const acceptance of Array.isArray(taskAcceptances) ? taskAcceptances : []) {
+            if (!acceptance || typeof acceptance !== "object") continue;
+            const agentIds = collectAgentIdsForAuditLineage(acceptance);
+            const traceIds = collectTraceIdsForAuditLineage(acceptance);
+            if (!matchesFilters({ agentIds, traceIds })) continue;
+            records.push({
+              kind: "TASK_ACCEPTANCE",
+              recordId: String(acceptance.acceptanceId ?? ""),
+              at: acceptance.updatedAt ?? acceptance.acceptedAt ?? acceptance.createdAt ?? null,
+              status: acceptance.status ?? null,
+              traceIds,
+              agentIds,
+              refs: {
+                acceptanceId: acceptance.acceptanceId ?? null,
+                acceptanceHash: acceptance.acceptanceHash ?? null,
+                quoteId: acceptance?.quoteRef?.quoteId ?? null,
+                offerId: acceptance?.offerRef?.offerId ?? null
+              }
+            });
+          }
+
+          for (const workOrder of Array.isArray(workOrders) ? workOrders : []) {
+            if (!workOrder || typeof workOrder !== "object") continue;
+            if (workOrderIdFilter && String(workOrder.workOrderId ?? "") !== workOrderIdFilter) continue;
+            const agentIds = collectAgentIdsForAuditLineage(workOrder);
+            const traceIds = collectTraceIdsForAuditLineage(workOrder);
+            if (!matchesFilters({ agentIds, traceIds })) continue;
+            records.push({
+              kind: "WORK_ORDER",
+              recordId: String(workOrder.workOrderId ?? ""),
+              at: workOrder.updatedAt ?? workOrder.createdAt ?? null,
+              status: workOrder.status ?? null,
+              traceIds,
+              agentIds,
+              refs: {
+                workOrderId: workOrder.workOrderId ?? null,
+                requiredCapability: workOrder.requiredCapability ?? null,
+                parentTaskId: workOrder.parentTaskId ?? null
+              }
+            });
+          }
+
+          for (const receipt of Array.isArray(completionReceipts) ? completionReceipts : []) {
+            if (!receipt || typeof receipt !== "object") continue;
+            if (workOrderIdFilter && String(receipt.workOrderId ?? "") !== workOrderIdFilter) continue;
+            const agentIds = collectAgentIdsForAuditLineage(receipt);
+            const traceIds = collectTraceIdsForAuditLineage(receipt);
+            if (!matchesFilters({ agentIds, traceIds })) continue;
+            records.push({
+              kind: "COMPLETION_RECEIPT",
+              recordId: String(receipt.receiptId ?? ""),
+              at: receipt.deliveredAt ?? receipt.createdAt ?? null,
+              status: receipt.status ?? null,
+              traceIds,
+              agentIds,
+              refs: {
+                receiptId: receipt.receiptId ?? null,
+                workOrderId: receipt.workOrderId ?? null,
+                receiptHash: receipt.receiptHash ?? null
+              }
+            });
+          }
+
+          for (const run of Array.isArray(runRows) ? runRows : []) {
+            if (!run || typeof run !== "object") continue;
+            if (runIdFilter && String(run.runId ?? "") !== runIdFilter) continue;
+            const agentIds = collectAgentIdsForAuditLineage(run);
+            const traceIds = collectTraceIdsForAuditLineage(run);
+            if (matchesFilters({ agentIds, traceIds })) {
+              records.push({
+                kind: "RUN",
+                recordId: String(run.runId ?? ""),
+                at: run.updatedAt ?? run.createdAt ?? null,
+                status: run.status ?? null,
+                traceIds,
+                agentIds,
+                refs: {
+                  runId: run.runId ?? null,
+                  agentId: run.agentId ?? null
+                }
+              });
+            }
+            const settlement = settlementsByRunId.get(String(run.runId ?? "")) ?? null;
+            if (!settlement || typeof settlement !== "object") continue;
+            const settlementAgentIds = collectAgentIdsForAuditLineage(settlement);
+            const settlementTraceIds = collectTraceIdsForAuditLineage(settlement);
+            if (!matchesFilters({ agentIds: settlementAgentIds, traceIds: settlementTraceIds })) continue;
+            records.push({
+              kind: "RUN_SETTLEMENT",
+              recordId: String(settlement.settlementId ?? run.runId ?? ""),
+              at: settlement.updatedAt ?? settlement.resolvedAt ?? settlement.lockedAt ?? settlement.createdAt ?? null,
+              status: settlement.status ?? null,
+              traceIds: settlementTraceIds,
+              agentIds: settlementAgentIds,
+              refs: {
+                runId: run.runId ?? null,
+                settlementId: settlement.settlementId ?? null,
+                disputeStatus: settlement?.dispute?.status ?? null
+              }
+            });
+          }
+
+          for (const arbitration of Array.isArray(arbitrationCases) ? arbitrationCases : []) {
+            if (!arbitration || typeof arbitration !== "object") continue;
+            if (runIdFilter && String(arbitration.runId ?? "") !== runIdFilter) continue;
+            const agentIds = collectAgentIdsForAuditLineage(arbitration);
+            const traceIds = collectTraceIdsForAuditLineage(arbitration);
+            if (!matchesFilters({ agentIds, traceIds })) continue;
+            records.push({
+              kind: "ARBITRATION_CASE",
+              recordId: String(arbitration.caseId ?? ""),
+              at: arbitration.updatedAt ?? arbitration.openedAt ?? arbitration.createdAt ?? null,
+              status: arbitration.status ?? null,
+              traceIds,
+              agentIds,
+              refs: {
+                caseId: arbitration.caseId ?? null,
+                runId: arbitration.runId ?? null,
+                disputeId: arbitration.disputeId ?? null
+              }
+            });
+          }
+
+          for (const delegation of Array.isArray(agreementDelegations) ? agreementDelegations : []) {
+            if (!delegation || typeof delegation !== "object") continue;
+            const agentIds = collectAgentIdsForAuditLineage(delegation);
+            const traceIds = collectTraceIdsForAuditLineage(delegation);
+            if (!matchesFilters({ agentIds, traceIds })) continue;
+            records.push({
+              kind: "AGREEMENT_DELEGATION",
+              recordId: String(delegation.delegationId ?? ""),
+              at: delegation.updatedAt ?? delegation.createdAt ?? null,
+              status: delegation.status ?? null,
+              traceIds,
+              agentIds,
+              refs: {
+                delegationId: delegation.delegationId ?? null,
+                parentAgreementHash: delegation.parentAgreementHash ?? null,
+                childAgreementHash: delegation.childAgreementHash ?? null
+              }
+            });
+          }
+
+          let lineage = null;
+          try {
+            lineage = buildAuditLineageV1({
+              tenantId,
+              filters: {
+                agentId: agentIdFilter,
+                sessionId: sessionIdFilter,
+                runId: runIdFilter,
+                workOrderId: workOrderIdFilter,
+                traceId: traceIdFilter,
+                includeSessionEvents
+              },
+              records,
+              limit,
+              offset
+            });
+          } catch (err) {
+            return sendError(res, 409, "audit lineage build failed", { message: err?.message }, { code: "AUDIT_LINEAGE_INVALID" });
+          }
+          return sendJson(res, 200, { lineage });
+        }
+
         if (opsSubresource === "audit" && parts.length === 2 && req.method === "GET") {
           if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
           if (typeof store.listOpsAudit !== "function") return sendError(res, 501, "ops audit not supported for this store");
@@ -38689,6 +39673,20 @@ export function createApi({
               return sendError(res, 400, "invalid posterAgentId", { message: err?.message });
             }
             if (!posterIdentity) return sendError(res, 404, "poster agent identity not found");
+            const rfqLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+              tenantId,
+              participants: [{ role: "poster", agentId: posterAgentId }],
+              operation: "marketplace_rfq.issue"
+            });
+            if (rfqLifecycleGuard?.blocked) {
+              return sendError(
+                res,
+                rfqLifecycleGuard.httpStatus ?? 409,
+                rfqLifecycleGuard.message,
+                rfqLifecycleGuard.details ?? null,
+                { code: rfqLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+              );
+            }
           }
 
           let taskDirection = null;
@@ -38851,6 +39849,24 @@ export function createApi({
             return sendError(res, 400, "invalid bidderAgentId", { message: err?.message });
           }
           if (!bidderIdentity) return sendError(res, 404, "bidder agent identity not found");
+
+          const bidIssueLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+            tenantId,
+            participants: [
+              { role: "poster", agentId: rfq?.posterAgentId ?? null },
+              { role: "bidder", agentId: bidderAgentId }
+            ],
+            operation: "marketplace_bid.issue"
+          });
+          if (bidIssueLifecycleGuard?.blocked) {
+            return sendError(
+              res,
+              bidIssueLifecycleGuard.httpStatus ?? 409,
+              bidIssueLifecycleGuard.message,
+              bidIssueLifecycleGuard.details ?? null,
+              { code: bidIssueLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+            );
+          }
 
           let rfqDirection = null;
           let bidDirection = null;
@@ -39041,6 +40057,25 @@ export function createApi({
           if (!selectedBid) return sendError(res, 404, "marketplace bid not found");
           if (String(selectedBid.status ?? "pending").toLowerCase() !== "pending") {
             return sendError(res, 409, "marketplace bid is not pending");
+          }
+
+          const counterOfferLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+            tenantId,
+            participants: [
+              { role: "poster", agentId: rfq?.posterAgentId ?? null },
+              { role: "bidder", agentId: selectedBid?.bidderAgentId ?? null },
+              { role: "proposer", agentId: proposerAgentId }
+            ],
+            operation: "marketplace_bid.counter_offer"
+          });
+          if (counterOfferLifecycleGuard?.blocked) {
+            return sendError(
+              res,
+              counterOfferLifecycleGuard.httpStatus ?? 409,
+              counterOfferLifecycleGuard.message,
+              counterOfferLifecycleGuard.details ?? null,
+              { code: counterOfferLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+            );
           }
 
           const proposerRole = resolveMarketplaceBidCounterOfferRole({
@@ -39506,17 +40541,37 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid payerAgentId", { message: err?.message });
           }
-	          if (!payerIdentity) return sendError(res, 404, "payer agent identity not found");
-	          try {
-	            await assertSettlementWithinWalletPolicy({
-	              tenantId,
-	              agentIdentity: payerIdentity,
-	              amountCents: settlementRequest.amountCents,
-	              at: acceptedAt
-	            });
-	          } catch (err) {
-	            return sendError(res, 409, "wallet policy blocked settlement", { message: err?.message, code: err?.code ?? null });
-	          }
+          if (!payerIdentity) return sendError(res, 404, "payer agent identity not found");
+
+          const acceptLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+            tenantId,
+            participants: [
+              { role: "payer", agentId: settlementRequest.payerAgentId },
+              { role: "payee", agentId: payeeAgentId },
+              { role: "accepted_by", agentId: acceptedByAgentId }
+            ],
+            operation: "marketplace_bid.accept"
+          });
+          if (acceptLifecycleGuard?.blocked) {
+            return sendError(
+              res,
+              acceptLifecycleGuard.httpStatus ?? 409,
+              acceptLifecycleGuard.message,
+              acceptLifecycleGuard.details ?? null,
+              { code: acceptLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+            );
+          }
+
+          try {
+            await assertSettlementWithinWalletPolicy({
+              tenantId,
+              agentIdentity: payerIdentity,
+              amountCents: settlementRequest.amountCents,
+              at: acceptedAt
+            });
+          } catch (err) {
+            return sendError(res, 409, "wallet policy blocked settlement", { message: err?.message, code: err?.code ?? null });
+          }
 
           const runId = body?.runId && String(body.runId).trim() !== "" ? String(body.runId).trim() : `run_${rfqId}_${bidId}`;
           if (typeof runId !== "string" || runId.trim() === "") return sendError(res, 400, "runId must be a non-empty string");
@@ -39890,6 +40945,21 @@ export function createApi({
           if (!delegatorAgentId || !delegateeAgentId) {
             return sendError(res, 400, "delegatorAgentId and delegateeAgentId are required", null, { code: "SCHEMA_INVALID" });
           }
+          const agreementDelegationLifecycleGuard = await enforceGrantParticipantLifecycleGuards({
+            tenantId,
+            delegatorAgentId,
+            delegateeAgentId,
+            operation: "agreement_delegation.issue"
+          });
+          if (agreementDelegationLifecycleGuard.blocked) {
+            return sendError(
+              res,
+              agreementDelegationLifecycleGuard.httpStatus ?? 409,
+              agreementDelegationLifecycleGuard.message ?? "agreement delegation lifecycle blocked",
+              agreementDelegationLifecycleGuard.details ?? null,
+              { code: agreementDelegationLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+            );
+          }
           const budgetCapCents = Number(body?.budgetCapCents);
           if (!Number.isSafeInteger(budgetCapCents) || budgetCapCents <= 0) {
             return sendError(res, 400, "budgetCapCents must be a positive safe integer", null, { code: "SCHEMA_INVALID" });
@@ -40001,6 +41071,21 @@ export function createApi({
               typeof body?.delegateeAgentId === "string" && body.delegateeAgentId.trim() !== "" ? body.delegateeAgentId.trim() : null;
             if (!delegatorAgentId || !delegateeAgentId) {
               return sendError(res, 400, "delegatorAgentId and delegateeAgentId are required", null, { code: "SCHEMA_INVALID" });
+            }
+            const grantLifecycleGuard = await enforceGrantParticipantLifecycleGuards({
+              tenantId,
+              delegatorAgentId,
+              delegateeAgentId,
+              operation: "delegation_grant.issue"
+            });
+            if (grantLifecycleGuard.blocked) {
+              return sendError(
+                res,
+                grantLifecycleGuard.httpStatus ?? 409,
+                grantLifecycleGuard.message ?? "delegation grant lifecycle blocked",
+                grantLifecycleGuard.details ?? null,
+                { code: grantLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+              );
             }
             const expiresAt =
               typeof body?.validity?.expiresAt === "string" && body.validity.expiresAt.trim() !== ""
@@ -40185,6 +41270,20 @@ export function createApi({
             const granteeAgentId = typeof body?.granteeAgentId === "string" && body.granteeAgentId.trim() !== "" ? body.granteeAgentId.trim() : null;
             if (!principalRef || !granteeAgentId) {
               return sendError(res, 400, "principalRef and granteeAgentId are required", null, { code: "SCHEMA_INVALID" });
+            }
+            const grantLifecycleGuard = await enforceGrantParticipantLifecycleGuards({
+              tenantId,
+              granteeAgentId,
+              operation: "authority_grant.issue"
+            });
+            if (grantLifecycleGuard.blocked) {
+              return sendError(
+                res,
+                grantLifecycleGuard.httpStatus ?? 409,
+                grantLifecycleGuard.message ?? "authority grant lifecycle blocked",
+                grantLifecycleGuard.details ?? null,
+                { code: grantLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+              );
             }
             const expiresAt =
               typeof body?.validity?.expiresAt === "string" && body.validity.expiresAt.trim() !== ""
@@ -40964,12 +42063,6 @@ export function createApi({
           if (String(gate.status ?? "").toLowerCase() === "resolved") {
             return sendError(res, 409, "gate is already resolved", null, { code: "X402_GATE_TERMINAL" });
           }
-          const runId = String(gate.runId ?? "");
-          const settlement = typeof store.getAgentRunSettlement === "function" ? await store.getAgentRunSettlement({ tenantId, runId }) : null;
-          if (!settlement) return sendError(res, 404, "settlement not found for gate", null, { code: "NOT_FOUND" });
-          if (String(settlement.status ?? "").toLowerCase() !== "locked") {
-            return sendError(res, 409, "settlement already resolved", null, { code: "X402_GATE_TERMINAL" });
-          }
           const payerAgentId = typeof gate?.payerAgentId === "string" && gate.payerAgentId.trim() !== "" ? gate.payerAgentId.trim() : null;
           if (!payerAgentId) return sendError(res, 409, "gate payer missing", null, { code: "X402_GATE_INVALID" });
           const payerLifecycle = await blockIfX402AgentLifecycleInactive({ tenantId, agentId: payerAgentId, role: "payer" });
@@ -40985,8 +42078,16 @@ export function createApi({
           if (payeeProviderIdFromGate) {
             const payeeLifecycle = await blockIfX402AgentLifecycleInactive({ tenantId, agentId: payeeProviderIdFromGate, role: "payee" });
             if (payeeLifecycle.blocked) {
-              return sendError(res, payeeLifecycle.httpStatus, payeeLifecycle.message, payeeLifecycle.details, { code: payeeLifecycle.code });
+              return sendError(res, payeeLifecycle.httpStatus, payeeLifecycle.message, payeeLifecycle.details, {
+                code: payeeLifecycle.code
+              });
             }
+          }
+          const runId = String(gate.runId ?? "");
+          const settlement = typeof store.getAgentRunSettlement === "function" ? await store.getAgentRunSettlement({ tenantId, runId }) : null;
+          if (!settlement) return sendError(res, 404, "settlement not found for gate", null, { code: "NOT_FOUND" });
+          if (String(settlement.status ?? "").toLowerCase() !== "locked") {
+            return sendError(res, 409, "settlement already resolved", null, { code: "X402_GATE_TERMINAL" });
           }
           const amountCents = Number(gate?.terms?.amountCents ?? settlement?.amountCents ?? 0);
           if (!Number.isSafeInteger(amountCents) || amountCents <= 0) return sendError(res, 409, "gate amount invalid", null, { code: "X402_GATE_INVALID" });
@@ -41847,6 +42948,136 @@ export function createApi({
           });
         }
 
+        if (parts[0] === "x402" && parts[1] === "gate" && parts[2] === "agents" && parts[3] && parts[4] === "lifecycle" && parts.length === 5) {
+          let targetAgentId = null;
+          try {
+            targetAgentId = normalizeOptionalX402RefInput(decodePathPart(parts[3]), "agentId", { allowNull: false, max: 200 });
+          } catch (err) {
+            return sendError(res, 400, "invalid agentId", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          if (req.method === "GET") {
+            const lifecycleResolution = await getX402AgentLifecycleStatus({ tenantId, agentId: targetAgentId });
+            const lifecycle =
+              lifecycleResolution.record ??
+              normalizeForCanonicalJson(
+                {
+                  schemaVersion: X402_AGENT_LIFECYCLE_SCHEMA_VERSION,
+                  tenantId,
+                  agentId: targetAgentId,
+                  status: lifecycleResolution.status
+                },
+                { path: "$" }
+              );
+            return sendJson(res, 200, { ok: true, agentId: targetAgentId, lifecycle });
+          }
+
+          if (req.method === "POST") {
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+
+            const body = await readJsonBody(req);
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            const identity = await getAgentIdentityRecord({ tenantId, agentId: targetAgentId });
+            if (!identity) return sendError(res, 404, "agent identity not found", null, { code: "NOT_FOUND" });
+
+            let requestedStatus = null;
+            try {
+              requestedStatus = normalizeX402AgentLifecycleStatusInput(body?.status ?? null, {
+                fieldPath: "status",
+                allowNull: false
+              });
+            } catch (err) {
+              return sendError(res, 400, "invalid lifecycle status", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+
+            const reasonCode =
+              body?.reasonCode === null || body?.reasonCode === undefined || String(body.reasonCode).trim() === ""
+                ? null
+                : String(body.reasonCode);
+            const reasonMessage =
+              body?.reasonMessage === null || body?.reasonMessage === undefined || String(body.reasonMessage).trim() === ""
+                ? null
+                : String(body.reasonMessage);
+            const nowAt = nowIso();
+
+            let lifecycleResult = null;
+            try {
+              if (requestedStatus === X402_AGENT_LIFECYCLE_STATUS.FROZEN) {
+                lifecycleResult = await freezeX402AgentLifecycle({
+                  tenantId,
+                  agentId: targetAgentId,
+                  reasonCode,
+                  reasonMessage,
+                  requestedByPrincipalId: auth?.principalId ?? null,
+                  requestedByActorKeyId: auth?.actorKeyId ?? null,
+                  source: "manual",
+                  nowAt
+                });
+              } else {
+                lifecycleResult = await upsertX402AgentLifecycleStatus({
+                  tenantId,
+                  agentId: targetAgentId,
+                  status: requestedStatus,
+                  reasonCode,
+                  reasonMessage,
+                  requestedByPrincipalId: auth?.principalId ?? null,
+                  requestedByActorKeyId: auth?.actorKeyId ?? null,
+                  source: "manual",
+                  nowAt
+                });
+              }
+            } catch (err) {
+              if (String(err?.message ?? "").includes("x402 lifecycle transition blocked:")) {
+                return sendError(
+                  res,
+                  409,
+                  "lifecycle transition blocked",
+                  { message: err?.message, agentId: targetAgentId, status: requestedStatus },
+                  { code: "X402_AGENT_LIFECYCLE_TRANSITION_BLOCKED" }
+                );
+              }
+              return sendError(
+                res,
+                400,
+                "invalid lifecycle transition",
+                { message: err?.message, agentId: targetAgentId, status: requestedStatus },
+                { code: "SCHEMA_INVALID" }
+              );
+            }
+
+            const responseBody = {
+              ok: true,
+              agentId: targetAgentId,
+              lifecycle: lifecycleResult?.lifecycle ?? null,
+              previousStatus: lifecycleResult?.previousStatus ?? null,
+              changed: lifecycleResult?.changed === true,
+              ...(lifecycleResult?.unwind && typeof lifecycleResult.unwind === "object" ? { unwind: lifecycleResult.unwind } : {})
+            };
+            const ops = [];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+            }
+            if (ops.length > 0) await store.commitTx({ at: nowAt, ops });
+            return sendJson(res, 200, responseBody);
+          }
+        }
+
         if (parts[0] === "x402" && parts[1] === "gate" && parts[2] === "agents" && parts[3] && parts[4] === "wind-down" && parts.length === 5 && req.method === "POST") {
           if (!requireProtocolHeaderForWrite(req, res)) return;
 
@@ -42045,6 +43276,23 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid authorityGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          const authorityGrantRefForValidation = x402RequireAuthorityGrantValue
+            ? authorityGrantRef ??
+              deriveX402AuthorityGrantRef({
+                gateId,
+                gateAgentPassport: agentPassport,
+                gateAuthorization: null
+              })
+            : authorityGrantRef;
+          if (x402RequireAuthorityGrantValue && !authorityGrantRefForValidation) {
+            return sendError(
+              res,
+              409,
+              "authority grant is required for x402 gate create",
+              { gateId, payerAgentId, payeeAgentId },
+              { code: "X402_AUTHORITY_GRANT_REQUIRED" }
+            );
+          }
 
           const existingGate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
           if (existingGate && !idemStoreKey) return sendError(res, 409, "gate already exists", null, { code: "ALREADY_EXISTS" });
@@ -42059,12 +43307,12 @@ export function createApi({
 	          if (!Number.isSafeInteger(autoFundPayerCents) || autoFundPayerCents < 0) {
 	            return sendError(res, 400, "autoFundPayerCents must be a non-negative safe integer", null, { code: "SCHEMA_INVALID" });
 	          }
-          if (authorityGrantRef) {
+          if (authorityGrantRefForValidation) {
             try {
               await resolveX402AuthorityGrantForAuthorization({
                 tenantId,
                 gate: { payerAgentId, toolId },
-                authorityGrantRef,
+                authorityGrantRef: authorityGrantRefForValidation,
                 nowAt,
                 amountCents,
                 currency,
@@ -42127,7 +43375,7 @@ export function createApi({
 	              ...(providerKey ? { providerKey } : {}),
                 ...(toolId ? { toolId } : {}),
                 ...(delegationGrantRef ? { delegationGrantRef } : {}),
-                ...(authorityGrantRef ? { authorityGrantRef } : {}),
+                ...(authorityGrantRefForValidation ? { authorityGrantRef: authorityGrantRefForValidation } : {}),
                 ...(agentPassport ? { agentPassport } : {}),
 	              terms,
 	              upstream,
@@ -42236,6 +43484,45 @@ export function createApi({
           if (!gate) return sendError(res, 404, "gate not found", null, { code: "NOT_FOUND" });
           if (String(gate.status ?? "").toLowerCase() === "resolved") {
             return sendError(res, 409, "gate is already resolved", null, { code: "X402_GATE_TERMINAL" });
+          }
+          const quotePayerAgentId =
+            typeof gate?.payerAgentId === "string" && gate.payerAgentId.trim() !== "" ? gate.payerAgentId.trim() : null;
+          if (!quotePayerAgentId) return sendError(res, 409, "gate payer missing", null, { code: "X402_GATE_INVALID" });
+          const quotePayerLifecycle = await blockIfX402AgentLifecycleInactive({
+            tenantId,
+            agentId: quotePayerAgentId,
+            role: "payer"
+          });
+          if (quotePayerLifecycle.blocked) {
+            return sendError(
+              res,
+              quotePayerLifecycle.httpStatus,
+              quotePayerLifecycle.message,
+              quotePayerLifecycle.details,
+              { code: quotePayerLifecycle.code }
+            );
+          }
+          const quotePayeeAgentId =
+            typeof gate?.payeeAgentId === "string" && gate.payeeAgentId.trim() !== ""
+              ? gate.payeeAgentId.trim()
+              : typeof gate?.terms?.providerId === "string" && gate.terms.providerId.trim() !== ""
+                ? gate.terms.providerId.trim()
+                : null;
+          if (quotePayeeAgentId) {
+            const quotePayeeLifecycle = await blockIfX402AgentLifecycleInactive({
+              tenantId,
+              agentId: quotePayeeAgentId,
+              role: "payee"
+            });
+            if (quotePayeeLifecycle.blocked) {
+              return sendError(
+                res,
+                quotePayeeLifecycle.httpStatus,
+                quotePayeeLifecycle.message,
+                quotePayeeLifecycle.details,
+                { code: quotePayeeLifecycle.code }
+              );
+            }
           }
           const runId = String(gate.runId ?? "");
           const settlement = typeof store.getAgentRunSettlement === "function" ? await store.getAgentRunSettlement({ tenantId, runId }) : null;
@@ -42785,7 +44072,27 @@ export function createApi({
               { code: "X402_AUTHORITY_GRANT_MISMATCH" }
             );
           }
-          const effectiveAuthorityGrantRefInput = requestedAuthorityGrantRef ?? authorityGrantRefFromGate ?? authorityGrantRefFromAuthorization ?? null;
+          const effectiveAuthorityGrantRefInput =
+            requestedAuthorityGrantRef ??
+            authorityGrantRefFromGate ??
+            authorityGrantRefFromAuthorization ??
+            (x402RequireAuthorityGrantValue
+              ? deriveX402AuthorityGrantRef({
+                  gateId,
+                  gateAgentPassport,
+                  gateAuthorization: existingAuthorization
+                })
+              : null) ??
+            null;
+          if (x402RequireAuthorityGrantValue && !effectiveAuthorityGrantRefInput) {
+            return sendError(
+              res,
+              409,
+              "authority grant is required for x402 authorization",
+              { gateId, payerAgentId, payeeProviderId: payeeProviderId ?? null },
+              { code: "X402_AUTHORITY_GRANT_REQUIRED" }
+            );
+          }
           if (effectiveAuthorityGrantRefInput) {
             try {
               const grantResolution = await resolveX402AuthorityGrantForAuthorization({
@@ -43309,6 +44616,20 @@ export function createApi({
             resolvedDelegationLineage
           });
           const effectiveAuthorityGrantRef = delegationBindingRefs.effectiveDelegationRef ?? authorityGrantRef;
+          const spendAuthorizationDelegationRef =
+            effectiveAuthorityGrantRef ??
+            `dlg_${sha256Hex(
+              canonicalJsonStringify(
+                normalizeForCanonicalJson(
+                  {
+                    schemaVersion: "X402SpendAuthorizationDelegationSeed.v1",
+                    gateId,
+                    authorizationRef
+                  },
+                  { path: "$" }
+                )
+              )
+            )}`;
           const hasDelegationBindingRefs = Object.values(delegationBindingRefs).some((value) => value !== null && value !== undefined);
           const authorizationDelegationLineage =
             hasDelegationBindingRefs || resolvedDelegationLineage
@@ -43370,6 +44691,11 @@ export function createApi({
             amountCents,
             currency,
             payeeProviderId: String(payeeProviderId ?? ""),
+            delegationRef: spendAuthorizationDelegationRef,
+            rootDelegationRef: delegationBindingRefs.rootDelegationRef,
+            rootDelegationHash: delegationBindingRefs.rootDelegationHash,
+            effectiveDelegationRef: delegationBindingRefs.effectiveDelegationRef,
+            effectiveDelegationHash: delegationBindingRefs.effectiveDelegationHash,
             ...(effectiveRequestBindingMode
               ? { requestBindingMode: effectiveRequestBindingMode, requestBindingSha256: effectiveRequestBindingSha256 }
               : {}),
@@ -43393,7 +44719,7 @@ export function createApi({
                       ? resolvedWalletPolicy.sponsorRef.trim()
                       : typeof gateAgentPassport?.sponsorRef === "string" && gateAgentPassport.sponsorRef.trim() !== ""
                         ? gateAgentPassport.sponsorRef.trim()
-                      : payerAgentId) || null,
+                  : payerAgentId) || null,
                   sponsorWalletRef:
                     typeof walletIssuerDecisionPayload?.sponsorWalletRef === "string" && walletIssuerDecisionPayload.sponsorWalletRef.trim() !== ""
                       ? walletIssuerDecisionPayload.sponsorWalletRef.trim()
@@ -43406,11 +44732,6 @@ export function createApi({
                     (typeof gateAgentPassport?.agentKeyId === "string" && gateAgentPassport.agentKeyId.trim() !== ""
                       ? gateAgentPassport.agentKeyId.trim()
                       : payerAgentId) || null,
-                  delegationRef: effectiveAuthorityGrantRef,
-                  rootDelegationRef: delegationBindingRefs.rootDelegationRef,
-                  rootDelegationHash: delegationBindingRefs.rootDelegationHash,
-                  effectiveDelegationRef: delegationBindingRefs.effectiveDelegationRef,
-                  effectiveDelegationHash: delegationBindingRefs.effectiveDelegationHash,
                   policyVersion:
                     Number.isSafeInteger(Number(walletIssuerDecisionPayload?.policyVersion)) && Number(walletIssuerDecisionPayload.policyVersion) > 0
                       ? Number(walletIssuerDecisionPayload.policyVersion)
@@ -45963,75 +47284,54 @@ export function createApi({
 
         if (parts[0] === "sessions" && parts[1] && parts[2] === "replay-pack" && parts.length === 3 && req.method === "GET") {
           const sessionId = decodePathPart(parts[1]);
-          const session = await getSessionRecord({ tenantId, sessionId });
-          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
-          let events = await getSessionEventRecords({ tenantId, sessionId });
-          if (!Array.isArray(events)) events = [];
-          for (const event of events) {
-            await ensureSignerContextFresh({ tenantId, event });
-          }
-          const streamMismatch = events.find((row) => String(row?.streamId ?? "") !== sessionId);
-          if (streamMismatch) {
+          const verified = await resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel: "session replay pack" });
+          if (!verified.ok) {
             return sendError(
               res,
-              409,
-              "session replay pack blocked",
-              {
-                sessionId,
-                reason: "event streamId mismatch",
-                eventId: streamMismatch.id ?? null
-              },
-              { code: "SESSION_REPLAY_CHAIN_INVALID" }
-            );
-          }
-          const verify = verifyChainedEvents(events, { publicKeyByKeyId: store.publicKeyByKeyId });
-          if (!verify.ok) {
-            return sendError(
-              res,
-              409,
-              "session replay pack blocked",
-              {
-                sessionId,
-                reason: verify.error ?? "chain verification failed"
-              },
-              { code: "SESSION_REPLAY_CHAIN_INVALID" }
-            );
-          }
-          const provenanceVerification = verifySessionEventProvenanceChain(events);
-          if (!provenanceVerification.ok) {
-            return sendError(
-              res,
-              409,
-              "session replay pack blocked",
-              {
-                sessionId,
-                reason: provenanceVerification.error ?? "provenance verification failed"
-              },
-              { code: "SESSION_REPLAY_PROVENANCE_INVALID" }
+              verified.httpStatus ?? 409,
+              verified.message ?? "session replay pack blocked",
+              verified.details ?? null,
+              { code: verified.code ?? "SESSION_REPLAY_PACK_INVALID" }
             );
           }
           let replayPack = null;
           try {
             replayPack = buildSessionReplayPackV1({
               tenantId,
-              session,
-              events,
-              verification: {
-                chainOk: true,
-                verifiedEventCount: events.length,
-                error: null,
-                provenance: {
-                  ok: true,
-                  verifiedEventCount: provenanceVerification.verifiedEventCount ?? 0,
-                  taintedEventCount: provenanceVerification.taintedEventCount ?? 0,
-                  error: null
-                }
-              }
+              session: verified.session,
+              events: verified.events,
+              verification: verified.verification
             });
           } catch (err) {
             return sendError(res, 409, "session replay pack blocked", { sessionId, reason: err?.message ?? "invalid replay pack" }, { code: "SESSION_REPLAY_PACK_INVALID" });
           }
           return sendJson(res, 200, { ok: true, replayPack });
+        }
+
+        if (parts[0] === "sessions" && parts[1] && parts[2] === "transcript" && parts.length === 3 && req.method === "GET") {
+          const sessionId = decodePathPart(parts[1]);
+          const verified = await resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel: "session transcript" });
+          if (!verified.ok) {
+            return sendError(
+              res,
+              verified.httpStatus ?? 409,
+              verified.message ?? "session transcript blocked",
+              verified.details ?? null,
+              { code: verified.code ?? "SESSION_TRANSCRIPT_INVALID" }
+            );
+          }
+          let transcript = null;
+          try {
+            transcript = buildSessionTranscriptV1({
+              tenantId,
+              session: verified.session,
+              events: verified.events,
+              verification: verified.verification
+            });
+          } catch (err) {
+            return sendError(res, 409, "session transcript blocked", { sessionId, reason: err?.message ?? "invalid session transcript" }, { code: "SESSION_TRANSCRIPT_INVALID" });
+          }
+          return sendJson(res, 200, { ok: true, transcript });
         }
 
         if (parts[0] === "sessions" && parts[1] && parts[2] === "events" && parts[3] === "stream" && parts.length === 4 && req.method === "GET") {
@@ -47312,9 +48612,30 @@ export function createApi({
         if (!buyerAgentId || !sellerAgentId || !requiredCapability) {
           return sendError(res, 400, "buyerAgentId, sellerAgentId, and requiredCapability are required", null, { code: "SCHEMA_INVALID" });
         }
+        const quoteLifecycleGuard = await enforceTaskNegotiationParticipantLifecycleGuards({
+          tenantId,
+          buyerAgentId,
+          sellerAgentId,
+          operation: "task_quote.issue"
+        });
+        if (quoteLifecycleGuard.blocked) {
+          return sendError(
+            res,
+            quoteLifecycleGuard.httpStatus,
+            quoteLifecycleGuard.message,
+            quoteLifecycleGuard.details ?? null,
+            { code: quoteLifecycleGuard.code }
+          );
+        }
         const amountCents = Number(body?.pricing?.amountCents);
         if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
           return sendError(res, 400, "pricing.amountCents must be a positive safe integer", null, { code: "SCHEMA_INVALID" });
+        }
+        let traceId = null;
+        try {
+          traceId = parseSubstrateTraceIdInput(body?.traceId ?? null, { name: "traceId", allowNull: true });
+        } catch (err) {
+          return sendError(res, 400, "invalid task quote", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
         const currency =
           typeof body?.pricing?.currency === "string" && body.pricing.currency.trim() !== "" ? body.pricing.currency.trim() : "USD";
@@ -47340,6 +48661,7 @@ export function createApi({
             buyerAgentId,
             sellerAgentId,
             requiredCapability,
+            traceId,
             pricing: {
               model: "fixed",
               amountCents,
@@ -47457,10 +48779,32 @@ export function createApi({
         if (!buyerAgentId || !sellerAgentId) {
           return sendError(res, 400, "buyerAgentId and sellerAgentId are required", null, { code: "SCHEMA_INVALID" });
         }
+        const offerLifecycleGuard = await enforceTaskNegotiationParticipantLifecycleGuards({
+          tenantId,
+          buyerAgentId,
+          sellerAgentId,
+          operation: "task_offer.issue"
+        });
+        if (offerLifecycleGuard.blocked) {
+          return sendError(
+            res,
+            offerLifecycleGuard.httpStatus,
+            offerLifecycleGuard.message,
+            offerLifecycleGuard.details ?? null,
+            { code: offerLifecycleGuard.code }
+          );
+        }
         const amountCents = Number(body?.pricing?.amountCents);
         if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
           return sendError(res, 400, "pricing.amountCents must be a positive safe integer", null, { code: "SCHEMA_INVALID" });
         }
+        let requestedTraceId = null;
+        try {
+          requestedTraceId = parseSubstrateTraceIdInput(body?.traceId ?? null, { name: "traceId", allowNull: true });
+        } catch (err) {
+          return sendError(res, 400, "invalid task offer", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        let inheritedTraceId = null;
         const currency =
           typeof body?.pricing?.currency === "string" && body.pricing.currency.trim() !== "" ? body.pricing.currency.trim() : "USD";
 
@@ -47515,6 +48859,17 @@ export function createApi({
             quoteId,
             quoteHash: String(quote.quoteHash ?? "").toLowerCase()
           };
+          inheritedTraceId =
+            typeof quote?.traceId === "string" && quote.traceId.trim() !== "" ? quote.traceId.trim() : null;
+          if (requestedTraceId && inheritedTraceId && requestedTraceId !== inheritedTraceId) {
+            return sendError(
+              res,
+              409,
+              "task offer trace mismatch",
+              { quoteId, requestedTraceId, expectedTraceId: inheritedTraceId },
+              { code: "TASK_TRACE_ID_MISMATCH" }
+            );
+          }
         }
 
         let taskOffer = null;
@@ -47525,6 +48880,7 @@ export function createApi({
             buyerAgentId,
             sellerAgentId,
             quoteRef,
+            traceId: requestedTraceId ?? inheritedTraceId ?? null,
             pricing: {
               model: "fixed",
               amountCents,
@@ -47633,6 +48989,12 @@ export function createApi({
           typeof body?.acceptanceId === "string" && body.acceptanceId.trim() !== "" ? body.acceptanceId.trim() : createId("taccept");
         const quoteId = typeof body?.quoteId === "string" && body.quoteId.trim() !== "" ? body.quoteId.trim() : null;
         const offerId = typeof body?.offerId === "string" && body.offerId.trim() !== "" ? body.offerId.trim() : null;
+        let requestedTraceId = null;
+        try {
+          requestedTraceId = parseSubstrateTraceIdInput(body?.traceId ?? null, { name: "traceId", allowNull: true });
+        } catch (err) {
+          return sendError(res, 400, "invalid task acceptance", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
         const acceptedByAgentId =
           typeof body?.acceptedByAgentId === "string" && body.acceptedByAgentId.trim() !== "" ? body.acceptedByAgentId.trim() : null;
         if (!quoteId || !offerId || !acceptedByAgentId) {
@@ -47684,8 +49046,45 @@ export function createApi({
             { code: "TASK_NEGOTIATION_PARTICIPANT_MISMATCH" }
           );
         }
+        const quoteTraceId = typeof quote?.traceId === "string" && quote.traceId.trim() !== "" ? quote.traceId.trim() : null;
+        const offerTraceId = typeof offer?.traceId === "string" && offer.traceId.trim() !== "" ? offer.traceId.trim() : null;
+        if (quoteTraceId && offerTraceId && quoteTraceId !== offerTraceId) {
+          return sendError(
+            res,
+            409,
+            "task negotiation trace mismatch",
+            { quoteId, offerId, quoteTraceId, offerTraceId },
+            { code: "TASK_NEGOTIATION_TRACE_MISMATCH" }
+          );
+        }
+        const inheritedTraceId = quoteTraceId ?? offerTraceId ?? null;
+        if (requestedTraceId && inheritedTraceId && requestedTraceId !== inheritedTraceId) {
+          return sendError(
+            res,
+            409,
+            "task acceptance trace mismatch",
+            { quoteId, offerId, requestedTraceId, expectedTraceId: inheritedTraceId },
+            { code: "TASK_TRACE_ID_MISMATCH" }
+          );
+        }
         const acceptedByIdentity = await getAgentIdentityRecord({ tenantId, agentId: acceptedByAgentId });
         if (!acceptedByIdentity) return sendError(res, 404, "accepting agent identity not found", null, { code: "NOT_FOUND" });
+        const acceptanceLifecycleGuard = await enforceTaskNegotiationParticipantLifecycleGuards({
+          tenantId,
+          buyerAgentId: quote?.buyerAgentId ?? null,
+          sellerAgentId: quote?.sellerAgentId ?? null,
+          acceptedByAgentId,
+          operation: "task_acceptance.issue"
+        });
+        if (acceptanceLifecycleGuard.blocked) {
+          return sendError(
+            res,
+            acceptanceLifecycleGuard.httpStatus,
+            acceptanceLifecycleGuard.message,
+            acceptanceLifecycleGuard.details ?? null,
+            { code: acceptanceLifecycleGuard.code }
+          );
+        }
 
         let taskAcceptance = null;
         try {
@@ -47703,6 +49102,7 @@ export function createApi({
               offerHash: offer.offerHash
             },
             acceptedByAgentId,
+            traceId: requestedTraceId ?? inheritedTraceId ?? null,
             acceptedAt: typeof body?.acceptedAt === "string" && body.acceptedAt.trim() !== "" ? body.acceptedAt.trim() : nowIso(),
             metadata: body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null
           });
@@ -48148,6 +49548,13 @@ export function createApi({
         if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
           return sendError(res, 400, "pricing.amountCents must be a positive safe integer", null, { code: "SCHEMA_INVALID" });
         }
+        let requestedTraceId = null;
+        try {
+          requestedTraceId = parseSubstrateTraceIdInput(body?.traceId ?? null, { name: "traceId", allowNull: true });
+        } catch (err) {
+          return sendError(res, 400, "invalid work order", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        let inheritedTraceId = null;
         const currency =
           typeof body?.pricing?.currency === "string" && body.pricing.currency.trim() !== "" ? body.pricing.currency.trim() : "USD";
         let x402ToolId = null;
@@ -48169,6 +49576,21 @@ export function createApi({
         if (!principalIdentity) return sendError(res, 404, "principal agent identity not found", null, { code: "NOT_FOUND" });
         const subIdentity = await getAgentIdentityRecord({ tenantId, agentId: subAgentId });
         if (!subIdentity) return sendError(res, 404, "sub-agent identity not found", null, { code: "NOT_FOUND" });
+        const createLifecycleGuard = await enforceWorkOrderParticipantLifecycleGuards({
+          tenantId,
+          principalAgentId,
+          subAgentId,
+          operation: "work_order.create"
+        });
+        if (createLifecycleGuard.blocked) {
+          return sendError(
+            res,
+            createLifecycleGuard.httpStatus,
+            createLifecycleGuard.message,
+            createLifecycleGuard.details ?? null,
+            { code: createLifecycleGuard.code }
+          );
+        }
 
         const attestationCheck = await enforceWorkOrderCapabilityAttestation({
           tenantId,
@@ -48227,6 +49649,15 @@ export function createApi({
         }
         const authorityGrantRef =
           typeof body?.authorityGrantRef === "string" && body.authorityGrantRef.trim() !== "" ? body.authorityGrantRef.trim() : null;
+        if (x402RequireAuthorityGrantValue && !authorityGrantRef) {
+          return sendError(
+            res,
+            409,
+            "work order authority grant is required",
+            { workOrderId, principalAgentId, subAgentId },
+            { code: "X402_AUTHORITY_GRANT_REQUIRED" }
+          );
+        }
         if (authorityGrantRef) {
           try {
             await resolveX402AuthorityGrantForAuthorization({
@@ -48306,6 +49737,17 @@ export function createApi({
               { code: "TASK_ACCEPTANCE_PARTICIPANT_MISMATCH" }
             );
           }
+          inheritedTraceId =
+            typeof acceptance?.traceId === "string" && acceptance.traceId.trim() !== "" ? acceptance.traceId.trim() : null;
+          if (requestedTraceId && inheritedTraceId && requestedTraceId !== inheritedTraceId) {
+            return sendError(
+              res,
+              409,
+              "work order trace mismatch",
+              { acceptanceId, requestedTraceId, expectedTraceId: inheritedTraceId },
+              { code: "WORK_ORDER_TRACE_ID_MISMATCH" }
+            );
+          }
           const quoteId = String(acceptance?.quoteRef?.quoteId ?? "").trim();
           const offerId = String(acceptance?.offerRef?.offerId ?? "").trim();
           const quote = quoteId ? await getTaskQuoteRecord({ tenantId, quoteId }) : null;
@@ -48382,6 +49824,7 @@ export function createApi({
             principalAgentId,
             subAgentId,
             requiredCapability,
+            traceId: requestedTraceId ?? inheritedTraceId ?? null,
             x402ToolId,
             x402ProviderId,
             specification:
@@ -48600,6 +50043,21 @@ export function createApi({
           }
           const existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
           if (!existingWorkOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          const acceptLifecycleGuard = await enforceWorkOrderParticipantLifecycleGuards({
+            tenantId,
+            principalAgentId: existingWorkOrder?.principalAgentId ?? null,
+            subAgentId: existingWorkOrder?.subAgentId ?? null,
+            operation: "work_order.accept"
+          });
+          if (acceptLifecycleGuard.blocked) {
+            return sendError(
+              res,
+              acceptLifecycleGuard.httpStatus,
+              acceptLifecycleGuard.message,
+              acceptLifecycleGuard.details ?? null,
+              { code: acceptLifecycleGuard.code }
+            );
+          }
           let existingWorkOrderAttestationRequirement = null;
           try {
             existingWorkOrderAttestationRequirement = parseWorkOrderCapabilityAttestationRequirement(
@@ -48677,6 +50135,21 @@ export function createApi({
           }
           const existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
           if (!existingWorkOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          const progressLifecycleGuard = await enforceWorkOrderParticipantLifecycleGuards({
+            tenantId,
+            principalAgentId: existingWorkOrder?.principalAgentId ?? null,
+            subAgentId: existingWorkOrder?.subAgentId ?? null,
+            operation: "work_order.progress"
+          });
+          if (progressLifecycleGuard.blocked) {
+            return sendError(
+              res,
+              progressLifecycleGuard.httpStatus,
+              progressLifecycleGuard.message,
+              progressLifecycleGuard.details ?? null,
+              { code: progressLifecycleGuard.code }
+            );
+          }
           let nextWorkOrder = null;
           try {
             nextWorkOrder = appendSubAgentWorkOrderProgressV1({
@@ -48727,6 +50200,21 @@ export function createApi({
           }
           const existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
           if (!existingWorkOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          const topupLifecycleGuard = await enforceWorkOrderParticipantLifecycleGuards({
+            tenantId,
+            principalAgentId: existingWorkOrder?.principalAgentId ?? null,
+            subAgentId: existingWorkOrder?.subAgentId ?? null,
+            operation: "work_order.topup"
+          });
+          if (topupLifecycleGuard.blocked) {
+            return sendError(
+              res,
+              topupLifecycleGuard.httpStatus,
+              topupLifecycleGuard.message,
+              topupLifecycleGuard.details ?? null,
+              { code: topupLifecycleGuard.code }
+            );
+          }
           const workOrderStatus = String(existingWorkOrder?.status ?? "").trim().toLowerCase();
           if (
             workOrderStatus === SUB_AGENT_WORK_ORDER_STATUS.SETTLED ||
@@ -48935,10 +50423,44 @@ export function createApi({
           }
           const existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
           if (!existingWorkOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          const completeLifecycleGuard = await enforceWorkOrderParticipantLifecycleGuards({
+            tenantId,
+            principalAgentId: existingWorkOrder?.principalAgentId ?? null,
+            subAgentId: existingWorkOrder?.subAgentId ?? null,
+            operation: "work_order.complete"
+          });
+          if (completeLifecycleGuard.blocked) {
+            return sendError(
+              res,
+              completeLifecycleGuard.httpStatus,
+              completeLifecycleGuard.message,
+              completeLifecycleGuard.details ?? null,
+              { code: completeLifecycleGuard.code }
+            );
+          }
           const receiptId =
             typeof body?.receiptId === "string" && body.receiptId.trim() !== "" ? body.receiptId.trim() : createId("worec");
           const existingReceipt = await getSubAgentCompletionReceiptRecord({ tenantId, receiptId });
           if (existingReceipt) return sendError(res, 409, "completion receipt already exists", null, { code: "CONFLICT" });
+          let requestedTraceId = null;
+          try {
+            requestedTraceId = parseSubstrateTraceIdInput(body?.traceId ?? null, { name: "traceId", allowNull: true });
+          } catch (err) {
+            return sendError(res, 400, "invalid work order completion", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const workOrderTraceId =
+            typeof existingWorkOrder?.traceId === "string" && existingWorkOrder.traceId.trim() !== ""
+              ? existingWorkOrder.traceId.trim()
+              : null;
+          if (requestedTraceId && workOrderTraceId && requestedTraceId !== workOrderTraceId) {
+            return sendError(
+              res,
+              409,
+              "work order completion blocked",
+              { message: "traceId does not match work order trace" },
+              { code: "WORK_ORDER_TRACE_ID_MISMATCH" }
+            );
+          }
 
           let completionReceipt = null;
           let nextWorkOrder = null;
@@ -48956,6 +50478,7 @@ export function createApi({
               evidenceRefs: Array.isArray(body?.evidenceRefs) ? body.evidenceRefs : [],
               amountCents: body?.amountCents ?? null,
               currency: typeof body?.currency === "string" && body.currency.trim() !== "" ? body.currency.trim() : null,
+              traceId: requestedTraceId ?? workOrderTraceId ?? null,
               deliveredAt: typeof body?.deliveredAt === "string" && body.deliveredAt.trim() !== "" ? body.deliveredAt.trim() : nowIso(),
               metadata: body?.metadata ?? null
             });
@@ -49006,8 +50529,29 @@ export function createApi({
             }
           }
 
-          const existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
-          if (!existingWorkOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+	          const existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
+	          if (!existingWorkOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          let requestedTraceId = null;
+          try {
+            requestedTraceId = parseSubstrateTraceIdInput(body?.traceId ?? null, { name: "traceId", allowNull: true });
+          } catch (err) {
+            return sendError(res, 400, "invalid work order settlement", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+	          const settleLifecycleGuard = await enforceWorkOrderParticipantLifecycleGuards({
+	            tenantId,
+	            principalAgentId: existingWorkOrder?.principalAgentId ?? null,
+            subAgentId: existingWorkOrder?.subAgentId ?? null,
+            operation: "work_order.settle"
+          });
+          if (settleLifecycleGuard.blocked) {
+            return sendError(
+              res,
+              settleLifecycleGuard.httpStatus,
+              settleLifecycleGuard.message,
+              settleLifecycleGuard.details ?? null,
+              { code: settleLifecycleGuard.code }
+            );
+          }
           const completionReceiptId =
             typeof body?.completionReceiptId === "string" && body.completionReceiptId.trim() !== ""
               ? body.completionReceiptId.trim()
@@ -49026,6 +50570,37 @@ export function createApi({
 	              : null;
 	          const alreadySettled =
 	            String(existingWorkOrder?.status ?? "").toLowerCase() === SUB_AGENT_WORK_ORDER_STATUS.SETTLED && storedSettlement;
+          const workOrderTraceId =
+            typeof existingWorkOrder?.traceId === "string" && existingWorkOrder.traceId.trim() !== ""
+              ? existingWorkOrder.traceId.trim()
+              : null;
+          const completionTraceId =
+            typeof completionReceipt?.traceId === "string" && completionReceipt.traceId.trim() !== ""
+              ? completionReceipt.traceId.trim()
+              : null;
+          const storedSettlementTraceId =
+            typeof storedSettlement?.traceId === "string" && storedSettlement.traceId.trim() !== ""
+              ? storedSettlement.traceId.trim()
+              : null;
+          if (workOrderTraceId && completionTraceId && workOrderTraceId !== completionTraceId) {
+            return sendError(
+              res,
+              409,
+              "work order settlement blocked",
+              { message: "traceId mismatch between work order and completion receipt" },
+              { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+            );
+          }
+          const inheritedTraceId = workOrderTraceId ?? completionTraceId ?? storedSettlementTraceId ?? null;
+          if (requestedTraceId && inheritedTraceId && requestedTraceId !== inheritedTraceId) {
+            return sendError(
+              res,
+              409,
+              "work order settlement conflict",
+              { message: "traceId does not match existing work order trace" },
+              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+            );
+          }
 
 	          const settlementStatusRaw = typeof body?.status === "string" && body.status.trim() !== "" ? body.status.trim().toLowerCase() : null;
 	          let settlementStatus = settlementStatusRaw;
@@ -49153,6 +50728,52 @@ export function createApi({
 	          } catch (err) {
 	            return sendError(res, 400, "invalid authorityGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
 	          }
+          const earlyWorkOrderAuthorityGrantRef =
+            typeof existingWorkOrder?.authorityGrantRef === "string" && existingWorkOrder.authorityGrantRef.trim() !== ""
+              ? existingWorkOrder.authorityGrantRef.trim()
+              : null;
+          const earlyX402GateIdHint =
+            typeof body?.x402GateId === "string" && body.x402GateId.trim() !== ""
+              ? body.x402GateId.trim()
+              : typeof storedSettlement?.x402GateId === "string" && storedSettlement.x402GateId.trim() !== ""
+                ? storedSettlement.x402GateId.trim()
+                : null;
+          const earlyLinkedX402Gate =
+            earlyX402GateIdHint && typeof store.getX402Gate === "function"
+              ? await store.getX402Gate({ tenantId, gateId: earlyX402GateIdHint })
+              : null;
+          let earlyGateAuthorityGrantRef = null;
+          const earlyGateAuthorityCandidates = [
+            earlyLinkedX402Gate?.authorization?.authorityGrantRef,
+            earlyLinkedX402Gate?.agentPassport?.delegationRef
+          ];
+          for (const candidate of earlyGateAuthorityCandidates) {
+            if (typeof candidate !== "string" || candidate.trim() === "") continue;
+            try {
+              earlyGateAuthorityGrantRef = normalizeOptionalX402RefInput(candidate.trim(), "authorityGrantRef", {
+                allowNull: false,
+                max: 200
+              });
+              break;
+            } catch (err) {
+              return sendError(res, 400, "invalid authorityGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+          }
+          const earlyEffectiveAuthorityGrantRef =
+            requestedAuthorityGrantRef ?? earlyWorkOrderAuthorityGrantRef ?? earlyGateAuthorityGrantRef ?? null;
+          if (x402RequireAuthorityGrantValue && !earlyEffectiveAuthorityGrantRef) {
+            return sendError(
+              res,
+              409,
+              "work order settlement blocked",
+              {
+                reasonCode: "X402_AUTHORITY_GRANT_REQUIRED",
+                message: "authority grant is required for work order settlement",
+                workOrderId
+              },
+              { code: "X402_AUTHORITY_GRANT_REQUIRED" }
+            );
+          }
 
 	          if (alreadySettled) {
 	            const storedReceiptId = typeof existingWorkOrder?.completionReceiptId === "string" ? existingWorkOrder.completionReceiptId.trim() : "";
@@ -49724,6 +51345,19 @@ export function createApi({
 	            );
 	          }
 		          const effectiveAuthorityGrantRef = requestedAuthorityGrantRef ?? workOrderAuthorityGrantRef ?? gateAuthorityGrantRef ?? null;
+		          if (x402RequireAuthorityGrantValue && !effectiveAuthorityGrantRef) {
+		            return sendError(
+		              res,
+		              409,
+		              "work order settlement blocked",
+		              {
+		                reasonCode: "X402_AUTHORITY_GRANT_REQUIRED",
+		                message: "authority grant is required for work order settlement",
+		                workOrderId
+		              },
+		              { code: "X402_AUTHORITY_GRANT_REQUIRED" }
+		            );
+		          }
 		          if (effectiveAuthorityGrantRef) {
             try {
               await resolveX402AuthorityGrantForAuthorization({
@@ -49858,9 +51492,10 @@ export function createApi({
 	              completionReceipt,
 		              settlement: {
 		                status: settlementStatus,
-	                x402GateId,
-	                x402RunId,
-	                authorityGrantRef: effectiveAuthorityGrantRef,
+                traceId: requestedTraceId ?? inheritedTraceId ?? null,
+		                x402GateId,
+		                x402RunId,
+		                authorityGrantRef: effectiveAuthorityGrantRef,
 	                x402SettlementStatus:
 	                  typeof body?.x402SettlementStatus === "string" && body.x402SettlementStatus.trim() !== ""
 	                    ? body.x402SettlementStatus.trim().toLowerCase()
@@ -50590,6 +52225,25 @@ export function createApi({
             arbiterAgentId = assignment.arbiterAgentId;
           }
           if (!arbiterAgentId) return sendError(res, 400, "arbiterAgentId or panelCandidateAgentIds is required");
+          const toolCallOpenLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+            tenantId,
+            participants: [
+              { role: "payer", agentId: hold?.payerAgentId ?? null },
+              { role: "payee", agentId: hold?.payeeAgentId ?? null },
+              { role: "opened_by", agentId: openedByAgentId },
+              { role: "arbiter", agentId: arbiterAgentId }
+            ],
+            operation: "tool_call_arbitration.open"
+          });
+          if (toolCallOpenLifecycleGuard?.blocked) {
+            return sendError(
+              res,
+              toolCallOpenLifecycleGuard.httpStatus ?? 409,
+              toolCallOpenLifecycleGuard.message,
+              toolCallOpenLifecycleGuard.details ?? null,
+              { code: toolCallOpenLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+            );
+          }
 
           const summary = typeof body?.summary === "string" && body.summary.trim() !== "" ? body.summary.trim() : null;
           if (!summary) return sendError(res, 400, "summary is required");
@@ -50805,6 +52459,24 @@ export function createApi({
             assertArbitrationVerdictEvidenceBoundToCase({ arbitrationCase, arbitrationVerdict: signedArbitrationVerdict });
           } catch (err) {
             return sendError(res, 400, "invalid arbitration verdict", { message: err?.message });
+          }
+          const toolCallVerdictLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+            tenantId,
+            participants: [
+              { role: "payer", agentId: hold?.payerAgentId ?? null },
+              { role: "payee", agentId: hold?.payeeAgentId ?? null },
+              { role: "arbiter", agentId: signedArbitrationVerdict?.arbiterAgentId ?? arbitrationCase?.arbiterAgentId ?? null }
+            ],
+            operation: "tool_call_arbitration.verdict"
+          });
+          if (toolCallVerdictLifecycleGuard?.blocked) {
+            return sendError(
+              res,
+              toolCallVerdictLifecycleGuard.httpStatus ?? 409,
+              toolCallVerdictLifecycleGuard.message,
+              toolCallVerdictLifecycleGuard.details ?? null,
+              { code: toolCallVerdictLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+            );
           }
           const releaseRatePct = Number(signedArbitrationVerdict.releaseRatePct);
           if (releaseRatePct !== 0 && releaseRatePct !== 100) {
@@ -51216,6 +52888,26 @@ export function createApi({
           if (!accepterIdentity) return sendError(res, 404, "accepting agent identity not found");
         }
 
+        const changeOrderLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+          tenantId,
+          participants: [
+            { role: "payer", agentId: agreementPayerAgentId },
+            { role: "payee", agentId: agreementPayeeAgentId },
+            { role: "requested_by", agentId: requestedByAgentId },
+            { role: "accepted_by", agentId: acceptedByAgentId }
+          ],
+          operation: "marketplace_agreement.change_order"
+        });
+        if (changeOrderLifecycleGuard?.blocked) {
+          return sendError(
+            res,
+            changeOrderLifecycleGuard.httpStatus ?? 409,
+            changeOrderLifecycleGuard.message,
+            changeOrderLifecycleGuard.details ?? null,
+            { code: changeOrderLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+          );
+        }
+
         const reason = typeof body?.reason === "string" && body.reason.trim() !== "" ? body.reason.trim() : null;
         if (!reason) return sendError(res, 400, "reason is required");
         const changeOrderIdRaw = body?.changeOrderId ?? createId("chg");
@@ -51487,6 +53179,26 @@ export function createApi({
             return sendError(res, 400, "invalid acceptedByAgentId", { message: err?.message });
           }
           if (!accepterIdentity) return sendError(res, 404, "accepting agent identity not found");
+        }
+
+        const cancelLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+          tenantId,
+          participants: [
+            { role: "payer", agentId: agreementPayerAgentId },
+            { role: "payee", agentId: agreementPayeeAgentId },
+            { role: "cancelled_by", agentId: cancelledByAgentId },
+            { role: "accepted_by", agentId: acceptedByAgentId }
+          ],
+          operation: "marketplace_agreement.cancel"
+        });
+        if (cancelLifecycleGuard?.blocked) {
+          return sendError(
+            res,
+            cancelLifecycleGuard.httpStatus ?? 409,
+            cancelLifecycleGuard.message,
+            cancelLifecycleGuard.details ?? null,
+            { code: cancelLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+          );
         }
 
         const reason = typeof body?.reason === "string" && body.reason.trim() !== "" ? body.reason.trim() : null;
@@ -52184,6 +53896,26 @@ export function createApi({
         if (!run) return sendError(res, 404, "run not found");
         if (run.status !== "completed" && run.status !== "failed") {
           return sendError(res, 409, "run is not in a terminal state");
+        }
+        const resolvedByAgentId =
+          typeof body?.resolvedByAgentId === "string" && body.resolvedByAgentId.trim() !== "" ? body.resolvedByAgentId.trim() : null;
+        const settlementResolveLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+          tenantId,
+          participants: [
+            { role: "payer", agentId: settlement?.payerAgentId ?? null },
+            { role: "payee", agentId: settlement?.agentId ?? null },
+            { role: "resolved_by", agentId: resolvedByAgentId }
+          ],
+          operation: "run_settlement.resolve"
+        });
+        if (settlementResolveLifecycleGuard?.blocked) {
+          return sendError(
+            res,
+            settlementResolveLifecycleGuard.httpStatus ?? 409,
+            settlementResolveLifecycleGuard.message,
+            settlementResolveLifecycleGuard.details ?? null,
+            { code: settlementResolveLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+          );
         }
         try {
           assertSettlementKernelBindingsForResolution({
@@ -53118,6 +54850,28 @@ export function createApi({
           if (typeof caseIdRaw !== "string" || caseIdRaw.trim() === "") throw new TypeError("caseId must be a non-empty string");
           return caseIdRaw.trim();
         };
+        const enforceArbitrationLifecycleGuard = async ({ operation, arbiterAgentId = null }) => {
+          const lifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+            tenantId,
+            participants: [
+              { role: "payer", agentId: settlement?.payerAgentId ?? null },
+              { role: "payee", agentId: settlement?.agentId ?? null },
+              { role: "arbiter", agentId: arbiterAgentId }
+            ],
+            operation
+          });
+          if (lifecycleGuard?.blocked) {
+            sendError(
+              res,
+              lifecycleGuard.httpStatus ?? 409,
+              lifecycleGuard.message,
+              lifecycleGuard.details ?? null,
+              { code: lifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+            );
+            return true;
+          }
+          return false;
+        };
 
         const loadCaseOrError = async (caseId, { requireOpen = false } = {}) => {
           let arbitrationCase;
@@ -53188,6 +54942,11 @@ export function createApi({
             arbiterAgentId = assignment.arbiterAgentId;
           }
           if (!arbiterAgentId) return sendError(res, 400, "arbiterAgentId or panelCandidateAgentIds is required");
+          const openLifecycleGuardError = await enforceArbitrationLifecycleGuard({
+            operation: "run_arbitration.open",
+            arbiterAgentId
+          });
+          if (openLifecycleGuardError) return;
 
           const arbitrationCase = normalizeForCanonicalJson(
             {
@@ -53308,6 +55067,11 @@ export function createApi({
             }
             arbiterAgentId = assignment.arbiterAgentId;
           }
+          const assignLifecycleGuardError = await enforceArbitrationLifecycleGuard({
+            operation: "run_arbitration.assign",
+            arbiterAgentId
+          });
+          if (assignLifecycleGuardError) return;
 
           let nextStatus;
           try {
@@ -53363,6 +55127,11 @@ export function createApi({
           const loaded = await loadCaseOrError(caseId, { requireOpen: true });
           if (loaded.error) return;
           const arbitrationCase = loaded.arbitrationCase;
+          const evidenceLifecycleGuardError = await enforceArbitrationLifecycleGuard({
+            operation: "run_arbitration.evidence",
+            arbiterAgentId: arbitrationCase?.arbiterAgentId ?? null
+          });
+          if (evidenceLifecycleGuardError) return;
           const evidenceRef = typeof body?.evidenceRef === "string" && body.evidenceRef.trim() !== "" ? body.evidenceRef.trim() : null;
           if (!evidenceRef) return sendError(res, 400, "evidenceRef is required");
           const mergedEvidenceRefs = mergeUniqueStringArrays(arbitrationCase?.evidenceRefs, [evidenceRef]);
@@ -53452,6 +55221,11 @@ export function createApi({
           if (!Number.isFinite(endsAtMs) || !Number.isFinite(nowMs) || nowMs > endsAtMs || !Number.isFinite(verdictIssuedAtMs) || verdictIssuedAtMs > endsAtMs) {
             return sendError(res, 409, "appeal window has closed", null, { code: "DISPUTE_WINDOW_EXPIRED" });
           }
+          const verdictLifecycleGuardError = await enforceArbitrationLifecycleGuard({
+            operation: "run_arbitration.verdict",
+            arbiterAgentId: signedArbitrationVerdict?.arbiterAgentId ?? arbitrationCase?.arbiterAgentId ?? null
+          });
+          if (verdictLifecycleGuardError) return;
 
           const nextCase = normalizeForCanonicalJson(
             {
@@ -53520,6 +55294,11 @@ export function createApi({
           if (currentStatus !== ARBITRATION_CASE_STATUS.VERDICT_ISSUED) {
             return sendError(res, 409, "arbitration case can only be closed after verdict_issued", null, { code: "TRANSITION_ILLEGAL" });
           }
+          const closeLifecycleGuardError = await enforceArbitrationLifecycleGuard({
+            operation: "run_arbitration.close",
+            arbiterAgentId: arbitrationCase?.arbiterAgentId ?? null
+          });
+          if (closeLifecycleGuardError) return;
 
           const closedSummary =
             body?.summary === undefined || body?.summary === null
@@ -53672,6 +55451,11 @@ export function createApi({
             arbiterAgentId = parentCase.arbiterAgentId ?? null;
           }
           if (!arbiterAgentId) return sendError(res, 400, "arbiterAgentId or panelCandidateAgentIds is required");
+          const appealLifecycleGuardError = await enforceArbitrationLifecycleGuard({
+            operation: "run_arbitration.appeal",
+            arbiterAgentId
+          });
+          if (appealLifecycleGuardError) return;
 
           const appealReason =
             body?.reason === undefined || body?.reason === null
@@ -53938,8 +55722,48 @@ export function createApi({
             resolutionInput.closedByAgentId = signedArbitrationVerdict.arbiterAgentId ?? null;
           }
         }
+        if (action === "open") {
+          const openLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+            tenantId,
+            participants: [
+              { role: "payer", agentId: settlement?.payerAgentId ?? null },
+              { role: "payee", agentId: settlement?.agentId ?? null },
+              { role: "opened_by", agentId: disputeContextInput?.openedByAgentId ?? null }
+            ],
+            operation: "run_dispute.open"
+          });
+          if (openLifecycleGuard?.blocked) {
+            return sendError(
+              res,
+              openLifecycleGuard.httpStatus ?? 409,
+              openLifecycleGuard.message,
+              openLifecycleGuard.details ?? null,
+              { code: openLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+            );
+          }
+        }
 
         if (action === "open" || action === "close") {
+          if (action === "close") {
+            const closeLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+              tenantId,
+              participants: [
+                { role: "payer", agentId: settlement?.payerAgentId ?? null },
+                { role: "payee", agentId: settlement?.agentId ?? null },
+                { role: "closed_by", agentId: resolutionInput?.closedByAgentId ?? null }
+              ],
+              operation: "run_dispute.close"
+            });
+            if (closeLifecycleGuard?.blocked) {
+              return sendError(
+                res,
+                closeLifecycleGuard.httpStatus ?? 409,
+                closeLifecycleGuard.message,
+                closeLifecycleGuard.details ?? null,
+                { code: closeLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+              );
+            }
+          }
           try {
             settlement = updateAgentRunSettlementDispute({
               settlement,
@@ -53972,6 +55796,24 @@ export function createApi({
                 : null;
           if (body?.reason !== undefined && reason === null) {
             return sendError(res, 400, "reason must be a non-empty string when provided");
+          }
+          const evidenceLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+            tenantId,
+            participants: [
+              { role: "payer", agentId: settlement?.payerAgentId ?? null },
+              { role: "payee", agentId: settlement?.agentId ?? null },
+              { role: "submitted_by", agentId: submittedByAgentId }
+            ],
+            operation: "run_dispute.evidence"
+          });
+          if (evidenceLifecycleGuard?.blocked) {
+            return sendError(
+              res,
+              evidenceLifecycleGuard.httpStatus ?? 409,
+              evidenceLifecycleGuard.message,
+              evidenceLifecycleGuard.details ?? null,
+              { code: evidenceLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+            );
           }
           try {
             settlement = patchAgentRunSettlementDisputeContext({
@@ -54041,6 +55883,24 @@ export function createApi({
                 : null;
           if (body?.escalatedByAgentId !== undefined && escalatedByAgentId === null) {
             return sendError(res, 400, "escalatedByAgentId must be a non-empty string when provided");
+          }
+          const escalateLifecycleGuard = await enforceMarketplaceParticipantLifecycleGuards({
+            tenantId,
+            participants: [
+              { role: "payer", agentId: settlement?.payerAgentId ?? null },
+              { role: "payee", agentId: settlement?.agentId ?? null },
+              { role: "escalated_by", agentId: escalatedByAgentId }
+            ],
+            operation: "run_dispute.escalate"
+          });
+          if (escalateLifecycleGuard?.blocked) {
+            return sendError(
+              res,
+              escalateLifecycleGuard.httpStatus ?? 409,
+              escalateLifecycleGuard.message,
+              escalateLifecycleGuard.details ?? null,
+              { code: escalateLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+            );
           }
           try {
             settlement = patchAgentRunSettlementDisputeContext({

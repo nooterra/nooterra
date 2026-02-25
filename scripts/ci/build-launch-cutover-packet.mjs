@@ -12,6 +12,8 @@ const GO_LIVE_GATE_SCHEMA_VERSION = "GoLiveGateReport.v1";
 const THROUGHPUT_REPORT_SCHEMA_VERSION = "ThroughputDrill10xReport.v1";
 const INCIDENT_REHEARSAL_REPORT_SCHEMA_VERSION = "ThroughputIncidentRehearsalReport.v1";
 const LIGHTHOUSE_TRACKER_SCHEMA_VERSION = "LighthouseProductionTracker.v1";
+const SETTLD_VERIFIED_GATE_SCHEMA_VERSION = "SettldVerifiedGateReport.v1";
+const DEFAULT_SETTLD_VERIFIED_COLLAB_REPORT_PATH = "artifacts/gates/settld-verified-collaboration-gate.json";
 
 function normalizeOptionalString(value) {
   if (typeof value !== "string") return null;
@@ -40,12 +42,19 @@ function resolveGeneratedAtIso(env = process.env) {
 async function readJson(pathname) {
   try {
     const raw = await readFile(pathname, "utf8");
-    return { ok: true, value: JSON.parse(raw), errorCode: null, error: null };
+    return {
+      ok: true,
+      value: JSON.parse(raw),
+      sourceSha256: sha256Hex(raw),
+      errorCode: null,
+      error: null
+    };
   } catch (err) {
     const isMissing = err?.code === "ENOENT";
     return {
       ok: false,
       value: null,
+      sourceSha256: null,
       errorCode: isMissing ? "file_missing" : "json_read_or_parse_error",
       error: err?.message ?? "unable to read JSON file"
     };
@@ -104,6 +113,8 @@ async function main() {
     process.cwd(),
     process.env.LIGHTHOUSE_TRACKER_PATH || "planning/launch/lighthouse-production-tracker.json"
   );
+  const settldVerifiedCollabReportPathRef = process.env.SETTLD_VERIFIED_COLLAB_REPORT_PATH || DEFAULT_SETTLD_VERIFIED_COLLAB_REPORT_PATH;
+  const settldVerifiedCollabReportPath = resolve(process.cwd(), settldVerifiedCollabReportPathRef);
   const signingConfig = resolveSigningConfig(process.env);
   const generatedAtIso = resolveGeneratedAtIso(process.env);
   await mkdir(dirname(packetPath), { recursive: true });
@@ -112,6 +123,7 @@ async function main() {
   const throughputRead = await readJson(throughputReportPath);
   const incidentRehearsalRead = await readJson(incidentRehearsalReportPath);
   const lighthouseRead = await readJson(lighthouseTrackerPath);
+  const settldVerifiedCollabRead = await readJson(settldVerifiedCollabReportPath);
   const lighthouse = lighthouseRead.ok ? evaluateLighthouseTracker(lighthouseRead.value) : null;
 
   const gateCheckRefs = gateRead.ok ? checkFromGoLiveGate(gateRead.value) : null;
@@ -191,6 +203,35 @@ async function main() {
         : null
     },
     {
+      id: "settld_verified_collaboration_report_present",
+      ok: settldVerifiedCollabRead.ok,
+      path: settldVerifiedCollabReportPathRef,
+      details: settldVerifiedCollabRead.ok ? null : { code: settldVerifiedCollabRead.errorCode, message: settldVerifiedCollabRead.error }
+    },
+    {
+      id: "settld_verified_collaboration_schema_valid",
+      ok: settldVerifiedCollabRead.ok ? settldVerifiedCollabRead.value?.schemaVersion === SETTLD_VERIFIED_GATE_SCHEMA_VERSION : false,
+      path: settldVerifiedCollabReportPathRef,
+      details: settldVerifiedCollabRead.ok
+        ? {
+            expected: SETTLD_VERIFIED_GATE_SCHEMA_VERSION,
+            observed: settldVerifiedCollabRead.value?.schemaVersion ?? null
+          }
+        : null
+    },
+    {
+      id: "settld_verified_collaboration_verdict_ok",
+      ok: settldVerifiedCollabRead.ok ? settldVerifiedCollabRead.value?.ok === true : false,
+      path: settldVerifiedCollabReportPathRef,
+      details: settldVerifiedCollabRead.ok
+        ? {
+            level: settldVerifiedCollabRead.value?.level ?? null,
+            totalChecks: settldVerifiedCollabRead.value?.summary?.totalChecks ?? null,
+            passedChecks: settldVerifiedCollabRead.value?.summary?.passedChecks ?? null
+          }
+        : null
+    },
+    {
       id: "lighthouse_tracker_present",
       ok: lighthouseRead.ok,
       path: lighthouseTrackerPath,
@@ -253,7 +294,9 @@ async function main() {
       goLiveGateReportPath: gateReportPath,
       throughputReportPath,
       incidentRehearsalReportPath,
-      lighthouseTrackerPath
+      lighthouseTrackerPath,
+      settldVerifiedCollaborationGateReportPath: settldVerifiedCollabReportPathRef,
+      settldVerifiedCollaborationGateReportSha256: settldVerifiedCollabRead.sourceSha256
     },
     checks,
     gateReference: gateCheckRefs,

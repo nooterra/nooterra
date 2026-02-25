@@ -1357,6 +1357,7 @@ function buildTools() {
           buyerAgentId: { type: "string" },
           sellerAgentId: { type: "string" },
           requiredCapability: { type: "string" },
+          traceId: { type: ["string", "null"], default: null },
           amountCents: { type: "integer", minimum: 1 },
           currency: { type: ["string", "null"], default: "USD" },
           constraints: { type: ["object", "null"], additionalProperties: true, default: null },
@@ -1395,6 +1396,7 @@ function buildTools() {
           offerId: { type: ["string", "null"], default: null },
           buyerAgentId: { type: "string" },
           sellerAgentId: { type: "string" },
+          traceId: { type: ["string", "null"], default: null },
           quoteId: { type: ["string", "null"], default: null },
           quoteHash: { type: ["string", "null"], default: null },
           amountCents: { type: "integer", minimum: 1 },
@@ -1435,6 +1437,7 @@ function buildTools() {
           quoteId: { type: "string" },
           offerId: { type: "string" },
           acceptedByAgentId: { type: "string" },
+          traceId: { type: ["string", "null"], default: null },
           acceptedAt: { type: ["string", "null"], default: null },
           metadata: { type: ["object", "null"], additionalProperties: true, default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
@@ -1472,6 +1475,7 @@ function buildTools() {
           principalAgentId: { type: "string" },
           subAgentId: { type: "string" },
           requiredCapability: { type: "string" },
+          traceId: { type: ["string", "null"], default: null },
           x402ToolId: { type: ["string", "null"], default: null },
           x402ProviderId: { type: ["string", "null"], default: null },
           specification: { type: ["object", "null"], additionalProperties: true, default: null },
@@ -1596,6 +1600,7 @@ function buildTools() {
           evidenceRefs: { type: ["array", "null"], items: { type: "string" }, default: null },
           amountCents: { type: ["integer", "null"], minimum: 0, default: null },
           currency: { type: ["string", "null"], default: null },
+          traceId: { type: ["string", "null"], default: null },
           deliveredAt: { type: ["string", "null"], default: null },
           completedAt: { type: ["string", "null"], default: null },
           metadata: { type: ["object", "null"], additionalProperties: true, default: null },
@@ -1620,6 +1625,7 @@ function buildTools() {
           x402ReceiptId: { type: ["string", "null"], default: null },
           completionReceiptHash: { type: ["string", "null"], default: null },
           acceptanceHash: { type: ["string", "null"], default: null },
+          traceId: { type: ["string", "null"], default: null },
           authorityGrantRef: { type: ["string", "null"], default: null },
           settledAt: { type: ["string", "null"], default: null },
           idempotencyKey: { type: ["string", "null"], default: null }
@@ -1735,6 +1741,37 @@ function buildTools() {
       }
     },
     {
+      name: "settld.session_transcript_get",
+      description: "Fetch a deterministic SessionTranscript.v1 digest export for lightweight audit/replay.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["sessionId"],
+        properties: {
+          sessionId: { type: "string" }
+        }
+      }
+    },
+    {
+      name: "settld.audit_lineage_list",
+      description: "Fetch deterministic AuditLineage.v1 records across sessions/tasks/work-orders/runs.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          agentId: { type: ["string", "null"], default: null },
+          sessionId: { type: ["string", "null"], default: null },
+          runId: { type: ["string", "null"], default: null },
+          workOrderId: { type: ["string", "null"], default: null },
+          traceId: { type: ["string", "null"], default: null },
+          includeSessionEvents: { type: ["boolean", "null"], default: null },
+          limit: { type: ["integer", "null"], minimum: 1, maximum: 1000, default: null },
+          offset: { type: ["integer", "null"], minimum: 0, default: null },
+          scanLimit: { type: ["integer", "null"], minimum: 1, maximum: 5000, default: null }
+        }
+      }
+    },
+    {
       name: "settld.relationships_list",
       description: "List tenant-scoped RelationshipEdge.v1 records for an agent.",
       inputSchema: {
@@ -1838,6 +1875,37 @@ function buildTools() {
         required: ["gateId"],
         properties: {
           gateId: { type: "string" }
+        }
+      }
+    },
+    {
+      name: "settld.x402_agent_lifecycle_get",
+      description: "Fetch the current X402AgentLifecycle.v1 status for an agent.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["agentId"],
+        properties: {
+          agentId: { type: "string" }
+        }
+      }
+    },
+    {
+      name: "settld.x402_agent_lifecycle_set",
+      description: "Set X402 agent lifecycle status (fail-closed transition checks).",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["agentId", "status"],
+        properties: {
+          agentId: { type: "string" },
+          status: {
+            type: "string",
+            enum: ["provisioned", "active", "throttled", "suspended", "quarantined", "decommissioned", "frozen", "archived"]
+          },
+          reasonCode: { type: ["string", "null"], default: null },
+          reasonMessage: { type: ["string", "null"], default: null },
+          idempotencyKey: { type: ["string", "null"], default: null }
         }
       }
     },
@@ -2859,6 +2927,7 @@ async function main() {
               }
             };
             if (typeof args?.quoteId === "string" && args.quoteId.trim() !== "") body.quoteId = args.quoteId.trim();
+            if (typeof args?.traceId === "string" && args.traceId.trim() !== "") body.traceId = args.traceId.trim();
             if (args?.constraints && typeof args.constraints === "object" && !Array.isArray(args.constraints)) body.constraints = args.constraints;
             if (args?.attestationRequirement && typeof args.attestationRequirement === "object" && !Array.isArray(args.attestationRequirement)) {
               body.attestationRequirement = args.attestationRequirement;
@@ -2905,6 +2974,7 @@ async function main() {
               }
             };
             if (typeof args?.offerId === "string" && args.offerId.trim() !== "") body.offerId = args.offerId.trim();
+            if (typeof args?.traceId === "string" && args.traceId.trim() !== "") body.traceId = args.traceId.trim();
             if (typeof args?.quoteId === "string" && args.quoteId.trim() !== "") {
               body.quoteRef = {
                 quoteId: args.quoteId.trim()
@@ -2951,6 +3021,7 @@ async function main() {
               acceptedByAgentId
             };
             if (typeof args?.acceptanceId === "string" && args.acceptanceId.trim() !== "") body.acceptanceId = args.acceptanceId.trim();
+            if (typeof args?.traceId === "string" && args.traceId.trim() !== "") body.traceId = args.traceId.trim();
             if (typeof args?.acceptedAt === "string" && args.acceptedAt.trim() !== "") body.acceptedAt = args.acceptedAt.trim();
             if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
             const out = await client.requestJson("/task-acceptances", {
@@ -2995,6 +3066,7 @@ async function main() {
               }
             };
             if (typeof args?.workOrderId === "string" && args.workOrderId.trim() !== "") body.workOrderId = args.workOrderId.trim();
+            if (typeof args?.traceId === "string" && args.traceId.trim() !== "") body.traceId = args.traceId.trim();
             if (typeof args?.parentTaskId === "string" && args.parentTaskId.trim() !== "") body.parentTaskId = args.parentTaskId.trim();
             if (args?.specification && typeof args.specification === "object" && !Array.isArray(args.specification)) body.specification = args.specification;
             if (typeof args?.quoteId === "string" && args.quoteId.trim() !== "") body.pricing.quoteId = args.quoteId.trim();
@@ -3113,6 +3185,7 @@ async function main() {
               body.amountCents = amountCents;
             }
             if (typeof args?.currency === "string" && args.currency.trim() !== "") body.currency = args.currency.trim();
+            if (typeof args?.traceId === "string" && args.traceId.trim() !== "") body.traceId = args.traceId.trim();
             if (typeof args?.deliveredAt === "string" && args.deliveredAt.trim() !== "") body.deliveredAt = args.deliveredAt.trim();
             if (typeof args?.completedAt === "string" && args.completedAt.trim() !== "") body.completedAt = args.completedAt.trim();
             if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
@@ -3149,6 +3222,7 @@ async function main() {
             if (typeof args?.acceptanceHash === "string" && args.acceptanceHash.trim() !== "") {
               body.acceptanceHash = args.acceptanceHash.trim().toLowerCase();
             }
+            if (typeof args?.traceId === "string" && args.traceId.trim() !== "") body.traceId = args.traceId.trim();
             if (typeof args?.authorityGrantRef === "string" && args.authorityGrantRef.trim() !== "") {
               body.authorityGrantRef = args.authorityGrantRef.trim();
             }
@@ -3278,6 +3352,35 @@ async function main() {
             assertNonEmptyString(sessionId, "sessionId");
             const out = await client.requestJson(`/sessions/${encodeURIComponent(sessionId)}/replay-pack`, { method: "GET" });
             result = { ok: true, sessionId, ...redactSecrets(out) };
+          } else if (name === "settld.session_transcript_get") {
+            const sessionId = String(args?.sessionId ?? "").trim();
+            assertNonEmptyString(sessionId, "sessionId");
+            const out = await client.requestJson(`/sessions/${encodeURIComponent(sessionId)}/transcript`, { method: "GET" });
+            result = { ok: true, sessionId, ...redactSecrets(out) };
+          } else if (name === "settld.audit_lineage_list") {
+            const query = new URLSearchParams();
+            const agentId = parseOptionalStringArg(args?.agentId, "agentId", { max: 256 });
+            const sessionId = parseOptionalStringArg(args?.sessionId, "sessionId", { max: 256 });
+            const runId = parseOptionalStringArg(args?.runId, "runId", { max: 256 });
+            const workOrderId = parseOptionalStringArg(args?.workOrderId, "workOrderId", { max: 256 });
+            const traceId = parseOptionalStringArg(args?.traceId, "traceId", { max: 256 });
+            const includeSessionEvents = parseOptionalBooleanArg(args?.includeSessionEvents, "includeSessionEvents");
+            const limit = parseOptionalIntegerArg(args?.limit, "limit", { min: 1, max: 1000 });
+            const offset = parseOptionalIntegerArg(args?.offset, "offset", { min: 0, max: 1_000_000 });
+            const scanLimit = parseOptionalIntegerArg(args?.scanLimit, "scanLimit", { min: 1, max: 5000 });
+
+            if (agentId) query.set("agentId", agentId);
+            if (sessionId) query.set("sessionId", sessionId);
+            if (runId) query.set("runId", runId);
+            if (workOrderId) query.set("workOrderId", workOrderId);
+            if (traceId) query.set("traceId", traceId);
+            if (includeSessionEvents !== null) query.set("includeSessionEvents", String(includeSessionEvents));
+            if (limit !== null) query.set("limit", String(limit));
+            if (offset !== null) query.set("offset", String(offset));
+            if (scanLimit !== null) query.set("scanLimit", String(scanLimit));
+
+            const out = await client.requestJson(`/ops/audit/lineage${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
+            result = { ok: true, ...redactSecrets(out) };
           } else if (name === "settld.x402_gate_verify") {
             const gateId = String(args?.gateId ?? "").trim();
             assertNonEmptyString(gateId, "gateId");
@@ -3365,6 +3468,47 @@ async function main() {
             assertNonEmptyString(gateId, "gateId");
             const out = await client.requestJson(`/x402/gate/${encodeURIComponent(gateId)}`, { method: "GET" });
             result = { ok: true, gateId, ...redactSecrets(out) };
+          } else if (name === "settld.x402_agent_lifecycle_get") {
+            const agentId = String(args?.agentId ?? "").trim();
+            assertNonEmptyString(agentId, "agentId");
+            const out = await client.requestJson(`/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`, { method: "GET" });
+            result = { ok: true, agentId, ...redactSecrets(out) };
+          } else if (name === "settld.x402_agent_lifecycle_set") {
+            const agentId = String(args?.agentId ?? "").trim();
+            const status = String(args?.status ?? "").trim().toLowerCase();
+            assertNonEmptyString(agentId, "agentId");
+            if (
+              status !== "provisioned" &&
+              status !== "active" &&
+              status !== "throttled" &&
+              status !== "suspended" &&
+              status !== "quarantined" &&
+              status !== "decommissioned" &&
+              status !== "frozen" &&
+              status !== "archived"
+            ) {
+              throw new TypeError(
+                "status must be provisioned|active|throttled|suspended|quarantined|decommissioned|frozen|archived"
+              );
+            }
+            const idempotencyKey =
+              typeof args?.idempotencyKey === "string" && args.idempotencyKey.trim() !== ""
+                ? args.idempotencyKey.trim()
+                : makeIdempotencyKey("mcp_x402_agent_lifecycle_set");
+            const body = {
+              status,
+              ...(typeof args?.reasonCode === "string" && args.reasonCode.trim() !== "" ? { reasonCode: args.reasonCode.trim() } : {}),
+              ...(typeof args?.reasonMessage === "string" && args.reasonMessage.trim() !== ""
+                ? { reasonMessage: args.reasonMessage.trim() }
+                : {})
+            };
+            const out = await client.requestJson(`/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`, {
+              method: "POST",
+              write: true,
+              body,
+              idem: idempotencyKey
+            });
+            result = { ok: true, agentId, status, idempotencyKey, ...redactSecrets(out) };
           } else if (name === "settld.submit_evidence") {
             const agentId = String(args?.agentId ?? "").trim();
             const runId = String(args?.runId ?? "").trim();

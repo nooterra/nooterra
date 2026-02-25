@@ -141,6 +141,7 @@ export function buildTaskQuoteV1({
   sellerAgentId,
   requiredCapability,
   pricing,
+  traceId = null,
   constraints = null,
   attestationRequirement = null,
   expiresAt = null,
@@ -156,6 +157,7 @@ export function buildTaskQuoteV1({
       buyerAgentId: assertNonEmptyString(buyerAgentId, "buyerAgentId", { max: 200 }),
       sellerAgentId: assertNonEmptyString(sellerAgentId, "sellerAgentId", { max: 200 }),
       requiredCapability: assertNonEmptyString(requiredCapability, "requiredCapability", { max: 256 }),
+      traceId: normalizeOptionalString(traceId, "traceId", { max: 256 }),
       pricing: normalizePricing(pricing, { fieldPath: "pricing" }),
       constraints:
         constraints && typeof constraints === "object" && !Array.isArray(constraints)
@@ -189,6 +191,9 @@ export function validateTaskQuoteV1(quote) {
   assertNonEmptyString(quote.buyerAgentId, "quote.buyerAgentId", { max: 200 });
   assertNonEmptyString(quote.sellerAgentId, "quote.sellerAgentId", { max: 200 });
   assertNonEmptyString(quote.requiredCapability, "quote.requiredCapability", { max: 256 });
+  if (quote.traceId !== null && quote.traceId !== undefined) {
+    normalizeOptionalString(quote.traceId, "quote.traceId", { max: 256 });
+  }
   normalizePricing(quote.pricing, { fieldPath: "quote.pricing" });
   normalizeNegotiationStatus(quote.status, "quote.status");
   normalizeIsoDateTime(quote.createdAt, "quote.createdAt");
@@ -209,6 +214,7 @@ export function buildTaskOfferV1({
   sellerAgentId,
   quoteRef = null,
   pricing,
+  traceId = null,
   constraints = null,
   expiresAt = null,
   metadata = null,
@@ -223,6 +229,7 @@ export function buildTaskOfferV1({
       buyerAgentId: assertNonEmptyString(buyerAgentId, "buyerAgentId", { max: 200 }),
       sellerAgentId: assertNonEmptyString(sellerAgentId, "sellerAgentId", { max: 200 }),
       quoteRef: normalizeQuoteRef(quoteRef, { required: false, fieldPath: "quoteRef" }),
+      traceId: normalizeOptionalString(traceId, "traceId", { max: 256 }),
       pricing: normalizePricing(pricing, { fieldPath: "pricing" }),
       constraints:
         constraints && typeof constraints === "object" && !Array.isArray(constraints)
@@ -251,6 +258,9 @@ export function validateTaskOfferV1(offer) {
   assertNonEmptyString(offer.tenantId, "offer.tenantId", { max: 128 });
   assertNonEmptyString(offer.buyerAgentId, "offer.buyerAgentId", { max: 200 });
   assertNonEmptyString(offer.sellerAgentId, "offer.sellerAgentId", { max: 200 });
+  if (offer.traceId !== null && offer.traceId !== undefined) {
+    normalizeOptionalString(offer.traceId, "offer.traceId", { max: 256 });
+  }
   if (offer.quoteRef !== null && offer.quoteRef !== undefined) {
     normalizeQuoteRef(offer.quoteRef, { required: false, fieldPath: "offer.quoteRef" });
   }
@@ -275,6 +285,7 @@ export function buildTaskAcceptanceV1({
   quoteRef,
   offerRef,
   acceptedByAgentId,
+  traceId = null,
   acceptedAt = new Date().toISOString(),
   metadata = null
 } = {}) {
@@ -289,6 +300,7 @@ export function buildTaskAcceptanceV1({
       quoteRef: normalizeQuoteRef(quoteRef, { required: true, fieldPath: "quoteRef" }),
       offerRef: normalizeOfferRef(offerRef, { required: true, fieldPath: "offerRef" }),
       acceptedByAgentId: assertNonEmptyString(acceptedByAgentId, "acceptedByAgentId", { max: 200 }),
+      traceId: normalizeOptionalString(traceId, "traceId", { max: 256 }),
       status: TASK_NEGOTIATION_STATUS.ACCEPTED,
       acceptedAt: normalizedAcceptedAt,
       metadata: metadata && typeof metadata === "object" && !Array.isArray(metadata) ? normalizeForCanonicalJson(metadata, { path: "$.metadata" }) : null,
@@ -316,6 +328,9 @@ export function validateTaskAcceptanceV1(acceptance) {
   normalizeQuoteRef(acceptance.quoteRef, { required: true, fieldPath: "acceptance.quoteRef" });
   normalizeOfferRef(acceptance.offerRef, { required: true, fieldPath: "acceptance.offerRef" });
   assertNonEmptyString(acceptance.acceptedByAgentId, "acceptance.acceptedByAgentId", { max: 200 });
+  if (acceptance.traceId !== null && acceptance.traceId !== undefined) {
+    normalizeOptionalString(acceptance.traceId, "acceptance.traceId", { max: 256 });
+  }
   normalizeNegotiationStatus(acceptance.status, "acceptance.status");
   if (String(acceptance.status).toLowerCase() !== TASK_NEGOTIATION_STATUS.ACCEPTED) {
     throw new TypeError("acceptance.status must be accepted");

@@ -42312,6 +42312,10 @@
                           "requiredCapability": {
                             "type": "string"
                           },
+                          "traceId": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "x402ToolId": {
                             "type": "string",
                             "nullable": true
@@ -42594,6 +42598,10 @@
                                   "refunded"
                                 ]
                               },
+                              "traceId": {
+                                "type": "string",
+                                "nullable": true
+                              },
                               "x402GateId": {
                                 "type": "string"
                               },
@@ -42751,6 +42759,10 @@
                   },
                   "requiredCapability": {
                     "type": "string"
+                  },
+                  "traceId": {
+                    "type": "string",
+                    "nullable": true
                   },
                   "x402ToolId": {
                     "type": "string",
@@ -43022,6 +43034,10 @@
                         "requiredCapability": {
                           "type": "string"
                         },
+                        "traceId": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "x402ToolId": {
                           "type": "string",
                           "nullable": true
@@ -43303,6 +43319,10 @@
                                 "released",
                                 "refunded"
                               ]
+                            },
+                            "traceId": {
+                              "type": "string",
+                              "nullable": true
                             },
                             "x402GateId": {
                               "type": "string"
@@ -43523,6 +43543,10 @@
                         "requiredCapability": {
                           "type": "string"
                         },
+                        "traceId": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "x402ToolId": {
                           "type": "string",
                           "nullable": true
@@ -43804,6 +43828,10 @@
                                 "released",
                                 "refunded"
                               ]
+                            },
+                            "traceId": {
+                              "type": "string",
+                              "nullable": true
                             },
                             "x402GateId": {
                               "type": "string"
@@ -44013,6 +44041,10 @@
                         "requiredCapability": {
                           "type": "string"
                         },
+                        "traceId": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "x402ToolId": {
                           "type": "string",
                           "nullable": true
@@ -44294,6 +44326,10 @@
                                 "released",
                                 "refunded"
                               ]
+                            },
+                            "traceId": {
+                              "type": "string",
+                              "nullable": true
                             },
                             "x402GateId": {
                               "type": "string"
@@ -44541,6 +44577,10 @@
                         "requiredCapability": {
                           "type": "string"
                         },
+                        "traceId": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "x402ToolId": {
                           "type": "string",
                           "nullable": true
@@ -44822,6 +44862,10 @@
                                 "released",
                                 "refunded"
                               ]
+                            },
+                            "traceId": {
+                              "type": "string",
+                              "nullable": true
                             },
                             "x402GateId": {
                               "type": "string"
@@ -45016,6 +45060,10 @@
                     "type": "string",
                     "nullable": true
                   },
+                  "traceId": {
+                    "type": "string",
+                    "nullable": true
+                  },
                   "deliveredAt": {
                     "type": "string",
                     "format": "date-time"
@@ -45088,6 +45136,10 @@
                         },
                         "requiredCapability": {
                           "type": "string"
+                        },
+                        "traceId": {
+                          "type": "string",
+                          "nullable": true
                         },
                         "x402ToolId": {
                           "type": "string",
@@ -45371,6 +45423,10 @@
                                 "refunded"
                               ]
                             },
+                            "traceId": {
+                              "type": "string",
+                              "nullable": true
+                            },
                             "x402GateId": {
                               "type": "string"
                             },
@@ -45460,6 +45516,10 @@
                             "success",
                             "failed"
                           ]
+                        },
+                        "traceId": {
+                          "type": "string",
+                          "nullable": true
                         },
                         "outputs": {
                           "nullable": true,
@@ -45665,6 +45725,10 @@
                     "type": "string",
                     "pattern": "^[0-9a-f]{64}$"
                   },
+                  "traceId": {
+                    "type": "string",
+                    "nullable": true
+                  },
                   "authorityGrantRef": {
                     "type": "string"
                   },
@@ -45732,6 +45796,10 @@
                         },
                         "requiredCapability": {
                           "type": "string"
+                        },
+                        "traceId": {
+                          "type": "string",
+                          "nullable": true
                         },
                         "x402ToolId": {
                           "type": "string",
@@ -46015,6 +46083,10 @@
                                 "refunded"
                               ]
                             },
+                            "traceId": {
+                              "type": "string",
+                              "nullable": true
+                            },
                             "x402GateId": {
                               "type": "string"
                             },
@@ -46104,6 +46176,10 @@
                             "success",
                             "failed"
                           ]
+                        },
+                        "traceId": {
+                          "type": "string",
+                          "nullable": true
                         },
                         "outputs": {
                           "nullable": true,
@@ -46396,6 +46472,10 @@
                               "failed"
                             ]
                           },
+                          "traceId": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "outputs": {
                             "nullable": true,
                             "oneOf": [
@@ -46596,6 +46676,10 @@
                             "success",
                             "failed"
                           ]
+                        },
+                        "traceId": {
+                          "type": "string",
+                          "nullable": true
                         },
                         "outputs": {
                           "nullable": true,
