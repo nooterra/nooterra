@@ -29,7 +29,10 @@ A work order tracks deterministic lifecycle state for delegated execution:
 
 - `parentTaskId`
 - `constraints`
+- `x402ToolId`
+- `x402ProviderId`
 - `delegationGrantRef`
+- `authorityGrantRef`
 - `progressEvents`
 - `completionReceiptId`
 - `settlement`
@@ -44,6 +47,7 @@ When settled, binding includes:
 - `settlement.x402RunId`
 - `settlement.x402SettlementStatus`
 - `settlement.x402ReceiptId` (optional)
+- `settlement.authorityGrantRef` (optional)
 - `settlement.completionReceiptId`
 - `settlement.settledAt`
 
@@ -51,6 +55,7 @@ When settled, binding includes:
 
 - terminal work orders reject new progress events.
 - settlement requires an existing completion receipt.
+- when `x402ToolId`/`x402ProviderId` are set, settlement must use an `x402Gate` with matching tool/provider binding.
 - revision increments with each state mutation.
 
 ## API surface

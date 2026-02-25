@@ -51,13 +51,57 @@ async function createGate(api, { gateId, payerAgentId, payeeAgentId, amountCents
   return response.json?.gate ?? null;
 }
 
-async function authorizeGate(api, { gateId, idempotencyKey }) {
+async function authorizeGate(api, { gateId, idempotencyKey, extraBody = null }) {
   return await request(api, {
     method: "POST",
     path: "/x402/gate/authorize-payment",
     headers: { "x-idempotency-key": idempotencyKey },
-    body: { gateId }
+    body: {
+      gateId,
+      ...(extraBody && typeof extraBody === "object" ? extraBody : {})
+    }
   });
+}
+
+async function createTaintedSession(api, { sessionId, participantAgentId }) {
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": `session_create_${sessionId}` },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [participantAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const tainted = await request(api, {
+    method: "POST",
+    path: `/sessions/${encodeURIComponent(sessionId)}/events`,
+    headers: {
+      "x-idempotency-key": `session_taint_event_${sessionId}`,
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "MESSAGE",
+      payload: { text: "untrusted prompt payload" },
+      provenance: { label: "external" }
+    }
+  });
+  assert.equal(tainted.statusCode, 201, tainted.body);
+  assert.equal(tainted.json?.event?.payload?.provenance?.isTainted, true);
+  const eventId = typeof tainted.json?.event?.id === "string" ? tainted.json.event.id : null;
+  const chainHash = typeof tainted.json?.event?.chainHash === "string" ? tainted.json.event.chainHash : null;
+  const evidenceRefs = [];
+  if (eventId) evidenceRefs.push(`session:event:${eventId}`);
+  if (chainHash) evidenceRefs.push(`session:chain:${chainHash}`);
+  return {
+    sessionRef: sessionId,
+    eventId,
+    chainHash,
+    evidenceRefs
+  };
 }
 
 async function verifyGateReleased(api, { gateId, idempotencyKey, extraBody = null }) {
@@ -360,4 +404,188 @@ test("API e2e: x402 prompt risk forced mode can target a specific principal", as
   });
   assert.equal(blockedForPrincipal.statusCode, 409, blockedForPrincipal.body);
   assert.equal(blockedForPrincipal.json?.code, "X402_PROMPT_RISK_FORCE_ESCALATE");
+});
+
+test("API e2e: tainted session provenance forces challenge on x402 authorize below escalation threshold", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    x402SessionTaintEscalateAmountCents: 1_000
+  });
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_taint_challenge_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_taint_challenge_payee_1" });
+  await creditWallet(api, {
+    agentId: payerAgentId,
+    amountCents: 5_000,
+    idempotencyKey: "wallet_credit_x402_taint_challenge_1"
+  });
+  await createTaintedSession(api, {
+    sessionId: "sess_x402_taint_challenge_1",
+    participantAgentId: payerAgentId
+  });
+  await createGate(api, {
+    gateId: "gate_x402_taint_challenge_1",
+    payerAgentId,
+    payeeAgentId,
+    amountCents: 300
+  });
+
+  const blocked = await authorizeGate(api, {
+    gateId: "gate_x402_taint_challenge_1",
+    idempotencyKey: "x402_gate_authorize_taint_challenge_1",
+    extraBody: { sessionRef: "sess_x402_taint_challenge_1" }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_PROMPT_RISK_FORCE_CHALLENGE");
+
+  const overridePass = await authorizeGate(api, {
+    gateId: "gate_x402_taint_challenge_1",
+    idempotencyKey: "x402_gate_authorize_taint_challenge_override_1",
+    extraBody: {
+      sessionRef: "sess_x402_taint_challenge_1",
+      promptRiskOverride: {
+        enabled: true,
+        reason: "human reviewed tainted chain and approved",
+        ticketRef: "INC-TAINT-1"
+      }
+    }
+  });
+  assert.equal(overridePass.statusCode, 200, overridePass.body);
+  assert.equal(overridePass.json?.sessionRef, "sess_x402_taint_challenge_1");
+});
+
+test("API e2e: tainted session provenance forces escalate on x402 authorize above escalation threshold", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    x402SessionTaintEscalateAmountCents: 500
+  });
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_taint_escalate_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_taint_escalate_payee_1" });
+  await creditWallet(api, {
+    agentId: payerAgentId,
+    amountCents: 5_000,
+    idempotencyKey: "wallet_credit_x402_taint_escalate_1"
+  });
+  await createTaintedSession(api, {
+    sessionId: "sess_x402_taint_escalate_1",
+    participantAgentId: payerAgentId
+  });
+  await createGate(api, {
+    gateId: "gate_x402_taint_escalate_1",
+    payerAgentId,
+    payeeAgentId,
+    amountCents: 900
+  });
+
+  const blocked = await authorizeGate(api, {
+    gateId: "gate_x402_taint_escalate_1",
+    idempotencyKey: "x402_gate_authorize_taint_escalate_1",
+    extraBody: { sessionRef: "sess_x402_taint_escalate_1" }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_PROMPT_RISK_FORCE_ESCALATE");
+});
+
+test("API e2e: tainted session verify fails closed until provenance evidence refs are submitted", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    x402SessionTaintEscalateAmountCents: 1_000
+  });
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_taint_verify_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_taint_verify_payee_1" });
+  await creditWallet(api, {
+    agentId: payerAgentId,
+    amountCents: 5_000,
+    idempotencyKey: "wallet_credit_x402_taint_verify_1"
+  });
+  const taintedSession = await createTaintedSession(api, {
+    sessionId: "sess_x402_taint_verify_1",
+    participantAgentId: payerAgentId
+  });
+  await createGate(api, {
+    gateId: "gate_x402_taint_verify_1",
+    payerAgentId,
+    payeeAgentId,
+    amountCents: 300
+  });
+
+  const authorizeWithOverride = await authorizeGate(api, {
+    gateId: "gate_x402_taint_verify_1",
+    idempotencyKey: "x402_gate_authorize_taint_verify_override_1",
+    extraBody: {
+      sessionRef: taintedSession.sessionRef,
+      promptRiskOverride: {
+        enabled: true,
+        reason: "human reviewed tainted chain and approved",
+        ticketRef: "INC-TAINT-VERIFY-1"
+      }
+    }
+  });
+  assert.equal(authorizeWithOverride.statusCode, 200, authorizeWithOverride.body);
+
+  const blockedMissingProvenanceEvidence = await verifyGateReleased(api, {
+    gateId: "gate_x402_taint_verify_1",
+    idempotencyKey: "x402_gate_verify_taint_evidence_blocked_1",
+    extraBody: {
+      sessionRef: taintedSession.sessionRef,
+      promptRiskOverride: {
+        enabled: true,
+        reason: "manual review complete",
+        ticketRef: "INC-TAINT-VERIFY-2"
+      }
+    }
+  });
+  assert.equal(blockedMissingProvenanceEvidence.statusCode, 409, blockedMissingProvenanceEvidence.body);
+  assert.equal(blockedMissingProvenanceEvidence.json?.code, "X402_PROMPT_RISK_EVIDENCE_REQUIRED");
+  assert.deepEqual(
+    [...(blockedMissingProvenanceEvidence.json?.details?.missingEvidenceRefs ?? [])].sort((a, b) => a.localeCompare(b)),
+    [...taintedSession.evidenceRefs].sort((a, b) => a.localeCompare(b))
+  );
+
+  const requestSha256 = sha256Hex("request:gate_x402_taint_verify_1");
+  const responseSha256 = sha256Hex("response:gate_x402_taint_verify_1");
+  const blockedPartialProvenanceEvidence = await verifyGateReleased(api, {
+    gateId: "gate_x402_taint_verify_1",
+    idempotencyKey: "x402_gate_verify_taint_evidence_blocked_partial_1",
+    extraBody: {
+      sessionRef: taintedSession.sessionRef,
+      promptRiskOverride: {
+        enabled: true,
+        reason: "manual review complete",
+        ticketRef: "INC-TAINT-VERIFY-2B"
+      },
+      evidenceRefs: [
+        `http:request_sha256:${requestSha256}`,
+        `http:response_sha256:${responseSha256}`,
+        taintedSession.evidenceRefs[0]
+      ]
+    }
+  });
+  assert.equal(blockedPartialProvenanceEvidence.statusCode, 409, blockedPartialProvenanceEvidence.body);
+  assert.equal(blockedPartialProvenanceEvidence.json?.code, "X402_PROMPT_RISK_EVIDENCE_REQUIRED");
+  const expectedMissingPartialEvidence = taintedSession.evidenceRefs
+    .filter((value) => value !== taintedSession.evidenceRefs[0])
+    .sort((a, b) => a.localeCompare(b));
+  assert.deepEqual(
+    [...(blockedPartialProvenanceEvidence.json?.details?.missingEvidenceRefs ?? [])].sort((a, b) => a.localeCompare(b)),
+    expectedMissingPartialEvidence
+  );
+  const releasedWithProvenanceEvidence = await verifyGateReleased(api, {
+    gateId: "gate_x402_taint_verify_1",
+    idempotencyKey: "x402_gate_verify_taint_evidence_pass_1",
+    extraBody: {
+      sessionRef: taintedSession.sessionRef,
+      promptRiskOverride: {
+        enabled: true,
+        reason: "manual review complete with provenance evidence",
+        ticketRef: "INC-TAINT-VERIFY-3"
+      },
+      evidenceRefs: [
+        `http:request_sha256:${requestSha256}`,
+        `http:response_sha256:${responseSha256}`,
+        ...taintedSession.evidenceRefs
+      ]
+    }
+  });
+  assert.equal(releasedWithProvenanceEvidence.statusCode, 200, releasedWithProvenanceEvidence.body);
+  assert.equal(releasedWithProvenanceEvidence.json?.settlement?.status, "released");
 });

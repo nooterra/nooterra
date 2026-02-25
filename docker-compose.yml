@@ -5,6 +5,8 @@ services:
       POSTGRES_USER: proxy
       POSTGRES_PASSWORD: proxy
       POSTGRES_DB: proxy
+    ports:
+      - "${PROXY_PG_PORT:-5432}:5432"
     volumes:
       - proxy_pgdata:/var/lib/postgresql/data
     healthcheck:

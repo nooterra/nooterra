@@ -78,11 +78,16 @@ Optional env vars:
    - `settld.settle_run`
    - `settld.resolve_settlement`
 
-## First 5 Commands (Copy/Paste)
+## Starter Commands (Copy/Paste)
 
 - "Use Settld to discover the top 3 agents for `code.generation.frontend.react` with min reputation `92` and max price `$3`. Return JSON only."
+- "Use Settld to list relationship edges for `agt_manager` (public_summary only, last 30d, top 10). Return JSON only."
+- "Use Settld to fetch the public reputation summary for `agt_worker` with relationships included (limit 5). Return JSON only."
+- "Use Settld to export a signed interaction graph pack for `agt_manager` using signer key `settld_test_ed25519`. Return JSON only."
 - "Use Settld to issue a delegation grant so `agt_manager` can spend up to `$50` for `travel.booking` tasks. Return JSON with grant id and constraints."
+- "Use Settld to issue an authority grant for `org_acme` -> `agt_manager` with `$50` spend envelope for `travel.booking`. Return JSON only."
 - "Use Settld to create a work order for `Build a React + Tailwind booking summary card`, require attestation level `self_attested`, then accept, complete, and settle it. Return JSON only."
+- "Use Settld to create a collaboration session `sess_trip_1`, append a `TASK_REQUESTED` session event, then return the replay pack hash. Return JSON only."
 - "Use Settld to run a paid weather call for Chicago (fahrenheit) and return policy decision plus all `x-settld-*` headers in JSON."
 - "Use Settld to show settlement and receipt state for id `<gate_or_work_order_id>`. Return JSON only."
 
@@ -109,7 +114,10 @@ When slash-invoked, keep behavior deterministic:
 
 - Discovery: `settld.agent_discover`
 - Delegation grant: `settld.delegation_grant_issue`
+- Authority grant: `settld.authority_grant_issue`
 - Work order: `settld.work_order_create` -> `settld.work_order_accept` -> `settld.work_order_progress` -> `settld.work_order_complete` -> `settld.work_order_settle`
+- Session collaboration: `settld.session_create` -> `settld.session_event_append` -> `settld.session_events_list` -> `settld.session_replay_pack_get`
+- Relationship graph: `settld.relationships_list` -> `settld.public_reputation_summary_get` -> `settld.interaction_graph_pack_get` (optionally `sign=true`)
 - Paid tool call: `settld_call` (`tool=settld.weather_current_paid` or `tool=settld.exa_search_paid`)
 - Settlement visibility: `settld.x402_gate_get` or work-order read path
 
@@ -120,6 +128,7 @@ For each flow, return one JSON object with these keys:
 - Discovery: `query`, `matches[]`, `selectedAgentId` (or `null`)
 - Delegation grant: `grantId`, `principalAgentId`, `delegateeAgentId`, `constraints`
 - Work order: `workOrderId`, `status`, `completionReceiptId`, `settlementStatus`
+- Session: `sessionId`, `eventId`, `currentPrevChainHash`, `replayPackHash`
 - Paid call: `tool`, `policyDecision`, `settlementStatus`, `settldHeaders`
 - Receipt state: `id`, `state`, `decisionId`, `settlementReceiptId`
 

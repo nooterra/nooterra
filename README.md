@@ -1,15 +1,17 @@
 # Settld — Trust & Settlement OS for Agent Actions
 
 [![CI](https://github.com/aidenlippert/settld/actions/workflows/tests.yml/badge.svg)](https://github.com/aidenlippert/settld/actions/workflows/tests.yml)
+[![Settld Verified Collaboration](https://github.com/aidenlippert/settld/actions/workflows/settld-verified-collaboration.yml/badge.svg)](https://github.com/aidenlippert/settld/actions/workflows/settld-verified-collaboration.yml)
+[![Settld Verified Guardrails](https://github.com/aidenlippert/settld/actions/workflows/settld-verified-guardrails.yml/badge.svg)](https://github.com/aidenlippert/settld/actions/workflows/settld-verified-guardrails.yml)
 [![npm](https://img.shields.io/npm/v/settld)](https://www.npmjs.com/package/settld)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](./LICENSE)
-[![Node 20.x](https://img.shields.io/badge/node-20.x-brightgreen)](./.nvmrc)
+[![Node 22 LTS / 20 supported](https://img.shields.io/badge/node-22%20LTS%20%7C%2020%20supported-brightgreen)](./.nvmrc)
 
 Settld is a deterministic trust-and-settlement control plane for agent actions: **decision** (`allow|challenge|deny|escalate`) + **execution binding** + **verifiable receipts** + **recourse**.
 
 Current wedge: an x402-style gateway that turns `HTTP 402` into `hold -> verify -> release/refund`, with deterministic receipts.
 
-Docs: [Overview](./docs/OVERVIEW.md) · [Architecture](./docs/ARCHITECTURE.md) · [Docs Index](./docs/README.md) · [Public Specs](./docs/spec/public/README.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md)
+Docs: [Overview](./docs/OVERVIEW.md) · [Architecture](./docs/ARCHITECTURE.md) · [Docs Index](./docs/README.md) · [Public Specs](./docs/spec/public/README.md) · [Naming](./docs/NAMING.md) · [Security](./SECURITY.md) · [Support](./SUPPORT.md)
 
 ## Highlights
 
@@ -21,7 +23,7 @@ Docs: [Overview](./docs/OVERVIEW.md) · [Architecture](./docs/ARCHITECTURE.md) �
 
 ## Get Started (Local x402 Demo)
 
-Prereqs: Node.js 20.x (install is fail-fast if you use a different major).
+Prereqs: Node.js 22 LTS recommended (`20.x` is supported).
 
 ```sh
 nvm use
@@ -39,11 +41,13 @@ Success: prints `OK`, a `gateId=...`, and a `gateStateUrl=...`.
 
 ## Preferred Setup (Agent Hosts)
 
-Onboard an agent host (Codex / Claude / Cursor / OpenClaw), with guided wallet + policy setup:
+Onboard an agent host (OpenClaw / Claude / Cursor / Codex), with guided wallet + policy setup:
 
 ```sh
 npx -y settld setup
 ```
+
+Internal naming uses ACS workstreams; host identifiers stay canonical for compatibility.
 
 ## OpenClaw (ClawHub Skill)
 
@@ -77,6 +81,16 @@ The public conformance contract lives in `./docs/spec/public/` and is enforced v
 npm run -s test:ops:settld-verified-gate -- --level guardrails
 npm run -s test:ops:settld-verified-gate -- --level collaboration
 ```
+
+CI collaboration gate (with uploaded JSON report artifacts):
+
+- [`.github/workflows/settld-verified-collaboration.yml`](./.github/workflows/settld-verified-collaboration.yml)
+- report path: `artifacts/gates/settld-verified-collaboration-gate.json`
+
+CI guardrails gate (with uploaded JSON report artifacts):
+
+- [`.github/workflows/settld-verified-guardrails.yml`](./.github/workflows/settld-verified-guardrails.yml)
+- report path: `artifacts/gates/settld-verified-guardrails-gate.json`
 
 ## Development
 

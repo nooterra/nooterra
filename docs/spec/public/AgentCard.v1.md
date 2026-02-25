@@ -43,6 +43,21 @@ Runtime status: implemented.
 - `POST /agent-cards`
 - `GET /agent-cards`
 - `GET /agent-cards/discover`
+- `GET /public/agent-cards/discover`
+
+## Public discovery rules
+
+- `/public/agent-cards/discover` is cross-tenant and returns `visibility=public` cards only.
+- Non-public visibility filters are rejected fail-closed (`SCHEMA_INVALID`).
+- Agents under active emergency quarantine are excluded from public discoverability.
+
+## Public publish anti-abuse controls
+
+- Public listing transitions (`non-public -> public`) can be rate-limited with:
+  - `PROXY_AGENT_CARD_PUBLIC_PUBLISH_WINDOW_SECONDS`
+  - `PROXY_AGENT_CARD_PUBLIC_PUBLISH_MAX_PER_TENANT`
+  - `PROXY_AGENT_CARD_PUBLIC_PUBLISH_MAX_PER_AGENT`
+- When exceeded, publish fails closed with `AGENT_CARD_PUBLIC_PUBLISH_RATE_LIMITED`.
 
 ## MCP surface
 

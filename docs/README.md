@@ -12,6 +12,7 @@ For curated public docs, start here:
 - [Conformance](./gitbook/conformance.md)
 - [Closepacks](./gitbook/closepacks.md)
 - [Guides](./gitbook/guides.md)
+- [Naming conventions](./NAMING.md)
 - [Security Model](./gitbook/security-model.md)
 - [FAQ](./gitbook/faq.md)
 

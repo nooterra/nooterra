@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
+import { createStore } from "../src/api/store.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
@@ -289,6 +290,186 @@ test("API e2e: /public/agent-cards/discover returns cross-tenant public cards", 
   const tenantIds = new Set((tenantDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
   assert.equal(tenantIds.has("agt_card_public_a_1"), true);
   assert.equal(tenantIds.has("agt_card_public_b_1"), false);
+});
+
+test("API e2e: /public/agent-cards/discover rejects non-public visibility filters", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  await registerAgent(api, { agentId: "agt_card_public_guard_1", capabilities: ["travel.booking"] });
+  const listed = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_guard_upsert_1" },
+    body: {
+      agentId: "agt_card_public_guard_1",
+      displayName: "Public Guard",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/guard", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(listed.statusCode, 201, listed.body);
+
+  for (const visibility of ["all", "tenant", "private"]) {
+    const denied = await request(api, {
+      method: "GET",
+      path: `/public/agent-cards/discover?capability=travel.booking&visibility=${encodeURIComponent(visibility)}&status=active`,
+      auth: "none"
+    });
+    assert.equal(denied.statusCode, 400, denied.body);
+    assert.equal(denied.json?.code, "SCHEMA_INVALID");
+  }
+});
+
+test("API e2e: /public/agent-cards/discover excludes quarantined agents", async () => {
+  const store = createStore();
+  const api = createApi({ store, opsToken: "tok_ops" });
+
+  const activeAgentId = "agt_card_public_active_1";
+  const quarantinedAgentId = "agt_card_public_quarantined_1";
+  await registerAgent(api, { agentId: activeAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: quarantinedAgentId, capabilities: ["travel.booking"] });
+
+  const upsertActive = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_active_upsert_1" },
+    body: {
+      agentId: activeAgentId,
+      displayName: "Public Active Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/active", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertActive.statusCode, 201, upsertActive.body);
+
+  const upsertQuarantined = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_quarantined_upsert_1" },
+    body: {
+      agentId: quarantinedAgentId,
+      displayName: "Public Quarantined Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/quarantined", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertQuarantined.statusCode, 201, upsertQuarantined.body);
+
+  await store.appendEmergencyControlEvent({
+    tenantId: "tenant_default",
+    event: {
+      eventId: "evt_agent_card_public_quarantine_1",
+      action: "quarantine",
+      controlType: "quarantine",
+      scope: { type: "agent", id: quarantinedAgentId },
+      reasonCode: "TEST_QUARANTINE",
+      reason: "public discovery exclusion test"
+    }
+  });
+
+  const publicDiscover = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(publicDiscover.statusCode, 200, publicDiscover.body);
+  const agentIds = new Set((publicDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(agentIds.has(activeAgentId), true);
+  assert.equal(agentIds.has(quarantinedAgentId), false);
+});
+
+test("API e2e: public agent-card publish rate limit is fail-closed (tenant + agent scopes)", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicPublishWindowSeconds: 300,
+    agentCardPublicPublishMaxPerTenant: 1,
+    agentCardPublicPublishMaxPerAgent: 1
+  });
+
+  const agentA = "agt_card_publish_rate_a";
+  const agentB = "agt_card_publish_rate_b";
+  await registerAgent(api, { agentId: agentA, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: agentB, capabilities: ["travel.booking"] });
+
+  const publishA = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_publish_rate_a_public_1" },
+    body: {
+      agentId: agentA,
+      displayName: "Rate Limited A",
+      capabilities: ["travel.booking"],
+      visibility: "public"
+    }
+  });
+  assert.equal(publishA.statusCode, 201, publishA.body);
+
+  const publishBBlocked = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_publish_rate_b_public_1" },
+    body: {
+      agentId: agentB,
+      displayName: "Rate Limited B",
+      capabilities: ["travel.booking"],
+      visibility: "public"
+    }
+  });
+  assert.equal(publishBBlocked.statusCode, 429, publishBBlocked.body);
+  assert.equal(publishBBlocked.json?.code, "AGENT_CARD_PUBLIC_PUBLISH_RATE_LIMITED");
+  assert.equal(publishBBlocked.json?.details?.scope, "tenant");
+
+  const apiAgentScope = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicPublishWindowSeconds: 300,
+    agentCardPublicPublishMaxPerTenant: 10,
+    agentCardPublicPublishMaxPerAgent: 1
+  });
+  const agentC = "agt_card_publish_rate_c";
+  await registerAgent(apiAgentScope, { agentId: agentC, capabilities: ["travel.booking"] });
+
+  const publishC = await request(apiAgentScope, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_publish_rate_c_public_1" },
+    body: {
+      agentId: agentC,
+      displayName: "Rate Limited C",
+      capabilities: ["travel.booking"],
+      visibility: "public"
+    }
+  });
+  assert.equal(publishC.statusCode, 201, publishC.body);
+
+  const toPrivate = await request(apiAgentScope, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_publish_rate_c_private_1" },
+    body: {
+      agentId: agentC,
+      displayName: "Rate Limited C Private",
+      capabilities: ["travel.booking"],
+      visibility: "private"
+    }
+  });
+  assert.equal(toPrivate.statusCode, 200, toPrivate.body);
+
+  const republishAgentCBlocked = await request(apiAgentScope, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_publish_rate_c_public_2" },
+    body: {
+      agentId: agentC,
+      displayName: "Rate Limited C Public Again",
+      capabilities: ["travel.booking"],
+      visibility: "public"
+    }
+  });
+  assert.equal(republishAgentCBlocked.statusCode, 429, republishAgentCBlocked.body);
+  assert.equal(republishAgentCBlocked.json?.code, "AGENT_CARD_PUBLIC_PUBLISH_RATE_LIMITED");
+  assert.equal(republishAgentCBlocked.json?.details?.scope, "agent");
 });
 
 test("API e2e: public AgentCard listing fee is fail-closed and charged once", async () => {
