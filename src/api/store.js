@@ -926,12 +926,119 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     return store.agentCards.get(key) ?? null;
   };
 
+  function normalizeAgentCardToolDescriptorFilterState({
+    toolId = null,
+    toolMcpName = null,
+    toolRiskClass = null,
+    toolSideEffecting = null,
+    toolMaxPriceCents = null,
+    toolRequiresEvidenceKind = null
+  } = {}) {
+    const toolIdFilter = toolId === null || toolId === undefined || String(toolId).trim() === "" ? null : String(toolId).trim();
+    const toolMcpNameFilter =
+      toolMcpName === null || toolMcpName === undefined || String(toolMcpName).trim() === "" ? null : String(toolMcpName).trim().toLowerCase();
+    const toolRiskClassFilter =
+      toolRiskClass === null || toolRiskClass === undefined || String(toolRiskClass).trim() === ""
+        ? null
+        : String(toolRiskClass).trim().toLowerCase();
+    if (
+      toolRiskClassFilter !== null &&
+      toolRiskClassFilter !== "read" &&
+      toolRiskClassFilter !== "compute" &&
+      toolRiskClassFilter !== "action" &&
+      toolRiskClassFilter !== "financial"
+    ) {
+      throw new TypeError("toolRiskClass must be read|compute|action|financial");
+    }
+    const toolSideEffectingFilter =
+      toolSideEffecting === null || toolSideEffecting === undefined
+        ? null
+        : typeof toolSideEffecting === "boolean"
+          ? toolSideEffecting
+          : (() => {
+              throw new TypeError("toolSideEffecting must be boolean");
+            })();
+    const toolMaxPriceCentsFilter =
+      toolMaxPriceCents === null || toolMaxPriceCents === undefined || toolMaxPriceCents === ""
+        ? null
+        : (() => {
+            const parsed = Number(toolMaxPriceCents);
+            if (!Number.isSafeInteger(parsed) || parsed < 0) throw new TypeError("toolMaxPriceCents must be a non-negative safe integer");
+            return parsed;
+          })();
+    const toolRequiresEvidenceKindFilter =
+      toolRequiresEvidenceKind === null || toolRequiresEvidenceKind === undefined || String(toolRequiresEvidenceKind).trim() === ""
+        ? null
+        : String(toolRequiresEvidenceKind).trim().toLowerCase();
+    if (
+      toolRequiresEvidenceKindFilter !== null &&
+      toolRequiresEvidenceKindFilter !== "artifact" &&
+      toolRequiresEvidenceKindFilter !== "hash" &&
+      toolRequiresEvidenceKindFilter !== "verification_report"
+    ) {
+      throw new TypeError("toolRequiresEvidenceKind must be artifact|hash|verification_report");
+    }
+    const hasToolDescriptorFilter =
+      toolIdFilter !== null ||
+      toolMcpNameFilter !== null ||
+      toolRiskClassFilter !== null ||
+      toolSideEffectingFilter !== null ||
+      toolMaxPriceCentsFilter !== null ||
+      toolRequiresEvidenceKindFilter !== null;
+    return {
+      hasToolDescriptorFilter,
+      toolIdFilter,
+      toolMcpNameFilter,
+      toolRiskClassFilter,
+      toolSideEffectingFilter,
+      toolMaxPriceCentsFilter,
+      toolRequiresEvidenceKindFilter
+    };
+  }
+
+  function agentCardMatchesToolDescriptorFilters(row, state) {
+    if (!state?.hasToolDescriptorFilter) return true;
+    const tools = Array.isArray(row?.tools) ? row.tools : [];
+    if (tools.length === 0) return false;
+    return tools.some((tool) => {
+      if (!tool || typeof tool !== "object" || Array.isArray(tool)) return false;
+      const descriptorToolId = typeof tool.toolId === "string" ? tool.toolId.trim() : "";
+      if (state.toolIdFilter !== null && descriptorToolId !== state.toolIdFilter) return false;
+      const descriptorMcpName = typeof tool.mcpToolName === "string" ? tool.mcpToolName.trim().toLowerCase() : "";
+      if (state.toolMcpNameFilter !== null && descriptorMcpName !== state.toolMcpNameFilter) return false;
+      const descriptorRiskClass = typeof tool.riskClass === "string" ? tool.riskClass.trim().toLowerCase() : "";
+      if (state.toolRiskClassFilter !== null && descriptorRiskClass !== state.toolRiskClassFilter) return false;
+      const descriptorSideEffecting = tool.sideEffecting === true;
+      if (state.toolSideEffectingFilter !== null && descriptorSideEffecting !== state.toolSideEffectingFilter) return false;
+      const descriptorAmountCents = Number(tool?.pricing?.amountCents);
+      if (
+        state.toolMaxPriceCentsFilter !== null &&
+        (!Number.isSafeInteger(descriptorAmountCents) || descriptorAmountCents > state.toolMaxPriceCentsFilter)
+      ) {
+        return false;
+      }
+      if (state.toolRequiresEvidenceKindFilter !== null) {
+        const evidenceKinds = Array.isArray(tool.requiresEvidenceKinds)
+          ? tool.requiresEvidenceKinds.map((entry) => String(entry ?? "").trim().toLowerCase())
+          : [];
+        if (!evidenceKinds.includes(state.toolRequiresEvidenceKindFilter)) return false;
+      }
+      return true;
+    });
+  }
+
   store.listAgentCards = async function listAgentCards({
     tenantId = DEFAULT_TENANT_ID,
     agentId = null,
     status = null,
     visibility = null,
     capability = null,
+    toolId = null,
+    toolMcpName = null,
+    toolRiskClass = null,
+    toolSideEffecting = null,
+    toolMaxPriceCents = null,
+    toolRequiresEvidenceKind = null,
     runtime = null,
     limit = 200,
     offset = 0
@@ -949,6 +1056,14 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     const statusFilter = status ? String(status).trim().toLowerCase() : null;
     const visibilityFilter = visibility ? String(visibility).trim().toLowerCase() : null;
     const capabilityFilter = capability ? String(capability).trim() : null;
+    const toolFilterState = normalizeAgentCardToolDescriptorFilterState({
+      toolId,
+      toolMcpName,
+      toolRiskClass,
+      toolSideEffecting,
+      toolMaxPriceCents,
+      toolRequiresEvidenceKind
+    });
     const runtimeFilter = runtime ? String(runtime).trim().toLowerCase() : null;
     const safeLimit = Math.min(1000, limit);
     const safeOffset = offset;
@@ -970,6 +1085,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
         const caps = Array.isArray(row.capabilities) ? row.capabilities : [];
         if (!caps.includes(capabilityFilter)) continue;
       }
+      if (!agentCardMatchesToolDescriptorFilters(row, toolFilterState)) continue;
       out.push(row);
     }
     out.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
@@ -980,6 +1096,12 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     status = null,
     visibility = "public",
     capability = null,
+    toolId = null,
+    toolMcpName = null,
+    toolRiskClass = null,
+    toolSideEffecting = null,
+    toolMaxPriceCents = null,
+    toolRequiresEvidenceKind = null,
     runtime = null,
     limit = 200,
     offset = 0
@@ -991,6 +1113,14 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     }
     const statusFilter = status ? String(status).trim().toLowerCase() : null;
     const capabilityFilter = capability ? String(capability).trim() : null;
+    const toolFilterState = normalizeAgentCardToolDescriptorFilterState({
+      toolId,
+      toolMcpName,
+      toolRiskClass,
+      toolSideEffecting,
+      toolMaxPriceCents,
+      toolRequiresEvidenceKind
+    });
     const runtimeFilter = runtime ? String(runtime).trim().toLowerCase() : null;
     const safeLimit = Math.min(1000, limit);
     const safeOffset = offset;
@@ -1010,6 +1140,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
         const caps = Array.isArray(row.capabilities) ? row.capabilities : [];
         if (!caps.includes(capabilityFilter)) continue;
       }
+      if (!agentCardMatchesToolDescriptorFilters(row, toolFilterState)) continue;
       out.push(row);
     }
     out.sort((left, right) => {
