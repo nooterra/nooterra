@@ -125,6 +125,7 @@
     "test:ops:onboarding-host-success-gate": "node scripts/ci/run-onboarding-host-success-gate.mjs",
     "test:ops:agent-substrate-fast-loop": "node scripts/ci/run-agent-substrate-fast-loop.mjs --bootstrap-local",
     "test:ops:agent-substrate-adversarial-harness": "node scripts/ci/run-agent-substrate-adversarial-harness.mjs",
+    "test:ops:openclaw-substrate-demo": "node --test test/openclaw-substrate-demo-script.test.js",
     "test:ops:settld-verified-gate": "node scripts/ci/run-settld-verified-gate.mjs --bootstrap-local",
     "test:ops:self-serve-benchmark": "node scripts/ci/build-self-serve-benchmark-report.mjs",
     "test:ops:launch-cutover-packet": "node scripts/ci/build-launch-cutover-packet.mjs",

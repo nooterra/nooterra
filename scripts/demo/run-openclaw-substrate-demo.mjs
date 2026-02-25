@@ -347,7 +347,11 @@ async function main() {
       status: "success",
       outputs: { itineraryId: `itn_${demoSeed}`, provider: "demo_provider" },
       metrics: { plannerMs: 2100, providerCount: 4 },
-      evidenceRefs: [`artifact://openclaw_demo/${demoSeed}/itinerary`],
+      evidenceRefs: [
+        `artifact://openclaw_demo/${demoSeed}/itinerary`,
+        `sha256:${"a".repeat(64)}`,
+        `verification://openclaw_demo/${demoSeed}/itinerary_check`
+      ],
       amountCents: 275,
       currency: "USD",
       idempotencyKey: `demo_workorder_complete_${demoSeed}`
@@ -356,10 +360,15 @@ async function main() {
       workOrderComplete?.completionReceipt?.receiptId ??
       workOrderComplete?.result?.completionReceipt?.receiptId ??
       `worec_openclaw_demo_${demoSeed}`;
+    const completionReceiptHash =
+      workOrderComplete?.completionReceipt?.receiptHash ??
+      workOrderComplete?.result?.completionReceipt?.receiptHash ??
+      null;
 
     const workOrderSettle = await tool("settld.work_order_settle", {
       workOrderId,
       completionReceiptId,
+      completionReceiptHash,
       status: "released",
       x402GateId: gateId,
       x402RunId,

@@ -100,7 +100,8 @@ function checksForLevel(level) {
   ];
   const collaboration = [
     { id: "e2e_subagent_work_orders", command: "node", args: ["--test", "test/api-e2e-subagent-work-orders.test.js"] },
-    { id: "e2e_x402_delegation_grants", command: "node", args: ["--test", "test/api-e2e-x402-delegation-grant.test.js"] }
+    { id: "e2e_x402_delegation_grants", command: "node", args: ["--test", "test/api-e2e-x402-delegation-grant.test.js"] },
+    { id: "e2e_openclaw_substrate_demo", command: "node", args: ["--test", "test/openclaw-substrate-demo-script.test.js"] }
   ];
   const guardrails = [
     { id: "agent_substrate_adversarial_harness", command: "npm", args: ["run", "-s", "test:ops:agent-substrate-adversarial-harness"] }

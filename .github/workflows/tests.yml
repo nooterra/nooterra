@@ -154,6 +154,8 @@ jobs:
           test/mcp-paid-exa-tool.test.js
           test/mcp-paid-weather-tool.test.js
           test/demo-mcp-paid-exa.test.js
+      - name: Run OpenClaw substrate demo regression
+        run: npm run -s test:ops:openclaw-substrate-demo
 
   mcp_host_smoke:
     runs-on: ubuntu-latest
