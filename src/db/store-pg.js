@@ -157,6 +157,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.agentPassports.clear();
     if (!(store.agentCards instanceof Map)) store.agentCards = new Map();
     store.agentCards.clear();
+    if (!(store.sessions instanceof Map)) store.sessions = new Map();
+    store.sessions.clear();
     if (!(store.arbitrationCases instanceof Map)) store.arbitrationCases = new Map();
     store.arbitrationCases.clear();
     if (!(store.agreementDelegations instanceof Map)) store.agreementDelegations = new Map();
@@ -225,6 +227,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           ...snap,
           tenantId: snap?.tenantId ?? tenantId,
           agentId: snap?.agentId ?? String(id)
+        });
+      }
+      if (type === "session") {
+        store.sessions.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          sessionId: snap?.sessionId ?? String(id)
         });
       }
       if (type === "arbitration_case") {
@@ -385,6 +394,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.monthEvents.clear();
     if (!(store.agentRunEvents instanceof Map)) store.agentRunEvents = new Map();
     store.agentRunEvents.clear();
+    if (!(store.sessionEvents instanceof Map)) store.sessionEvents = new Map();
+    store.sessionEvents.clear();
 
     const res = await pool.query(
       "SELECT tenant_id, aggregate_type, aggregate_id, event_json FROM events ORDER BY tenant_id, aggregate_type, aggregate_id, seq ASC"
@@ -416,6 +427,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       if (type === "agent_run") {
         const existing = store.agentRunEvents.get(key) ?? [];
         store.agentRunEvents.set(key, [...existing, normalizeAgentRunEventRecord(event)]);
+      }
+      if (type === "session") {
+        const existing = store.sessionEvents.get(key) ?? [];
+        store.sessionEvents.set(key, [...existing, event]);
       }
     }
   }
@@ -1409,6 +1424,21 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       aggregateId: normalizedAgentId,
       snapshot: normalizedAgentCard,
       updatedAt: normalizedAgentCard.updatedAt ?? normalizedAgentCard.createdAt ?? null
+    });
+  }
+
+  async function persistSession(client, { tenantId, sessionId, session }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!session || typeof session !== "object" || Array.isArray(session)) throw new TypeError("session is required");
+    const normalizedSessionId = sessionId ? String(sessionId) : session.sessionId ? String(session.sessionId) : null;
+    if (!normalizedSessionId) throw new TypeError("sessionId is required");
+    const normalizedSession = { ...session, tenantId, sessionId: normalizedSessionId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "session",
+      aggregateId: normalizedSessionId,
+      snapshot: normalizedSession,
+      updatedAt: normalizedSession.updatedAt ?? normalizedSession.createdAt ?? null
     });
   }
 
@@ -2434,8 +2464,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "AGENT_IDENTITY_UPSERT",
       "AGENT_PASSPORT_UPSERT",
       "AGENT_CARD_UPSERT",
+      "SESSION_UPSERT",
       "AGENT_WALLET_UPSERT",
       "AGENT_RUN_EVENTS_APPENDED",
+      "SESSION_EVENTS_APPENDED",
       "AGENT_RUN_SETTLEMENT_UPSERT",
       "ARBITRATION_CASE_UPSERT",
       "AGREEMENT_DELEGATION_UPSERT",
@@ -3268,6 +3300,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? op.agentCard?.tenantId ?? DEFAULT_TENANT_ID);
           await persistAgentCard(client, { tenantId, agentId: op.agentId, agentCard: op.agentCard });
         }
+        if (op.kind === "SESSION_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.session?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistSession(client, { tenantId, sessionId: op.sessionId, session: op.session });
+        }
         if (op.kind === "AGENT_WALLET_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.wallet?.tenantId ?? DEFAULT_TENANT_ID);
           await persistAgentWallet(client, { tenantId, wallet: op.wallet });
@@ -3276,6 +3312,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
           await insertEvents(client, { tenantId, aggregateType: "agent_run", aggregateId: op.runId, events: op.events });
           await rebuildSnapshot(client, { tenantId, aggregateType: "agent_run", aggregateId: op.runId });
+        }
+        if (op.kind === "SESSION_EVENTS_APPENDED") {
+          const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+          await insertEvents(client, { tenantId, aggregateType: "session", aggregateId: op.sessionId, events: op.events });
         }
         if (op.kind === "AGENT_RUN_SETTLEMENT_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.settlement?.tenantId ?? DEFAULT_TENANT_ID);
@@ -3862,6 +3902,24 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
   }
 
+  function sessionSnapshotRowToRecord(row) {
+    const session = row?.snapshot_json ?? null;
+    if (!session || typeof session !== "object" || Array.isArray(session)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? session?.tenantId ?? DEFAULT_TENANT_ID);
+    const sessionId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof session?.sessionId === "string" && session.sessionId.trim() !== ""
+          ? session.sessionId.trim()
+          : null;
+    if (!sessionId) return null;
+    return {
+      ...session,
+      tenantId,
+      sessionId
+    };
+  }
+
   function delegationGrantSnapshotRowToRecord(row) {
     const delegationGrant = row?.snapshot_json ?? null;
     if (!delegationGrant || typeof delegationGrant !== "object" || Array.isArray(delegationGrant)) return null;
@@ -4016,6 +4074,103 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return applyFilters(Array.from(store.agentCards.values()));
+    }
+  };
+
+  store.getSession = async function getSession({ tenantId = DEFAULT_TENANT_ID, sessionId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(sessionId, "sessionId");
+    const normalizedSessionId = String(sessionId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'session' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedSessionId]
+      );
+      return res.rows.length ? sessionSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.sessions.get(makeScopedKey({ tenantId, id: normalizedSessionId })) ?? null;
+    }
+  };
+
+  store.listSessions = async function listSessions({
+    tenantId = DEFAULT_TENANT_ID,
+    sessionId = null,
+    visibility = null,
+    participantAgentId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const sessionIdFilter = sessionId === null || sessionId === undefined || String(sessionId).trim() === "" ? null : String(sessionId).trim();
+    const visibilityFilter =
+      visibility === null || visibility === undefined || String(visibility).trim() === "" ? null : String(visibility).trim().toLowerCase();
+    const participantFilter =
+      participantAgentId === null || participantAgentId === undefined || String(participantAgentId).trim() === ""
+        ? null
+        : String(participantAgentId).trim();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (sessionIdFilter && String(row.sessionId ?? "") !== sessionIdFilter) continue;
+        if (visibilityFilter && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
+        if (participantFilter) {
+          const participants = Array.isArray(row.participants) ? row.participants : [];
+          if (!participants.includes(participantFilter)) continue;
+        }
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.sessionId ?? "").localeCompare(String(right.sessionId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'session'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(sessionSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.sessions.values()));
+    }
+  };
+
+  store.getSessionEvents = async function getSessionEvents({ tenantId = DEFAULT_TENANT_ID, sessionId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(sessionId, "sessionId");
+    const normalizedSessionId = String(sessionId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT event_json
+          FROM events
+          WHERE tenant_id = $1 AND aggregate_type = 'session' AND aggregate_id = $2
+          ORDER BY seq ASC
+        `,
+        [tenantId, normalizedSessionId]
+      );
+      return res.rows.map((row) => row.event_json).filter(Boolean);
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.sessionEvents.get(makeScopedKey({ tenantId, id: normalizedSessionId })) ?? [];
     }
   };
 

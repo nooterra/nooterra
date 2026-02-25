@@ -213,6 +213,44 @@ async function registerAgent(api, { tenantId, agentId, capabilities = [] }) {
     });
     assert.equal(completeWorkOrder.statusCode, 200, completeWorkOrder.body);
 
+    const createSession = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "POST",
+      path: "/sessions",
+      headers: { "x-idempotency-key": "pg_sub_session_create_1" },
+      body: {
+        sessionId: "pg_sub_session_1",
+        visibility: "tenant",
+        participants: [principalA, workerA],
+        policyRef: "policy://pg/session/default"
+      }
+    });
+    assert.equal(createSession.statusCode, 201, createSession.body);
+    assert.equal(createSession.json?.session?.sessionId, "pg_sub_session_1");
+    assert.equal(createSession.json?.session?.revision, 0);
+
+    const appendSessionEvent = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "POST",
+      path: "/sessions/pg_sub_session_1/events",
+      headers: {
+        "x-idempotency-key": "pg_sub_session_event_append_1",
+        "x-proxy-expected-prev-chain-hash": "null"
+      },
+      body: {
+        eventType: "TASK_REQUESTED",
+        traceId: "trace_pg_sub_session_1",
+        payload: {
+          taskId: "task_pg_sub_session_1",
+          capability: "travel.booking",
+          budgetCents: 1200
+        }
+      }
+    });
+    assert.equal(appendSessionEvent.statusCode, 201, appendSessionEvent.body);
+    assert.equal(appendSessionEvent.json?.session?.revision, 1);
+    assert.equal(appendSessionEvent.json?.event?.type, "TASK_REQUESTED");
+
     await storeA.close();
     storeA = null;
 
@@ -258,6 +296,24 @@ async function registerAgent(api, { tenantId, agentId, capabilities = [] }) {
     });
     assert.equal(listReceipts.statusCode, 200, listReceipts.body);
     assert.equal(listReceipts.json?.receipts?.some((row) => row.receiptId === "pg_sub_receipt_1"), true);
+
+    const getSession = await tenantRequest(apiB, {
+      tenantId: tenantA,
+      method: "GET",
+      path: "/sessions/pg_sub_session_1"
+    });
+    assert.equal(getSession.statusCode, 200, getSession.body);
+    assert.equal(getSession.json?.session?.sessionId, "pg_sub_session_1");
+    assert.equal(getSession.json?.session?.revision, 1);
+
+    const listSessionEvents = await tenantRequest(apiB, {
+      tenantId: tenantA,
+      method: "GET",
+      path: "/sessions/pg_sub_session_1/events?eventType=task_requested"
+    });
+    assert.equal(listSessionEvents.statusCode, 200, listSessionEvents.body);
+    assert.equal(listSessionEvents.json?.events?.length, 1);
+    assert.equal(listSessionEvents.json?.events?.[0]?.type, "TASK_REQUESTED");
 
     const publicDiscover = await request(apiB, {
       method: "GET",

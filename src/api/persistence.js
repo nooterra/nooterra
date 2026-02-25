@@ -185,6 +185,20 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "SESSION_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const session = op.session ?? null;
+      if (!session || typeof session !== "object" || Array.isArray(session)) {
+        throw new TypeError("SESSION_UPSERT requires session");
+      }
+      const sessionId = session.sessionId ?? op.sessionId ?? null;
+      if (!sessionId) throw new TypeError("SESSION_UPSERT requires session.sessionId");
+      if (!(store.sessions instanceof Map)) store.sessions = new Map();
+      const key = makeScopedKey({ tenantId, id: String(sessionId) });
+      store.sessions.set(key, { ...session, tenantId, sessionId: String(sessionId) });
+      continue;
+    }
+
     if (kind === "AGENT_PASSPORT_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
       const agentPassport = op.agentPassport ?? null;
@@ -579,6 +593,45 @@ export function applyTxRecord(store, record) {
       store.agentRunEvents.set(key, next);
       const run = reduceAgentRun(next);
       if (run) store.agentRuns.set(key, { ...run, tenantId: run.tenantId ?? tenantId });
+      continue;
+    }
+
+    if (kind === "SESSION_EVENTS_APPENDED") {
+      const { sessionId, events } = op;
+      if (!sessionId) throw new TypeError("SESSION_EVENTS_APPENDED requires sessionId");
+      if (!Array.isArray(events) || events.length === 0) throw new TypeError("SESSION_EVENTS_APPENDED requires non-empty events[]");
+
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      if (!(store.sessionEvents instanceof Map)) store.sessionEvents = new Map();
+      const key = makeScopedKey({ tenantId, id: String(sessionId) });
+      const existing = store.sessionEvents.get(key) ?? [];
+
+      const last = existing.length ? existing[existing.length - 1] : null;
+      const expectedPrevChainHash = last?.chainHash ?? null;
+      const gotPrevChainHash = events[0]?.prevChainHash ?? null;
+      if ((expectedPrevChainHash ?? null) !== (gotPrevChainHash ?? null)) {
+        const err = new Error("event append conflict");
+        err.code = "PREV_CHAIN_HASH_MISMATCH";
+        err.statusCode = 409;
+        err.expectedPrevChainHash = expectedPrevChainHash;
+        err.gotPrevChainHash = gotPrevChainHash;
+        throw err;
+      }
+
+      for (let i = 1; i < events.length; i += 1) {
+        const prev = events[i - 1];
+        const nextEv = events[i];
+        if ((nextEv?.prevChainHash ?? null) !== (prev?.chainHash ?? null)) {
+          const err = new Error("event append conflict");
+          err.code = "PREV_CHAIN_HASH_MISMATCH";
+          err.statusCode = 409;
+          err.expectedPrevChainHash = prev?.chainHash ?? null;
+          err.gotPrevChainHash = nextEv?.prevChainHash ?? null;
+          throw err;
+        }
+      }
+
+      store.sessionEvents.set(key, [...existing, ...events]);
       continue;
     }
 

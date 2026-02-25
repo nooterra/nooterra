@@ -18,6 +18,7 @@ import { computeFinanceAccountMapHash, validateFinanceAccountMapV1 } from "../co
 import { appendChainedEvent, createChainedEvent } from "../core/event-chain.js";
 import { normalizeBillingPlanId } from "../core/billing-plans.js";
 import { validateAgentCardV1 } from "../core/agent-card.js";
+import { validateSessionV1 } from "../core/session-collab.js";
 
 const SERVER_SIGNER_FILENAME = "server-signer.json";
 const SETTLD_PAY_KEYSET_STORE_FILENAME = "settld-pay-keyset-store.json";
@@ -365,6 +366,8 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     operatorEvents: new Map(), // `${tenantId}\n${operatorId}` -> chained events
     agentIdentities: new Map(), // `${tenantId}\n${agentId}` -> AgentIdentity.v1 record
     agentCards: new Map(), // `${tenantId}\n${agentId}` -> AgentCard.v1 record
+    sessions: new Map(), // `${tenantId}\n${sessionId}` -> Session.v1 record
+    sessionEvents: new Map(), // `${tenantId}\n${sessionId}` -> SessionEvent.v1[] (chained envelope records)
     agentPassports: new Map(), // `${tenantId}\n${agentId}` -> AgentPassport.v1 record
     agentWallets: new Map(), // `${tenantId}\n${agentId}` -> AgentWallet.v1 record
     agentRuns: new Map(), // `${tenantId}\n${runId}` -> AgentRun.v1 snapshot
@@ -967,6 +970,71 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     }
     out.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
     return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.getSession = async function getSession({ tenantId = DEFAULT_TENANT_ID, sessionId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof sessionId !== "string" || sessionId.trim() === "") throw new TypeError("sessionId is required");
+    return store.sessions.get(makeScopedKey({ tenantId, id: String(sessionId) })) ?? null;
+  };
+
+  store.putSession = async function putSession({ tenantId = DEFAULT_TENANT_ID, session, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!session || typeof session !== "object" || Array.isArray(session)) throw new TypeError("session is required");
+    validateSessionV1(session);
+    const sessionId = session.sessionId ?? null;
+    if (typeof sessionId !== "string" || sessionId.trim() === "") throw new TypeError("session.sessionId is required");
+    const at = session.updatedAt ?? session.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "SESSION_UPSERT", tenantId, sessionId, session: { ...session, tenantId, sessionId } }],
+      audit
+    });
+    return store.sessions.get(makeScopedKey({ tenantId, id: String(sessionId) })) ?? null;
+  };
+
+  store.listSessions = async function listSessions({
+    tenantId = DEFAULT_TENANT_ID,
+    sessionId = null,
+    visibility = null,
+    participantAgentId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (sessionId !== null && (typeof sessionId !== "string" || sessionId.trim() === "")) throw new TypeError("sessionId must be null or a non-empty string");
+    if (visibility !== null && (typeof visibility !== "string" || visibility.trim() === "")) throw new TypeError("visibility must be null or a non-empty string");
+    if (participantAgentId !== null && (typeof participantAgentId !== "string" || participantAgentId.trim() === "")) {
+      throw new TypeError("participantAgentId must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const sessionFilter = sessionId ? String(sessionId).trim() : null;
+    const visibilityFilter = visibility ? String(visibility).trim().toLowerCase() : null;
+    const participantFilter = participantAgentId ? String(participantAgentId).trim() : null;
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const out = [];
+    for (const row of store.sessions.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (sessionFilter && String(row.sessionId ?? "") !== sessionFilter) continue;
+      if (visibilityFilter && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
+      if (participantFilter) {
+        const participants = Array.isArray(row.participants) ? row.participants : [];
+        if (!participants.includes(participantFilter)) continue;
+      }
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.sessionId ?? "").localeCompare(String(right.sessionId ?? "")));
+    return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
+  store.getSessionEvents = async function getSessionEvents({ tenantId = DEFAULT_TENANT_ID, sessionId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof sessionId !== "string" || sessionId.trim() === "") throw new TypeError("sessionId is required");
+    return store.sessionEvents.get(makeScopedKey({ tenantId, id: String(sessionId) })) ?? [];
   };
 
   store.putAgentPassport = async function putAgentPassport({ tenantId = DEFAULT_TENANT_ID, agentPassport, audit = null } = {}) {
