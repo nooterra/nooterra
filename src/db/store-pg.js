@@ -155,10 +155,20 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.agentRuns.clear();
     if (!(store.agentPassports instanceof Map)) store.agentPassports = new Map();
     store.agentPassports.clear();
+    if (!(store.agentCards instanceof Map)) store.agentCards = new Map();
+    store.agentCards.clear();
     if (!(store.arbitrationCases instanceof Map)) store.arbitrationCases = new Map();
     store.arbitrationCases.clear();
     if (!(store.agreementDelegations instanceof Map)) store.agreementDelegations = new Map();
     store.agreementDelegations.clear();
+    if (!(store.delegationGrants instanceof Map)) store.delegationGrants = new Map();
+    store.delegationGrants.clear();
+    if (!(store.capabilityAttestations instanceof Map)) store.capabilityAttestations = new Map();
+    store.capabilityAttestations.clear();
+    if (!(store.subAgentWorkOrders instanceof Map)) store.subAgentWorkOrders = new Map();
+    store.subAgentWorkOrders.clear();
+    if (!(store.subAgentCompletionReceipts instanceof Map)) store.subAgentCompletionReceipts = new Map();
+    store.subAgentCompletionReceipts.clear();
     if (!(store.x402Gates instanceof Map)) store.x402Gates = new Map();
     store.x402Gates.clear();
     if (!(store.x402AgentLifecycles instanceof Map)) store.x402AgentLifecycles = new Map();
@@ -210,6 +220,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           });
         }
       }
+      if (type === "agent_card") {
+        store.agentCards.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          agentId: snap?.agentId ?? String(id)
+        });
+      }
       if (type === "arbitration_case") {
         store.arbitrationCases.set(key, {
           ...snap,
@@ -222,6 +239,34 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           ...snap,
           tenantId: snap?.tenantId ?? tenantId,
           delegationId: snap?.delegationId ?? String(id)
+        });
+      }
+      if (type === "delegation_grant") {
+        store.delegationGrants.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          grantId: snap?.grantId ?? String(id)
+        });
+      }
+      if (type === "capability_attestation") {
+        store.capabilityAttestations.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          attestationId: snap?.attestationId ?? String(id)
+        });
+      }
+      if (type === "sub_agent_work_order") {
+        store.subAgentWorkOrders.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          workOrderId: snap?.workOrderId ?? String(id)
+        });
+      }
+      if (type === "sub_agent_completion_receipt") {
+        store.subAgentCompletionReceipts.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          receiptId: snap?.receiptId ?? String(id)
         });
       }
       if (type === "x402_gate") {
@@ -1334,6 +1379,110 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     );
   }
 
+  async function persistSnapshotAggregate(client, { tenantId, aggregateType, aggregateId, snapshot, updatedAt = null } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(aggregateType, "aggregateType");
+    const normalizedAggregateId = assertNonEmptyString(aggregateId, "aggregateId");
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw new TypeError("snapshot is required");
+    const normalizedUpdatedAt = parseIsoOrNull(updatedAt) ?? parseIsoOrNull(snapshot.updatedAt) ?? new Date().toISOString();
+    await client.query(
+      `
+        INSERT INTO snapshots (tenant_id, aggregate_type, aggregate_id, seq, at_chain_hash, snapshot_json, updated_at)
+        VALUES ($1, $2, $3, 0, NULL, $4, $5)
+        ON CONFLICT (tenant_id, aggregate_type, aggregate_id) DO UPDATE SET
+          snapshot_json = EXCLUDED.snapshot_json,
+          updated_at = EXCLUDED.updated_at
+      `,
+      [tenantId, aggregateType, normalizedAggregateId, JSON.stringify(snapshot), normalizedUpdatedAt]
+    );
+  }
+
+  async function persistAgentCard(client, { tenantId, agentId, agentCard }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!agentCard || typeof agentCard !== "object" || Array.isArray(agentCard)) throw new TypeError("agentCard is required");
+    const normalizedAgentId = agentId ? String(agentId) : agentCard.agentId ? String(agentCard.agentId) : null;
+    if (!normalizedAgentId) throw new TypeError("agentId is required");
+    const normalizedAgentCard = { ...agentCard, tenantId, agentId: normalizedAgentId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "agent_card",
+      aggregateId: normalizedAgentId,
+      snapshot: normalizedAgentCard,
+      updatedAt: normalizedAgentCard.updatedAt ?? normalizedAgentCard.createdAt ?? null
+    });
+  }
+
+  async function persistDelegationGrant(client, { tenantId, grantId, delegationGrant }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!delegationGrant || typeof delegationGrant !== "object" || Array.isArray(delegationGrant)) {
+      throw new TypeError("delegationGrant is required");
+    }
+    const normalizedGrantId = grantId ? String(grantId) : delegationGrant.grantId ? String(delegationGrant.grantId) : null;
+    if (!normalizedGrantId) throw new TypeError("grantId is required");
+    const normalizedDelegationGrant = { ...delegationGrant, tenantId, grantId: normalizedGrantId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "delegation_grant",
+      aggregateId: normalizedGrantId,
+      snapshot: normalizedDelegationGrant,
+      updatedAt: normalizedDelegationGrant.updatedAt ?? normalizedDelegationGrant.createdAt ?? null
+    });
+  }
+
+  async function persistCapabilityAttestation(client, { tenantId, attestationId, capabilityAttestation }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!capabilityAttestation || typeof capabilityAttestation !== "object" || Array.isArray(capabilityAttestation)) {
+      throw new TypeError("capabilityAttestation is required");
+    }
+    const normalizedAttestationId =
+      attestationId ? String(attestationId) : capabilityAttestation.attestationId ? String(capabilityAttestation.attestationId) : null;
+    if (!normalizedAttestationId) throw new TypeError("attestationId is required");
+    const normalizedAttestation = { ...capabilityAttestation, tenantId, attestationId: normalizedAttestationId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "capability_attestation",
+      aggregateId: normalizedAttestationId,
+      snapshot: normalizedAttestation,
+      updatedAt: normalizedAttestation.updatedAt ?? normalizedAttestation.createdAt ?? null
+    });
+  }
+
+  async function persistSubAgentWorkOrder(client, { tenantId, workOrderId, workOrder }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!workOrder || typeof workOrder !== "object" || Array.isArray(workOrder)) throw new TypeError("workOrder is required");
+    const normalizedWorkOrderId = workOrderId ? String(workOrderId) : workOrder.workOrderId ? String(workOrder.workOrderId) : null;
+    if (!normalizedWorkOrderId) throw new TypeError("workOrderId is required");
+    const normalizedWorkOrder = { ...workOrder, tenantId, workOrderId: normalizedWorkOrderId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "sub_agent_work_order",
+      aggregateId: normalizedWorkOrderId,
+      snapshot: normalizedWorkOrder,
+      updatedAt: normalizedWorkOrder.updatedAt ?? normalizedWorkOrder.createdAt ?? null
+    });
+  }
+
+  async function persistSubAgentCompletionReceipt(client, { tenantId, receiptId, completionReceipt }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!completionReceipt || typeof completionReceipt !== "object" || Array.isArray(completionReceipt)) {
+      throw new TypeError("completionReceipt is required");
+    }
+    const normalizedReceiptId = receiptId ? String(receiptId) : completionReceipt.receiptId ? String(completionReceipt.receiptId) : null;
+    if (!normalizedReceiptId) throw new TypeError("receiptId is required");
+    const normalizedCompletionReceipt = { ...completionReceipt, tenantId, receiptId: normalizedReceiptId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "sub_agent_completion_receipt",
+      aggregateId: normalizedReceiptId,
+      snapshot: normalizedCompletionReceipt,
+      updatedAt:
+        normalizedCompletionReceipt.updatedAt ??
+        normalizedCompletionReceipt.deliveredAt ??
+        normalizedCompletionReceipt.createdAt ??
+        null
+    });
+  }
+
   async function persistX402Gate(client, { tenantId, gateId, gate }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     if (!gate || typeof gate !== "object" || Array.isArray(gate)) {
@@ -2284,11 +2433,16 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "SIGNER_KEY_STATUS_SET",
       "AGENT_IDENTITY_UPSERT",
       "AGENT_PASSPORT_UPSERT",
+      "AGENT_CARD_UPSERT",
       "AGENT_WALLET_UPSERT",
       "AGENT_RUN_EVENTS_APPENDED",
       "AGENT_RUN_SETTLEMENT_UPSERT",
       "ARBITRATION_CASE_UPSERT",
       "AGREEMENT_DELEGATION_UPSERT",
+      "DELEGATION_GRANT_UPSERT",
+      "CAPABILITY_ATTESTATION_UPSERT",
+      "SUB_AGENT_WORK_ORDER_UPSERT",
+      "SUB_AGENT_COMPLETION_RECEIPT_UPSERT",
       "X402_GATE_UPSERT",
       "X402_AGENT_LIFECYCLE_UPSERT",
       "X402_RECEIPT_PUT",
@@ -3110,6 +3264,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? op.agentPassport?.tenantId ?? DEFAULT_TENANT_ID);
           await persistAgentPassport(client, { tenantId, agentId: op.agentId, agentPassport: op.agentPassport });
         }
+        if (op.kind === "AGENT_CARD_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.agentCard?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistAgentCard(client, { tenantId, agentId: op.agentId, agentCard: op.agentCard });
+        }
         if (op.kind === "AGENT_WALLET_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.wallet?.tenantId ?? DEFAULT_TENANT_ID);
           await persistAgentWallet(client, { tenantId, wallet: op.wallet });
@@ -3130,6 +3288,30 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
         if (op.kind === "AGREEMENT_DELEGATION_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.delegation?.tenantId ?? DEFAULT_TENANT_ID);
           await persistAgreementDelegation(client, { tenantId, delegationId: op.delegationId, delegation: op.delegation });
+        }
+        if (op.kind === "DELEGATION_GRANT_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.delegationGrant?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistDelegationGrant(client, { tenantId, grantId: op.grantId, delegationGrant: op.delegationGrant });
+        }
+        if (op.kind === "CAPABILITY_ATTESTATION_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.capabilityAttestation?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistCapabilityAttestation(client, {
+            tenantId,
+            attestationId: op.attestationId,
+            capabilityAttestation: op.capabilityAttestation
+          });
+        }
+        if (op.kind === "SUB_AGENT_WORK_ORDER_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.workOrder?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistSubAgentWorkOrder(client, { tenantId, workOrderId: op.workOrderId, workOrder: op.workOrder });
+        }
+        if (op.kind === "SUB_AGENT_COMPLETION_RECEIPT_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.completionReceipt?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistSubAgentCompletionReceipt(client, {
+            tenantId,
+            receiptId: op.receiptId,
+            completionReceipt: op.completionReceipt
+          });
         }
         if (op.kind === "X402_GATE_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.gate?.tenantId ?? DEFAULT_TENANT_ID);
@@ -3659,6 +3841,554 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return store.x402EscalationOverrideUsage.get(makeScopedKey({ tenantId, id: normalizedOverrideId })) ?? null;
+    }
+  };
+
+  function agentCardSnapshotRowToRecord(row) {
+    const agentCard = row?.snapshot_json ?? null;
+    if (!agentCard || typeof agentCard !== "object" || Array.isArray(agentCard)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? agentCard?.tenantId ?? DEFAULT_TENANT_ID);
+    const agentId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof agentCard?.agentId === "string" && agentCard.agentId.trim() !== ""
+          ? agentCard.agentId.trim()
+          : null;
+    if (!agentId) return null;
+    return {
+      ...agentCard,
+      tenantId,
+      agentId
+    };
+  }
+
+  function delegationGrantSnapshotRowToRecord(row) {
+    const delegationGrant = row?.snapshot_json ?? null;
+    if (!delegationGrant || typeof delegationGrant !== "object" || Array.isArray(delegationGrant)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? delegationGrant?.tenantId ?? DEFAULT_TENANT_ID);
+    const grantId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof delegationGrant?.grantId === "string" && delegationGrant.grantId.trim() !== ""
+          ? delegationGrant.grantId.trim()
+          : null;
+    if (!grantId) return null;
+    return {
+      ...delegationGrant,
+      tenantId,
+      grantId
+    };
+  }
+
+  function capabilityAttestationSnapshotRowToRecord(row) {
+    const capabilityAttestation = row?.snapshot_json ?? null;
+    if (!capabilityAttestation || typeof capabilityAttestation !== "object" || Array.isArray(capabilityAttestation)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? capabilityAttestation?.tenantId ?? DEFAULT_TENANT_ID);
+    const attestationId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof capabilityAttestation?.attestationId === "string" && capabilityAttestation.attestationId.trim() !== ""
+          ? capabilityAttestation.attestationId.trim()
+          : null;
+    if (!attestationId) return null;
+    return {
+      ...capabilityAttestation,
+      tenantId,
+      attestationId
+    };
+  }
+
+  function subAgentWorkOrderSnapshotRowToRecord(row) {
+    const workOrder = row?.snapshot_json ?? null;
+    if (!workOrder || typeof workOrder !== "object" || Array.isArray(workOrder)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? workOrder?.tenantId ?? DEFAULT_TENANT_ID);
+    const workOrderId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof workOrder?.workOrderId === "string" && workOrder.workOrderId.trim() !== ""
+          ? workOrder.workOrderId.trim()
+          : null;
+    if (!workOrderId) return null;
+    return {
+      ...workOrder,
+      tenantId,
+      workOrderId
+    };
+  }
+
+  function subAgentCompletionReceiptSnapshotRowToRecord(row) {
+    const completionReceipt = row?.snapshot_json ?? null;
+    if (!completionReceipt || typeof completionReceipt !== "object" || Array.isArray(completionReceipt)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? completionReceipt?.tenantId ?? DEFAULT_TENANT_ID);
+    const receiptId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof completionReceipt?.receiptId === "string" && completionReceipt.receiptId.trim() !== ""
+          ? completionReceipt.receiptId.trim()
+          : null;
+    if (!receiptId) return null;
+    return {
+      ...completionReceipt,
+      tenantId,
+      receiptId
+    };
+  }
+
+  store.getAgentCard = async function getAgentCard({ tenantId = DEFAULT_TENANT_ID, agentId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(agentId, "agentId");
+    const normalizedAgentId = String(agentId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'agent_card' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedAgentId]
+      );
+      return res.rows.length ? agentCardSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.agentCards.get(makeScopedKey({ tenantId, id: normalizedAgentId })) ?? null;
+    }
+  };
+
+  store.listAgentCards = async function listAgentCards({
+    tenantId = DEFAULT_TENANT_ID,
+    agentId = null,
+    status = null,
+    visibility = null,
+    capability = null,
+    runtime = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const agentIdFilter = agentId === null || agentId === undefined || String(agentId).trim() === "" ? null : String(agentId).trim();
+    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+    const visibilityFilter =
+      visibility === null || visibility === undefined || String(visibility).trim() === "" ? null : String(visibility).trim().toLowerCase();
+    const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+    const runtimeFilter = runtime === null || runtime === undefined || String(runtime).trim() === "" ? null : String(runtime).trim().toLowerCase();
+
+    const applyFilters = (rows) => {
+      const filtered = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (agentIdFilter && String(row.agentId ?? "") !== agentIdFilter) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        if (visibilityFilter && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
+        if (capabilityFilter) {
+          const capabilities = Array.isArray(row.capabilities) ? row.capabilities : [];
+          if (!capabilities.includes(capabilityFilter)) continue;
+        }
+        if (runtimeFilter) {
+          const rowRuntime =
+            row?.host && typeof row.host === "object" && !Array.isArray(row.host) && typeof row.host.runtime === "string"
+              ? row.host.runtime.trim().toLowerCase()
+              : "";
+          if (rowRuntime !== runtimeFilter) continue;
+        }
+        filtered.push(row);
+      }
+      filtered.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
+      return filtered.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'agent_card'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(agentCardSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.agentCards.values()));
+    }
+  };
+
+  store.listAgentCardsPublic = async function listAgentCardsPublic({
+    status = null,
+    visibility = null,
+    capability = null,
+    runtime = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+    const visibilityFilter =
+      visibility === null || visibility === undefined || String(visibility).trim() === "" ? null : String(visibility).trim().toLowerCase();
+    const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+    const runtimeFilter = runtime === null || runtime === undefined || String(runtime).trim() === "" ? null : String(runtime).trim().toLowerCase();
+
+    const applyFilters = (rows) => {
+      const filtered = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        if (visibilityFilter && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
+        if (capabilityFilter) {
+          const capabilities = Array.isArray(row.capabilities) ? row.capabilities : [];
+          if (!capabilities.includes(capabilityFilter)) continue;
+        }
+        if (runtimeFilter) {
+          const rowRuntime =
+            row?.host && typeof row.host === "object" && !Array.isArray(row.host) && typeof row.host.runtime === "string"
+              ? row.host.runtime.trim().toLowerCase()
+              : "";
+          if (rowRuntime !== runtimeFilter) continue;
+        }
+        filtered.push(row);
+      }
+      filtered.sort((left, right) => {
+        const tenantOrder = String(left.tenantId ?? "").localeCompare(String(right.tenantId ?? ""));
+        if (tenantOrder !== 0) return tenantOrder;
+        return String(left.agentId ?? "").localeCompare(String(right.agentId ?? ""));
+      });
+      return filtered.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE aggregate_type = 'agent_card'
+          ORDER BY tenant_id ASC, aggregate_id ASC
+        `
+      );
+      return applyFilters(res.rows.map(agentCardSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.agentCards.values()));
+    }
+  };
+
+  store.getDelegationGrant = async function getDelegationGrant({ tenantId = DEFAULT_TENANT_ID, grantId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(grantId, "grantId");
+    const normalizedGrantId = String(grantId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'delegation_grant' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedGrantId]
+      );
+      return res.rows.length ? delegationGrantSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.delegationGrants.get(makeScopedKey({ tenantId, id: normalizedGrantId })) ?? null;
+    }
+  };
+
+  store.listDelegationGrants = async function listDelegationGrants({
+    tenantId = DEFAULT_TENANT_ID,
+    grantId = null,
+    grantHash = null,
+    delegatorAgentId = null,
+    delegateeAgentId = null,
+    includeRevoked = true,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const grantIdFilter = grantId === null || grantId === undefined || String(grantId).trim() === "" ? null : String(grantId).trim();
+    const grantHashFilter = grantHash === null || grantHash === undefined || String(grantHash).trim() === "" ? null : String(grantHash).trim().toLowerCase();
+    const delegatorFilter =
+      delegatorAgentId === null || delegatorAgentId === undefined || String(delegatorAgentId).trim() === ""
+        ? null
+        : String(delegatorAgentId).trim();
+    const delegateeFilter =
+      delegateeAgentId === null || delegateeAgentId === undefined || String(delegateeAgentId).trim() === ""
+        ? null
+        : String(delegateeAgentId).trim();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (grantIdFilter && String(row.grantId ?? "") !== grantIdFilter) continue;
+        if (grantHashFilter && String(row.grantHash ?? "").toLowerCase() !== grantHashFilter) continue;
+        if (delegatorFilter && String(row.delegatorAgentId ?? "") !== delegatorFilter) continue;
+        if (delegateeFilter && String(row.delegateeAgentId ?? "") !== delegateeFilter) continue;
+        if (!includeRevoked) {
+          const revokedAt =
+            row?.revocation && typeof row.revocation === "object" && !Array.isArray(row.revocation) ? row.revocation.revokedAt : null;
+          if (typeof revokedAt === "string" && revokedAt.trim() !== "") continue;
+        }
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.grantId ?? "").localeCompare(String(right.grantId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'delegation_grant'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(delegationGrantSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.delegationGrants.values()));
+    }
+  };
+
+  store.getCapabilityAttestation = async function getCapabilityAttestation({ tenantId = DEFAULT_TENANT_ID, attestationId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(attestationId, "attestationId");
+    const normalizedAttestationId = String(attestationId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'capability_attestation' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedAttestationId]
+      );
+      return res.rows.length ? capabilityAttestationSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.capabilityAttestations.get(makeScopedKey({ tenantId, id: normalizedAttestationId })) ?? null;
+    }
+  };
+
+  store.listCapabilityAttestations = async function listCapabilityAttestations({
+    tenantId = DEFAULT_TENANT_ID,
+    attestationId = null,
+    subjectAgentId = null,
+    issuerAgentId = null,
+    capability = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const attestationIdFilter =
+      attestationId === null || attestationId === undefined || String(attestationId).trim() === "" ? null : String(attestationId).trim();
+    const subjectFilter =
+      subjectAgentId === null || subjectAgentId === undefined || String(subjectAgentId).trim() === "" ? null : String(subjectAgentId).trim();
+    const issuerFilter =
+      issuerAgentId === null || issuerAgentId === undefined || String(issuerAgentId).trim() === "" ? null : String(issuerAgentId).trim();
+    const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (attestationIdFilter && String(row.attestationId ?? "") !== attestationIdFilter) continue;
+        if (subjectFilter && String(row.subjectAgentId ?? "") !== subjectFilter) continue;
+        if (issuerFilter && String(row.issuerAgentId ?? "") !== issuerFilter) continue;
+        if (capabilityFilter && String(row.capability ?? "") !== capabilityFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.attestationId ?? "").localeCompare(String(right.attestationId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'capability_attestation'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(capabilityAttestationSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.capabilityAttestations.values()));
+    }
+  };
+
+  store.getSubAgentWorkOrder = async function getSubAgentWorkOrder({ tenantId = DEFAULT_TENANT_ID, workOrderId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(workOrderId, "workOrderId");
+    const normalizedWorkOrderId = String(workOrderId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'sub_agent_work_order' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedWorkOrderId]
+      );
+      return res.rows.length ? subAgentWorkOrderSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.subAgentWorkOrders.get(makeScopedKey({ tenantId, id: normalizedWorkOrderId })) ?? null;
+    }
+  };
+
+  store.listSubAgentWorkOrders = async function listSubAgentWorkOrders({
+    tenantId = DEFAULT_TENANT_ID,
+    workOrderId = null,
+    principalAgentId = null,
+    subAgentId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const workOrderIdFilter = workOrderId === null || workOrderId === undefined || String(workOrderId).trim() === "" ? null : String(workOrderId).trim();
+    const principalFilter =
+      principalAgentId === null || principalAgentId === undefined || String(principalAgentId).trim() === ""
+        ? null
+        : String(principalAgentId).trim();
+    const subAgentFilter = subAgentId === null || subAgentId === undefined || String(subAgentId).trim() === "" ? null : String(subAgentId).trim();
+    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (workOrderIdFilter && String(row.workOrderId ?? "") !== workOrderIdFilter) continue;
+        if (principalFilter && String(row.principalAgentId ?? "") !== principalFilter) continue;
+        if (subAgentFilter && String(row.subAgentId ?? "") !== subAgentFilter) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.workOrderId ?? "").localeCompare(String(right.workOrderId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'sub_agent_work_order'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(subAgentWorkOrderSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.subAgentWorkOrders.values()));
+    }
+  };
+
+  store.getSubAgentCompletionReceipt = async function getSubAgentCompletionReceipt({ tenantId = DEFAULT_TENANT_ID, receiptId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(receiptId, "receiptId");
+    const normalizedReceiptId = String(receiptId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'sub_agent_completion_receipt' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedReceiptId]
+      );
+      return res.rows.length ? subAgentCompletionReceiptSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.subAgentCompletionReceipts.get(makeScopedKey({ tenantId, id: normalizedReceiptId })) ?? null;
+    }
+  };
+
+  store.listSubAgentCompletionReceipts = async function listSubAgentCompletionReceipts({
+    tenantId = DEFAULT_TENANT_ID,
+    receiptId = null,
+    workOrderId = null,
+    principalAgentId = null,
+    subAgentId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const receiptIdFilter = receiptId === null || receiptId === undefined || String(receiptId).trim() === "" ? null : String(receiptId).trim();
+    const workOrderFilter = workOrderId === null || workOrderId === undefined || String(workOrderId).trim() === "" ? null : String(workOrderId).trim();
+    const principalFilter =
+      principalAgentId === null || principalAgentId === undefined || String(principalAgentId).trim() === ""
+        ? null
+        : String(principalAgentId).trim();
+    const subAgentFilter = subAgentId === null || subAgentId === undefined || String(subAgentId).trim() === "" ? null : String(subAgentId).trim();
+    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (receiptIdFilter && String(row.receiptId ?? "") !== receiptIdFilter) continue;
+        if (workOrderFilter && String(row.workOrderId ?? "") !== workOrderFilter) continue;
+        if (principalFilter && String(row.principalAgentId ?? "") !== principalFilter) continue;
+        if (subAgentFilter && String(row.subAgentId ?? "") !== subAgentFilter) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.receiptId ?? "").localeCompare(String(right.receiptId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'sub_agent_completion_receipt'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(subAgentCompletionReceiptSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.subAgentCompletionReceipts.values()));
     }
   };
 

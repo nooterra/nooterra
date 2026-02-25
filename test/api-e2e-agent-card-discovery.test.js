@@ -197,6 +197,100 @@ test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
   assert.equal(invalidCapability.json?.code, "SCHEMA_INVALID");
 });
 
+test("API e2e: /public/agent-cards/discover returns cross-tenant public cards", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const tenantA = "tenant_agent_card_public_a";
+  const tenantB = "tenant_agent_card_public_b";
+
+  async function tenantRequest({ method, path, headers = null, body = undefined, auth = "auto" }) {
+    return request(api, {
+      method,
+      path,
+      headers: {
+        "x-proxy-tenant-id": headers?.["x-proxy-tenant-id"] ?? tenantA,
+        ...(headers ?? {})
+      },
+      body,
+      auth
+    });
+  }
+
+  async function registerTenantAgent({ tenantId, agentId }) {
+    const { publicKeyPem } = createEd25519Keypair();
+    const response = await request(api, {
+      method: "POST",
+      path: "/agents/register",
+      headers: { "x-proxy-tenant-id": tenantId, "x-idempotency-key": `agent_register_${tenantId}_${agentId}` },
+      body: {
+        agentId,
+        displayName: agentId,
+        owner: { ownerType: "service", ownerId: `svc_${tenantId}` },
+        publicKeyPem,
+        capabilities: ["travel.booking"]
+      }
+    });
+    assert.equal(response.statusCode, 201, response.body);
+  }
+
+  await registerTenantAgent({ tenantId: tenantA, agentId: "agt_card_public_a_1" });
+  await registerTenantAgent({ tenantId: tenantB, agentId: "agt_card_public_b_1" });
+
+  const upsertA = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-proxy-tenant-id": tenantA, "x-idempotency-key": "agent_card_public_cross_a_1" },
+    body: {
+      agentId: "agt_card_public_a_1",
+      displayName: "Public A",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/a", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertA.statusCode, 201, upsertA.body);
+
+  const upsertB = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-proxy-tenant-id": tenantB, "x-idempotency-key": "agent_card_public_cross_b_1" },
+    body: {
+      agentId: "agt_card_public_b_1",
+      displayName: "Public B",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/b", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertB.statusCode, 201, upsertB.body);
+
+  const publicDiscover = await request(api, {
+    method: "GET",
+    path:
+      "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active" +
+      "&includeReputation=false&limit=10&offset=0",
+    auth: "none"
+  });
+  assert.equal(publicDiscover.statusCode, 200, publicDiscover.body);
+  assert.equal(publicDiscover.json?.scope, "public");
+  const publicResults = publicDiscover.json?.results ?? [];
+  const publicIds = new Set(publicResults.map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(publicIds.has("agt_card_public_a_1"), true);
+  assert.equal(publicIds.has("agt_card_public_b_1"), true);
+  assert.equal(publicResults.some((row) => String(row?.agentCard?.tenantId ?? "") === tenantA), true);
+  assert.equal(publicResults.some((row) => String(row?.agentCard?.tenantId ?? "") === tenantB), true);
+
+  const tenantDiscover = await tenantRequest({
+    method: "GET",
+    path:
+      "/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active" +
+      "&includeReputation=false&limit=10&offset=0"
+  });
+  assert.equal(tenantDiscover.statusCode, 200, tenantDiscover.body);
+  const tenantIds = new Set((tenantDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(tenantIds.has("agt_card_public_a_1"), true);
+  assert.equal(tenantIds.has("agt_card_public_b_1"), false);
+});
+
 test("API e2e: public AgentCard listing fee is fail-closed and charged once", async () => {
   const api = createApi({
     opsToken: "tok_ops",

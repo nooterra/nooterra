@@ -7899,6 +7899,7 @@ export function createApi({
 
   async function discoverAgentCards({
     tenantId,
+    scope = "tenant",
     capability = null,
     status = AGENT_CARD_STATUS.ACTIVE,
     visibility = AGENT_CARD_VISIBILITY.PUBLIC,
@@ -7918,7 +7919,12 @@ export function createApi({
     requesterAgentId = null,
     includeRoutingFactors = false
   } = {}) {
-    const t = normalizeTenant(tenantId);
+    const discoveryScope = typeof scope === "string" && scope.trim() !== "" ? scope.trim().toLowerCase() : "tenant";
+    if (discoveryScope !== "tenant" && discoveryScope !== "public") {
+      throw new TypeError("scope must be tenant|public");
+    }
+    const isPublicScope = discoveryScope === "public";
+    const t = isPublicScope ? null : normalizeTenant(tenantId);
     const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(100, limit) : 50;
     const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
     const statusFilter = parseDiscoveryStatus(status);
@@ -7960,7 +7966,16 @@ export function createApi({
     }
 
     let cards = [];
-    if (typeof store.listAgentCards === "function") {
+    if (isPublicScope && typeof store.listAgentCardsPublic === "function") {
+      cards = await store.listAgentCardsPublic({
+        status: statusFilter === "all" ? null : statusFilter,
+        visibility: visibilityFilter === "all" ? null : visibilityFilter,
+        capability: capabilityFilter,
+        runtime: runtimeFilter,
+        limit: 10_000,
+        offset: 0
+      });
+    } else if (!isPublicScope && typeof store.listAgentCards === "function") {
       cards = await store.listAgentCards({
         tenantId: t,
         status: statusFilter === "all" ? null : statusFilter,
@@ -7973,7 +7988,7 @@ export function createApi({
     } else if (store.agentCards instanceof Map) {
       for (const row of store.agentCards.values()) {
         if (!row || typeof row !== "object" || Array.isArray(row)) continue;
-        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
+        if (!isPublicScope && normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== t) continue;
         if (statusFilter !== "all" && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
         if (visibilityFilter !== "all" && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
         if (runtimeFilter) {
@@ -7997,6 +8012,7 @@ export function createApi({
     for (const agentCard of cards) {
       const agentId = String(agentCard?.agentId ?? "");
       if (!agentId) continue;
+      const cardTenantId = normalizeTenantId(agentCard?.tenantId ?? t ?? DEFAULT_TENANT_ID);
       if (requireAttestation && !capabilityFilter) {
         const requestedCapabilities = Array.isArray(agentCard?.capabilities)
           ? [...new Set(agentCard.capabilities.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort((left, right) =>
@@ -8014,7 +8030,7 @@ export function createApi({
         let blockedByAttestation = false;
         for (const requestedCapability of requestedCapabilities) {
           const capabilitySelection = await assessCapabilityAttestationForDiscovery({
-            tenantId: t,
+            tenantId: cardTenantId,
             agentId,
             capability: requestedCapability,
             minLevel: effectiveAttestationMinLevel,
@@ -8037,7 +8053,7 @@ export function createApi({
         capabilityFilter && (requireAttestation || rankingStrategy === "trust_weighted" || includeAttestationMetadata || includeRouting);
       if (shouldAssessAttestation) {
         attestationSelection = await assessCapabilityAttestationForDiscovery({
-          tenantId: t,
+          tenantId: cardTenantId,
           agentId,
           capability: capabilityFilter,
           minLevel: effectiveAttestationMinLevel,
@@ -8054,7 +8070,7 @@ export function createApi({
         }
       }
       const reputation = await computeAgentReputationSnapshotVersioned({
-        tenantId: t,
+        tenantId: cardTenantId,
         agentId,
         at: evaluatedAt,
         reputationVersion: version,
@@ -8075,7 +8091,7 @@ export function createApi({
       let routingFactors = null;
       if (rankingStrategy === "trust_weighted" || includeRouting) {
         const routing = await computeTrustWeightedRoutingFactors({
-          tenantId: t,
+          tenantId: cardTenantId,
           agentId,
           requesterAgentId: parsedRequesterAgentId,
           reputationWindow: window,
@@ -8122,6 +8138,7 @@ export function createApi({
     });
 
     const out = {
+      scope: discoveryScope,
       reputationVersion: version,
       reputationWindow: window,
       scoreStrategy: rankingStrategy,
@@ -23936,6 +23953,7 @@ export function createApi({
           (req.method === "GET" && path === "/health") ||
           (req.method === "GET" && path === "/healthz") ||
           (req.method === "GET" && path === "/capabilities") ||
+          (req.method === "GET" && path === "/public/agent-cards/discover") ||
           (req.method === "GET" && path === "/.well-known/agent.json") ||
           (req.method === "GET" && path === "/.well-known/settld-keys.json") ||
           (req.method === "GET" && path === "/openapi.json") ||
@@ -43433,6 +43451,53 @@ export function createApi({
         return sendJson(res, responseStatusCode, responseBody);
       }
 
+      if (req.method === "GET" && path === "/public/agent-cards/discover") {
+        const includeReputationRaw = url.searchParams.get("includeReputation");
+        const includeReputation =
+          includeReputationRaw === null ? true : ["1", "true", "yes", "on"].includes(String(includeReputationRaw).trim().toLowerCase());
+        const requireCapabilityAttestationRaw = url.searchParams.get("requireCapabilityAttestation");
+        const requireCapabilityAttestation =
+          requireCapabilityAttestationRaw === null
+            ? false
+            : ["1", "true", "yes", "on"].includes(String(requireCapabilityAttestationRaw).trim().toLowerCase());
+        const includeAttestationMetadataRaw = url.searchParams.get("includeAttestationMetadata");
+        const includeAttestationMetadata =
+          includeAttestationMetadataRaw === null
+            ? false
+            : ["1", "true", "yes", "on"].includes(String(includeAttestationMetadataRaw).trim().toLowerCase());
+        const includeRoutingFactorsRaw = url.searchParams.get("includeRoutingFactors");
+        const includeRoutingFactors =
+          includeRoutingFactorsRaw === null
+            ? false
+            : ["1", "true", "yes", "on"].includes(String(includeRoutingFactorsRaw).trim().toLowerCase());
+        try {
+          const result = await discoverAgentCards({
+            scope: "public",
+            capability: url.searchParams.get("capability"),
+            status: url.searchParams.get("status"),
+            visibility: url.searchParams.get("visibility"),
+            runtime: url.searchParams.get("runtime"),
+            requireCapabilityAttestation,
+            attestationMinLevel: url.searchParams.get("attestationMinLevel"),
+            attestationIssuerAgentId: url.searchParams.get("attestationIssuerAgentId"),
+            includeAttestationMetadata,
+            minTrustScore: url.searchParams.get("minTrustScore"),
+            riskTier: url.searchParams.get("riskTier"),
+            limit: url.searchParams.get("limit") ? Number(url.searchParams.get("limit")) : 50,
+            offset: url.searchParams.get("offset") ? Number(url.searchParams.get("offset")) : 0,
+            includeReputation,
+            reputationVersion: url.searchParams.get("reputationVersion") ?? "v2",
+            reputationWindow: url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+            scoreStrategy: url.searchParams.get("scoreStrategy") ?? "balanced",
+            requesterAgentId: url.searchParams.get("requesterAgentId"),
+            includeRoutingFactors
+          });
+          return sendJson(res, 200, { ok: true, ...result });
+        } catch (err) {
+          return sendError(res, 400, "invalid public agent card discovery query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+      }
+
       if (req.method === "GET" && path === "/agent-cards/discover") {
         const includeReputationRaw = url.searchParams.get("includeReputation");
         const includeReputation =
@@ -43455,6 +43520,7 @@ export function createApi({
         try {
           const result = await discoverAgentCards({
             tenantId,
+            scope: "tenant",
             capability: url.searchParams.get("capability"),
             status: url.searchParams.get("status"),
             visibility: url.searchParams.get("visibility"),
