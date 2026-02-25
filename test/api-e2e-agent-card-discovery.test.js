@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { createApi } from "../src/api/app.js";
 import { createStore } from "../src/api/store.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
+import { authKeyId, authKeySecret, hashAuthKeySecret } from "../src/core/auth.js";
+import { DEFAULT_TENANT_ID } from "../src/core/tenancy.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
@@ -21,6 +23,31 @@ async function registerAgent(api, { agentId, capabilities = [] }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+}
+
+async function putAuthKey(api, { scopes = ["ops_write", "finance_write", "audit_read"] } = {}) {
+  const keyId = authKeyId();
+  const secret = authKeySecret();
+  const secretHash = hashAuthKeySecret(secret);
+  const createdAt = typeof api.store.nowIso === "function" ? api.store.nowIso() : new Date().toISOString();
+  if (typeof api.store.putAuthKey === "function") {
+    await api.store.putAuthKey({
+      tenantId: DEFAULT_TENANT_ID,
+      authKey: { keyId, secretHash, scopes, status: "active", createdAt }
+    });
+  } else {
+    if (!(api.store.authKeys instanceof Map)) api.store.authKeys = new Map();
+    api.store.authKeys.set(`${DEFAULT_TENANT_ID}\n${keyId}`, {
+      tenantId: DEFAULT_TENANT_ID,
+      keyId,
+      secretHash,
+      scopes,
+      status: "active",
+      createdAt,
+      updatedAt: createdAt
+    });
+  }
+  return `Bearer ${keyId}.${secret}`;
 }
 
 async function createSettledRun({
@@ -628,6 +655,77 @@ test("API e2e: public agent-card discovery rate limit is fail-closed by requeste
   });
   assert.equal(thirdDifferentRequester.statusCode, 200, thirdDifferentRequester.body);
   assert.equal(thirdDifferentRequester.json?.ok, true);
+});
+
+test("API e2e: public agent-card discovery paid bypass requires valid API key + matching toolId", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicDiscoveryWindowSeconds: 300,
+    agentCardPublicDiscoveryMaxPerKey: 1,
+    agentCardPublicDiscoveryPaidBypassEnabled: true,
+    agentCardPublicDiscoveryPaidToolId: "travel_book_flight"
+  });
+
+  const agentId = "agt_card_public_discovery_paid_bypass_1";
+  await registerAgent(api, { agentId, capabilities: ["travel.booking"] });
+  const listed = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_public_discovery_paid_bypass_upsert_1" },
+    body: {
+      agentId,
+      displayName: "Public Discovery Paid Bypass Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/paid-bypass", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(listed.statusCode, 201, listed.body);
+
+  const requesterIp = "203.0.113.99";
+  const basePath = "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active";
+
+  const first = await request(api, {
+    method: "GET",
+    path: basePath,
+    auth: "none",
+    headers: { "x-forwarded-for": requesterIp }
+  });
+  assert.equal(first.statusCode, 200, first.body);
+
+  const blockedWithoutBypass = await request(api, {
+    method: "GET",
+    path: basePath,
+    auth: "none",
+    headers: { "x-forwarded-for": requesterIp }
+  });
+  assert.equal(blockedWithoutBypass.statusCode, 429, blockedWithoutBypass.body);
+  assert.equal(blockedWithoutBypass.json?.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
+
+  const authorization = await putAuthKey(api, { scopes: ["ops_write", "audit_read"] });
+  const bypassed = await request(api, {
+    method: "GET",
+    path: `${basePath}&toolId=travel_book_flight`,
+    auth: "none",
+    headers: {
+      authorization,
+      "x-forwarded-for": requesterIp
+    }
+  });
+  assert.equal(bypassed.statusCode, 200, bypassed.body);
+  assert.equal(bypassed.json?.ok, true);
+
+  const blockedOnToolMismatch = await request(api, {
+    method: "GET",
+    path: `${basePath}&toolId=travel.list_hotels`,
+    auth: "none",
+    headers: {
+      authorization,
+      "x-forwarded-for": requesterIp
+    }
+  });
+  assert.equal(blockedOnToolMismatch.statusCode, 429, blockedOnToolMismatch.body);
+  assert.equal(blockedOnToolMismatch.json?.code, "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED");
 });
 
 test("API e2e: public AgentCard listing fee is fail-closed and charged once", async () => {

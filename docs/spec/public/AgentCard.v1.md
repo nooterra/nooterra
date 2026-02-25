@@ -71,6 +71,19 @@ Runtime status: implemented.
   - `PROXY_AGENT_CARD_PUBLIC_PUBLISH_MAX_PER_AGENT`
 - When exceeded, publish fails closed with `AGENT_CARD_PUBLIC_PUBLISH_RATE_LIMITED`.
 
+## Public discovery anti-abuse controls
+
+- Public discovery can be rate-limited with:
+  - `PROXY_AGENT_CARD_PUBLIC_DISCOVERY_WINDOW_SECONDS`
+  - `PROXY_AGENT_CARD_PUBLIC_DISCOVERY_MAX_PER_KEY`
+- When exceeded, discovery fails closed with `AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED`.
+- Optional paid bypass (disabled by default):
+  - `PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_BYPASS_ENABLED=1`
+  - `PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_TOOL_ID=<toolId>`
+- Bypass is only applied when:
+  - request includes a valid API key, and
+  - `toolId` query param exactly matches `PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_TOOL_ID`.
+
 ## MCP surface
 
 - `settld.agent_card_upsert`

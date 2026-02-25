@@ -455,6 +455,8 @@ export function createApi({
   agentCardPublicPublishMaxPerAgent = null,
   agentCardPublicDiscoveryWindowSeconds = null,
   agentCardPublicDiscoveryMaxPerKey = null,
+  agentCardPublicDiscoveryPaidBypassEnabled = null,
+  agentCardPublicDiscoveryPaidToolId = null,
   agentCardPublicRequireCapabilityAttestation = null,
   agentCardPublicAttestationMinLevel = null,
   agentCardPublicAttestationIssuerAgentId = null
@@ -778,6 +780,62 @@ export function createApi({
     }
     writeFixedWindowCount(publicAgentCardDiscoveryBucketsByKey, requesterKey, windowStartMs, count + 1);
     return { ok: true };
+  }
+
+  function parsePublicDiscoveryPaidToolIdFromQuery(url) {
+    const rawValue = url?.searchParams?.get("toolId") ?? null;
+    return normalizeOptionalX402RefInput(rawValue, "toolId", { allowNull: true, max: 200 });
+  }
+
+  async function resolvePublicAgentCardDiscoveryPaidBypass({ req, url, tenantId, principalId }) {
+    if (!agentCardPublicDiscoveryPaidBypassEnabledValue) {
+      return { ok: false, reason: "disabled" };
+    }
+    const expectedToolId = agentCardPublicDiscoveryPaidToolIdValue;
+    if (!expectedToolId) {
+      return { ok: false, reason: "tool_not_configured" };
+    }
+
+    let requestedToolId = null;
+    try {
+      requestedToolId = parsePublicDiscoveryPaidToolIdFromQuery(url);
+    } catch {
+      return { ok: false, reason: "tool_query_invalid" };
+    }
+    if (!requestedToolId || requestedToolId !== expectedToolId) {
+      return {
+        ok: false,
+        reason: "tool_mismatch",
+        expectedToolId,
+        requestedToolId: requestedToolId ?? null
+      };
+    }
+
+    const hasAuthHeader =
+      (typeof req?.headers?.authorization === "string" && req.headers.authorization.trim() !== "") ||
+      (typeof req?.headers?.["x-proxy-api-key"] === "string" && req.headers["x-proxy-api-key"].trim() !== "");
+    if (!hasAuthHeader) return { ok: false, reason: "auth_missing" };
+
+    const paidAuth = await authenticateRequest({
+      req,
+      store,
+      tenantId,
+      legacyTokenScopes: opsTokenScopes,
+      nowIso
+    });
+    if (!paidAuth.ok || paidAuth.method !== "api_key") {
+      return {
+        ok: false,
+        reason: paidAuth.reason ?? "api_key_required"
+      };
+    }
+    return {
+      ok: true,
+      mode: "api_key",
+      principalId: paidAuth.principalId ?? principalId ?? "anon",
+      keyId: paidAuth.keyId ?? null,
+      expectedToolId
+    };
   }
 
   function parseExportDestinations(raw) {
@@ -1213,9 +1271,26 @@ export function createApi({
     }
     return n;
   })();
+  const agentCardPublicDiscoveryPaidBypassEnabledValue = (() => {
+    const raw =
+      agentCardPublicDiscoveryPaidBypassEnabled ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_BYPASS_ENABLED ?? null : null);
+    return parseBooleanLike(raw, false);
+  })();
+  const agentCardPublicDiscoveryPaidToolIdValue = normalizeOptionalX402RefInput(
+    agentCardPublicDiscoveryPaidToolId ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_TOOL_ID ?? null : null),
+    "PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_TOOL_ID",
+    { allowNull: true, max: 200 }
+  );
   if (agentCardPublicDiscoveryMaxPerKeyValue > 0 && agentCardPublicDiscoveryWindowSecondsValue <= 0) {
     throw new TypeError(
       "PROXY_AGENT_CARD_PUBLIC_DISCOVERY_WINDOW_SECONDS must be configured when public discovery limits are enabled"
+    );
+  }
+  if (agentCardPublicDiscoveryPaidBypassEnabledValue && !agentCardPublicDiscoveryPaidToolIdValue) {
+    throw new TypeError(
+      "PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_TOOL_ID must be configured when PROXY_AGENT_CARD_PUBLIC_DISCOVERY_PAID_BYPASS_ENABLED=1"
     );
   }
   const agentCardPublicRequireCapabilityAttestationValue = (() => {
@@ -26092,26 +26167,34 @@ export function createApi({
         const publicAgentCardDiscoveryRoute =
           req.method === "GET" && (path === "/public/agent-cards/discover" || path === "/public/agent-cards/stream");
         if (publicAgentCardDiscoveryRoute) {
-          const discoveryRate = takePublicAgentCardDiscoveryToken({ req, tenantId });
-          if (!discoveryRate.ok) {
-            metricInc("agent_card_public_discovery_rate_limited_total", { scope: discoveryRate.scope ?? "requester" }, 1);
-            try {
-              res.setHeader("retry-after", String(discoveryRate.retryAfterSeconds));
-            } catch {
-              // ignore
+          const paidBypass = await resolvePublicAgentCardDiscoveryPaidBypass({ req, url, tenantId, principalId });
+          if (paidBypass.ok) {
+            metricInc("agent_card_public_discovery_rate_bypass_total", { mode: paidBypass.mode ?? "unknown" }, 1);
+            if (typeof paidBypass.principalId === "string" && paidBypass.principalId.trim() !== "") {
+              principalId = paidBypass.principalId;
             }
-            return sendError(
-              res,
-              429,
-              "public agent card discovery rate limit exceeded",
-              {
-                scope: discoveryRate.scope ?? "requester",
-                max: discoveryRate.max ?? null,
-                retryAfterSeconds: discoveryRate.retryAfterSeconds ?? null,
-                windowSeconds: discoveryRate.windowSeconds ?? null
-              },
-              { code: "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED" }
-            );
+          } else {
+            const discoveryRate = takePublicAgentCardDiscoveryToken({ req, tenantId });
+            if (!discoveryRate.ok) {
+              metricInc("agent_card_public_discovery_rate_limited_total", { scope: discoveryRate.scope ?? "requester" }, 1);
+              try {
+                res.setHeader("retry-after", String(discoveryRate.retryAfterSeconds));
+              } catch {
+                // ignore
+              }
+              return sendError(
+                res,
+                429,
+                "public agent card discovery rate limit exceeded",
+                {
+                  scope: discoveryRate.scope ?? "requester",
+                  max: discoveryRate.max ?? null,
+                  retryAfterSeconds: discoveryRate.retryAfterSeconds ?? null,
+                  windowSeconds: discoveryRate.windowSeconds ?? null
+                },
+                { code: "AGENT_CARD_PUBLIC_DISCOVERY_RATE_LIMITED" }
+              );
+            }
           }
         }
 
