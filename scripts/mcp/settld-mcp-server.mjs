@@ -1687,6 +1687,23 @@ function buildTools() {
       }
     },
     {
+      name: "settld.session_events_stream",
+      description: "Read bounded SessionEvent SSE updates for a session.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["sessionId"],
+        properties: {
+          sessionId: { type: "string" },
+          eventType: { type: ["string", "null"], default: null },
+          sinceEventId: { type: ["string", "null"], default: null },
+          lastEventId: { type: ["string", "null"], default: null },
+          maxEvents: { type: ["integer", "null"], minimum: 1, maximum: 200, default: 20 },
+          timeoutMs: { type: ["integer", "null"], minimum: 200, maximum: 30000, default: 2000 }
+        }
+      }
+    },
+    {
       name: "settld.session_event_append",
       description: "Append a SessionEvent.v1 to a session with chain precondition checks.",
       inputSchema: {
@@ -3195,6 +3212,32 @@ async function main() {
               { method: "GET" }
             );
             result = { ok: true, sessionId, ...redactSecrets(out) };
+          } else if (name === "settld.session_events_stream") {
+            const sessionId = String(args?.sessionId ?? "").trim();
+            assertNonEmptyString(sessionId, "sessionId");
+            const query = new URLSearchParams();
+            if (typeof args?.eventType === "string" && args.eventType.trim() !== "") query.set("eventType", args.eventType.trim());
+            if (typeof args?.sinceEventId === "string" && args.sinceEventId.trim() !== "") query.set("sinceEventId", args.sinceEventId.trim());
+            const lastEventId = typeof args?.lastEventId === "string" && args.lastEventId.trim() !== "" ? args.lastEventId.trim() : null;
+            const maxEvents = parseOptionalIntegerArg(args?.maxEvents, "maxEvents", { min: 1, max: 200 });
+            const timeoutMs = parseOptionalIntegerArg(args?.timeoutMs, "timeoutMs", { min: 200, max: 30_000 });
+            const out = await client.requestSseEvents(
+              `/sessions/${encodeURIComponent(sessionId)}/events/stream${query.toString() ? `?${query.toString()}` : ""}`,
+              {
+                headers: lastEventId ? { "last-event-id": lastEventId } : {},
+                ...(maxEvents === null ? {} : { maxEvents }),
+                ...(timeoutMs === null ? {} : { timeoutMs })
+              }
+            );
+            result = {
+              ok: true,
+              sessionId,
+              eventCount: Array.isArray(out?.events) ? out.events.length : 0,
+              lastEventId: out?.lastEventId ?? null,
+              truncated: out?.truncated === true,
+              timedOut: out?.timedOut === true,
+              events: redactSecrets(out?.events ?? [])
+            };
           } else if (name === "settld.session_event_append") {
             const sessionId = String(args?.sessionId ?? "").trim();
             const eventType = String(args?.eventType ?? "").trim();

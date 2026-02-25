@@ -142,6 +142,7 @@ test("mcp spike: initialize -> tools/list -> tools/call (submit_evidence)", asyn
   assert.ok(names.includes("settld.session_list"));
   assert.ok(names.includes("settld.session_get"));
   assert.ok(names.includes("settld.session_events_list"));
+  assert.ok(names.includes("settld.session_events_stream"));
   assert.ok(names.includes("settld.session_event_append"));
   assert.ok(names.includes("settld.session_replay_pack_get"));
   assert.ok(names.includes("settld.relationships_list"));
@@ -400,6 +401,24 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
         return;
       }
 
+      if (req.method === "GET" && req.url === `/sessions/${sessionId}/events/stream?eventType=TASK_REQUESTED&sinceEventId=evt_prev_1`) {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.end(
+          [
+            "id: evt_ready",
+            "event: session.ready",
+            `data: ${JSON.stringify({ ok: true, sessionId })}`,
+            "",
+            "id: evt_session_2",
+            "event: session.event",
+            `data: ${JSON.stringify({ id: "evt_session_2", type: "TASK_REQUESTED", streamId: sessionId })}`,
+            "",
+            ""
+          ].join("\n")
+        );
+        return;
+      }
+
       if (req.method === "POST" && req.url === `/sessions/${sessionId}/events`) {
         assert.equal(req.headers["x-settld-protocol"], "1.0");
         assert.equal(req.headers["x-proxy-expected-prev-chain-hash"], "null");
@@ -520,6 +539,22 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
   assert.equal(events.result?.isError, false);
   assert.equal(JSON.parse(events.result?.content?.[0]?.text ?? "{}")?.result?.sessionId, sessionId);
 
+  const streamEvents = await rpc("tools/call", {
+    name: "settld.session_events_stream",
+    arguments: {
+      sessionId,
+      eventType: "TASK_REQUESTED",
+      sinceEventId: "evt_prev_1",
+      maxEvents: 5,
+      timeoutMs: 2000
+    }
+  });
+  assert.equal(streamEvents.result?.isError, false);
+  const streamEventsParsed = JSON.parse(streamEvents.result?.content?.[0]?.text ?? "{}");
+  assert.equal(streamEventsParsed?.result?.sessionId, sessionId);
+  assert.equal(streamEventsParsed?.result?.eventCount, 2);
+  assert.equal(streamEventsParsed?.result?.lastEventId, "evt_session_2");
+
   const appended = await rpc("tools/call", {
     name: "settld.session_event_append",
     arguments: {
@@ -552,6 +587,7 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
     "GET /sessions?participantAgentId=agt_worker_1&limit=25&offset=0",
     `GET /sessions/${sessionId}`,
     `GET /sessions/${sessionId}/events?eventType=TASK_REQUESTED&limit=10&offset=0`,
+    `GET /sessions/${sessionId}/events/stream?eventType=TASK_REQUESTED&sinceEventId=evt_prev_1`,
     `GET /sessions/${sessionId}/events?limit=1&offset=0`,
     `POST /sessions/${sessionId}/events`,
     `GET /sessions/${sessionId}/replay-pack`

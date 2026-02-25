@@ -672,6 +672,95 @@ export class SettldClient {
     return this.request("GET", `/task-acceptances/${encodeURIComponent(acceptanceId)}`, opts);
   }
 
+  createSession(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    return this.request("POST", "/sessions", { ...opts, body });
+  }
+
+  listSessions(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.sessionId) qs.set("sessionId", String(params.sessionId));
+    if (params.participantAgentId) qs.set("participantAgentId", String(params.participantAgentId));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/sessions${suffix}`, opts);
+  }
+
+  getSession(sessionId, opts) {
+    assertNonEmptyString(sessionId, "sessionId");
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}`, opts);
+  }
+
+  listSessionEvents(sessionId, params = {}, opts) {
+    assertNonEmptyString(sessionId, "sessionId");
+    const qs = new URLSearchParams();
+    if (params.eventType) qs.set("eventType", String(params.eventType));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/events${suffix}`, opts);
+  }
+
+  appendSessionEvent(sessionId, body, opts = {}) {
+    assertNonEmptyString(sessionId, "sessionId");
+    if (!opts?.expectedPrevChainHash) throw new TypeError("expectedPrevChainHash is required for appendSessionEvent");
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.type, "body.type");
+    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/events`, { ...opts, body });
+  }
+
+  getSessionReplayPack(sessionId, opts) {
+    assertNonEmptyString(sessionId, "sessionId");
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/replay-pack`, opts);
+  }
+
+  async *streamSessionEvents(sessionId, params = {}, opts = {}) {
+    assertNonEmptyString(sessionId, "sessionId");
+    const qs = new URLSearchParams();
+    if (params.eventType) qs.set("eventType", String(params.eventType));
+    if (params.sinceEventId) qs.set("sinceEventId", String(params.sinceEventId));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+
+    const rid = opts.requestId ?? randomRequestId();
+    const headers = {
+      accept: "text/event-stream",
+      "x-proxy-tenant-id": this.tenantId,
+      "x-settld-protocol": this.protocol,
+      "x-request-id": rid
+    };
+    if (this.userAgent) headers["user-agent"] = this.userAgent;
+    if (this.apiKey) headers["authorization"] = `Bearer ${this.apiKey}`;
+    if (this.xApiKey) headers["x-api-key"] = this.xApiKey;
+    if (this.opsToken) headers["x-proxy-ops-token"] = this.opsToken;
+    if (opts.lastEventId) headers["last-event-id"] = String(opts.lastEventId);
+
+    const url = new URL(`/sessions/${encodeURIComponent(sessionId)}/events/stream${suffix}`, this.baseUrl);
+    const res = await this.fetchImpl(url.toString(), { method: "GET", headers, signal: opts.signal });
+    const outHeaders = headersToRecord(res.headers);
+    const responseRequestId = outHeaders["x-request-id"] ?? null;
+    if (!res.ok) {
+      const parsed = await readJson(res);
+      const errBody = parsed && typeof parsed === "object" ? parsed : {};
+      const e = {
+        status: res.status,
+        code: errBody?.code ?? null,
+        message: errBody?.error ?? `request failed (${res.status})`,
+        details: errBody?.details,
+        requestId: responseRequestId
+      };
+      const thrown = new Error(e.message);
+      thrown.settld = e;
+      throw thrown;
+    }
+
+    for await (const event of parseSseResponse(res)) {
+      yield event;
+    }
+  }
+
   getAgentWallet(agentId, opts) {
     assertNonEmptyString(agentId, "agentId");
     return this.request("GET", `/agents/${encodeURIComponent(agentId)}/wallet`, opts);

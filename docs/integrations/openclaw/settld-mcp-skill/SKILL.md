@@ -119,7 +119,7 @@ When slash-invoked, keep behavior deterministic:
 - Delegation grant: `settld.delegation_grant_issue`
 - Authority grant: `settld.authority_grant_issue`
 - Work order: `settld.work_order_create` -> `settld.work_order_accept` -> `settld.work_order_progress` -> `settld.work_order_complete` -> `settld.work_order_settle`
-- Session collaboration: `settld.session_create` -> `settld.session_event_append` -> `settld.session_events_list` -> `settld.session_replay_pack_get`
+- Session collaboration: `settld.session_create` -> `settld.session_event_append` -> `settld.session_events_list` -> `settld.session_events_stream` -> `settld.session_replay_pack_get`
 - Relationship graph: `settld.relationships_list` -> `settld.public_reputation_summary_get` -> `settld.interaction_graph_pack_get` (optionally `sign=true`)
 - Paid tool call: `settld_call` (`tool=settld.weather_current_paid` or `tool=settld.exa_search_paid`)
 - Settlement visibility: `settld.x402_gate_get` or work-order read path

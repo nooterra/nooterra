@@ -1570,6 +1570,52 @@ export class SettldClient {
     acceptanceId: string,
     opts?: RequestOptions
   ): Promise<SettldResponse<{ taskAcceptance: Record<string, unknown> }>>;
+  createSession(
+    body: {
+      sessionId?: string;
+      participants?: Array<{ agentId: string; role?: string | null; displayName?: string | null }>;
+      visibility?: "public" | "tenant" | "private";
+      status?: "open" | "closed";
+      title?: string | null;
+      summary?: string | null;
+      metadata?: Record<string, unknown> | null;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ session: Record<string, unknown> }>>;
+  listSessions(
+    params?: {
+      sessionId?: string;
+      participantAgentId?: string;
+      visibility?: "public" | "tenant" | "private";
+      status?: "open" | "closed";
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ sessions: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
+  getSession(sessionId: string, opts?: RequestOptions): Promise<SettldResponse<{ session: Record<string, unknown> }>>;
+  listSessionEvents(
+    sessionId: string,
+    params?: { eventType?: string; limit?: number; offset?: number },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ sessionId: string; events: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  appendSessionEvent(
+    sessionId: string,
+    body: {
+      type: string;
+      at?: string;
+      actor?: Record<string, unknown>;
+      payload?: Record<string, unknown>;
+      provenance?: Record<string, unknown>;
+    },
+    opts: RequestOptions
+  ): Promise<SettldResponse<{ sessionId: string; event: Record<string, unknown>; currentPrevChainHash: string | null }>>;
+  getSessionReplayPack(sessionId: string, opts?: RequestOptions): Promise<SettldResponse<{ replayPack: Record<string, unknown> }>>;
+  streamSessionEvents(
+    sessionId: string,
+    params?: { eventType?: string; sinceEventId?: string },
+    opts?: Pick<RequestOptions, "requestId" | "signal"> & { lastEventId?: string }
+  ): AsyncGenerator<SettldSseEvent, void, unknown>;
   getAgentWallet(agentId: string, opts?: RequestOptions): Promise<SettldResponse<{ wallet: AgentWalletV1 }>>;
   createAuthorityGrant(
     body: {
