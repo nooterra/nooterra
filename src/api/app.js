@@ -145,6 +145,14 @@ import {
   validateSubAgentWorkOrderV1
 } from "../core/subagent-work-order.js";
 import {
+  SESSION_EVENT_TYPE,
+  SESSION_VISIBILITY,
+  buildSessionEventPayloadV1,
+  buildSessionV1,
+  validateSessionEventPayloadV1,
+  validateSessionV1
+} from "../core/session-collab.js";
+import {
   DISPUTE_OPEN_ENVELOPE_SCHEMA_VERSION,
   validateDisputeOpenEnvelopeV1
 } from "../core/dispute-open-envelope.js";
@@ -7259,6 +7267,25 @@ export function createApi({
     throw new TypeError("visibility must be public|tenant|private|all");
   }
 
+  function parseSessionVisibility(rawValue, { allowAll = true, defaultVisibility = SESSION_VISIBILITY.TENANT } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultVisibility;
+    const value = String(rawValue).trim().toLowerCase();
+    if (value === SESSION_VISIBILITY.PUBLIC || value === SESSION_VISIBILITY.TENANT || value === SESSION_VISIBILITY.PRIVATE) {
+      return value;
+    }
+    if (allowAll && value === "all") return value;
+    throw new TypeError("visibility must be public|tenant|private|all");
+  }
+
+  function parseSessionEventType(rawValue) {
+    const value = String(rawValue ?? "").trim().toUpperCase();
+    if (!value) throw new TypeError("eventType is required");
+    if (!Object.values(SESSION_EVENT_TYPE).includes(value)) {
+      throw new TypeError(`eventType must be one of ${Object.values(SESSION_EVENT_TYPE).join("|")}`);
+    }
+    return value;
+  }
+
   const TRUST_ROUTING_FACTORS_SCHEMA_VERSION = "TrustRoutingFactors.v1";
   const TRUST_ROUTING_WEIGHTS = Object.freeze({
     settlementOutcome: 35,
@@ -13271,6 +13298,52 @@ export function createApi({
     if (typeof store.getAgentCard === "function") return store.getAgentCard({ tenantId, agentId });
     if (store.agentCards instanceof Map) return store.agentCards.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
     throw new TypeError("agent cards not supported for this store");
+  }
+
+  async function getSessionRecord({ tenantId, sessionId }) {
+    if (typeof store.getSession === "function") return store.getSession({ tenantId, sessionId });
+    if (store.sessions instanceof Map) return store.sessions.get(makeScopedKey({ tenantId, id: String(sessionId) })) ?? null;
+    throw new TypeError("sessions not supported for this store");
+  }
+
+  async function getSessionEventRecords({ tenantId, sessionId }) {
+    if (typeof store.getSessionEvents === "function") return store.getSessionEvents({ tenantId, sessionId });
+    if (store.sessionEvents instanceof Map) return store.sessionEvents.get(makeScopedKey({ tenantId, id: String(sessionId) })) ?? [];
+    throw new TypeError("session events not supported for this store");
+  }
+
+  async function listSessionRecords({
+    tenantId,
+    sessionId = null,
+    visibility = null,
+    participantAgentId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    if (typeof store.listSessions === "function") {
+      return store.listSessions({ tenantId, sessionId, visibility, participantAgentId, limit, offset });
+    }
+    if (!(store.sessions instanceof Map)) throw new TypeError("sessions not supported for this store");
+    const sessionFilter = typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId.trim() : null;
+    const visibilityFilter = typeof visibility === "string" && visibility.trim() !== "" ? visibility.trim().toLowerCase() : null;
+    const participantFilter =
+      typeof participantAgentId === "string" && participantAgentId.trim() !== "" ? participantAgentId.trim() : null;
+    const safeLimit = Math.min(1000, Number.isSafeInteger(limit) && limit > 0 ? limit : 200);
+    const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+    const rows = [];
+    for (const row of store.sessions.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (sessionFilter && String(row.sessionId ?? "") !== sessionFilter) continue;
+      if (visibilityFilter && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
+      if (participantFilter) {
+        const participants = Array.isArray(row.participants) ? row.participants : [];
+        if (!participants.includes(participantFilter)) continue;
+      }
+      rows.push(row);
+    }
+    rows.sort((left, right) => String(left.sessionId ?? "").localeCompare(String(right.sessionId ?? "")));
+    return rows.slice(safeOffset, safeOffset + safeLimit);
   }
 
   async function getSubAgentWorkOrderRecord({ tenantId, workOrderId }) {
@@ -23352,6 +23425,7 @@ export function createApi({
       p.startsWith("/ops") ||
       p.startsWith("/x402") ||
       p.startsWith("/runs") ||
+      p.startsWith("/sessions") ||
       p.startsWith("/agent-cards") ||
       p.startsWith("/capability-attestations") ||
       p.startsWith("/work-orders") ||
@@ -43167,6 +43241,271 @@ export function createApi({
 	              : null;
 	          return sendJson(res, 200, { ok: true, gate, settlement, holdbackSettlement });
 	        }
+      }
+
+      if (req.method === "POST" && path === "/sessions") {
+        const hasSessionStore = typeof store.getSession === "function" || typeof store.listSessions === "function" || store.sessions instanceof Map;
+        if (!hasSessionStore) return sendError(res, 501, "sessions not supported for this store");
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const sessionId = typeof body?.sessionId === "string" && body.sessionId.trim() !== "" ? body.sessionId.trim() : createId("sess");
+        const existingSession = await getSessionRecord({ tenantId, sessionId });
+        if (existingSession) return sendError(res, 409, "session already exists", null, { code: "CONFLICT" });
+
+        let visibility = SESSION_VISIBILITY.TENANT;
+        try {
+          visibility = parseSessionVisibility(body?.visibility, { allowAll: false, defaultVisibility: SESSION_VISIBILITY.TENANT });
+        } catch (err) {
+          return sendError(res, 400, "invalid session visibility", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        let session = null;
+        try {
+          session = buildSessionV1({
+            sessionId,
+            tenantId,
+            visibility,
+            participants: Array.isArray(body?.participants) ? body.participants : [],
+            policyRef: body?.policyRef ?? null,
+            metadata: body?.metadata ?? null,
+            createdAt: typeof body?.createdAt === "string" && body.createdAt.trim() !== "" ? body.createdAt.trim() : nowIso()
+          });
+          validateSessionV1(session);
+        } catch (err) {
+          return sendError(res, 400, "invalid session", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const responseBody = { ok: true, session };
+        const ops = [{ kind: "SESSION_UPSERT", tenantId, sessionId, session }];
+        if (idemStoreKey) {
+          ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+        }
+        await commitTx(ops);
+        return sendJson(res, 201, responseBody);
+      }
+
+      if (req.method === "GET" && path === "/sessions") {
+        const hasSessionStore = typeof store.listSessions === "function" || store.sessions instanceof Map;
+        if (!hasSessionStore) return sendError(res, 501, "sessions not supported for this store");
+        const sessionIdRaw = url.searchParams.get("sessionId");
+        const visibilityRaw = url.searchParams.get("visibility");
+        const participantAgentIdRaw = url.searchParams.get("participantAgentId");
+        const limitRaw = url.searchParams.get("limit");
+        const offsetRaw = url.searchParams.get("offset");
+
+        const sessionId = typeof sessionIdRaw === "string" && sessionIdRaw.trim() !== "" ? sessionIdRaw.trim() : null;
+        const participantAgentId =
+          typeof participantAgentIdRaw === "string" && participantAgentIdRaw.trim() !== "" ? participantAgentIdRaw.trim() : null;
+        const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
+        const offset = offsetRaw === null || offsetRaw === "" ? 0 : Number(offsetRaw);
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+          return sendError(res, 400, "invalid session query", { message: "limit must be an integer in range 1..2000" }, { code: "SCHEMA_INVALID" });
+        }
+        if (!Number.isSafeInteger(offset) || offset < 0) {
+          return sendError(res, 400, "invalid session query", { message: "offset must be a non-negative integer" }, { code: "SCHEMA_INVALID" });
+        }
+
+        let visibility = null;
+        try {
+          visibility =
+            typeof visibilityRaw === "string" && visibilityRaw.trim() !== ""
+              ? parseSessionVisibility(visibilityRaw, { allowAll: false, defaultVisibility: SESSION_VISIBILITY.TENANT })
+              : null;
+        } catch (err) {
+          return sendError(res, 400, "invalid session query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        let sessions = [];
+        try {
+          sessions = await listSessionRecords({ tenantId, sessionId, visibility, participantAgentId, limit, offset });
+        } catch (err) {
+          return sendError(res, 400, "invalid session query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        return sendJson(res, 200, { ok: true, sessions, limit, offset });
+      }
+
+      {
+        const parts = path.split("/").filter(Boolean);
+
+        if (parts[0] === "sessions" && parts[1] && parts.length === 2 && req.method === "GET") {
+          const sessionId = decodePathPart(parts[1]);
+          let session = null;
+          try {
+            session = await getSessionRecord({ tenantId, sessionId });
+          } catch (err) {
+            return sendError(res, 501, "sessions not supported for this store", { message: err?.message });
+          }
+          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          return sendJson(res, 200, { ok: true, session });
+        }
+
+        if (parts[0] === "sessions" && parts[1] && parts[2] === "events" && parts.length === 3 && req.method === "GET") {
+          const sessionId = decodePathPart(parts[1]);
+          const eventTypeRaw = url.searchParams.get("eventType");
+          const limitRaw = url.searchParams.get("limit");
+          const offsetRaw = url.searchParams.get("offset");
+          const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
+          const offset = offsetRaw === null || offsetRaw === "" ? 0 : Number(offsetRaw);
+          if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+            return sendError(res, 400, "invalid session event query", { message: "limit must be an integer in range 1..2000" }, { code: "SCHEMA_INVALID" });
+          }
+          if (!Number.isSafeInteger(offset) || offset < 0) {
+            return sendError(res, 400, "invalid session event query", { message: "offset must be a non-negative integer" }, { code: "SCHEMA_INVALID" });
+          }
+
+          let eventType = null;
+          try {
+            eventType = typeof eventTypeRaw === "string" && eventTypeRaw.trim() !== "" ? parseSessionEventType(eventTypeRaw) : null;
+          } catch (err) {
+            return sendError(res, 400, "invalid session event query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const session = await getSessionRecord({ tenantId, sessionId });
+          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          let events = await getSessionEventRecords({ tenantId, sessionId });
+          if (!Array.isArray(events)) events = [];
+          if (eventType) {
+            events = events.filter((row) => String(row?.type ?? "").toUpperCase() === eventType);
+          }
+          const paged = events.slice(offset, offset + limit);
+          return sendJson(res, 200, {
+            ok: true,
+            sessionId,
+            events: paged,
+            limit,
+            offset,
+            currentPrevChainHash: getCurrentPrevChainHash(events)
+          });
+        }
+
+        if (parts[0] === "sessions" && parts[1] && parts[2] === "events" && parts.length === 3 && req.method === "POST") {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          const sessionId = decodePathPart(parts[1]);
+          const body = await readJsonBody(req);
+          const expectedHeader = parseExpectedPrevChainHashHeader(req);
+          if (!expectedHeader.ok) return sendError(res, 428, "missing precondition", "x-proxy-expected-prev-chain-hash is required");
+
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({
+              method: "POST",
+              requestPath: path,
+              expectedPrevChainHash: expectedHeader.expectedPrevChainHash,
+              body
+            }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+
+          const session = await getSessionRecord({ tenantId, sessionId });
+          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          const existingEvents = await getSessionEventRecords({ tenantId, sessionId });
+          const currentPrevChainHash = getCurrentPrevChainHash(Array.isArray(existingEvents) ? existingEvents : []);
+          if (expectedHeader.expectedPrevChainHash !== currentPrevChainHash) {
+            return sendError(res, 409, "event append conflict", {
+              expectedPrevChainHash: currentPrevChainHash,
+              gotExpectedPrevChainHash: expectedHeader.expectedPrevChainHash
+            });
+          }
+
+          let eventType = null;
+          try {
+            eventType = parseSessionEventType(body?.eventType ?? body?.type ?? null);
+          } catch (err) {
+            return sendError(res, 400, "invalid session event", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          let payload = null;
+          try {
+            payload = buildSessionEventPayloadV1({
+              sessionId,
+              eventType,
+              payload: body?.payload ?? null,
+              traceId: body?.traceId ?? null,
+              at: typeof body?.at === "string" && body.at.trim() !== "" ? body.at.trim() : nowIso()
+            });
+            validateSessionEventPayloadV1(payload);
+          } catch (err) {
+            return sendError(res, 400, "invalid session event payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const draft = createChainedEvent({
+            streamId: sessionId,
+            type: payload.eventType,
+            actor:
+              body?.actor && typeof body.actor === "object" && !Array.isArray(body.actor)
+                ? body.actor
+                : { type: "agent", id: principalId },
+            payload,
+            at: payload.at
+          });
+          const nextEvents = appendChainedEvent({ events: Array.isArray(existingEvents) ? existingEvents : [], event: draft, signer: serverSigner });
+          const event = nextEvents[nextEvents.length - 1];
+
+          let nextSession = null;
+          try {
+            const revision = Number(session?.revision ?? 0);
+            nextSession = normalizeForCanonicalJson(
+              {
+                ...session,
+                updatedAt: payload.at,
+                revision: Number.isSafeInteger(revision) && revision >= 0 ? revision + 1 : 1
+              },
+              { path: "$" }
+            );
+            validateSessionV1(nextSession);
+          } catch (err) {
+            return sendError(res, 409, "session event append blocked", { message: err?.message }, { code: "SESSION_EVENT_APPEND_BLOCKED" });
+          }
+
+          const responseBody = { ok: true, session: nextSession, event };
+          const ops = [
+            { kind: "SESSION_EVENTS_APPENDED", tenantId, sessionId, events: [event] },
+            { kind: "SESSION_UPSERT", tenantId, sessionId, session: nextSession }
+          ];
+          if (idemStoreKey) {
+            ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+          }
+          try {
+            await commitTx(ops);
+          } catch (err) {
+            if (err?.code === "PREV_CHAIN_HASH_MISMATCH") {
+              return sendError(res, 409, "event append conflict", {
+                expectedPrevChainHash: err.expectedPrevChainHash ?? null,
+                gotPrevChainHash: err.gotPrevChainHash ?? null
+              });
+            }
+            throw err;
+          }
+          return sendJson(res, 201, responseBody);
+        }
       }
 
       if (req.method === "POST" && path === "/agent-cards") {
