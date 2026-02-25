@@ -376,6 +376,10 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     arbitrationCases: new Map(), // `${tenantId}\n${caseId}` -> ArbitrationCase.v1 snapshot
     agreementDelegations: new Map(), // `${tenantId}\n${delegationId}` -> AgreementDelegation.v1
     delegationGrants: new Map(), // `${tenantId}\n${grantId}` -> DelegationGrant.v1
+    authorityGrants: new Map(), // `${tenantId}\n${grantId}` -> AuthorityGrant.v1
+    taskQuotes: new Map(), // `${tenantId}\n${quoteId}` -> TaskQuote.v1
+    taskOffers: new Map(), // `${tenantId}\n${offerId}` -> TaskOffer.v1
+    taskAcceptances: new Map(), // `${tenantId}\n${acceptanceId}` -> TaskAcceptance.v1
     capabilityAttestations: new Map(), // `${tenantId}\n${attestationId}` -> CapabilityAttestation.v1
     subAgentWorkOrders: new Map(), // `${tenantId}\n${workOrderId}` -> SubAgentWorkOrder.v1
     subAgentCompletionReceipts: new Map(), // `${tenantId}\n${receiptId}` -> SubAgentCompletionReceipt.v1
@@ -972,6 +976,50 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     return out.slice(safeOffset, safeOffset + safeLimit);
   };
 
+  store.listAgentCardsPublic = async function listAgentCardsPublic({
+    status = null,
+    visibility = "public",
+    capability = null,
+    runtime = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    if (visibility !== null && visibility !== undefined && String(visibility).trim().toLowerCase() !== "public") {
+      throw new TypeError("visibility must be public");
+    }
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const capabilityFilter = capability ? String(capability).trim() : null;
+    const runtimeFilter = runtime ? String(runtime).trim().toLowerCase() : null;
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const out = [];
+    for (const row of store.agentCards.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (String(row.visibility ?? "").toLowerCase() !== "public") continue;
+      if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      if (runtimeFilter) {
+        const rowRuntime =
+          row?.host && typeof row.host === "object" && !Array.isArray(row.host) && typeof row.host.runtime === "string"
+            ? row.host.runtime.trim().toLowerCase()
+            : "";
+        if (rowRuntime !== runtimeFilter) continue;
+      }
+      if (capabilityFilter) {
+        const caps = Array.isArray(row.capabilities) ? row.capabilities : [];
+        if (!caps.includes(capabilityFilter)) continue;
+      }
+      out.push(row);
+    }
+    out.sort((left, right) => {
+      const tenantOrder = String(left.tenantId ?? "").localeCompare(String(right.tenantId ?? ""));
+      if (tenantOrder !== 0) return tenantOrder;
+      return String(left.agentId ?? "").localeCompare(String(right.agentId ?? ""));
+    });
+    return out.slice(safeOffset, safeOffset + safeLimit);
+  };
+
   store.getSession = async function getSession({ tenantId = DEFAULT_TENANT_ID, sessionId } = {}) {
     tenantId = normalizeTenantId(tenantId);
     if (typeof sessionId !== "string" || sessionId.trim() === "") throw new TypeError("sessionId is required");
@@ -1306,6 +1354,283 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       out.push(row);
     }
     out.sort((left, right) => String(left.grantId ?? "").localeCompare(String(right.grantId ?? "")));
+    return out.slice(offset, offset + safeLimit);
+  };
+
+  store.getAuthorityGrant = async function getAuthorityGrant({ tenantId = DEFAULT_TENANT_ID, grantId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof grantId !== "string" || grantId.trim() === "") throw new TypeError("grantId is required");
+    return store.authorityGrants.get(makeScopedKey({ tenantId, id: String(grantId) })) ?? null;
+  };
+
+  store.putAuthorityGrant = async function putAuthorityGrant({ tenantId = DEFAULT_TENANT_ID, authorityGrant, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!authorityGrant || typeof authorityGrant !== "object" || Array.isArray(authorityGrant)) {
+      throw new TypeError("authorityGrant is required");
+    }
+    const grantId = authorityGrant.grantId ?? null;
+    if (typeof grantId !== "string" || grantId.trim() === "") throw new TypeError("authorityGrant.grantId is required");
+    const key = makeScopedKey({ tenantId, id: String(grantId) });
+    const at = authorityGrant.updatedAt ?? authorityGrant.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "AUTHORITY_GRANT_UPSERT", tenantId, grantId, authorityGrant: { ...authorityGrant, tenantId, grantId } }],
+      audit
+    });
+    return store.authorityGrants.get(key) ?? null;
+  };
+
+  store.listAuthorityGrants = async function listAuthorityGrants({
+    tenantId = DEFAULT_TENANT_ID,
+    grantId = null,
+    grantHash = null,
+    principalId = null,
+    granteeAgentId = null,
+    includeRevoked = true,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (grantId !== null && (typeof grantId !== "string" || grantId.trim() === "")) throw new TypeError("grantId must be null or a non-empty string");
+    if (grantHash !== null && (typeof grantHash !== "string" || grantHash.trim() === "")) {
+      throw new TypeError("grantHash must be null or a non-empty string");
+    }
+    if (principalId !== null && (typeof principalId !== "string" || principalId.trim() === "")) {
+      throw new TypeError("principalId must be null or a non-empty string");
+    }
+    if (granteeAgentId !== null && (typeof granteeAgentId !== "string" || granteeAgentId.trim() === "")) {
+      throw new TypeError("granteeAgentId must be null or a non-empty string");
+    }
+    if (includeRevoked !== true && includeRevoked !== false) throw new TypeError("includeRevoked must be a boolean");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const grantIdFilter = grantId ? String(grantId).trim() : null;
+    const grantHashFilter = grantHash ? String(grantHash).trim().toLowerCase() : null;
+    const principalFilter = principalId ? String(principalId).trim() : null;
+    const granteeFilter = granteeAgentId ? String(granteeAgentId).trim() : null;
+    const safeLimit = Math.min(1000, limit);
+    const out = [];
+    for (const row of store.authorityGrants.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (grantIdFilter && String(row.grantId ?? "") !== grantIdFilter) continue;
+      if (grantHashFilter && String(row.grantHash ?? "").toLowerCase() !== grantHashFilter) continue;
+      if (principalFilter && String(row?.principalRef?.principalId ?? "") !== principalFilter) continue;
+      if (granteeFilter && String(row.granteeAgentId ?? "") !== granteeFilter) continue;
+      if (!includeRevoked) {
+        const revokedAt =
+          row?.revocation && typeof row.revocation === "object" && !Array.isArray(row.revocation)
+            ? row.revocation.revokedAt
+            : null;
+        if (typeof revokedAt === "string" && revokedAt.trim() !== "") continue;
+      }
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.grantId ?? "").localeCompare(String(right.grantId ?? "")));
+    return out.slice(offset, offset + safeLimit);
+  };
+
+  store.getTaskQuote = async function getTaskQuote({ tenantId = DEFAULT_TENANT_ID, quoteId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof quoteId !== "string" || quoteId.trim() === "") throw new TypeError("quoteId is required");
+    return store.taskQuotes.get(makeScopedKey({ tenantId, id: String(quoteId) })) ?? null;
+  };
+
+  store.putTaskQuote = async function putTaskQuote({ tenantId = DEFAULT_TENANT_ID, taskQuote, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!taskQuote || typeof taskQuote !== "object" || Array.isArray(taskQuote)) {
+      throw new TypeError("taskQuote is required");
+    }
+    const quoteId = taskQuote.quoteId ?? null;
+    if (typeof quoteId !== "string" || quoteId.trim() === "") throw new TypeError("taskQuote.quoteId is required");
+    const at = taskQuote.updatedAt ?? taskQuote.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "TASK_QUOTE_UPSERT", tenantId, quoteId, taskQuote: { ...taskQuote, tenantId, quoteId } }],
+      audit
+    });
+    return store.taskQuotes.get(makeScopedKey({ tenantId, id: String(quoteId) })) ?? null;
+  };
+
+  store.listTaskQuotes = async function listTaskQuotes({
+    tenantId = DEFAULT_TENANT_ID,
+    quoteId = null,
+    buyerAgentId = null,
+    sellerAgentId = null,
+    requiredCapability = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (quoteId !== null && (typeof quoteId !== "string" || quoteId.trim() === "")) throw new TypeError("quoteId must be null or a non-empty string");
+    if (buyerAgentId !== null && (typeof buyerAgentId !== "string" || buyerAgentId.trim() === "")) {
+      throw new TypeError("buyerAgentId must be null or a non-empty string");
+    }
+    if (sellerAgentId !== null && (typeof sellerAgentId !== "string" || sellerAgentId.trim() === "")) {
+      throw new TypeError("sellerAgentId must be null or a non-empty string");
+    }
+    if (requiredCapability !== null && (typeof requiredCapability !== "string" || requiredCapability.trim() === "")) {
+      throw new TypeError("requiredCapability must be null or a non-empty string");
+    }
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const quoteIdFilter = quoteId ? String(quoteId).trim() : null;
+    const buyerFilter = buyerAgentId ? String(buyerAgentId).trim() : null;
+    const sellerFilter = sellerAgentId ? String(sellerAgentId).trim() : null;
+    const capabilityFilter = requiredCapability ? String(requiredCapability).trim() : null;
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const safeLimit = Math.min(1000, limit);
+    const out = [];
+    for (const row of store.taskQuotes.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (quoteIdFilter && String(row.quoteId ?? "") !== quoteIdFilter) continue;
+      if (buyerFilter && String(row.buyerAgentId ?? "") !== buyerFilter) continue;
+      if (sellerFilter && String(row.sellerAgentId ?? "") !== sellerFilter) continue;
+      if (capabilityFilter && String(row.requiredCapability ?? "") !== capabilityFilter) continue;
+      if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.quoteId ?? "").localeCompare(String(right.quoteId ?? "")));
+    return out.slice(offset, offset + safeLimit);
+  };
+
+  store.getTaskOffer = async function getTaskOffer({ tenantId = DEFAULT_TENANT_ID, offerId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof offerId !== "string" || offerId.trim() === "") throw new TypeError("offerId is required");
+    return store.taskOffers.get(makeScopedKey({ tenantId, id: String(offerId) })) ?? null;
+  };
+
+  store.putTaskOffer = async function putTaskOffer({ tenantId = DEFAULT_TENANT_ID, taskOffer, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!taskOffer || typeof taskOffer !== "object" || Array.isArray(taskOffer)) {
+      throw new TypeError("taskOffer is required");
+    }
+    const offerId = taskOffer.offerId ?? null;
+    if (typeof offerId !== "string" || offerId.trim() === "") throw new TypeError("taskOffer.offerId is required");
+    const at = taskOffer.updatedAt ?? taskOffer.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "TASK_OFFER_UPSERT", tenantId, offerId, taskOffer: { ...taskOffer, tenantId, offerId } }],
+      audit
+    });
+    return store.taskOffers.get(makeScopedKey({ tenantId, id: String(offerId) })) ?? null;
+  };
+
+  store.listTaskOffers = async function listTaskOffers({
+    tenantId = DEFAULT_TENANT_ID,
+    offerId = null,
+    buyerAgentId = null,
+    sellerAgentId = null,
+    quoteId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (offerId !== null && (typeof offerId !== "string" || offerId.trim() === "")) throw new TypeError("offerId must be null or a non-empty string");
+    if (buyerAgentId !== null && (typeof buyerAgentId !== "string" || buyerAgentId.trim() === "")) {
+      throw new TypeError("buyerAgentId must be null or a non-empty string");
+    }
+    if (sellerAgentId !== null && (typeof sellerAgentId !== "string" || sellerAgentId.trim() === "")) {
+      throw new TypeError("sellerAgentId must be null or a non-empty string");
+    }
+    if (quoteId !== null && (typeof quoteId !== "string" || quoteId.trim() === "")) throw new TypeError("quoteId must be null or a non-empty string");
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const offerIdFilter = offerId ? String(offerId).trim() : null;
+    const buyerFilter = buyerAgentId ? String(buyerAgentId).trim() : null;
+    const sellerFilter = sellerAgentId ? String(sellerAgentId).trim() : null;
+    const quoteFilter = quoteId ? String(quoteId).trim() : null;
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const safeLimit = Math.min(1000, limit);
+    const out = [];
+    for (const row of store.taskOffers.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (offerIdFilter && String(row.offerId ?? "") !== offerIdFilter) continue;
+      if (buyerFilter && String(row.buyerAgentId ?? "") !== buyerFilter) continue;
+      if (sellerFilter && String(row.sellerAgentId ?? "") !== sellerFilter) continue;
+      if (quoteFilter && String(row?.quoteRef?.quoteId ?? "") !== quoteFilter) continue;
+      if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.offerId ?? "").localeCompare(String(right.offerId ?? "")));
+    return out.slice(offset, offset + safeLimit);
+  };
+
+  store.getTaskAcceptance = async function getTaskAcceptance({ tenantId = DEFAULT_TENANT_ID, acceptanceId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof acceptanceId !== "string" || acceptanceId.trim() === "") throw new TypeError("acceptanceId is required");
+    return store.taskAcceptances.get(makeScopedKey({ tenantId, id: String(acceptanceId) })) ?? null;
+  };
+
+  store.putTaskAcceptance = async function putTaskAcceptance({ tenantId = DEFAULT_TENANT_ID, taskAcceptance, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!taskAcceptance || typeof taskAcceptance !== "object" || Array.isArray(taskAcceptance)) {
+      throw new TypeError("taskAcceptance is required");
+    }
+    const acceptanceId = taskAcceptance.acceptanceId ?? null;
+    if (typeof acceptanceId !== "string" || acceptanceId.trim() === "") throw new TypeError("taskAcceptance.acceptanceId is required");
+    const at = taskAcceptance.updatedAt ?? taskAcceptance.acceptedAt ?? taskAcceptance.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "TASK_ACCEPTANCE_UPSERT", tenantId, acceptanceId, taskAcceptance: { ...taskAcceptance, tenantId, acceptanceId } }],
+      audit
+    });
+    return store.taskAcceptances.get(makeScopedKey({ tenantId, id: String(acceptanceId) })) ?? null;
+  };
+
+  store.listTaskAcceptances = async function listTaskAcceptances({
+    tenantId = DEFAULT_TENANT_ID,
+    acceptanceId = null,
+    buyerAgentId = null,
+    sellerAgentId = null,
+    quoteId = null,
+    offerId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (acceptanceId !== null && (typeof acceptanceId !== "string" || acceptanceId.trim() === "")) {
+      throw new TypeError("acceptanceId must be null or a non-empty string");
+    }
+    if (buyerAgentId !== null && (typeof buyerAgentId !== "string" || buyerAgentId.trim() === "")) {
+      throw new TypeError("buyerAgentId must be null or a non-empty string");
+    }
+    if (sellerAgentId !== null && (typeof sellerAgentId !== "string" || sellerAgentId.trim() === "")) {
+      throw new TypeError("sellerAgentId must be null or a non-empty string");
+    }
+    if (quoteId !== null && (typeof quoteId !== "string" || quoteId.trim() === "")) throw new TypeError("quoteId must be null or a non-empty string");
+    if (offerId !== null && (typeof offerId !== "string" || offerId.trim() === "")) throw new TypeError("offerId must be null or a non-empty string");
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const acceptanceIdFilter = acceptanceId ? String(acceptanceId).trim() : null;
+    const buyerFilter = buyerAgentId ? String(buyerAgentId).trim() : null;
+    const sellerFilter = sellerAgentId ? String(sellerAgentId).trim() : null;
+    const quoteFilter = quoteId ? String(quoteId).trim() : null;
+    const offerFilter = offerId ? String(offerId).trim() : null;
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
+    const safeLimit = Math.min(1000, limit);
+    const out = [];
+    for (const row of store.taskAcceptances.values()) {
+      if (!row || typeof row !== "object") continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (acceptanceIdFilter && String(row.acceptanceId ?? "") !== acceptanceIdFilter) continue;
+      if (buyerFilter && String(row.buyerAgentId ?? "") !== buyerFilter) continue;
+      if (sellerFilter && String(row.sellerAgentId ?? "") !== sellerFilter) continue;
+      if (quoteFilter && String(row?.quoteRef?.quoteId ?? "") !== quoteFilter) continue;
+      if (offerFilter && String(row?.offerRef?.offerId ?? "") !== offerFilter) continue;
+      if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.acceptanceId ?? "").localeCompare(String(right.acceptanceId ?? "")));
     return out.slice(offset, offset + safeLimit);
   };
 

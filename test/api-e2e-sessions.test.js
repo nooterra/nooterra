@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
-import { createEd25519Keypair } from "../src/core/crypto.js";
+import { canonicalJsonStringify } from "../src/core/canonical-json.js";
+import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
@@ -145,4 +146,228 @@ test("API e2e: Session.v1 create/list/get and SessionEvent.v1 append/list", asyn
   });
   assert.equal(badType.statusCode, 400, badType.body);
   assert.equal(badType.json?.code, "SCHEMA_INVALID");
+
+  const replayPackA = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_e2e_1/replay-pack"
+  });
+  assert.equal(replayPackA.statusCode, 200, replayPackA.body);
+  assert.equal(replayPackA.json?.replayPack?.schemaVersion, "SessionReplayPack.v1");
+  assert.equal(replayPackA.json?.replayPack?.sessionId, "sess_e2e_1");
+  assert.equal(replayPackA.json?.replayPack?.eventCount, 1);
+  assert.equal(replayPackA.json?.replayPack?.verification?.chainOk, true);
+  assert.equal(replayPackA.json?.replayPack?.verification?.verifiedEventCount, 1);
+  assert.match(String(replayPackA.json?.replayPack?.packHash ?? ""), /^[0-9a-f]{64}$/);
+
+  const replayPackB = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_e2e_1/replay-pack"
+  });
+  assert.equal(replayPackB.statusCode, 200, replayPackB.body);
+  assert.equal(replayPackB.json?.replayPack?.packHash, replayPackA.json?.replayPack?.packHash);
+});
+
+test("API e2e: SessionReplayPack.v1 fails closed on tampered event chain", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_principal_tamper";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_create_tamper" },
+    body: {
+      sessionId: "sess_tamper_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const appended = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_tamper_1/events",
+    headers: {
+      "x-idempotency-key": "session_tamper_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_tamper_1" }
+    }
+  });
+  assert.equal(appended.statusCode, 201, appended.body);
+
+  const scopedSessionKey = "tenant_default\nsess_tamper_1";
+  const tamperedEvents = [...(api.store.sessionEvents.get(scopedSessionKey) ?? [])];
+  tamperedEvents[0] = {
+    ...tamperedEvents[0],
+    payloadHash: "0".repeat(64)
+  };
+  api.store.sessionEvents.set(scopedSessionKey, tamperedEvents);
+
+  const replayPack = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_tamper_1/replay-pack"
+  });
+  assert.equal(replayPack.statusCode, 409, replayPack.body);
+  assert.equal(replayPack.json?.code, "SESSION_REPLAY_CHAIN_INVALID");
+});
+
+test("API e2e: SessionEvent.v1 provenance taint propagates deterministically and replay pack reports provenance verification", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_provenance_principal_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_create_provenance_1" },
+    body: {
+      sessionId: "sess_provenance_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const first = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_provenance_1/events",
+    headers: {
+      "x-idempotency-key": "session_provenance_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "MESSAGE",
+      payload: { text: "untrusted external input" },
+      provenance: {
+        label: "external"
+      }
+    }
+  });
+  assert.equal(first.statusCode, 201, first.body);
+  assert.equal(first.json?.event?.payload?.provenance?.label, "external");
+  assert.equal(first.json?.event?.payload?.provenance?.isTainted, true);
+
+  const firstChainHash = String(first.json?.event?.chainHash ?? "");
+  const second = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_provenance_1/events",
+    headers: {
+      "x-idempotency-key": "session_provenance_append_2",
+      "x-proxy-expected-prev-chain-hash": firstChainHash
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_provenance_1" }
+    }
+  });
+  assert.equal(second.statusCode, 201, second.body);
+  assert.equal(second.json?.event?.payload?.provenance?.isTainted, true);
+  assert.equal(second.json?.event?.payload?.provenance?.derivedFromEventId, first.json?.event?.id);
+
+  const replayPack = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_provenance_1/replay-pack"
+  });
+  assert.equal(replayPack.statusCode, 200, replayPack.body);
+  assert.equal(replayPack.json?.replayPack?.verification?.provenance?.ok, true);
+  assert.equal(replayPack.json?.replayPack?.verification?.provenance?.verifiedEventCount, 2);
+  assert.equal(replayPack.json?.replayPack?.verification?.provenance?.taintedEventCount, 2);
+});
+
+test("API e2e: SessionReplayPack.v1 fails closed on provenance mismatch even when chain hashes are re-computed", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_provenance_tamper_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_create_provenance_tamper_1" },
+    body: {
+      sessionId: "sess_provenance_tamper_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const first = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_provenance_tamper_1/events",
+    headers: {
+      "x-idempotency-key": "session_provenance_tamper_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "MESSAGE",
+      payload: { text: "external input" },
+      provenance: { label: "external" }
+    }
+  });
+  assert.equal(first.statusCode, 201, first.body);
+
+  const second = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_provenance_tamper_1/events",
+    headers: {
+      "x-idempotency-key": "session_provenance_tamper_append_2",
+      "x-proxy-expected-prev-chain-hash": String(first.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_provenance_tamper_1" }
+    }
+  });
+  assert.equal(second.statusCode, 201, second.body);
+
+  const scopedSessionKey = "tenant_default\nsess_provenance_tamper_1";
+  const storedEvents = [...(api.store.sessionEvents.get(scopedSessionKey) ?? [])];
+  assert.equal(storedEvents.length, 2);
+  const tamperedSecond = {
+    ...storedEvents[1],
+    payload: {
+      ...storedEvents[1].payload,
+      provenance: {
+        ...storedEvents[1].payload?.provenance,
+        isTainted: false
+      }
+    },
+    signature: null,
+    signerKeyId: null
+  };
+  const tamperedPayloadHash = sha256Hex(
+    canonicalJsonStringify({
+      v: tamperedSecond.v,
+      id: tamperedSecond.id,
+      at: tamperedSecond.at,
+      streamId: tamperedSecond.streamId,
+      type: tamperedSecond.type,
+      actor: tamperedSecond.actor,
+      payload: tamperedSecond.payload
+    })
+  );
+  const tamperedChainHash = sha256Hex(
+    canonicalJsonStringify({
+      v: tamperedSecond.v,
+      prevChainHash: tamperedSecond.prevChainHash,
+      payloadHash: tamperedPayloadHash
+    })
+  );
+  storedEvents[1] = {
+    ...tamperedSecond,
+    payloadHash: tamperedPayloadHash,
+    chainHash: tamperedChainHash
+  };
+  api.store.sessionEvents.set(scopedSessionKey, storedEvents);
+
+  const replayPack = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_provenance_tamper_1/replay-pack"
+  });
+  assert.equal(replayPack.statusCode, 409, replayPack.body);
+  assert.equal(replayPack.json?.code, "SESSION_REPLAY_PROVENANCE_INVALID");
 });

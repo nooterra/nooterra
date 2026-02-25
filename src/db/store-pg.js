@@ -165,6 +165,14 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.agreementDelegations.clear();
     if (!(store.delegationGrants instanceof Map)) store.delegationGrants = new Map();
     store.delegationGrants.clear();
+    if (!(store.authorityGrants instanceof Map)) store.authorityGrants = new Map();
+    store.authorityGrants.clear();
+    if (!(store.taskQuotes instanceof Map)) store.taskQuotes = new Map();
+    store.taskQuotes.clear();
+    if (!(store.taskOffers instanceof Map)) store.taskOffers = new Map();
+    store.taskOffers.clear();
+    if (!(store.taskAcceptances instanceof Map)) store.taskAcceptances = new Map();
+    store.taskAcceptances.clear();
     if (!(store.capabilityAttestations instanceof Map)) store.capabilityAttestations = new Map();
     store.capabilityAttestations.clear();
     if (!(store.subAgentWorkOrders instanceof Map)) store.subAgentWorkOrders = new Map();
@@ -255,6 +263,34 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           ...snap,
           tenantId: snap?.tenantId ?? tenantId,
           grantId: snap?.grantId ?? String(id)
+        });
+      }
+      if (type === "authority_grant") {
+        store.authorityGrants.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          grantId: snap?.grantId ?? String(id)
+        });
+      }
+      if (type === "task_quote") {
+        store.taskQuotes.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          quoteId: snap?.quoteId ?? String(id)
+        });
+      }
+      if (type === "task_offer") {
+        store.taskOffers.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          offerId: snap?.offerId ?? String(id)
+        });
+      }
+      if (type === "task_acceptance") {
+        store.taskAcceptances.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          acceptanceId: snap?.acceptanceId ?? String(id)
         });
       }
       if (type === "capability_attestation") {
@@ -1459,6 +1495,79 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     });
   }
 
+  async function persistAuthorityGrant(client, { tenantId, grantId, authorityGrant }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!authorityGrant || typeof authorityGrant !== "object" || Array.isArray(authorityGrant)) {
+      throw new TypeError("authorityGrant is required");
+    }
+    const normalizedGrantId = grantId ? String(grantId) : authorityGrant.grantId ? String(authorityGrant.grantId) : null;
+    if (!normalizedGrantId) throw new TypeError("grantId is required");
+    const normalizedAuthorityGrant = { ...authorityGrant, tenantId, grantId: normalizedGrantId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "authority_grant",
+      aggregateId: normalizedGrantId,
+      snapshot: normalizedAuthorityGrant,
+      updatedAt: normalizedAuthorityGrant.updatedAt ?? normalizedAuthorityGrant.createdAt ?? null
+    });
+  }
+
+  async function persistTaskQuote(client, { tenantId, quoteId, taskQuote }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!taskQuote || typeof taskQuote !== "object" || Array.isArray(taskQuote)) {
+      throw new TypeError("taskQuote is required");
+    }
+    const normalizedQuoteId = quoteId ? String(quoteId) : taskQuote.quoteId ? String(taskQuote.quoteId) : null;
+    if (!normalizedQuoteId) throw new TypeError("quoteId is required");
+    const normalizedTaskQuote = { ...taskQuote, tenantId, quoteId: normalizedQuoteId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "task_quote",
+      aggregateId: normalizedQuoteId,
+      snapshot: normalizedTaskQuote,
+      updatedAt: normalizedTaskQuote.updatedAt ?? normalizedTaskQuote.createdAt ?? null
+    });
+  }
+
+  async function persistTaskOffer(client, { tenantId, offerId, taskOffer }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!taskOffer || typeof taskOffer !== "object" || Array.isArray(taskOffer)) {
+      throw new TypeError("taskOffer is required");
+    }
+    const normalizedOfferId = offerId ? String(offerId) : taskOffer.offerId ? String(taskOffer.offerId) : null;
+    if (!normalizedOfferId) throw new TypeError("offerId is required");
+    const normalizedTaskOffer = { ...taskOffer, tenantId, offerId: normalizedOfferId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "task_offer",
+      aggregateId: normalizedOfferId,
+      snapshot: normalizedTaskOffer,
+      updatedAt: normalizedTaskOffer.updatedAt ?? normalizedTaskOffer.createdAt ?? null
+    });
+  }
+
+  async function persistTaskAcceptance(client, { tenantId, acceptanceId, taskAcceptance }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!taskAcceptance || typeof taskAcceptance !== "object" || Array.isArray(taskAcceptance)) {
+      throw new TypeError("taskAcceptance is required");
+    }
+    const normalizedAcceptanceId =
+      acceptanceId ? String(acceptanceId) : taskAcceptance.acceptanceId ? String(taskAcceptance.acceptanceId) : null;
+    if (!normalizedAcceptanceId) throw new TypeError("acceptanceId is required");
+    const normalizedTaskAcceptance = { ...taskAcceptance, tenantId, acceptanceId: normalizedAcceptanceId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "task_acceptance",
+      aggregateId: normalizedAcceptanceId,
+      snapshot: normalizedTaskAcceptance,
+      updatedAt:
+        normalizedTaskAcceptance.updatedAt ??
+        normalizedTaskAcceptance.acceptedAt ??
+        normalizedTaskAcceptance.createdAt ??
+        null
+    });
+  }
+
   async function persistCapabilityAttestation(client, { tenantId, attestationId, capabilityAttestation }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     if (!capabilityAttestation || typeof capabilityAttestation !== "object" || Array.isArray(capabilityAttestation)) {
@@ -2472,6 +2581,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "ARBITRATION_CASE_UPSERT",
       "AGREEMENT_DELEGATION_UPSERT",
       "DELEGATION_GRANT_UPSERT",
+      "AUTHORITY_GRANT_UPSERT",
+      "TASK_QUOTE_UPSERT",
+      "TASK_OFFER_UPSERT",
+      "TASK_ACCEPTANCE_UPSERT",
       "CAPABILITY_ATTESTATION_UPSERT",
       "SUB_AGENT_WORK_ORDER_UPSERT",
       "SUB_AGENT_COMPLETION_RECEIPT_UPSERT",
@@ -3333,6 +3446,22 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? op.delegationGrant?.tenantId ?? DEFAULT_TENANT_ID);
           await persistDelegationGrant(client, { tenantId, grantId: op.grantId, delegationGrant: op.delegationGrant });
         }
+        if (op.kind === "AUTHORITY_GRANT_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.authorityGrant?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistAuthorityGrant(client, { tenantId, grantId: op.grantId, authorityGrant: op.authorityGrant });
+        }
+        if (op.kind === "TASK_QUOTE_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.taskQuote?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistTaskQuote(client, { tenantId, quoteId: op.quoteId, taskQuote: op.taskQuote });
+        }
+        if (op.kind === "TASK_OFFER_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.taskOffer?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistTaskOffer(client, { tenantId, offerId: op.offerId, taskOffer: op.taskOffer });
+        }
+        if (op.kind === "TASK_ACCEPTANCE_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.taskAcceptance?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistTaskAcceptance(client, { tenantId, acceptanceId: op.acceptanceId, taskAcceptance: op.taskAcceptance });
+        }
         if (op.kind === "CAPABILITY_ATTESTATION_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.capabilityAttestation?.tenantId ?? DEFAULT_TENANT_ID);
           await persistCapabilityAttestation(client, {
@@ -3938,6 +4067,78 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
   }
 
+  function authorityGrantSnapshotRowToRecord(row) {
+    const authorityGrant = row?.snapshot_json ?? null;
+    if (!authorityGrant || typeof authorityGrant !== "object" || Array.isArray(authorityGrant)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? authorityGrant?.tenantId ?? DEFAULT_TENANT_ID);
+    const grantId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof authorityGrant?.grantId === "string" && authorityGrant.grantId.trim() !== ""
+          ? authorityGrant.grantId.trim()
+          : null;
+    if (!grantId) return null;
+    return {
+      ...authorityGrant,
+      tenantId,
+      grantId
+    };
+  }
+
+  function taskQuoteSnapshotRowToRecord(row) {
+    const taskQuote = row?.snapshot_json ?? null;
+    if (!taskQuote || typeof taskQuote !== "object" || Array.isArray(taskQuote)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? taskQuote?.tenantId ?? DEFAULT_TENANT_ID);
+    const quoteId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof taskQuote?.quoteId === "string" && taskQuote.quoteId.trim() !== ""
+          ? taskQuote.quoteId.trim()
+          : null;
+    if (!quoteId) return null;
+    return {
+      ...taskQuote,
+      tenantId,
+      quoteId
+    };
+  }
+
+  function taskOfferSnapshotRowToRecord(row) {
+    const taskOffer = row?.snapshot_json ?? null;
+    if (!taskOffer || typeof taskOffer !== "object" || Array.isArray(taskOffer)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? taskOffer?.tenantId ?? DEFAULT_TENANT_ID);
+    const offerId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof taskOffer?.offerId === "string" && taskOffer.offerId.trim() !== ""
+          ? taskOffer.offerId.trim()
+          : null;
+    if (!offerId) return null;
+    return {
+      ...taskOffer,
+      tenantId,
+      offerId
+    };
+  }
+
+  function taskAcceptanceSnapshotRowToRecord(row) {
+    const taskAcceptance = row?.snapshot_json ?? null;
+    if (!taskAcceptance || typeof taskAcceptance !== "object" || Array.isArray(taskAcceptance)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? taskAcceptance?.tenantId ?? DEFAULT_TENANT_ID);
+    const acceptanceId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof taskAcceptance?.acceptanceId === "string" && taskAcceptance.acceptanceId.trim() !== ""
+          ? taskAcceptance.acceptanceId.trim()
+          : null;
+    if (!acceptanceId) return null;
+    return {
+      ...taskAcceptance,
+      tenantId,
+      acceptanceId
+    };
+  }
+
   function capabilityAttestationSnapshotRowToRecord(row) {
     const capabilityAttestation = row?.snapshot_json ?? null;
     if (!capabilityAttestation || typeof capabilityAttestation !== "object" || Array.isArray(capabilityAttestation)) return null;
@@ -4176,7 +4377,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
 
   store.listAgentCardsPublic = async function listAgentCardsPublic({
     status = null,
-    visibility = null,
+    visibility = "public",
     capability = null,
     runtime = null,
     limit = 200,
@@ -4188,7 +4389,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     const safeOffset = offset;
     const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
     const visibilityFilter =
-      visibility === null || visibility === undefined || String(visibility).trim() === "" ? null : String(visibility).trim().toLowerCase();
+      visibility === null || visibility === undefined || String(visibility).trim() === "" ? "public" : String(visibility).trim().toLowerCase();
+    if (visibilityFilter !== "public") throw new TypeError("visibility must be public");
     const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
     const runtimeFilter = runtime === null || runtime === undefined || String(runtime).trim() === "" ? null : String(runtime).trim().toLowerCase();
 
@@ -4196,8 +4398,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       const filtered = [];
       for (const row of rows) {
         if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (String(row.visibility ?? "").toLowerCase() !== "public") continue;
         if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
-        if (visibilityFilter && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
         if (capabilityFilter) {
           const capabilities = Array.isArray(row.capabilities) ? row.capabilities : [];
           if (!capabilities.includes(capabilityFilter)) continue;
@@ -4316,6 +4518,336 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return applyFilters(Array.from(store.delegationGrants.values()));
+    }
+  };
+
+  store.getAuthorityGrant = async function getAuthorityGrant({ tenantId = DEFAULT_TENANT_ID, grantId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(grantId, "grantId");
+    const normalizedGrantId = String(grantId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'authority_grant' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedGrantId]
+      );
+      return res.rows.length ? authorityGrantSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.authorityGrants.get(makeScopedKey({ tenantId, id: normalizedGrantId })) ?? null;
+    }
+  };
+
+  store.listAuthorityGrants = async function listAuthorityGrants({
+    tenantId = DEFAULT_TENANT_ID,
+    grantId = null,
+    grantHash = null,
+    principalId = null,
+    granteeAgentId = null,
+    includeRevoked = true,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const grantIdFilter = grantId === null || grantId === undefined || String(grantId).trim() === "" ? null : String(grantId).trim();
+    const grantHashFilter = grantHash === null || grantHash === undefined || String(grantHash).trim() === "" ? null : String(grantHash).trim().toLowerCase();
+    const principalFilter =
+      principalId === null || principalId === undefined || String(principalId).trim() === "" ? null : String(principalId).trim();
+    const granteeFilter =
+      granteeAgentId === null || granteeAgentId === undefined || String(granteeAgentId).trim() === "" ? null : String(granteeAgentId).trim();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (grantIdFilter && String(row.grantId ?? "") !== grantIdFilter) continue;
+        if (grantHashFilter && String(row.grantHash ?? "").toLowerCase() !== grantHashFilter) continue;
+        if (principalFilter && String(row?.principalRef?.principalId ?? "") !== principalFilter) continue;
+        if (granteeFilter && String(row.granteeAgentId ?? "") !== granteeFilter) continue;
+        if (!includeRevoked) {
+          const revokedAt =
+            row?.revocation && typeof row.revocation === "object" && !Array.isArray(row.revocation) ? row.revocation.revokedAt : null;
+          if (typeof revokedAt === "string" && revokedAt.trim() !== "") continue;
+        }
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.grantId ?? "").localeCompare(String(right.grantId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'authority_grant'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(authorityGrantSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.authorityGrants.values()));
+    }
+  };
+
+  store.getTaskQuote = async function getTaskQuote({ tenantId = DEFAULT_TENANT_ID, quoteId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(quoteId, "quoteId");
+    const normalizedQuoteId = String(quoteId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_quote' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedQuoteId]
+      );
+      return res.rows.length ? taskQuoteSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.taskQuotes.get(makeScopedKey({ tenantId, id: normalizedQuoteId })) ?? null;
+    }
+  };
+
+  store.listTaskQuotes = async function listTaskQuotes({
+    tenantId = DEFAULT_TENANT_ID,
+    quoteId = null,
+    buyerAgentId = null,
+    sellerAgentId = null,
+    requiredCapability = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const quoteIdFilter = quoteId === null || quoteId === undefined || String(quoteId).trim() === "" ? null : String(quoteId).trim();
+    const buyerFilter =
+      buyerAgentId === null || buyerAgentId === undefined || String(buyerAgentId).trim() === ""
+        ? null
+        : String(buyerAgentId).trim();
+    const sellerFilter =
+      sellerAgentId === null || sellerAgentId === undefined || String(sellerAgentId).trim() === ""
+        ? null
+        : String(sellerAgentId).trim();
+    const capabilityFilter =
+      requiredCapability === null || requiredCapability === undefined || String(requiredCapability).trim() === ""
+        ? null
+        : String(requiredCapability).trim();
+    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (quoteIdFilter && String(row.quoteId ?? "") !== quoteIdFilter) continue;
+        if (buyerFilter && String(row.buyerAgentId ?? "") !== buyerFilter) continue;
+        if (sellerFilter && String(row.sellerAgentId ?? "") !== sellerFilter) continue;
+        if (capabilityFilter && String(row.requiredCapability ?? "") !== capabilityFilter) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.quoteId ?? "").localeCompare(String(right.quoteId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_quote'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(taskQuoteSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.taskQuotes.values()));
+    }
+  };
+
+  store.getTaskOffer = async function getTaskOffer({ tenantId = DEFAULT_TENANT_ID, offerId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(offerId, "offerId");
+    const normalizedOfferId = String(offerId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_offer' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedOfferId]
+      );
+      return res.rows.length ? taskOfferSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.taskOffers.get(makeScopedKey({ tenantId, id: normalizedOfferId })) ?? null;
+    }
+  };
+
+  store.listTaskOffers = async function listTaskOffers({
+    tenantId = DEFAULT_TENANT_ID,
+    offerId = null,
+    buyerAgentId = null,
+    sellerAgentId = null,
+    quoteId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const offerIdFilter = offerId === null || offerId === undefined || String(offerId).trim() === "" ? null : String(offerId).trim();
+    const buyerFilter =
+      buyerAgentId === null || buyerAgentId === undefined || String(buyerAgentId).trim() === ""
+        ? null
+        : String(buyerAgentId).trim();
+    const sellerFilter =
+      sellerAgentId === null || sellerAgentId === undefined || String(sellerAgentId).trim() === ""
+        ? null
+        : String(sellerAgentId).trim();
+    const quoteFilter = quoteId === null || quoteId === undefined || String(quoteId).trim() === "" ? null : String(quoteId).trim();
+    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (offerIdFilter && String(row.offerId ?? "") !== offerIdFilter) continue;
+        if (buyerFilter && String(row.buyerAgentId ?? "") !== buyerFilter) continue;
+        if (sellerFilter && String(row.sellerAgentId ?? "") !== sellerFilter) continue;
+        if (quoteFilter && String(row?.quoteRef?.quoteId ?? "") !== quoteFilter) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.offerId ?? "").localeCompare(String(right.offerId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_offer'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(taskOfferSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.taskOffers.values()));
+    }
+  };
+
+  store.getTaskAcceptance = async function getTaskAcceptance({ tenantId = DEFAULT_TENANT_ID, acceptanceId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(acceptanceId, "acceptanceId");
+    const normalizedAcceptanceId = String(acceptanceId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_acceptance' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedAcceptanceId]
+      );
+      return res.rows.length ? taskAcceptanceSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.taskAcceptances.get(makeScopedKey({ tenantId, id: normalizedAcceptanceId })) ?? null;
+    }
+  };
+
+  store.listTaskAcceptances = async function listTaskAcceptances({
+    tenantId = DEFAULT_TENANT_ID,
+    acceptanceId = null,
+    buyerAgentId = null,
+    sellerAgentId = null,
+    quoteId = null,
+    offerId = null,
+    status = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const acceptanceIdFilter =
+      acceptanceId === null || acceptanceId === undefined || String(acceptanceId).trim() === "" ? null : String(acceptanceId).trim();
+    const buyerFilter =
+      buyerAgentId === null || buyerAgentId === undefined || String(buyerAgentId).trim() === ""
+        ? null
+        : String(buyerAgentId).trim();
+    const sellerFilter =
+      sellerAgentId === null || sellerAgentId === undefined || String(sellerAgentId).trim() === ""
+        ? null
+        : String(sellerAgentId).trim();
+    const quoteFilter = quoteId === null || quoteId === undefined || String(quoteId).trim() === "" ? null : String(quoteId).trim();
+    const offerFilter = offerId === null || offerId === undefined || String(offerId).trim() === "" ? null : String(offerId).trim();
+    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (acceptanceIdFilter && String(row.acceptanceId ?? "") !== acceptanceIdFilter) continue;
+        if (buyerFilter && String(row.buyerAgentId ?? "") !== buyerFilter) continue;
+        if (sellerFilter && String(row.sellerAgentId ?? "") !== sellerFilter) continue;
+        if (quoteFilter && String(row?.quoteRef?.quoteId ?? "") !== quoteFilter) continue;
+        if (offerFilter && String(row?.offerRef?.offerId ?? "") !== offerFilter) continue;
+        if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.acceptanceId ?? "").localeCompare(String(right.acceptanceId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'task_acceptance'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(taskAcceptanceSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.taskAcceptances.values()));
     }
   };
 

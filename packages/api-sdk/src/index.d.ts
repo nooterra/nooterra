@@ -873,6 +873,127 @@ export type X402GateAuthorizePaymentRequest = {
   executionIntent?: Record<string, unknown> | null;
 } & Record<string, unknown>;
 
+export type RelationshipEdge = {
+  schemaVersion: "RelationshipEdge.v1";
+  tenantId: string;
+  agentId: string;
+  counterpartyAgentId: string;
+  visibility: "private" | "public_summary";
+  reputationWindow: "7d" | "30d" | "allTime";
+  asOf: string;
+  eventCount: number;
+  decisionsTotal: number;
+  decisionsApproved: number;
+  workedWithCount: number;
+  successRate: number | null;
+  disputesOpened: number;
+  disputeRate: number | null;
+  releaseRateAvg: number | null;
+  settledCents: number;
+  refundedCents: number;
+  penalizedCents: number;
+  autoReleasedCents: number;
+  adjustmentAppliedCents: number;
+  lastInteractionAt: string | null;
+  minimumEconomicWeightCents?: number;
+  economicWeightCents?: number;
+  economicWeightQualified?: boolean;
+  microLoopEventCount?: number;
+  microLoopRate?: number | null;
+  reciprocalDecisionCount?: number;
+  reciprocalEconomicSymmetryDeltaCents?: number | null;
+  reciprocalMicroLoopRate?: number | null;
+  collusionSuspected?: boolean;
+  dampened?: boolean;
+  reputationImpactMultiplier?: number;
+  antiGamingReasonCodes?: string[];
+};
+
+export type PublicAgentReputationSummary = {
+  schemaVersion: "PublicAgentReputationSummary.v1";
+  agentId: string;
+  reputationVersion: "v1" | "v2";
+  reputationWindow: "7d" | "30d" | "allTime";
+  asOf: string;
+  trustScore: number;
+  riskTier: "low" | "guarded" | "elevated" | "high";
+  eventCount: number;
+  decisionsTotal: number;
+  decisionsApproved: number;
+  successRate: number | null;
+  disputesOpened: number;
+  disputeRate: number | null;
+  lastInteractionAt: string | null;
+  relationships: Array<{
+    schemaVersion: "RelationshipEdge.v1";
+    counterpartyAgentId: string;
+    workedWithCount: number;
+    successRate: number | null;
+    disputeRate: number | null;
+    lastInteractionAt: string | null;
+  }>;
+};
+
+export type InteractionGraphSummary = {
+  schemaVersion: "InteractionGraphSummary.v1";
+  agentId: string;
+  reputationVersion: "v1" | "v2";
+  reputationWindow: "7d" | "30d" | "allTime";
+  asOf: string;
+  trustScore: number;
+  riskTier: "low" | "guarded" | "elevated" | "high";
+  eventCount: number;
+  decisionsTotal: number;
+  decisionsApproved: number;
+  successRate: number | null;
+  disputesOpened: number;
+  disputeRate: number | null;
+  settledCents: number;
+  refundedCents: number;
+  penalizedCents: number;
+  autoReleasedCents: number;
+  adjustmentAppliedCents: number;
+  relationshipCount: number;
+  economicallyQualifiedRelationshipCount: number;
+  dampenedRelationshipCount: number;
+  collusionSuspectedRelationshipCount: number;
+  lastInteractionAt: string | null;
+};
+
+export type InteractionGraphVerification = {
+  schemaVersion: "InteractionGraphVerification.v1";
+  deterministicOrdering: boolean;
+  antiGamingSignalsPresent: boolean;
+  generatedBy: string;
+};
+
+export type InteractionGraphPackSignature = {
+  schemaVersion: "VerifiedInteractionGraphPackSignature.v1";
+  algorithm: "ed25519";
+  keyId: string;
+  signedAt: string;
+  payloadHash: string;
+  signatureBase64: string;
+};
+
+export type VerifiedInteractionGraphPack = {
+  schemaVersion: "VerifiedInteractionGraphPack.v1";
+  tenantId: string;
+  agentId: string;
+  reputationVersion: "v1" | "v2";
+  reputationWindow: "7d" | "30d" | "allTime";
+  asOf: string;
+  generatedAt: string;
+  relationshipCount: number;
+  relationshipsHash: string;
+  summaryHash: string;
+  verification: InteractionGraphVerification;
+  summary: InteractionGraphSummary;
+  relationships: RelationshipEdge[];
+  packHash: string;
+  signature?: InteractionGraphPackSignature;
+};
+
 export class SettldClient {
   constructor(opts: SettldClientOptions);
 
@@ -904,6 +1025,55 @@ export class SettldClient {
     agentId: string,
     opts?: RequestOptions & { reputationVersion?: "v1" | "v2"; reputationWindow?: "7d" | "30d" | "allTime" }
   ): Promise<SettldResponse<{ reputation: AgentReputation }>>;
+  getPublicAgentReputationSummary(
+    agentId: string,
+    params?: {
+      reputationVersion?: "v1" | "v2";
+      reputationWindow?: "7d" | "30d" | "allTime";
+      asOf?: string;
+      includeRelationships?: boolean;
+      relationshipLimit?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ ok: boolean; summary: PublicAgentReputationSummary }>>;
+  getAgentInteractionGraphPack(
+    agentId: string,
+    params?: {
+      reputationVersion?: "v1" | "v2";
+      reputationWindow?: "7d" | "30d" | "allTime";
+      asOf?: string;
+      counterpartyAgentId?: string;
+      visibility?: "all" | "private" | "public_summary";
+      sign?: boolean;
+      signerKeyId?: string;
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ ok: boolean; graphPack: VerifiedInteractionGraphPack }>>;
+  listRelationships(
+    params: {
+      agentId: string;
+      counterpartyAgentId?: string;
+      reputationWindow?: "7d" | "30d" | "allTime";
+      asOf?: string;
+      visibility?: "all" | "private" | "public_summary";
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<
+    SettldResponse<{
+      ok: boolean;
+      agentId: string;
+      reputationWindow: "7d" | "30d" | "allTime";
+      asOf: string;
+      total: number;
+      limit: number;
+      offset: number;
+      relationships: RelationshipEdge[];
+    }>
+  >;
   searchMarketplaceAgents(
     params?: {
       status?: "active" | "suspended" | "revoked" | "all";
@@ -1209,7 +1379,153 @@ export class SettldClient {
       agreement: MarketplaceTaskAgreementV2;
     }>
   >;
+  createTaskQuote(
+    body: {
+      quoteId?: string;
+      buyerAgentId: string;
+      sellerAgentId: string;
+      requiredCapability?: string | null;
+      pricing?: { amountCents: number; currency?: string } | null;
+      constraints?: Record<string, unknown> | null;
+      quoteAt?: string;
+      quoteExpiresAt?: string;
+      metadata?: Record<string, unknown> | null;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ taskQuote: Record<string, unknown> }>>;
+  listTaskQuotes(
+    params?: {
+      quoteId?: string;
+      buyerAgentId?: string;
+      sellerAgentId?: string;
+      requiredCapability?: string;
+      status?: "open" | "accepted" | "expired" | "cancelled";
+      acceptanceId?: string;
+      createdAfter?: string;
+      createdBefore?: string;
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ taskQuotes: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
+  getTaskQuote(quoteId: string, opts?: RequestOptions): Promise<SettldResponse<{ taskQuote: Record<string, unknown> }>>;
+  createTaskOffer(
+    body: {
+      offerId?: string;
+      quoteRef?: { quoteId: string; quoteHash: string } | null;
+      buyerAgentId: string;
+      sellerAgentId: string;
+      requiredCapability?: string | null;
+      pricing?: { amountCents: number; currency?: string } | null;
+      constraints?: Record<string, unknown> | null;
+      offeredAt?: string;
+      offerExpiresAt?: string;
+      metadata?: Record<string, unknown> | null;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ taskOffer: Record<string, unknown> }>>;
+  listTaskOffers(
+    params?: {
+      offerId?: string;
+      quoteId?: string;
+      buyerAgentId?: string;
+      sellerAgentId?: string;
+      requiredCapability?: string;
+      status?: "open" | "accepted" | "expired" | "cancelled";
+      acceptanceId?: string;
+      createdAfter?: string;
+      createdBefore?: string;
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ taskOffers: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
+  getTaskOffer(offerId: string, opts?: RequestOptions): Promise<SettldResponse<{ taskOffer: Record<string, unknown> }>>;
+  createTaskAcceptance(
+    body: {
+      acceptanceId?: string;
+      quoteId: string;
+      offerId: string;
+      acceptedByAgentId: string;
+      acceptedAt?: string;
+      metadata?: Record<string, unknown> | null;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ taskAcceptance: Record<string, unknown> }>>;
+  listTaskAcceptances(
+    params?: {
+      acceptanceId?: string;
+      quoteId?: string;
+      offerId?: string;
+      acceptedByAgentId?: string;
+      status?: "accepted" | "cancelled";
+      createdAfter?: string;
+      createdBefore?: string;
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ taskAcceptances: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
+  getTaskAcceptance(
+    acceptanceId: string,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ taskAcceptance: Record<string, unknown> }>>;
   getAgentWallet(agentId: string, opts?: RequestOptions): Promise<SettldResponse<{ wallet: AgentWalletV1 }>>;
+  createAuthorityGrant(
+    body: {
+      grantId?: string;
+      principalRef: {
+        principalType: "human" | "org" | "service" | "agent";
+        principalId: string;
+      };
+      granteeAgentId: string;
+      scope?: {
+        allowedProviderIds?: string[];
+        allowedToolIds?: string[];
+        allowedRiskClasses?: Array<"read" | "compute" | "action" | "financial">;
+        sideEffectingAllowed?: boolean;
+      };
+      spendEnvelope?: {
+        currency?: string;
+        maxPerCallCents: number;
+        maxTotalCents: number;
+      };
+      chainBinding?: {
+        rootGrantHash?: string | null;
+        parentGrantHash?: string | null;
+        depth?: number;
+        maxDelegationDepth?: number;
+      };
+      validity?: {
+        issuedAt?: string;
+        notBefore?: string;
+        expiresAt?: string;
+      };
+      revocation?: {
+        revocable?: boolean;
+      };
+      metadata?: Record<string, unknown>;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ authorityGrant: Record<string, unknown> }>>;
+  listAuthorityGrants(
+    params?: {
+      grantId?: string;
+      grantHash?: string;
+      principalId?: string;
+      granteeAgentId?: string;
+      includeRevoked?: boolean;
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ grants: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  getAuthorityGrant(grantId: string, opts?: RequestOptions): Promise<SettldResponse<{ authorityGrant: Record<string, unknown> }>>;
+  revokeAuthorityGrant(
+    grantId: string,
+    body?: { revocationReasonCode?: string },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ authorityGrant: Record<string, unknown> }>>;
   creditAgentWallet(
     agentId: string,
     body: { amountCents: number; currency?: string },

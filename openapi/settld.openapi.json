@@ -41760,6 +41760,14 @@
                           "requiredCapability": {
                             "type": "string"
                           },
+                          "x402ToolId": {
+                            "type": "string",
+                            "nullable": true
+                          },
+                          "x402ProviderId": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "specification": {
                             "type": "object",
                             "additionalProperties": true
@@ -41938,6 +41946,10 @@
                             "type": "string",
                             "nullable": true
                           },
+                          "authorityGrantRef": {
+                            "type": "string",
+                            "nullable": true
+                          },
                           "status": {
                             "type": "string",
                             "enum": [
@@ -42040,6 +42052,10 @@
                                 "type": "string"
                               },
                               "x402ReceiptId": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "authorityGrantRef": {
                                 "type": "string",
                                 "nullable": true
                               },
@@ -42183,6 +42199,14 @@
                   },
                   "requiredCapability": {
                     "type": "string"
+                  },
+                  "x402ToolId": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "x402ProviderId": {
+                    "type": "string",
+                    "nullable": true
                   },
                   "specification": {
                     "type": "object",
@@ -42378,6 +42402,9 @@
                   "delegationGrantRef": {
                     "type": "string"
                   },
+                  "authorityGrantRef": {
+                    "type": "string"
+                  },
                   "metadata": {
                     "type": "object",
                     "additionalProperties": true
@@ -42442,6 +42469,14 @@
                         },
                         "requiredCapability": {
                           "type": "string"
+                        },
+                        "x402ToolId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "x402ProviderId": {
+                          "type": "string",
+                          "nullable": true
                         },
                         "specification": {
                           "type": "object",
@@ -42621,6 +42656,10 @@
                           "type": "string",
                           "nullable": true
                         },
+                        "authorityGrantRef": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "status": {
                           "type": "string",
                           "enum": [
@@ -42723,6 +42762,10 @@
                               "type": "string"
                             },
                             "x402ReceiptId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "authorityGrantRef": {
                               "type": "string",
                               "nullable": true
                             },
@@ -42928,6 +42971,14 @@
                         "requiredCapability": {
                           "type": "string"
                         },
+                        "x402ToolId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "x402ProviderId": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "specification": {
                           "type": "object",
                           "additionalProperties": true
@@ -43106,6 +43157,10 @@
                           "type": "string",
                           "nullable": true
                         },
+                        "authorityGrantRef": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "status": {
                           "type": "string",
                           "enum": [
@@ -43208,6 +43263,10 @@
                               "type": "string"
                             },
                             "x402ReceiptId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "authorityGrantRef": {
                               "type": "string",
                               "nullable": true
                             },
@@ -43402,6 +43461,14 @@
                         "requiredCapability": {
                           "type": "string"
                         },
+                        "x402ToolId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "x402ProviderId": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "specification": {
                           "type": "object",
                           "additionalProperties": true
@@ -43580,6 +43647,10 @@
                           "type": "string",
                           "nullable": true
                         },
+                        "authorityGrantRef": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "status": {
                           "type": "string",
                           "enum": [
@@ -43682,6 +43753,10 @@
                               "type": "string"
                             },
                             "x402ReceiptId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "authorityGrantRef": {
                               "type": "string",
                               "nullable": true
                             },
@@ -43914,6 +43989,14 @@
                         "requiredCapability": {
                           "type": "string"
                         },
+                        "x402ToolId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "x402ProviderId": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "specification": {
                           "type": "object",
                           "additionalProperties": true
@@ -44092,6 +44175,10 @@
                           "type": "string",
                           "nullable": true
                         },
+                        "authorityGrantRef": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "status": {
                           "type": "string",
                           "enum": [
@@ -44194,6 +44281,10 @@
                               "type": "string"
                             },
                             "x402ReceiptId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "authorityGrantRef": {
                               "type": "string",
                               "nullable": true
                             },
@@ -44446,6 +44537,14 @@
                         "requiredCapability": {
                           "type": "string"
                         },
+                        "x402ToolId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "x402ProviderId": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "specification": {
                           "type": "object",
                           "additionalProperties": true
@@ -44624,6 +44723,10 @@
                           "type": "string",
                           "nullable": true
                         },
+                        "authorityGrantRef": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "status": {
                           "type": "string",
                           "enum": [
@@ -44726,6 +44829,10 @@
                               "type": "string"
                             },
                             "x402ReceiptId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "authorityGrantRef": {
                               "type": "string",
                               "nullable": true
                             },
@@ -45006,6 +45113,9 @@
                     "type": "string",
                     "pattern": "^[0-9a-f]{64}$"
                   },
+                  "authorityGrantRef": {
+                    "type": "string"
+                  },
                   "settledAt": {
                     "type": "string",
                     "format": "date-time"
@@ -45070,6 +45180,14 @@
                         },
                         "requiredCapability": {
                           "type": "string"
+                        },
+                        "x402ToolId": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "x402ProviderId": {
+                          "type": "string",
+                          "nullable": true
                         },
                         "specification": {
                           "type": "object",
@@ -45249,6 +45367,10 @@
                           "type": "string",
                           "nullable": true
                         },
+                        "authorityGrantRef": {
+                          "type": "string",
+                          "nullable": true
+                        },
                         "status": {
                           "type": "string",
                           "enum": [
@@ -45351,6 +45473,10 @@
                               "type": "string"
                             },
                             "x402ReceiptId": {
+                              "type": "string",
+                              "nullable": true
+                            },
+                            "authorityGrantRef": {
                               "type": "string",
                               "nullable": true
                             },
@@ -49764,6 +49890,1382 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{agentId}/interaction-graph-pack": {
+      "get": {
+        "summary": "Export deterministic interaction graph pack for an agent",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-settld-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reputationVersion",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "v1",
+                "v2"
+              ]
+            }
+          },
+          {
+            "name": "reputationWindow",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "7d",
+                "30d",
+                "allTime"
+              ]
+            }
+          },
+          {
+            "name": "asOf",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "counterpartyAgentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "visibility",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "private",
+                "public_summary"
+              ]
+            }
+          },
+          {
+            "name": "sign",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "signerKeyId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "graphPack": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "tenantId",
+                        "agentId",
+                        "reputationVersion",
+                        "reputationWindow",
+                        "asOf",
+                        "generatedAt",
+                        "relationshipCount",
+                        "relationshipsHash",
+                        "summaryHash",
+                        "verification",
+                        "summary",
+                        "relationships",
+                        "packHash"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "VerifiedInteractionGraphPack.v1"
+                          ]
+                        },
+                        "tenantId": {
+                          "type": "string"
+                        },
+                        "agentId": {
+                          "type": "string"
+                        },
+                        "reputationVersion": {
+                          "type": "string",
+                          "enum": [
+                            "v1",
+                            "v2"
+                          ]
+                        },
+                        "reputationWindow": {
+                          "type": "string",
+                          "enum": [
+                            "7d",
+                            "30d",
+                            "allTime"
+                          ]
+                        },
+                        "asOf": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "generatedAt": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "relationshipCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "relationshipsHash": {
+                          "type": "string"
+                        },
+                        "summaryHash": {
+                          "type": "string"
+                        },
+                        "verification": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "deterministicOrdering",
+                            "antiGamingSignalsPresent",
+                            "generatedBy"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "InteractionGraphVerification.v1"
+                              ]
+                            },
+                            "deterministicOrdering": {
+                              "type": "boolean"
+                            },
+                            "antiGamingSignalsPresent": {
+                              "type": "boolean"
+                            },
+                            "generatedBy": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "summary": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "agentId",
+                            "reputationVersion",
+                            "reputationWindow",
+                            "asOf",
+                            "trustScore",
+                            "riskTier",
+                            "eventCount",
+                            "decisionsTotal",
+                            "decisionsApproved",
+                            "successRate",
+                            "disputesOpened",
+                            "disputeRate",
+                            "settledCents",
+                            "refundedCents",
+                            "penalizedCents",
+                            "autoReleasedCents",
+                            "adjustmentAppliedCents",
+                            "relationshipCount",
+                            "economicallyQualifiedRelationshipCount",
+                            "dampenedRelationshipCount",
+                            "collusionSuspectedRelationshipCount",
+                            "lastInteractionAt"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "InteractionGraphSummary.v1"
+                              ]
+                            },
+                            "agentId": {
+                              "type": "string"
+                            },
+                            "reputationVersion": {
+                              "type": "string",
+                              "enum": [
+                                "v1",
+                                "v2"
+                              ]
+                            },
+                            "reputationWindow": {
+                              "type": "string",
+                              "enum": [
+                                "7d",
+                                "30d",
+                                "allTime"
+                              ]
+                            },
+                            "asOf": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "trustScore": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 100
+                            },
+                            "riskTier": {
+                              "type": "string",
+                              "enum": [
+                                "low",
+                                "guarded",
+                                "elevated",
+                                "high"
+                              ]
+                            },
+                            "eventCount": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "decisionsTotal": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "decisionsApproved": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "successRate": {
+                              "type": "number",
+                              "nullable": true
+                            },
+                            "disputesOpened": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "disputeRate": {
+                              "type": "number",
+                              "nullable": true
+                            },
+                            "settledCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "refundedCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "penalizedCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "autoReleasedCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "adjustmentAppliedCents": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "relationshipCount": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "economicallyQualifiedRelationshipCount": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "dampenedRelationshipCount": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "collusionSuspectedRelationshipCount": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "lastInteractionAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "nullable": true
+                            }
+                          }
+                        },
+                        "relationships": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "tenantId",
+                              "agentId",
+                              "counterpartyAgentId",
+                              "visibility",
+                              "reputationWindow",
+                              "asOf",
+                              "eventCount",
+                              "decisionsTotal",
+                              "decisionsApproved",
+                              "workedWithCount",
+                              "successRate",
+                              "disputesOpened",
+                              "disputeRate",
+                              "releaseRateAvg",
+                              "settledCents",
+                              "refundedCents",
+                              "penalizedCents",
+                              "autoReleasedCents",
+                              "adjustmentAppliedCents",
+                              "lastInteractionAt"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "RelationshipEdge.v1"
+                                ]
+                              },
+                              "tenantId": {
+                                "type": "string"
+                              },
+                              "agentId": {
+                                "type": "string"
+                              },
+                              "counterpartyAgentId": {
+                                "type": "string"
+                              },
+                              "visibility": {
+                                "type": "string",
+                                "enum": [
+                                  "private",
+                                  "public_summary"
+                                ]
+                              },
+                              "reputationWindow": {
+                                "type": "string",
+                                "enum": [
+                                  "7d",
+                                  "30d",
+                                  "allTime"
+                                ]
+                              },
+                              "asOf": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "eventCount": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "decisionsTotal": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "decisionsApproved": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "workedWithCount": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "successRate": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "disputesOpened": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "disputeRate": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "releaseRateAvg": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "settledCents": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "refundedCents": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "penalizedCents": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "autoReleasedCents": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "adjustmentAppliedCents": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "lastInteractionAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "nullable": true
+                              },
+                              "minimumEconomicWeightCents": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "economicWeightCents": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "economicWeightQualified": {
+                                "type": "boolean"
+                              },
+                              "microLoopEventCount": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "microLoopRate": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "reciprocalDecisionCount": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "reciprocalEconomicSymmetryDeltaCents": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "nullable": true
+                              },
+                              "reciprocalMicroLoopRate": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "collusionSuspected": {
+                                "type": "boolean"
+                              },
+                              "dampened": {
+                                "type": "boolean"
+                              },
+                              "reputationImpactMultiplier": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1
+                              },
+                              "antiGamingReasonCodes": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "packHash": {
+                          "type": "string"
+                        },
+                        "signature": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "schemaVersion",
+                            "algorithm",
+                            "keyId",
+                            "signedAt",
+                            "payloadHash",
+                            "signatureBase64"
+                          ],
+                          "properties": {
+                            "schemaVersion": {
+                              "type": "string",
+                              "enum": [
+                                "VerifiedInteractionGraphPackSignature.v1"
+                              ]
+                            },
+                            "algorithm": {
+                              "type": "string",
+                              "enum": [
+                                "ed25519"
+                              ]
+                            },
+                            "keyId": {
+                              "type": "string"
+                            },
+                            "signedAt": {
+                              "type": "string",
+                              "format": "date-time"
+                            },
+                            "payloadHash": {
+                              "type": "string",
+                              "pattern": "^[0-9a-f]{64}$"
+                            },
+                            "signatureBase64": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/public/agents/{agentId}/reputation-summary": {
+      "get": {
+        "summary": "Get public coarse reputation summary for an opted-in public agent",
+        "parameters": [
+          {
+            "name": "x-settld-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "agentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reputationVersion",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "v1",
+                "v2"
+              ]
+            }
+          },
+          {
+            "name": "reputationWindow",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "7d",
+                "30d",
+                "allTime"
+              ]
+            }
+          },
+          {
+            "name": "asOf",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "includeRelationships",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "relationshipLimit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "summary": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "agentId",
+                        "reputationVersion",
+                        "reputationWindow",
+                        "asOf",
+                        "trustScore",
+                        "riskTier",
+                        "eventCount",
+                        "decisionsTotal",
+                        "decisionsApproved",
+                        "successRate",
+                        "disputesOpened",
+                        "disputeRate",
+                        "lastInteractionAt",
+                        "relationships"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "PublicAgentReputationSummary.v1"
+                          ]
+                        },
+                        "agentId": {
+                          "type": "string"
+                        },
+                        "reputationVersion": {
+                          "type": "string",
+                          "enum": [
+                            "v1",
+                            "v2"
+                          ]
+                        },
+                        "reputationWindow": {
+                          "type": "string",
+                          "enum": [
+                            "7d",
+                            "30d",
+                            "allTime"
+                          ]
+                        },
+                        "asOf": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "trustScore": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100
+                        },
+                        "riskTier": {
+                          "type": "string",
+                          "enum": [
+                            "low",
+                            "guarded",
+                            "elevated",
+                            "high"
+                          ]
+                        },
+                        "eventCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "decisionsTotal": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "decisionsApproved": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "successRate": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "disputesOpened": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "disputeRate": {
+                          "type": "number",
+                          "nullable": true
+                        },
+                        "lastInteractionAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "nullable": true
+                        },
+                        "relationships": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "counterpartyAgentId",
+                              "workedWithCount",
+                              "successRate",
+                              "disputeRate",
+                              "lastInteractionAt"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "RelationshipEdge.v1"
+                                ]
+                              },
+                              "counterpartyAgentId": {
+                                "type": "string"
+                              },
+                              "workedWithCount": {
+                                "type": "integer",
+                                "minimum": 0
+                              },
+                              "successRate": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "disputeRate": {
+                                "type": "number",
+                                "nullable": true
+                              },
+                              "lastInteractionAt": {
+                                "type": "string",
+                                "format": "date-time",
+                                "nullable": true
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Not Implemented",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/relationships": {
+      "get": {
+        "summary": "List pairwise relationship edges for an agent (tenant-scoped)",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-settld-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "agentId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "counterpartyAgentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reputationWindow",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "7d",
+                "30d",
+                "allTime"
+              ]
+            }
+          },
+          {
+            "name": "asOf",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "visibility",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "private",
+                "public_summary"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "agentId": {
+                      "type": "string"
+                    },
+                    "reputationWindow": {
+                      "type": "string",
+                      "enum": [
+                        "7d",
+                        "30d",
+                        "allTime"
+                      ]
+                    },
+                    "asOf": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "relationships": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "schemaVersion",
+                          "tenantId",
+                          "agentId",
+                          "counterpartyAgentId",
+                          "visibility",
+                          "reputationWindow",
+                          "asOf",
+                          "eventCount",
+                          "decisionsTotal",
+                          "decisionsApproved",
+                          "workedWithCount",
+                          "successRate",
+                          "disputesOpened",
+                          "disputeRate",
+                          "releaseRateAvg",
+                          "settledCents",
+                          "refundedCents",
+                          "penalizedCents",
+                          "autoReleasedCents",
+                          "adjustmentAppliedCents",
+                          "lastInteractionAt"
+                        ],
+                        "properties": {
+                          "schemaVersion": {
+                            "type": "string",
+                            "enum": [
+                              "RelationshipEdge.v1"
+                            ]
+                          },
+                          "tenantId": {
+                            "type": "string"
+                          },
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "counterpartyAgentId": {
+                            "type": "string"
+                          },
+                          "visibility": {
+                            "type": "string",
+                            "enum": [
+                              "private",
+                              "public_summary"
+                            ]
+                          },
+                          "reputationWindow": {
+                            "type": "string",
+                            "enum": [
+                              "7d",
+                              "30d",
+                              "allTime"
+                            ]
+                          },
+                          "asOf": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "eventCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "decisionsTotal": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "decisionsApproved": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "workedWithCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "successRate": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "disputesOpened": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "disputeRate": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "releaseRateAvg": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "settledCents": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "refundedCents": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "penalizedCents": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "autoReleasedCents": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "adjustmentAppliedCents": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "lastInteractionAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "minimumEconomicWeightCents": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "economicWeightCents": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "economicWeightQualified": {
+                            "type": "boolean"
+                          },
+                          "microLoopEventCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "microLoopRate": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "reciprocalDecisionCount": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "reciprocalEconomicSymmetryDeltaCents": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "nullable": true
+                          },
+                          "reciprocalMicroLoopRate": {
+                            "type": "number",
+                            "nullable": true
+                          },
+                          "collusionSuspected": {
+                            "type": "boolean"
+                          },
+                          "dampened": {
+                            "type": "boolean"
+                          },
+                          "reputationImpactMultiplier": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1
+                          },
+                          "antiGamingReasonCodes": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "Not Implemented",
             "content": {
               "application/json": {
                 "schema": {

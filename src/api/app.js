@@ -121,6 +121,12 @@ import {
   validateDelegationGrantV1
 } from "../core/delegation-grant.js";
 import {
+  AUTHORITY_GRANT_RISK_CLASS,
+  buildAuthorityGrantV1,
+  revokeAuthorityGrantV1,
+  validateAuthorityGrantV1
+} from "../core/authority-grant.js";
+import {
   CAPABILITY_ATTESTATION_LEVEL,
   CAPABILITY_ATTESTATION_REASON_CODE,
   CAPABILITY_ATTESTATION_RUNTIME_STATUS,
@@ -145,13 +151,27 @@ import {
   validateSubAgentWorkOrderV1
 } from "../core/subagent-work-order.js";
 import {
+  TASK_NEGOTIATION_STATUS,
+  validateTaskAcceptanceV1,
+  validateTaskOfferV1,
+  validateTaskQuoteV1,
+  buildTaskAcceptanceV1,
+  buildTaskOfferV1,
+  buildTaskQuoteV1
+} from "../core/task-negotiation.js";
+import {
   SESSION_EVENT_TYPE,
   SESSION_VISIBILITY,
   buildSessionEventPayloadV1,
   buildSessionV1,
+  computeSessionEventProvenance,
+  deriveSessionPromptRiskSignals,
+  verifySessionEventProvenanceChain,
   validateSessionEventPayloadV1,
   validateSessionV1
 } from "../core/session-collab.js";
+import { buildSessionReplayPackV1 } from "../core/session-replay-pack.js";
+import { buildVerifiedInteractionGraphPackV1, signVerifiedInteractionGraphPackV1 } from "../core/interaction-graph-pack.js";
 import {
   DISPUTE_OPEN_ENVELOPE_SCHEMA_VERSION,
   validateDisputeOpenEnvelopeV1
@@ -420,6 +440,7 @@ export function createApi({
   x402RequireExecutionIntent = null,
   x402PromptRiskForceMode = null,
   x402PromptRiskForceModeByPrincipal = null,
+  x402SessionTaintEscalateAmountCents = null,
   x402WebhookAutoDisableFailures = null,
   x402WebhookSecretRotationWindowSeconds = null,
   settldPayTokenTtlSeconds = null,
@@ -428,6 +449,9 @@ export function createApi({
   agentCardPublicListingFeeCents = null,
   agentCardPublicListingFeeCurrency = null,
   agentCardPublicListingFeeCollectorAgentId = null,
+  agentCardPublicPublishWindowSeconds = null,
+  agentCardPublicPublishMaxPerTenant = null,
+  agentCardPublicPublishMaxPerAgent = null,
   agentCardPublicRequireCapabilityAttestation = null,
   agentCardPublicAttestationMinLevel = null,
   agentCardPublicAttestationIssuerAgentId = null
@@ -669,6 +693,48 @@ export function createApi({
       return { ok: false, retryAfterSeconds };
     }
     rateBucketsByApiKey.set(key, { tokens: refilled - 1, lastMs: nowMs });
+    return { ok: true };
+  }
+
+  const publicAgentCardPublishBucketsByTenant = new Map(); // tenantId -> { windowStartMs, count }
+  const publicAgentCardPublishBucketsByAgent = new Map(); // `${tenantId}\n${agentId}` -> { windowStartMs, count }
+
+  function readFixedWindowCount(bucketMap, key, windowStartMs) {
+    const existing = bucketMap.get(key) ?? null;
+    if (!existing || existing.windowStartMs !== windowStartMs) return 0;
+    return Number.isSafeInteger(existing.count) && existing.count > 0 ? existing.count : 0;
+  }
+
+  function writeFixedWindowCount(bucketMap, key, windowStartMs, count) {
+    bucketMap.set(key, { windowStartMs, count });
+  }
+
+  function takePublicAgentCardPublishToken({ tenantId, agentId }) {
+    const windowSeconds = agentCardPublicPublishWindowSecondsValue;
+    const maxPerTenant = agentCardPublicPublishMaxPerTenantValue;
+    const maxPerAgent = agentCardPublicPublishMaxPerAgentValue;
+    if (windowSeconds <= 0 || (maxPerTenant <= 0 && maxPerAgent <= 0)) return { ok: true };
+
+    const nowMs = Date.now();
+    const windowMs = windowSeconds * 1000;
+    const windowStartMs = Math.floor(nowMs / windowMs) * windowMs;
+    const retryAfterSeconds = Math.max(1, Math.ceil((windowStartMs + windowMs - nowMs) / 1000));
+    const normalizedTenantId = normalizeTenant(tenantId);
+    const normalizedAgentId = String(agentId ?? "").trim();
+
+    const tenantCount = maxPerTenant > 0 ? readFixedWindowCount(publicAgentCardPublishBucketsByTenant, normalizedTenantId, windowStartMs) : 0;
+    if (maxPerTenant > 0 && tenantCount + 1 > maxPerTenant) {
+      return { ok: false, scope: "tenant", max: maxPerTenant, retryAfterSeconds, windowSeconds };
+    }
+
+    const agentScopedKey = makeScopedKey({ tenantId: normalizedTenantId, id: normalizedAgentId });
+    const agentCount = maxPerAgent > 0 ? readFixedWindowCount(publicAgentCardPublishBucketsByAgent, agentScopedKey, windowStartMs) : 0;
+    if (maxPerAgent > 0 && agentCount + 1 > maxPerAgent) {
+      return { ok: false, scope: "agent", max: maxPerAgent, retryAfterSeconds, windowSeconds };
+    }
+
+    if (maxPerTenant > 0) writeFixedWindowCount(publicAgentCardPublishBucketsByTenant, normalizedTenantId, windowStartMs, tenantCount + 1);
+    if (maxPerAgent > 0) writeFixedWindowCount(publicAgentCardPublishBucketsByAgent, agentScopedKey, windowStartMs, agentCount + 1);
     return { ok: true };
   }
 
@@ -1042,6 +1108,47 @@ export function createApi({
     if (!normalized) throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_FEE_COLLECTOR_AGENT_ID must be a non-empty string");
     return normalized;
   })();
+  const agentCardPublicPublishWindowSecondsValue = (() => {
+    const raw =
+      agentCardPublicPublishWindowSeconds ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_PUBLISH_WINDOW_SECONDS ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 0;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      throw new TypeError("PROXY_AGENT_CARD_PUBLIC_PUBLISH_WINDOW_SECONDS must be a positive safe integer");
+    }
+    return n;
+  })();
+  const agentCardPublicPublishMaxPerTenantValue = (() => {
+    const raw =
+      agentCardPublicPublishMaxPerTenant ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_PUBLISH_MAX_PER_TENANT ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 0;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      throw new TypeError("PROXY_AGENT_CARD_PUBLIC_PUBLISH_MAX_PER_TENANT must be a positive safe integer");
+    }
+    return n;
+  })();
+  const agentCardPublicPublishMaxPerAgentValue = (() => {
+    const raw =
+      agentCardPublicPublishMaxPerAgent ??
+      (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_PUBLISH_MAX_PER_AGENT ?? null : null);
+    if (raw === null || raw === undefined || String(raw).trim() === "") return 0;
+    const n = Number(raw);
+    if (!Number.isSafeInteger(n) || n <= 0) {
+      throw new TypeError("PROXY_AGENT_CARD_PUBLIC_PUBLISH_MAX_PER_AGENT must be a positive safe integer");
+    }
+    return n;
+  })();
+  if (
+    (agentCardPublicPublishMaxPerTenantValue > 0 || agentCardPublicPublishMaxPerAgentValue > 0) &&
+    agentCardPublicPublishWindowSecondsValue <= 0
+  ) {
+    throw new TypeError(
+      "PROXY_AGENT_CARD_PUBLIC_PUBLISH_WINDOW_SECONDS must be configured when public publish limits are enabled"
+    );
+  }
   const agentCardPublicRequireCapabilityAttestationValue = (() => {
     const raw =
       agentCardPublicRequireCapabilityAttestation ??
@@ -1693,6 +1800,16 @@ export function createApi({
       fieldName: "X402_PROMPT_RISK_FORCE_MODE_BY_PRINCIPAL"
     });
   })();
+  const x402SessionTaintEscalateAmountCentsValue = (() => {
+    const raw =
+      x402SessionTaintEscalateAmountCents ??
+      (typeof process !== "undefined" ? process.env.X402_SESSION_TAINT_ESCALATE_AMOUNT_CENTS : null);
+    const normalized = normalizeOptionalNonNegativeSafeInt(raw, {
+      fieldName: "X402_SESSION_TAINT_ESCALATE_AMOUNT_CENTS",
+      allowNull: true
+    });
+    return normalized === null ? 1000 : normalized;
+  })();
   const circleReserveAdapter = x402ReserveAdapter ?? createCircleReserveAdapter({ mode: x402ReserveModeValue, now: nowIso });
 
   function normalizeX402PromptRiskSignalsInput(input, { fieldName = "promptRiskSignals", allowNull = true } = {}) {
@@ -1803,15 +1920,118 @@ export function createApi({
     return principalMode ?? x402PromptRiskForceModeValue ?? null;
   }
 
+  function normalizeX402PromptRiskForcedModeInput(rawValue, { fieldName = "forcedModeOverride", allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    const value = String(rawValue).trim().toLowerCase();
+    if (!X402_PROMPT_RISK_FORCE_MODE_SET.has(value)) {
+      throw new TypeError(`${fieldName} must be one of ${Array.from(X402_PROMPT_RISK_FORCE_MODE_SET.values()).join("|")}`);
+    }
+    return value;
+  }
+
+  function selectStricterX402PromptRiskForcedMode(...modes) {
+    let best = null;
+    let bestScore = -1;
+    for (const mode of modes) {
+      if (mode !== "challenge" && mode !== "escalate") continue;
+      const score = mode === "escalate" ? 2 : 1;
+      if (score > bestScore) {
+        best = mode;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  function mergeX402PromptRiskSignals(...signalsList) {
+    const merged = {
+      promptContagion: false,
+      badActorSuspected: false,
+      reasonCodes: new Set(),
+      evidenceRefs: new Set(),
+      notes: []
+    };
+    for (const signals of signalsList) {
+      if (!signals || typeof signals !== "object" || Array.isArray(signals)) continue;
+      if (signals.promptContagion === true) merged.promptContagion = true;
+      if (signals.badActorSuspected === true || signals.badActor === true || signals.abusePatternDetected === true) {
+        merged.badActorSuspected = true;
+      }
+      if (Array.isArray(signals.reasonCodes)) {
+        for (const reasonCode of signals.reasonCodes) {
+          if (typeof reasonCode !== "string") continue;
+          const normalized = reasonCode.trim();
+          if (!normalized) continue;
+          merged.reasonCodes.add(normalized);
+        }
+      }
+      if (Array.isArray(signals.evidenceRefs)) {
+        for (const evidenceRef of signals.evidenceRefs) {
+          if (typeof evidenceRef !== "string") continue;
+          const normalized = evidenceRef.trim();
+          if (!normalized) continue;
+          merged.evidenceRefs.add(normalized);
+        }
+      }
+      if (typeof signals.notes === "string" && signals.notes.trim() !== "") {
+        merged.notes.push(signals.notes.trim());
+      }
+    }
+    if (!merged.promptContagion && !merged.badActorSuspected && merged.reasonCodes.size === 0 && merged.evidenceRefs.size === 0) {
+      return null;
+    }
+    return normalizeX402PromptRiskSignalsInput(
+      {
+        promptContagion: merged.promptContagion,
+        badActorSuspected: merged.badActorSuspected,
+        reasonCodes: Array.from(merged.reasonCodes.values()).sort((a, b) => a.localeCompare(b)),
+        evidenceRefs: Array.from(merged.evidenceRefs.values()).sort((a, b) => a.localeCompare(b)),
+        notes: merged.notes.length > 0 ? merged.notes.join(" | ").slice(0, 500) : null
+      },
+      { fieldName: "promptRiskSignals", allowNull: false }
+    );
+  }
+
+  function normalizeEvidenceRefList(value) {
+    if (!Array.isArray(value)) return [];
+    return Array.from(
+      new Set(
+        value
+          .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+  }
+
+  function diffRequiredEvidenceRefs({ requiredRefs, providedRefs }) {
+    const required = normalizeEvidenceRefList(requiredRefs);
+    const providedSet = new Set(normalizeEvidenceRefList(providedRefs));
+    const missing = [];
+    for (const ref of required) {
+      if (!providedSet.has(ref)) missing.push(ref);
+    }
+    return {
+      requiredRefs: required,
+      missingRefs: missing
+    };
+  }
+
   function evaluateX402PromptRiskGuardrail({
     gate,
     principalId,
     promptRiskSignals = null,
     promptRiskOverride = null,
+    forcedModeOverride = null,
     at = nowIso()
   } = {}) {
     const existingState = normalizeX402PromptRiskStateInput(gate?.promptRisk ?? null);
-    const forcedMode = resolveX402PromptRiskForcedMode({ principalId });
+    const forcedMode = selectStricterX402PromptRiskForcedMode(
+      resolveX402PromptRiskForcedMode({ principalId }),
+      normalizeX402PromptRiskForcedModeInput(forcedModeOverride, { allowNull: true })
+    );
     const signalSuspicious = promptRiskSignals?.suspicious === true;
     const suspicious = signalSuspicious || existingState?.suspicious === true;
     const existingOverride = existingState?.override && existingState.override.enabled === true ? existingState.override : null;
@@ -6929,6 +7149,446 @@ export function createApi({
     return value;
   }
 
+  const WORK_ORDER_METERING_POLICY_SCHEMA_VERSION = "WorkOrderMeteringPolicy.v1";
+  const WORK_ORDER_METERING_MODE = Object.freeze({
+    NONE: "none",
+    METERED: "metered"
+  });
+  const WORK_ORDER_SETTLEMENT_SPLIT_POLICY_SCHEMA_VERSION = "WorkOrderSettlementSplitPolicy.v1";
+  const WORK_ORDER_SETTLEMENT_SPLIT_CONTRACT_SCHEMA_VERSION = "WorkOrderSettlementSplit.v1";
+  const WORK_ORDER_SETTLEMENT_SPLIT_MODE = Object.freeze({
+    NONE: "none",
+    DETERMINISTIC: "deterministic"
+  });
+  const WORK_ORDER_SETTLEMENT_SPLIT_ROLE = Object.freeze({
+    PROVIDER_PAYOUT: "provider_payout",
+    ROUTER_FEE: "router_fee",
+    DELEGATOR_SHARE: "delegator_share"
+  });
+  const WORK_ORDER_METER_EVENT_SOURCE_TYPE = Object.freeze({
+    TOPUP: "work_order_meter_topup",
+    USAGE: "work_order_meter_usage"
+  });
+
+  function normalizeOptionalNonNegativeSafeInteger(value, fieldName, { allowNull = true } = {}) {
+    if (value === null || value === undefined || value === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    const normalized = Number(value);
+    if (!Number.isSafeInteger(normalized) || normalized < 0) {
+      throw new TypeError(`${fieldName} must be a non-negative safe integer`);
+    }
+    return normalized;
+  }
+
+  function normalizeWorkOrderMeteringPolicy(rawPolicy, { allowNull = true } = {}) {
+    if (rawPolicy === null || rawPolicy === undefined) {
+      if (allowNull) return null;
+      throw new TypeError("metering policy is required");
+    }
+    if (!rawPolicy || typeof rawPolicy !== "object" || Array.isArray(rawPolicy)) {
+      throw new TypeError("metering policy must be an object");
+    }
+    const schemaVersion =
+      typeof rawPolicy.schemaVersion === "string" && rawPolicy.schemaVersion.trim() !== ""
+        ? rawPolicy.schemaVersion.trim()
+        : WORK_ORDER_METERING_POLICY_SCHEMA_VERSION;
+    if (schemaVersion !== WORK_ORDER_METERING_POLICY_SCHEMA_VERSION) {
+      throw new TypeError(`metering.schemaVersion must be ${WORK_ORDER_METERING_POLICY_SCHEMA_VERSION}`);
+    }
+    const mode =
+      typeof rawPolicy.mode === "string" && rawPolicy.mode.trim() !== ""
+        ? rawPolicy.mode.trim().toLowerCase()
+        : WORK_ORDER_METERING_MODE.METERED;
+    if (!Object.values(WORK_ORDER_METERING_MODE).includes(mode)) {
+      throw new TypeError(`metering.mode must be one of ${Object.values(WORK_ORDER_METERING_MODE).join("|")}`);
+    }
+    let requireFinalMeterEvidence = mode === WORK_ORDER_METERING_MODE.METERED;
+    if (rawPolicy.requireFinalMeterEvidence !== null && rawPolicy.requireFinalMeterEvidence !== undefined) {
+      requireFinalMeterEvidence = parseBooleanLike(rawPolicy.requireFinalMeterEvidence, mode === WORK_ORDER_METERING_MODE.METERED);
+    }
+    let enforceFinalReconcile = mode === WORK_ORDER_METERING_MODE.METERED;
+    if (rawPolicy.enforceFinalReconcile !== null && rawPolicy.enforceFinalReconcile !== undefined) {
+      enforceFinalReconcile = parseBooleanLike(rawPolicy.enforceFinalReconcile, mode === WORK_ORDER_METERING_MODE.METERED);
+    }
+    const maxTopUpCents = normalizeOptionalNonNegativeSafeInteger(rawPolicy.maxTopUpCents ?? null, "metering.maxTopUpCents", {
+      allowNull: true
+    });
+    const unit = typeof rawPolicy.unit === "string" && rawPolicy.unit.trim() !== "" ? rawPolicy.unit.trim() : null;
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: WORK_ORDER_METERING_POLICY_SCHEMA_VERSION,
+        mode,
+        requireFinalMeterEvidence,
+        enforceFinalReconcile,
+        maxTopUpCents,
+        unit
+      },
+      { path: "$.metering" }
+    );
+  }
+
+  function parseWorkOrderSettlementSplitRoles(rawValue, { fieldName = "settlementSplitPolicy.requiredRoles", allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined) {
+      if (allowNull) return [];
+      throw new TypeError(`${fieldName} is required`);
+    }
+    if (!Array.isArray(rawValue)) throw new TypeError(`${fieldName} must be an array`);
+    const allowedRoles = new Set(Object.values(WORK_ORDER_SETTLEMENT_SPLIT_ROLE));
+    const out = [];
+    const seen = new Set();
+    for (let index = 0; index < rawValue.length; index += 1) {
+      const role = String(rawValue[index] ?? "").trim().toLowerCase();
+      if (!role) continue;
+      if (!allowedRoles.has(role)) {
+        throw new TypeError(`${fieldName}[${index}] must be one of ${Object.values(WORK_ORDER_SETTLEMENT_SPLIT_ROLE).join("|")}`);
+      }
+      if (seen.has(role)) continue;
+      seen.add(role);
+      out.push(role);
+    }
+    return out.sort((left, right) => left.localeCompare(right));
+  }
+
+  function normalizeWorkOrderSettlementSplitPolicy(rawPolicy, { allowNull = true } = {}) {
+    if (rawPolicy === null || rawPolicy === undefined) {
+      if (allowNull) return null;
+      throw new TypeError("settlement split policy is required");
+    }
+    if (!rawPolicy || typeof rawPolicy !== "object" || Array.isArray(rawPolicy)) {
+      throw new TypeError("settlement split policy must be an object");
+    }
+    const schemaVersion =
+      typeof rawPolicy.schemaVersion === "string" && rawPolicy.schemaVersion.trim() !== ""
+        ? rawPolicy.schemaVersion.trim()
+        : WORK_ORDER_SETTLEMENT_SPLIT_POLICY_SCHEMA_VERSION;
+    if (schemaVersion !== WORK_ORDER_SETTLEMENT_SPLIT_POLICY_SCHEMA_VERSION) {
+      throw new TypeError(`settlementSplitPolicy.schemaVersion must be ${WORK_ORDER_SETTLEMENT_SPLIT_POLICY_SCHEMA_VERSION}`);
+    }
+    const mode =
+      typeof rawPolicy.mode === "string" && rawPolicy.mode.trim() !== ""
+        ? rawPolicy.mode.trim().toLowerCase()
+        : WORK_ORDER_SETTLEMENT_SPLIT_MODE.DETERMINISTIC;
+    if (!Object.values(WORK_ORDER_SETTLEMENT_SPLIT_MODE).includes(mode)) {
+      throw new TypeError(`settlementSplitPolicy.mode must be one of ${Object.values(WORK_ORDER_SETTLEMENT_SPLIT_MODE).join("|")}`);
+    }
+    const requireAtSettle =
+      mode === WORK_ORDER_SETTLEMENT_SPLIT_MODE.DETERMINISTIC
+        ? parseBooleanLike(rawPolicy.requireAtSettle ?? true, true)
+        : false;
+    const defaultRequiredRoles =
+      mode === WORK_ORDER_SETTLEMENT_SPLIT_MODE.DETERMINISTIC
+        ? Object.values(WORK_ORDER_SETTLEMENT_SPLIT_ROLE)
+        : [];
+    const requiredRolesInput =
+      rawPolicy.requiredRoles !== null && rawPolicy.requiredRoles !== undefined ? rawPolicy.requiredRoles : defaultRequiredRoles;
+    const requiredRoles = parseWorkOrderSettlementSplitRoles(requiredRolesInput, {
+      fieldName: "settlementSplitPolicy.requiredRoles",
+      allowNull: true
+    });
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: WORK_ORDER_SETTLEMENT_SPLIT_POLICY_SCHEMA_VERSION,
+        mode,
+        requireAtSettle,
+        requiredRoles
+      },
+      { path: "$.settlementSplitPolicy" }
+    );
+  }
+
+  function normalizeWorkOrderSettlementSplitContract(
+    rawContract,
+    { settlementAmountCents = null, settlementCurrency = null, splitPolicy = null, allowNull = true } = {}
+  ) {
+    if (rawContract === null || rawContract === undefined) {
+      if (splitPolicy?.requireAtSettle === true) throw new TypeError("settlement split contract is required");
+      if (allowNull) return null;
+      throw new TypeError("settlement split contract is required");
+    }
+    if (!rawContract || typeof rawContract !== "object" || Array.isArray(rawContract)) {
+      throw new TypeError("settlement split contract must be an object");
+    }
+    const schemaVersion =
+      typeof rawContract.schemaVersion === "string" && rawContract.schemaVersion.trim() !== ""
+        ? rawContract.schemaVersion.trim()
+        : WORK_ORDER_SETTLEMENT_SPLIT_CONTRACT_SCHEMA_VERSION;
+    if (schemaVersion !== WORK_ORDER_SETTLEMENT_SPLIT_CONTRACT_SCHEMA_VERSION) {
+      throw new TypeError(`settlementSplit.schemaVersion must be ${WORK_ORDER_SETTLEMENT_SPLIT_CONTRACT_SCHEMA_VERSION}`);
+    }
+    const normalizedSettlementAmountCents = normalizeOptionalNonNegativeSafeInteger(
+      settlementAmountCents,
+      "settlementAmountCents",
+      { allowNull: false }
+    );
+    const contractSettlementAmountCents = normalizeOptionalNonNegativeSafeInteger(
+      rawContract.settlementAmountCents ?? null,
+      "settlementSplit.settlementAmountCents",
+      { allowNull: true }
+    );
+    if (contractSettlementAmountCents !== null && contractSettlementAmountCents !== normalizedSettlementAmountCents) {
+      throw new TypeError("settlementSplit.settlementAmountCents must match settlement amount");
+    }
+    const effectiveCurrency =
+      typeof settlementCurrency === "string" && settlementCurrency.trim() !== ""
+        ? settlementCurrency.trim().toUpperCase()
+        : typeof rawContract.currency === "string" && rawContract.currency.trim() !== ""
+          ? rawContract.currency.trim().toUpperCase()
+          : "USD";
+    if (!/^[A-Z][A-Z0-9_]{2,11}$/.test(effectiveCurrency)) {
+      throw new TypeError("settlement currency must match ^[A-Z][A-Z0-9_]{2,11}$");
+    }
+    if (
+      typeof rawContract.currency === "string" &&
+      rawContract.currency.trim() !== "" &&
+      rawContract.currency.trim().toUpperCase() !== effectiveCurrency
+    ) {
+      throw new TypeError("settlementSplit.currency must match settlement currency");
+    }
+    if (!Array.isArray(rawContract.allocations)) {
+      throw new TypeError("settlementSplit.allocations must be an array");
+    }
+    const allocations = [];
+    const seenRoles = new Set();
+    for (let index = 0; index < rawContract.allocations.length; index += 1) {
+      const row = rawContract.allocations[index];
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        throw new TypeError(`settlementSplit.allocations[${index}] must be an object`);
+      }
+      const role = String(row.role ?? "").trim().toLowerCase();
+      if (!Object.values(WORK_ORDER_SETTLEMENT_SPLIT_ROLE).includes(role)) {
+        throw new TypeError(`settlementSplit.allocations[${index}].role must be one of ${Object.values(WORK_ORDER_SETTLEMENT_SPLIT_ROLE).join("|")}`);
+      }
+      if (seenRoles.has(role)) throw new TypeError(`settlementSplit.allocations contains duplicate role: ${role}`);
+      seenRoles.add(role);
+      const amountCents = normalizeOptionalNonNegativeSafeInteger(
+        row.amountCents ?? null,
+        `settlementSplit.allocations[${index}].amountCents`,
+        { allowNull: false }
+      );
+      const recipientRef =
+        typeof row.recipientRef === "string" && row.recipientRef.trim() !== "" ? row.recipientRef.trim() : null;
+      if (recipientRef && recipientRef.length > 200) {
+        throw new TypeError(`settlementSplit.allocations[${index}].recipientRef must be <= 200 characters`);
+      }
+      allocations.push(
+        normalizeForCanonicalJson(
+          {
+            role,
+            amountCents,
+            recipientRef
+          },
+          { path: `$.settlementSplit.allocations[${index}]` }
+        )
+      );
+    }
+    if (allocations.length === 0) throw new TypeError("settlementSplit.allocations must include at least one allocation");
+    const requiredRoles = Array.isArray(splitPolicy?.requiredRoles) ? splitPolicy.requiredRoles : [];
+    for (const role of requiredRoles) {
+      if (!seenRoles.has(role)) {
+        throw new TypeError(`settlementSplit.allocations is missing required role: ${role}`);
+      }
+    }
+    const normalizedAllocations = allocations.sort(
+      (left, right) => String(left.role ?? "").localeCompare(String(right.role ?? "")) || String(left.recipientRef ?? "").localeCompare(String(right.recipientRef ?? ""))
+    );
+    const allocationsTotalCents = normalizedAllocations.reduce((sum, row) => sum + Number(row.amountCents ?? 0), 0);
+    if (allocationsTotalCents !== normalizedSettlementAmountCents) {
+      throw new TypeError("settlementSplit.allocations total must equal settlement amount");
+    }
+    const splitContract = normalizeForCanonicalJson(
+      {
+        schemaVersion: WORK_ORDER_SETTLEMENT_SPLIT_CONTRACT_SCHEMA_VERSION,
+        settlementAmountCents: normalizedSettlementAmountCents,
+        currency: effectiveCurrency,
+        allocations: normalizedAllocations
+      },
+      { path: "$.settlementSplit" }
+    );
+    return {
+      splitContract,
+      splitContractHash: sha256Hex(canonicalJsonStringify(splitContract))
+    };
+  }
+
+  function mergeWorkOrderMetadataWithMetering({ metadata = null, meteringPolicy = null, settlementSplitPolicy = null } = {}) {
+    const baseMetadata =
+      metadata && typeof metadata === "object" && !Array.isArray(metadata) ? normalizeForCanonicalJson(metadata, { path: "$.metadata" }) : null;
+    if (!meteringPolicy && !settlementSplitPolicy) return baseMetadata;
+    return normalizeForCanonicalJson(
+      {
+        ...(baseMetadata ?? {}),
+        ...(meteringPolicy ? { metering: meteringPolicy } : {}),
+        ...(settlementSplitPolicy ? { settlementSplitPolicy } : {})
+      },
+      { path: "$.metadata" }
+    );
+  }
+
+  function resolveWorkOrderMeteringPolicy(workOrder, { allowNull = true } = {}) {
+    const metadata = workOrder?.metadata && typeof workOrder.metadata === "object" && !Array.isArray(workOrder.metadata) ? workOrder.metadata : null;
+    return normalizeWorkOrderMeteringPolicy(metadata?.metering ?? null, { allowNull });
+  }
+
+  function resolveWorkOrderSettlementSplitPolicy(workOrder, { allowNull = true } = {}) {
+    const metadata = workOrder?.metadata && typeof workOrder.metadata === "object" && !Array.isArray(workOrder.metadata) ? workOrder.metadata : null;
+    return normalizeWorkOrderSettlementSplitPolicy(metadata?.settlementSplitPolicy ?? null, { allowNull });
+  }
+
+  function parseWorkOrderMeteringEventKeys(rawValue, { allowNull = true, fieldName = "meteringEventKeys" } = {}) {
+    if (rawValue === null || rawValue === undefined) {
+      if (allowNull) return [];
+      throw new TypeError(`${fieldName} is required`);
+    }
+    if (!Array.isArray(rawValue)) throw new TypeError(`${fieldName} must be an array`);
+    const out = [];
+    const seen = new Set();
+    for (let index = 0; index < rawValue.length; index += 1) {
+      const key = String(rawValue[index] ?? "").trim();
+      if (!key) continue;
+      if (key.length > 200) throw new TypeError(`${fieldName}[${index}] must be <= 200 characters`);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(key);
+    }
+    return out.sort((left, right) => left.localeCompare(right));
+  }
+
+  async function listWorkOrderMeteringEvents({ tenantId, workOrderId } = {}) {
+    const normalizedWorkOrderId = typeof workOrderId === "string" && workOrderId.trim() !== "" ? workOrderId.trim() : null;
+    if (!normalizedWorkOrderId) throw new TypeError("workOrderId is required");
+    const events = await listBillableUsageEventsAll({
+      tenantId,
+      period: null,
+      eventType: BILLABLE_USAGE_EVENT_TYPE.SETTLED_VOLUME
+    });
+    return (Array.isArray(events) ? events : [])
+      .filter((event) => {
+        if (!event || typeof event !== "object" || Array.isArray(event)) return false;
+        if (String(event.sourceId ?? "") !== normalizedWorkOrderId) return false;
+        const sourceType = String(event.sourceType ?? "").trim().toLowerCase();
+        return sourceType === WORK_ORDER_METER_EVENT_SOURCE_TYPE.TOPUP || sourceType === WORK_ORDER_METER_EVENT_SOURCE_TYPE.USAGE;
+      })
+      .sort(
+        (left, right) =>
+          String(left.occurredAt ?? "").localeCompare(String(right.occurredAt ?? "")) ||
+          String(left.eventKey ?? "").localeCompare(String(right.eventKey ?? ""))
+      );
+  }
+
+  function summarizeWorkOrderMeteringCoverage({ workOrder, meterEvents = [] } = {}) {
+    const baseAmountRaw = Number(workOrder?.pricing?.amountCents ?? Number.NaN);
+    const baseAmountCents = Number.isSafeInteger(baseAmountRaw) && baseAmountRaw >= 0 ? baseAmountRaw : 0;
+    let topUpTotalCents = 0;
+    let usageTotalCents = 0;
+    const rows = Array.isArray(meterEvents) ? meterEvents : [];
+    for (const event of rows) {
+      if (!event || typeof event !== "object" || Array.isArray(event)) continue;
+      const sourceType = String(event.sourceType ?? "").trim().toLowerCase();
+      const amountRaw = Number(event.amountCents ?? Number.NaN);
+      const amountCents = Number.isSafeInteger(amountRaw) && amountRaw > 0 ? amountRaw : 0;
+      if (sourceType === WORK_ORDER_METER_EVENT_SOURCE_TYPE.TOPUP) topUpTotalCents += amountCents;
+      if (sourceType === WORK_ORDER_METER_EVENT_SOURCE_TYPE.USAGE) usageTotalCents += amountCents;
+    }
+    return {
+      baseAmountCents,
+      topUpTotalCents,
+      usageTotalCents,
+      coveredAmountCents: baseAmountCents + topUpTotalCents
+    };
+  }
+
+  function buildWorkOrderMeterEvidenceDigest({ meterEvents = [] } = {}) {
+    const rows = (Array.isArray(meterEvents) ? meterEvents : [])
+      .map((event) =>
+        normalizeForCanonicalJson(
+          {
+            eventKey: typeof event?.eventKey === "string" ? event.eventKey : null,
+            eventHash: typeof event?.eventHash === "string" ? event.eventHash : null,
+            eventType: typeof event?.eventType === "string" ? event.eventType : null,
+            sourceType: typeof event?.sourceType === "string" ? event.sourceType : null,
+            sourceId: typeof event?.sourceId === "string" ? event.sourceId : null,
+            sourceEventId: typeof event?.sourceEventId === "string" ? event.sourceEventId : null,
+            quantity: Number.isSafeInteger(Number(event?.quantity ?? Number.NaN)) ? Number(event.quantity) : null,
+            amountCents: Number.isSafeInteger(Number(event?.amountCents ?? Number.NaN)) ? Number(event.amountCents) : null,
+            currency: typeof event?.currency === "string" ? event.currency : null,
+            occurredAt: typeof event?.occurredAt === "string" ? event.occurredAt : null
+          },
+          { path: "$.meterEvent" }
+        )
+      )
+      .filter((row) => typeof row.eventKey === "string" && row.eventKey.trim() !== "")
+      .sort((left, right) => String(left.eventKey ?? "").localeCompare(String(right.eventKey ?? "")));
+    const normalizedRows = normalizeForCanonicalJson(rows, { path: "$.meterEvents" });
+    return {
+      meterEvents: normalizedRows,
+      meterEvidenceHash: sha256Hex(canonicalJsonStringify(normalizedRows))
+    };
+  }
+
+  function attachWorkOrderSettlementMeteringSummary({ workOrder, summary } = {}) {
+    if (!workOrder || typeof workOrder !== "object" || Array.isArray(workOrder)) return workOrder;
+    if (!summary || typeof summary !== "object" || Array.isArray(summary)) return workOrder;
+    const metadata =
+      workOrder.metadata && typeof workOrder.metadata === "object" && !Array.isArray(workOrder.metadata)
+        ? workOrder.metadata
+        : {};
+    const metering =
+      metadata.metering && typeof metadata.metering === "object" && !Array.isArray(metadata.metering) ? metadata.metering : {};
+    return normalizeForCanonicalJson(
+      {
+        ...workOrder,
+        metadata: {
+          ...metadata,
+          metering: {
+            ...metering,
+            lastSettlementReconcile: normalizeForCanonicalJson(summary, { path: "$.metadata.metering.lastSettlementReconcile" })
+          }
+        }
+      },
+      { path: "$" }
+    );
+  }
+
+  function attachWorkOrderSettlementSplitSummary({ workOrder, summary } = {}) {
+    if (!workOrder || typeof workOrder !== "object" || Array.isArray(workOrder)) return workOrder;
+    if (!summary || typeof summary !== "object" || Array.isArray(summary)) return workOrder;
+    const metadata =
+      workOrder.metadata && typeof workOrder.metadata === "object" && !Array.isArray(workOrder.metadata)
+        ? workOrder.metadata
+        : {};
+    const settlementSplit =
+      metadata.settlementSplit && typeof metadata.settlementSplit === "object" && !Array.isArray(metadata.settlementSplit)
+        ? metadata.settlementSplit
+        : {};
+    return normalizeForCanonicalJson(
+      {
+        ...workOrder,
+        metadata: {
+          ...metadata,
+          settlementSplit: {
+            ...settlementSplit,
+            lastSettlementBinding: normalizeForCanonicalJson(summary, { path: "$.metadata.settlementSplit.lastSettlementBinding" })
+          }
+        }
+      },
+      { path: "$" }
+    );
+  }
+
+  function parseTaskNegotiationStatus(rawValue, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError("status is required");
+    }
+    const value = String(rawValue).trim().toLowerCase();
+    if (!Object.values(TASK_NEGOTIATION_STATUS).includes(value)) {
+      throw new TypeError(`status must be one of ${Object.values(TASK_NEGOTIATION_STATUS).join("|")}`);
+    }
+    return value;
+  }
+
   function parseCapabilityAttestationLevel(rawValue, { allowNull = true } = {}) {
     if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
       if (allowNull) return null;
@@ -7286,7 +7946,52 @@ export function createApi({
     return value;
   }
 
+  function parseSessionEventCursor(rawValue, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError("cursor is required");
+    }
+    return String(rawValue).trim();
+  }
+
   const TRUST_ROUTING_FACTORS_SCHEMA_VERSION = "TrustRoutingFactors.v1";
+  const RELATIONSHIP_EDGE_SCHEMA_VERSION = "RelationshipEdge.v1";
+  const INTERACTION_GRAPH_SUMMARY_SCHEMA_VERSION = "InteractionGraphSummary.v1";
+  const PUBLIC_AGENT_REPUTATION_SUMMARY_SCHEMA_VERSION = "PublicAgentReputationSummary.v1";
+  const RELATIONSHIP_EDGE_VISIBILITY = Object.freeze({
+    PRIVATE: "private",
+    PUBLIC_SUMMARY: "public_summary"
+  });
+  const RELATIONSHIP_PUBLIC_SUMMARY_MAX_LIMIT = 100;
+  const RELATIONSHIP_ANTI_GAMING_REASON_CODE = Object.freeze({
+    LOW_ECONOMIC_WEIGHT: "LOW_ECONOMIC_WEIGHT",
+    LOW_VALUE_RECIPROCAL_LOOP: "LOW_VALUE_RECIPROCAL_LOOP",
+    RECIPROCAL_COLLUSION_PATTERN: "RECIPROCAL_COLLUSION_PATTERN"
+  });
+  const RELATIONSHIP_REPUTATION_MIN_ECONOMIC_WEIGHT_CENTS = parseNonNegativeIntEnv(
+    "PROXY_RELATIONSHIP_MIN_ECONOMIC_WEIGHT_CENTS",
+    500
+  );
+  const RELATIONSHIP_MICRO_EVENT_MAX_CENTS = Math.max(
+    1,
+    parseNonNegativeIntEnv("PROXY_RELATIONSHIP_MICRO_EVENT_MAX_CENTS", 250)
+  );
+  const RELATIONSHIP_MICRO_LOOP_DAMPENING_MIN_EVENTS = Math.max(
+    1,
+    parseNonNegativeIntEnv("PROXY_RELATIONSHIP_MICRO_LOOP_MIN_EVENTS", 3)
+  );
+  const RELATIONSHIP_COLLUSION_MIN_RECIPROCAL_DECISIONS = Math.max(
+    2,
+    parseNonNegativeIntEnv("PROXY_RELATIONSHIP_COLLUSION_MIN_RECIPROCAL_DECISIONS", 4)
+  );
+  const RELATIONSHIP_COLLUSION_MAX_ECONOMIC_WEIGHT_CENTS = Math.max(
+    RELATIONSHIP_REPUTATION_MIN_ECONOMIC_WEIGHT_CENTS,
+    parseNonNegativeIntEnv("PROXY_RELATIONSHIP_COLLUSION_MAX_ECONOMIC_WEIGHT_CENTS", 2000)
+  );
+  const RELATIONSHIP_COLLUSION_MAX_SYMMETRY_DELTA_CENTS = parseNonNegativeIntEnv(
+    "PROXY_RELATIONSHIP_COLLUSION_MAX_SYMMETRY_DELTA_CENTS",
+    150
+  );
   const TRUST_ROUTING_WEIGHTS = Object.freeze({
     settlementOutcome: 35,
     disputes: 25,
@@ -7340,6 +8045,29 @@ export function createApi({
     return sum / values.length;
   }
 
+  function toSafeCentsOrNull(value) {
+    if (!Number.isFinite(Number(value))) return null;
+    const n = Number(value);
+    if (!Number.isSafeInteger(n) || n < 0) return null;
+    return n;
+  }
+
+  function extractReputationEventEconomicWeightCents(event) {
+    if (!event || typeof event !== "object" || Array.isArray(event)) return 0;
+    const facts = event.facts && typeof event.facts === "object" && !Array.isArray(event.facts) ? event.facts : {};
+    const eventKind = String(event.eventKind ?? "").toLowerCase();
+    const settledCents = toSafeCentsOrNull(facts.amountSettledCents) ?? 0;
+    const refundedCents = toSafeCentsOrNull(facts.amountRefundedCents) ?? 0;
+    const penalizedCents = toSafeCentsOrNull(facts.amountPenalizedCents) ?? 0;
+    const autoReleasedCents =
+      eventKind === REPUTATION_EVENT_KIND.HOLDBACK_AUTO_RELEASED
+        ? toSafeCentsOrNull(facts.autoReleasedCents ?? facts.amountCents) ?? 0
+        : 0;
+    const adjustmentCents =
+      eventKind === REPUTATION_EVENT_KIND.ADJUSTMENT_APPLIED ? toSafeCentsOrNull(facts.amountCents) ?? 0 : 0;
+    return Math.max(0, settledCents + refundedCents + penalizedCents + autoReleasedCents + adjustmentCents);
+  }
+
   function computeRoutingReputationEventStats({
     events = [],
     counterpartyAgentId = null
@@ -7352,6 +8080,9 @@ export function createApi({
     let disputesOpened = 0;
     let lastInteractionAt = null;
     const releaseRateValues = [];
+    let economicWeightCents = 0;
+    let monetizedEventCount = 0;
+    let microLoopEventCount = 0;
     for (const event of events) {
       if (!event || typeof event !== "object" || Array.isArray(event)) continue;
       const subject = event.subject && typeof event.subject === "object" && !Array.isArray(event.subject) ? event.subject : null;
@@ -7373,10 +8104,32 @@ export function createApi({
         const releaseRatePct = Number(facts.releaseRatePct);
         if (releaseRatePct >= 0 && releaseRatePct <= 100) releaseRateValues.push(releaseRatePct);
       }
+      const eventEconomicWeightCents = extractReputationEventEconomicWeightCents(event);
+      if (eventEconomicWeightCents > 0) {
+        monetizedEventCount += 1;
+        economicWeightCents += eventEconomicWeightCents;
+        if (eventEconomicWeightCents <= RELATIONSHIP_MICRO_EVENT_MAX_CENTS) microLoopEventCount += 1;
+      }
     }
     const approvalRate = decisionsTotal > 0 ? decisionsApproved / decisionsTotal : null;
     const disputeRate = decisionsTotal > 0 ? disputesOpened / decisionsTotal : null;
     const releaseRateAvg = averageOrNull(releaseRateValues);
+    const microLoopRate = monetizedEventCount > 0 ? microLoopEventCount / monetizedEventCount : null;
+    const lowEconomicWeight = decisionsTotal > 0 && economicWeightCents < RELATIONSHIP_REPUTATION_MIN_ECONOMIC_WEIGHT_CENTS;
+    const lowValueLoopCandidate =
+      lowEconomicWeight &&
+      microLoopEventCount >= RELATIONSHIP_MICRO_LOOP_DAMPENING_MIN_EVENTS &&
+      Number.isFinite(Number(microLoopRate)) &&
+      Number(microLoopRate) >= 0.75;
+    let reputationImpactMultiplier = 1;
+    if (lowEconomicWeight) {
+      const raw = economicWeightCents / Math.max(1, RELATIONSHIP_REPUTATION_MIN_ECONOMIC_WEIGHT_CENTS);
+      reputationImpactMultiplier = Math.max(0.1, Math.min(1, Number(raw.toFixed(6))));
+      if (lowValueLoopCandidate) reputationImpactMultiplier = Math.min(reputationImpactMultiplier, 0.35);
+    }
+    const reputationImpactReasonCodes = [];
+    if (lowEconomicWeight) reputationImpactReasonCodes.push(RELATIONSHIP_ANTI_GAMING_REASON_CODE.LOW_ECONOMIC_WEIGHT);
+    if (lowValueLoopCandidate) reputationImpactReasonCodes.push(RELATIONSHIP_ANTI_GAMING_REASON_CODE.LOW_VALUE_RECIPROCAL_LOOP);
     return {
       eventCount,
       decisionsTotal,
@@ -7385,7 +8138,16 @@ export function createApi({
       approvalRate,
       disputeRate,
       releaseRateAvg,
-      lastInteractionAt
+      lastInteractionAt,
+      economicWeightCents,
+      monetizedEventCount,
+      microLoopEventCount,
+      microLoopRate,
+      lowEconomicWeight,
+      lowValueLoopCandidate,
+      minimumEconomicWeightCents: RELATIONSHIP_REPUTATION_MIN_ECONOMIC_WEIGHT_CENTS,
+      reputationImpactMultiplier,
+      reputationImpactReasonCodes
     };
   }
 
@@ -7433,7 +8195,65 @@ export function createApi({
     const approvalScore = Number.isFinite(Number(stats.approvalRate)) ? Number(stats.approvalRate) * 100 : 70;
     const disputeScore = Number.isFinite(Number(stats.disputeRate)) ? 100 - Number(stats.disputeRate) * 100 : 85;
     const familiarityBoost = Math.min(10, eventCount * 2);
-    return clampScore(approvalScore * 0.65 + disputeScore * 0.35 + familiarityBoost);
+    const dampeningMultiplier = Number.isFinite(Number(stats.reputationImpactMultiplier))
+      ? Math.max(0.1, Math.min(1, Number(stats.reputationImpactMultiplier)))
+      : 1;
+    return clampScore((approvalScore * 0.65 + disputeScore * 0.35 + familiarityBoost) * dampeningMultiplier);
+  }
+
+  function computeRelationshipAntiGamingSignals({ forwardStats, reciprocalStats = null } = {}) {
+    const forward = forwardStats && typeof forwardStats === "object" && !Array.isArray(forwardStats) ? forwardStats : {};
+    const reciprocal =
+      reciprocalStats && typeof reciprocalStats === "object" && !Array.isArray(reciprocalStats) ? reciprocalStats : null;
+    const reasonCodes = new Set(
+      Array.isArray(forward.reputationImpactReasonCodes) ? forward.reputationImpactReasonCodes.filter((code) => typeof code === "string" && code) : []
+    );
+    const reciprocalDecisionCount = reciprocal ? Math.min(Number(forward.decisionsTotal ?? 0), Number(reciprocal.decisionsTotal ?? 0)) : 0;
+    const reciprocalEconomicSymmetryDeltaCents = reciprocal
+      ? Math.abs(Number(forward.economicWeightCents ?? 0) - Number(reciprocal.economicWeightCents ?? 0))
+      : null;
+    const reciprocalMicroLoopRate =
+      reciprocal && Number.isFinite(Number(reciprocal.microLoopRate))
+        ? Number(Number(reciprocal.microLoopRate).toFixed(6))
+        : null;
+    const reciprocalLowValueLoopCandidate = reciprocal?.lowValueLoopCandidate === true;
+    const reciprocalMicroLoopDense =
+      reciprocal &&
+      Number.isFinite(Number(reciprocal.microLoopRate)) &&
+      Number(reciprocal.microLoopRate) >= 0.75;
+    const collusionSuspected =
+      reciprocalDecisionCount >= RELATIONSHIP_COLLUSION_MIN_RECIPROCAL_DECISIONS &&
+      forward.lowValueLoopCandidate === true &&
+      reciprocalLowValueLoopCandidate === true &&
+      reciprocalMicroLoopDense === true &&
+      Math.max(Number(forward.economicWeightCents ?? 0), Number(reciprocal?.economicWeightCents ?? 0)) <=
+        RELATIONSHIP_COLLUSION_MAX_ECONOMIC_WEIGHT_CENTS &&
+      reciprocalEconomicSymmetryDeltaCents !== null &&
+      reciprocalEconomicSymmetryDeltaCents <= RELATIONSHIP_COLLUSION_MAX_SYMMETRY_DELTA_CENTS;
+    if (collusionSuspected) reasonCodes.add(RELATIONSHIP_ANTI_GAMING_REASON_CODE.RECIPROCAL_COLLUSION_PATTERN);
+    let reputationImpactMultiplier = Number.isFinite(Number(forward.reputationImpactMultiplier))
+      ? Math.max(0.1, Math.min(1, Number(forward.reputationImpactMultiplier)))
+      : 1;
+    if (collusionSuspected) reputationImpactMultiplier = Math.min(reputationImpactMultiplier, 0.25);
+    return normalizeForCanonicalJson(
+      {
+        minimumEconomicWeightCents: RELATIONSHIP_REPUTATION_MIN_ECONOMIC_WEIGHT_CENTS,
+        economicWeightCents: Number(forward.economicWeightCents ?? 0),
+        economicWeightQualified: Number(forward.economicWeightCents ?? 0) >= RELATIONSHIP_REPUTATION_MIN_ECONOMIC_WEIGHT_CENTS,
+        microLoopEventCount: Number(forward.microLoopEventCount ?? 0),
+        microLoopRate:
+          Number.isFinite(Number(forward.microLoopRate)) ? Number(Number(forward.microLoopRate).toFixed(6)) : null,
+        reciprocalDecisionCount,
+        reciprocalEconomicSymmetryDeltaCents:
+          reciprocalEconomicSymmetryDeltaCents !== null ? Number(reciprocalEconomicSymmetryDeltaCents) : null,
+        reciprocalMicroLoopRate,
+        collusionSuspected,
+        dampened: reputationImpactMultiplier < 1,
+        reputationImpactMultiplier: Number(Number(reputationImpactMultiplier).toFixed(6)),
+        reasonCodes: Array.from(reasonCodes.values()).sort((left, right) => left.localeCompare(right))
+      },
+      { path: "$" }
+    );
   }
 
   function computeTrustWeightedRoutingScore({
@@ -7510,6 +8330,352 @@ export function createApi({
         { path: "$" }
       )
     };
+  }
+
+  function toSafeRelationshipRate(value) {
+    if (!Number.isFinite(Number(value))) return null;
+    return Number(Number(value).toFixed(6));
+  }
+
+  function parseRelationshipListLimit(rawValue, { defaultValue = 50 } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultValue;
+    const value = Number(rawValue);
+    if (!Number.isSafeInteger(value) || value <= 0 || value > RELATIONSHIP_PUBLIC_SUMMARY_MAX_LIMIT) {
+      throw new TypeError(`limit must be an integer within 1..${RELATIONSHIP_PUBLIC_SUMMARY_MAX_LIMIT}`);
+    }
+    return value;
+  }
+
+  function parseRelationshipListOffset(rawValue, { defaultValue = 0 } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") return defaultValue;
+    const value = Number(rawValue);
+    if (!Number.isSafeInteger(value) || value < 0) throw new TypeError("offset must be a non-negative safe integer");
+    return value;
+  }
+
+  function resolveAgentCardPublicSummaryVisibility(agentCard) {
+    const metadata =
+      agentCard?.metadata && typeof agentCard.metadata === "object" && !Array.isArray(agentCard.metadata) ? agentCard.metadata : null;
+    const relationshipVisibility =
+      metadata?.relationshipVisibility && typeof metadata.relationshipVisibility === "object" && !Array.isArray(metadata.relationshipVisibility)
+        ? metadata.relationshipVisibility
+        : null;
+    const publicSummaryShared =
+      relationshipVisibility?.publicSummary === true ||
+      metadata?.publicSummary === true;
+    return {
+      publicReputationSummary:
+        publicSummaryShared ||
+        relationshipVisibility?.publicReputationSummary === true ||
+        metadata?.publicReputationSummary === true,
+      publicRelationshipSummary:
+        publicSummaryShared ||
+        relationshipVisibility?.publicRelationshipSummary === true ||
+        metadata?.publicRelationshipSummary === true
+    };
+  }
+
+  async function resolvePublicAgentCardByAgentId({ agentId, status = AGENT_CARD_STATUS.ACTIVE } = {}) {
+    const normalizedAgentId = String(agentId ?? "").trim();
+    if (!normalizedAgentId) throw new TypeError("agentId is required");
+    if (typeof store.listAgentCardsPublic !== "function") {
+      throw new TypeError("public agent-card discovery is not supported for this store");
+    }
+    const rows = await store.listAgentCardsPublic({
+      status: status ? String(status).trim().toLowerCase() : null,
+      visibility: AGENT_CARD_VISIBILITY.PUBLIC,
+      limit: 10_000,
+      offset: 0
+    });
+    const cards = Array.isArray(rows)
+      ? rows
+          .filter((row) => row && typeof row === "object" && !Array.isArray(row))
+          .filter((row) => String(row.agentId ?? "") === normalizedAgentId)
+      : [];
+    cards.sort((left, right) => {
+      const tenantOrder = String(left.tenantId ?? "").localeCompare(String(right.tenantId ?? ""));
+      if (tenantOrder !== 0) return tenantOrder;
+      return String(left.agentId ?? "").localeCompare(String(right.agentId ?? ""));
+    });
+    if (cards.length === 0) return { ok: false, code: "NOT_FOUND", card: null };
+    if (cards.length > 1) {
+      return {
+        ok: false,
+        code: "PUBLIC_AGENT_AMBIGUOUS",
+        card: null,
+        details: {
+          agentId: normalizedAgentId,
+          matches: cards.map((row) => ({ tenantId: row.tenantId, agentId: row.agentId }))
+        }
+      };
+    }
+    return { ok: true, code: null, card: cards[0] };
+  }
+
+  async function listRelationshipEdgesForAgent({
+    tenantId,
+    agentId,
+    counterpartyAgentId = null,
+    asOf = nowIso(),
+    reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS,
+    limit = 50,
+    offset = 0,
+    publicOnly = false
+  } = {}) {
+    const t = normalizeTenant(tenantId);
+    const subjectAgentId = String(agentId ?? "").trim();
+    if (!subjectAgentId) throw new TypeError("agentId is required");
+    const counterpartyFilter =
+      typeof counterpartyAgentId === "string" && counterpartyAgentId.trim() !== "" ? counterpartyAgentId.trim() : null;
+    const window = parseReputationWindow(reputationWindow);
+    const asOfValue = String(asOf ?? "").trim() || nowIso();
+    if (!Number.isFinite(Date.parse(asOfValue))) throw new TypeError("asOf must be an ISO date-time");
+    const safeLimit = parseRelationshipListLimit(limit, { defaultValue: 50 });
+    const safeOffset = parseRelationshipListOffset(offset, { defaultValue: 0 });
+    const windowStartAt = reputationWindowStartAt({ window, at: asOfValue });
+    const events = await listRoutingReputationEvents({
+      tenantId: t,
+      agentId: subjectAgentId,
+      occurredAtGte: windowStartAt,
+      occurredAtLte: asOfValue,
+      pageSize: 5000
+    });
+
+    const grouped = new Map();
+    for (const event of events) {
+      if (!event || typeof event !== "object" || Array.isArray(event)) continue;
+      const subject = event.subject && typeof event.subject === "object" && !Array.isArray(event.subject) ? event.subject : null;
+      const counterparty = typeof subject?.counterpartyAgentId === "string" ? subject.counterpartyAgentId.trim() : "";
+      if (!counterparty) continue;
+      if (counterpartyFilter && counterparty !== counterpartyFilter) continue;
+      const bucket = grouped.get(counterparty) ?? [];
+      bucket.push(event);
+      grouped.set(counterparty, bucket);
+    }
+
+    let sourceCard = null;
+    try {
+      sourceCard = await getAgentCardRecord({ tenantId: t, agentId: subjectAgentId });
+    } catch {
+      sourceCard = null;
+    }
+    const sourceVisibility = resolveAgentCardPublicSummaryVisibility(sourceCard);
+
+    const edges = [];
+    const keys = Array.from(grouped.keys()).sort((left, right) => left.localeCompare(right));
+    for (const counterparty of keys) {
+      const counterpartyEvents = grouped.get(counterparty) ?? [];
+      const stats = computeRoutingReputationEventStats({ events: counterpartyEvents, counterpartyAgentId: counterparty });
+      let reciprocalStats = null;
+      try {
+        const reciprocalEvents = await listRoutingReputationEvents({
+          tenantId: t,
+          agentId: counterparty,
+          occurredAtGte: windowStartAt,
+          occurredAtLte: asOfValue,
+          pageSize: 5000
+        });
+        reciprocalStats = computeRoutingReputationEventStats({
+          events: reciprocalEvents,
+          counterpartyAgentId: subjectAgentId
+        });
+      } catch {
+        reciprocalStats = null;
+      }
+      const antiGamingSignals = computeRelationshipAntiGamingSignals({
+        forwardStats: stats,
+        reciprocalStats
+      });
+      const aggregate = computeReputationFactsAggregate({ events: counterpartyEvents });
+      let counterpartyCard = null;
+      try {
+        counterpartyCard = await getAgentCardRecord({ tenantId: t, agentId: counterparty });
+      } catch {
+        counterpartyCard = null;
+      }
+      const counterpartyVisibility = resolveAgentCardPublicSummaryVisibility(counterpartyCard);
+      const visibility =
+        sourceVisibility.publicRelationshipSummary && counterpartyVisibility.publicRelationshipSummary
+          ? RELATIONSHIP_EDGE_VISIBILITY.PUBLIC_SUMMARY
+          : RELATIONSHIP_EDGE_VISIBILITY.PRIVATE;
+      if (publicOnly && visibility !== RELATIONSHIP_EDGE_VISIBILITY.PUBLIC_SUMMARY) continue;
+      edges.push(
+        normalizeForCanonicalJson(
+          {
+            schemaVersion: RELATIONSHIP_EDGE_SCHEMA_VERSION,
+            tenantId: t,
+            agentId: subjectAgentId,
+            counterpartyAgentId: counterparty,
+            visibility,
+            reputationWindow: window,
+            asOf: asOfValue,
+            eventCount: Number(stats.eventCount ?? 0),
+            decisionsTotal: Number(stats.decisionsTotal ?? 0),
+            decisionsApproved: Number(stats.decisionsApproved ?? 0),
+            workedWithCount: Number(stats.decisionsTotal ?? 0),
+            successRate: toSafeRelationshipRate(stats.approvalRate),
+            disputesOpened: Number(stats.disputesOpened ?? 0),
+            disputeRate: toSafeRelationshipRate(stats.disputeRate),
+            releaseRateAvg: Number.isFinite(Number(stats.releaseRateAvg)) ? Number(Number(stats.releaseRateAvg).toFixed(2)) : null,
+            settledCents: Number(aggregate?.totals?.economics?.settledCents ?? 0),
+            refundedCents: Number(aggregate?.totals?.economics?.refundedCents ?? 0),
+            penalizedCents: Number(aggregate?.totals?.economics?.penalizedCents ?? 0),
+            autoReleasedCents: Number(aggregate?.totals?.economics?.autoReleasedCents ?? 0),
+            adjustmentAppliedCents: Number(aggregate?.totals?.economics?.adjustmentAppliedCents ?? 0),
+            lastInteractionAt: stats.lastInteractionAt ?? null,
+            minimumEconomicWeightCents: Number(antiGamingSignals.minimumEconomicWeightCents ?? 0),
+            economicWeightCents: Number(antiGamingSignals.economicWeightCents ?? 0),
+            economicWeightQualified: antiGamingSignals.economicWeightQualified === true,
+            microLoopEventCount: Number(antiGamingSignals.microLoopEventCount ?? 0),
+            microLoopRate:
+              Number.isFinite(Number(antiGamingSignals.microLoopRate)) ? Number(antiGamingSignals.microLoopRate) : null,
+            reciprocalDecisionCount: Number(antiGamingSignals.reciprocalDecisionCount ?? 0),
+            reciprocalEconomicSymmetryDeltaCents:
+              Number.isFinite(Number(antiGamingSignals.reciprocalEconomicSymmetryDeltaCents))
+                ? Number(antiGamingSignals.reciprocalEconomicSymmetryDeltaCents)
+                : null,
+            reciprocalMicroLoopRate:
+              Number.isFinite(Number(antiGamingSignals.reciprocalMicroLoopRate)) ? Number(antiGamingSignals.reciprocalMicroLoopRate) : null,
+            collusionSuspected: antiGamingSignals.collusionSuspected === true,
+            dampened: antiGamingSignals.dampened === true,
+            reputationImpactMultiplier:
+              Number.isFinite(Number(antiGamingSignals.reputationImpactMultiplier))
+                ? Number(antiGamingSignals.reputationImpactMultiplier)
+                : 1,
+            antiGamingReasonCodes: Array.isArray(antiGamingSignals.reasonCodes) ? antiGamingSignals.reasonCodes : []
+          },
+          { path: "$" }
+        )
+      );
+    }
+
+    edges.sort((left, right) => {
+      const leftCounterparty = String(left?.counterpartyAgentId ?? "");
+      const rightCounterparty = String(right?.counterpartyAgentId ?? "");
+      return leftCounterparty.localeCompare(rightCounterparty);
+    });
+    return {
+      relationships: edges.slice(safeOffset, safeOffset + safeLimit),
+      total: edges.length,
+      limit: safeLimit,
+      offset: safeOffset,
+      asOf: asOfValue,
+      reputationWindow: window
+    };
+  }
+
+  function buildInteractionGraphSummary({
+    agentId,
+    reputationVersion,
+    reputationWindow,
+    asOf,
+    reputation,
+    aggregate,
+    relationshipStats,
+    relationships
+  } = {}) {
+    const edgeRows = Array.isArray(relationships) ? relationships : [];
+    const collusionSuspectedRelationshipCount = edgeRows.reduce(
+      (count, edge) => count + (edge?.collusionSuspected === true ? 1 : 0),
+      0
+    );
+    const dampenedRelationshipCount = edgeRows.reduce((count, edge) => count + (edge?.dampened === true ? 1 : 0), 0);
+    const economicallyQualifiedRelationshipCount = edgeRows.reduce(
+      (count, edge) => count + (edge?.economicWeightQualified === true ? 1 : 0),
+      0
+    );
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: INTERACTION_GRAPH_SUMMARY_SCHEMA_VERSION,
+        agentId: String(agentId ?? ""),
+        reputationVersion: String(reputationVersion ?? "v2"),
+        reputationWindow: String(reputationWindow ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS),
+        asOf: String(asOf ?? nowIso()),
+        trustScore: Number(reputation?.trustScore ?? 0),
+        riskTier: String(reputation?.riskTier ?? "high"),
+        eventCount: Number(aggregate?.totals?.eventCount ?? 0),
+        decisionsTotal: Number(relationshipStats?.decisionsTotal ?? 0),
+        decisionsApproved: Number(relationshipStats?.decisionsApproved ?? 0),
+        successRate: toSafeRelationshipRate(relationshipStats?.approvalRate),
+        disputesOpened: Number(relationshipStats?.disputesOpened ?? 0),
+        disputeRate: toSafeRelationshipRate(relationshipStats?.disputeRate),
+        settledCents: Number(aggregate?.totals?.economics?.settledCents ?? 0),
+        refundedCents: Number(aggregate?.totals?.economics?.refundedCents ?? 0),
+        penalizedCents: Number(aggregate?.totals?.economics?.penalizedCents ?? 0),
+        autoReleasedCents: Number(aggregate?.totals?.economics?.autoReleasedCents ?? 0),
+        adjustmentAppliedCents: Number(aggregate?.totals?.economics?.adjustmentAppliedCents ?? 0),
+        relationshipCount: edgeRows.length,
+        economicallyQualifiedRelationshipCount,
+        dampenedRelationshipCount,
+        collusionSuspectedRelationshipCount,
+        lastInteractionAt: relationshipStats?.lastInteractionAt ?? null
+      },
+      { path: "$.summary" }
+    );
+  }
+
+  function parseInteractionGraphPackSignerKeyId(rawValue, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError("signerKeyId is required");
+    }
+    const value = String(rawValue).trim();
+    if (value.length > 200) throw new TypeError("signerKeyId must be <= 200 characters");
+    if (!/^[A-Za-z0-9:_./-]+$/.test(value)) throw new TypeError("signerKeyId must match ^[A-Za-z0-9:_./-]+$");
+    return value;
+  }
+
+  function resolveInteractionGraphPackSigningCandidate({ signerKeyId = null } = {}) {
+    const normalizedSignerKeyId = parseInteractionGraphPackSignerKeyId(signerKeyId, { allowNull: true });
+    const serverPublicKeyPem = typeof store?.serverSigner?.publicKeyPem === "string" ? store.serverSigner.publicKeyPem : "";
+    const serverPrivateKeyPem = typeof store?.serverSigner?.privateKeyPem === "string" ? store.serverSigner.privateKeyPem : "";
+    const serverKeyId = typeof store?.serverSigner?.keyId === "string" ? store.serverSigner.keyId.trim() : "";
+    if (!serverPublicKeyPem.trim() || !serverPrivateKeyPem.trim() || !serverKeyId) {
+      throw new TypeError("interaction graph pack server signer is not configured");
+    }
+
+    const overridePublicKeyPem = String(process.env.PROXY_INTERACTION_GRAPH_PACK_SIGNER_PUBLIC_KEY_PEM ?? "");
+    const overridePrivateKeyPem = String(process.env.PROXY_INTERACTION_GRAPH_PACK_SIGNER_PRIVATE_KEY_PEM ?? "");
+    const overrideKeyIdRaw = String(process.env.PROXY_INTERACTION_GRAPH_PACK_SIGNER_KEY_ID ?? "").trim();
+    const hasOverride = Boolean(overridePublicKeyPem.trim() || overridePrivateKeyPem.trim() || overrideKeyIdRaw);
+    if (hasOverride && (!overridePublicKeyPem.trim() || !overridePrivateKeyPem.trim())) {
+      throw new TypeError(
+        "interaction graph pack signer override requires both PROXY_INTERACTION_GRAPH_PACK_SIGNER_PUBLIC_KEY_PEM and PROXY_INTERACTION_GRAPH_PACK_SIGNER_PRIVATE_KEY_PEM"
+      );
+    }
+
+    const derivedServerKeyId = keyIdFromPublicKeyPem(serverPublicKeyPem);
+    const normalizedServer = {
+      keyId: derivedServerKeyId,
+      publicKeyPem: serverPublicKeyPem,
+      privateKeyPem: serverPrivateKeyPem,
+      source: "server"
+    };
+    const byKeyId = new Map([[normalizedServer.keyId, normalizedServer]]);
+    if (serverKeyId) byKeyId.set(serverKeyId, normalizedServer);
+    let overrideSigner = null;
+
+    if (hasOverride) {
+      const derivedKeyId = keyIdFromPublicKeyPem(overridePublicKeyPem);
+      const overrideKeyId = overrideKeyIdRaw || derivedKeyId;
+      if (overrideKeyId !== derivedKeyId) throw new TypeError("interaction graph pack signer override keyId does not match public key");
+      overrideSigner = {
+        keyId: derivedKeyId,
+        publicKeyPem: overridePublicKeyPem,
+        privateKeyPem: overridePrivateKeyPem,
+        source: "override"
+      };
+      byKeyId.set(overrideSigner.keyId, overrideSigner);
+      if (overrideKeyIdRaw) byKeyId.set(overrideKeyIdRaw, overrideSigner);
+    }
+
+    if (normalizedSignerKeyId) {
+      const selected = byKeyId.get(normalizedSignerKeyId) ?? null;
+      if (!selected) throw new TypeError("interaction graph pack signerKeyId is not available");
+      return selected;
+    }
+
+    return overrideSigner ?? normalizedServer;
   }
 
   async function listCapabilityAttestations({
@@ -7956,6 +9122,9 @@ export function createApi({
     const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
     const statusFilter = parseDiscoveryStatus(status);
     const visibilityFilter = parseAgentCardVisibility(visibility, { allowAll: true, defaultVisibility: AGENT_CARD_VISIBILITY.PUBLIC });
+    if (isPublicScope && visibilityFilter !== AGENT_CARD_VISIBILITY.PUBLIC) {
+      throw new TypeError("public discovery visibility must be public");
+    }
     const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
     const runtimeFilter = runtime && String(runtime).trim() !== "" ? String(runtime).trim().toLowerCase() : null;
     const parsedAttestationMinLevel = parseCapabilityAttestationLevel(attestationMinLevel, { allowNull: true });
@@ -8034,12 +9203,56 @@ export function createApi({
       cards.sort((left, right) => String(left.agentId ?? "").localeCompare(String(right.agentId ?? "")));
     }
 
+    let quarantinedAgentScopedKeys = null;
+    if (isPublicScope) {
+      quarantinedAgentScopedKeys = new Set();
+      const publicTenantIds = [...new Set(cards.map((row) => normalizeTenantId(row?.tenantId ?? DEFAULT_TENANT_ID)))].sort((left, right) =>
+        left.localeCompare(right)
+      );
+      if (typeof store.listEmergencyControlState === "function") {
+        for (const cardTenantId of publicTenantIds) {
+          // eslint-disable-next-line no-await-in-loop
+          const controls = await store.listEmergencyControlState({
+            tenantId: cardTenantId,
+            active: true,
+            scopeType: EMERGENCY_SCOPE_TYPE.AGENT,
+            controlType: EMERGENCY_CONTROL_TYPE.QUARANTINE,
+            limit: 10_000,
+            offset: 0
+          });
+          for (const control of controls ?? []) {
+            const scope = control?.scope && typeof control.scope === "object" && !Array.isArray(control.scope) ? control.scope : {};
+            const scopeAgentId =
+              typeof scope.id === "string" && scope.id.trim() !== ""
+                ? scope.id.trim()
+                : typeof control?.scopeId === "string" && control.scopeId.trim() !== ""
+                  ? control.scopeId.trim()
+                  : null;
+            if (!scopeAgentId) continue;
+            quarantinedAgentScopedKeys.add(makeScopedKey({ tenantId: cardTenantId, id: scopeAgentId }));
+          }
+        }
+      } else if (store?.emergencyControlState instanceof Map) {
+        for (const control of store.emergencyControlState.values()) {
+          if (!control || typeof control !== "object" || Array.isArray(control)) continue;
+          if (control.active !== true) continue;
+          if (String(control.controlType ?? "").toLowerCase() !== EMERGENCY_CONTROL_TYPE.QUARANTINE) continue;
+          if (String(control.scopeType ?? "").toLowerCase() !== EMERGENCY_SCOPE_TYPE.AGENT) continue;
+          const scopeId = typeof control.scopeId === "string" && control.scopeId.trim() !== "" ? control.scopeId.trim() : null;
+          if (!scopeId) continue;
+          const controlTenantId = normalizeTenantId(control.tenantId ?? DEFAULT_TENANT_ID);
+          quarantinedAgentScopedKeys.add(makeScopedKey({ tenantId: controlTenantId, id: scopeId }));
+        }
+      }
+    }
+
     const ranked = [];
     const excludedAttestationCandidates = [];
     for (const agentCard of cards) {
       const agentId = String(agentCard?.agentId ?? "");
       if (!agentId) continue;
       const cardTenantId = normalizeTenantId(agentCard?.tenantId ?? t ?? DEFAULT_TENANT_ID);
+      if (isPublicScope && quarantinedAgentScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
       if (requireAttestation && !capabilityFilter) {
         const requestedCapabilities = Array.isArray(agentCard?.capabilities)
           ? [...new Set(agentCard.capabilities.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort((left, right) =>
@@ -8146,7 +9359,9 @@ export function createApi({
       if (right.rankingScore !== left.rankingScore) return right.rankingScore - left.rankingScore;
       if (right.trustScore !== left.trustScore) return right.trustScore - left.trustScore;
       if (right.runVolume !== left.runVolume) return right.runVolume - left.runVolume;
-      return String(left.agentCard?.agentId ?? "").localeCompare(String(right.agentCard?.agentId ?? ""));
+      const agentOrder = String(left.agentCard?.agentId ?? "").localeCompare(String(right.agentCard?.agentId ?? ""));
+      if (agentOrder !== 0) return agentOrder;
+      return String(left.agentCard?.tenantId ?? "").localeCompare(String(right.agentCard?.tenantId ?? ""));
     });
 
     const total = ranked.length;
@@ -8870,7 +10085,6 @@ export function createApi({
   }
 
   function deriveX402AuthorityGrantRef({ gateId, gateAgentPassport = null, gateAuthorization = null, tokenPayload = null } = {}) {
-    const fallback = `authority_${sha256Hex(String(gateId ?? "")).slice(0, 24)}`;
     const candidates = [
       tokenPayload?.effectiveDelegationRef,
       tokenPayload?.delegationRef,
@@ -8882,10 +10096,10 @@ export function createApi({
       try {
         return normalizeOptionalX402RefInput(raw.trim(), "authorityGrantRef", { allowNull: false, max: 200 });
       } catch {
-        // Try next candidate and ultimately fall back to a deterministic derived value.
+        // Try next candidate.
       }
     }
-    return fallback;
+    return null;
   }
 
   function normalizeOptionalX402DelegationHashForBinding(rawValue) {
@@ -10876,6 +12090,13 @@ export function createApi({
     return err;
   }
 
+  function buildX402AuthorityGrantError(code, message, details = null) {
+    const err = new Error(message);
+    err.code = code;
+    if (details !== null && details !== undefined) err.details = details;
+    return err;
+  }
+
   function buildX402AgentPassportError(code, message, details = null) {
     const err = new Error(message);
     err.code = code;
@@ -11832,6 +13053,221 @@ export function createApi({
     }
 
     return { delegationGrant: grant, delegationGrantRef: normalizedGrantId };
+  }
+
+  async function resolveX402AuthorityGrantForAuthorization({
+    tenantId,
+    gate,
+    authorityGrantRef = null,
+    nowAt,
+    amountCents,
+    currency,
+    payeeProviderId = null
+  } = {}) {
+    const explicitRef =
+      typeof authorityGrantRef === "string" && authorityGrantRef.trim() !== ""
+        ? authorityGrantRef.trim()
+        : null;
+    if (!explicitRef) return { authorityGrant: null, authorityGrantRef: null };
+    const normalizedGrantId = normalizeOptionalX402RefInput(explicitRef, "authorityGrantRef", { allowNull: false, max: 200 });
+    if (typeof store.getAuthorityGrant !== "function") {
+      throw buildX402AuthorityGrantError(
+        "X402_AUTHORITY_GRANT_RESOLVER_UNAVAILABLE",
+        "authority grant resolver is unavailable for this store",
+        { authorityGrantRef: normalizedGrantId }
+      );
+    }
+    const grant = await store.getAuthorityGrant({ tenantId, grantId: normalizedGrantId });
+    if (!grant) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_NOT_FOUND", "authority grant was not found", {
+        authorityGrantRef: normalizedGrantId
+      });
+    }
+    try {
+      validateAuthorityGrantV1(grant);
+    } catch (err) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_SCHEMA_INVALID", "authority grant failed schema validation", {
+        authorityGrantRef: normalizedGrantId,
+        message: err?.message ?? null
+      });
+    }
+
+    const atIso = typeof nowAt === "string" && nowAt.trim() !== "" ? nowAt.trim() : nowIso();
+    const nowMs = Date.parse(atIso);
+    if (!Number.isFinite(nowMs)) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_TIME_INVALID", "authorization timestamp must be an ISO timestamp");
+    }
+
+    const revokedAt =
+      grant?.revocation && typeof grant.revocation === "object" && !Array.isArray(grant.revocation) ? grant.revocation.revokedAt : null;
+    if (typeof revokedAt === "string" && revokedAt.trim() !== "") {
+      const revokedMs = Date.parse(revokedAt);
+      if (Number.isFinite(revokedMs) && revokedMs <= nowMs) {
+        throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_REVOKED", "authority grant is revoked", {
+          authorityGrantRef: normalizedGrantId,
+          revokedAt
+        });
+      }
+    }
+
+    const notBefore = String(grant?.validity?.notBefore ?? "");
+    const expiresAt = String(grant?.validity?.expiresAt ?? "");
+    const notBeforeMs = Date.parse(notBefore);
+    const expiresAtMs = Date.parse(expiresAt);
+    if (!Number.isFinite(notBeforeMs) || !Number.isFinite(expiresAtMs)) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_VALIDITY_INVALID", "authority grant validity window is invalid", {
+        authorityGrantRef: normalizedGrantId
+      });
+    }
+    if (nowMs < notBeforeMs) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_NOT_ACTIVE", "authority grant is not active yet", {
+        authorityGrantRef: normalizedGrantId,
+        notBefore
+      });
+    }
+    if (nowMs >= expiresAtMs) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_EXPIRED", "authority grant is expired", {
+        authorityGrantRef: normalizedGrantId,
+        expiresAt
+      });
+    }
+
+    const depth = Number(grant?.chainBinding?.depth);
+    const maxDepth = Number(grant?.chainBinding?.maxDelegationDepth);
+    if (!Number.isSafeInteger(depth) || !Number.isSafeInteger(maxDepth) || depth < 0 || maxDepth < 0 || depth > maxDepth) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_DEPTH_INVALID", "authority grant chain depth exceeds max depth", {
+        authorityGrantRef: normalizedGrantId,
+        depth: grant?.chainBinding?.depth ?? null,
+        maxDelegationDepth: grant?.chainBinding?.maxDelegationDepth ?? null
+      });
+    }
+
+    const gatePayerAgentId =
+      typeof gate?.payerAgentId === "string" && gate.payerAgentId.trim() !== "" ? gate.payerAgentId.trim() : null;
+    if (gatePayerAgentId && String(grant.granteeAgentId ?? "") !== gatePayerAgentId) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_ACTOR_MISMATCH", "authority grant grantee does not match gate payer", {
+        authorityGrantRef: normalizedGrantId,
+        granteeAgentId: grant.granteeAgentId ?? null,
+        payerAgentId: gatePayerAgentId
+      });
+    }
+
+    const sideEffectingAllowed =
+      grant?.scope && typeof grant.scope === "object" && !Array.isArray(grant.scope) ? grant.scope.sideEffectingAllowed === true : false;
+    if (!sideEffectingAllowed) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_SIDE_EFFECTING_DENIED", "authority grant does not allow side-effecting execution", {
+        authorityGrantRef: normalizedGrantId
+      });
+    }
+
+    const allowedRiskClasses = Array.isArray(grant?.scope?.allowedRiskClasses) ? grant.scope.allowedRiskClasses.map((row) => String(row).toLowerCase()) : [];
+    if (!allowedRiskClasses.includes(AUTHORITY_GRANT_RISK_CLASS.FINANCIAL)) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_RISK_CLASS_DENIED", "authority grant does not allow financial risk class", {
+        authorityGrantRef: normalizedGrantId,
+        allowedRiskClasses
+      });
+    }
+
+    const allowedProviders = Array.isArray(grant?.scope?.allowedProviderIds) ? grant.scope.allowedProviderIds.filter(Boolean) : [];
+    if (allowedProviders.length > 0) {
+      const provider = typeof payeeProviderId === "string" && payeeProviderId.trim() !== "" ? payeeProviderId.trim() : null;
+      if (!provider || !allowedProviders.includes(provider)) {
+        throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_PROVIDER_DENIED", "provider is not allowlisted by authority grant", {
+          authorityGrantRef: normalizedGrantId,
+          payeeProviderId: provider,
+          allowedProviderIds: allowedProviders
+        });
+      }
+    }
+
+    const allowedTools = Array.isArray(grant?.scope?.allowedToolIds) ? grant.scope.allowedToolIds.filter(Boolean) : [];
+    if (allowedTools.length > 0) {
+      const toolId = typeof gate?.toolId === "string" && gate.toolId.trim() !== "" ? gate.toolId.trim() : null;
+      if (!toolId || !allowedTools.includes(toolId)) {
+        throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_TOOL_DENIED", "tool is not allowlisted by authority grant", {
+          authorityGrantRef: normalizedGrantId,
+          toolId,
+          allowedToolIds: allowedTools
+        });
+      }
+    }
+
+    const spendCurrency = String(grant?.spendEnvelope?.currency ?? "").toUpperCase();
+    if (spendCurrency && spendCurrency !== String(currency ?? "").toUpperCase()) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_CURRENCY_MISMATCH", "authority grant currency does not match gate currency", {
+        authorityGrantRef: normalizedGrantId,
+        grantCurrency: spendCurrency,
+        gateCurrency: currency
+      });
+    }
+
+    const maxPerCallCents = Number(grant?.spendEnvelope?.maxPerCallCents ?? 0);
+    if (!Number.isSafeInteger(maxPerCallCents) || maxPerCallCents < 0) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_SPEND_INVALID", "authority grant maxPerCallCents is invalid", {
+        authorityGrantRef: normalizedGrantId
+      });
+    }
+    if (Number(amountCents) > maxPerCallCents) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_PER_CALL_EXCEEDED", "authority grant maxPerCallCents exceeded", {
+        authorityGrantRef: normalizedGrantId,
+        amountCents,
+        maxPerCallCents
+      });
+    }
+
+    const maxTotalCents = Number(grant?.spendEnvelope?.maxTotalCents ?? 0);
+    if (!Number.isSafeInteger(maxTotalCents) || maxTotalCents < 0) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_SPEND_INVALID", "authority grant maxTotalCents is invalid", {
+        authorityGrantRef: normalizedGrantId
+      });
+    }
+    if (maxTotalCents > 0) {
+      if (typeof store.listX402Receipts !== "function") {
+        throw buildX402AuthorityGrantError(
+          "X402_AUTHORITY_GRANT_RESOLVER_UNAVAILABLE",
+          "authority grant cumulative spend check requires x402 receipt listing support",
+          { authorityGrantRef: normalizedGrantId }
+        );
+      }
+      const receipts = await store.listX402Receipts({
+        tenantId,
+        agentId: gatePayerAgentId,
+        limit: 50_000,
+        offset: 0
+      });
+      let usedCents = 0;
+      for (const row of Array.isArray(receipts) ? receipts : []) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        const spendAuth =
+          row?.bindings?.spendAuthorization && typeof row.bindings.spendAuthorization === "object" && !Array.isArray(row.bindings.spendAuthorization)
+            ? row.bindings.spendAuthorization
+            : null;
+        const receiptGrantRef =
+          typeof spendAuth?.delegationRef === "string" && spendAuth.delegationRef.trim() !== ""
+            ? spendAuth.delegationRef.trim()
+            : null;
+        if (receiptGrantRef !== normalizedGrantId) continue;
+        const releasedAmountCents = Number(
+          row?.settlementReceipt?.releasedAmountCents ??
+            row?.releasedAmountCents ??
+            (String(row?.settlementState ?? "").toLowerCase() === "released" ? row?.amountCents : 0)
+        );
+        if (!Number.isSafeInteger(releasedAmountCents) || releasedAmountCents <= 0) continue;
+        usedCents += releasedAmountCents;
+      }
+      const projectedCents = usedCents + Number(amountCents);
+      if (projectedCents > maxTotalCents) {
+        throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_TOTAL_EXCEEDED", "authority grant maxTotalCents exceeded", {
+          authorityGrantRef: normalizedGrantId,
+          usedCents,
+          amountCents,
+          projectedCents,
+          maxTotalCents
+        });
+      }
+    }
+
+    return { authorityGrant: grant, authorityGrantRef: normalizedGrantId };
   }
 
   function tenantSettlementPolicyStoreKey({ tenantId, policyId, policyVersion }) {
@@ -13312,6 +14748,112 @@ export function createApi({
     throw new TypeError("session events not supported for this store");
   }
 
+  function parseX402SessionRefInput(rawValue, { fieldName = "sessionRef", allowNull = true } = {}) {
+    return normalizeOptionalX402RefInput(rawValue, fieldName, { allowNull, max: 200 });
+  }
+
+  async function resolveSessionPromptRiskSignalsForX402({ tenantId, sessionRef, amountCents } = {}) {
+    const normalizedSessionRef = parseX402SessionRefInput(sessionRef, { fieldName: "sessionRef", allowNull: true });
+    if (!normalizedSessionRef) {
+      return {
+        ok: true,
+        sessionId: null,
+        promptRiskSignals: null,
+        forcedMode: null,
+        details: null
+      };
+    }
+    const session = await getSessionRecord({ tenantId, sessionId: normalizedSessionRef });
+    if (!session) {
+      return {
+        ok: false,
+        httpStatus: 409,
+        code: "X402_SESSION_PROVENANCE_INVALID",
+        message: "session provenance reference was not found",
+        details: { sessionRef: normalizedSessionRef, reason: "session_not_found" }
+      };
+    }
+    let events = await getSessionEventRecords({ tenantId, sessionId: normalizedSessionRef });
+    if (!Array.isArray(events)) events = [];
+    for (const event of events) {
+      await ensureSignerContextFresh({ tenantId, event });
+    }
+    const chainVerification = verifyChainedEvents(events, { publicKeyByKeyId: store.publicKeyByKeyId });
+    if (!chainVerification.ok) {
+      return {
+        ok: false,
+        httpStatus: 409,
+        code: "X402_SESSION_PROVENANCE_INVALID",
+        message: "session provenance chain is invalid",
+        details: {
+          sessionRef: normalizedSessionRef,
+          reason: chainVerification.error ?? "chain_verification_failed"
+        }
+      };
+    }
+    const provenanceVerification = verifySessionEventProvenanceChain(events);
+    if (!provenanceVerification.ok) {
+      return {
+        ok: false,
+        httpStatus: 409,
+        code: "X402_SESSION_PROVENANCE_INVALID",
+        message: "session provenance chain is invalid",
+        details: {
+          sessionRef: normalizedSessionRef,
+          reason: provenanceVerification.error ?? "provenance_verification_failed"
+        }
+      };
+    }
+    const derivedSignals = deriveSessionPromptRiskSignals({
+      sessionId: normalizedSessionRef,
+      events,
+      amountCents,
+      escalateAmountCents: x402SessionTaintEscalateAmountCentsValue
+    });
+    if (derivedSignals?.suspicious !== true) {
+      return {
+        ok: true,
+        sessionId: normalizedSessionRef,
+        promptRiskSignals: null,
+        forcedMode: null,
+        details: normalizeForCanonicalJson(
+          {
+            sessionRef: normalizedSessionRef,
+            provenance: provenanceVerification
+          },
+          { path: "$" }
+        )
+      };
+    }
+    const promptRiskSignals = normalizeX402PromptRiskSignalsInput(
+      {
+        promptContagion: true,
+        badActorSuspected: false,
+        reasonCodes: Array.isArray(derivedSignals.reasonCodes) ? derivedSignals.reasonCodes : [],
+        evidenceRefs: Array.isArray(derivedSignals.evidenceRefs) ? derivedSignals.evidenceRefs : [],
+        notes: `session provenance taint detected for ${normalizedSessionRef}`
+      },
+      { fieldName: "promptRiskSignals", allowNull: false }
+    );
+    return {
+      ok: true,
+      sessionId: normalizedSessionRef,
+      promptRiskSignals,
+      forcedMode:
+        typeof derivedSignals.forcedMode === "string" && derivedSignals.forcedMode.trim() !== ""
+          ? derivedSignals.forcedMode.trim().toLowerCase()
+          : null,
+      details: normalizeForCanonicalJson(
+        {
+          sessionRef: normalizedSessionRef,
+          provenance: provenanceVerification,
+          source: derivedSignals.source ?? null
+        },
+        { path: "$" }
+      )
+    };
+  }
+
   async function listSessionRecords({
     tenantId,
     sessionId = null,
@@ -13350,6 +14892,24 @@ export function createApi({
     if (typeof store.getSubAgentWorkOrder === "function") return store.getSubAgentWorkOrder({ tenantId, workOrderId });
     if (store.subAgentWorkOrders instanceof Map) return store.subAgentWorkOrders.get(makeScopedKey({ tenantId, id: String(workOrderId) })) ?? null;
     throw new TypeError("sub-agent work orders not supported for this store");
+  }
+
+  async function getTaskQuoteRecord({ tenantId, quoteId }) {
+    if (typeof store.getTaskQuote === "function") return store.getTaskQuote({ tenantId, quoteId });
+    if (store.taskQuotes instanceof Map) return store.taskQuotes.get(makeScopedKey({ tenantId, id: String(quoteId) })) ?? null;
+    throw new TypeError("task quotes not supported for this store");
+  }
+
+  async function getTaskOfferRecord({ tenantId, offerId }) {
+    if (typeof store.getTaskOffer === "function") return store.getTaskOffer({ tenantId, offerId });
+    if (store.taskOffers instanceof Map) return store.taskOffers.get(makeScopedKey({ tenantId, id: String(offerId) })) ?? null;
+    throw new TypeError("task offers not supported for this store");
+  }
+
+  async function getTaskAcceptanceRecord({ tenantId, acceptanceId }) {
+    if (typeof store.getTaskAcceptance === "function") return store.getTaskAcceptance({ tenantId, acceptanceId });
+    if (store.taskAcceptances instanceof Map) return store.taskAcceptances.get(makeScopedKey({ tenantId, id: String(acceptanceId) })) ?? null;
+    throw new TypeError("task acceptances not supported for this store");
   }
 
   async function getCapabilityAttestationRecord({ tenantId, attestationId }) {
@@ -18282,7 +19842,8 @@ export function createApi({
 	    receiptHash,
 	    settlementStatus,
 	    x402GateId,
-	    x402RunId
+	    x402RunId,
+	    authorityGrantRef = null
 	  } = {}) {
 	    const t = String(tenantId ?? "").trim();
 	    const w = String(workOrderId ?? "").trim();
@@ -18290,7 +19851,8 @@ export function createApi({
 	    const s = String(settlementStatus ?? "").trim().toLowerCase();
 	    const g = String(x402GateId ?? "").trim();
 	    const run = String(x402RunId ?? "").trim();
-	    return sha256Hex(`work_order_settlement:v1:${t}:${w}:${r}:${s}:${g}:${run}`);
+	    const authorityRef = typeof authorityGrantRef === "string" && authorityGrantRef.trim() !== "" ? authorityGrantRef.trim() : "";
+	    return sha256Hex(`work_order_settlement:v1:${t}:${w}:${r}:${s}:${g}:${run}:${authorityRef}`);
 	  }
 
 	  async function emitWorkOrderSettlementReputationEventBestEffort({ tenantId, workOrder, completionReceipt, context = null } = {}) {
@@ -18311,6 +19873,10 @@ export function createApi({
 	    const receiptHash = String(completionReceipt?.receiptHash ?? "").trim().toLowerCase();
 	    const x402GateId = String(settlement?.x402GateId ?? "").trim();
 	    const x402RunId = String(settlement?.x402RunId ?? "").trim();
+	    const authorityGrantRef =
+	      typeof settlement?.authorityGrantRef === "string" && settlement.authorityGrantRef.trim() !== ""
+	        ? settlement.authorityGrantRef.trim()
+	        : null;
 	    const occurredAt =
 	      typeof settlement?.settledAt === "string" && settlement.settledAt.trim() !== "" ? settlement.settledAt.trim() : nowIso();
 
@@ -18324,7 +19890,8 @@ export function createApi({
 	      receiptHash,
 	      settlementStatus,
 	      x402GateId,
-	      x402RunId
+	      x402RunId,
+	      authorityGrantRef
 	    });
 	    const amountCentsRaw =
 	      completionReceipt?.settlementQuote && typeof completionReceipt.settlementQuote === "object" && !Array.isArray(completionReceipt.settlementQuote)
@@ -18346,15 +19913,16 @@ export function createApi({
 	          counterpartyAgentId: principalAgentId,
 	          role: "payee"
 	        },
-	        sourceRef: {
-	          kind: "work_order_settlement",
-	          sourceId: workOrderId,
-	          hash: decisionHash,
-	          decisionHash,
-	          receiptHash,
-	          runId: x402RunId,
-	          settlementId: x402GateId
-	        },
+		        sourceRef: {
+		          kind: "work_order_settlement",
+		          sourceId: workOrderId,
+		          hash: decisionHash,
+		          decisionHash,
+		          receiptHash,
+		          runId: x402RunId,
+		          settlementId: x402GateId,
+		          ...(authorityGrantRef ? { authorityGrantRef } : {})
+		        },
 	        facts: {
 	          decisionStatus: approved ? "approved" : "rejected",
 	          releaseRatePct: approved ? 100 : 0,
@@ -23820,6 +25388,8 @@ export function createApi({
     if (m === "GET" && p === "/metrics") return "/metrics";
     if (m === "GET" && p === "/capabilities") return "/capabilities";
     if (m === "GET" && p === "/openapi.json") return "/openapi.json";
+    if (/^\/public\/agents\/[^/]+\/reputation-summary$/.test(p)) return "/public/agents/:agentId/reputation-summary";
+    if (/^\/agents\/[^/]+\/interaction-graph-pack$/.test(p)) return "/agents/:agentId/interaction-graph-pack";
     if (m === "POST" && p === "/ingest/proxy") return "/ingest/proxy";
     if (m === "POST" && p === "/exports/ack") return "/exports/ack";
     if (m === "GET" && p === "/evidence/download") return "/evidence/download";
@@ -24028,6 +25598,7 @@ export function createApi({
           (req.method === "GET" && path === "/healthz") ||
           (req.method === "GET" && path === "/capabilities") ||
           (req.method === "GET" && path === "/public/agent-cards/discover") ||
+          (req.method === "GET" && /^\/public\/agents\/[^/]+\/reputation-summary$/.test(path)) ||
           (req.method === "GET" && path === "/.well-known/agent.json") ||
           (req.method === "GET" && path === "/.well-known/settld-keys.json") ||
           (req.method === "GET" && path === "/openapi.json") ||
@@ -30769,10 +32340,10 @@ export function createApi({
             return sendJson(res, 200, summary);
           }
 
-          if (parts[1] === "finance" && parts[2] === "billable-events" && parts.length === 3 && req.method === "GET") {
-            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
-              return sendError(res, 403, "forbidden");
-            }
+	          if (parts[1] === "finance" && parts[2] === "billable-events" && parts.length === 3 && req.method === "GET") {
+	            if (!(requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE))) {
+	              return sendError(res, 403, "forbidden");
+	            }
             if (typeof store.listBillableUsageEvents !== "function") {
               return sendError(res, 501, "billable usage events not supported for this store");
             }
@@ -30796,19 +32367,111 @@ export function createApi({
               limit,
               offset
             });
-            return sendJson(res, 200, {
-              tenantId,
-              period,
-              eventType,
-              events,
-              count: Array.isArray(events) ? events.length : 0,
-              limit,
-              offset
-            });
-          }
+	            return sendJson(res, 200, {
+	              tenantId,
+	              period,
+	              eventType,
+	              events,
+	              count: Array.isArray(events) ? events.length : 0,
+	              limit,
+	              offset
+	            });
+	          }
+	          if (parts[1] === "finance" && parts[2] === "billable-events" && parts.length === 3 && req.method === "POST") {
+	            if (!requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE)) {
+	              return sendError(res, 403, "forbidden");
+	            }
+	            if (typeof store.appendBillableUsageEvent !== "function") {
+	              return sendError(res, 501, "billable usage events not supported for this store");
+	            }
+	            const body = await readJsonBody(req);
+	            let idemStoreKey = null;
+	            let idemRequestHash = null;
+	            try {
+	              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+	            } catch (err) {
+	              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+	            }
+	            if (idemStoreKey) {
+	              const existing = store.idempotency.get(idemStoreKey);
+	              if (existing) {
+	                if (existing.requestHash !== idemRequestHash) {
+	                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+	                }
+	                return sendJson(res, existing.statusCode, existing.body);
+	              }
+	            }
+	            const eventType = typeof body?.eventType === "string" ? body.eventType.trim().toLowerCase() : "";
+	            if (!Object.values(BILLABLE_USAGE_EVENT_TYPE).includes(eventType)) {
+	              return sendError(
+	                res,
+	                400,
+	                "invalid billable usage event",
+	                { message: `eventType must be one of ${Object.values(BILLABLE_USAGE_EVENT_TYPE).join("|")}` },
+	                { code: "SCHEMA_INVALID" }
+	              );
+	            }
+	            const eventKey = typeof body?.eventKey === "string" && body.eventKey.trim() !== "" ? body.eventKey.trim() : null;
+	            if (!eventKey) {
+	              return sendError(res, 400, "invalid billable usage event", { message: "eventKey is required" }, { code: "SCHEMA_INVALID" });
+	            }
+	            let emitted = null;
+	            try {
+	              emitted = await emitBillableUsageEvent({
+	                tenantId,
+	                eventKey,
+	                eventType,
+	                occurredAt: typeof body?.occurredAt === "string" && body.occurredAt.trim() !== "" ? body.occurredAt.trim() : nowIso(),
+	                quantity: body?.quantity ?? 1,
+	                amountCents: body?.amountCents ?? null,
+	                currency: typeof body?.currency === "string" && body.currency.trim() !== "" ? body.currency.trim() : null,
+	                runId: typeof body?.runId === "string" && body.runId.trim() !== "" ? body.runId.trim() : null,
+	                settlementId: typeof body?.settlementId === "string" && body.settlementId.trim() !== "" ? body.settlementId.trim() : null,
+	                disputeId: typeof body?.disputeId === "string" && body.disputeId.trim() !== "" ? body.disputeId.trim() : null,
+	                arbitrationCaseId: typeof body?.arbitrationCaseId === "string" && body.arbitrationCaseId.trim() !== "" ? body.arbitrationCaseId.trim() : null,
+	                sourceType: typeof body?.sourceType === "string" && body.sourceType.trim() !== "" ? body.sourceType.trim() : "ops_ingest",
+	                sourceId: typeof body?.sourceId === "string" && body.sourceId.trim() !== "" ? body.sourceId.trim() : null,
+	                sourceEventId: typeof body?.sourceEventId === "string" && body.sourceEventId.trim() !== "" ? body.sourceEventId.trim() : null,
+	                audit:
+	                  body?.audit && typeof body.audit === "object" && !Array.isArray(body.audit)
+	                    ? body.audit
+	                    : {
+	                        ingestedBy: principalId,
+	                        route: "/ops/finance/billable-events"
+	                      }
+	              });
+	            } catch (err) {
+	              if (err?.code === "BILLABLE_USAGE_EVENT_CONFLICT") {
+	                return sendError(
+	                  res,
+	                  409,
+	                  "billable usage event conflict",
+	                  { message: err?.message ?? "eventKey already exists with different immutable fields", eventKey },
+	                  { code: "BILLABLE_USAGE_EVENT_CONFLICT" }
+	                );
+	              }
+	              return sendError(res, 400, "invalid billable usage event", { message: err?.message }, { code: "SCHEMA_INVALID" });
+	            }
+	            const statusCode = emitted?.appended === false ? 200 : 201;
+	            const responseBody = {
+	              ok: true,
+	              appended: emitted?.appended !== false,
+	              event: emitted?.event ?? null
+	            };
+	            if (idemStoreKey) {
+	              await commitTx([
+	                {
+	                  kind: "IDEMPOTENCY_PUT",
+	                  key: idemStoreKey,
+	                  value: { requestHash: idemRequestHash, statusCode, body: responseBody }
+	                }
+	              ]);
+	            }
+	            return sendJson(res, statusCode, responseBody);
+	          }
 
-          // Finance Pack v1: tenant-scoped account map + GLBatch CSV export.
-          if (parts[1] === "finance" && parts[2] === "account-map" && parts.length === 3 && req.method === "GET") {
+	          // Finance Pack v1: tenant-scoped account map + GLBatch CSV export.
+	          if (parts[1] === "finance" && parts[2] === "account-map" && parts.length === 3 && req.method === "GET") {
             if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
             if (typeof store.getFinanceAccountMap !== "function") return sendError(res, 501, "finance account map not supported for this store");
             const mapping = await store.getFinanceAccountMap({ tenantId });
@@ -37906,6 +39569,190 @@ export function createApi({
             await store.commitTx({ at, ops });
             return sendJson(res, 200, responseBody);
           }
+
+          if (parts[0] === "authority-grants" && parts.length === 1 && req.method === "POST") {
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+
+            const body = await readJsonBody(req);
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            const nowAt = nowIso();
+            const grantId = typeof body?.grantId === "string" && body.grantId.trim() !== "" ? body.grantId.trim() : createId("agrant");
+            const principalRef =
+              body?.principalRef && typeof body.principalRef === "object" && !Array.isArray(body.principalRef) ? body.principalRef : null;
+            const granteeAgentId = typeof body?.granteeAgentId === "string" && body.granteeAgentId.trim() !== "" ? body.granteeAgentId.trim() : null;
+            if (!principalRef || !granteeAgentId) {
+              return sendError(res, 400, "principalRef and granteeAgentId are required", null, { code: "SCHEMA_INVALID" });
+            }
+            const expiresAt =
+              typeof body?.validity?.expiresAt === "string" && body.validity.expiresAt.trim() !== ""
+                ? body.validity.expiresAt.trim()
+                : new Date(Date.parse(nowAt) + 24 * 60 * 60 * 1000).toISOString();
+            let authorityGrant = null;
+            try {
+              authorityGrant = buildAuthorityGrantV1({
+                grantId,
+                tenantId,
+                principalRef,
+                granteeAgentId,
+                scope: {
+                  allowedProviderIds: body?.scope?.allowedProviderIds,
+                  allowedToolIds: body?.scope?.allowedToolIds,
+                  allowedRiskClasses: body?.scope?.allowedRiskClasses ?? [AUTHORITY_GRANT_RISK_CLASS.FINANCIAL],
+                  sideEffectingAllowed: body?.scope?.sideEffectingAllowed ?? true
+                },
+                spendEnvelope: {
+                  currency: body?.spendEnvelope?.currency ?? body?.spendLimit?.currency ?? "USD",
+                  maxPerCallCents: body?.spendEnvelope?.maxPerCallCents ?? body?.spendLimit?.maxPerCallCents,
+                  maxTotalCents: body?.spendEnvelope?.maxTotalCents ?? body?.spendLimit?.maxTotalCents
+                },
+                chainBinding: {
+                  rootGrantHash: body?.chainBinding?.rootGrantHash,
+                  parentGrantHash: body?.chainBinding?.parentGrantHash ?? null,
+                  depth: body?.chainBinding?.depth ?? 0,
+                  maxDelegationDepth: body?.chainBinding?.maxDelegationDepth ?? 0
+                },
+                validity: {
+                  issuedAt: body?.validity?.issuedAt ?? nowAt,
+                  notBefore: body?.validity?.notBefore ?? nowAt,
+                  expiresAt
+                },
+                revocation: {
+                  revocable: body?.revocation?.revocable !== false,
+                  revokedAt: body?.revocation?.revokedAt ?? null,
+                  revocationReasonCode: body?.revocation?.revocationReasonCode ?? null
+                },
+                metadata:
+                  body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : undefined,
+                createdAt: nowAt
+              });
+              validateAuthorityGrantV1(authorityGrant);
+            } catch (err) {
+              return sendError(res, 400, "invalid authority grant", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+
+            const responseBody = { ok: true, authorityGrant };
+            const ops = [{ kind: "AUTHORITY_GRANT_UPSERT", tenantId, grantId: authorityGrant.grantId, authorityGrant }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
+            }
+            await store.commitTx({ at: nowAt, ops });
+            return sendJson(res, 201, responseBody);
+          }
+
+          if (parts[0] === "authority-grants" && parts.length === 1 && req.method === "GET") {
+            const grantId = url.searchParams.get("grantId");
+            const grantHash = url.searchParams.get("grantHash");
+            const principalId = url.searchParams.get("principalId");
+            const granteeAgentId = url.searchParams.get("granteeAgentId");
+            const includeRevokedRaw = url.searchParams.get("includeRevoked");
+            const limitRaw = url.searchParams.get("limit");
+            const offsetRaw = url.searchParams.get("offset");
+            const includeRevoked =
+              includeRevokedRaw === null
+                ? true
+                : !["0", "false", "no", "off"].includes(String(includeRevokedRaw).trim().toLowerCase());
+            const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
+            const offset = offsetRaw === null || offsetRaw === "" ? 0 : Number(offsetRaw);
+            if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 2000) {
+              return sendError(res, 400, "invalid list query", { message: "limit must be an integer in range 1..2000" }, { code: "SCHEMA_INVALID" });
+            }
+            if (!Number.isSafeInteger(offset) || offset < 0) {
+              return sendError(res, 400, "invalid list query", { message: "offset must be a non-negative integer" }, { code: "SCHEMA_INVALID" });
+            }
+            if (typeof store.listAuthorityGrants !== "function") {
+              return sendError(res, 501, "authority grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+            }
+            let grants = [];
+            try {
+              grants = await store.listAuthorityGrants({
+                tenantId,
+                grantId: grantId && grantId.trim() !== "" ? grantId.trim() : null,
+                grantHash: grantHash && grantHash.trim() !== "" ? grantHash.trim() : null,
+                principalId: principalId && principalId.trim() !== "" ? principalId.trim() : null,
+                granteeAgentId: granteeAgentId && granteeAgentId.trim() !== "" ? granteeAgentId.trim() : null,
+                includeRevoked,
+                limit,
+                offset
+              });
+            } catch (err) {
+              return sendError(res, 400, "invalid authority grant query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            return sendJson(res, 200, { ok: true, grants, limit, offset });
+          }
+
+          if (parts[0] === "authority-grants" && parts[1] && parts.length === 2 && req.method === "GET") {
+            const grantId = parts[1];
+            if (typeof store.getAuthorityGrant !== "function") {
+              return sendError(res, 501, "authority grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+            }
+            const authorityGrant = await store.getAuthorityGrant({ tenantId, grantId });
+            if (!authorityGrant) return sendError(res, 404, "authority grant not found", null, { code: "NOT_FOUND" });
+            return sendJson(res, 200, { ok: true, authorityGrant });
+          }
+
+          if (parts[0] === "authority-grants" && parts[1] && parts[2] === "revoke" && parts.length === 3 && req.method === "POST") {
+            if (!requireProtocolHeaderForWrite(req, res)) return;
+
+            const grantId = parts[1];
+            const body = await readJsonBody(req);
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existing = store.idempotency.get(idemStoreKey);
+              if (existing) {
+                if (existing.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existing.statusCode, existing.body);
+              }
+            }
+
+            if (typeof store.getAuthorityGrant !== "function") {
+              return sendError(res, 501, "authority grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+            }
+            const existingGrant = await store.getAuthorityGrant({ tenantId, grantId });
+            if (!existingGrant) return sendError(res, 404, "authority grant not found", null, { code: "NOT_FOUND" });
+            let revokedGrant = null;
+            try {
+              revokedGrant = revokeAuthorityGrantV1({
+                grant: existingGrant,
+                revokedAt: nowIso(),
+                revocationReasonCode: body?.revocationReasonCode ?? body?.reasonCode ?? null
+              });
+            } catch (err) {
+              return sendError(res, 409, "authority grant revoke blocked", { message: err?.message }, { code: "X402_AUTHORITY_GRANT_REVOKE_BLOCKED" });
+            }
+
+            const at = nowIso();
+            const responseBody = { ok: true, authorityGrant: revokedGrant };
+            const ops = [{ kind: "AUTHORITY_GRANT_UPSERT", tenantId, grantId: revokedGrant.grantId, authorityGrant: revokedGrant }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
+            }
+            await store.commitTx({ at, ops });
+            return sendJson(res, 200, responseBody);
+          }
 	      }
 
 	      // x402 verification gate (HTTP middleware surface).
@@ -39602,6 +41449,15 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid delegationGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          let authorityGrantRef = null;
+          try {
+            authorityGrantRef = normalizeOptionalX402RefInput(body?.authorityGrantRef ?? null, "authorityGrantRef", {
+              allowNull: true,
+              max: 200
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid authorityGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
 
           const existingGate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
           if (existingGate && !idemStoreKey) return sendError(res, 409, "gate already exists", null, { code: "ALREADY_EXISTS" });
@@ -39612,9 +41468,30 @@ export function createApi({
           const payerWalletExisting = typeof store.getAgentWallet === "function" ? await store.getAgentWallet({ tenantId, agentId: payerAgentId }) : null;
           const payeeWalletExisting = typeof store.getAgentWallet === "function" ? await store.getAgentWallet({ tenantId, agentId: payeeAgentId }) : null;
 
-          const autoFundPayerCents = Number(body?.autoFundPayerCents ?? 0);
-          if (!Number.isSafeInteger(autoFundPayerCents) || autoFundPayerCents < 0) {
-            return sendError(res, 400, "autoFundPayerCents must be a non-negative safe integer", null, { code: "SCHEMA_INVALID" });
+	          const autoFundPayerCents = Number(body?.autoFundPayerCents ?? 0);
+	          if (!Number.isSafeInteger(autoFundPayerCents) || autoFundPayerCents < 0) {
+	            return sendError(res, 400, "autoFundPayerCents must be a non-negative safe integer", null, { code: "SCHEMA_INVALID" });
+	          }
+          if (authorityGrantRef) {
+            try {
+              await resolveX402AuthorityGrantForAuthorization({
+                tenantId,
+                gate: { payerAgentId, toolId },
+                authorityGrantRef,
+                nowAt,
+                amountCents,
+                currency,
+                payeeProviderId: payeeAgentId
+              });
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "x402 authority grant blocked gate create",
+                { message: err?.message ?? null, code: err?.code ?? null, details: err?.details ?? null },
+                { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
+              );
+            }
           }
 
 	          let payerWallet = ensureAgentWallet({ wallet: payerWalletExisting, tenantId, agentId: payerAgentId, currency, at: nowAt });
@@ -39660,9 +41537,10 @@ export function createApi({
 	              payerAgentId,
 	              payeeAgentId,
 	              ...(agreementHash ? { agreementHash } : {}),
-              ...(providerKey ? { providerKey } : {}),
+	              ...(providerKey ? { providerKey } : {}),
                 ...(toolId ? { toolId } : {}),
                 ...(delegationGrantRef ? { delegationGrantRef } : {}),
+                ...(authorityGrantRef ? { authorityGrantRef } : {}),
                 ...(agentPassport ? { agentPassport } : {}),
 	              terms,
 	              upstream,
@@ -39931,6 +41809,15 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid delegationGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          let requestedAuthorityGrantRef = null;
+          try {
+            requestedAuthorityGrantRef = normalizeOptionalX402RefInput(body?.authorityGrantRef ?? null, "authorityGrantRef", {
+              allowNull: true,
+              max: 200
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid authorityGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
           let walletAuthorizationDecisionToken = null;
           try {
             walletAuthorizationDecisionToken = normalizeX402WalletIssuerDecisionTokenInput(
@@ -39968,6 +41855,15 @@ export function createApi({
             );
           } catch (err) {
             return sendError(res, 400, "invalid promptRiskOverride", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          let sessionRef = null;
+          try {
+            sessionRef = parseX402SessionRefInput(
+              body?.sessionRef ?? body?.sessionId ?? body?.collaborationSessionId ?? null,
+              { fieldName: "sessionRef", allowNull: true }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid sessionRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
 
           const gate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
@@ -40016,11 +41912,27 @@ export function createApi({
           const nowAt = nowIso();
           const nowMs = Date.parse(nowAt);
           const nowUnix = Math.floor(nowMs / 1000);
+          const sessionPromptRisk = await resolveSessionPromptRiskSignalsForX402({
+            tenantId,
+            sessionRef,
+            amountCents
+          });
+          if (!sessionPromptRisk.ok) {
+            return sendError(
+              res,
+              sessionPromptRisk.httpStatus ?? 409,
+              sessionPromptRisk.message ?? "session provenance invalid",
+              sessionPromptRisk.details ?? null,
+              { code: sessionPromptRisk.code ?? "X402_SESSION_PROVENANCE_INVALID" }
+            );
+          }
+          const effectivePromptRiskSignals = mergeX402PromptRiskSignals(promptRiskSignals, sessionPromptRisk.promptRiskSignals);
           const promptRiskEvaluation = evaluateX402PromptRiskGuardrail({
             gate,
             principalId,
-            promptRiskSignals,
+            promptRiskSignals: effectivePromptRiskSignals,
             promptRiskOverride,
+            forcedModeOverride: sessionPromptRisk.forcedMode,
             at: nowAt
           });
           if (promptRiskEvaluation.blocked) {
@@ -40028,6 +41940,7 @@ export function createApi({
               const blockedGate = normalizeForCanonicalJson(
                 {
                   ...gate,
+                  ...(sessionPromptRisk.sessionId ? { sessionRef: sessionPromptRisk.sessionId } : {}),
                   promptRisk: promptRiskEvaluation.nextState,
                   updatedAt: nowAt
                 },
@@ -40185,6 +42098,7 @@ export function createApi({
           let resolvedWalletPolicy = null;
           let resolvedDelegationLineage = null;
           let resolvedDelegationGrant = null;
+          let resolvedAuthorityGrant = null;
           if (gateAgentPassport) {
             const walletPolicyResolution = await resolveX402WalletPolicyForPassport({
               tenantId,
@@ -40263,6 +42177,47 @@ export function createApi({
                 "x402 delegation grant blocked authorization",
                 { message: err?.message ?? null, code: err?.code ?? null, details: err?.details ?? null },
                 { code: err?.code ?? "X402_DELEGATION_GRANT_INVALID" }
+              );
+            }
+          }
+          const authorityGrantRefFromGate =
+            typeof gate?.authorityGrantRef === "string" && gate.authorityGrantRef.trim() !== "" ? gate.authorityGrantRef.trim() : null;
+          const authorityGrantRefFromAuthorization =
+            typeof existingAuthorization?.authorityGrantRef === "string" && existingAuthorization.authorityGrantRef.trim() !== ""
+              ? existingAuthorization.authorityGrantRef.trim()
+              : null;
+          if (requestedAuthorityGrantRef && authorityGrantRefFromGate && requestedAuthorityGrantRef !== authorityGrantRefFromGate) {
+            return sendError(
+              res,
+              409,
+              "authorityGrantRef does not match gate binding",
+              {
+                gateAuthorityGrantRef: authorityGrantRefFromGate,
+                requestedAuthorityGrantRef
+              },
+              { code: "X402_AUTHORITY_GRANT_MISMATCH" }
+            );
+          }
+          const effectiveAuthorityGrantRefInput = requestedAuthorityGrantRef ?? authorityGrantRefFromGate ?? authorityGrantRefFromAuthorization ?? null;
+          if (effectiveAuthorityGrantRefInput) {
+            try {
+              const grantResolution = await resolveX402AuthorityGrantForAuthorization({
+                tenantId,
+                gate,
+                authorityGrantRef: effectiveAuthorityGrantRefInput,
+                nowAt,
+                amountCents,
+                currency,
+                payeeProviderId
+              });
+              resolvedAuthorityGrant = grantResolution?.authorityGrant ?? null;
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "x402 authority grant blocked authorization",
+                { message: err?.message ?? null, code: err?.code ?? null, details: err?.details ?? null },
+                { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
               );
             }
           }
@@ -40619,6 +42574,10 @@ export function createApi({
               tokenKid: existingToken.kid ?? null,
               quoteId: effectiveQuoteId,
               quoteSha256: effectiveQuoteSha256,
+              sessionRef:
+                typeof gate?.sessionRef === "string" && gate.sessionRef.trim() !== ""
+                  ? gate.sessionRef.trim()
+                  : sessionPromptRisk.sessionId ?? null,
               delegationGrantRef:
                 typeof existingAuthorization?.delegationGrantRef === "string" && existingAuthorization.delegationGrantRef.trim() !== ""
                   ? existingAuthorization.delegationGrantRef.trim()
@@ -40747,6 +42706,10 @@ export function createApi({
               ? resolvedDelegationLineage.leafDelegationId.trim()
               : typeof resolvedDelegationGrant?.grantId === "string" && resolvedDelegationGrant.grantId.trim() !== ""
                 ? resolvedDelegationGrant.grantId.trim()
+              : typeof resolvedAuthorityGrant?.grantId === "string" && resolvedAuthorityGrant.grantId.trim() !== ""
+                ? resolvedAuthorityGrant.grantId.trim()
+              : typeof gate?.authorityGrantRef === "string" && gate.authorityGrantRef.trim() !== ""
+                ? gate.authorityGrantRef.trim()
               : deriveX402AuthorityGrantRef({
                   gateId,
                   gateAgentPassport,
@@ -40885,6 +42848,7 @@ export function createApi({
           const nextGate = normalizeForCanonicalJson(
             {
               ...gate,
+              ...(sessionPromptRisk.sessionId ? { sessionRef: sessionPromptRisk.sessionId } : {}),
               ...(promptRiskEvaluation.nextState ? { promptRisk: promptRiskEvaluation.nextState } : {}),
               authorization: {
                 schemaVersion: "X402GateAuthorization.v1",
@@ -40947,6 +42911,8 @@ export function createApi({
             tokenKid: minted.kid,
             quoteId: effectiveQuoteId,
             quoteSha256: effectiveQuoteSha256,
+            sessionRef: sessionPromptRisk.sessionId ?? null,
+            authorityGrantRef: effectiveAuthorityGrantRef,
             delegationGrantRef:
               typeof resolvedDelegationGrant?.grantId === "string" && resolvedDelegationGrant.grantId.trim() !== ""
                 ? resolvedDelegationGrant.grantId.trim()
@@ -41018,6 +42984,15 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid promptRiskOverride", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          let sessionRef = null;
+          try {
+            sessionRef = parseX402SessionRefInput(
+              body?.sessionRef ?? body?.sessionId ?? body?.collaborationSessionId ?? null,
+              { fieldName: "sessionRef", allowNull: true }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid sessionRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
           let idemStoreKey = null;
           let idemRequestHash = null;
           try {
@@ -41047,12 +43022,31 @@ export function createApi({
           if (String(settlement.status ?? "").toLowerCase() !== "locked") {
             return sendJson(res, 200, { ok: true, gate, settlement, alreadyResolved: true });
           }
+          const settlementAmountCents = Number(settlement?.amountCents ?? gate?.terms?.amountCents ?? 0);
+          const sessionPromptRisk = await resolveSessionPromptRiskSignalsForX402({
+            tenantId,
+            sessionRef:
+              sessionRef ??
+              (typeof gate?.sessionRef === "string" && gate.sessionRef.trim() !== "" ? gate.sessionRef.trim() : null),
+            amountCents: settlementAmountCents
+          });
+          if (!sessionPromptRisk.ok) {
+            return sendError(
+              res,
+              sessionPromptRisk.httpStatus ?? 409,
+              sessionPromptRisk.message ?? "session provenance invalid",
+              sessionPromptRisk.details ?? null,
+              { code: sessionPromptRisk.code ?? "X402_SESSION_PROVENANCE_INVALID" }
+            );
+          }
+          const effectivePromptRiskSignals = mergeX402PromptRiskSignals(promptRiskSignals, sessionPromptRisk.promptRiskSignals);
           const promptRiskEvaluationAt = nowIso();
           const promptRiskEvaluation = evaluateX402PromptRiskGuardrail({
             gate,
             principalId,
-            promptRiskSignals,
+            promptRiskSignals: effectivePromptRiskSignals,
             promptRiskOverride,
+            forcedModeOverride: sessionPromptRisk.forcedMode,
             at: promptRiskEvaluationAt
           });
 
@@ -41506,6 +43500,7 @@ export function createApi({
               const blockedGate = normalizeForCanonicalJson(
                 {
                   ...gate,
+                  ...(sessionPromptRisk.sessionId ? { sessionRef: sessionPromptRisk.sessionId } : {}),
                   promptRisk: promptRiskEvaluation.nextState,
                   updatedAt: promptRiskEvaluationAt
                 },
@@ -41528,6 +43523,27 @@ export function createApi({
               },
               { code: promptRiskEvaluation.code }
             );
+          }
+          if (policyDecision?.settlementStatus === AGENT_RUN_SETTLEMENT_STATUS.RELEASED && sessionPromptRisk.promptRiskSignals) {
+            const taintEvidenceRefs = normalizeEvidenceRefList(sessionPromptRisk.promptRiskSignals.evidenceRefs);
+            const taintEvidenceDiff = diffRequiredEvidenceRefs({
+              requiredRefs: taintEvidenceRefs,
+              providedRefs: evidenceRefs
+            });
+            if (taintEvidenceRefs.length === 0 || taintEvidenceDiff.missingRefs.length > 0) {
+              return sendError(
+                res,
+                409,
+                "tainted-derived settlement requires provenance evidence",
+                {
+                  gateId,
+                  sessionRef: sessionPromptRisk.sessionId ?? null,
+                  requiredEvidenceRefs: taintEvidenceDiff.requiredRefs,
+                  missingEvidenceRefs: taintEvidenceDiff.missingRefs
+                },
+                { code: "X402_PROMPT_RISK_EVIDENCE_REQUIRED" }
+              );
+            }
           }
           const policyHashUsed = computeSettlementPolicyHash(policyDecision.policy);
           let tokenPayloadForBindings = null;
@@ -42199,6 +44215,7 @@ export function createApi({
 	          const nextGate = normalizeForCanonicalJson(
 	            {
 	              ...gate,
+                ...(sessionPromptRisk.sessionId ? { sessionRef: sessionPromptRisk.sessionId } : {}),
                 ...(promptRiskEvaluation.nextState ? { promptRisk: promptRiskEvaluation.nextState } : {}),
 	              status: "resolved",
 	              resolvedAt: at,
@@ -43357,6 +45374,231 @@ export function createApi({
           return sendJson(res, 200, { ok: true, session });
         }
 
+        if (parts[0] === "sessions" && parts[1] && parts[2] === "replay-pack" && parts.length === 3 && req.method === "GET") {
+          const sessionId = decodePathPart(parts[1]);
+          const session = await getSessionRecord({ tenantId, sessionId });
+          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          let events = await getSessionEventRecords({ tenantId, sessionId });
+          if (!Array.isArray(events)) events = [];
+          for (const event of events) {
+            await ensureSignerContextFresh({ tenantId, event });
+          }
+          const streamMismatch = events.find((row) => String(row?.streamId ?? "") !== sessionId);
+          if (streamMismatch) {
+            return sendError(
+              res,
+              409,
+              "session replay pack blocked",
+              {
+                sessionId,
+                reason: "event streamId mismatch",
+                eventId: streamMismatch.id ?? null
+              },
+              { code: "SESSION_REPLAY_CHAIN_INVALID" }
+            );
+          }
+          const verify = verifyChainedEvents(events, { publicKeyByKeyId: store.publicKeyByKeyId });
+          if (!verify.ok) {
+            return sendError(
+              res,
+              409,
+              "session replay pack blocked",
+              {
+                sessionId,
+                reason: verify.error ?? "chain verification failed"
+              },
+              { code: "SESSION_REPLAY_CHAIN_INVALID" }
+            );
+          }
+          const provenanceVerification = verifySessionEventProvenanceChain(events);
+          if (!provenanceVerification.ok) {
+            return sendError(
+              res,
+              409,
+              "session replay pack blocked",
+              {
+                sessionId,
+                reason: provenanceVerification.error ?? "provenance verification failed"
+              },
+              { code: "SESSION_REPLAY_PROVENANCE_INVALID" }
+            );
+          }
+          let replayPack = null;
+          try {
+            replayPack = buildSessionReplayPackV1({
+              tenantId,
+              session,
+              events,
+              verification: {
+                chainOk: true,
+                verifiedEventCount: events.length,
+                error: null,
+                provenance: {
+                  ok: true,
+                  verifiedEventCount: provenanceVerification.verifiedEventCount ?? 0,
+                  taintedEventCount: provenanceVerification.taintedEventCount ?? 0,
+                  error: null
+                }
+              }
+            });
+          } catch (err) {
+            return sendError(res, 409, "session replay pack blocked", { sessionId, reason: err?.message ?? "invalid replay pack" }, { code: "SESSION_REPLAY_PACK_INVALID" });
+          }
+          return sendJson(res, 200, { ok: true, replayPack });
+        }
+
+        if (parts[0] === "sessions" && parts[1] && parts[2] === "events" && parts[3] === "stream" && parts.length === 4 && req.method === "GET") {
+          const sessionId = decodePathPart(parts[1]);
+          const eventTypeRaw = url.searchParams.get("eventType");
+          let eventType = null;
+          try {
+            eventType = typeof eventTypeRaw === "string" && eventTypeRaw.trim() !== "" ? parseSessionEventType(eventTypeRaw) : null;
+          } catch (err) {
+            return sendError(res, 400, "invalid session event query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          let sinceEventId = null;
+          try {
+            sinceEventId = parseSessionEventCursor(
+              url.searchParams.get("sinceEventId") ??
+                (typeof req.headers["last-event-id"] === "string" ? req.headers["last-event-id"] : null),
+              { allowNull: true }
+            );
+          } catch (err) {
+            return sendError(res, 400, "invalid session event query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const session = await getSessionRecord({ tenantId, sessionId });
+          if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
+          let currentEvents = await getSessionEventRecords({ tenantId, sessionId });
+          if (!Array.isArray(currentEvents)) currentEvents = [];
+          let cursorIndex = -1;
+          if (sinceEventId) {
+            cursorIndex = currentEvents.findIndex((row) => String(row?.id ?? "") === sinceEventId);
+            if (cursorIndex < 0) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                { sessionId, sinceEventId },
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+          }
+
+          res.writeHead(200, {
+            "content-type": "text/event-stream; charset=utf-8",
+            "cache-control": "no-cache, no-transform",
+            connection: "keep-alive",
+            "x-accel-buffering": "no"
+          });
+          if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+          const writeSseEvent = ({ eventName, eventId = null, data = null } = {}) => {
+            if (eventId !== null && eventId !== undefined && String(eventId).trim() !== "") {
+              res.write(`id: ${String(eventId).trim()}\n`);
+            }
+            if (eventName) res.write(`event: ${eventName}\n`);
+            if (data !== null && data !== undefined) {
+              const dataString = typeof data === "string" ? data : JSON.stringify(data);
+              const lines = String(dataString).split("\n");
+              for (const line of lines) res.write(`data: ${line}\n`);
+            } else {
+              res.write("data: null\n");
+            }
+            res.write("\n");
+          };
+
+          writeSseEvent({
+            eventName: "session.ready",
+            data: {
+              ok: true,
+              sessionId,
+              eventType: eventType ?? null,
+              sinceEventId,
+              eventCount: currentEvents.length
+            }
+          });
+
+          let closed = false;
+          let lastResolvedCursor = cursorIndex;
+          let pollTimer = null;
+          let heartbeatTimer = null;
+
+          const closeStream = () => {
+            if (closed) return;
+            closed = true;
+            if (pollTimer) clearTimeout(pollTimer);
+            if (heartbeatTimer) clearInterval(heartbeatTimer);
+            try {
+              res.end();
+            } catch {
+              // no-op on close race
+            }
+          };
+          req.on("close", closeStream);
+          req.on("aborted", closeStream);
+
+          const schedulePoll = (delayMs = 300) => {
+            if (closed) return;
+            pollTimer = setTimeout(() => {
+              void pollAndFlush();
+            }, delayMs);
+          };
+
+          const pollAndFlush = async () => {
+            if (closed) return;
+            let events = [];
+            try {
+              events = await getSessionEventRecords({ tenantId, sessionId });
+            } catch (err) {
+              writeSseEvent({
+                eventName: "session.error",
+                data: {
+                  ok: false,
+                  code: "SESSION_EVENT_STREAM_READ_FAILED",
+                  message: err?.message ?? "failed to read session events"
+                }
+              });
+              return closeStream();
+            }
+            if (!Array.isArray(events)) events = [];
+            if (sinceEventId && lastResolvedCursor < 0) {
+              lastResolvedCursor = events.findIndex((row) => String(row?.id ?? "") === sinceEventId);
+              if (lastResolvedCursor < 0) {
+                writeSseEvent({
+                  eventName: "session.error",
+                  data: {
+                    ok: false,
+                    code: "SESSION_EVENT_CURSOR_INVALID",
+                    message: "session event cursor not found"
+                  }
+                });
+                return closeStream();
+              }
+            }
+            const startIndex = Math.max(0, lastResolvedCursor + 1);
+            if (startIndex < events.length) {
+              const nextRows = events.slice(startIndex);
+              for (const row of nextRows) {
+                if (eventType && String(row?.type ?? "").toUpperCase() !== eventType) continue;
+                writeSseEvent({
+                  eventName: "session.event",
+                  eventId: row?.id ?? null,
+                  data: row
+                });
+              }
+              lastResolvedCursor = events.length - 1;
+            }
+            schedulePoll(300);
+          };
+
+          heartbeatTimer = setInterval(() => {
+            if (closed) return;
+            res.write(": keepalive\n\n");
+          }, 10_000);
+          void pollAndFlush();
+          return;
+        }
+
         if (parts[0] === "sessions" && parts[1] && parts[2] === "events" && parts.length === 3 && req.method === "GET") {
           const sessionId = decodePathPart(parts[1]);
           const eventTypeRaw = url.searchParams.get("eventType");
@@ -43381,6 +45623,7 @@ export function createApi({
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
           let events = await getSessionEventRecords({ tenantId, sessionId });
           if (!Array.isArray(events)) events = [];
+          const currentPrevChainHash = getCurrentPrevChainHash(events);
           if (eventType) {
             events = events.filter((row) => String(row?.type ?? "").toUpperCase() === eventType);
           }
@@ -43391,7 +45634,7 @@ export function createApi({
             events: paged,
             limit,
             offset,
-            currentPrevChainHash: getCurrentPrevChainHash(events)
+            currentPrevChainHash
           });
         }
 
@@ -43443,11 +45686,23 @@ export function createApi({
           }
 
           let payload = null;
+          let eventProvenance = null;
           try {
+            eventProvenance = computeSessionEventProvenance({
+              events: Array.isArray(existingEvents) ? existingEvents : [],
+              eventType,
+              provenance:
+                body?.provenance && typeof body.provenance === "object" && !Array.isArray(body.provenance)
+                  ? body.provenance
+                  : body?.payload && typeof body.payload === "object" && !Array.isArray(body.payload)
+                    ? body.payload.provenance ?? null
+                    : null
+            });
             payload = buildSessionEventPayloadV1({
               sessionId,
               eventType,
               payload: body?.payload ?? null,
+              provenance: eventProvenance,
               traceId: body?.traceId ?? null,
               at: typeof body?.at === "string" && body.at.trim() !== "" ? body.at.trim() : nowIso()
             });
@@ -43563,6 +45818,34 @@ export function createApi({
           requestedVisibility === AGENT_CARD_VISIBILITY.PUBLIC &&
           String(existingCard?.visibility ?? "").toLowerCase() !== AGENT_CARD_VISIBILITY.PUBLIC &&
           agentCardPublicListingFeeCentsValue > 0;
+        const shouldRateLimitPublicPublish =
+          requestedVisibility === AGENT_CARD_VISIBILITY.PUBLIC &&
+          String(existingCard?.visibility ?? "").toLowerCase() !== AGENT_CARD_VISIBILITY.PUBLIC;
+
+        if (shouldRateLimitPublicPublish) {
+          const publishRateCheck = takePublicAgentCardPublishToken({ tenantId, agentId });
+          if (!publishRateCheck.ok) {
+            try {
+              res.setHeader("retry-after", String(publishRateCheck.retryAfterSeconds ?? 1));
+            } catch {
+              // ignore
+            }
+            return sendError(
+              res,
+              429,
+              "public agent card publish rate limit exceeded",
+              {
+                scope: publishRateCheck.scope ?? null,
+                max: publishRateCheck.max ?? null,
+                retryAfterSeconds: publishRateCheck.retryAfterSeconds ?? 1,
+                windowSeconds: publishRateCheck.windowSeconds ?? null,
+                agentId,
+                tenantId
+              },
+              { code: "AGENT_CARD_PUBLIC_PUBLISH_RATE_LIMITED" }
+            );
+          }
+        }
 
         const upsertedAt = nowIso();
         let agentCard = null;
@@ -43837,6 +46120,200 @@ export function createApi({
         }
       }
 
+      {
+        const parts = path.split("/").filter(Boolean);
+        if (req.method === "GET" && parts[0] === "public" && parts[1] === "agents" && parts[2] && parts[3] === "reputation-summary" && parts.length === 4) {
+          const targetAgentId = parts[2];
+          let asOf = nowIso();
+          try {
+            if (url.searchParams.get("asOf")) {
+              const candidate = String(url.searchParams.get("asOf") ?? "").trim();
+              if (!Number.isFinite(Date.parse(candidate))) throw new TypeError("asOf must be an ISO date-time");
+              asOf = candidate;
+            }
+          } catch (err) {
+            return sendError(res, 400, "invalid public reputation summary query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          let reputationVersion = "v2";
+          let reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS;
+          let includeRelationships = true;
+          let relationshipLimit = 5;
+          try {
+            reputationVersion = parseReputationVersion(url.searchParams.get("reputationVersion") ?? "v2");
+            reputationWindow = parseReputationWindow(url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS);
+            includeRelationships = parseBooleanQueryValue(url.searchParams.get("includeRelationships"), {
+              defaultValue: true,
+              name: "includeRelationships"
+            });
+            relationshipLimit = parseRelationshipListLimit(url.searchParams.get("relationshipLimit"), { defaultValue: 5 });
+          } catch (err) {
+            return sendError(res, 400, "invalid public reputation summary query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          let resolvedPublicAgent = null;
+          try {
+            resolvedPublicAgent = await resolvePublicAgentCardByAgentId({ agentId: targetAgentId, status: AGENT_CARD_STATUS.ACTIVE });
+          } catch (err) {
+            return sendError(res, 501, "public reputation summary is not supported for this store", { message: err?.message }, { code: "NOT_IMPLEMENTED" });
+          }
+          if (!resolvedPublicAgent?.ok) {
+            if (resolvedPublicAgent?.code === "PUBLIC_AGENT_AMBIGUOUS") {
+              return sendError(
+                res,
+                409,
+                "public reputation summary is ambiguous for this agent id",
+                resolvedPublicAgent?.details ?? null,
+                { code: "PUBLIC_AGENT_AMBIGUOUS" }
+              );
+            }
+            return sendError(res, 404, "public agent not found", null, { code: "NOT_FOUND" });
+          }
+          const publicCard = resolvedPublicAgent.card;
+          const summaryVisibility = resolveAgentCardPublicSummaryVisibility(publicCard);
+          if (!summaryVisibility.publicReputationSummary) {
+            return sendError(res, 404, "public reputation summary is not enabled for this agent", null, {
+              code: "PUBLIC_REPUTATION_SUMMARY_DISABLED"
+            });
+          }
+          const publicTenantId = normalizeTenant(publicCard.tenantId ?? DEFAULT_TENANT_ID);
+          const reputation = await computeAgentReputationSnapshotVersioned({
+            tenantId: publicTenantId,
+            agentId: targetAgentId,
+            at: asOf,
+            reputationVersion,
+            reputationWindow
+          });
+
+          const windowStartAt = reputationWindowStartAt({ window: reputationWindow, at: asOf });
+          const events = await listRoutingReputationEvents({
+            tenantId: publicTenantId,
+            agentId: targetAgentId,
+            occurredAtGte: windowStartAt,
+            occurredAtLte: asOf
+          });
+          const aggregate = computeReputationFactsAggregate({ events });
+          const relationshipStats = computeRoutingReputationEventStats({ events });
+          let relationships = [];
+          if (includeRelationships) {
+            const listed = await listRelationshipEdgesForAgent({
+              tenantId: publicTenantId,
+              agentId: targetAgentId,
+              asOf,
+              reputationWindow,
+              limit: relationshipLimit,
+              offset: 0,
+              publicOnly: true
+            });
+            relationships = (listed.relationships ?? []).map((edge) =>
+              normalizeForCanonicalJson(
+                {
+                  schemaVersion: RELATIONSHIP_EDGE_SCHEMA_VERSION,
+                  counterpartyAgentId: edge.counterpartyAgentId,
+                  workedWithCount: Number(edge.workedWithCount ?? 0),
+                  successRate: edge.successRate ?? null,
+                  disputeRate: edge.disputeRate ?? null,
+                  lastInteractionAt: edge.lastInteractionAt ?? null
+                },
+                { path: "$.relationships[]" }
+              )
+            );
+          }
+
+          const summary = normalizeForCanonicalJson(
+            {
+              schemaVersion: PUBLIC_AGENT_REPUTATION_SUMMARY_SCHEMA_VERSION,
+              agentId: targetAgentId,
+              reputationVersion,
+              reputationWindow,
+              asOf,
+              trustScore: Number(reputation?.trustScore ?? 0),
+              riskTier: String(reputation?.riskTier ?? "high"),
+              eventCount: Number(aggregate?.totals?.eventCount ?? 0),
+              decisionsTotal: Number(relationshipStats?.decisionsTotal ?? 0),
+              decisionsApproved: Number(relationshipStats?.decisionsApproved ?? 0),
+              successRate: toSafeRelationshipRate(relationshipStats?.approvalRate),
+              disputesOpened: Number(relationshipStats?.disputesOpened ?? 0),
+              disputeRate: toSafeRelationshipRate(relationshipStats?.disputeRate),
+              lastInteractionAt: relationshipStats?.lastInteractionAt ?? null,
+              relationships
+            },
+            { path: "$.summary" }
+          );
+          return sendJson(res, 200, { ok: true, summary });
+        }
+      }
+
+      if (req.method === "GET" && path === "/relationships") {
+        const agentId = typeof url.searchParams.get("agentId") === "string" ? String(url.searchParams.get("agentId")).trim() : "";
+        if (!agentId) return sendError(res, 400, "agentId is required", null, { code: "SCHEMA_INVALID" });
+        const counterpartyAgentId = url.searchParams.get("counterpartyAgentId");
+        const visibility = url.searchParams.get("visibility");
+        if (visibility !== null && visibility !== undefined) {
+          const visibilityValue = String(visibility).trim().toLowerCase();
+          if (visibilityValue !== "all" && visibilityValue !== RELATIONSHIP_EDGE_VISIBILITY.PRIVATE && visibilityValue !== RELATIONSHIP_EDGE_VISIBILITY.PUBLIC_SUMMARY) {
+            return sendError(res, 400, "invalid relationship visibility query", null, { code: "SCHEMA_INVALID" });
+          }
+        }
+        let reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS;
+        let asOf = nowIso();
+        let limit = 50;
+        let offset = 0;
+        try {
+          reputationWindow = parseReputationWindow(url.searchParams.get("reputationWindow") ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS);
+          if (url.searchParams.get("asOf")) {
+            const candidate = String(url.searchParams.get("asOf") ?? "").trim();
+            if (!Number.isFinite(Date.parse(candidate))) throw new TypeError("asOf must be an ISO date-time");
+            asOf = candidate;
+          }
+          limit = parseRelationshipListLimit(url.searchParams.get("limit"), { defaultValue: 50 });
+          offset = parseRelationshipListOffset(url.searchParams.get("offset"), { defaultValue: 0 });
+        } catch (err) {
+          return sendError(res, 400, "invalid relationships query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        let agentIdentity = null;
+        try {
+          agentIdentity = await getAgentIdentityRecord({ tenantId, agentId });
+        } catch (err) {
+          return sendError(res, 501, "relationships are not supported for this store", { message: err?.message }, { code: "NOT_IMPLEMENTED" });
+        }
+        if (!agentIdentity) return sendError(res, 404, "agent identity not found", null, { code: "NOT_FOUND" });
+
+        let result = null;
+        try {
+          result = await listRelationshipEdgesForAgent({
+            tenantId,
+            agentId,
+            counterpartyAgentId: counterpartyAgentId && counterpartyAgentId.trim() !== "" ? counterpartyAgentId.trim() : null,
+            asOf,
+            reputationWindow,
+            limit,
+            offset,
+            publicOnly: false
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid relationships query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        const visibilityFilter =
+          visibility === null || visibility === undefined || String(visibility).trim() === ""
+            ? "all"
+            : String(visibility).trim().toLowerCase();
+        let relationships = Array.isArray(result?.relationships) ? result.relationships : [];
+        if (visibilityFilter !== "all") {
+          relationships = relationships.filter((edge) => String(edge?.visibility ?? "").toLowerCase() === visibilityFilter);
+        }
+        return sendJson(res, 200, {
+          ok: true,
+          agentId,
+          reputationWindow: result?.reputationWindow ?? reputationWindow,
+          asOf: result?.asOf ?? asOf,
+          total: visibilityFilter === "all" ? Number(result?.total ?? relationships.length) : relationships.length,
+          limit: Number(result?.limit ?? limit),
+          offset: Number(result?.offset ?? offset),
+          relationships
+        });
+      }
+
       if (req.method === "GET" && path === "/agent-cards/discover") {
         const includeReputationRaw = url.searchParams.get("includeReputation");
         const includeReputation =
@@ -43962,6 +46439,504 @@ export function createApi({
           if (!agentCard) return sendError(res, 404, "agent card not found", null, { code: "NOT_FOUND" });
           return sendJson(res, 200, { ok: true, agentCard });
         }
+      }
+
+      if (req.method === "POST" && path === "/task-quotes") {
+        if (typeof store.getTaskQuote !== "function" && !(store.taskQuotes instanceof Map)) {
+          return sendError(res, 501, "task quotes not supported for this store");
+        }
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const quoteId = typeof body?.quoteId === "string" && body.quoteId.trim() !== "" ? body.quoteId.trim() : createId("tquote");
+        const buyerAgentId = typeof body?.buyerAgentId === "string" && body.buyerAgentId.trim() !== "" ? body.buyerAgentId.trim() : null;
+        const sellerAgentId = typeof body?.sellerAgentId === "string" && body.sellerAgentId.trim() !== "" ? body.sellerAgentId.trim() : null;
+        const requiredCapability =
+          typeof body?.requiredCapability === "string" && body.requiredCapability.trim() !== "" ? body.requiredCapability.trim() : null;
+        if (!buyerAgentId || !sellerAgentId || !requiredCapability) {
+          return sendError(res, 400, "buyerAgentId, sellerAgentId, and requiredCapability are required", null, { code: "SCHEMA_INVALID" });
+        }
+        const amountCents = Number(body?.pricing?.amountCents);
+        if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+          return sendError(res, 400, "pricing.amountCents must be a positive safe integer", null, { code: "SCHEMA_INVALID" });
+        }
+        const currency =
+          typeof body?.pricing?.currency === "string" && body.pricing.currency.trim() !== "" ? body.pricing.currency.trim() : "USD";
+
+        const buyerIdentity = await getAgentIdentityRecord({ tenantId, agentId: buyerAgentId });
+        if (!buyerIdentity) return sendError(res, 404, "buyer agent identity not found", null, { code: "NOT_FOUND" });
+        const sellerIdentity = await getAgentIdentityRecord({ tenantId, agentId: sellerAgentId });
+        if (!sellerIdentity) return sendError(res, 404, "seller agent identity not found", null, { code: "NOT_FOUND" });
+
+        let existingTaskQuote = null;
+        try {
+          existingTaskQuote = await getTaskQuoteRecord({ tenantId, quoteId });
+        } catch (err) {
+          return sendError(res, 501, "task quotes not supported for this store", { message: err?.message });
+        }
+        if (existingTaskQuote) return sendError(res, 409, "task quote already exists", null, { code: "CONFLICT" });
+
+        let taskQuote = null;
+        try {
+          taskQuote = buildTaskQuoteV1({
+            quoteId,
+            tenantId,
+            buyerAgentId,
+            sellerAgentId,
+            requiredCapability,
+            pricing: {
+              model: "fixed",
+              amountCents,
+              currency
+            },
+            constraints:
+              body?.constraints && typeof body.constraints === "object" && !Array.isArray(body.constraints) ? body.constraints : null,
+            attestationRequirement:
+              body?.attestationRequirement && typeof body.attestationRequirement === "object" && !Array.isArray(body.attestationRequirement)
+                ? body.attestationRequirement
+                : null,
+            expiresAt: typeof body?.expiresAt === "string" && body.expiresAt.trim() !== "" ? body.expiresAt.trim() : null,
+            metadata: body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null,
+            createdAt: nowIso()
+          });
+          validateTaskQuoteV1(taskQuote);
+        } catch (err) {
+          return sendError(res, 400, "invalid task quote", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const responseBody = { ok: true, taskQuote };
+        const ops = [{ kind: "TASK_QUOTE_UPSERT", tenantId, quoteId, taskQuote }];
+        if (idemStoreKey) {
+          ops.push({
+            kind: "IDEMPOTENCY_PUT",
+            key: idemStoreKey,
+            value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody }
+          });
+        }
+        await commitTx(ops);
+        return sendJson(res, 201, responseBody);
+      }
+
+      if (req.method === "GET" && path === "/task-quotes") {
+        const quoteId = url.searchParams.get("quoteId");
+        const buyerAgentId = url.searchParams.get("buyerAgentId");
+        const sellerAgentId = url.searchParams.get("sellerAgentId");
+        const requiredCapability = url.searchParams.get("requiredCapability");
+        const status = url.searchParams.get("status");
+        const limitRaw = url.searchParams.get("limit");
+        const offsetRaw = url.searchParams.get("offset");
+        const limit = limitRaw ? Number(limitRaw) : 200;
+        const offset = offsetRaw ? Number(offsetRaw) : 0;
+        const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+        const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+        let statusFilter = null;
+        try {
+          statusFilter = parseTaskNegotiationStatus(status, { allowNull: true });
+        } catch (err) {
+          return sendError(res, 400, "invalid task quote query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        let taskQuotes = [];
+        try {
+          if (typeof store.listTaskQuotes === "function") {
+            taskQuotes = await store.listTaskQuotes({
+              tenantId,
+              quoteId: typeof quoteId === "string" && quoteId.trim() !== "" ? quoteId.trim() : null,
+              buyerAgentId: typeof buyerAgentId === "string" && buyerAgentId.trim() !== "" ? buyerAgentId.trim() : null,
+              sellerAgentId: typeof sellerAgentId === "string" && sellerAgentId.trim() !== "" ? sellerAgentId.trim() : null,
+              requiredCapability:
+                typeof requiredCapability === "string" && requiredCapability.trim() !== "" ? requiredCapability.trim() : null,
+              status: statusFilter,
+              limit: safeLimit,
+              offset: safeOffset
+            });
+          } else if (store.taskQuotes instanceof Map) {
+            taskQuotes = Array.from(store.taskQuotes.values())
+              .filter((row) => row && typeof row === "object")
+              .filter((row) => normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) === tenantId)
+              .filter((row) => (quoteId && quoteId.trim() ? String(row.quoteId ?? "") === quoteId.trim() : true))
+              .filter((row) => (buyerAgentId && buyerAgentId.trim() ? String(row.buyerAgentId ?? "") === buyerAgentId.trim() : true))
+              .filter((row) => (sellerAgentId && sellerAgentId.trim() ? String(row.sellerAgentId ?? "") === sellerAgentId.trim() : true))
+              .filter((row) =>
+                requiredCapability && requiredCapability.trim() ? String(row.requiredCapability ?? "") === requiredCapability.trim() : true
+              )
+              .filter((row) => (statusFilter ? String(row.status ?? "").toLowerCase() === statusFilter : true))
+              .sort((left, right) => String(left.quoteId ?? "").localeCompare(String(right.quoteId ?? "")))
+              .slice(safeOffset, safeOffset + safeLimit);
+          } else {
+            return sendError(res, 501, "task quotes not supported for this store");
+          }
+        } catch (err) {
+          return sendError(res, 400, "invalid task quote query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        return sendJson(res, 200, { ok: true, taskQuotes, limit: safeLimit, offset: safeOffset });
+      }
+
+      if (req.method === "POST" && path === "/task-offers") {
+        if (typeof store.getTaskOffer !== "function" && !(store.taskOffers instanceof Map)) {
+          return sendError(res, 501, "task offers not supported for this store");
+        }
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const offerId = typeof body?.offerId === "string" && body.offerId.trim() !== "" ? body.offerId.trim() : createId("toffer");
+        const buyerAgentId = typeof body?.buyerAgentId === "string" && body.buyerAgentId.trim() !== "" ? body.buyerAgentId.trim() : null;
+        const sellerAgentId = typeof body?.sellerAgentId === "string" && body.sellerAgentId.trim() !== "" ? body.sellerAgentId.trim() : null;
+        if (!buyerAgentId || !sellerAgentId) {
+          return sendError(res, 400, "buyerAgentId and sellerAgentId are required", null, { code: "SCHEMA_INVALID" });
+        }
+        const amountCents = Number(body?.pricing?.amountCents);
+        if (!Number.isSafeInteger(amountCents) || amountCents <= 0) {
+          return sendError(res, 400, "pricing.amountCents must be a positive safe integer", null, { code: "SCHEMA_INVALID" });
+        }
+        const currency =
+          typeof body?.pricing?.currency === "string" && body.pricing.currency.trim() !== "" ? body.pricing.currency.trim() : "USD";
+
+        const buyerIdentity = await getAgentIdentityRecord({ tenantId, agentId: buyerAgentId });
+        if (!buyerIdentity) return sendError(res, 404, "buyer agent identity not found", null, { code: "NOT_FOUND" });
+        const sellerIdentity = await getAgentIdentityRecord({ tenantId, agentId: sellerAgentId });
+        if (!sellerIdentity) return sendError(res, 404, "seller agent identity not found", null, { code: "NOT_FOUND" });
+
+        let existingTaskOffer = null;
+        try {
+          existingTaskOffer = await getTaskOfferRecord({ tenantId, offerId });
+        } catch (err) {
+          return sendError(res, 501, "task offers not supported for this store", { message: err?.message });
+        }
+        if (existingTaskOffer) return sendError(res, 409, "task offer already exists", null, { code: "CONFLICT" });
+
+        let quoteRef = null;
+        if (body?.quoteRef !== undefined && body?.quoteRef !== null) {
+          if (!body.quoteRef || typeof body.quoteRef !== "object" || Array.isArray(body.quoteRef)) {
+            return sendError(res, 400, "quoteRef must be an object", null, { code: "SCHEMA_INVALID" });
+          }
+          const quoteId = typeof body.quoteRef.quoteId === "string" && body.quoteRef.quoteId.trim() !== "" ? body.quoteRef.quoteId.trim() : null;
+          if (!quoteId) return sendError(res, 400, "quoteRef.quoteId is required", null, { code: "SCHEMA_INVALID" });
+          const quote = await getTaskQuoteRecord({ tenantId, quoteId });
+          if (!quote) return sendError(res, 404, "task quote not found", null, { code: "NOT_FOUND" });
+          try {
+            validateTaskQuoteV1(quote);
+          } catch (err) {
+            return sendError(res, 409, "task quote is invalid", { message: err?.message }, { code: "TASK_QUOTE_INVALID" });
+          }
+          if (String(quote.buyerAgentId ?? "") !== buyerAgentId || String(quote.sellerAgentId ?? "") !== sellerAgentId) {
+            return sendError(
+              res,
+              409,
+              "task offer participants do not match task quote",
+              { quoteId, quoteBuyerAgentId: quote.buyerAgentId ?? null, quoteSellerAgentId: quote.sellerAgentId ?? null },
+              { code: "TASK_QUOTE_PARTICIPANT_MISMATCH" }
+            );
+          }
+          const providedQuoteHash =
+            typeof body.quoteRef.quoteHash === "string" && body.quoteRef.quoteHash.trim() !== "" ? body.quoteRef.quoteHash.trim().toLowerCase() : null;
+          if (providedQuoteHash && providedQuoteHash !== String(quote.quoteHash ?? "").toLowerCase()) {
+            return sendError(
+              res,
+              409,
+              "task quote hash mismatch",
+              { quoteId, expectedQuoteHash: quote.quoteHash ?? null, providedQuoteHash },
+              { code: "TASK_QUOTE_HASH_MISMATCH" }
+            );
+          }
+          quoteRef = {
+            quoteId,
+            quoteHash: String(quote.quoteHash ?? "").toLowerCase()
+          };
+        }
+
+        let taskOffer = null;
+        try {
+          taskOffer = buildTaskOfferV1({
+            offerId,
+            tenantId,
+            buyerAgentId,
+            sellerAgentId,
+            quoteRef,
+            pricing: {
+              model: "fixed",
+              amountCents,
+              currency
+            },
+            constraints:
+              body?.constraints && typeof body.constraints === "object" && !Array.isArray(body.constraints) ? body.constraints : null,
+            expiresAt: typeof body?.expiresAt === "string" && body.expiresAt.trim() !== "" ? body.expiresAt.trim() : null,
+            metadata: body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null,
+            createdAt: nowIso()
+          });
+          validateTaskOfferV1(taskOffer);
+        } catch (err) {
+          return sendError(res, 400, "invalid task offer", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const responseBody = { ok: true, taskOffer };
+        const ops = [{ kind: "TASK_OFFER_UPSERT", tenantId, offerId, taskOffer }];
+        if (idemStoreKey) {
+          ops.push({
+            kind: "IDEMPOTENCY_PUT",
+            key: idemStoreKey,
+            value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody }
+          });
+        }
+        await commitTx(ops);
+        return sendJson(res, 201, responseBody);
+      }
+
+      if (req.method === "GET" && path === "/task-offers") {
+        const offerId = url.searchParams.get("offerId");
+        const buyerAgentId = url.searchParams.get("buyerAgentId");
+        const sellerAgentId = url.searchParams.get("sellerAgentId");
+        const quoteId = url.searchParams.get("quoteId");
+        const status = url.searchParams.get("status");
+        const limitRaw = url.searchParams.get("limit");
+        const offsetRaw = url.searchParams.get("offset");
+        const limit = limitRaw ? Number(limitRaw) : 200;
+        const offset = offsetRaw ? Number(offsetRaw) : 0;
+        const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+        const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+        let statusFilter = null;
+        try {
+          statusFilter = parseTaskNegotiationStatus(status, { allowNull: true });
+        } catch (err) {
+          return sendError(res, 400, "invalid task offer query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        let taskOffers = [];
+        try {
+          if (typeof store.listTaskOffers === "function") {
+            taskOffers = await store.listTaskOffers({
+              tenantId,
+              offerId: typeof offerId === "string" && offerId.trim() !== "" ? offerId.trim() : null,
+              buyerAgentId: typeof buyerAgentId === "string" && buyerAgentId.trim() !== "" ? buyerAgentId.trim() : null,
+              sellerAgentId: typeof sellerAgentId === "string" && sellerAgentId.trim() !== "" ? sellerAgentId.trim() : null,
+              quoteId: typeof quoteId === "string" && quoteId.trim() !== "" ? quoteId.trim() : null,
+              status: statusFilter,
+              limit: safeLimit,
+              offset: safeOffset
+            });
+          } else if (store.taskOffers instanceof Map) {
+            taskOffers = Array.from(store.taskOffers.values())
+              .filter((row) => row && typeof row === "object")
+              .filter((row) => normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) === tenantId)
+              .filter((row) => (offerId && offerId.trim() ? String(row.offerId ?? "") === offerId.trim() : true))
+              .filter((row) => (buyerAgentId && buyerAgentId.trim() ? String(row.buyerAgentId ?? "") === buyerAgentId.trim() : true))
+              .filter((row) => (sellerAgentId && sellerAgentId.trim() ? String(row.sellerAgentId ?? "") === sellerAgentId.trim() : true))
+              .filter((row) => (quoteId && quoteId.trim() ? String(row?.quoteRef?.quoteId ?? "") === quoteId.trim() : true))
+              .filter((row) => (statusFilter ? String(row.status ?? "").toLowerCase() === statusFilter : true))
+              .sort((left, right) => String(left.offerId ?? "").localeCompare(String(right.offerId ?? "")))
+              .slice(safeOffset, safeOffset + safeLimit);
+          } else {
+            return sendError(res, 501, "task offers not supported for this store");
+          }
+        } catch (err) {
+          return sendError(res, 400, "invalid task offer query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        return sendJson(res, 200, { ok: true, taskOffers, limit: safeLimit, offset: safeOffset });
+      }
+
+      if (req.method === "POST" && path === "/task-acceptances") {
+        if (typeof store.getTaskAcceptance !== "function" && !(store.taskAcceptances instanceof Map)) {
+          return sendError(res, 501, "task acceptances not supported for this store");
+        }
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const acceptanceId =
+          typeof body?.acceptanceId === "string" && body.acceptanceId.trim() !== "" ? body.acceptanceId.trim() : createId("taccept");
+        const quoteId = typeof body?.quoteId === "string" && body.quoteId.trim() !== "" ? body.quoteId.trim() : null;
+        const offerId = typeof body?.offerId === "string" && body.offerId.trim() !== "" ? body.offerId.trim() : null;
+        const acceptedByAgentId =
+          typeof body?.acceptedByAgentId === "string" && body.acceptedByAgentId.trim() !== "" ? body.acceptedByAgentId.trim() : null;
+        if (!quoteId || !offerId || !acceptedByAgentId) {
+          return sendError(res, 400, "quoteId, offerId, and acceptedByAgentId are required", null, { code: "SCHEMA_INVALID" });
+        }
+
+        let existingTaskAcceptance = null;
+        try {
+          existingTaskAcceptance = await getTaskAcceptanceRecord({ tenantId, acceptanceId });
+        } catch (err) {
+          return sendError(res, 501, "task acceptances not supported for this store", { message: err?.message });
+        }
+        if (existingTaskAcceptance) return sendError(res, 409, "task acceptance already exists", null, { code: "CONFLICT" });
+
+        const quote = await getTaskQuoteRecord({ tenantId, quoteId });
+        if (!quote) return sendError(res, 404, "task quote not found", null, { code: "NOT_FOUND" });
+        const offer = await getTaskOfferRecord({ tenantId, offerId });
+        if (!offer) return sendError(res, 404, "task offer not found", null, { code: "NOT_FOUND" });
+        try {
+          validateTaskQuoteV1(quote);
+          validateTaskOfferV1(offer);
+        } catch (err) {
+          return sendError(res, 409, "task negotiation object invalid", { message: err?.message }, { code: "TASK_NEGOTIATION_INVALID" });
+        }
+        const offeredQuoteId = typeof offer?.quoteRef?.quoteId === "string" ? offer.quoteRef.quoteId.trim() : null;
+        if (offeredQuoteId && offeredQuoteId !== quoteId) {
+          return sendError(
+            res,
+            409,
+            "task offer quote does not match requested quote",
+            { offerId, offerQuoteId: offeredQuoteId, quoteId },
+            { code: "TASK_QUOTE_OFFER_MISMATCH" }
+          );
+        }
+        if (
+          String(quote.buyerAgentId ?? "") !== String(offer.buyerAgentId ?? "") ||
+          String(quote.sellerAgentId ?? "") !== String(offer.sellerAgentId ?? "")
+        ) {
+          return sendError(
+            res,
+            409,
+            "task quote and offer participants do not match",
+            {
+              quoteBuyerAgentId: quote.buyerAgentId ?? null,
+              quoteSellerAgentId: quote.sellerAgentId ?? null,
+              offerBuyerAgentId: offer.buyerAgentId ?? null,
+              offerSellerAgentId: offer.sellerAgentId ?? null
+            },
+            { code: "TASK_NEGOTIATION_PARTICIPANT_MISMATCH" }
+          );
+        }
+        const acceptedByIdentity = await getAgentIdentityRecord({ tenantId, agentId: acceptedByAgentId });
+        if (!acceptedByIdentity) return sendError(res, 404, "accepting agent identity not found", null, { code: "NOT_FOUND" });
+
+        let taskAcceptance = null;
+        try {
+          taskAcceptance = buildTaskAcceptanceV1({
+            acceptanceId,
+            tenantId,
+            buyerAgentId: quote.buyerAgentId,
+            sellerAgentId: quote.sellerAgentId,
+            quoteRef: {
+              quoteId: quote.quoteId,
+              quoteHash: quote.quoteHash
+            },
+            offerRef: {
+              offerId: offer.offerId,
+              offerHash: offer.offerHash
+            },
+            acceptedByAgentId,
+            acceptedAt: typeof body?.acceptedAt === "string" && body.acceptedAt.trim() !== "" ? body.acceptedAt.trim() : nowIso(),
+            metadata: body?.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : null
+          });
+          validateTaskAcceptanceV1(taskAcceptance);
+        } catch (err) {
+          return sendError(res, 400, "invalid task acceptance", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const responseBody = { ok: true, taskAcceptance };
+        const ops = [{ kind: "TASK_ACCEPTANCE_UPSERT", tenantId, acceptanceId, taskAcceptance }];
+        if (idemStoreKey) {
+          ops.push({
+            kind: "IDEMPOTENCY_PUT",
+            key: idemStoreKey,
+            value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody }
+          });
+        }
+        await commitTx(ops);
+        return sendJson(res, 201, responseBody);
+      }
+
+      if (req.method === "GET" && path === "/task-acceptances") {
+        const acceptanceId = url.searchParams.get("acceptanceId");
+        const buyerAgentId = url.searchParams.get("buyerAgentId");
+        const sellerAgentId = url.searchParams.get("sellerAgentId");
+        const quoteId = url.searchParams.get("quoteId");
+        const offerId = url.searchParams.get("offerId");
+        const status = url.searchParams.get("status");
+        const limitRaw = url.searchParams.get("limit");
+        const offsetRaw = url.searchParams.get("offset");
+        const limit = limitRaw ? Number(limitRaw) : 200;
+        const offset = offsetRaw ? Number(offsetRaw) : 0;
+        const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+        const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+        let statusFilter = null;
+        try {
+          statusFilter = parseTaskNegotiationStatus(status, { allowNull: true });
+        } catch (err) {
+          return sendError(res, 400, "invalid task acceptance query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        let taskAcceptances = [];
+        try {
+          if (typeof store.listTaskAcceptances === "function") {
+            taskAcceptances = await store.listTaskAcceptances({
+              tenantId,
+              acceptanceId: typeof acceptanceId === "string" && acceptanceId.trim() !== "" ? acceptanceId.trim() : null,
+              buyerAgentId: typeof buyerAgentId === "string" && buyerAgentId.trim() !== "" ? buyerAgentId.trim() : null,
+              sellerAgentId: typeof sellerAgentId === "string" && sellerAgentId.trim() !== "" ? sellerAgentId.trim() : null,
+              quoteId: typeof quoteId === "string" && quoteId.trim() !== "" ? quoteId.trim() : null,
+              offerId: typeof offerId === "string" && offerId.trim() !== "" ? offerId.trim() : null,
+              status: statusFilter,
+              limit: safeLimit,
+              offset: safeOffset
+            });
+          } else if (store.taskAcceptances instanceof Map) {
+            taskAcceptances = Array.from(store.taskAcceptances.values())
+              .filter((row) => row && typeof row === "object")
+              .filter((row) => normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) === tenantId)
+              .filter((row) => (acceptanceId && acceptanceId.trim() ? String(row.acceptanceId ?? "") === acceptanceId.trim() : true))
+              .filter((row) => (buyerAgentId && buyerAgentId.trim() ? String(row.buyerAgentId ?? "") === buyerAgentId.trim() : true))
+              .filter((row) => (sellerAgentId && sellerAgentId.trim() ? String(row.sellerAgentId ?? "") === sellerAgentId.trim() : true))
+              .filter((row) => (quoteId && quoteId.trim() ? String(row?.quoteRef?.quoteId ?? "") === quoteId.trim() : true))
+              .filter((row) => (offerId && offerId.trim() ? String(row?.offerRef?.offerId ?? "") === offerId.trim() : true))
+              .filter((row) => (statusFilter ? String(row.status ?? "").toLowerCase() === statusFilter : true))
+              .sort((left, right) => String(left.acceptanceId ?? "").localeCompare(String(right.acceptanceId ?? "")))
+              .slice(safeOffset, safeOffset + safeLimit);
+          } else {
+            return sendError(res, 501, "task acceptances not supported for this store");
+          }
+        } catch (err) {
+          return sendError(res, 400, "invalid task acceptance query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        return sendJson(res, 200, { ok: true, taskAcceptances, limit: safeLimit, offset: safeOffset });
       }
 
       if (req.method === "POST" && path === "/capability-attestations") {
@@ -44156,6 +47131,42 @@ export function createApi({
 
       {
         const parts = path.split("/").filter(Boolean);
+        if (parts[0] === "task-quotes" && parts[1] && parts.length === 2 && req.method === "GET") {
+          const quoteId = decodePathPart(parts[1]);
+          let taskQuote = null;
+          try {
+            taskQuote = await getTaskQuoteRecord({ tenantId, quoteId });
+          } catch (err) {
+            return sendError(res, 501, "task quotes not supported for this store", { message: err?.message });
+          }
+          if (!taskQuote) return sendError(res, 404, "task quote not found", null, { code: "NOT_FOUND" });
+          return sendJson(res, 200, { ok: true, taskQuote });
+        }
+
+        if (parts[0] === "task-offers" && parts[1] && parts.length === 2 && req.method === "GET") {
+          const offerId = decodePathPart(parts[1]);
+          let taskOffer = null;
+          try {
+            taskOffer = await getTaskOfferRecord({ tenantId, offerId });
+          } catch (err) {
+            return sendError(res, 501, "task offers not supported for this store", { message: err?.message });
+          }
+          if (!taskOffer) return sendError(res, 404, "task offer not found", null, { code: "NOT_FOUND" });
+          return sendJson(res, 200, { ok: true, taskOffer });
+        }
+
+        if (parts[0] === "task-acceptances" && parts[1] && parts.length === 2 && req.method === "GET") {
+          const acceptanceId = decodePathPart(parts[1]);
+          let taskAcceptance = null;
+          try {
+            taskAcceptance = await getTaskAcceptanceRecord({ tenantId, acceptanceId });
+          } catch (err) {
+            return sendError(res, 501, "task acceptances not supported for this store", { message: err?.message });
+          }
+          if (!taskAcceptance) return sendError(res, 404, "task acceptance not found", null, { code: "NOT_FOUND" });
+          return sendJson(res, 200, { ok: true, taskAcceptance });
+        }
+
         if (parts[0] === "capability-attestations" && parts[1] && parts.length === 2 && req.method === "GET") {
           const attestationId = decodePathPart(parts[1]);
           let capabilityAttestation = null;
@@ -44300,6 +47311,20 @@ export function createApi({
         }
         const currency =
           typeof body?.pricing?.currency === "string" && body.pricing.currency.trim() !== "" ? body.pricing.currency.trim() : "USD";
+        let x402ToolId = null;
+        let x402ProviderId = null;
+        try {
+          x402ToolId = normalizeOptionalX402RefInput(body?.x402ToolId ?? body?.toolId ?? null, "x402ToolId", {
+            allowNull: true,
+            max: 200
+          });
+          x402ProviderId = normalizeOptionalX402RefInput(body?.x402ProviderId ?? body?.providerId ?? null, "x402ProviderId", {
+            allowNull: true,
+            max: 200
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid x402 binding fields", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
 
         const principalIdentity = await getAgentIdentityRecord({ tenantId, agentId: principalAgentId });
         if (!principalIdentity) return sendError(res, 404, "principal agent identity not found", null, { code: "NOT_FOUND" });
@@ -44332,6 +47357,25 @@ export function createApi({
         } catch (err) {
           return sendError(res, 400, "invalid work order evidence policy", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
+        let workOrderMeteringPolicy = null;
+        try {
+          workOrderMeteringPolicy = normalizeWorkOrderMeteringPolicy(body?.metering ?? null, { allowNull: true });
+        } catch (err) {
+          return sendError(res, 400, "invalid work order metering policy", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        let workOrderSettlementSplitPolicy = null;
+        try {
+          workOrderSettlementSplitPolicy = normalizeWorkOrderSettlementSplitPolicy(body?.settlementSplitPolicy ?? null, {
+            allowNull: true
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid work order settlement split policy", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        const workOrderMetadata = mergeWorkOrderMetadataWithMetering({
+          metadata: body?.metadata ?? null,
+          meteringPolicy: workOrderMeteringPolicy,
+          settlementSplitPolicy: workOrderSettlementSplitPolicy
+        });
 
         const delegationGrantRef =
           typeof body?.delegationGrantRef === "string" && body.delegationGrantRef.trim() !== "" ? body.delegationGrantRef.trim() : null;
@@ -44341,6 +47385,153 @@ export function createApi({
           }
           const delegationGrant = await store.getDelegationGrant({ tenantId, grantId: delegationGrantRef });
           if (!delegationGrant) return sendError(res, 404, "delegation grant not found", null, { code: "NOT_FOUND" });
+        }
+        const authorityGrantRef =
+          typeof body?.authorityGrantRef === "string" && body.authorityGrantRef.trim() !== "" ? body.authorityGrantRef.trim() : null;
+        if (authorityGrantRef) {
+          try {
+            await resolveX402AuthorityGrantForAuthorization({
+              tenantId,
+              gate: {
+                payerAgentId: principalAgentId,
+                toolId: x402ToolId
+              },
+              authorityGrantRef,
+              nowAt,
+              amountCents,
+              currency,
+              payeeProviderId: x402ProviderId
+            });
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "work order authority grant blocked",
+              {
+                reasonCode: err?.code ?? "X402_AUTHORITY_GRANT_INVALID",
+                message: err?.message ?? null,
+                ...(err?.details && typeof err.details === "object" ? err.details : {})
+              },
+              { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
+            );
+          }
+        }
+
+        let acceptanceBinding = null;
+        if (body?.acceptanceRef !== undefined && body?.acceptanceRef !== null) {
+          if (!body.acceptanceRef || typeof body.acceptanceRef !== "object" || Array.isArray(body.acceptanceRef)) {
+            return sendError(res, 400, "acceptanceRef must be an object", null, { code: "SCHEMA_INVALID" });
+          }
+          const acceptanceId =
+            typeof body.acceptanceRef.acceptanceId === "string" && body.acceptanceRef.acceptanceId.trim() !== ""
+              ? body.acceptanceRef.acceptanceId.trim()
+              : null;
+          if (!acceptanceId) return sendError(res, 400, "acceptanceRef.acceptanceId is required", null, { code: "SCHEMA_INVALID" });
+          const acceptance = await getTaskAcceptanceRecord({ tenantId, acceptanceId });
+          if (!acceptance) return sendError(res, 404, "task acceptance not found", null, { code: "NOT_FOUND" });
+          try {
+            validateTaskAcceptanceV1(acceptance);
+          } catch (err) {
+            return sendError(res, 409, "task acceptance is invalid", { message: err?.message }, { code: "TASK_ACCEPTANCE_INVALID" });
+          }
+          const providedAcceptanceHash =
+            typeof body.acceptanceRef.acceptanceHash === "string" && body.acceptanceRef.acceptanceHash.trim() !== ""
+              ? body.acceptanceRef.acceptanceHash.trim().toLowerCase()
+              : null;
+          const acceptanceHash = String(acceptance.acceptanceHash ?? "").trim().toLowerCase();
+          if (providedAcceptanceHash && providedAcceptanceHash !== acceptanceHash) {
+            return sendError(
+              res,
+              409,
+              "task acceptance hash mismatch",
+              {
+                acceptanceId,
+                expectedAcceptanceHash: acceptanceHash,
+                providedAcceptanceHash
+              },
+              { code: "TASK_ACCEPTANCE_HASH_MISMATCH" }
+            );
+          }
+          if (String(acceptance.buyerAgentId ?? "") !== principalAgentId || String(acceptance.sellerAgentId ?? "") !== subAgentId) {
+            return sendError(
+              res,
+              409,
+              "task acceptance participants do not match work order",
+              {
+                acceptanceId,
+                acceptanceBuyerAgentId: acceptance.buyerAgentId ?? null,
+                acceptanceSellerAgentId: acceptance.sellerAgentId ?? null,
+                principalAgentId,
+                subAgentId
+              },
+              { code: "TASK_ACCEPTANCE_PARTICIPANT_MISMATCH" }
+            );
+          }
+          const quoteId = String(acceptance?.quoteRef?.quoteId ?? "").trim();
+          const offerId = String(acceptance?.offerRef?.offerId ?? "").trim();
+          const quote = quoteId ? await getTaskQuoteRecord({ tenantId, quoteId }) : null;
+          const offer = offerId ? await getTaskOfferRecord({ tenantId, offerId }) : null;
+          if (!quote || !offer) {
+            return sendError(
+              res,
+              409,
+              "task acceptance binding missing quote/offer",
+              { acceptanceId, quoteId: quoteId || null, offerId: offerId || null },
+              { code: "TASK_ACCEPTANCE_BINDING_BLOCKED" }
+            );
+          }
+          try {
+            validateTaskQuoteV1(quote);
+            validateTaskOfferV1(offer);
+          } catch (err) {
+            return sendError(res, 409, "task acceptance binding invalid", { message: err?.message }, { code: "TASK_ACCEPTANCE_BINDING_BLOCKED" });
+          }
+          if (String(quote.requiredCapability ?? "") !== requiredCapability) {
+            return sendError(
+              res,
+              409,
+              "task acceptance capability mismatch",
+              {
+                acceptanceId,
+                quoteId,
+                quoteRequiredCapability: quote.requiredCapability ?? null,
+                workOrderRequiredCapability: requiredCapability
+              },
+              { code: "TASK_ACCEPTANCE_CAPABILITY_MISMATCH" }
+            );
+          }
+          if (
+            Number(offer?.pricing?.amountCents ?? NaN) !== amountCents ||
+            String(offer?.pricing?.currency ?? "USD").toUpperCase() !== String(currency).toUpperCase()
+          ) {
+            return sendError(
+              res,
+              409,
+              "task acceptance pricing mismatch",
+              {
+                acceptanceId,
+                offerId,
+                offerAmountCents: offer?.pricing?.amountCents ?? null,
+                offerCurrency: offer?.pricing?.currency ?? null,
+                workOrderAmountCents: amountCents,
+                workOrderCurrency: currency
+              },
+              { code: "TASK_ACCEPTANCE_PRICING_MISMATCH" }
+            );
+          }
+          acceptanceBinding = normalizeForCanonicalJson(
+            {
+              schemaVersion: "TaskAcceptanceBinding.v1",
+              acceptanceId,
+              acceptanceHash,
+              quoteId: quote.quoteId,
+              quoteHash: quote.quoteHash,
+              offerId: offer.offerId,
+              offerHash: offer.offerHash,
+              boundAt: nowAt
+            },
+            { path: "$.acceptanceBinding" }
+          );
         }
 
         let workOrder = null;
@@ -44352,6 +47543,8 @@ export function createApi({
             principalAgentId,
             subAgentId,
             requiredCapability,
+            x402ToolId,
+            x402ProviderId,
             specification:
               body?.specification && typeof body.specification === "object" && !Array.isArray(body.specification) ? body.specification : {},
             pricing: {
@@ -44363,7 +47556,8 @@ export function createApi({
             constraints: body?.constraints ?? null,
             evidencePolicy: workOrderEvidencePolicy,
             delegationGrantRef,
-            metadata: body?.metadata ?? null,
+            authorityGrantRef,
+            metadata: workOrderMetadata,
             createdAt: nowAt
           });
           if (attestationCheck.enforced && attestationCheck.requirement) {
@@ -44371,6 +47565,15 @@ export function createApi({
               {
                 ...workOrder,
                 attestationRequirement: attestationCheck.requirement
+              },
+              { path: "$" }
+            );
+          }
+          if (acceptanceBinding) {
+            workOrder = normalizeForCanonicalJson(
+              {
+                ...workOrder,
+                acceptanceBinding
               },
               { path: "$" }
             );
@@ -44660,6 +47863,217 @@ export function createApi({
           return sendJson(res, 200, responseBody);
         }
 
+        if (parts[0] === "work-orders" && parts[1] && parts[2] === "topup" && parts.length === 3 && req.method === "POST") {
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          if (typeof store.appendBillableUsageEvent !== "function" || typeof store.listBillableUsageEvents !== "function") {
+            return sendError(res, 501, "work order metering top-up not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+          }
+          const workOrderId = decodePathPart(parts[1]);
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+          const existingWorkOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
+          if (!existingWorkOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          const workOrderStatus = String(existingWorkOrder?.status ?? "").trim().toLowerCase();
+          if (
+            workOrderStatus === SUB_AGENT_WORK_ORDER_STATUS.SETTLED ||
+            workOrderStatus === SUB_AGENT_WORK_ORDER_STATUS.CANCELLED ||
+            workOrderStatus === SUB_AGENT_WORK_ORDER_STATUS.DISPUTED
+          ) {
+            return sendError(
+              res,
+              409,
+              "work order top-up blocked",
+              {
+                reasonCode: "WORK_ORDER_TOPUP_STATUS_BLOCKED",
+                status: workOrderStatus
+              },
+              { code: "WORK_ORDER_TOPUP_BLOCKED" }
+            );
+          }
+          let meteringPolicy = null;
+          try {
+            meteringPolicy = resolveWorkOrderMeteringPolicy(existingWorkOrder, { allowNull: true });
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "work order top-up blocked",
+              { reasonCode: "WORK_ORDER_METERING_POLICY_INVALID", message: err?.message ?? null },
+              { code: "WORK_ORDER_TOPUP_BLOCKED" }
+            );
+          }
+          if (!meteringPolicy || meteringPolicy.mode !== WORK_ORDER_METERING_MODE.METERED) {
+            return sendError(
+              res,
+              409,
+              "work order top-up blocked",
+              { reasonCode: "WORK_ORDER_METERING_DISABLED" },
+              { code: "WORK_ORDER_TOPUP_BLOCKED" }
+            );
+          }
+          const topUpId =
+            typeof body?.topUpId === "string" && body.topUpId.trim() !== "" ? body.topUpId.trim() : null;
+          if (!topUpId) {
+            return sendError(res, 400, "invalid work order top-up", { message: "topUpId is required" }, { code: "SCHEMA_INVALID" });
+          }
+          const topUpAmountRaw = Number(body?.amountCents ?? Number.NaN);
+          const topUpAmountCents = Number.isSafeInteger(topUpAmountRaw) && topUpAmountRaw > 0 ? topUpAmountRaw : null;
+          if (!Number.isSafeInteger(topUpAmountCents)) {
+            return sendError(res, 400, "invalid work order top-up", { message: "amountCents must be a positive safe integer" }, { code: "SCHEMA_INVALID" });
+          }
+          const quantityRaw = Number(body?.quantity ?? 1);
+          const quantity = Number.isSafeInteger(quantityRaw) && quantityRaw > 0 ? quantityRaw : 1;
+          const topUpCurrency =
+            typeof body?.currency === "string" && body.currency.trim() !== ""
+              ? body.currency.trim().toUpperCase()
+              : typeof existingWorkOrder?.pricing?.currency === "string" && existingWorkOrder.pricing.currency.trim() !== ""
+                ? existingWorkOrder.pricing.currency.trim().toUpperCase()
+                : "USD";
+          const occurredAt =
+            typeof body?.occurredAt === "string" && body.occurredAt.trim() !== "" ? body.occurredAt.trim() : nowIso();
+          if (!Number.isFinite(Date.parse(occurredAt))) {
+            return sendError(res, 400, "invalid work order top-up", { message: "occurredAt must be an ISO date-time" }, { code: "SCHEMA_INVALID" });
+          }
+          const eventKey =
+            typeof body?.eventKey === "string" && body.eventKey.trim() !== ""
+              ? body.eventKey.trim()
+              : `work_order_topup:${workOrderId}:${topUpId}`;
+          let meterEventsBefore = [];
+          try {
+            meterEventsBefore = await listWorkOrderMeteringEvents({ tenantId, workOrderId });
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "work order top-up blocked",
+              {
+                reasonCode: "WORK_ORDER_METER_EVENTS_UNAVAILABLE",
+                message: err?.message ?? null
+              },
+              { code: "WORK_ORDER_TOPUP_BLOCKED" }
+            );
+          }
+          const meteringSummaryBefore = summarizeWorkOrderMeteringCoverage({
+            workOrder: existingWorkOrder,
+            meterEvents: meterEventsBefore
+          });
+          const projectedTopUpTotalCents = meteringSummaryBefore.topUpTotalCents + topUpAmountCents;
+          if (
+            Number.isSafeInteger(Number(meteringPolicy.maxTopUpCents ?? Number.NaN)) &&
+            Number(meteringPolicy.maxTopUpCents) >= 0 &&
+            projectedTopUpTotalCents > Number(meteringPolicy.maxTopUpCents)
+          ) {
+            return sendError(
+              res,
+              409,
+              "work order top-up blocked",
+              {
+                reasonCode: "WORK_ORDER_TOPUP_MAX_EXCEEDED",
+                maxTopUpCents: Number(meteringPolicy.maxTopUpCents),
+                projectedTopUpCents: projectedTopUpTotalCents
+              },
+              { code: "WORK_ORDER_TOPUP_BLOCKED" }
+            );
+          }
+          const maxCostCentsRaw = Number(existingWorkOrder?.constraints?.maxCostCents ?? Number.NaN);
+          const maxCostCents = Number.isSafeInteger(maxCostCentsRaw) && maxCostCentsRaw >= 0 ? maxCostCentsRaw : null;
+          const projectedCoveredAmountCents = meteringSummaryBefore.baseAmountCents + projectedTopUpTotalCents;
+          if (maxCostCents !== null && projectedCoveredAmountCents > maxCostCents) {
+            return sendError(
+              res,
+              409,
+              "work order top-up blocked",
+              {
+                reasonCode: "WORK_ORDER_TOPUP_ENVELOPE_EXCEEDED",
+                maxCostCents,
+                projectedCoveredAmountCents
+              },
+              { code: "WORK_ORDER_TOPUP_BLOCKED" }
+            );
+          }
+          let emitted = null;
+          try {
+            emitted = await emitBillableUsageEvent({
+              tenantId,
+              eventKey,
+              eventType: BILLABLE_USAGE_EVENT_TYPE.SETTLED_VOLUME,
+              occurredAt,
+              quantity,
+              amountCents: topUpAmountCents,
+              currency: topUpCurrency,
+              sourceType: WORK_ORDER_METER_EVENT_SOURCE_TYPE.TOPUP,
+              sourceId: workOrderId,
+              sourceEventId: topUpId,
+              audit: {
+                ingestedBy: principalId,
+                route: path
+              }
+            });
+          } catch (err) {
+            if (err?.code === "BILLABLE_USAGE_EVENT_CONFLICT") {
+              return sendError(
+                res,
+                409,
+                "work order top-up conflict",
+                {
+                  reasonCode: "WORK_ORDER_TOPUP_EVENT_CONFLICT",
+                  message: err?.message ?? "billable usage event conflict",
+                  eventKey
+                },
+                { code: "WORK_ORDER_TOPUP_BLOCKED" }
+              );
+            }
+            return sendError(res, 400, "invalid work order top-up", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const meterEventsAfter = await listWorkOrderMeteringEvents({ tenantId, workOrderId });
+          const meteringSummaryAfter = summarizeWorkOrderMeteringCoverage({
+            workOrder: existingWorkOrder,
+            meterEvents: meterEventsAfter
+          });
+          const responseBody = {
+            ok: true,
+            appended: emitted?.appended !== false,
+            event: emitted?.event ?? null,
+            metering: normalizeForCanonicalJson(
+              {
+                workOrderId,
+                policy: meteringPolicy,
+                baseAmountCents: meteringSummaryAfter.baseAmountCents,
+                topUpTotalCents: meteringSummaryAfter.topUpTotalCents,
+                coveredAmountCents: meteringSummaryAfter.coveredAmountCents,
+                envelope: {
+                  maxCostCents,
+                  remainingCents:
+                    Number.isSafeInteger(maxCostCents) && maxCostCents >= 0
+                      ? Math.max(0, maxCostCents - meteringSummaryAfter.coveredAmountCents)
+                      : null
+                }
+              },
+              { path: "$.metering" }
+            )
+          };
+          const statusCode = emitted?.appended === false ? 200 : 201;
+          if (idemStoreKey) {
+            await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode, body: responseBody } }]);
+          }
+          return sendJson(res, statusCode, responseBody);
+        }
+
         if (parts[0] === "work-orders" && parts[1] && parts[2] === "complete" && parts.length === 3 && req.method === "POST") {
           if (!requireProtocolHeaderForWrite(req, res)) return;
           const workOrderId = decodePathPart(parts[1]);
@@ -44822,6 +48236,84 @@ export function createApi({
 	              { code: "WORK_ORDER_EVIDENCE_BINDING_BLOCKED" }
 	            );
 	          }
+          const workOrderAcceptanceBinding =
+            existingWorkOrder?.acceptanceBinding &&
+            typeof existingWorkOrder.acceptanceBinding === "object" &&
+            !Array.isArray(existingWorkOrder.acceptanceBinding)
+              ? existingWorkOrder.acceptanceBinding
+              : null;
+          if (workOrderAcceptanceBinding) {
+            const boundAcceptanceId =
+              typeof workOrderAcceptanceBinding.acceptanceId === "string" && workOrderAcceptanceBinding.acceptanceId.trim() !== ""
+                ? workOrderAcceptanceBinding.acceptanceId.trim()
+                : null;
+            const boundAcceptanceHash =
+              typeof workOrderAcceptanceBinding.acceptanceHash === "string" && workOrderAcceptanceBinding.acceptanceHash.trim() !== ""
+                ? workOrderAcceptanceBinding.acceptanceHash.trim().toLowerCase()
+                : null;
+            if (!boundAcceptanceId || !/^[0-9a-f]{64}$/.test(String(boundAcceptanceHash ?? ""))) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                { message: "acceptance binding is missing required id/hash" },
+                { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+              );
+            }
+            const requestedAcceptanceHash =
+              typeof body?.acceptanceHash === "string" && body.acceptanceHash.trim() !== ""
+                ? body.acceptanceHash.trim().toLowerCase()
+                : null;
+            if (requestedAcceptanceHash && requestedAcceptanceHash !== boundAcceptanceHash) {
+              return sendError(
+                res,
+                409,
+                "work order settlement conflict",
+                { message: "acceptanceHash does not match work order binding" },
+                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+              );
+            }
+            const boundAcceptance = await getTaskAcceptanceRecord({ tenantId, acceptanceId: boundAcceptanceId });
+            if (!boundAcceptance) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                { message: "bound task acceptance not found" },
+                { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+              );
+            }
+            try {
+              validateTaskAcceptanceV1(boundAcceptance);
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                { message: `bound task acceptance invalid: ${err?.message ?? "invalid"}` },
+                { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+              );
+            }
+            const actualAcceptanceHash = String(boundAcceptance.acceptanceHash ?? "").trim().toLowerCase();
+            if (actualAcceptanceHash !== boundAcceptanceHash) {
+              return sendError(
+                res,
+                409,
+                "work order settlement conflict",
+                { message: "acceptance hash does not match bound acceptance record" },
+                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+              );
+            }
+          }
+	          let requestedAuthorityGrantRef = null;
+	          try {
+	            requestedAuthorityGrantRef = normalizeOptionalX402RefInput(body?.authorityGrantRef ?? null, "authorityGrantRef", {
+	              allowNull: true,
+	              max: 200
+	            });
+	          } catch (err) {
+	            return sendError(res, 400, "invalid authorityGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+	          }
 
 	          if (alreadySettled) {
 	            const storedReceiptId = typeof existingWorkOrder?.completionReceiptId === "string" ? existingWorkOrder.completionReceiptId.trim() : "";
@@ -44892,19 +48384,32 @@ export function createApi({
 	                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
 	              );
 	            }
-	            if (
-	              typeof body?.settledAt === "string" &&
-	              body.settledAt.trim() !== "" &&
-	              body.settledAt.trim() !== String(storedSettlement?.settledAt ?? "")
-	            ) {
+		            if (
+		              typeof body?.settledAt === "string" &&
+		              body.settledAt.trim() !== "" &&
+		              body.settledAt.trim() !== String(storedSettlement?.settledAt ?? "")
+		            ) {
 	              return sendError(
 	                res,
 	                409,
 	                "work order settlement conflict",
 	                { message: "settledAt does not match settled work order" },
-	                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
-	              );
-	            }
+		                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+		              );
+		            }
+		            const storedAuthorityGrantRef =
+		              typeof storedSettlement?.authorityGrantRef === "string" && storedSettlement.authorityGrantRef.trim() !== ""
+		                ? storedSettlement.authorityGrantRef.trim()
+		                : null;
+		            if (requestedAuthorityGrantRef && requestedAuthorityGrantRef !== storedAuthorityGrantRef) {
+		              return sendError(
+		                res,
+		                409,
+		                "work order settlement conflict",
+		                { message: "authorityGrantRef does not match settled work order" },
+		                { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+		              );
+		            }
 
 	            const responseBody = { ok: true, workOrder: existingWorkOrder, completionReceipt };
 	            const ops = [];
@@ -44943,17 +48448,17 @@ export function createApi({
               { code: "WORK_ORDER_EVIDENCE_BINDING_BLOCKED" }
             );
           }
-          const x402GateId =
-            typeof body?.x402GateId === "string" && body.x402GateId.trim() !== "" ? body.x402GateId.trim() : null;
-          const x402RunId = typeof body?.x402RunId === "string" && body.x402RunId.trim() !== "" ? body.x402RunId.trim() : null;
-          if (!x402GateId || !x402RunId) {
-            return sendError(res, 400, "x402GateId and x402RunId are required", null, { code: "SCHEMA_INVALID" });
-          }
-          let promptRiskSignals = null;
-          try {
-            promptRiskSignals = normalizeX402PromptRiskSignalsInput(
-              body?.promptRiskSignals ?? body?.riskSignals ?? null,
-              { fieldName: "promptRiskSignals", allowNull: true }
+	          const x402GateId =
+	            typeof body?.x402GateId === "string" && body.x402GateId.trim() !== "" ? body.x402GateId.trim() : null;
+	          const x402RunId = typeof body?.x402RunId === "string" && body.x402RunId.trim() !== "" ? body.x402RunId.trim() : null;
+	          if (!x402GateId || !x402RunId) {
+	            return sendError(res, 400, "x402GateId and x402RunId are required", null, { code: "SCHEMA_INVALID" });
+	          }
+	          let promptRiskSignals = null;
+	          try {
+	            promptRiskSignals = normalizeX402PromptRiskSignalsInput(
+	              body?.promptRiskSignals ?? body?.riskSignals ?? null,
+	              { fieldName: "promptRiskSignals", allowNull: true }
             );
           } catch (err) {
             return sendError(res, 400, "invalid promptRiskSignals", { message: err?.message }, { code: "SCHEMA_INVALID" });
@@ -44964,17 +48469,485 @@ export function createApi({
               body?.promptRiskOverride ?? body?.riskOverride ?? null,
               { fieldName: "promptRiskOverride", allowNull: true }
             );
+	          } catch (err) {
+	            return sendError(res, 400, "invalid promptRiskOverride", { message: err?.message }, { code: "SCHEMA_INVALID" });
+	          }
+          let sessionRef = null;
+          try {
+            sessionRef = parseX402SessionRefInput(
+              body?.sessionRef ?? body?.sessionId ?? body?.collaborationSessionId ?? null,
+              { fieldName: "sessionRef", allowNull: true }
+            );
           } catch (err) {
-            return sendError(res, 400, "invalid promptRiskOverride", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            return sendError(res, 400, "invalid sessionRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
-          const linkedX402Gate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId: x402GateId }) : null;
-          const promptRiskEvaluationAt = nowIso();
-          const promptRiskEvaluation = linkedX402Gate
-            ? evaluateX402PromptRiskGuardrail({
-                gate: linkedX402Gate,
+	          const linkedX402Gate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId: x402GateId }) : null;
+          const workOrderToolId =
+            typeof existingWorkOrder?.x402ToolId === "string" && existingWorkOrder.x402ToolId.trim() !== ""
+              ? existingWorkOrder.x402ToolId.trim()
+              : null;
+          const workOrderProviderId =
+            typeof existingWorkOrder?.x402ProviderId === "string" && existingWorkOrder.x402ProviderId.trim() !== ""
+              ? existingWorkOrder.x402ProviderId.trim()
+              : null;
+          const gateToolId =
+            typeof linkedX402Gate?.toolId === "string" && linkedX402Gate.toolId.trim() !== "" ? linkedX402Gate.toolId.trim() : null;
+          const gateProviderId =
+            typeof linkedX402Gate?.payeeProviderId === "string" && linkedX402Gate.payeeProviderId.trim() !== ""
+              ? linkedX402Gate.payeeProviderId.trim()
+              : typeof linkedX402Gate?.payeeAgentId === "string" && linkedX402Gate.payeeAgentId.trim() !== ""
+                ? linkedX402Gate.payeeAgentId.trim()
+                : typeof linkedX402Gate?.terms?.providerId === "string" && linkedX402Gate.terms.providerId.trim() !== ""
+                  ? linkedX402Gate.terms.providerId.trim()
+                  : null;
+          if ((workOrderToolId || workOrderProviderId) && !linkedX402Gate) {
+            return sendError(
+              res,
+              409,
+              "work order settlement conflict",
+              {
+                message: "x402 gate is required to verify work order x402 binding",
+                workOrderId,
+                x402GateId
+              },
+              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+            );
+          }
+          if (workOrderToolId && gateToolId !== workOrderToolId) {
+            return sendError(
+              res,
+              409,
+              "work order settlement conflict",
+              {
+                message: "x402ToolId does not match x402 gate binding",
+                workOrderX402ToolId: workOrderToolId,
+                gateToolId
+              },
+              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+            );
+          }
+	          if (workOrderProviderId && gateProviderId !== workOrderProviderId) {
+	            return sendError(
+	              res,
+	              409,
+	              "work order settlement conflict",
+              {
+                message: "x402ProviderId does not match x402 gate binding",
+                workOrderX402ProviderId: workOrderProviderId,
+                gateProviderId
+              },
+	              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+	            );
+	          }
+          const settlementAmountCents = Number(completionReceipt?.settlementQuote?.amountCents ?? existingWorkOrder?.pricing?.amountCents ?? Number.NaN);
+          const settlementCurrency =
+            typeof completionReceipt?.settlementQuote?.currency === "string" && completionReceipt.settlementQuote.currency.trim() !== ""
+              ? completionReceipt.settlementQuote.currency.trim()
+              : typeof existingWorkOrder?.pricing?.currency === "string" && existingWorkOrder.pricing.currency.trim() !== ""
+                ? existingWorkOrder.pricing.currency.trim()
+                : "USD";
+          let meteringSettlementSummary = null;
+          let settlementSplitSummary = null;
+          const maxCostCents = Number(existingWorkOrder?.constraints?.maxCostCents ?? Number.NaN);
+	          if (Number.isSafeInteger(maxCostCents) && maxCostCents >= 0) {
+	            if (!Number.isSafeInteger(settlementAmountCents) || settlementAmountCents < 0) {
+	              return sendError(
+	                res,
+	                409,
+	                "work order settlement blocked",
+	                {
+	                  reasonCode: "WORK_ORDER_SETTLEMENT_AMOUNT_INVALID",
+	                  message: "unable to resolve settlement amount for max-cost enforcement",
+	                  workOrderId
+	                },
+	                { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+	              );
+	            }
+	            if (settlementAmountCents > maxCostCents) {
+	              return sendError(
+	                res,
+	                409,
+	                "work order settlement blocked",
+	                {
+	                  reasonCode: "WORK_ORDER_SETTLEMENT_MAX_COST_EXCEEDED",
+	                  message: "settlement amount exceeds work order maxCostCents",
+	                  settlementAmountCents,
+	                  maxCostCents,
+	                  workOrderId
+	                },
+	                { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+	              );
+	            }
+	          }
+	          if (settlementStatus === SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.RELEASED) {
+	            let workOrderMeteringPolicy = null;
+	            try {
+	              workOrderMeteringPolicy = resolveWorkOrderMeteringPolicy(existingWorkOrder, { allowNull: true });
+	            } catch (err) {
+	              return sendError(
+	                res,
+	                409,
+	                "work order settlement blocked",
+	                {
+	                  reasonCode: "WORK_ORDER_METERING_POLICY_INVALID",
+	                  message: err?.message ?? null
+	                },
+	                { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+	              );
+	            }
+	            if (workOrderMeteringPolicy?.mode === WORK_ORDER_METERING_MODE.METERED) {
+	              if (!Number.isSafeInteger(settlementAmountCents) || settlementAmountCents < 0) {
+	                return sendError(
+	                  res,
+	                  409,
+	                  "work order settlement blocked",
+	                  {
+	                    reasonCode: "WORK_ORDER_SETTLEMENT_AMOUNT_INVALID",
+	                    message: "unable to resolve settlement amount for metering enforcement",
+	                    workOrderId
+	                  },
+	                  { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+	                );
+	              }
+	              let meteringEventKeys = [];
+	              try {
+	                meteringEventKeys = parseWorkOrderMeteringEventKeys(
+	                  body?.meteringEventKeys ??
+	                    (body?.metering && typeof body.metering === "object" && !Array.isArray(body.metering) ? body.metering.eventKeys : null),
+	                  {
+	                    allowNull: true,
+	                    fieldName: "meteringEventKeys"
+	                  }
+	                );
+	              } catch (err) {
+	                return sendError(res, 400, "invalid work order settlement", { message: err?.message }, { code: "SCHEMA_INVALID" });
+	              }
+	              if (workOrderMeteringPolicy.requireFinalMeterEvidence && meteringEventKeys.length === 0) {
+	                return sendError(
+	                  res,
+	                  409,
+	                  "work order settlement blocked",
+	                  {
+	                    reasonCode: "WORK_ORDER_SETTLEMENT_METER_EVIDENCE_REQUIRED",
+	                    message: "meteringEventKeys are required for metered settlement release",
+	                    workOrderId
+	                  },
+	                  { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+	                );
+	              }
+	              let meterEvents = [];
+	              try {
+	                meterEvents = await listWorkOrderMeteringEvents({ tenantId, workOrderId });
+	              } catch (err) {
+	                return sendError(
+	                  res,
+	                  409,
+	                  "work order settlement blocked",
+	                  {
+	                    reasonCode: "WORK_ORDER_METER_EVENTS_UNAVAILABLE",
+	                    message: err?.message ?? null,
+	                    workOrderId
+	                  },
+	                  { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+	                );
+	              }
+	              const meterCoverage = summarizeWorkOrderMeteringCoverage({
+	                workOrder: existingWorkOrder,
+	                meterEvents
+	              });
+	              if (settlementAmountCents > meterCoverage.coveredAmountCents) {
+	                return sendError(
+	                  res,
+	                  409,
+	                  "work order settlement blocked",
+	                  {
+	                    reasonCode: "WORK_ORDER_SETTLEMENT_TOPUP_REQUIRED",
+	                    workOrderId,
+	                    settlementAmountCents,
+	                    coveredAmountCents: meterCoverage.coveredAmountCents,
+	                    additionalTopUpRequiredCents: settlementAmountCents - meterCoverage.coveredAmountCents
+	                  },
+	                  { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+	                );
+	              }
+	              const meterEventsByKey = new Map(meterEvents.map((event) => [String(event?.eventKey ?? ""), event]));
+	              const referencedMeterEvents = [];
+	              const missingMeterEventKeys = [];
+	              for (const meterEventKey of meteringEventKeys) {
+	                const matched = meterEventsByKey.get(meterEventKey) ?? null;
+	                if (!matched) {
+	                  missingMeterEventKeys.push(meterEventKey);
+	                  continue;
+	                }
+	                referencedMeterEvents.push(matched);
+	              }
+	              if (missingMeterEventKeys.length > 0) {
+	                return sendError(
+	                  res,
+	                  409,
+	                  "work order settlement blocked",
+	                  {
+	                    reasonCode: "WORK_ORDER_SETTLEMENT_METER_EVIDENCE_REQUIRED",
+	                    workOrderId,
+	                    missingMeterEventKeys,
+	                    providedMeterEventKeys: meteringEventKeys
+	                  },
+	                  { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+	                );
+	              }
+	              const referencedAmountCents = referencedMeterEvents.reduce((sum, event) => {
+	                const amountRaw = Number(event?.amountCents ?? Number.NaN);
+	                const amountCents = Number.isSafeInteger(amountRaw) && amountRaw > 0 ? amountRaw : 0;
+	                return sum + amountCents;
+	              }, 0);
+	              if (workOrderMeteringPolicy.enforceFinalReconcile) {
+	                if (referencedMeterEvents.length === 0) {
+	                  return sendError(
+	                    res,
+	                    409,
+	                    "work order settlement blocked",
+	                    {
+	                      reasonCode: "WORK_ORDER_SETTLEMENT_METER_EVIDENCE_REQUIRED",
+	                      message: "meter evidence is required for metered settlement reconcile",
+	                      workOrderId
+	                    },
+	                    { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+	                  );
+	                }
+	                if (referencedAmountCents < settlementAmountCents) {
+	                  return sendError(
+	                    res,
+	                    409,
+	                    "work order settlement blocked",
+	                    {
+	                      reasonCode: "WORK_ORDER_SETTLEMENT_METER_RECONCILE_MISMATCH",
+	                      workOrderId,
+	                      settlementAmountCents,
+	                      meteredAmountCents: referencedAmountCents
+	                    },
+	                    { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+	                  );
+	                }
+	              }
+	              const meterEvidenceDigest = buildWorkOrderMeterEvidenceDigest({ meterEvents: referencedMeterEvents });
+              meteringSettlementSummary = normalizeForCanonicalJson(
+                {
+                  schemaVersion: "WorkOrderMeterReconcile.v1",
+	                  mode: workOrderMeteringPolicy.mode,
+	                  requireFinalMeterEvidence: workOrderMeteringPolicy.requireFinalMeterEvidence === true,
+	                  enforceFinalReconcile: workOrderMeteringPolicy.enforceFinalReconcile === true,
+	                  settlementAmountCents,
+	                  coveredAmountCents: meterCoverage.coveredAmountCents,
+	                  topUpTotalCents: meterCoverage.topUpTotalCents,
+	                  meteredAmountCents: referencedAmountCents,
+	                  meterEventKeys: meteringEventKeys,
+	                  meterEvidenceHash: meterEvidenceDigest.meterEvidenceHash,
+	                  reconciledAt: nowIso()
+	                },
+                { path: "$.meteringSettlementSummary" }
+              );
+            }
+            let settlementSplitPolicy = null;
+            try {
+              settlementSplitPolicy = resolveWorkOrderSettlementSplitPolicy(existingWorkOrder, { allowNull: true });
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                {
+                  reasonCode: "WORK_ORDER_SETTLEMENT_SPLIT_POLICY_INVALID",
+                  message: err?.message ?? null
+                },
+                { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+              );
+            }
+            if (settlementSplitPolicy?.mode === WORK_ORDER_SETTLEMENT_SPLIT_MODE.DETERMINISTIC) {
+              let normalizedSplitContract = null;
+              try {
+                normalizedSplitContract = normalizeWorkOrderSettlementSplitContract(
+                  body?.settlementSplit ??
+                    body?.splitContract ??
+                    (body?.settlement && typeof body.settlement === "object" && !Array.isArray(body.settlement) ? body.settlement.split : null),
+                  {
+                    settlementAmountCents,
+                    settlementCurrency,
+                    splitPolicy: settlementSplitPolicy,
+                    allowNull: true
+                  }
+                );
+              } catch (err) {
+                const message = err?.message ?? "invalid settlement split contract";
+                const reasonCode =
+                  /required/i.test(String(message))
+                    ? "WORK_ORDER_SETTLEMENT_SPLIT_REQUIRED"
+                    : "WORK_ORDER_SETTLEMENT_SPLIT_INVALID";
+                return sendError(
+                  res,
+                  409,
+                  "work order settlement blocked",
+                  {
+                    reasonCode,
+                    message,
+                    workOrderId
+                  },
+                  { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+                );
+              }
+              if (!normalizedSplitContract && settlementSplitPolicy.requireAtSettle === true) {
+                return sendError(
+                  res,
+                  409,
+                  "work order settlement blocked",
+                  {
+                    reasonCode: "WORK_ORDER_SETTLEMENT_SPLIT_REQUIRED",
+                    message: "settlement split contract is required",
+                    workOrderId
+                  },
+                  { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+                );
+              }
+              if (normalizedSplitContract) {
+                settlementSplitSummary = normalizeForCanonicalJson(
+                  {
+                    schemaVersion: "WorkOrderSettlementSplitBinding.v1",
+                    mode: settlementSplitPolicy.mode,
+                    settlementAmountCents,
+                    currency: settlementCurrency,
+                    requiredRoles: settlementSplitPolicy.requiredRoles ?? [],
+                    splitContractHash: normalizedSplitContract.splitContractHash,
+                    splitContract: normalizedSplitContract.splitContract,
+                    boundAt: nowIso()
+                  },
+                  { path: "$.settlementSplitSummary" }
+                );
+              }
+            }
+          }
+	          const workOrderAuthorityGrantRef =
+	            typeof existingWorkOrder?.authorityGrantRef === "string" && existingWorkOrder.authorityGrantRef.trim() !== ""
+	              ? existingWorkOrder.authorityGrantRef.trim()
+	              : null;
+	          let gateAuthorityGrantRef = null;
+	          const gateAuthorityCandidates = [
+	            linkedX402Gate?.authorization?.authorityGrantRef,
+	            linkedX402Gate?.agentPassport?.delegationRef
+	          ];
+	          for (const candidate of gateAuthorityCandidates) {
+	            if (typeof candidate !== "string" || candidate.trim() === "") continue;
+	            try {
+	              gateAuthorityGrantRef = normalizeOptionalX402RefInput(candidate.trim(), "authorityGrantRef", {
+	                allowNull: false,
+	                max: 200
+	              });
+	              break;
+	            } catch (err) {
+	              return sendError(res, 400, "invalid authorityGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+	            }
+	          }
+	          if (requestedAuthorityGrantRef && workOrderAuthorityGrantRef && requestedAuthorityGrantRef !== workOrderAuthorityGrantRef) {
+	            return sendError(
+	              res,
+	              409,
+	              "work order settlement conflict",
+	              {
+	                message: "authorityGrantRef does not match work order binding",
+	                requestedAuthorityGrantRef,
+	                workOrderAuthorityGrantRef
+	              },
+	              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+	            );
+	          }
+	          if (requestedAuthorityGrantRef && gateAuthorityGrantRef && requestedAuthorityGrantRef !== gateAuthorityGrantRef) {
+	            return sendError(
+	              res,
+	              409,
+	              "work order settlement conflict",
+	              {
+	                message: "authorityGrantRef does not match x402 gate binding",
+	                requestedAuthorityGrantRef,
+	                gateAuthorityGrantRef
+	              },
+	              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+	            );
+	          }
+	          if (workOrderAuthorityGrantRef && gateAuthorityGrantRef && workOrderAuthorityGrantRef !== gateAuthorityGrantRef) {
+	            return sendError(
+	              res,
+	              409,
+	              "work order settlement conflict",
+	              {
+	                message: "authorityGrantRef mismatch between work order and x402 gate binding",
+	                workOrderAuthorityGrantRef,
+	                gateAuthorityGrantRef
+	              },
+	              { code: "WORK_ORDER_SETTLEMENT_CONFLICT" }
+	            );
+	          }
+		          const effectiveAuthorityGrantRef = requestedAuthorityGrantRef ?? workOrderAuthorityGrantRef ?? gateAuthorityGrantRef ?? null;
+		          if (effectiveAuthorityGrantRef) {
+            try {
+              await resolveX402AuthorityGrantForAuthorization({
+                tenantId,
+		                gate: linkedX402Gate ?? {
+		                  payerAgentId: existingWorkOrder?.principalAgentId ?? null,
+		                  toolId: workOrderToolId
+		                },
+			                authorityGrantRef: effectiveAuthorityGrantRef,
+			                nowAt: nowIso(),
+			                amountCents: settlementAmountCents,
+			                currency: settlementCurrency,
+			                payeeProviderId: gateProviderId ?? workOrderProviderId ?? null
+			              });
+		            } catch (err) {
+	              return sendError(
+	                res,
+	                409,
+	                "work order settlement blocked",
+	                {
+	                  reasonCode: err?.code ?? "X402_AUTHORITY_GRANT_INVALID",
+	                  message: err?.message ?? null,
+	                  ...(err?.details && typeof err.details === "object" ? err.details : {})
+	                },
+	                { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
+	              );
+	            }
+	          }
+	          const settlementAmountCentsForRisk = Number.isSafeInteger(settlementAmountCents) ? settlementAmountCents : 0;
+          const sessionPromptRisk = linkedX402Gate
+            ? await resolveSessionPromptRiskSignalsForX402({
+                tenantId,
+                sessionRef:
+                  sessionRef ??
+                  (typeof linkedX402Gate?.sessionRef === "string" && linkedX402Gate.sessionRef.trim() !== ""
+                    ? linkedX402Gate.sessionRef.trim()
+                    : null),
+                amountCents: settlementAmountCentsForRisk
+              })
+            : {
+                ok: true,
+                sessionId: null,
+                promptRiskSignals: null,
+                forcedMode: null
+              };
+          if (!sessionPromptRisk.ok) {
+            return sendError(
+              res,
+              sessionPromptRisk.httpStatus ?? 409,
+              sessionPromptRisk.message ?? "session provenance invalid",
+              sessionPromptRisk.details ?? null,
+              { code: sessionPromptRisk.code ?? "X402_SESSION_PROVENANCE_INVALID" }
+            );
+          }
+	          const promptRiskEvaluationAt = nowIso();
+          const effectivePromptRiskSignals = mergeX402PromptRiskSignals(promptRiskSignals, sessionPromptRisk.promptRiskSignals);
+	          const promptRiskEvaluation = linkedX402Gate
+	            ? evaluateX402PromptRiskGuardrail({
+	                gate: linkedX402Gate,
                 principalId,
-                promptRiskSignals,
+                promptRiskSignals: effectivePromptRiskSignals,
                 promptRiskOverride,
+                forcedModeOverride: sessionPromptRisk.forcedMode,
                 at: promptRiskEvaluationAt
               })
             : null;
@@ -44986,6 +48959,7 @@ export function createApi({
               const blockedGate = normalizeForCanonicalJson(
                 {
                   ...linkedX402Gate,
+                  ...(sessionPromptRisk.sessionId ? { sessionRef: sessionPromptRisk.sessionId } : {}),
                   promptRisk: promptRiskEvaluation.nextState,
                   updatedAt: promptRiskEvaluationAt
                 },
@@ -45010,25 +48984,65 @@ export function createApi({
               { code: promptRiskEvaluation.code }
             );
           }
+          if (settlementStatus === SUB_AGENT_WORK_ORDER_SETTLEMENT_STATUS.RELEASED && sessionPromptRisk.promptRiskSignals) {
+            const taintEvidenceRefs = normalizeEvidenceRefList(sessionPromptRisk.promptRiskSignals.evidenceRefs);
+            const settlementEvidenceRefs = normalizeEvidenceRefList([
+              ...(Array.isArray(body?.evidenceRefs) ? body.evidenceRefs : []),
+              ...(Array.isArray(completionReceipt?.evidenceRefs) ? completionReceipt.evidenceRefs : [])
+            ]);
+            const taintEvidenceDiff = diffRequiredEvidenceRefs({
+              requiredRefs: taintEvidenceRefs,
+              providedRefs: settlementEvidenceRefs
+            });
+            if (taintEvidenceRefs.length === 0 || taintEvidenceDiff.missingRefs.length > 0) {
+              return sendError(
+                res,
+                409,
+                "work order settlement blocked",
+                {
+                  reasonCode: "WORK_ORDER_PROMPT_RISK_EVIDENCE_REQUIRED",
+                  workOrderId,
+                  gateId: x402GateId,
+                  requiredEvidenceRefs: taintEvidenceDiff.requiredRefs,
+                  missingEvidenceRefs: taintEvidenceDiff.missingRefs
+                },
+                { code: "WORK_ORDER_SETTLEMENT_BLOCKED" }
+              );
+            }
+          }
 
-          let nextWorkOrder = null;
-          try {
-            nextWorkOrder = settleSubAgentWorkOrderV1({
-              workOrder: existingWorkOrder,
-              completionReceiptId,
-              settlement: {
-                status: settlementStatus,
-                x402GateId,
-                x402RunId,
-                x402SettlementStatus:
-                  typeof body?.x402SettlementStatus === "string" && body.x402SettlementStatus.trim() !== ""
-                    ? body.x402SettlementStatus.trim().toLowerCase()
+	          let nextWorkOrder = null;
+	          try {
+	            nextWorkOrder = settleSubAgentWorkOrderV1({
+	              workOrder: existingWorkOrder,
+	              completionReceiptId,
+	              completionReceipt,
+		              settlement: {
+		                status: settlementStatus,
+	                x402GateId,
+	                x402RunId,
+	                authorityGrantRef: effectiveAuthorityGrantRef,
+	                x402SettlementStatus:
+	                  typeof body?.x402SettlementStatus === "string" && body.x402SettlementStatus.trim() !== ""
+	                    ? body.x402SettlementStatus.trim().toLowerCase()
                     : settlementStatus,
                 x402ReceiptId:
                   typeof body?.x402ReceiptId === "string" && body.x402ReceiptId.trim() !== "" ? body.x402ReceiptId.trim() : null
               },
               settledAt: typeof body?.settledAt === "string" && body.settledAt.trim() !== "" ? body.settledAt.trim() : nowIso()
             });
+            if (meteringSettlementSummary) {
+              nextWorkOrder = attachWorkOrderSettlementMeteringSummary({
+                workOrder: nextWorkOrder,
+                summary: meteringSettlementSummary
+              });
+            }
+            if (settlementSplitSummary) {
+              nextWorkOrder = attachWorkOrderSettlementSplitSummary({
+                workOrder: nextWorkOrder,
+                summary: settlementSplitSummary
+              });
+            }
             validateSubAgentWorkOrderV1(nextWorkOrder);
           } catch (err) {
             return sendError(res, 409, "work order settlement blocked", { message: err?.message }, { code: "WORK_ORDER_SETTLEMENT_BLOCKED" });
@@ -45040,6 +49054,7 @@ export function createApi({
             const nextLinkedGate = normalizeForCanonicalJson(
               {
                 ...linkedX402Gate,
+                ...(sessionPromptRisk.sessionId ? { sessionRef: sessionPromptRisk.sessionId } : {}),
                 promptRisk: promptRiskEvaluation.nextState,
                 updatedAt: promptRiskEvaluationAt
               },
@@ -49382,6 +53397,137 @@ export function createApi({
             reputationWindow
           });
           return sendJson(res, 200, { reputation });
+        }
+
+        if (parts[2] === "interaction-graph-pack" && req.method === "GET" && parts.length === 3) {
+          const reputationVersionRaw = url.searchParams.get("reputationVersion");
+          const reputationWindowRaw = url.searchParams.get("reputationWindow");
+          const asOfRaw = url.searchParams.get("asOf");
+          const counterpartyAgentIdRaw = url.searchParams.get("counterpartyAgentId");
+          const visibilityRaw = url.searchParams.get("visibility");
+          const signRaw = url.searchParams.get("sign");
+          const signerKeyIdRaw = url.searchParams.get("signerKeyId");
+          const limitRaw = url.searchParams.get("limit");
+          const offsetRaw = url.searchParams.get("offset");
+          let reputationVersion = "v2";
+          let reputationWindow = AGENT_REPUTATION_WINDOW.THIRTY_DAYS;
+          let asOf = nowIso();
+          let signPack = false;
+          let signerKeyId = null;
+          let limit = RELATIONSHIP_PUBLIC_SUMMARY_MAX_LIMIT;
+          let offset = 0;
+          try {
+            reputationVersion = parseReputationVersion(reputationVersionRaw ?? "v2");
+            reputationWindow = parseReputationWindow(reputationWindowRaw ?? AGENT_REPUTATION_WINDOW.THIRTY_DAYS);
+            if (typeof asOfRaw === "string" && asOfRaw.trim() !== "") {
+              const candidate = asOfRaw.trim();
+              if (!Number.isFinite(Date.parse(candidate))) throw new TypeError("asOf must be an ISO date-time");
+              asOf = candidate;
+            }
+            signPack = parseBooleanQueryValue(signRaw, { defaultValue: false, name: "sign" });
+            signerKeyId = parseInteractionGraphPackSignerKeyId(signerKeyIdRaw, { allowNull: true });
+            if (!signPack && signerKeyId !== null) {
+              throw new TypeError("signerKeyId requires sign=true");
+            }
+            limit = parseRelationshipListLimit(limitRaw, { defaultValue: RELATIONSHIP_PUBLIC_SUMMARY_MAX_LIMIT });
+            offset = parseRelationshipListOffset(offsetRaw, { defaultValue: 0 });
+          } catch (err) {
+            return sendError(res, 400, "invalid interaction graph pack query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          if (visibilityRaw !== null && visibilityRaw !== undefined && String(visibilityRaw).trim() !== "") {
+            const visibilityValue = String(visibilityRaw).trim().toLowerCase();
+            if (
+              visibilityValue !== "all" &&
+              visibilityValue !== RELATIONSHIP_EDGE_VISIBILITY.PRIVATE &&
+              visibilityValue !== RELATIONSHIP_EDGE_VISIBILITY.PUBLIC_SUMMARY
+            ) {
+              return sendError(res, 400, "invalid interaction graph pack query", { message: "visibility must be all|private|public_summary" }, { code: "SCHEMA_INVALID" });
+            }
+          }
+          const windowStartAt = reputationWindowStartAt({ window: reputationWindow, at: asOf });
+          const events = await listRoutingReputationEvents({
+            tenantId,
+            agentId,
+            occurredAtGte: windowStartAt,
+            occurredAtLte: asOf
+          });
+          const aggregate = computeReputationFactsAggregate({ events });
+          const relationshipStats = computeRoutingReputationEventStats({ events });
+          const relationshipResult = await listRelationshipEdgesForAgent({
+            tenantId,
+            agentId,
+            counterpartyAgentId:
+              typeof counterpartyAgentIdRaw === "string" && counterpartyAgentIdRaw.trim() !== ""
+                ? counterpartyAgentIdRaw.trim()
+                : null,
+            asOf,
+            reputationWindow,
+            limit,
+            offset,
+            publicOnly: false
+          });
+          const visibilityFilter =
+            visibilityRaw === null || visibilityRaw === undefined || String(visibilityRaw).trim() === ""
+              ? "all"
+              : String(visibilityRaw).trim().toLowerCase();
+          const filteredRelationships =
+            visibilityFilter === "all"
+              ? relationshipResult.relationships
+              : relationshipResult.relationships.filter((edge) => String(edge?.visibility ?? "").toLowerCase() === visibilityFilter);
+          const reputation = await computeAgentReputationSnapshotVersioned({
+            tenantId,
+            agentId,
+            at: asOf,
+            reputationVersion,
+            reputationWindow
+          });
+          const summary = buildInteractionGraphSummary({
+            agentId,
+            reputationVersion,
+            reputationWindow,
+            asOf,
+            reputation,
+            aggregate,
+            relationshipStats,
+            relationships: filteredRelationships
+          });
+          let graphPack = null;
+          try {
+            graphPack = buildVerifiedInteractionGraphPackV1({
+              tenantId,
+              agentId,
+              reputationVersion,
+              reputationWindow,
+              asOf,
+              relationships: filteredRelationships,
+              summary,
+              verification: {
+                deterministicOrdering: true,
+                antiGamingSignalsPresent: true,
+                generatedBy: "settld.api"
+              },
+              generatedAt: asOf
+            });
+            if (signPack) {
+              const signingCandidate = resolveInteractionGraphPackSigningCandidate({ signerKeyId });
+              graphPack = signVerifiedInteractionGraphPackV1({
+                graphPack,
+                signedAt: asOf,
+                publicKeyPem: signingCandidate.publicKeyPem,
+                privateKeyPem: signingCandidate.privateKeyPem,
+                keyId: signingCandidate.keyId
+              });
+            }
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "interaction graph pack blocked",
+              { agentId, reason: err?.message ?? "invalid interaction graph pack" },
+              { code: signPack ? "INTERACTION_GRAPH_PACK_SIGNING_BLOCKED" : "INTERACTION_GRAPH_PACK_INVALID" }
+            );
+          }
+          return sendJson(res, 200, { ok: true, graphPack });
         }
 
         if (parts[2] === "passport") {

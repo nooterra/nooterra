@@ -220,6 +220,51 @@ export class SettldClient {
     return this.request("GET", `/agents/${encodeURIComponent(agentId)}/reputation${suffix}`, requestOpts);
   }
 
+  getPublicAgentReputationSummary(agentId, params = {}, opts) {
+    assertNonEmptyString(agentId, "agentId");
+    const qs = new URLSearchParams();
+    if (params.reputationVersion) qs.set("reputationVersion", String(params.reputationVersion));
+    if (params.reputationWindow) qs.set("reputationWindow", String(params.reputationWindow));
+    if (params.asOf) qs.set("asOf", String(params.asOf));
+    if (params.includeRelationships !== undefined && params.includeRelationships !== null) {
+      qs.set("includeRelationships", String(Boolean(params.includeRelationships)));
+    }
+    if (params.relationshipLimit !== undefined && params.relationshipLimit !== null) {
+      qs.set("relationshipLimit", String(params.relationshipLimit));
+    }
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/public/agents/${encodeURIComponent(agentId)}/reputation-summary${suffix}`, opts);
+  }
+
+  getAgentInteractionGraphPack(agentId, params = {}, opts) {
+    assertNonEmptyString(agentId, "agentId");
+    const qs = new URLSearchParams();
+    if (params.reputationVersion) qs.set("reputationVersion", String(params.reputationVersion));
+    if (params.reputationWindow) qs.set("reputationWindow", String(params.reputationWindow));
+    if (params.asOf) qs.set("asOf", String(params.asOf));
+    if (params.counterpartyAgentId) qs.set("counterpartyAgentId", String(params.counterpartyAgentId));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.sign !== undefined && params.sign !== null) qs.set("sign", String(Boolean(params.sign)));
+    if (params.signerKeyId) qs.set("signerKeyId", String(params.signerKeyId));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/agents/${encodeURIComponent(agentId)}/interaction-graph-pack${suffix}`, opts);
+  }
+
+  listRelationships(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.agentId) qs.set("agentId", String(params.agentId));
+    if (params.counterpartyAgentId) qs.set("counterpartyAgentId", String(params.counterpartyAgentId));
+    if (params.reputationWindow) qs.set("reputationWindow", String(params.reputationWindow));
+    if (params.asOf) qs.set("asOf", String(params.asOf));
+    if (params.visibility) qs.set("visibility", String(params.visibility));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/relationships${suffix}`, opts);
+  }
+
   searchMarketplaceAgents(params = {}, opts) {
     const qs = new URLSearchParams();
     if (params.status) qs.set("status", String(params.status));
@@ -311,9 +356,127 @@ export class SettldClient {
     return this.request("POST", `/marketplace/rfqs/${encodeURIComponent(rfqId)}/accept`, { ...opts, body });
   }
 
+  createTaskQuote(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.buyerAgentId, "body.buyerAgentId");
+    assertNonEmptyString(body?.sellerAgentId, "body.sellerAgentId");
+    return this.request("POST", "/task-quotes", { ...opts, body });
+  }
+
+  listTaskQuotes(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.quoteId) qs.set("quoteId", String(params.quoteId));
+    if (params.buyerAgentId) qs.set("buyerAgentId", String(params.buyerAgentId));
+    if (params.sellerAgentId) qs.set("sellerAgentId", String(params.sellerAgentId));
+    if (params.requiredCapability) qs.set("requiredCapability", String(params.requiredCapability));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.acceptanceId) qs.set("acceptanceId", String(params.acceptanceId));
+    if (params.createdAfter) qs.set("createdAfter", String(params.createdAfter));
+    if (params.createdBefore) qs.set("createdBefore", String(params.createdBefore));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/task-quotes${suffix}`, opts);
+  }
+
+  getTaskQuote(quoteId, opts) {
+    assertNonEmptyString(quoteId, "quoteId");
+    return this.request("GET", `/task-quotes/${encodeURIComponent(quoteId)}`, opts);
+  }
+
+  createTaskOffer(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.buyerAgentId, "body.buyerAgentId");
+    assertNonEmptyString(body?.sellerAgentId, "body.sellerAgentId");
+    return this.request("POST", "/task-offers", { ...opts, body });
+  }
+
+  listTaskOffers(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.offerId) qs.set("offerId", String(params.offerId));
+    if (params.quoteId) qs.set("quoteId", String(params.quoteId));
+    if (params.buyerAgentId) qs.set("buyerAgentId", String(params.buyerAgentId));
+    if (params.sellerAgentId) qs.set("sellerAgentId", String(params.sellerAgentId));
+    if (params.requiredCapability) qs.set("requiredCapability", String(params.requiredCapability));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.acceptanceId) qs.set("acceptanceId", String(params.acceptanceId));
+    if (params.createdAfter) qs.set("createdAfter", String(params.createdAfter));
+    if (params.createdBefore) qs.set("createdBefore", String(params.createdBefore));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/task-offers${suffix}`, opts);
+  }
+
+  getTaskOffer(offerId, opts) {
+    assertNonEmptyString(offerId, "offerId");
+    return this.request("GET", `/task-offers/${encodeURIComponent(offerId)}`, opts);
+  }
+
+  createTaskAcceptance(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.quoteId, "body.quoteId");
+    assertNonEmptyString(body?.offerId, "body.offerId");
+    assertNonEmptyString(body?.acceptedByAgentId, "body.acceptedByAgentId");
+    return this.request("POST", "/task-acceptances", { ...opts, body });
+  }
+
+  listTaskAcceptances(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.acceptanceId) qs.set("acceptanceId", String(params.acceptanceId));
+    if (params.quoteId) qs.set("quoteId", String(params.quoteId));
+    if (params.offerId) qs.set("offerId", String(params.offerId));
+    if (params.acceptedByAgentId) qs.set("acceptedByAgentId", String(params.acceptedByAgentId));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.createdAfter) qs.set("createdAfter", String(params.createdAfter));
+    if (params.createdBefore) qs.set("createdBefore", String(params.createdBefore));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/task-acceptances${suffix}`, opts);
+  }
+
+  getTaskAcceptance(acceptanceId, opts) {
+    assertNonEmptyString(acceptanceId, "acceptanceId");
+    return this.request("GET", `/task-acceptances/${encodeURIComponent(acceptanceId)}`, opts);
+  }
+
   getAgentWallet(agentId, opts) {
     assertNonEmptyString(agentId, "agentId");
     return this.request("GET", `/agents/${encodeURIComponent(agentId)}/wallet`, opts);
+  }
+
+  createAuthorityGrant(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    if (!body.principalRef || typeof body.principalRef !== "object" || Array.isArray(body.principalRef)) {
+      throw new TypeError("body.principalRef is required");
+    }
+    assertNonEmptyString(body?.granteeAgentId, "body.granteeAgentId");
+    return this.request("POST", "/authority-grants", { ...opts, body });
+  }
+
+  listAuthorityGrants(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.grantId) qs.set("grantId", String(params.grantId));
+    if (params.grantHash) qs.set("grantHash", String(params.grantHash).toLowerCase());
+    if (params.principalId) qs.set("principalId", String(params.principalId));
+    if (params.granteeAgentId) qs.set("granteeAgentId", String(params.granteeAgentId));
+    if (params.includeRevoked !== undefined && params.includeRevoked !== null) qs.set("includeRevoked", String(Boolean(params.includeRevoked)));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/authority-grants${suffix}`, opts);
+  }
+
+  getAuthorityGrant(grantId, opts) {
+    assertNonEmptyString(grantId, "grantId");
+    return this.request("GET", `/authority-grants/${encodeURIComponent(grantId)}`, opts);
+  }
+
+  revokeAuthorityGrant(grantId, body = {}, opts) {
+    assertNonEmptyString(grantId, "grantId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body must be an object");
+    return this.request("POST", `/authority-grants/${encodeURIComponent(grantId)}/revoke`, { ...opts, body });
   }
 
   creditAgentWallet(agentId, body, opts) {

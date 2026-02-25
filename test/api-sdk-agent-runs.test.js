@@ -31,6 +31,40 @@ test("api-sdk: agent run methods call expected endpoints", async () => {
     if (String(url).includes("/agents/agt_demo/reputation")) {
       return makeJsonResponse({ reputation: { schemaVersion: "AgentReputation.v2", trustScore: 92, primaryWindow: "7d" } });
     }
+    if (String(url).includes("/public/agents/agt_demo/reputation-summary")) {
+      return makeJsonResponse({
+        ok: true,
+        summary: {
+          schemaVersion: "PublicAgentReputationSummary.v1",
+          agentId: "agt_demo",
+          reputationVersion: "v2",
+          reputationWindow: "30d",
+          asOf: "2026-02-25T00:00:00.000Z",
+          trustScore: 91,
+          riskTier: "low",
+          eventCount: 3,
+          decisionsTotal: 2,
+          decisionsApproved: 2,
+          successRate: 1,
+          disputesOpened: 0,
+          disputeRate: 0,
+          lastInteractionAt: "2026-02-25T00:00:00.000Z",
+          relationships: []
+        }
+      });
+    }
+    if (String(url).includes("/relationships?")) {
+      return makeJsonResponse({
+        ok: true,
+        agentId: "agt_demo",
+        reputationWindow: "30d",
+        asOf: "2026-02-25T00:00:00.000Z",
+        total: 1,
+        limit: 10,
+        offset: 0,
+        relationships: []
+      });
+    }
     if (String(url).includes("/marketplace/agents/search")) {
       return makeJsonResponse({
         reputationVersion: "v2",
@@ -183,4 +217,49 @@ test("api-sdk: agent run methods call expected endpoints", async () => {
   await client.escalateRunDispute("run_demo_1", { disputeId: "dsp_1", escalationLevel: "l2_arbiter" });
   assert.equal(calls[15].url, "https://api.settld.local/runs/run_demo_1/dispute/escalate");
   assert.equal(calls[15].init?.method, "POST");
+
+  await client.getPublicAgentReputationSummary("agt_demo", {
+    reputationVersion: "v2",
+    reputationWindow: "30d",
+    asOf: "2026-02-25T00:00:00.000Z",
+    includeRelationships: true,
+    relationshipLimit: 5
+  });
+  assert.equal(
+    calls[16].url,
+    "https://api.settld.local/public/agents/agt_demo/reputation-summary?reputationVersion=v2&reputationWindow=30d&asOf=2026-02-25T00%3A00%3A00.000Z&includeRelationships=true&relationshipLimit=5"
+  );
+  assert.equal(calls[16].init?.method, "GET");
+
+  await client.getAgentInteractionGraphPack("agt_demo", {
+    reputationVersion: "v2",
+    reputationWindow: "30d",
+    asOf: "2026-02-25T00:00:00.000Z",
+    counterpartyAgentId: "agt_peer",
+    visibility: "private",
+    sign: true,
+    signerKeyId: "key_demo_graph",
+    limit: 10,
+    offset: 0
+  });
+  assert.equal(
+    calls[17].url,
+    "https://api.settld.local/agents/agt_demo/interaction-graph-pack?reputationVersion=v2&reputationWindow=30d&asOf=2026-02-25T00%3A00%3A00.000Z&counterpartyAgentId=agt_peer&visibility=private&sign=true&signerKeyId=key_demo_graph&limit=10&offset=0"
+  );
+  assert.equal(calls[17].init?.method, "GET");
+
+  await client.listRelationships({
+    agentId: "agt_demo",
+    counterpartyAgentId: "agt_peer",
+    reputationWindow: "30d",
+    asOf: "2026-02-25T00:00:00.000Z",
+    visibility: "private",
+    limit: 10,
+    offset: 0
+  });
+  assert.equal(
+    calls[18].url,
+    "https://api.settld.local/relationships?agentId=agt_demo&counterpartyAgentId=agt_peer&reputationWindow=30d&asOf=2026-02-25T00%3A00%3A00.000Z&visibility=private&limit=10&offset=0"
+  );
+  assert.equal(calls[18].init?.method, "GET");
 });

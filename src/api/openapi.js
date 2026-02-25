@@ -704,6 +704,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       x402RunId: { type: "string" },
       x402SettlementStatus: { type: "string" },
       x402ReceiptId: { type: "string", nullable: true },
+      authorityGrantRef: { type: "string", nullable: true },
       completionReceiptId: { type: "string" },
       settledAt: { type: "string", format: "date-time" }
     }
@@ -735,12 +736,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       principalAgentId: { type: "string" },
       subAgentId: { type: "string" },
       requiredCapability: { type: "string" },
+      x402ToolId: { type: "string", nullable: true },
+      x402ProviderId: { type: "string", nullable: true },
       specification: { type: "object", additionalProperties: true },
       pricing: SubAgentWorkOrderPricingV1,
       constraints: SubAgentWorkOrderConstraintsV1,
       evidencePolicy: WorkOrderSettlementEvidencePolicyV1,
       attestationRequirement: WorkOrderCapabilityAttestationRequirementV1,
       delegationGrantRef: { type: "string", nullable: true },
+      authorityGrantRef: { type: "string", nullable: true },
       status: {
         type: "string",
         enum: ["created", "accepted", "working", "completed", "failed", "settled", "cancelled", "disputed"]
@@ -813,6 +817,8 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       principalAgentId: { type: "string" },
       subAgentId: { type: "string" },
       requiredCapability: { type: "string" },
+      x402ToolId: { type: "string", nullable: true },
+      x402ProviderId: { type: "string", nullable: true },
       specification: { type: "object", additionalProperties: true },
       pricing: SubAgentWorkOrderPricingV1,
       constraints: SubAgentWorkOrderConstraintsV1,
@@ -822,6 +828,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       attestationMinLevel: { type: "string", enum: ["self_claim", "attested", "certified"], nullable: true },
       attestationIssuerAgentId: { type: "string", nullable: true },
       delegationGrantRef: { type: "string" },
+      authorityGrantRef: { type: "string" },
       metadata: { type: "object", additionalProperties: true }
     }
   };
@@ -877,6 +884,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       x402SettlementStatus: { type: "string" },
       x402ReceiptId: { type: "string" },
       completionReceiptHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      authorityGrantRef: { type: "string" },
       settledAt: { type: "string", format: "date-time" }
     }
   };
@@ -1559,6 +1567,242 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
 
   const AgentReputationAny = {
     oneOf: [AgentReputationV1, AgentReputationV2]
+  };
+
+  const RelationshipEdgeV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "agentId",
+      "counterpartyAgentId",
+      "visibility",
+      "reputationWindow",
+      "asOf",
+      "eventCount",
+      "decisionsTotal",
+      "decisionsApproved",
+      "workedWithCount",
+      "successRate",
+      "disputesOpened",
+      "disputeRate",
+      "releaseRateAvg",
+      "settledCents",
+      "refundedCents",
+      "penalizedCents",
+      "autoReleasedCents",
+      "adjustmentAppliedCents",
+      "lastInteractionAt"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["RelationshipEdge.v1"] },
+      tenantId: { type: "string" },
+      agentId: { type: "string" },
+      counterpartyAgentId: { type: "string" },
+      visibility: { type: "string", enum: ["private", "public_summary"] },
+      reputationWindow: { type: "string", enum: ["7d", "30d", "allTime"] },
+      asOf: { type: "string", format: "date-time" },
+      eventCount: { type: "integer", minimum: 0 },
+      decisionsTotal: { type: "integer", minimum: 0 },
+      decisionsApproved: { type: "integer", minimum: 0 },
+      workedWithCount: { type: "integer", minimum: 0 },
+      successRate: { type: "number", nullable: true },
+      disputesOpened: { type: "integer", minimum: 0 },
+      disputeRate: { type: "number", nullable: true },
+      releaseRateAvg: { type: "number", nullable: true },
+      settledCents: { type: "integer", minimum: 0 },
+      refundedCents: { type: "integer", minimum: 0 },
+      penalizedCents: { type: "integer", minimum: 0 },
+      autoReleasedCents: { type: "integer", minimum: 0 },
+      adjustmentAppliedCents: { type: "integer", minimum: 0 },
+      lastInteractionAt: { type: "string", format: "date-time", nullable: true },
+      minimumEconomicWeightCents: { type: "integer", minimum: 0 },
+      economicWeightCents: { type: "integer", minimum: 0 },
+      economicWeightQualified: { type: "boolean" },
+      microLoopEventCount: { type: "integer", minimum: 0 },
+      microLoopRate: { type: "number", nullable: true },
+      reciprocalDecisionCount: { type: "integer", minimum: 0 },
+      reciprocalEconomicSymmetryDeltaCents: { type: "integer", minimum: 0, nullable: true },
+      reciprocalMicroLoopRate: { type: "number", nullable: true },
+      collusionSuspected: { type: "boolean" },
+      dampened: { type: "boolean" },
+      reputationImpactMultiplier: { type: "number", minimum: 0, maximum: 1 },
+      antiGamingReasonCodes: { type: "array", items: { type: "string" } }
+    }
+  };
+
+  const PublicAgentReputationSummaryV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "agentId",
+      "reputationVersion",
+      "reputationWindow",
+      "asOf",
+      "trustScore",
+      "riskTier",
+      "eventCount",
+      "decisionsTotal",
+      "decisionsApproved",
+      "successRate",
+      "disputesOpened",
+      "disputeRate",
+      "lastInteractionAt",
+      "relationships"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["PublicAgentReputationSummary.v1"] },
+      agentId: { type: "string" },
+      reputationVersion: { type: "string", enum: ["v1", "v2"] },
+      reputationWindow: { type: "string", enum: ["7d", "30d", "allTime"] },
+      asOf: { type: "string", format: "date-time" },
+      trustScore: { type: "integer", minimum: 0, maximum: 100 },
+      riskTier: { type: "string", enum: ["low", "guarded", "elevated", "high"] },
+      eventCount: { type: "integer", minimum: 0 },
+      decisionsTotal: { type: "integer", minimum: 0 },
+      decisionsApproved: { type: "integer", minimum: 0 },
+      successRate: { type: "number", nullable: true },
+      disputesOpened: { type: "integer", minimum: 0 },
+      disputeRate: { type: "number", nullable: true },
+      lastInteractionAt: { type: "string", format: "date-time", nullable: true },
+      relationships: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["schemaVersion", "counterpartyAgentId", "workedWithCount", "successRate", "disputeRate", "lastInteractionAt"],
+          properties: {
+            schemaVersion: { type: "string", enum: ["RelationshipEdge.v1"] },
+            counterpartyAgentId: { type: "string" },
+            workedWithCount: { type: "integer", minimum: 0 },
+            successRate: { type: "number", nullable: true },
+            disputeRate: { type: "number", nullable: true },
+            lastInteractionAt: { type: "string", format: "date-time", nullable: true }
+          }
+        }
+      }
+    }
+  };
+
+  const InteractionGraphSummaryV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "agentId",
+      "reputationVersion",
+      "reputationWindow",
+      "asOf",
+      "trustScore",
+      "riskTier",
+      "eventCount",
+      "decisionsTotal",
+      "decisionsApproved",
+      "successRate",
+      "disputesOpened",
+      "disputeRate",
+      "settledCents",
+      "refundedCents",
+      "penalizedCents",
+      "autoReleasedCents",
+      "adjustmentAppliedCents",
+      "relationshipCount",
+      "economicallyQualifiedRelationshipCount",
+      "dampenedRelationshipCount",
+      "collusionSuspectedRelationshipCount",
+      "lastInteractionAt"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["InteractionGraphSummary.v1"] },
+      agentId: { type: "string" },
+      reputationVersion: { type: "string", enum: ["v1", "v2"] },
+      reputationWindow: { type: "string", enum: ["7d", "30d", "allTime"] },
+      asOf: { type: "string", format: "date-time" },
+      trustScore: { type: "integer", minimum: 0, maximum: 100 },
+      riskTier: { type: "string", enum: ["low", "guarded", "elevated", "high"] },
+      eventCount: { type: "integer", minimum: 0 },
+      decisionsTotal: { type: "integer", minimum: 0 },
+      decisionsApproved: { type: "integer", minimum: 0 },
+      successRate: { type: "number", nullable: true },
+      disputesOpened: { type: "integer", minimum: 0 },
+      disputeRate: { type: "number", nullable: true },
+      settledCents: { type: "integer", minimum: 0 },
+      refundedCents: { type: "integer", minimum: 0 },
+      penalizedCents: { type: "integer", minimum: 0 },
+      autoReleasedCents: { type: "integer", minimum: 0 },
+      adjustmentAppliedCents: { type: "integer", minimum: 0 },
+      relationshipCount: { type: "integer", minimum: 0 },
+      economicallyQualifiedRelationshipCount: { type: "integer", minimum: 0 },
+      dampenedRelationshipCount: { type: "integer", minimum: 0 },
+      collusionSuspectedRelationshipCount: { type: "integer", minimum: 0 },
+      lastInteractionAt: { type: "string", format: "date-time", nullable: true }
+    }
+  };
+
+  const InteractionGraphVerificationV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "deterministicOrdering", "antiGamingSignalsPresent", "generatedBy"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["InteractionGraphVerification.v1"] },
+      deterministicOrdering: { type: "boolean" },
+      antiGamingSignalsPresent: { type: "boolean" },
+      generatedBy: { type: "string" }
+    }
+  };
+
+  const InteractionGraphPackSignatureV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "algorithm", "keyId", "signedAt", "payloadHash", "signatureBase64"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["VerifiedInteractionGraphPackSignature.v1"] },
+      algorithm: { type: "string", enum: ["ed25519"] },
+      keyId: { type: "string" },
+      signedAt: { type: "string", format: "date-time" },
+      payloadHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signatureBase64: { type: "string" }
+    }
+  };
+
+  const VerifiedInteractionGraphPackV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "agentId",
+      "reputationVersion",
+      "reputationWindow",
+      "asOf",
+      "generatedAt",
+      "relationshipCount",
+      "relationshipsHash",
+      "summaryHash",
+      "verification",
+      "summary",
+      "relationships",
+      "packHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["VerifiedInteractionGraphPack.v1"] },
+      tenantId: { type: "string" },
+      agentId: { type: "string" },
+      reputationVersion: { type: "string", enum: ["v1", "v2"] },
+      reputationWindow: { type: "string", enum: ["7d", "30d", "allTime"] },
+      asOf: { type: "string", format: "date-time" },
+      generatedAt: { type: "string", format: "date-time" },
+      relationshipCount: { type: "integer", minimum: 0 },
+      relationshipsHash: { type: "string" },
+      summaryHash: { type: "string" },
+      verification: InteractionGraphVerificationV1,
+      summary: InteractionGraphSummaryV1,
+      relationships: { type: "array", items: RelationshipEdgeV1 },
+      packHash: { type: "string" },
+      signature: InteractionGraphPackSignatureV1
+    }
   };
 
   const InteractionDirectionEntityType = {
@@ -6587,6 +6831,127 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
               }
             },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/agents/{agentId}/interaction-graph-pack": {
+        get: {
+          summary: "Export deterministic interaction graph pack for an agent",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agentId", in: "path", required: true, schema: { type: "string" } },
+            { name: "reputationVersion", in: "query", required: false, schema: { type: "string", enum: ["v1", "v2"] } },
+            { name: "reputationWindow", in: "query", required: false, schema: { type: "string", enum: ["7d", "30d", "allTime"] } },
+            { name: "asOf", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+            { name: "counterpartyAgentId", in: "query", required: false, schema: { type: "string" } },
+            { name: "visibility", in: "query", required: false, schema: { type: "string", enum: ["all", "private", "public_summary"] } },
+            { name: "sign", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "signerKeyId", in: "query", required: false, schema: { type: "string" } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      graphPack: VerifiedInteractionGraphPackV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/public/agents/{agentId}/reputation-summary": {
+        get: {
+          summary: "Get public coarse reputation summary for an opted-in public agent",
+          parameters: [
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agentId", in: "path", required: true, schema: { type: "string" } },
+            { name: "reputationVersion", in: "query", required: false, schema: { type: "string", enum: ["v1", "v2"] } },
+            { name: "reputationWindow", in: "query", required: false, schema: { type: "string", enum: ["7d", "30d", "allTime"] } },
+            { name: "asOf", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+            { name: "includeRelationships", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "relationshipLimit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100 } }
+          ],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      summary: PublicAgentReputationSummaryV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/relationships": {
+        get: {
+          summary: "List pairwise relationship edges for an agent (tenant-scoped)",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "agentId", in: "query", required: true, schema: { type: "string" } },
+            { name: "counterpartyAgentId", in: "query", required: false, schema: { type: "string" } },
+            { name: "reputationWindow", in: "query", required: false, schema: { type: "string", enum: ["7d", "30d", "allTime"] } },
+            { name: "asOf", in: "query", required: false, schema: { type: "string", format: "date-time" } },
+            { name: "visibility", in: "query", required: false, schema: { type: "string", enum: ["all", "private", "public_summary"] } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      agentId: { type: "string" },
+                      reputationWindow: { type: "string", enum: ["7d", "30d", "allTime"] },
+                      asOf: { type: "string", format: "date-time" },
+                      total: { type: "integer" },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" },
+                      relationships: { type: "array", items: RelationshipEdgeV1 }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            501: { description: "Not Implemented", content: { "application/json": { schema: ErrorResponse } } }
           }
         }
       },
