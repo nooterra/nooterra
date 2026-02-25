@@ -7,6 +7,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 ## [Unreleased]
 
 ### Added
+- ACS collaboration substrate primitives for host-agnostic inter-agent coordination: `Session.v1` + `SessionEvent.v1` (hash-chained timelines with deterministic provenance/taint propagation), `SessionReplayPack.v1` + `SessionTranscript.v1` exports (fail-closed on tamper/mismatch), `AuthorityGrant.v1` enforcement roots for paid/high-risk actions, task negotiation objects (`TaskQuote|TaskOffer|TaskAcceptance`), and signed interaction graph exports (`VerifiedInteractionGraphPack.v1`).
 - `settld doctor` command (`scripts/doctor/mcp-host.mjs`) for one-command MCP host compatibility validation with clear `PASS|FAIL` output and report path.
 - MCP host config certification matrix smoke (`scripts/ci/run-mcp-host-cert-matrix.mjs`, `npm run test:ci:mcp-host-cert-matrix`) covering Codex, Claude, Cursor, and OpenClaw write/idempotency behavior.
 - Policy packs v1 CLI: `settld policy init|simulate|publish` with deterministic JSON/text outputs and local publication artifacts.
