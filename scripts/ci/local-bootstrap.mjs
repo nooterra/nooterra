@@ -159,6 +159,9 @@ export async function bootstrapLocalGateEnv(options = {}) {
   const enabled = Boolean(options.enabled);
   const logger = typeof options.logger === "function" ? options.logger : () => {};
   const env = options.env ?? process.env;
+  const allowBootstrapLocalInCi =
+    String(env.SETTLD_CI_ALLOW_BOOTSTRAP_LOCAL ?? "").trim() === "1" ||
+    String(env.SETTLD_CI_ALLOW_BOOTSTRAP_LOCAL ?? "").trim().toLowerCase() === "true";
 
   if (!enabled) {
     return {
@@ -168,8 +171,10 @@ export async function bootstrapLocalGateEnv(options = {}) {
     };
   }
 
-  if (isCiEnvironment(env)) {
-    throw new Error("--bootstrap-local is disabled in CI; provide explicit SETTLD_* env for fail-closed reproducibility");
+  if (isCiEnvironment(env) && !allowBootstrapLocalInCi) {
+    throw new Error(
+      "--bootstrap-local is disabled in CI by default; set SETTLD_CI_ALLOW_BOOTSTRAP_LOCAL=1 to opt in, or provide explicit SETTLD_* env"
+    );
   }
 
   const baseUrl = assertLoopbackHttpBaseUrl(options.baseUrl ?? env.SETTLD_BASE_URL ?? "http://127.0.0.1:3000");
