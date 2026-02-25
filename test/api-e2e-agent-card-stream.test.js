@@ -79,7 +79,8 @@ function createSseFrameReader(reader, decoder) {
             frame.dataLines.push(line.slice("data:".length).trimStart());
           }
         }
-        return frame;
+        if (frame.event || frame.id || frame.dataLines.length > 0) return frame;
+        continue;
       }
 
       const remaining = Math.max(1, deadline - Date.now());
@@ -93,6 +94,30 @@ function createSseFrameReader(reader, decoder) {
 
     throw new Error("timed out waiting for SSE frame");
   };
+}
+
+async function nextSseFrameWithWatchdog(nextFrame, { timeoutMs = 8_000, onTimeout = null } = {}) {
+  const watchdogMs = Math.max(timeoutMs + 1_000, timeoutMs);
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      try {
+        if (typeof onTimeout === "function") onTimeout();
+      } catch {
+        // best effort watchdog cleanup
+      }
+      reject(new Error(`timed out waiting for SSE frame (watchdog ${watchdogMs}ms)`));
+    }, watchdogMs);
+    nextFrame({ timeoutMs }).then(
+      (frame) => {
+        clearTimeout(timer);
+        resolve(frame);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
 }
 
 test("API e2e: /public/agent-cards/stream supports ready + Last-Event-ID resume", async (t) => {
@@ -125,14 +150,14 @@ test("API e2e: /public/agent-cards/stream supports ready + Last-Event-ID resume"
   const decoderA = new TextDecoder();
   const nextFrameA = createSseFrameReader(readerA, decoderA);
 
-  const readyA = await nextFrameA({ timeoutMs: 8_000 });
+  const readyA = await nextSseFrameWithWatchdog(nextFrameA, { timeoutMs: 8_000, onTimeout: () => controllerA.abort() });
   assert.equal(readyA.event, "agent_cards.ready");
   const readyPayloadA = JSON.parse(readyA.dataLines.join("\n"));
   assert.equal(readyPayloadA.ok, true);
   assert.equal(readyPayloadA.scope, "public");
   assert.equal(readyPayloadA.sinceCursor, null);
 
-  const upsertEventA = await nextFrameA({ timeoutMs: 8_000 });
+  const upsertEventA = await nextSseFrameWithWatchdog(nextFrameA, { timeoutMs: 8_000, onTimeout: () => controllerA.abort() });
   assert.equal(upsertEventA.event, "agent_card.upsert");
   assert.ok(typeof upsertEventA.id === "string" && upsertEventA.id.length > 0);
   const upsertPayloadA = JSON.parse(upsertEventA.dataLines.join("\n"));
@@ -156,14 +181,14 @@ test("API e2e: /public/agent-cards/stream supports ready + Last-Event-ID resume"
   const decoderB = new TextDecoder();
   const nextFrameB = createSseFrameReader(readerB, decoderB);
 
-  const readyB = await nextFrameB({ timeoutMs: 8_000 });
+  const readyB = await nextSseFrameWithWatchdog(nextFrameB, { timeoutMs: 8_000, onTimeout: () => controllerB.abort() });
   assert.equal(readyB.event, "agent_cards.ready");
   const readyPayloadB = JSON.parse(readyB.dataLines.join("\n"));
   assert.equal(readyPayloadB.sinceCursor, upsertEventA.id);
 
   await upsertPublicAgentCard(api, { agentId: workerId, keySuffix: "v2", description: "travel worker v2" });
 
-  const upsertEventB = await nextFrameB({ timeoutMs: 8_000 });
+  const upsertEventB = await nextSseFrameWithWatchdog(nextFrameB, { timeoutMs: 8_000, onTimeout: () => controllerB.abort() });
   assert.equal(upsertEventB.event, "agent_card.upsert");
   assert.ok(typeof upsertEventB.id === "string" && upsertEventB.id.length > 0);
   assert.notEqual(upsertEventB.id, upsertEventA.id);
@@ -187,4 +212,138 @@ test("API e2e: /public/agent-cards/stream fails closed on invalid cursor", async
   const body = await res.json();
   assert.equal(res.status, 400);
   assert.equal(body.code, "SCHEMA_INVALID");
+});
+
+test("API e2e: /public/agent-cards/stream emits agent_card.removed when visibility changes out of scope", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const workerId = "agt_public_stream_worker_removed_1";
+
+  await registerAgent(api, { agentId: workerId, capabilities: ["travel.booking"] });
+  await upsertPublicAgentCard(api, { agentId: workerId, keySuffix: "removed_v1", description: "stream removed v1" });
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const streamUrl =
+    `http://127.0.0.1:${port}/public/agent-cards/stream` +
+    "?capability=travel.booking&status=active&runtime=openclaw&toolId=travel.book_flight&toolSideEffecting=true";
+
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const stream = await fetch(streamUrl, { signal: controller.signal });
+  assert.equal(stream.status, 200);
+  assert.ok(stream.body);
+  const nextFrame = createSseFrameReader(stream.body.getReader(), new TextDecoder());
+
+  const ready = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+  assert.equal(ready.event, "agent_cards.ready");
+  const firstUpsert = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+  assert.equal(firstUpsert.event, "agent_card.upsert");
+
+  const privateUpdate = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "stream_removed_private_1" },
+    body: {
+      agentId: workerId,
+      displayName: `Card ${workerId}`,
+      description: "stream removed private",
+      capabilities: ["travel.booking"],
+      visibility: "private",
+      host: { runtime: "openclaw", endpoint: `https://example.test/${workerId}`, protocols: ["mcp"] },
+      tools: [
+        {
+          schemaVersion: "ToolDescriptor.v1",
+          toolId: "travel.book_flight",
+          mcpToolName: "travel_book_flight",
+          riskClass: "action",
+          sideEffecting: true,
+          pricing: { amountCents: 500, currency: "USD", unit: "booking" },
+          requiresEvidenceKinds: ["artifact", "hash"]
+        }
+      ]
+    }
+  });
+  assert.ok(privateUpdate.statusCode === 200 || privateUpdate.statusCode === 201, privateUpdate.body);
+
+  const removed = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+  assert.equal(removed.event, "agent_card.removed");
+  assert.ok(typeof removed.id === "string" && removed.id.length > 0);
+  const removedPayload = JSON.parse(removed.dataLines.join("\n"));
+  assert.equal(removedPayload.schemaVersion, "AgentCardStreamEvent.v1");
+  assert.equal(removedPayload.type, "AGENT_CARD_REMOVED");
+  assert.equal(removedPayload.agentId, workerId);
+  assert.equal(removedPayload.reasonCode, "NO_LONGER_VISIBLE");
+  controller.abort();
+});
+
+test("API e2e: /public/agent-cards/stream ordering is deterministic for equal timestamps (memory store)", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const agentA = "agt_public_stream_order_a";
+  const agentB = "agt_public_stream_order_b";
+  await registerAgent(api, { agentId: agentA, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: agentB, capabilities: ["travel.booking"] });
+  await upsertPublicAgentCard(api, { agentId: agentA, keySuffix: "order_v1", description: "order-a-v1" });
+  await upsertPublicAgentCard(api, { agentId: agentB, keySuffix: "order_v1", description: "order-b-v1" });
+
+  const fixedUpdatedAt = "2026-03-01T00:00:00.000Z";
+  const cardA = await api.store.getAgentCard({ tenantId: "tenant_default", agentId: agentA });
+  const cardB = await api.store.getAgentCard({ tenantId: "tenant_default", agentId: agentB });
+  assert.ok(cardA && cardB);
+  await api.store.commitTx({
+    at: fixedUpdatedAt,
+    ops: [
+      {
+        kind: "AGENT_CARD_UPSERT",
+        tenantId: "tenant_default",
+        agentId: agentA,
+        agentCard: {
+          ...cardA,
+          updatedAt: fixedUpdatedAt,
+          revision: Number(cardA.revision ?? 0) + 1
+        }
+      },
+      {
+        kind: "AGENT_CARD_UPSERT",
+        tenantId: "tenant_default",
+        agentId: agentB,
+        agentCard: {
+          ...cardB,
+          updatedAt: fixedUpdatedAt,
+          revision: Number(cardB.revision ?? 0) + 1
+        }
+      }
+    ]
+  });
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const streamUrl =
+    `http://127.0.0.1:${port}/public/agent-cards/stream` +
+    "?capability=travel.booking&status=active&runtime=openclaw&toolId=travel.book_flight&toolSideEffecting=true";
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const stream = await fetch(streamUrl, { signal: controller.signal });
+  assert.equal(stream.status, 200);
+  assert.ok(stream.body);
+  const nextFrame = createSseFrameReader(stream.body.getReader(), new TextDecoder());
+  const ready = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+  assert.equal(ready.event, "agent_cards.ready");
+  const first = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+  const second = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+  assert.equal(first.event, "agent_card.upsert");
+  assert.equal(second.event, "agent_card.upsert");
+  const firstPayload = JSON.parse(first.dataLines.join("\n"));
+  const secondPayload = JSON.parse(second.dataLines.join("\n"));
+  assert.equal(firstPayload.updatedAt, fixedUpdatedAt);
+  assert.equal(secondPayload.updatedAt, fixedUpdatedAt);
+  assert.deepEqual([firstPayload.agentId, secondPayload.agentId], [agentA, agentB]);
+  controller.abort();
 });

@@ -46,6 +46,7 @@ Runtime status: implemented.
 - `GET /agent-cards`
 - `GET /agent-cards/discover`
 - `GET /public/agent-cards/discover`
+- `GET /public/agent-cards/stream`
 
 ## Public discovery rules
 
@@ -60,6 +61,7 @@ Runtime status: implemented.
   - `toolMaxPriceCents`
   - `toolRequiresEvidenceKind`
 - Invalid discovery query filters fail closed with `SCHEMA_INVALID`.
+- Public stream updates use `AgentCardStreamEvent.v1` (`agent_card.upsert`, `agent_card.removed`).
 
 ## Public publish anti-abuse controls
 

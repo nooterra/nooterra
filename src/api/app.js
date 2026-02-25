@@ -8065,6 +8065,45 @@ export function createApi({
     return String(left?.agentId ?? "").localeCompare(String(right?.agentId ?? ""));
   }
 
+  function buildNextAgentCardStreamCursorAfter({
+    lastCursor = null,
+    tenantId,
+    agentId,
+    at = null
+  } = {}) {
+    const normalizedTenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    const normalizedAgentId = typeof agentId === "string" && agentId.trim() !== "" ? agentId.trim() : null;
+    if (!normalizedAgentId) throw new TypeError("agentId is required");
+    const baseAt = typeof at === "string" && Number.isFinite(Date.parse(at)) ? at : nowIso();
+    let candidateMs = Number(Date.parse(baseAt));
+    if (!Number.isFinite(candidateMs)) candidateMs = Date.now();
+    const lastCursorMs = Number(Date.parse(String(lastCursor?.updatedAt ?? "")));
+    if (Number.isFinite(lastCursorMs) && candidateMs < lastCursorMs) candidateMs = lastCursorMs;
+    let candidateUpdatedAt = new Date(candidateMs).toISOString();
+    let candidate = {
+      updatedAt: candidateUpdatedAt,
+      tenantId: normalizedTenantId,
+      agentId: normalizedAgentId
+    };
+    if (lastCursor && compareAgentCardStreamCursor(candidate, lastCursor) <= 0) {
+      const nextMs = Number.isFinite(lastCursorMs) ? lastCursorMs + 1 : candidateMs + 1;
+      candidateUpdatedAt = new Date(nextMs).toISOString();
+      candidate = {
+        updatedAt: candidateUpdatedAt,
+        tenantId: normalizedTenantId,
+        agentId: normalizedAgentId
+      };
+    }
+    return {
+      ...candidate,
+      raw: buildAgentCardStreamCursor({
+        updatedAt: candidateUpdatedAt,
+        tenantId: normalizedTenantId,
+        agentId: normalizedAgentId
+      })
+    };
+  }
+
   const TRUST_ROUTING_FACTORS_SCHEMA_VERSION = "TrustRoutingFactors.v1";
   const RELATIONSHIP_EDGE_SCHEMA_VERSION = "RelationshipEdge.v1";
   const INTERACTION_GRAPH_SUMMARY_SCHEMA_VERSION = "InteractionGraphSummary.v1";
@@ -25756,6 +25795,8 @@ export function createApi({
     if (m === "GET" && p === "/metrics") return "/metrics";
     if (m === "GET" && p === "/capabilities") return "/capabilities";
     if (m === "GET" && p === "/openapi.json") return "/openapi.json";
+    if (m === "GET" && p === "/public/agent-cards/discover") return "/public/agent-cards/discover";
+    if (m === "GET" && p === "/public/agent-cards/stream") return "/public/agent-cards/stream";
     if (/^\/public\/agents\/[^/]+\/reputation-summary$/.test(p)) return "/public/agents/:agentId/reputation-summary";
     if (/^\/agents\/[^/]+\/interaction-graph-pack$/.test(p)) return "/agents/:agentId/interaction-graph-pack";
     if (m === "POST" && p === "/ingest/proxy") return "/ingest/proxy";
@@ -46580,6 +46621,7 @@ export function createApi({
         let pollTimer = null;
         let heartbeatTimer = null;
         let lastCursor = sinceCursor;
+        let visibleRowsByScopedKey = null;
 
         const closeStream = () => {
           if (closed) return;
@@ -46625,6 +46667,56 @@ export function createApi({
           }
         };
 
+        const emitRemovedRows = ({ previousVisibleByScopedKey, currentVisibleByScopedKey, at } = {}) => {
+          if (!(previousVisibleByScopedKey instanceof Map) || previousVisibleByScopedKey.size === 0) return;
+          if (!(currentVisibleByScopedKey instanceof Map)) return;
+          const removedRows = [];
+          for (const [scopedKey, previousRow] of previousVisibleByScopedKey.entries()) {
+            if (currentVisibleByScopedKey.has(scopedKey)) continue;
+            const tenantId =
+              typeof previousRow?.tenantId === "string" && previousRow.tenantId.trim() !== ""
+                ? previousRow.tenantId.trim()
+                : normalizeTenantId(DEFAULT_TENANT_ID);
+            const agentId = typeof previousRow?.agentId === "string" && previousRow.agentId.trim() !== "" ? previousRow.agentId.trim() : null;
+            if (!agentId) continue;
+            removedRows.push({
+              tenantId,
+              agentId
+            });
+          }
+          removedRows.sort((left, right) => {
+            const tenantOrder = String(left.tenantId ?? "").localeCompare(String(right.tenantId ?? ""));
+            if (tenantOrder !== 0) return tenantOrder;
+            return String(left.agentId ?? "").localeCompare(String(right.agentId ?? ""));
+          });
+          for (const removedRow of removedRows) {
+            const nextCursor = buildNextAgentCardStreamCursorAfter({
+              lastCursor,
+              tenantId: removedRow.tenantId,
+              agentId: removedRow.agentId,
+              at
+            });
+            writeSseEvent({
+              eventName: "agent_card.removed",
+              eventId: nextCursor.raw,
+              data: normalizeForCanonicalJson(
+                {
+                  schemaVersion: AGENT_CARD_STREAM_EVENT_SCHEMA_VERSION,
+                  type: "AGENT_CARD_REMOVED",
+                  scope: "public",
+                  cursor: nextCursor.raw,
+                  removedAt: nextCursor.updatedAt,
+                  tenantId: removedRow.tenantId,
+                  agentId: removedRow.agentId,
+                  reasonCode: "NO_LONGER_VISIBLE"
+                },
+                { path: "$.event" }
+              )
+            });
+            lastCursor = nextCursor;
+          }
+        };
+
         const schedulePoll = (delayMs = 300) => {
           if (closed) return;
           pollTimer = setTimeout(() => {
@@ -46635,6 +46727,7 @@ export function createApi({
         const pollAndFlush = async () => {
           if (closed) return;
           let rows = [];
+          const pollAt = nowIso();
           try {
             rows = await listPublicAgentCardsForStream(query);
           } catch (err) {
@@ -46648,7 +46741,26 @@ export function createApi({
             });
             return closeStream();
           }
+          const currentVisibleByScopedKey = new Map();
+          for (const row of rows) {
+            if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+            const tenantId = normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID);
+            const agentId = typeof row.agentId === "string" && row.agentId.trim() !== "" ? row.agentId.trim() : null;
+            if (!agentId) continue;
+            currentVisibleByScopedKey.set(makeScopedKey({ tenantId, id: agentId }), {
+              tenantId,
+              agentId
+            });
+          }
           emitRows(rows);
+          if (visibleRowsByScopedKey instanceof Map) {
+            emitRemovedRows({
+              previousVisibleByScopedKey: visibleRowsByScopedKey,
+              currentVisibleByScopedKey,
+              at: pollAt
+            });
+          }
+          visibleRowsByScopedKey = currentVisibleByScopedKey;
           schedulePoll(300);
         };
 
