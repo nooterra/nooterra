@@ -23174,6 +23174,13 @@ export function createApi({
       if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
         throw new TypeError(`${path}.signerKeyId does not match principal agent key`);
       }
+      await assertAcceptanceSignatureSignerLifecycle({
+        tenantId,
+        signerKeyId,
+        signedAt: signedAtIso,
+        fieldPath: path,
+        errorCode: "ACCEPTANCE_SIGNATURE_DELEGATION_SIGNER_KEY_INVALID"
+      });
       const publicKeyPem = await loadSignerPublicKeyPem({ tenantId, signerKeyId });
       const isValidSignature = verifyHashHexEd25519({
         hashHex: providedDelegationHash,
@@ -23351,6 +23358,13 @@ export function createApi({
     if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
       throw new TypeError("acceptanceSignature.signerKeyId does not match signer agent key");
     }
+    await assertAcceptanceSignatureSignerLifecycle({
+      tenantId,
+      signerKeyId,
+      signedAt,
+      fieldPath: "acceptanceSignature",
+      errorCode: "ACCEPTANCE_SIGNATURE_SIGNER_KEY_INVALID"
+    });
 
     const core = buildMarketplaceAgreementAcceptanceSignatureCore({ agreement, actingOnBehalfOf });
     const expectedSignerAgentId = actingOnBehalfOf?.delegateAgentId ?? core.acceptedByAgentId;
@@ -23395,6 +23409,56 @@ export function createApi({
       }
     }
     throw new TypeError("unknown signerKeyId");
+  }
+
+  function buildAcceptanceSignatureSignerLifecycleDetails({ signerKeyId, signedAt, lifecycle } = {}) {
+    const normalizedSignerKeyId = typeof signerKeyId === "string" && signerKeyId.trim() !== "" ? signerKeyId.trim() : null;
+    const normalizedSignedAt = typeof signedAt === "string" && signedAt.trim() !== "" ? signedAt.trim() : null;
+    return {
+      signerKeyId: normalizedSignerKeyId,
+      signedAt: normalizedSignedAt,
+      reasonCode: lifecycle?.reasonCode ?? "SIGNER_KEY_INVALID",
+      reason: lifecycle?.message ?? "signer key lifecycle verification failed",
+      signerStatus: lifecycle?.signerStatus ?? null,
+      validFrom: lifecycle?.validFrom ?? null,
+      validTo: lifecycle?.validTo ?? null,
+      revokedAt: lifecycle?.revokedAt ?? null
+    };
+  }
+
+  async function evaluateAcceptanceSignatureSignerLifecycle({ tenantId, signerKeyId, signedAt } = {}) {
+    const at = typeof signedAt === "string" && signedAt.trim() !== "" ? signedAt.trim() : nowIso();
+    const lifecycle = await evaluateSessionSignerKeyLifecycle({
+      tenantId,
+      signerKeyId,
+      at,
+      requireRegistered: false
+    });
+    if (lifecycle.ok) return { ok: true, at, details: null };
+    return {
+      ok: false,
+      at,
+      details: buildAcceptanceSignatureSignerLifecycleDetails({ signerKeyId, signedAt: at, lifecycle })
+    };
+  }
+
+  async function assertAcceptanceSignatureSignerLifecycle({
+    tenantId,
+    signerKeyId,
+    signedAt,
+    fieldPath = "acceptanceSignature",
+    errorCode = "ACCEPTANCE_SIGNATURE_SIGNER_KEY_INVALID"
+  } = {}) {
+    const lifecycle = await evaluateAcceptanceSignatureSignerLifecycle({ tenantId, signerKeyId, signedAt });
+    if (lifecycle.ok) return;
+    const reasonCode = lifecycle.details?.reasonCode ?? "SIGNER_KEY_INVALID";
+    const err = new TypeError(`${fieldPath}.signerKeyId blocked: ${reasonCode}`);
+    err.code = errorCode;
+    err.details = {
+      fieldPath,
+      ...(lifecycle.details ?? {})
+    };
+    throw err;
   }
 
   async function parseSignedDisputeVerdict({
@@ -24355,6 +24419,18 @@ export function createApi({
         enforceActiveAgents: false
       });
     } catch (err) {
+      if (err?.code === "ACCEPTANCE_SIGNATURE_DELEGATION_SIGNER_KEY_INVALID") {
+        const details =
+          err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : {};
+        return {
+          present: true,
+          valid: false,
+          signerAgentId,
+          ...details,
+          reason: "acceptance_signature_delegation_signer_key_invalid",
+          message: err?.message ?? "delegation signer key lifecycle verification failed"
+        };
+      }
       return {
         present: true,
         valid: false,
@@ -24472,6 +24548,22 @@ export function createApi({
         signerAgentId,
         signerKeyId,
         expectedAgentKeyId
+      };
+    }
+    const signerLifecycle = await evaluateAcceptanceSignatureSignerLifecycle({
+      tenantId,
+      signerKeyId,
+      signedAt
+    });
+    if (!signerLifecycle.ok) {
+      return {
+        present: true,
+        valid: false,
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        ...(signerLifecycle.details ?? {}),
+        reason: "acceptance_signature_signer_key_invalid"
       };
     }
     let publicKeyPem = null;
@@ -24630,6 +24722,13 @@ export function createApi({
     if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
       throw new TypeError("acceptanceSignature.signerKeyId does not match signer agent key");
     }
+    await assertAcceptanceSignatureSignerLifecycle({
+      tenantId,
+      signerKeyId,
+      signedAt,
+      fieldPath: "acceptanceSignature",
+      errorCode: "ACCEPTANCE_SIGNATURE_SIGNER_KEY_INVALID"
+    });
 
     const core = buildMarketplaceAgreementChangeOrderAcceptanceSignatureCore({
       tenantId,
@@ -24712,6 +24811,18 @@ export function createApi({
         enforceActiveAgents: false
       });
     } catch (err) {
+      if (err?.code === "ACCEPTANCE_SIGNATURE_DELEGATION_SIGNER_KEY_INVALID") {
+        const details =
+          err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : {};
+        return {
+          present: true,
+          valid: false,
+          signerAgentId,
+          ...details,
+          reason: "acceptance_signature_delegation_signer_key_invalid",
+          message: err?.message ?? "delegation signer key lifecycle verification failed"
+        };
+      }
       return {
         present: true,
         valid: false,
@@ -24798,6 +24909,22 @@ export function createApi({
         signerAgentId,
         signerKeyId,
         expectedAgentKeyId
+      };
+    }
+    const signerLifecycle = await evaluateAcceptanceSignatureSignerLifecycle({
+      tenantId,
+      signerKeyId,
+      signedAt
+    });
+    if (!signerLifecycle.ok) {
+      return {
+        present: true,
+        valid: false,
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        ...(signerLifecycle.details ?? {}),
+        reason: "acceptance_signature_signer_key_invalid"
       };
     }
     let publicKeyPem = null;
@@ -24935,6 +25062,13 @@ export function createApi({
     if (expectedAgentKeyId && signerKeyId !== expectedAgentKeyId) {
       throw new TypeError("acceptanceSignature.signerKeyId does not match signer agent key");
     }
+    await assertAcceptanceSignatureSignerLifecycle({
+      tenantId,
+      signerKeyId,
+      signedAt,
+      fieldPath: "acceptanceSignature",
+      errorCode: "ACCEPTANCE_SIGNATURE_SIGNER_KEY_INVALID"
+    });
 
     const core = buildMarketplaceAgreementCancellationAcceptanceSignatureCore({
       tenantId,
@@ -25013,6 +25147,18 @@ export function createApi({
         enforceActiveAgents: false
       });
     } catch (err) {
+      if (err?.code === "ACCEPTANCE_SIGNATURE_DELEGATION_SIGNER_KEY_INVALID") {
+        const details =
+          err?.details && typeof err.details === "object" && !Array.isArray(err.details) ? err.details : {};
+        return {
+          present: true,
+          valid: false,
+          signerAgentId,
+          ...details,
+          reason: "acceptance_signature_delegation_signer_key_invalid",
+          message: err?.message ?? "delegation signer key lifecycle verification failed"
+        };
+      }
       return {
         present: true,
         valid: false,
@@ -25097,6 +25243,22 @@ export function createApi({
         signerAgentId,
         signerKeyId,
         expectedAgentKeyId
+      };
+    }
+    const signerLifecycle = await evaluateAcceptanceSignatureSignerLifecycle({
+      tenantId,
+      signerKeyId,
+      signedAt
+    });
+    if (!signerLifecycle.ok) {
+      return {
+        present: true,
+        valid: false,
+        expectedHash,
+        acceptanceHash,
+        signerAgentId,
+        ...(signerLifecycle.details ?? {}),
+        reason: "acceptance_signature_signer_key_invalid"
       };
     }
     let publicKeyPem = null;
@@ -42007,7 +42169,11 @@ export function createApi({
                 acceptanceSignature
               };
             } catch (err) {
-              return sendError(res, 400, "invalid acceptance signature", { message: err?.message });
+              const details =
+                err?.details && typeof err.details === "object" && !Array.isArray(err.details)
+                  ? { ...err.details, message: err?.message }
+                  : { message: err?.message };
+              return sendError(res, 400, "invalid acceptance signature", details, { code: err?.code ?? null });
             }
           }
           let settlement = createAgentRunSettlement({
@@ -55263,7 +55429,11 @@ export function createApi({
               { path: "$" }
             );
           } catch (err) {
-            return sendError(res, 400, "invalid acceptance signature", { message: err?.message });
+            const details =
+              err?.details && typeof err.details === "object" && !Array.isArray(err.details)
+                ? { ...err.details, message: err?.message }
+                : { message: err?.message };
+            return sendError(res, 400, "invalid acceptance signature", details, { code: err?.code ?? null });
           }
         }
         const nextTerms = normalizeForCanonicalJson(
@@ -55714,7 +55884,11 @@ export function createApi({
               { path: "$" }
             );
           } catch (err) {
-            return sendError(res, 400, "invalid acceptance signature", { message: err?.message });
+            const details =
+              err?.details && typeof err.details === "object" && !Array.isArray(err.details)
+                ? { ...err.details, message: err?.message }
+                : { message: err?.message };
+            return sendError(res, 400, "invalid acceptance signature", details, { code: err?.code ?? null });
           }
         }
         const acceptanceSignatureVerification = await verifyMarketplaceAgreementCancellationAcceptanceSignature({
