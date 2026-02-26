@@ -294,6 +294,39 @@ test("launch cutover packet: fail-closed when Settld Verified collaboration gate
   assert.equal(missingVerified.details?.code, "file_missing");
 });
 
+test("launch cutover packet: fail-closed when mapped required cutover source check is missing", async (t) => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-missing-mapped-check-"));
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const paths = await seedPassingInputs(tmpDir);
+  const packetPath = path.join(tmpDir, "artifacts", "gates", "s13-launch-cutover-packet.json");
+  await writeJson(paths.settldVerifiedCollabReportPath, {
+    schemaVersion: "SettldVerifiedGateReport.v1",
+    level: "collaboration",
+    ok: true,
+    summary: { totalChecks: 9, passedChecks: 9, failedChecks: 0 },
+    checks: [
+      { id: "openclaw_substrate_demo_lineage_verified", ok: true, status: "passed" },
+      { id: "openclaw_substrate_demo_transcript_verified", ok: true, status: "passed" },
+      { id: "e2e_js_sdk_acs_substrate_smoke", ok: true, status: "passed" }
+    ]
+  });
+
+  const result = runLaunchCutoverPacket(buildEnv(paths, packetPath));
+  assert.equal(result.status, 1, `expected fail-closed exit\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+
+  const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
+  assert.equal(packet.verdict?.ok, false);
+  const missingMappedCheck = Array.isArray(packet.blockingIssues)
+    ? packet.blockingIssues.find((row) => row?.checkId === "required_cutover_check_sdk_acs_smoke_py_verified_passed")
+    : null;
+  assert.ok(missingMappedCheck);
+  assert.equal(missingMappedCheck.details?.failureCode, "source_check_missing");
+  assert.equal(packet.requiredCutoverChecks?.summary?.failedChecks, 1);
+});
+
 test("launch cutover packet: fail-closed when required source verdict is failed", async (t) => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-source-fail-"));
   t.after(async () => {
