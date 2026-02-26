@@ -1,14 +1,16 @@
-# Settld API SDK (Python)
+# Nooterra API SDK (Python)
 
-Python client for Settld API endpoints, including high-level helpers:
+Python client for Nooterra API endpoints, including high-level helpers:
 - core ACS object APIs:
   - `upsert_agent_card` / `list_agent_cards` / `get_agent_card`
-  - `discover_agent_cards` / `discover_public_agent_cards`
+  - `discover_agent_cards` / `discover_public_agent_cards` / `stream_public_agent_cards`
+  - `get_public_agent_reputation_summary` / `get_agent_interaction_graph_pack` / `list_relationships`
   - `issue_delegation_grant` / `list_delegation_grants` / `get_delegation_grant` / `revoke_delegation_grant`
   - `issue_authority_grant` / `list_authority_grants` / `get_authority_grant` / `revoke_authority_grant`
   - `create_task_quote|offer|acceptance` + `list/get` variants
-  - `create_work_order` + `list/get` + `accept|progress|complete|settle` + receipt APIs
-  - `create_session` / `append_session_event` / `get_session_replay_pack` / `get_session_transcript`
+  - `create_work_order` + `list/get` + `accept|progress|top_up|get_work_order_metering|complete|settle` + receipt APIs
+  - `create_state_checkpoint` / `list_state_checkpoints` / `get_state_checkpoint`
+  - `create_session` / `list_sessions` / `get_session` / `list_session_events` / `append_session_event` / `stream_session_events` / `get_session_replay_pack` / `get_session_transcript`
   - `create_capability_attestation` / `list/get/revoke_capability_attestation`
 - `first_verified_run` (register agents, run work, verify, settle)
 - `first_paid_rfq` (rfq -> bid -> accept -> run -> settlement)

@@ -6,7 +6,7 @@ import random
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 from urllib import error, parse, request
 
 
@@ -96,7 +96,16 @@ def _normalize_prefix(value: Optional[str], fallback: str) -> str:
     return fallback
 
 
-class SettldApiError(Exception):
+def _decode_sse_data(raw_data: str) -> Any:
+    if raw_data == "null":
+        return None
+    try:
+        return json.loads(raw_data)
+    except Exception:
+        return raw_data
+
+
+class NooterraApiError(Exception):
     def __init__(
         self,
         *,
@@ -122,7 +131,7 @@ class SettldApiError(Exception):
         }
 
 
-class SettldClient:
+class NooterraClient:
     def __init__(
         self,
         *,
@@ -180,7 +189,7 @@ class SettldClient:
         headers = {
             "content-type": "application/json",
             "x-proxy-tenant-id": self.tenant_id,
-            "x-settld-protocol": self.protocol,
+            "x-nooterra-protocol": self.protocol,
             "x-request-id": rid,
         }
         if self.user_agent:
@@ -226,7 +235,7 @@ class SettldClient:
                 except json.JSONDecodeError:
                     parsed = {"raw": raw}
             response_headers = {str(k).lower(): str(v) for k, v in http_error.headers.items()}
-            raise SettldApiError(
+            raise NooterraApiError(
                 status=int(http_error.code),
                 code=parsed.get("code") if isinstance(parsed, dict) else None,
                 message=parsed.get("error", f"request failed ({http_error.code})") if isinstance(parsed, dict) else f"request failed ({http_error.code})",
@@ -315,7 +324,10 @@ class SettldClient:
         return self._request("POST", "/agent-cards", body=body, **opts)
 
     def list_agent_cards(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
-        suffix = self._query_suffix(query, allowed_keys=["agentId", "capability", "visibility", "runtime", "status", "limit", "offset"])
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=["agentId", "capability", "visibility", "executionCoordinatorDid", "runtime", "status", "limit", "offset"],
+        )
         return self._request("GET", f"/agent-cards{suffix}", **opts)
 
     def get_agent_card(self, agent_id: str, **opts: Any) -> Dict[str, Any]:
@@ -334,6 +346,7 @@ class SettldClient:
                 "toolMaxPriceCents",
                 "toolRequiresEvidenceKind",
                 "visibility",
+                "executionCoordinatorDid",
                 "runtime",
                 "status",
                 "requireCapabilityAttestation",
@@ -366,6 +379,7 @@ class SettldClient:
                 "toolMaxPriceCents",
                 "toolRequiresEvidenceKind",
                 "visibility",
+                "executionCoordinatorDid",
                 "runtime",
                 "status",
                 "requireCapabilityAttestation",
@@ -385,6 +399,189 @@ class SettldClient:
             ],
         )
         return self._request("GET", f"/public/agent-cards/discover{suffix}", **opts)
+
+    def stream_public_agent_cards(
+        self,
+        query: Optional[Dict[str, Any]] = None,
+        *,
+        request_id: Optional[str] = None,
+        last_event_id: Optional[str] = None,
+        timeout_seconds: Optional[float] = None,
+    ) -> Iterator[Dict[str, Any]]:
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=[
+                "capability",
+                "toolId",
+                "toolMcpName",
+                "toolRiskClass",
+                "toolSideEffecting",
+                "toolMaxPriceCents",
+                "toolRequiresEvidenceKind",
+                "status",
+                "executionCoordinatorDid",
+                "runtime",
+                "sinceCursor",
+            ],
+        )
+        rid = request_id if request_id else _random_request_id()
+        headers: Dict[str, str] = {
+            "accept": "text/event-stream",
+            "x-proxy-tenant-id": self.tenant_id,
+            "x-nooterra-protocol": self.protocol,
+            "x-request-id": rid,
+        }
+        if self.user_agent:
+            headers["user-agent"] = self.user_agent
+        if self.api_key:
+            headers["authorization"] = f"Bearer {self.api_key}"
+        if self.x_api_key:
+            headers["x-api-key"] = str(self.x_api_key)
+        if self.ops_token:
+            headers["x-proxy-ops-token"] = str(self.ops_token)
+        if isinstance(last_event_id, str) and last_event_id.strip():
+            headers["last-event-id"] = last_event_id.strip()
+
+        url = parse.urljoin(
+            f"{self.base_url}/",
+            f"public/agent-cards/stream{suffix}".lstrip("/"),
+        )
+        req = request.Request(url=url, data=None, method="GET", headers=headers)
+        timeout = self.timeout_seconds if timeout_seconds is None else timeout_seconds
+
+        try:
+            with request.urlopen(req, timeout=timeout) as response:
+                event_name = "message"
+                event_id: Optional[str] = None
+                data_lines: list[str] = []
+                saw_comment_only_line = False
+                saw_field_line = False
+
+                def emit_event() -> Optional[Dict[str, Any]]:
+                    nonlocal event_name, event_id, data_lines, saw_comment_only_line, saw_field_line
+                    if len(data_lines) == 0:
+                        if saw_comment_only_line or not saw_field_line:
+                            out = None
+                        else:
+                            out = {"event": event_name, "id": event_id, "rawData": "", "data": None}
+                    else:
+                        raw_data = "\n".join(data_lines)
+                        out = {
+                            "event": event_name,
+                            "id": event_id,
+                            "rawData": raw_data,
+                            "data": _decode_sse_data(raw_data),
+                        }
+                    event_name = "message"
+                    event_id = None
+                    data_lines = []
+                    saw_comment_only_line = False
+                    saw_field_line = False
+                    return out
+
+                while True:
+                    chunk = response.readline()
+                    if not chunk:
+                        break
+                    line = chunk.decode("utf-8", errors="replace").rstrip("\r\n")
+                    if line == "":
+                        parsed_event = emit_event()
+                        if parsed_event is not None:
+                            yield parsed_event
+                        continue
+                    if line.startswith(":"):
+                        saw_comment_only_line = True
+                        continue
+                    saw_field_line = True
+                    field, sep, value = line.partition(":")
+                    if sep:
+                        if value.startswith(" "):
+                            value = value[1:]
+                    else:
+                        value = ""
+                    if field == "event":
+                        event_name = value.strip() or "message"
+                    elif field == "id":
+                        event_id = value.strip() or None
+                    elif field == "data":
+                        data_lines.append(value)
+
+                parsed_event = emit_event()
+                if parsed_event is not None:
+                    yield parsed_event
+        except error.HTTPError as http_error:
+            raw = http_error.read().decode("utf-8")
+            parsed: Any = {}
+            if raw:
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    parsed = {"raw": raw}
+            response_headers = {str(k).lower(): str(v) for k, v in http_error.headers.items()}
+            raise NooterraApiError(
+                status=int(http_error.code),
+                code=parsed.get("code") if isinstance(parsed, dict) else None,
+                message=parsed.get("error", f"request failed ({http_error.code})") if isinstance(parsed, dict) else f"request failed ({http_error.code})",
+                details=parsed.get("details") if isinstance(parsed, dict) else None,
+                request_id=response_headers.get("x-request-id"),
+            ) from http_error
+
+    def get_public_agent_reputation_summary(
+        self,
+        agent_id: str,
+        query: Optional[Dict[str, Any]] = None,
+        **opts: Any,
+    ) -> Dict[str, Any]:
+        _assert_non_empty_string(agent_id, "agent_id")
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=[
+                "reputationVersion",
+                "reputationWindow",
+                "asOf",
+                "includeRelationships",
+                "relationshipLimit",
+            ],
+        )
+        return self._request("GET", f"/public/agents/{parse.quote(agent_id, safe='')}/reputation-summary{suffix}", **opts)
+
+    def get_agent_interaction_graph_pack(
+        self,
+        agent_id: str,
+        query: Optional[Dict[str, Any]] = None,
+        **opts: Any,
+    ) -> Dict[str, Any]:
+        _assert_non_empty_string(agent_id, "agent_id")
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=[
+                "reputationVersion",
+                "reputationWindow",
+                "asOf",
+                "counterpartyAgentId",
+                "visibility",
+                "sign",
+                "signerKeyId",
+                "limit",
+                "offset",
+            ],
+        )
+        return self._request("GET", f"/agents/{parse.quote(agent_id, safe='')}/interaction-graph-pack{suffix}", **opts)
+
+    def list_relationships(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=[
+                "agentId",
+                "counterpartyAgentId",
+                "reputationWindow",
+                "asOf",
+                "visibility",
+                "limit",
+                "offset",
+            ],
+        )
+        return self._request("GET", f"/relationships{suffix}", **opts)
 
     def issue_delegation_grant(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
         if not isinstance(body, dict):
@@ -506,6 +703,31 @@ class SettldClient:
             raise ValueError("body is required")
         return self._request("POST", f"/work-orders/{parse.quote(work_order_id, safe='')}/progress", body=body, **opts)
 
+    def top_up_work_order(self, work_order_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(work_order_id, "work_order_id")
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", f"/work-orders/{parse.quote(work_order_id, safe='')}/topup", body=body, **opts)
+
+    def get_work_order_metering(
+        self,
+        work_order_id: str,
+        query: Optional[Dict[str, Any]] = None,
+        **opts: Any,
+    ) -> Dict[str, Any]:
+        _assert_non_empty_string(work_order_id, "work_order_id")
+        params: Dict[str, Any] = {}
+        if isinstance(query, dict):
+            if query.get("includeMeters") is not None:
+                params["includeMeters"] = "true" if bool(query.get("includeMeters")) else "false"
+            if query.get("include_meters") is not None:
+                params["includeMeters"] = "true" if bool(query.get("include_meters")) else "false"
+            for key in ("limit", "offset"):
+                if query.get(key) is not None:
+                    params[key] = query.get(key)
+        suffix = f"?{parse.urlencode(params)}" if params else ""
+        return self._request("GET", f"/work-orders/{parse.quote(work_order_id, safe='')}/metering{suffix}", **opts)
+
     def complete_work_order(self, work_order_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
         _assert_non_empty_string(work_order_id, "work_order_id")
         if not isinstance(body, dict):
@@ -527,6 +749,37 @@ class SettldClient:
         _assert_non_empty_string(receipt_id, "receipt_id")
         return self._request("GET", f"/work-orders/receipts/{parse.quote(receipt_id, safe='')}", **opts)
 
+    def create_state_checkpoint(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        _assert_non_empty_string(body.get("ownerAgentId"), "body.ownerAgentId")
+        state_ref = body.get("stateRef")
+        if not isinstance(state_ref, dict):
+            raise ValueError("body.stateRef is required")
+        _assert_non_empty_string(state_ref.get("artifactId"), "body.stateRef.artifactId")
+        _assert_sha256_hex(state_ref.get("artifactHash"), "body.stateRef.artifactHash")
+        diff_refs = body.get("diffRefs")
+        if diff_refs is not None:
+            if not isinstance(diff_refs, list):
+                raise ValueError("body.diffRefs must be an array")
+            for index, ref in enumerate(diff_refs):
+                if not isinstance(ref, dict):
+                    raise ValueError(f"body.diffRefs[{index}] must be an object")
+                _assert_non_empty_string(ref.get("artifactId"), f"body.diffRefs[{index}].artifactId")
+                _assert_sha256_hex(ref.get("artifactHash"), f"body.diffRefs[{index}].artifactHash")
+        return self._request("POST", "/state-checkpoints", body=body, **opts)
+
+    def list_state_checkpoints(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=["checkpointId", "projectId", "sessionId", "ownerAgentId", "traceId", "limit", "offset"],
+        )
+        return self._request("GET", f"/state-checkpoints{suffix}", **opts)
+
+    def get_state_checkpoint(self, checkpoint_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(checkpoint_id, "checkpoint_id")
+        return self._request("GET", f"/state-checkpoints/{parse.quote(checkpoint_id, safe='')}", **opts)
+
     def create_session(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
         if not isinstance(body, dict):
             raise ValueError("body is required")
@@ -544,12 +797,128 @@ class SettldClient:
         _assert_non_empty_string(session_id, "session_id")
         if not isinstance(body, dict):
             raise ValueError("body is required")
+        # Session event append is fail-closed on idempotency: default one for compatibility.
+        if not opts.get("idempotency_key"):
+            opts = {**opts, "idempotency_key": _random_request_id()}
         return self._request("POST", f"/sessions/{parse.quote(session_id, safe='')}/events", body=body, **opts)
 
     def list_session_events(self, session_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
         _assert_non_empty_string(session_id, "session_id")
         suffix = self._query_suffix(query, allowed_keys=["eventType", "limit", "offset"])
         return self._request("GET", f"/sessions/{parse.quote(session_id, safe='')}/events{suffix}", **opts)
+
+    def stream_session_events(
+        self,
+        session_id: str,
+        query: Optional[Dict[str, Any]] = None,
+        *,
+        request_id: Optional[str] = None,
+        last_event_id: Optional[str] = None,
+        timeout_seconds: Optional[float] = None,
+    ) -> Iterator[Dict[str, Any]]:
+        _assert_non_empty_string(session_id, "session_id")
+        suffix = self._query_suffix(query, allowed_keys=["eventType", "sinceEventId"])
+        rid = request_id if request_id else _random_request_id()
+        headers: Dict[str, str] = {
+            "accept": "text/event-stream",
+            "x-proxy-tenant-id": self.tenant_id,
+            "x-nooterra-protocol": self.protocol,
+            "x-request-id": rid,
+        }
+        if self.user_agent:
+            headers["user-agent"] = self.user_agent
+        if self.api_key:
+            headers["authorization"] = f"Bearer {self.api_key}"
+        if self.x_api_key:
+            headers["x-api-key"] = str(self.x_api_key)
+        if self.ops_token:
+            headers["x-proxy-ops-token"] = str(self.ops_token)
+        if isinstance(last_event_id, str) and last_event_id.strip():
+            headers["last-event-id"] = last_event_id.strip()
+
+        url = parse.urljoin(
+            f"{self.base_url}/",
+            f"sessions/{parse.quote(session_id, safe='')}/events/stream{suffix}".lstrip("/"),
+        )
+        req = request.Request(url=url, data=None, method="GET", headers=headers)
+        timeout = self.timeout_seconds if timeout_seconds is None else timeout_seconds
+
+        try:
+            with request.urlopen(req, timeout=timeout) as response:
+                event_name = "message"
+                event_id: Optional[str] = None
+                data_lines: list[str] = []
+                saw_comment_only_line = False
+                saw_field_line = False
+
+                def emit_event() -> Optional[Dict[str, Any]]:
+                    nonlocal event_name, event_id, data_lines, saw_comment_only_line, saw_field_line
+                    if len(data_lines) == 0:
+                        if saw_comment_only_line or not saw_field_line:
+                            out = None
+                        else:
+                            out = {"event": event_name, "id": event_id, "rawData": "", "data": None}
+                    else:
+                        raw_data = "\n".join(data_lines)
+                        out = {
+                            "event": event_name,
+                            "id": event_id,
+                            "rawData": raw_data,
+                            "data": _decode_sse_data(raw_data),
+                        }
+                    event_name = "message"
+                    event_id = None
+                    data_lines = []
+                    saw_comment_only_line = False
+                    saw_field_line = False
+                    return out
+
+                while True:
+                    chunk = response.readline()
+                    if not chunk:
+                        break
+                    line = chunk.decode("utf-8", errors="replace").rstrip("\r\n")
+                    if line == "":
+                        parsed_event = emit_event()
+                        if parsed_event is not None:
+                            yield parsed_event
+                        continue
+                    if line.startswith(":"):
+                        saw_comment_only_line = True
+                        continue
+                    saw_field_line = True
+                    field, sep, value = line.partition(":")
+                    if sep:
+                        if value.startswith(" "):
+                            value = value[1:]
+                    else:
+                        value = ""
+                    if field == "event":
+                        event_name = value.strip() or "message"
+                    elif field == "id":
+                        event_id = value.strip() or None
+                    elif field == "data":
+                        data_lines.append(value)
+
+                parsed_event = emit_event()
+                if parsed_event is not None:
+                    yield parsed_event
+        except error.HTTPError as http_error:
+            raw = http_error.read().decode("utf-8")
+            parsed: Any = {}
+            if raw:
+                try:
+                    parsed = json.loads(raw)
+                except json.JSONDecodeError:
+                    parsed = {"raw": raw}
+            response_headers = {str(k).lower(): str(v) for k, v in http_error.headers.items()}
+            raise NooterraApiError(
+                status=int(http_error.code),
+                code=parsed.get("code") if isinstance(parsed, dict) else None,
+                message=parsed.get("error", f"request failed ({http_error.code})") if isinstance(parsed, dict) else f"request failed ({http_error.code})",
+                details=parsed.get("details") if isinstance(parsed, dict) else None,
+                request_id=response_headers.get("x-request-id"),
+            ) from http_error
 
     def get_session_replay_pack(self, session_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
         _assert_non_empty_string(session_id, "session_id")
