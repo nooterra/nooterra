@@ -33,6 +33,25 @@ test("api-sdk-python contract freeze: manual-review + dispute lifecycle methods 
   assert.match(source, /def submit_run_dispute_evidence\(/);
   assert.match(source, /def escalate_run_dispute\(/);
   assert.match(source, /def close_run_dispute\(/);
+  assert.match(source, /def upsert_agent_card\(/);
+  assert.match(source, /def discover_public_agent_cards\(/);
+  assert.match(source, /def issue_delegation_grant\(/);
+  assert.match(source, /def get_delegation_grant\(/);
+  assert.match(source, /def issue_authority_grant\(/);
+  assert.match(source, /def get_authority_grant\(/);
+  assert.match(source, /def create_task_quote\(/);
+  assert.match(source, /def get_task_quote\(/);
+  assert.match(source, /def create_task_offer\(/);
+  assert.match(source, /def get_task_offer\(/);
+  assert.match(source, /def create_task_acceptance\(/);
+  assert.match(source, /def get_task_acceptance\(/);
+  assert.match(source, /def create_work_order\(/);
+  assert.match(source, /def create_session\(/);
+  assert.match(source, /def append_session_event\(/);
+  assert.match(source, /def get_session_replay_pack\(/);
+  assert.match(source, /def create_capability_attestation\(/);
+  assert.match(source, /def get_capability_attestation\(/);
+  assert.match(source, /def revoke_capability_attestation\(/);
 
   assert.match(source, /\/ops\/tool-calls\/holds\/lock/);
   assert.match(source, /\/ops\/tool-calls\/replay-evaluate\?/);
@@ -45,6 +64,17 @@ test("api-sdk-python contract freeze: manual-review + dispute lifecycle methods 
   assert.match(source, /\/dispute\/evidence/);
   assert.match(source, /\/dispute\/escalate/);
   assert.match(source, /\/dispute\/close/);
+  assert.match(source, /\/public\/agent-cards\/discover/);
+  assert.match(source, /\/delegation-grants/);
+  assert.match(source, /\/authority-grants/);
+  assert.match(source, /\/task-quotes/);
+  assert.match(source, /\/task-offers/);
+  assert.match(source, /\/task-acceptances/);
+  assert.match(source, /\/work-orders/);
+  assert.match(source, /\/sessions/);
+  assert.match(source, /\/capability-attestations/);
+  assert.match(source, /includeRoutingFactors/);
+  assert.match(source, /subjectAgentId/);
 
   assert.match(readme, /create_agreement/);
   assert.match(readme, /sign_evidence/);
@@ -62,6 +92,18 @@ test("api-sdk-python contract freeze: manual-review + dispute lifecycle methods 
   assert.match(readme, /submit_run_dispute_evidence/);
   assert.match(readme, /escalate_run_dispute/);
   assert.match(readme, /close_run_dispute/);
+  assert.match(readme, /upsert_agent_card/);
+  assert.match(readme, /discover_public_agent_cards/);
+  assert.match(readme, /issue_delegation_grant/);
+  assert.match(readme, /get_delegation_grant/);
+  assert.match(readme, /issue_authority_grant/);
+  assert.match(readme, /get_authority_grant/);
+  assert.match(readme, /create_task_quote\|offer\|acceptance/);
+  assert.match(readme, /list\/get/);
+  assert.match(readme, /create_work_order/);
+  assert.match(readme, /create_session/);
+  assert.match(readme, /create_capability_attestation/);
+  assert.match(readme, /list\/get\/revoke_capability_attestation/);
 });
 
 test("api-sdk-python contract freeze: dispute lifecycle dispatch wiring remains stable", { skip: !pythonAvailable() }, () => {
@@ -178,4 +220,112 @@ test("api-sdk-python contract freeze: tool-call kernel wrappers remain wired", {
   );
   assert.equal(calls[0].idempotencyKey, "py_tool_settle_1");
   assert.equal(calls[1].idempotencyKey, "py_tool_open_1");
+});
+
+test("api-sdk-python contract freeze: ACS substrate wrappers remain wired", { skip: !pythonAvailable() }, () => {
+  const script = [
+    "import json, pathlib, sys",
+    "repo = pathlib.Path.cwd()",
+    "sys.path.insert(0, str(repo / 'packages' / 'api-sdk-python'))",
+    "from settld_api_sdk import SettldClient",
+    "calls = []",
+    "def fake(method, path, **kwargs):",
+    "    calls.append({",
+    "        'method': method,",
+    "        'path': path,",
+    "        'idempotencyKey': kwargs.get('idempotency_key'),",
+    "        'expectedPrevChainHash': kwargs.get('expected_prev_chain_hash'),",
+    "        'body': kwargs.get('body')",
+    "    })",
+    "    return {'ok': True, 'status': 200, 'requestId': 'req_py_sdk_acs_1', 'body': {'ok': True}}",
+    "client = SettldClient(base_url='https://api.settld.local', tenant_id='tenant_py_sdk')",
+    "client._request = fake",
+    "client.upsert_agent_card({'agentId':'agt_alpha'})",
+    "client.discover_agent_cards({'capability':'capability://code','includeRoutingFactors':True,'requesterAgentId':'agt_buyer'})",
+    "client.discover_public_agent_cards({'capability':'capability://travel','includeReputation':False,'limit':3})",
+    "client.issue_delegation_grant({'grantId':'dg_1'})",
+    "client.get_delegation_grant('dg_1')",
+    "client.revoke_delegation_grant('dg_1', {'reasonCode':'REVOKED_BY_PRINCIPAL'})",
+    "client.issue_authority_grant({'grantId':'ag_1'})",
+    "client.get_authority_grant('ag_1')",
+    "client.revoke_authority_grant('ag_1')",
+    "client.create_task_quote({'quoteId':'q_1'})",
+    "client.list_task_quotes({'quoteId':'q_1','requiredCapability':'capability://code','limit':5})",
+    "client.get_task_quote('q_1')",
+    "client.create_task_offer({'offerId':'o_1'})",
+    "client.list_task_offers({'offerId':'o_1','quoteId':'q_1','limit':5})",
+    "client.get_task_offer('o_1')",
+    "client.create_task_acceptance({'acceptanceId':'a_1'})",
+    "client.list_task_acceptances({'acceptanceId':'a_1','quoteId':'q_1','offerId':'o_1'})",
+    "client.get_task_acceptance('a_1')",
+    "client.create_work_order({'workOrderId':'wo_1'})",
+    "client.list_work_orders({'workOrderId':'wo_1','status':'created'})",
+    "client.accept_work_order('wo_1', {'acceptedByAgentId':'agt_worker'})",
+    "client.progress_work_order('wo_1', {'eventType':'progress','percentComplete':50})",
+    "client.complete_work_order('wo_1', {'output':{'ok':True}})",
+    "client.settle_work_order('wo_1', {'decision':'release'})",
+    "client.list_work_order_receipts({'workOrderId':'wo_1'})",
+    "client.get_work_order_receipt('rcpt_1')",
+    "client.create_session({'sessionId':'sess_1'})",
+    "client.append_session_event('sess_1', {'eventType':'message','payload':{'text':'hi'}}, expected_prev_chain_hash='0'*64)",
+    "client.list_session_events('sess_1', {'eventType':'message','limit':10,'offset':0})",
+    "client.get_session_replay_pack('sess_1')",
+    "client.get_session_transcript('sess_1')",
+    "client.create_capability_attestation({'attestationId':'catt_1'})",
+    "client.list_capability_attestations({'subjectAgentId':'agt_worker','capability':'capability://code'})",
+    "client.get_capability_attestation('catt_1')",
+    "client.revoke_capability_attestation('catt_1', {'reasonCode':'REVOKED_BY_ISSUER'})",
+    "print(json.dumps(calls))",
+  ].join("\n");
+
+  const run = spawnSync("python3", ["-c", script], { encoding: "utf8" });
+  assert.equal(
+    run.status,
+    0,
+    `python ACS wrapper contract check failed\n\nstdout:\n${run.stdout ?? ""}\n\nstderr:\n${run.stderr ?? ""}`
+  );
+
+  const calls = JSON.parse(String(run.stdout ?? "[]"));
+  assert.equal(calls.length, 35);
+  assert.deepEqual(
+    calls.map((entry) => [entry.method, entry.path]),
+    [
+      ["POST", "/agent-cards"],
+      ["GET", "/agent-cards/discover?capability=capability%3A%2F%2Fcode&includeRoutingFactors=true&requesterAgentId=agt_buyer"],
+      ["GET", "/public/agent-cards/discover?capability=capability%3A%2F%2Ftravel&includeReputation=false&limit=3"],
+      ["POST", "/delegation-grants"],
+      ["GET", "/delegation-grants/dg_1"],
+      ["POST", "/delegation-grants/dg_1/revoke"],
+      ["POST", "/authority-grants"],
+      ["GET", "/authority-grants/ag_1"],
+      ["POST", "/authority-grants/ag_1/revoke"],
+      ["POST", "/task-quotes"],
+      ["GET", "/task-quotes?quoteId=q_1&requiredCapability=capability%3A%2F%2Fcode&limit=5"],
+      ["GET", "/task-quotes/q_1"],
+      ["POST", "/task-offers"],
+      ["GET", "/task-offers?offerId=o_1&quoteId=q_1&limit=5"],
+      ["GET", "/task-offers/o_1"],
+      ["POST", "/task-acceptances"],
+      ["GET", "/task-acceptances?acceptanceId=a_1&quoteId=q_1&offerId=o_1"],
+      ["GET", "/task-acceptances/a_1"],
+      ["POST", "/work-orders"],
+      ["GET", "/work-orders?workOrderId=wo_1&status=created"],
+      ["POST", "/work-orders/wo_1/accept"],
+      ["POST", "/work-orders/wo_1/progress"],
+      ["POST", "/work-orders/wo_1/complete"],
+      ["POST", "/work-orders/wo_1/settle"],
+      ["GET", "/work-orders/receipts?workOrderId=wo_1"],
+      ["GET", "/work-orders/receipts/rcpt_1"],
+      ["POST", "/sessions"],
+      ["POST", "/sessions/sess_1/events"],
+      ["GET", "/sessions/sess_1/events?eventType=message&limit=10&offset=0"],
+      ["GET", "/sessions/sess_1/replay-pack"],
+      ["GET", "/sessions/sess_1/transcript"],
+      ["POST", "/capability-attestations"],
+      ["GET", "/capability-attestations?subjectAgentId=agt_worker&capability=capability%3A%2F%2Fcode"],
+      ["GET", "/capability-attestations/catt_1"],
+      ["POST", "/capability-attestations/catt_1/revoke"]
+    ]
+  );
+  assert.equal(calls[27].expectedPrevChainHash, "0".repeat(64));
 });

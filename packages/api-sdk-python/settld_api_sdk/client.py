@@ -144,6 +144,27 @@ class SettldClient:
         self.user_agent = user_agent
         self.timeout_seconds = timeout_seconds
 
+    def _query_suffix(self, query: Optional[Dict[str, Any]] = None, *, allowed_keys: Optional[list[str]] = None) -> str:
+        if not isinstance(query, dict):
+            return ""
+        params: Dict[str, str] = {}
+        keys = allowed_keys if isinstance(allowed_keys, list) else list(query.keys())
+        for key in keys:
+            if not isinstance(key, str) or not key:
+                continue
+            if key not in query:
+                continue
+            value = query.get(key)
+            if value is None:
+                continue
+            if isinstance(value, bool):
+                params[key] = "true" if value else "false"
+            else:
+                params[key] = str(value)
+        if not params:
+            return ""
+        return f"?{parse.urlencode(params)}"
+
     def _request(
         self,
         method: str,
@@ -286,6 +307,280 @@ class SettldClient:
         if not isinstance(body, dict):
             raise ValueError("body is required")
         return self._request("POST", f"/runs/{parse.quote(run_id, safe='')}/settlement/resolve", body=body, **opts)
+
+    def upsert_agent_card(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        _assert_non_empty_string(body.get("agentId"), "body.agentId")
+        return self._request("POST", "/agent-cards", body=body, **opts)
+
+    def list_agent_cards(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(query, allowed_keys=["agentId", "capability", "visibility", "runtime", "status", "limit", "offset"])
+        return self._request("GET", f"/agent-cards{suffix}", **opts)
+
+    def get_agent_card(self, agent_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(agent_id, "agent_id")
+        return self._request("GET", f"/agent-cards/{parse.quote(agent_id, safe='')}", **opts)
+
+    def discover_agent_cards(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=[
+                "capability",
+                "toolId",
+                "toolMcpName",
+                "toolRiskClass",
+                "toolSideEffecting",
+                "toolMaxPriceCents",
+                "toolRequiresEvidenceKind",
+                "visibility",
+                "runtime",
+                "status",
+                "requireCapabilityAttestation",
+                "attestationMinLevel",
+                "attestationIssuerAgentId",
+                "includeAttestationMetadata",
+                "minTrustScore",
+                "riskTier",
+                "includeReputation",
+                "includeRoutingFactors",
+                "reputationVersion",
+                "reputationWindow",
+                "scoreStrategy",
+                "requesterAgentId",
+                "limit",
+                "offset",
+            ],
+        )
+        return self._request("GET", f"/agent-cards/discover{suffix}", **opts)
+
+    def discover_public_agent_cards(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=[
+                "capability",
+                "toolId",
+                "toolMcpName",
+                "toolRiskClass",
+                "toolSideEffecting",
+                "toolMaxPriceCents",
+                "toolRequiresEvidenceKind",
+                "visibility",
+                "runtime",
+                "status",
+                "requireCapabilityAttestation",
+                "attestationMinLevel",
+                "attestationIssuerAgentId",
+                "includeAttestationMetadata",
+                "minTrustScore",
+                "riskTier",
+                "includeReputation",
+                "includeRoutingFactors",
+                "reputationVersion",
+                "reputationWindow",
+                "scoreStrategy",
+                "requesterAgentId",
+                "limit",
+                "offset",
+            ],
+        )
+        return self._request("GET", f"/public/agent-cards/discover{suffix}", **opts)
+
+    def issue_delegation_grant(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/delegation-grants", body=body, **opts)
+
+    def list_delegation_grants(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=["grantId", "grantHash", "delegatorAgentId", "delegateeAgentId", "includeRevoked", "limit", "offset"],
+        )
+        return self._request("GET", f"/delegation-grants{suffix}", **opts)
+
+    def get_delegation_grant(self, grant_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(grant_id, "grant_id")
+        return self._request("GET", f"/delegation-grants/{parse.quote(grant_id, safe='')}", **opts)
+
+    def revoke_delegation_grant(self, grant_id: str, body: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(grant_id, "grant_id")
+        payload = {} if body is None else body
+        if not isinstance(payload, dict):
+            raise ValueError("body must be an object")
+        return self._request("POST", f"/delegation-grants/{parse.quote(grant_id, safe='')}/revoke", body=payload, **opts)
+
+    def issue_authority_grant(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/authority-grants", body=body, **opts)
+
+    def list_authority_grants(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=["grantId", "grantHash", "granteeAgentId", "principalId", "includeRevoked", "limit", "offset"],
+        )
+        return self._request("GET", f"/authority-grants{suffix}", **opts)
+
+    def get_authority_grant(self, grant_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(grant_id, "grant_id")
+        return self._request("GET", f"/authority-grants/{parse.quote(grant_id, safe='')}", **opts)
+
+    def revoke_authority_grant(self, grant_id: str, body: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(grant_id, "grant_id")
+        payload = {} if body is None else body
+        if not isinstance(payload, dict):
+            raise ValueError("body must be an object")
+        return self._request("POST", f"/authority-grants/{parse.quote(grant_id, safe='')}/revoke", body=payload, **opts)
+
+    def create_task_quote(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/task-quotes", body=body, **opts)
+
+    def list_task_quotes(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=["quoteId", "status", "sellerAgentId", "buyerAgentId", "requiredCapability", "limit", "offset"],
+        )
+        return self._request("GET", f"/task-quotes{suffix}", **opts)
+
+    def get_task_quote(self, quote_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(quote_id, "quote_id")
+        return self._request("GET", f"/task-quotes/{parse.quote(quote_id, safe='')}", **opts)
+
+    def create_task_offer(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/task-offers", body=body, **opts)
+
+    def list_task_offers(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=["offerId", "status", "buyerAgentId", "sellerAgentId", "quoteId", "limit", "offset"],
+        )
+        return self._request("GET", f"/task-offers{suffix}", **opts)
+
+    def get_task_offer(self, offer_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(offer_id, "offer_id")
+        return self._request("GET", f"/task-offers/{parse.quote(offer_id, safe='')}", **opts)
+
+    def create_task_acceptance(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/task-acceptances", body=body, **opts)
+
+    def list_task_acceptances(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=["acceptanceId", "status", "buyerAgentId", "sellerAgentId", "quoteId", "offerId", "limit", "offset"],
+        )
+        return self._request("GET", f"/task-acceptances{suffix}", **opts)
+
+    def get_task_acceptance(self, acceptance_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(acceptance_id, "acceptance_id")
+        return self._request("GET", f"/task-acceptances/{parse.quote(acceptance_id, safe='')}", **opts)
+
+    def create_work_order(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/work-orders", body=body, **opts)
+
+    def list_work_orders(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(query, allowed_keys=["workOrderId", "principalAgentId", "subAgentId", "status", "limit", "offset"])
+        return self._request("GET", f"/work-orders{suffix}", **opts)
+
+    def get_work_order(self, work_order_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(work_order_id, "work_order_id")
+        return self._request("GET", f"/work-orders/{parse.quote(work_order_id, safe='')}", **opts)
+
+    def accept_work_order(self, work_order_id: str, body: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(work_order_id, "work_order_id")
+        payload = {} if body is None else body
+        if not isinstance(payload, dict):
+            raise ValueError("body must be an object")
+        return self._request("POST", f"/work-orders/{parse.quote(work_order_id, safe='')}/accept", body=payload, **opts)
+
+    def progress_work_order(self, work_order_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(work_order_id, "work_order_id")
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", f"/work-orders/{parse.quote(work_order_id, safe='')}/progress", body=body, **opts)
+
+    def complete_work_order(self, work_order_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(work_order_id, "work_order_id")
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", f"/work-orders/{parse.quote(work_order_id, safe='')}/complete", body=body, **opts)
+
+    def settle_work_order(self, work_order_id: str, body: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(work_order_id, "work_order_id")
+        payload = {} if body is None else body
+        if not isinstance(payload, dict):
+            raise ValueError("body must be an object")
+        return self._request("POST", f"/work-orders/{parse.quote(work_order_id, safe='')}/settle", body=payload, **opts)
+
+    def list_work_order_receipts(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(query, allowed_keys=["workOrderId", "status", "limit", "offset"])
+        return self._request("GET", f"/work-orders/receipts{suffix}", **opts)
+
+    def get_work_order_receipt(self, receipt_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(receipt_id, "receipt_id")
+        return self._request("GET", f"/work-orders/receipts/{parse.quote(receipt_id, safe='')}", **opts)
+
+    def create_session(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/sessions", body=body, **opts)
+
+    def list_sessions(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(query, allowed_keys=["sessionId", "participantAgentId", "visibility", "limit", "offset"])
+        return self._request("GET", f"/sessions{suffix}", **opts)
+
+    def get_session(self, session_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(session_id, "session_id")
+        return self._request("GET", f"/sessions/{parse.quote(session_id, safe='')}", **opts)
+
+    def append_session_event(self, session_id: str, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(session_id, "session_id")
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", f"/sessions/{parse.quote(session_id, safe='')}/events", body=body, **opts)
+
+    def list_session_events(self, session_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(session_id, "session_id")
+        suffix = self._query_suffix(query, allowed_keys=["eventType", "limit", "offset"])
+        return self._request("GET", f"/sessions/{parse.quote(session_id, safe='')}/events{suffix}", **opts)
+
+    def get_session_replay_pack(self, session_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(session_id, "session_id")
+        return self._request("GET", f"/sessions/{parse.quote(session_id, safe='')}/replay-pack", **opts)
+
+    def get_session_transcript(self, session_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(session_id, "session_id")
+        return self._request("GET", f"/sessions/{parse.quote(session_id, safe='')}/transcript", **opts)
+
+    def create_capability_attestation(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
+        if not isinstance(body, dict):
+            raise ValueError("body is required")
+        return self._request("POST", "/capability-attestations", body=body, **opts)
+
+    def list_capability_attestations(self, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        suffix = self._query_suffix(
+            query,
+            allowed_keys=["attestationId", "subjectAgentId", "issuerAgentId", "capability", "status", "includeInvalid", "at", "limit", "offset"],
+        )
+        return self._request("GET", f"/capability-attestations{suffix}", **opts)
+
+    def get_capability_attestation(self, attestation_id: str, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(attestation_id, "attestation_id")
+        return self._request("GET", f"/capability-attestations/{parse.quote(attestation_id, safe='')}", **opts)
+
+    def revoke_capability_attestation(self, attestation_id: str, body: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
+        _assert_non_empty_string(attestation_id, "attestation_id")
+        payload = {} if body is None else body
+        if not isinstance(payload, dict):
+            raise ValueError("body must be an object")
+        return self._request("POST", f"/capability-attestations/{parse.quote(attestation_id, safe='')}/revoke", body=payload, **opts)
 
     def ops_lock_tool_call_hold(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
         if not isinstance(body, dict):

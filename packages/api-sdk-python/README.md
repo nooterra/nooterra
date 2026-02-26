@@ -1,6 +1,15 @@
 # Settld API SDK (Python)
 
 Python client for Settld API endpoints, including high-level helpers:
+- core ACS object APIs:
+  - `upsert_agent_card` / `list_agent_cards` / `get_agent_card`
+  - `discover_agent_cards` / `discover_public_agent_cards`
+  - `issue_delegation_grant` / `list_delegation_grants` / `get_delegation_grant` / `revoke_delegation_grant`
+  - `issue_authority_grant` / `list_authority_grants` / `get_authority_grant` / `revoke_authority_grant`
+  - `create_task_quote|offer|acceptance` + `list/get` variants
+  - `create_work_order` + `list/get` + `accept|progress|complete|settle` + receipt APIs
+  - `create_session` / `append_session_event` / `get_session_replay_pack` / `get_session_transcript`
+  - `create_capability_attestation` / `list/get/revoke_capability_attestation`
 - `first_verified_run` (register agents, run work, verify, settle)
 - `first_paid_rfq` (rfq -> bid -> accept -> run -> settlement)
 - tool-call kernel wrappers:
