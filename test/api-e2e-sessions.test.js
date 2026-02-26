@@ -492,6 +492,102 @@ test("API e2e: Session signer lifecycle gates append and replay materialization"
   assert.equal(appendAfterRevoke.json?.details?.reasonCode, "SIGNER_KEY_REVOKED");
 });
 
+test("API e2e: Session signer rotation fails closed with deterministic lifecycle reason codes", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_signer_rotate_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const signerRegistered = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId: api.store.serverSigner.keyId,
+      publicKeyPem: api.store.serverSigner.publicKeyPem,
+      purpose: "server",
+      status: "active",
+      description: "session signer rotate lifecycle test"
+    }
+  });
+  assert.equal(signerRegistered.statusCode, 201, signerRegistered.body);
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_create_signer_rotate_1" },
+    body: {
+      sessionId: "sess_signer_rotate_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const firstAppend = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_signer_rotate_1/events",
+    headers: {
+      "x-idempotency-key": "session_signer_rotate_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      at: "2030-01-01T00:00:00.000Z",
+      payload: { taskId: "task_signer_rotate_1" }
+    }
+  });
+  assert.equal(firstAppend.statusCode, 201, firstAppend.body);
+
+  const replayBeforeRotate = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_signer_rotate_1/replay-pack"
+  });
+  assert.equal(replayBeforeRotate.statusCode, 200, replayBeforeRotate.body);
+
+  const rotated = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(api.store.serverSigner.keyId)}/rotate`,
+    body: {}
+  });
+  assert.equal(rotated.statusCode, 200, rotated.body);
+  assert.equal(rotated.json?.signerKey?.status, "rotated");
+
+  const replayAfterRotate = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_signer_rotate_1/replay-pack"
+  });
+  assert.equal(replayAfterRotate.statusCode, 409, replayAfterRotate.body);
+  assert.equal(replayAfterRotate.json?.code, "SESSION_REPLAY_SIGNER_KEY_INVALID");
+  assert.equal(replayAfterRotate.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(replayAfterRotate.json?.details?.signerStatus, "rotated");
+
+  const transcriptAfterRotate = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_signer_rotate_1/transcript"
+  });
+  assert.equal(transcriptAfterRotate.statusCode, 409, transcriptAfterRotate.body);
+  assert.equal(transcriptAfterRotate.json?.code, "SESSION_REPLAY_SIGNER_KEY_INVALID");
+  assert.equal(transcriptAfterRotate.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(transcriptAfterRotate.json?.details?.signerStatus, "rotated");
+
+  const appendAfterRotate = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_signer_rotate_1/events",
+    headers: {
+      "x-idempotency-key": "session_signer_rotate_append_2",
+      "x-proxy-expected-prev-chain-hash": String(firstAppend.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      at: "2030-01-01T00:05:00.000Z",
+      payload: { progressPct: 20 }
+    }
+  });
+  assert.equal(appendAfterRotate.statusCode, 409, appendAfterRotate.body);
+  assert.equal(appendAfterRotate.json?.code, "SESSION_EVENT_SIGNER_KEY_INVALID");
+  assert.equal(appendAfterRotate.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(appendAfterRotate.json?.details?.signerStatus, "rotated");
+});
+
 test("API e2e: SessionReplayPack.v1 fails closed on tampered event chain", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const principalAgentId = "agt_session_principal_tamper";
