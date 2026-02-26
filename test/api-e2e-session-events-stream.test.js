@@ -24,41 +24,64 @@ async function registerAgent(api, { agentId, capabilities = [] }) {
   assert.equal(response.statusCode, 201, response.body);
 }
 
-async function readSseFrame(reader, decoder, { timeoutMs = 6_000 } = {}) {
-  let buffer = "";
+function createSseFrameReader(streamBody) {
+  return {
+    reader: streamBody.getReader(),
+    decoder: new TextDecoder(),
+    buffer: ""
+  };
+}
+
+async function readSseFrame(stream, { timeoutMs = 6_000 } = {}) {
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    const remaining = Math.max(1, deadline - Date.now());
-    const chunk = await Promise.race([
-      reader.read(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out waiting for SSE frame")), remaining))
-    ]);
-    if (chunk.done) throw new Error("SSE stream ended before frame was received");
-    buffer += decoder.decode(chunk.value, { stream: true });
-    const boundary = buffer.indexOf("\n\n");
-    if (boundary < 0) continue;
-    const frameRaw = buffer.slice(0, boundary);
-    buffer = buffer.slice(boundary + 2);
-    const frame = { event: null, id: null, dataLines: [] };
-    for (const line of frameRaw.split("\n")) {
-      if (!line) continue;
-      if (line.startsWith(":")) continue;
-      if (line.startsWith("event:")) {
-        frame.event = line.slice("event:".length).trim();
-        continue;
+    let boundary = stream.buffer.indexOf("\n\n");
+    while (boundary >= 0) {
+      const frameRaw = stream.buffer.slice(0, boundary);
+      stream.buffer = stream.buffer.slice(boundary + 2);
+      const frame = { event: null, id: null, dataLines: [] };
+      for (const line of frameRaw.split("\n")) {
+        if (!line) continue;
+        if (line.startsWith(":")) continue;
+        if (line.startsWith("event:")) {
+          frame.event = line.slice("event:".length).trim();
+          continue;
+        }
+        if (line.startsWith("id:")) {
+          frame.id = line.slice("id:".length).trim();
+          continue;
+        }
+        if (line.startsWith("data:")) {
+          frame.dataLines.push(line.slice("data:".length).trimStart());
+        }
       }
-      if (line.startsWith("id:")) {
-        frame.id = line.slice("id:".length).trim();
-        continue;
-      }
-      if (line.startsWith("data:")) {
-        frame.dataLines.push(line.slice("data:".length).trimStart());
-      }
+      if (frame.event || frame.id || frame.dataLines.length > 0) return frame;
+      boundary = stream.buffer.indexOf("\n\n");
     }
-    return frame;
+
+    const remaining = Math.max(1, deadline - Date.now());
+    let timeoutId = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("timed out waiting for SSE frame")), remaining);
+    });
+    const chunk = await Promise.race([stream.reader.read(), timeoutPromise]);
+    if (timeoutId) clearTimeout(timeoutId);
+    if (chunk.done) throw new Error("SSE stream ended before frame was received");
+    stream.buffer += stream.decoder.decode(chunk.value, { stream: true });
   }
   throw new Error("timed out waiting for SSE frame");
+}
+
+async function closeSseStream(stream, controller) {
+  if (controller && typeof controller.abort === "function") controller.abort();
+  if (stream?.reader && typeof stream.reader.cancel === "function") {
+    try {
+      await stream.reader.cancel();
+    } catch {
+      // no-op on close race
+    }
+  }
 }
 
 test("API e2e: /sessions/:id/events/stream supports ready + Last-Event-ID resume", async (t) => {
@@ -123,10 +146,9 @@ test("API e2e: /sessions/:id/events/stream supports ready + Last-Event-ID resume
   assert.equal(streamResponse.headers.get("x-session-events-next-since-event-id"), firstAppend.json?.event?.id);
   assert.ok(streamResponse.body);
 
-  const reader = streamResponse.body.getReader();
-  const decoder = new TextDecoder();
+  const stream = createSseFrameReader(streamResponse.body);
 
-  const readyFrame = await readSseFrame(reader, decoder, { timeoutMs: 8_000 });
+  const readyFrame = await readSseFrame(stream, { timeoutMs: 8_000 });
   assert.equal(readyFrame.event, "session.ready");
   const readyPayload = JSON.parse(readyFrame.dataLines.join("\n"));
   assert.equal(readyPayload.ok, true);
@@ -154,13 +176,153 @@ test("API e2e: /sessions/:id/events/stream supports ready + Last-Event-ID resume
   });
   assert.equal(secondAppend.statusCode, 201, secondAppend.body);
 
-  const eventFrame = await readSseFrame(reader, decoder, { timeoutMs: 8_000 });
+  const eventFrame = await readSseFrame(stream, { timeoutMs: 8_000 });
   assert.equal(eventFrame.event, "session.event");
   assert.equal(eventFrame.id, secondAppend.json?.event?.id);
   const streamedEvent = JSON.parse(eventFrame.dataLines.join("\n"));
   assert.equal(streamedEvent.type, "TASK_PROGRESS");
   assert.equal(streamedEvent.id, secondAppend.json?.event?.id);
-  controller.abort();
+  await closeSseStream(stream, controller);
+});
+
+test("API e2e: /sessions/:id/events/stream watermark progression survives filtered reconnect churn", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_stream_principal_4";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "stream_session_create_4" },
+    body: {
+      sessionId: "sess_stream_4",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const firstAppend = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_stream_4/events",
+    headers: {
+      "x-idempotency-key": "stream_session_4_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "stream_task_4" }
+    }
+  });
+  assert.equal(firstAppend.statusCode, 201, firstAppend.body);
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const auth = api.__testAuthByTenant?.get?.("tenant_default") ?? null;
+  assert.ok(auth?.authorization, "test auth authorization is required");
+
+  const controllerA = new AbortController();
+  t.after(() => controllerA.abort());
+  const filteredResponseA = await fetch(`http://127.0.0.1:${port}/sessions/sess_stream_4/events/stream?eventType=task_completed`, {
+    signal: controllerA.signal,
+    headers: {
+      authorization: auth.authorization,
+      "x-proxy-tenant-id": "tenant_default",
+      "last-event-id": String(firstAppend.json?.event?.id ?? "")
+    }
+  });
+  assert.equal(filteredResponseA.status, 200);
+  assert.equal(filteredResponseA.headers.get("x-session-events-ordering"), "SESSION_SEQ_ASC");
+  assert.equal(filteredResponseA.headers.get("x-session-events-head-event-count"), "1");
+  assert.equal(filteredResponseA.headers.get("x-session-events-since-event-id"), firstAppend.json?.event?.id);
+  assert.equal(filteredResponseA.headers.get("x-session-events-next-since-event-id"), firstAppend.json?.event?.id);
+  assert.ok(filteredResponseA.body);
+
+  const streamA = createSseFrameReader(filteredResponseA.body);
+  const readyFrameA = await readSseFrame(streamA, { timeoutMs: 8_000 });
+  assert.equal(readyFrameA.event, "session.ready");
+  const readyPayloadA = JSON.parse(readyFrameA.dataLines.join("\n"));
+  assert.equal(readyPayloadA.inbox?.sinceEventId, firstAppend.json?.event?.id);
+  assert.equal(readyPayloadA.inbox?.nextSinceEventId, firstAppend.json?.event?.id);
+
+  const secondAppend = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_stream_4/events",
+    headers: {
+      "x-idempotency-key": "stream_session_4_append_2",
+      "x-proxy-expected-prev-chain-hash": String(firstAppend.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      payload: { progressPct: 50 }
+    }
+  });
+  assert.equal(secondAppend.statusCode, 201, secondAppend.body);
+
+  const watermarkFrameA = await readSseFrame(streamA, { timeoutMs: 8_000 });
+  assert.equal(watermarkFrameA.event, "session.watermark");
+  assert.equal(watermarkFrameA.id, secondAppend.json?.event?.id);
+  const watermarkPayloadA = JSON.parse(watermarkFrameA.dataLines.join("\n"));
+  assert.equal(watermarkPayloadA.ok, true);
+  assert.equal(watermarkPayloadA.sessionId, "sess_stream_4");
+  assert.equal(watermarkPayloadA.eventType, "TASK_COMPLETED");
+  assert.equal(watermarkPayloadA.phase, "stream_poll");
+  assert.equal(watermarkPayloadA.lastDeliveredEventId, firstAppend.json?.event?.id);
+  assert.equal(watermarkPayloadA.inbox?.sinceEventId, firstAppend.json?.event?.id);
+  assert.equal(watermarkPayloadA.inbox?.nextSinceEventId, secondAppend.json?.event?.id);
+  assert.equal(watermarkPayloadA.inbox?.headLastEventId, secondAppend.json?.event?.id);
+  assert.equal(watermarkPayloadA.inbox?.headEventCount, 2);
+  await closeSseStream(streamA, controllerA);
+
+  const controllerB = new AbortController();
+  t.after(() => controllerB.abort());
+  const filteredResponseB = await fetch(`http://127.0.0.1:${port}/sessions/sess_stream_4/events/stream?eventType=task_completed`, {
+    signal: controllerB.signal,
+    headers: {
+      authorization: auth.authorization,
+      "x-proxy-tenant-id": "tenant_default",
+      "last-event-id": String(secondAppend.json?.event?.id ?? "")
+    }
+  });
+  assert.equal(filteredResponseB.status, 200);
+  assert.equal(filteredResponseB.headers.get("x-session-events-head-event-count"), "2");
+  assert.equal(filteredResponseB.headers.get("x-session-events-since-event-id"), secondAppend.json?.event?.id);
+  assert.equal(filteredResponseB.headers.get("x-session-events-next-since-event-id"), secondAppend.json?.event?.id);
+  assert.ok(filteredResponseB.body);
+
+  const streamB = createSseFrameReader(filteredResponseB.body);
+  const readyFrameB = await readSseFrame(streamB, { timeoutMs: 8_000 });
+  assert.equal(readyFrameB.event, "session.ready");
+  const readyPayloadB = JSON.parse(readyFrameB.dataLines.join("\n"));
+  assert.equal(readyPayloadB.sinceEventId, secondAppend.json?.event?.id);
+  assert.equal(readyPayloadB.inbox?.nextSinceEventId, secondAppend.json?.event?.id);
+
+  const thirdAppend = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_stream_4/events",
+    headers: {
+      "x-idempotency-key": "stream_session_4_append_3",
+      "x-proxy-expected-prev-chain-hash": String(secondAppend.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_COMPLETED",
+      payload: { outputRef: "artifact://stream/4" }
+    }
+  });
+  assert.equal(thirdAppend.statusCode, 201, thirdAppend.body);
+
+  const eventFrameB = await readSseFrame(streamB, { timeoutMs: 8_000 });
+  assert.equal(eventFrameB.event, "session.event");
+  assert.equal(eventFrameB.id, thirdAppend.json?.event?.id);
+  const streamedCompleted = JSON.parse(eventFrameB.dataLines.join("\n"));
+  assert.equal(streamedCompleted.id, thirdAppend.json?.event?.id);
+  assert.equal(streamedCompleted.type, "TASK_COMPLETED");
+
+  await closeSseStream(streamB, controllerB);
 });
 
 test("API e2e: /sessions/:id/events/stream fails closed on invalid cursor", async (t) => {

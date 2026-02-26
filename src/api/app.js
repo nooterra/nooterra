@@ -8502,6 +8502,33 @@ export function createApi({
     res.setHeader("x-session-events-next-since-event-id", String(inbox.nextSinceEventId ?? ""));
   }
 
+  function buildSessionEventStreamWatermarkPayload({
+    sessionId,
+    eventType = null,
+    phase = "stream_poll",
+    inbox = null,
+    lastDeliveredEventId = null
+  } = {}) {
+    const normalizedSessionId = typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId.trim() : null;
+    const normalizedEventType = typeof eventType === "string" && eventType.trim() !== "" ? eventType.trim().toUpperCase() : null;
+    const normalizedPhase = typeof phase === "string" && phase.trim() !== "" ? phase.trim() : "stream_poll";
+    const normalizedInbox =
+      inbox && typeof inbox === "object" && !Array.isArray(inbox)
+        ? normalizeForCanonicalJson(inbox, { path: "$.inbox" })
+        : buildSessionEventInboxWatermark({ events: [], sinceEventId: null, nextSinceEventId: null });
+    return normalizeForCanonicalJson(
+      {
+        ok: true,
+        sessionId: normalizedSessionId,
+        eventType: normalizedEventType,
+        phase: normalizedPhase,
+        lastDeliveredEventId: normalizeSessionInboxEventId(lastDeliveredEventId),
+        inbox: normalizedInbox
+      },
+      { path: "$.watermark" }
+    );
+  }
+
   function normalizeSessionEventAppendConflictHash(value) {
     if (value === null || value === undefined) return null;
     const normalized = String(value).trim();
@@ -48728,10 +48755,11 @@ export function createApi({
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
           let currentEvents = await getSessionEventRecords({ tenantId, sessionId });
           if (!Array.isArray(currentEvents)) currentEvents = [];
+          const readyNextSinceEventId = normalizeSessionInboxEventId(currentEvents[currentEvents.length - 1]?.id ?? sinceEventId);
           const readyInbox = buildSessionEventInboxWatermark({
             events: currentEvents,
             sinceEventId,
-            nextSinceEventId: sinceEventId
+            nextSinceEventId: readyNextSinceEventId
           });
           let cursorIndex = -1;
           if (sinceEventId) {
@@ -48792,6 +48820,8 @@ export function createApi({
           let lastResolvedCursor = cursorIndex;
           let pollTimer = null;
           let heartbeatTimer = null;
+          let lastDeliveredEventId = normalizeSessionInboxEventId(sinceEventId);
+          let lastWatermarkHeadEventId = normalizeSessionInboxEventId(readyInbox.nextSinceEventId);
 
           const closeStream = () => {
             if (closed) return;
@@ -48812,6 +48842,31 @@ export function createApi({
             pollTimer = setTimeout(() => {
               void pollAndFlush();
             }, delayMs);
+          };
+
+          const maybeEmitWatermark = ({ events, phase = "stream_poll" } = {}) => {
+            const safeEvents = Array.isArray(events) ? events : [];
+            const headEventId = normalizeSessionInboxEventId(safeEvents[safeEvents.length - 1]?.id ?? null);
+            if (headEventId === lastWatermarkHeadEventId) return;
+            const inbox = buildSessionEventInboxWatermark({
+              events: safeEvents,
+              sinceEventId,
+              nextSinceEventId: headEventId ?? sinceEventId
+            });
+            const normalizedLastDeliveredEventId = normalizeSessionInboxEventId(lastDeliveredEventId);
+            const watermarkEventId = normalizeSessionInboxEventId(inbox.nextSinceEventId);
+            writeSseEvent({
+              eventName: "session.watermark",
+              eventId: watermarkEventId && watermarkEventId !== normalizedLastDeliveredEventId ? watermarkEventId : null,
+              data: buildSessionEventStreamWatermarkPayload({
+                sessionId,
+                eventType,
+                phase,
+                inbox,
+                lastDeliveredEventId: normalizedLastDeliveredEventId
+              })
+            });
+            lastWatermarkHeadEventId = headEventId;
           };
 
           const pollAndFlush = async () => {
@@ -48858,14 +48913,17 @@ export function createApi({
               const nextRows = events.slice(startIndex);
               for (const row of nextRows) {
                 if (eventType && String(row?.type ?? "").toUpperCase() !== eventType) continue;
+                const rowId = normalizeSessionInboxEventId(row?.id ?? null);
                 writeSseEvent({
                   eventName: "session.event",
-                  eventId: row?.id ?? null,
+                  eventId: rowId,
                   data: row
                 });
+                if (rowId) lastDeliveredEventId = rowId;
               }
               lastResolvedCursor = events.length - 1;
             }
+            maybeEmitWatermark({ events, phase: "stream_poll" });
             schedulePoll(300);
           };
 

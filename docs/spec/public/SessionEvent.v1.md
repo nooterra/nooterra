@@ -55,9 +55,11 @@ Server-side append computes provenance with chain-aware taint propagation and de
 - append conflicts fail closed with deterministic details: `reasonCode=SESSION_EVENT_APPEND_CONFLICT`, `phase`, `expectedPrevChainHash`, `gotExpectedPrevChainHash`/`gotPrevChainHash`, and stream range metadata (`eventCount`, `firstEventId`, `lastEventId`).
 - inbox ordering is deterministic (`SESSION_SEQ_ASC`) across list and stream surfaces.
 - inbox resume watermarks are explicit for offline clients (`headEventCount`, `headFirstEventId`, `headLastEventId`, `sinceEventId`, `nextSinceEventId`).
+- stream `session.ready` watermark `nextSinceEventId` tracks current stream head (`headLastEventId`) for reconnect-safe resume cursor progression.
 - list cursor (`sinceEventId`) must resolve to an existing event id, else fail closed.
 - stream cursor (`sinceEventId` or `Last-Event-ID`) must resolve to an existing event id, else fail closed.
 - stream cursor source must be unambiguous: when both `sinceEventId` and `Last-Event-ID` are provided, they must match.
+- stream emits deterministic `session.watermark` frames when head advances so filtered/offline consumers can progress resume cursors without relying on matched `session.event` payloads.
 - cursor failures expose deterministic gap metadata in `details`: `reasonCode=SESSION_EVENT_CURSOR_NOT_FOUND`, `eventCount`, `firstEventId`, `lastEventId`, and `phase`.
 
 ## Inbox watermark headers
@@ -70,7 +72,7 @@ Server-side append computes provenance with chain-aware taint propagation and de
 - `x-session-events-since-event-id`
 - `x-session-events-next-since-event-id`
 
-`GET /sessions/:sessionId/events/stream` also includes the same watermark fields in the `session.ready` payload under `inbox`.
+`GET /sessions/:sessionId/events/stream` includes the same watermark fields in the `session.ready` payload under `inbox` and emits `session.watermark` updates (`phase`, `lastDeliveredEventId`, `inbox`) as head advances during long-poll churn.
 
 ## API surface
 
