@@ -48607,16 +48607,26 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid session event query", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
-          let sinceEventId = null;
+          let sinceEventIdFromQuery = null;
+          let sinceEventIdFromHeader = null;
           try {
-            sinceEventId = parseSessionEventCursor(
-              url.searchParams.get("sinceEventId") ??
-                (typeof req.headers["last-event-id"] === "string" ? req.headers["last-event-id"] : null),
-              { allowNull: true }
-            );
+            sinceEventIdFromQuery = parseSessionEventCursor(url.searchParams.get("sinceEventId"), { allowNull: true });
+            sinceEventIdFromHeader = parseSessionEventCursor(typeof req.headers["last-event-id"] === "string" ? req.headers["last-event-id"] : null, {
+              allowNull: true
+            });
           } catch (err) {
             return sendError(res, 400, "invalid session event query", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
+          if (sinceEventIdFromQuery && sinceEventIdFromHeader && sinceEventIdFromQuery !== sinceEventIdFromHeader) {
+            return sendError(
+              res,
+              409,
+              "ambiguous session event cursor",
+              { sessionId, sinceEventId: sinceEventIdFromQuery, lastEventId: sinceEventIdFromHeader },
+              { code: "SESSION_EVENT_CURSOR_CONFLICT" }
+            );
+          }
+          const sinceEventId = sinceEventIdFromQuery ?? sinceEventIdFromHeader;
           const session = await getSessionRecord({ tenantId, sessionId });
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
           let currentEvents = await getSessionEventRecords({ tenantId, sessionId });

@@ -195,3 +195,41 @@ test("API e2e: /sessions/:id/events/stream fails closed on invalid cursor", asyn
   assert.equal(res.status, 409);
   assert.equal(body.code, "SESSION_EVENT_CURSOR_INVALID");
 });
+
+test("API e2e: /sessions/:id/events/stream fails closed on conflicting cursor sources", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_stream_principal_3";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "stream_session_create_3" },
+    body: {
+      sessionId: "sess_stream_3",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const auth = api.__testAuthByTenant?.get?.("tenant_default") ?? null;
+  assert.ok(auth?.authorization, "test auth authorization is required");
+
+  const res = await fetch(`http://127.0.0.1:${port}/sessions/sess_stream_3/events/stream?sinceEventId=evt_query_cursor`, {
+    headers: {
+      authorization: auth.authorization,
+      "x-proxy-tenant-id": "tenant_default",
+      "last-event-id": "evt_header_cursor"
+    }
+  });
+  const body = await res.json();
+  assert.equal(res.status, 409);
+  assert.equal(body.code, "SESSION_EVENT_CURSOR_CONFLICT");
+});
