@@ -51,6 +51,19 @@ function readExpectedPrevChainHashFromConflict(response) {
   return typeof expectedPrev === "string" && expectedPrev.length > 0 ? expectedPrev : null;
 }
 
+function isAlreadyAdvancedTransition({ eventType, response }) {
+  if (!response || response.status !== 400) return false;
+  if (response?.json?.code !== "TRANSITION_ILLEGAL") return false;
+  const fromStatus = String(response?.json?.details?.fromStatus ?? "").toUpperCase();
+  if (eventType === "MATCHED") {
+    return ["RESERVED", "IN_PROGRESS", "COMPLETED", "SETTLED"].includes(fromStatus);
+  }
+  if (eventType === "RESERVED") {
+    return ["RESERVED", "IN_PROGRESS", "COMPLETED", "SETTLED"].includes(fromStatus);
+  }
+  return false;
+}
+
 async function main() {
   await waitFor(async () => {
     const r = await httpJson({ method: "GET", path: "/healthz" }).catch(() => null);
@@ -115,6 +128,15 @@ async function main() {
   const jobId = createJob.json.job.id;
   let lastChainHash = createJob.json.job.lastChainHash;
 
+  async function refreshJobChainHead() {
+    const r = await httpJson({ method: "GET", path: `/jobs/${jobId}`, headers: headersBase });
+    assert.equal(r.status, 200, r.text);
+    const nextLastChainHash = r?.json?.job?.lastChainHash ?? null;
+    if (typeof nextLastChainHash === "string" && nextLastChainHash.length > 0) {
+      lastChainHash = nextLastChainHash;
+    }
+  }
+
   const quote = await httpJson({
     method: "POST",
     path: `/jobs/${jobId}/quote`,
@@ -163,6 +185,10 @@ async function main() {
         lastChainHash = expectedPrevChainHash;
         attempt += 1;
         continue;
+      }
+      if (isAlreadyAdvancedTransition({ eventType: type, response: r })) {
+        await refreshJobChainHead();
+        return null;
       }
       assert.equal(r.status, 201, r.text);
     }
