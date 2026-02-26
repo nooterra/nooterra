@@ -6,6 +6,8 @@ import {
   evaluateGateVerdict,
   evaluateOpenclawSubstrateDemoLineageCheck,
   evaluateOpenclawSubstrateDemoTranscriptCheck,
+  evaluateSdkAcsSmokeJsCheck,
+  evaluateSdkAcsSmokePyCheck,
   parseArgs
 } from "../scripts/ci/run-production-cutover-gate.mjs";
 
@@ -126,4 +128,37 @@ test("production cutover gate: derives openclaw transcript check fail-closed whe
   assert.equal(evaluated.status, "failed");
   assert.equal(evaluated.exitCode, 1);
   assert.equal(evaluated.details?.sourceCheckId, "openclaw_substrate_demo_transcript_verified");
+});
+
+test("production cutover gate: derives SDK JS smoke check as pass from Settld Verified collaboration report", () => {
+  const evaluated = evaluateSdkAcsSmokeJsCheck(
+    {
+      checks: [
+        { id: "mcp_host_cert_matrix", ok: true },
+        {
+          id: "e2e_js_sdk_acs_substrate_smoke",
+          ok: true,
+          exitCode: 0,
+          command: "node --test test/api-sdk-acs-substrate-smoke.test.js"
+        }
+      ]
+    },
+    "artifacts/gates/settld-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "passed");
+  assert.equal(evaluated.exitCode, 0);
+  assert.equal(evaluated.details?.sourceCheckId, "e2e_js_sdk_acs_substrate_smoke");
+});
+
+test("production cutover gate: derives SDK PY smoke check fail-closed when source check is missing", () => {
+  const evaluated = evaluateSdkAcsSmokePyCheck(
+    {
+      checks: [{ id: "mcp_host_cert_matrix", ok: true }]
+    },
+    "artifacts/gates/settld-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "failed");
+  assert.equal(evaluated.exitCode, 1);
+  assert.match(String(evaluated.details?.message ?? ""), /missing source check/i);
+  assert.equal(evaluated.details?.sourceCheckId, "e2e_python_sdk_acs_substrate_smoke");
 });

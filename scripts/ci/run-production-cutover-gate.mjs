@@ -14,6 +14,10 @@ const DEFAULT_X402_HITL_SMOKE_REPORT_PATH = "artifacts/ops/x402-hitl-smoke.json"
 const DEFAULT_SETTLD_VERIFIED_COLLAB_REPORT_PATH = "artifacts/gates/settld-verified-collaboration-gate.json";
 const OPENCLAW_SUBSTRATE_DEMO_LINEAGE_CHECK_ID = "openclaw_substrate_demo_lineage_verified";
 const OPENCLAW_SUBSTRATE_DEMO_TRANSCRIPT_CHECK_ID = "openclaw_substrate_demo_transcript_verified";
+const SDK_ACS_SMOKE_JS_VERIFIED_CHECK_ID = "sdk_acs_smoke_js_verified";
+const SDK_ACS_SMOKE_PY_VERIFIED_CHECK_ID = "sdk_acs_smoke_py_verified";
+const SETTLD_VERIFIED_SDK_ACS_SMOKE_JS_SOURCE_CHECK_ID = "e2e_js_sdk_acs_substrate_smoke";
+const SETTLD_VERIFIED_SDK_ACS_SMOKE_PY_SOURCE_CHECK_ID = "e2e_python_sdk_acs_substrate_smoke";
 
 function usage() {
   return [
@@ -301,6 +305,13 @@ function evaluateOpenclawSubstrateDemoDerivedCheck(settldVerifiedReport, reportP
   };
 }
 
+function evaluateSettldVerifiedDerivedCheck(settldVerifiedReport, reportPath, { sourceCheckId, sourceCheckLabel }) {
+  return evaluateOpenclawSubstrateDemoDerivedCheck(settldVerifiedReport, reportPath, {
+    sourceCheckId,
+    sourceCheckLabel
+  });
+}
+
 export function evaluateOpenclawSubstrateDemoLineageCheck(settldVerifiedReport, reportPath) {
   return evaluateOpenclawSubstrateDemoDerivedCheck(settldVerifiedReport, reportPath, {
     sourceCheckId: OPENCLAW_SUBSTRATE_DEMO_LINEAGE_CHECK_ID,
@@ -312,6 +323,20 @@ export function evaluateOpenclawSubstrateDemoTranscriptCheck(settldVerifiedRepor
   return evaluateOpenclawSubstrateDemoDerivedCheck(settldVerifiedReport, reportPath, {
     sourceCheckId: OPENCLAW_SUBSTRATE_DEMO_TRANSCRIPT_CHECK_ID,
     sourceCheckLabel: "OpenClaw substrate demo transcript verification"
+  });
+}
+
+export function evaluateSdkAcsSmokeJsCheck(settldVerifiedReport, reportPath) {
+  return evaluateSettldVerifiedDerivedCheck(settldVerifiedReport, reportPath, {
+    sourceCheckId: SETTLD_VERIFIED_SDK_ACS_SMOKE_JS_SOURCE_CHECK_ID,
+    sourceCheckLabel: "Settld Verified JS SDK ACS substrate smoke"
+  });
+}
+
+export function evaluateSdkAcsSmokePyCheck(settldVerifiedReport, reportPath) {
+  return evaluateSettldVerifiedDerivedCheck(settldVerifiedReport, reportPath, {
+    sourceCheckId: SETTLD_VERIFIED_SDK_ACS_SMOKE_PY_SOURCE_CHECK_ID,
+    sourceCheckLabel: "Settld Verified Python SDK ACS substrate smoke"
   });
 }
 
@@ -357,6 +382,60 @@ async function runOpenclawSubstrateDemoTranscriptCheck({ reportPath }) {
     const raw = await readFile(reportPath, "utf8");
     const parsed = JSON.parse(raw);
     const evaluated = evaluateOpenclawSubstrateDemoTranscriptCheck(parsed, reportPath);
+    row.status = evaluated.status;
+    row.exitCode = evaluated.exitCode;
+    row.details = evaluated.details;
+  } catch (err) {
+    row.status = "failed";
+    row.exitCode = 1;
+    row.error = err?.message ?? String(err);
+  }
+  row.durationMs = Date.now() - startedAt;
+  return row;
+}
+
+async function runSdkAcsSmokeJsCheck({ reportPath }) {
+  const startedAt = Date.now();
+  const row = {
+    id: SDK_ACS_SMOKE_JS_VERIFIED_CHECK_ID,
+    label: "JS SDK ACS substrate smoke verification",
+    status: "failed",
+    exitCode: 1,
+    reportPath,
+    durationMs: 0,
+    command: ["derive", "settld_verified_collaboration", SETTLD_VERIFIED_SDK_ACS_SMOKE_JS_SOURCE_CHECK_ID]
+  };
+  try {
+    const raw = await readFile(reportPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const evaluated = evaluateSdkAcsSmokeJsCheck(parsed, reportPath);
+    row.status = evaluated.status;
+    row.exitCode = evaluated.exitCode;
+    row.details = evaluated.details;
+  } catch (err) {
+    row.status = "failed";
+    row.exitCode = 1;
+    row.error = err?.message ?? String(err);
+  }
+  row.durationMs = Date.now() - startedAt;
+  return row;
+}
+
+async function runSdkAcsSmokePyCheck({ reportPath }) {
+  const startedAt = Date.now();
+  const row = {
+    id: SDK_ACS_SMOKE_PY_VERIFIED_CHECK_ID,
+    label: "Python SDK ACS substrate smoke verification",
+    status: "failed",
+    exitCode: 1,
+    reportPath,
+    durationMs: 0,
+    command: ["derive", "settld_verified_collaboration", SETTLD_VERIFIED_SDK_ACS_SMOKE_PY_SOURCE_CHECK_ID]
+  };
+  try {
+    const raw = await readFile(reportPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const evaluated = evaluateSdkAcsSmokePyCheck(parsed, reportPath);
     row.status = evaluated.status;
     row.exitCode = evaluated.exitCode;
     row.details = evaluated.details;
@@ -553,6 +632,8 @@ export async function runProductionCutoverGate(args, env = process.env, cwd = pr
     );
     checks.push(await runOpenclawSubstrateDemoLineageCheck({ reportPath: settldVerifiedCollabReportPath }));
     checks.push(await runOpenclawSubstrateDemoTranscriptCheck({ reportPath: settldVerifiedCollabReportPath }));
+    checks.push(await runSdkAcsSmokeJsCheck({ reportPath: settldVerifiedCollabReportPath }));
+    checks.push(await runSdkAcsSmokePyCheck({ reportPath: settldVerifiedCollabReportPath }));
 
     checks.push(
       await runCheck({
@@ -599,6 +680,8 @@ export async function runProductionCutoverGate(args, env = process.env, cwd = pr
     );
     checks.push(await runOpenclawSubstrateDemoLineageCheck({ reportPath: settldVerifiedCollabReportPath }));
     checks.push(await runOpenclawSubstrateDemoTranscriptCheck({ reportPath: settldVerifiedCollabReportPath }));
+    checks.push(await runSdkAcsSmokeJsCheck({ reportPath: settldVerifiedCollabReportPath }));
+    checks.push(await runSdkAcsSmokePyCheck({ reportPath: settldVerifiedCollabReportPath }));
 
     checks.push(
       await runCheck({

@@ -8,7 +8,9 @@ const DEFAULT_INPUT_PATH = "artifacts/gates/production-cutover-gate.json";
 const DEFAULT_REQUIRED_CHECK_IDS = Object.freeze([
   "settld_verified_collaboration",
   "openclaw_substrate_demo_lineage_verified",
-  "openclaw_substrate_demo_transcript_verified"
+  "openclaw_substrate_demo_transcript_verified",
+  "sdk_acs_smoke_js_verified",
+  "sdk_acs_smoke_py_verified"
 ]);
 
 function usage() {
@@ -18,7 +20,7 @@ function usage() {
     "options:",
     "  --in <file>                  Production cutover gate report path (default: artifacts/gates/production-cutover-gate.json)",
     "  --json-out <file>            Optional JSON report output path",
-    "  --required-check <id>        Required check id (repeatable; defaults to collaboration + lineage + transcript)",
+    "  --required-check <id>        Required check id (repeatable; defaults to collaboration + lineage + transcript + SDK JS/PY smoke)",
     "  --help                       Show help"
   ].join("\n");
 }
