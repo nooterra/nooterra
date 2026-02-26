@@ -1,5 +1,9 @@
 # Nooterra ACS Master Build Program (Long-Horizon, Chunked)
 
+Status note (2026-02-26):
+1. Next-sprint execution layer is tracked in `docs/plans/2026-02-26-agent-internet-next-sprint-program.md`.
+2. Program-level Linear tracks: `NOO-218` through `NOO-222`.
+
 ## 1) Mission and Product Boundary
 Nooterra ACS is a host-agnostic trust and collaboration substrate for autonomous agents.
 
