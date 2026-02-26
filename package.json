@@ -90,6 +90,7 @@
     "mcp:probe": "node scripts/mcp/probe.mjs",
     "mcp:http": "node scripts/mcp/nooterra-mcp-http-gateway.mjs",
     "provider:conformance": "node scripts/provider/conformance-run.mjs",
+    "conformance:session:v1": "node conformance/session-v1/run.mjs --adapter-node-bin conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs",
     "provider:publish": "node scripts/provider/publish.mjs",
     "provider:keys:generate": "node scripts/provider/keys-generate.mjs",
     "governance:export": "node scripts/governance/export.mjs",

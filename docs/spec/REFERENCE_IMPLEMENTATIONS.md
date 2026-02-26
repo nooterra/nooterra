@@ -11,6 +11,11 @@ This repo contains multiple verifier implementations that are expected to agree 
 - Release authenticity CLI: `packages/artifact-verify/bin/nooterra-release.js`
 - Release conformance runner: `node conformance/v1/run-release.mjs --release-node-bin packages/artifact-verify/bin/nooterra-release.js`
 
+### Session replay/transcript adapter conformance (Node reference)
+
+- Adapter contract runner: `node conformance/session-v1/run.mjs --adapter-node-bin conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs`
+- This validates deterministic `SessionReplayPack.v1` + `SessionTranscript.v1` materialization/signing against fixed vectors and emits hash-bound cert bundles.
+
 ## Python
 
 - CLI: `reference/verifier-py/nooterra-verify-py`

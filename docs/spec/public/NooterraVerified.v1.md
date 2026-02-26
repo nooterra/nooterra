@@ -59,6 +59,7 @@ Suggested checks:
 - `node --test test/api-e2e-task-negotiation.test.js`
 - `node --test --test-name-pattern "traceId propagates quote->offer->acceptance->work-order->receipt->settlement|traceId mismatches fail closed across negotiation and work-order creation" test/api-e2e-task-negotiation.test.js`
 - `node --test --test-name-pattern "SessionReplayPack.v1 fails closed on tampered event chain" test/api-e2e-sessions.test.js`
+- `node conformance/session-v1/run.mjs --adapter-node-bin conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs`
 - `node --test test/api-e2e-ops-audit-lineage.test.js`
 - `node --test test/audit-lineage-verify-script.test.js`
 - `node --test --test-name-pattern "prompt risk" test/api-e2e-x402-delegation-grant.test.js`
