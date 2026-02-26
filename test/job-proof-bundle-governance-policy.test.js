@@ -66,7 +66,7 @@ test("JobProofBundle.v1 strict verification enforces governance/policy.json allo
   const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
   const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
   await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => {
       let governanceEvents = [];
       governanceEvents = appendChainedEvent({
@@ -159,7 +159,7 @@ test("JobProofBundle.v1 strict verification enforces governance/policy.json allo
     generatedAt
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-job-proof-policy-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-job-proof-policy-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 
@@ -187,7 +187,7 @@ test("JobProofBundle.v1 strict verification passes when governance/policy.json a
   const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
   const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
   await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => {
       let governanceEvents = [];
       governanceEvents = appendChainedEvent({
@@ -280,7 +280,7 @@ test("JobProofBundle.v1 strict verification passes when governance/policy.json a
     generatedAt
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-job-proof-policy-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-job-proof-policy-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 

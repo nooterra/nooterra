@@ -13,25 +13,25 @@ A closepack is a portable verification bundle proving settlement lineage without
 ## Export
 
 ```bash
-npx settld closepack export --agreement-hash <agreementHash> --out closepack.zip
+npx nooterra closepack export --agreement-hash <agreementHash> --out closepack.zip
 ```
 
 Repo checkout:
 
 ```bash
-./bin/settld.js closepack export --agreement-hash <agreementHash> --out closepack.zip
+./bin/nooterra.js closepack export --agreement-hash <agreementHash> --out closepack.zip
 ```
 
 ## Verify
 
 ```bash
-npx settld closepack verify closepack.zip --json-out /tmp/closepack-verify.json
+npx nooterra closepack verify closepack.zip --json-out /tmp/closepack-verify.json
 ```
 
 Repo checkout:
 
 ```bash
-./bin/settld.js closepack verify closepack.zip --json-out /tmp/closepack-verify.json
+./bin/nooterra.js closepack verify closepack.zip --json-out /tmp/closepack-verify.json
 ```
 
 ## Operational policy recommendation

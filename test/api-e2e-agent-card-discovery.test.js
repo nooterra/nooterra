@@ -134,7 +134,7 @@ async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, rea
     path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       status,
@@ -195,7 +195,7 @@ test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
       capabilities: ["code.generation"],
       visibility: "private",
       host: {
-        runtime: "codex"
+        runtime: "nooterra"
       }
     }
   });
@@ -239,6 +239,63 @@ test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
   });
   assert.equal(invalidCapability.statusCode, 400, invalidCapability.body);
   assert.equal(invalidCapability.json?.code, "SCHEMA_INVALID");
+});
+
+test("API e2e: agent-card discovery filters by executionCoordinatorDid", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  await registerAgent(api, { agentId: "agt_coord_alpha_1", capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: "agt_coord_bravo_1", capabilities: ["travel.booking"] });
+
+  const upsertAlpha = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_coord_alpha_1" },
+    body: {
+      agentId: "agt_coord_alpha_1",
+      displayName: "Coordinator Alpha Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      executionCoordinatorDid: "did:nooterra:coord_alpha",
+      host: { runtime: "openclaw" }
+    }
+  });
+  assert.equal(upsertAlpha.statusCode, 201, upsertAlpha.body);
+
+  const upsertBravo = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_coord_bravo_1" },
+    body: {
+      agentId: "agt_coord_bravo_1",
+      displayName: "Coordinator Bravo Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      executionCoordinatorDid: "did:nooterra:coord_bravo",
+      host: { runtime: "openclaw" }
+    }
+  });
+  assert.equal(upsertBravo.statusCode, 201, upsertBravo.body);
+
+  const discovered = await request(api, {
+    method: "GET",
+    path:
+      "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active" +
+      "&executionCoordinatorDid=did%3Anooterra%3Acoord_alpha&includeReputation=false&limit=10&offset=0"
+  });
+  assert.equal(discovered.statusCode, 200, discovered.body);
+  assert.equal(discovered.json?.results?.length, 1);
+  assert.equal(discovered.json?.results?.[0]?.agentCard?.agentId, "agt_coord_alpha_1");
+  assert.equal(discovered.json?.results?.[0]?.agentCard?.executionCoordinatorDid, "did:nooterra:coord_alpha");
+
+  const invalid = await request(api, {
+    method: "GET",
+    path:
+      "/public/agent-cards/discover?capability=travel.booking&visibility=public&status=active" +
+      "&executionCoordinatorDid=coord_alpha"
+  });
+  assert.equal(invalid.statusCode, 400, invalid.body);
+  assert.equal(invalid.json?.code, "SCHEMA_INVALID");
 });
 
 test("API e2e: /agent-cards/discover supports ToolDescriptor.v1 filters", async () => {

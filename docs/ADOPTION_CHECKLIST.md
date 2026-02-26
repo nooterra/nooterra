@@ -1,6 +1,6 @@
 # Adoption checklist (design partner ready)
 
-Use this as an operational checklist to adopt Settld verification in CI with audit-grade evidence retention.
+Use this as an operational checklist to adopt Nooterra verification in CI with audit-grade evidence retention.
 
 ## Verification posture
 

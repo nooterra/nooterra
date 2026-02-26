@@ -24,7 +24,7 @@ test("ToolCallAgreement.v1 + ToolCallEvidence.v1 schemas validate canonical shap
     }
   }
 
-  const validateAgreement = ajv.getSchema("https://settld.local/schemas/ToolCallAgreement.v1.schema.json");
+  const validateAgreement = ajv.getSchema("https://nooterra.local/schemas/ToolCallAgreement.v1.schema.json");
   assert.ok(validateAgreement);
 
   const agreement = {
@@ -43,7 +43,7 @@ test("ToolCallAgreement.v1 + ToolCallEvidence.v1 schemas validate canonical shap
 
   assert.equal(validateAgreement(agreement), true);
 
-  const validateEvidence = ajv.getSchema("https://settld.local/schemas/ToolCallEvidence.v1.schema.json");
+  const validateEvidence = ajv.getSchema("https://nooterra.local/schemas/ToolCallEvidence.v1.schema.json");
   assert.ok(validateEvidence);
 
   const evidence = {

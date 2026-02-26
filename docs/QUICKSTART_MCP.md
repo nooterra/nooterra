@@ -1,21 +1,21 @@
 # Quickstart: MCP (Stdio Spike)
 
-This quickstart connects an MCP-compatible agent/client to Settld using the Sprint 23 `stdio` MCP spike server.
+This quickstart connects an MCP-compatible agent/client to Nooterra using the Sprint 23 `stdio` MCP spike server.
 
-For host-specific setup (Claude, Cursor, Codex, OpenClaw), see `docs/QUICKSTART_MCP_HOSTS.md`.
+For host-specific setup (Claude, Cursor, Nooterra, OpenClaw), see `docs/QUICKSTART_MCP_HOSTS.md`.
 
 ## Prerequisites
 
 - Node.js 20.x (`nvm use` in repo root). Install is fail-fast if you use a different major.
-- A Settld API key with appropriate scopes (`keyId.secret` format)
-- Settld API reachable (local `npm run dev:api` or hosted)
+- A Nooterra API key with appropriate scopes (`keyId.secret` format)
+- Nooterra API reachable (local `npm run dev:api` or hosted)
 
 ## Fast Path (Recommended)
 
 Run guided setup first:
 
 ```bash
-npx -y settld setup
+npx -y nooterra setup
 ```
 
 Then run a smoke probe:
@@ -28,12 +28,12 @@ If you prefer to wire everything manually, use the fallback steps in `Run The MC
 
 ## One-Command Local Demo (Paid MCP Exa Flow)
 
-Boots local API + provider wrapper + x402 gateway, runs MCP `settld.exa_search_paid`, verifies signatures/tokens, and writes an artifact bundle.
+Boots local API + provider wrapper + x402 gateway, runs MCP `nooterra.exa_search_paid`, verifies signatures/tokens, and writes an artifact bundle.
 
 To scaffold your own paid tool server quickly:
 
 ```bash
-npx create-settld-paid-tool my-paid-tool
+npx create-nooterra-paid-tool my-paid-tool
 ```
 
 Run provider conformance/publish with machine-readable artifacts:
@@ -43,14 +43,14 @@ npm run provider:conformance -- \
   --manifest ./paid-tool-manifest.json \
   --base-url http://127.0.0.1:9402 \
   --api-url http://127.0.0.1:3000 \
-  --api-key "$SETTLD_API_KEY" \
+  --api-key "$NOOTERRA_API_KEY" \
   --json-out artifacts/provider-conformance.json
 
 npm run provider:publish -- \
   --manifest ./paid-tool-manifest.json \
   --base-url http://127.0.0.1:9402 \
   --api-url http://127.0.0.1:3000 \
-  --api-key "$SETTLD_API_KEY" \
+  --api-key "$NOOTERRA_API_KEY" \
   --json-out artifacts/provider-publication.json \
   --conformance-json-out artifacts/provider-conformance-from-publish.json
 ```
@@ -69,7 +69,7 @@ npm run demo:mcp-paid-llm
 Circle sandbox mode (real reserve path):
 
 ```bash
-SETTLD_DEMO_CIRCLE_MODE=sandbox \
+NOOTERRA_DEMO_CIRCLE_MODE=sandbox \
 X402_REQUIRE_EXTERNAL_RESERVE=1 \
 npm run demo:mcp-paid-exa -- --circle=sandbox
 ```
@@ -77,9 +77,9 @@ npm run demo:mcp-paid-exa -- --circle=sandbox
 Circle sandbox mode with batch settlement execution:
 
 ```bash
-SETTLD_DEMO_CIRCLE_MODE=sandbox \
-SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1 \
-SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID="$CIRCLE_WALLET_ID_ESCROW" \
+NOOTERRA_DEMO_CIRCLE_MODE=sandbox \
+NOOTERRA_DEMO_RUN_BATCH_SETTLEMENT=1 \
+NOOTERRA_DEMO_BATCH_PROVIDER_WALLET_ID="$CIRCLE_WALLET_ID_ESCROW" \
 X402_REQUIRE_EXTERNAL_RESERVE=1 \
 npm run demo:mcp-paid-exa -- --circle=sandbox
 ```
@@ -102,10 +102,10 @@ Artifact bundle includes:
 - `gate-state.json`
 - `reserve-state.json`
 - `provider-signature-verification.json`
-- `settld-pay-token-verification.json`
-- `batch-payout-registry.json` (when `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`)
-- `batch-worker-state.json` (when `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`)
-- `batch-settlement.json` (when `SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1`)
+- `nooterra-pay-token-verification.json`
+- `batch-payout-registry.json` (when `NOOTERRA_DEMO_RUN_BATCH_SETTLEMENT=1`)
+- `batch-worker-state.json` (when `NOOTERRA_DEMO_RUN_BATCH_SETTLEMENT=1`)
+- `batch-settlement.json` (when `NOOTERRA_DEMO_RUN_BATCH_SETTLEMENT=1`)
 
 ## First verified receipt (keep this artifact)
 
@@ -117,16 +117,16 @@ The demo exports receipts to:
 Convert the first exported receipt row into a standalone JSON file and verify it:
 
 ```bash
-jq -c 'first' <artifactDir>/x402-receipts.export.jsonl > /tmp/settld-first-receipt.json
-settld x402 receipt verify /tmp/settld-first-receipt.json --format json --json-out /tmp/settld-first-receipt.verify.json
+jq -c 'first' <artifactDir>/x402-receipts.export.jsonl > /tmp/nooterra-first-receipt.json
+nooterra x402 receipt verify /tmp/nooterra-first-receipt.json --format json --json-out /tmp/nooterra-first-receipt.verify.json
 ```
 
-Keep `/tmp/settld-first-receipt.verify.json` (or check in an equivalent artifact path in CI). This is the deterministic
+Keep `/tmp/nooterra-first-receipt.verify.json` (or check in an equivalent artifact path in CI). This is the deterministic
 proof packet for the first paid action.
 
 ## Authority + Pinning Notes
 
-- Authority enforcement in this flow is API key scope + tenant-bound policy checks at Settld API/gateway surfaces.
+- Authority enforcement in this flow is API key scope + tenant-bound policy checks at Nooterra API/gateway surfaces.
 - Replay-critical settlement policy pinning is captured in `SettlementDecisionRecord.v2` (`policyHashUsed`, `verificationMethodHashUsed`), so decisions remain auditable and deterministic.
 - Receipts and exports bind the paid call to decision + settlement artifacts:
   - `decisionId` (printed by demo and present in receipt data)
@@ -143,18 +143,18 @@ Reference specs:
 Primary path:
 
 ```bash
-settld setup
+nooterra setup
 npm run mcp:server
 ```
 
 Manual fallback (if you skip setup):
 
 ```bash
-export SETTLD_BASE_URL='https://api.settld.work'   # or http://127.0.0.1:3000
-export SETTLD_TENANT_ID='tenant_default'
-export SETTLD_API_KEY='sk_live_xxx.yyy'            # keyId.secret (do not commit)
-export SETTLD_PROTOCOL='1.0'                       # optional; server will try to auto-discover
-export SETTLD_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402' # optional; paid x402 tools
+export NOOTERRA_BASE_URL='https://api.nooterra.work'   # or http://127.0.0.1:3000
+export NOOTERRA_TENANT_ID='tenant_default'
+export NOOTERRA_API_KEY='sk_live_xxx.yyy'            # keyId.secret (do not commit)
+export NOOTERRA_PROTOCOL='1.0'                       # optional; server will try to auto-discover
+export NOOTERRA_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402' # optional; paid x402 tools
 ```
 
 Start the server:
@@ -201,14 +201,14 @@ npm run -s mcp:probe -- --x402-smoke
 
 This performs:
 
-1. `settld.x402_gate_create`
-2. `settld.x402_gate_verify` (auto-authorize enabled by default)
-3. `settld.x402_gate_get`
+1. `nooterra.x402_gate_create`
+2. `nooterra.x402_gate_verify` (auto-authorize enabled by default)
+3. `nooterra.x402_gate_get`
 
 You can override payloads from a JSON file:
 
 ```bash
-cat > /tmp/settld-mcp-x402-smoke.json <<'JSON'
+cat > /tmp/nooterra-mcp-x402-smoke.json <<'JSON'
 {
   "create": {
     "amountCents": 250,
@@ -221,7 +221,7 @@ cat > /tmp/settld-mcp-x402-smoke.json <<'JSON'
 }
 JSON
 
-npm run -s mcp:probe -- --x402-smoke --x402-smoke-file /tmp/settld-mcp-x402-smoke.json
+npm run -s mcp:probe -- --x402-smoke --x402-smoke-file /tmp/nooterra-mcp-x402-smoke.json
 ```
 
 ## Agreement Delegation Tools (create/list)
@@ -229,7 +229,7 @@ npm run -s mcp:probe -- --x402-smoke --x402-smoke-file /tmp/settld-mcp-x402-smok
 Create a delegation edge and list it via MCP:
 
 ```bash
-cat > /tmp/settld-mcp-delegation-create.json <<'JSON'
+cat > /tmp/nooterra-mcp-delegation-create.json <<'JSON'
 {
   "parentAgreementHash": "1111111111111111111111111111111111111111111111111111111111111111",
   "childAgreementHash": "2222222222222222222222222222222222222222222222222222222222222222",
@@ -240,29 +240,29 @@ cat > /tmp/settld-mcp-delegation-create.json <<'JSON'
 }
 JSON
 
-npm run -s mcp:probe -- --call-file settld.agreement_delegation_create /tmp/settld-mcp-delegation-create.json
-npm run -s mcp:probe -- --call settld.agreement_delegation_list '{"agreementHash":"1111111111111111111111111111111111111111111111111111111111111111","status":"active","limit":20,"offset":0}'
+npm run -s mcp:probe -- --call-file nooterra.agreement_delegation_create /tmp/nooterra-mcp-delegation-create.json
+npm run -s mcp:probe -- --call nooterra.agreement_delegation_list '{"agreementHash":"1111111111111111111111111111111111111111111111111111111111111111","status":"active","limit":20,"offset":0}'
 ```
 
-`settld.agreement_delegation_create` responses include `delegation.delegationHash` for deterministic orchestration and audit bindings.
+`nooterra.agreement_delegation_create` responses include `delegation.delegationHash` for deterministic orchestration and audit bindings.
 
 ## Live Call Without Shell-JSON Footguns
 
 If your terminal copy/paste keeps inserting line breaks, pass tool arguments via a JSON file:
 
 ```bash
-cat > /tmp/settld-mcp-create-agreement.json <<'JSON'
+cat > /tmp/nooterra-mcp-create-agreement.json <<'JSON'
 {"amountCents":500,"currency":"USD","title":"MCP live probe","capability":"agent-task:demo","disputeWindowDays":7}
 JSON
 
-npm run -s mcp:probe -- --call-file settld.create_agreement /tmp/settld-mcp-create-agreement.json
+npm run -s mcp:probe -- --call-file nooterra.create_agreement /tmp/nooterra-mcp-create-agreement.json
 ```
 
 Alternative that avoids paste issues entirely:
 
 ```bash
 jq -n '{amountCents:500,currency:"USD",title:"MCP live probe",capability:"agent-task:demo",disputeWindowDays:7}' \
-  > /tmp/settld-mcp-create-agreement.json
+  > /tmp/nooterra-mcp-create-agreement.json
 ```
 
 ## Tool Flow (Typical)
@@ -271,7 +271,7 @@ jq -n '{amountCents:500,currency:"USD",title:"MCP live probe",capability:"agent-
 
 Method: `tools/call`
 
-Tool: `settld.create_agreement`
+Tool: `nooterra.create_agreement`
 
 Arguments example:
 
@@ -287,7 +287,7 @@ Arguments example:
 
 2. Submit evidence for the run:
 
-Tool: `settld.submit_evidence`
+Tool: `nooterra.submit_evidence`
 
 ```json
 {
@@ -299,7 +299,7 @@ Tool: `settld.submit_evidence`
 
 3. Settle the run:
 
-Tool: `settld.settle_run`
+Tool: `nooterra.settle_run`
 
 ```json
 {
@@ -312,7 +312,7 @@ Tool: `settld.settle_run`
 
 4. Resolve the settlement (so it is no longer `locked`):
 
-Tool: `settld.resolve_settlement`
+Tool: `nooterra.resolve_settlement`
 
 ```json
 {
@@ -324,7 +324,7 @@ Tool: `settld.resolve_settlement`
 
 5. Open a dispute (only valid within the dispute window):
 
-Tool: `settld.open_dispute`
+Tool: `nooterra.open_dispute`
 
 ```json
 {
@@ -335,43 +335,43 @@ Tool: `settld.open_dispute`
 }
 ```
 
-## Paid Tool Flows (`settld.exa_search_paid`, `settld.weather_current_paid`)
+## Paid Tool Flows (`nooterra.exa_search_paid`, `nooterra.weather_current_paid`)
 
 Both paid tools exercise the same x402 path from MCP:
 
 1. First call returns `402` from the paid endpoint.
-2. MCP wrapper retries with `x-settld-gate-id`.
-3. Gateway returns `200` and `x-settld-*` verification/settlement headers.
+2. MCP wrapper retries with `x-nooterra-gate-id`.
+3. Gateway returns `200` and `x-nooterra-*` verification/settlement headers.
 
 Run the local paid upstream + gateway from `docs/QUICKSTART_X402_GATEWAY.md`, then invoke:
 
 ```bash
-cat > /tmp/settld-mcp-exa-search.json <<'JSON'
+cat > /tmp/nooterra-mcp-exa-search.json <<'JSON'
 {"query":"dentist near me chicago","numResults":3}
 JSON
 
-SETTLD_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402' \
-npm run -s mcp:probe -- --call-file settld.exa_search_paid /tmp/settld-mcp-exa-search.json
+NOOTERRA_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402' \
+npm run -s mcp:probe -- --call-file nooterra.exa_search_paid /tmp/nooterra-mcp-exa-search.json
 ```
 
 Exa call result includes:
 
 - `response`: Exa-style search body.
-- `headers`: captured `x-settld-*` verification/settlement headers.
+- `headers`: captured `x-nooterra-*` verification/settlement headers.
 
 Weather call example:
 
 ```bash
-cat > /tmp/settld-mcp-weather.json <<'JSON'
+cat > /tmp/nooterra-mcp-weather.json <<'JSON'
 {"city":"Chicago","unit":"f"}
 JSON
 
-SETTLD_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402' \
-npm run -s mcp:probe -- --call-file settld.weather_current_paid /tmp/settld-mcp-weather.json
+NOOTERRA_PAID_TOOLS_BASE_URL='http://127.0.0.1:8402' \
+npm run -s mcp:probe -- --call-file nooterra.weather_current_paid /tmp/nooterra-mcp-weather.json
 ```
 
 ## Notes
 
-- Writes require `x-settld-protocol`. The MCP server sets this automatically for write calls.
+- Writes require `x-nooterra-protocol`. The MCP server sets this automatically for write calls.
 - Run event appends require `x-proxy-expected-prev-chain-hash`. The MCP server fetches the current head and supplies it.
 - This is a spike (Sprint 23). Production hardening (SSE transport, rate limiting, etc.) is planned for Sprint 25.

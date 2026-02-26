@@ -104,7 +104,7 @@ const s3 = new S3Store({
   endpoint: cfg.s3.endpoint ?? "",
   region: cfg.s3.region ?? "",
   bucket: cfg.s3.bucket ?? "",
-  prefix: cfg.s3.prefix ?? "settld/",
+  prefix: cfg.s3.prefix ?? "nooterra/",
   accessKeyId: cfg.s3.accessKeyId ?? "",
   secretAccessKey: cfg.s3.secretAccessKey ?? "",
   forcePathStyle: cfg.s3.forcePathStyle !== false
@@ -163,7 +163,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true });
   }
 
-  if (method === "POST" && pathname === "/deliveries/settld") {
+  if (method === "POST" && pathname === "/deliveries/nooterra") {
     let body;
     try {
       body = await readJsonBody(req);

@@ -26,12 +26,12 @@ function parseJsonOrThrow(s, label) {
   }
 }
 
-test("settld-produce maps remote signer auth missing to SIGNER_AUTH_MISSING", async () => {
+test("nooterra-produce maps remote signer auth missing to SIGNER_AUTH_MISSING", async () => {
   const repoRoot = process.cwd();
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-produce-taxonomy-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-produce-taxonomy-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
 
-  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "settld-produce.js");
+  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "nooterra-produce.js");
   const res = await runNode([
     produceCli,
     "jobproof",
@@ -44,7 +44,7 @@ test("settld-produce maps remote signer auth missing to SIGNER_AUTH_MISSING", as
     "--signer-auth",
     "bearer",
     "--signer-token-env",
-    "SETTLD_SIGNER_TOKEN",
+    "NOOTERRA_SIGNER_TOKEN",
     "--gov-key-id",
     "key_gov",
     "--server-key-id",
@@ -64,12 +64,12 @@ test("settld-produce maps remote signer auth missing to SIGNER_AUTH_MISSING", as
   assert.equal(out.errors[0].message, "remote signer auth configured but token missing");
 });
 
-test("settld-produce maps remote signer command bad response to SIGNER_BAD_RESPONSE", async () => {
+test("nooterra-produce maps remote signer command bad response to SIGNER_BAD_RESPONSE", async () => {
   const repoRoot = process.cwd();
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-produce-taxonomy-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-produce-taxonomy-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
 
-  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "settld-produce.js");
+  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "nooterra-produce.js");
   const argsJson = JSON.stringify(["-e", ""]);
   const res = await runNode([
     produceCli,
@@ -100,12 +100,12 @@ test("settld-produce maps remote signer command bad response to SIGNER_BAD_RESPO
   assert.equal(out.errors[0].causeCode, "REMOTE_SIGNER_KEY_MISMATCH");
 });
 
-test("settld-produce maps plugin load failure to SIGNER_PLUGIN_LOAD_FAILED", async () => {
+test("nooterra-produce maps plugin load failure to SIGNER_PLUGIN_LOAD_FAILED", async () => {
   const repoRoot = process.cwd();
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-produce-taxonomy-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-produce-taxonomy-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
 
-  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "settld-produce.js");
+  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "nooterra-produce.js");
   const res = await runNode([
     produceCli,
     "jobproof",
@@ -133,14 +133,14 @@ test("settld-produce maps plugin load failure to SIGNER_PLUGIN_LOAD_FAILED", asy
   assert.equal(out.errors[0].causeCode, "SIGNER_PLUGIN_LOAD_FAILED");
 });
 
-test("settld-produce never leaks bearer tokens or header values in stdout/stderr on signer failure", async () => {
+test("nooterra-produce never leaks bearer tokens or header values in stdout/stderr on signer failure", async () => {
   const repoRoot = process.cwd();
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-produce-taxonomy-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-produce-taxonomy-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
 
   const token = "SENTINEL_TOKEN_DO_NOT_LEAK";
   const headerSecret = "SENTINEL_HEADER_DO_NOT_LEAK";
-  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "settld-produce.js");
+  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "nooterra-produce.js");
   const res = await runNode(
     [
       produceCli,
@@ -154,7 +154,7 @@ test("settld-produce never leaks bearer tokens or header values in stdout/stderr
       "--signer-auth",
       "bearer",
       "--signer-token-env",
-      "SETTLD_SIGNER_TOKEN",
+      "NOOTERRA_SIGNER_TOKEN",
       "--signer-header",
       `X-Secret: ${headerSecret}`,
       "--gov-key-id",
@@ -166,7 +166,7 @@ test("settld-produce never leaks bearer tokens or header values in stdout/stderr
       "--deterministic",
       "--force"
     ],
-    { env: { SETTLD_SIGNER_TOKEN: token } }
+    { env: { NOOTERRA_SIGNER_TOKEN: token } }
   );
 
   assert.notEqual(res.code, 0, res.stderr || res.stdout);
@@ -176,13 +176,13 @@ test("settld-produce never leaks bearer tokens or header values in stdout/stderr
   assert.equal(res.stderr.includes(headerSecret), false);
 });
 
-test("settld-produce --format json does not emit arbitrary exception messages", async () => {
+test("nooterra-produce --format json does not emit arbitrary exception messages", async () => {
   const repoRoot = process.cwd();
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-produce-taxonomy-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-produce-taxonomy-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
 
   const keypairsPath = path.resolve(repoRoot, "test", "fixtures", "keys", "fixture_keypairs.json");
-  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "settld-produce.js");
+  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "nooterra-produce.js");
   const res = await runNode([
     produceCli,
     "jobproof",

@@ -12,7 +12,7 @@ function money(n) {
 }
 
 function pillClass(ok) {
-  return ok ? "bg-settld-success/10 text-settld-success border-settld-success/20" : "bg-settld-warning/10 text-settld-warning border-settld-warning/20";
+  return ok ? "bg-nooterra-success/10 text-nooterra-success border-nooterra-success/20" : "bg-nooterra-warning/10 text-nooterra-warning border-nooterra-warning/20";
 }
 
 export default function CommandCenter({ scenarioId, setScenarioId, scenarios, onExit }) {
@@ -33,8 +33,8 @@ export default function CommandCenter({ scenarioId, setScenarioId, scenarios, on
   }, [onExit]);
 
   const headerTitle = useMemo(() => {
-    if (scenarioId === "finance") return "SETTLD_NET // FINANCE_PACK";
-    return "SETTLD_NET // LIVE_SHADOW";
+    if (scenarioId === "finance") return "NOOTERRA_NET // FINANCE_PACK";
+    return "NOOTERRA_NET // LIVE_SHADOW";
   }, [scenarioId]);
 
   // Arm spotlight after initial load to guarantee the “killer moment”.

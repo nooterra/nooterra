@@ -42,7 +42,7 @@ async function assertSameFile(expectedPath, actualPath, label) {
 test("bundle fixture generator output matches committed fixtures", async () => {
   const repoRoot = process.cwd();
   const committedRoot = path.resolve(repoRoot, "test", "fixtures", "bundles", "v1");
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-fixtures-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-fixtures-"));
 
   try {
     const script = path.resolve(repoRoot, "scripts", "fixtures", "generate-bundle-fixtures.mjs");

@@ -64,7 +64,7 @@ async function makeRunFixture({ rootDir, strictOk }) {
 }
 
 test("x402 receipt sample check passes when non-strict and strict checks pass", async () => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-x402-receipt-sample-check-pass-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-x402-receipt-sample-check-pass-"));
   const artifactRoot = path.join(tmpRoot, "artifacts", "mcp-paid-exa");
   await makeRunFixture({ rootDir: artifactRoot, strictOk: true });
   const outPath = path.join(tmpRoot, "artifacts", "ops", "x402-receipt-sample-check.json");
@@ -84,7 +84,7 @@ test("x402 receipt sample check passes when non-strict and strict checks pass", 
 });
 
 test("x402 receipt sample check fails when strict mode is required but strict verify fails", async () => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-x402-receipt-sample-check-fail-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-x402-receipt-sample-check-fail-"));
   const artifactRoot = path.join(tmpRoot, "artifacts", "mcp-paid-exa");
   await makeRunFixture({ rootDir: artifactRoot, strictOk: false });
   const outPath = path.join(tmpRoot, "artifacts", "ops", "x402-receipt-sample-check.json");

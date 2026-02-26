@@ -1,6 +1,6 @@
-# Release Checklist (v1.0.0+)
+# Release Checklist
 
-This checklist is the “no surprises” gate for shipping Settld as a product (not just a repo).
+This checklist is the “no surprises” gate for shipping Nooterra as a product (not just a repo).
 
 ## Preconditions
 
@@ -15,14 +15,14 @@ This checklist is the “no surprises” gate for shipping Settld as a product (
 - Public package smoke for OpenClaw onboarding is green:
   - `npm run test:ci:public-openclaw-npx-smoke`
 - `CHANGELOG.md` is updated and accurate.
-- Protocol v1 freeze gate is satisfied (no accidental v1 schema/vector drift).
+- Protocol freeze gate is satisfied (no accidental schema/vector drift).
 - Minimum production topology is defined for the target environment:
   - `docs/ops/MINIMUM_PRODUCTION_TOPOLOGY.md`
 - Production deployment checklist is prepared for this release:
   - `docs/ops/PRODUCTION_DEPLOYMENT_CHECKLIST.md`
 - Staging billing smoke secrets are configured for `.github/workflows/release.yml`:
-  - `SETTLD_STAGING_BASE_URL`
-  - `SETTLD_STAGING_OPS_TOKEN`
+  - `NOOTERRA_STAGING_BASE_URL`
+  - `NOOTERRA_STAGING_OPS_TOKEN`
 - npm publish secret is configured for `.github/workflows/release.yml` if you want direct registry distribution:
   - `NPM_TOKEN`
 - Optional launch cutover packet signing inputs are configured for `.github/workflows/go-live-gate.yml` if signed packets are required:
@@ -34,14 +34,14 @@ This checklist is the “no surprises” gate for shipping Settld as a product (
 
 ## Required release artifacts
 
-For a v1 freeze release, the GitHub Release MUST include:
+For a protocol freeze release, the GitHub Release MUST include:
 
 - npm tarballs (`*.tgz`) + `npm-SHA256SUMS`
-  - includes `settld-*.tgz` (CLI distribution for `npx --package ... settld ...`)
-  - optional registry publish lane (if `NPM_TOKEN` present) publishes `settld`, `settld-api-sdk`, `@settld/provider-kit`, and `create-settld-paid-tool`
+  - includes `nooterra-*.tgz` (CLI distribution for `npx --package ... nooterra ...`)
+  - optional registry publish lane (if `NPM_TOKEN` present) publishes `nooterra`, `nooterra-api-sdk`, `@nooterra/provider-kit`, and `create-nooterra-paid-tool`
 - Python distributions (`*.whl`, `*.tar.gz`) + `python-SHA256SUMS`
 - `conformance-v1.tar.gz` + `conformance-v1-SHA256SUMS`
-- `settld-audit-packet-v1.zip` + `settld-audit-packet-v1.zip.sha256`
+- `nooterra-audit-packet-v1.zip` + `nooterra-audit-packet-v1.zip.sha256`
 - `release_index_v1.json` + `release_index_v1.sig` (signed release manifest)
 - `release-promotion-guard.json` (NOO-65 promotion guard report)
 
@@ -51,16 +51,16 @@ Release-gate evidence should also include:
 - `billing-smoke-status.json`
 - `npm-postpublish-smoke-<version>` artifact (when `NPM_TOKEN` is configured), containing:
   - `provider-kit-npm-view-version.txt`
-  - `create-settld-paid-tool-npm-view-version.txt`
-  - `settld-npx-version.txt`
-  - `settld-kernel-cases.txt`
-  - `settld-help.txt`
-  - `create-settld-paid-tool-help.txt`
+  - `create-nooterra-paid-tool-npm-view-version.txt`
+  - `nooterra-npx-version.txt`
+  - `nooterra-kernel-cases.txt`
+  - `nooterra-help.txt`
+  - `create-nooterra-paid-tool-help.txt`
   - `npm-postpublish-smoke.json`
 - `artifacts/throughput/10x-drill-summary.json`
 - `artifacts/gates/s13-go-live-gate.json`
 - `artifacts/gates/s13-launch-cutover-packet.json`
-- `artifacts/gates/settld-verified-collaboration-gate.json`
+- `artifacts/gates/nooterra-verified-collaboration-gate.json`
 - when signing is configured, packet includes `signature` with `schemaVersion=LaunchCutoverPacketSignature.v1`
 - `artifacts/gates/production-cutover-gate.json`
 - `artifacts/gates/offline-verification-parity-gate.json` (NOO-50)
@@ -81,7 +81,7 @@ node scripts/release/build-artifacts.mjs --out dist/release-artifacts
 If you want to produce a locally-signed `ReleaseIndex.v1` too, provide a release signing key:
 
 ```sh
-export SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM="$(cat /path/to/release_ed25519_private_key.pem)"
+export NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM="$(cat /path/to/release_ed25519_private_key.pem)"
 node scripts/release/build-artifacts.mjs --out dist/release-artifacts --sign-release-index
 ```
 
@@ -95,7 +95,7 @@ Validate conformance from the produced artifacts:
 
 ```sh
 (cd dist/release-artifacts && tar -xzf conformance-v1.tar.gz)
-node conformance-v1/run.mjs --node-bin packages/artifact-verify/bin/settld-verify.js
+node conformance-v1/run.mjs --node-bin packages/artifact-verify/bin/nooterra-verify.js
 ```
 
 Validate release assets (checksums + archive contents):
@@ -113,7 +113,7 @@ node scripts/release/verify-release.mjs --dir dist/release-artifacts --format js
 Preferred operator CLI (same contract, packaged):
 
 ```sh
-node packages/artifact-verify/bin/settld-release.js verify --dir dist/release-artifacts --trust-file trust/release-trust.json --format json --explain
+node packages/artifact-verify/bin/nooterra-release.js verify --dir dist/release-artifacts --trust-file trust/release-trust.json --format json --explain
 ```
 
 ## Release candidates
@@ -173,13 +173,13 @@ Promotion guard order (fail-closed):
 
 1. NOO-50 parity gate report is generated on main (`artifacts/gates/offline-verification-parity-gate.json`).
 2. S13 go-live workflow report set is generated for the same release commit (`s13-go-live-gate.json` + `s13-launch-cutover-packet.json`).
-3. Launch cutover packet must bind `sources.settldVerifiedCollaborationGateReportSha256` to the exact hash of
-   `sources.settldVerifiedCollaborationGateReportPath`.
-   - Packet must include `requiredCutoverChecks` (`ProductionCutoverRequiredChecksSummary.v1`) with pass/fail status for the 5 required production cutover checks.
+3. Launch cutover packet must bind `sources.nooterraVerifiedCollaborationGateReportSha256` to the exact hash of
+   `sources.nooterraVerifiedCollaborationGateReportPath`.
+   - Packet must include `requiredCutoverChecks` (`ProductionCutoverRequiredChecksSummary.v1`) with pass/fail status for the 6 required production cutover checks.
    - NOO-65 promotion guard must verify `requiredCutoverChecks` status parity against `production-cutover-gate` required check statuses and fail-closed on mismatch.
 4. NOO-65 promotion guard validates the launch-packet-to-collaboration binding and fail-closes on mismatch.
 5. Release workflow binds all required gate artifacts (kernel, production cutover, NOO-50 parity, onboarding host success, S13 go-live, S13 launch packet, hosted baseline evidence) into NOO-65.
-   - Production cutover must include `settld_verified_collaboration`, `openclaw_substrate_demo_lineage_verified`, `openclaw_substrate_demo_transcript_verified`, `sdk_acs_smoke_js_verified`, and `sdk_acs_smoke_py_verified` as passed checks.
+   - Production cutover must include `nooterra_verified_collaboration`, `openclaw_substrate_demo_lineage_verified`, `openclaw_substrate_demo_transcript_verified`, `checkpoint_grant_binding_verified`, `sdk_acs_smoke_js_verified`, `sdk_acs_smoke_py_verified`, and `sdk_python_contract_freeze_verified` as passed checks.
 6. Release workflow must emit `artifacts/gates/release-promotion-guard.json` with `verdict.ok=true` before artifact publish jobs execute.
 7. Release workflow must emit `artifacts/gates/release-cutover-audit-view.json` (`ReleaseCutoverAuditView.v1`) as the single merged verifier over production cutover gate, required-check assertion, and launch packet required-cutover summary.
 

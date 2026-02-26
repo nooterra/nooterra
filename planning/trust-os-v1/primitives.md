@@ -1,12 +1,12 @@
-# Trust OS v1 Primitive Spec
+# Trust OS Primitive Spec
 
-Status: Draft v1.0 (planning baseline)
+Status: Draft (planning baseline)
 Owner: Trust Kernel Team
 Last Updated: 2026-02-21
 
 ## 1) Objective
 
-Define the minimum complete primitive layer required for Settld to operate as an enforceable, auditable, reversible control plane for autonomous economic action across hosts and payment rails.
+Define the minimum complete primitive layer required for Nooterra to operate as an enforceable, auditable, reversible control plane for autonomous economic action across hosts and payment rails.
 
 This doc is implementation-facing. Each primitive here is expected to map to:
 
@@ -16,7 +16,7 @@ This doc is implementation-facing. Each primitive here is expected to map to:
 
 ## 2) Global Protocol Contract
 
-These rules apply to all primitives in Trust OS v1.
+These rules apply to all primitives in Trust OS.
 
 1. Canonical JSON: RFC 8785 JCS.
 2. Hashing: `sha256` lowercase hex over canonical UTF-8 bytes unless object spec states raw-bytes mode.
@@ -58,11 +58,11 @@ export type MoneyMinor = {
 };
 ```
 
-## 4) Primitive Catalog (v1 Required)
+## 4) Primitive Catalog (Current Required)
 
 ## 4.1 Identity + Authority
 
-### `DelegationGrant.v1` (existing)
+### `DelegationGrant` (existing)
 
 Purpose: Principal -> agent delegated authority envelope.
 
@@ -73,7 +73,7 @@ Required semantics:
 - revocation compatibility
 - delegation chain integrity
 
-### `AgentIdentity.v1` / `AgentPassport.v1` (existing)
+### `AgentIdentity` / `AgentPassport` (existing)
 
 Purpose: Portable identity anchors and delegation root.
 
@@ -85,7 +85,7 @@ Required semantics:
 
 ## 4.2 Execution Authorization
 
-### `ExecutionIntent.v1` (existing)
+### `ExecutionIntent` (existing)
 
 Purpose: immutable pre-execution target object for request fingerprint, risk profile, policy binding, spend bounds, replay context.
 
@@ -95,13 +95,13 @@ Trust OS runtime must enforce:
 - nonce + idempotency replay guards
 - expiration checks before any side-effecting call
 
-### `PolicyDecision.v1` (new)
+### `PolicyDecision` (new)
 
 Purpose: deterministic outcome receipt emitted by policy runtime.
 
 Required fields:
 
-- `schemaVersion` (`PolicyDecision.v1`)
+- `schemaVersion` (`PolicyDecision`)
 - `decisionId`, `tenantId`, `intentHash`
 - `decision` (`ALLOW|CHALLENGE|DENY|ESCALATE`)
 - `reasonCodes[]` (closed set)
@@ -116,11 +116,11 @@ Minimum invariant:
 
 ## 4.3 Economic Agreement + Evidence
 
-### `ToolCallAgreement.v1` (existing)
+### `ToolCallAgreement` (existing)
 
 Purpose: economic/contract surface for call terms.
 
-### `ToolCallEvidence.v1` (existing)
+### `ToolCallEvidence` (existing)
 
 Purpose: binds output hash to agreement hash.
 
@@ -128,17 +128,17 @@ Required invariant:
 
 - no settlement action without verifiable agreement/evidence linkage
 
-### `FundingHold.v1` (existing)
+### `FundingHold` (existing)
 
 Purpose: holdback/challenge window control for pre-finality funds.
 
 ## 4.4 Settlement + Finality
 
-### `SettlementDecisionRecord.v2` (existing)
+### `SettlementDecisionRecord` (existing)
 
 Purpose: replay-critical settlement decision with policy pinning.
 
-### `SettlementReceipt.v1` (existing)
+### `SettlementReceipt` (existing)
 
 Purpose: finality receipt bound to decision hash.
 
@@ -150,15 +150,15 @@ Required invariants:
 
 ## 4.5 Dispute + Recourse
 
-### `DisputeOpenEnvelope.v1` (existing)
+### `DisputeOpenEnvelope` (existing)
 
 Purpose: signed dispute opening bound to hold/receipt/agreement references.
 
-### `ArbitrationCase.v1` (existing)
+### `ArbitrationCase` (existing)
 
 Purpose: formal dispute lifecycle state machine.
 
-### `ArbitrationVerdict.v1` (existing)
+### `ArbitrationVerdict` (existing)
 
 Purpose: adjudication result linked to case/appeal chain.
 
@@ -168,7 +168,7 @@ Required invariant:
 
 ## 4.6 Human Governance + Emergency Controls
 
-### `OperatorAction.v1` (new)
+### `OperatorAction` (new)
 
 Purpose: signed HITL decisions for challenge/escalation handling.
 
@@ -179,7 +179,7 @@ Required fields:
 - justification code and actor metadata
 - signature + timestamp
 
-### `EmergencyControlEvent.v1` (new)
+### `EmergencyControlEvent` (new)
 
 Purpose: signed emergency containment operations.
 
@@ -199,11 +199,11 @@ Required behavior:
 
 ## 4.7 Verification + Portability
 
-### `EvidenceIndex.v1` (existing)
+### `EvidenceIndex` (existing)
 
 Purpose: deterministic evidence manifest and hash references.
 
-### `VerificationReport.v1` (existing)
+### `VerificationReport` (existing)
 
 Purpose: machine-ingestible signed verification result and warnings/errors.
 
@@ -212,25 +212,25 @@ Required behavior:
 - offline verification parity in CI and release flows
 - strict-mode fail closed on critical invariant violations
 
-## 5) Primitive Catalog (v1.1 Next)
+## 5) Primitive Catalog (next iteration Next)
 
-### `SubAgentWorkOrder.v1` (new)
+### `SubAgentWorkOrder` (new)
 
 Purpose: parent agent delegates bounded paid work to sub-agent.
 
-### `SubAgentCompletionReceipt.v1` (new)
+### `SubAgentCompletionReceipt` (new)
 
 Purpose: sub-agent completion proof bound to work order + parent intent.
 
-### `PolicyProfile.v1` (new)
+### `PolicyProfile` (new)
 
 Purpose: reusable policy/risk/spend templates with stable fingerprints.
 
-### `RailAdapterConformanceResult.v1` (new)
+### `RailAdapterConformanceResult` (new)
 
 Purpose: deterministic rail adapter pass/fail + coverage artifact for release gates.
 
-### `CounterpartyAttestation.v1` (new)
+### `CounterpartyAttestation` (new)
 
 Purpose: machine-verifiable reliability/compliance facts for vendor/sub-agent selection.
 
@@ -327,10 +327,10 @@ Rules:
 
 1. Canonical reason code namespace split (`POLICY_*`, `RISK_*`, `BUDGET_*`, `OPS_*`).
 2. Required quorum model for sensitive operator overrides.
-3. Standardized sub-agent liability mapping format for v1.1.
+3. Standardized sub-agent liability mapping format for next iteration.
 4. Time source hardening strategy for cross-region deterministic expiry checks.
 
-## 11) Exit Criteria for Trust OS v1 Primitive Layer
+## 11) Exit Criteria for Trust OS Primitive Layer
 
 1. All v1 required primitives have stable schema docs + runtime enforcement.
 2. Invariant test suite passes in CI and pre-release gates.

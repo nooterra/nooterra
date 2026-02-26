@@ -1,7 +1,7 @@
 # PM Sub-Agent Charter
 
 ## Purpose
-Own product planning and delivery orchestration for Settld so autonomous-economy transaction rails ship against business outcomes while preserving deterministic protocol guarantees.
+Own product planning and delivery orchestration for Nooterra so autonomous-economy transaction rails ship against business outcomes while preserving deterministic protocol guarantees.
 
 ## Accountabilities
 - Translate strategy into scoped, sequenced sprint plans with clear acceptance criteria.

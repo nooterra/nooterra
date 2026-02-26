@@ -11,7 +11,7 @@ import { authKeyId, authKeySecret, hashAuthKeySecret } from "../src/core/auth.js
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { createEd25519Keypair, keyIdFromPublicKeyPem, sha256Hex } from "../src/core/crypto.js";
 import { buildToolProviderQuotePayloadV1, signToolProviderQuoteSignatureV1 } from "../src/core/provider-quote-signature.js";
-import { computeSettldPayRequestBindingSha256V1, parseSettldPayTokenV1 } from "../src/core/settld-pay-token.js";
+import { computeNooterraPayRequestBindingSha256V1, parseNooterraPayTokenV1 } from "../src/core/nooterra-pay-token.js";
 import { signToolProviderSignatureV1 } from "../src/core/tool-provider-signature.js";
 import { listenOnEphemeralLoopback } from "./lib/listen.js";
 
@@ -57,7 +57,7 @@ async function apiJson(url, { method = "GET", apiKey, tenantId = DEFAULT_TENANT_
   };
   if (body !== null && body !== undefined) {
     requestHeaders["content-type"] = "application/json; charset=utf-8";
-    requestHeaders["x-settld-protocol"] = "1.0";
+    requestHeaders["x-nooterra-protocol"] = "1.0";
   }
   const res = await fetch(url, {
     method,
@@ -111,11 +111,11 @@ function buildProviderJwks(publicKeyPem) {
   };
 }
 
-test("x402 gateway: retries with SettldPay token and returns verified response", async (t) => {
+test("x402 gateway: retries with NooterraPay token and returns verified response", async (t) => {
   const upstreamRequests = [];
   const upstream = http.createServer((req, res) => {
     const authHeader = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
-    const hasSettldPay = authHeader.toLowerCase().startsWith("settldpay ");
+    const hasNooterraPay = authHeader.toLowerCase().startsWith("nooterrapay ");
     const paymentHeader = typeof req.headers["x-payment"] === "string" ? req.headers["x-payment"] : null;
     upstreamRequests.push({
       method: req.method,
@@ -123,7 +123,7 @@ test("x402 gateway: retries with SettldPay token and returns verified response",
       authorization: authHeader,
       xPayment: paymentHeader
     });
-    if (!hasSettldPay) {
+    if (!hasNooterraPay) {
       res.writeHead(402, {
         "content-type": "application/json; charset=utf-8",
         "x-payment-required":
@@ -152,8 +152,8 @@ test("x402 gateway: retries with SettldPay token and returns verified response",
       ...process.env,
       PORT: String(gatewayPort),
       BIND_HOST: "127.0.0.1",
-      SETTLD_API_URL: apiBase,
-      SETTLD_API_KEY: apiKey,
+      NOOTERRA_API_URL: apiBase,
+      NOOTERRA_API_KEY: apiKey,
       UPSTREAM_URL: upstreamBase,
       X402_AUTOFUND: "1"
     }
@@ -184,33 +184,33 @@ test("x402 gateway: retries with SettldPay token and returns verified response",
 
   const first = await fetch(`${gatewayBase}/tools/search?q=dentist`);
   assert.equal(first.status, 402);
-  const gateId = first.headers.get("x-settld-gate-id");
+  const gateId = first.headers.get("x-nooterra-gate-id");
   assert.ok(gateId && gateId.trim() !== "");
 
   const second = await fetch(`${gatewayBase}/tools/search?q=dentist`, {
     headers: {
-      "x-settld-gate-id": gateId
+      "x-nooterra-gate-id": gateId
     }
   });
   const secondText = await second.text();
   assert.equal(second.status, 200, `unexpected second status=${second.status} body=${secondText} requests=${JSON.stringify(upstreamRequests)}`);
   const secondJson = JSON.parse(secondText);
   assert.equal(secondJson.ok, true);
-  assert.equal(second.headers.get("x-settld-settlement-status"), "released");
-  assert.equal(second.headers.get("x-settld-verification-status"), "green");
-  assert.equal(second.headers.get("x-settld-policy-decision"), "allow");
-  assert.match(String(second.headers.get("x-settld-policy-hash") ?? ""), /^[0-9a-f]{64}$/);
-  assert.equal(second.headers.get("x-settld-policy-version"), "1");
-  assert.match(String(second.headers.get("x-settld-decision-id") ?? ""), /^dec_/);
-  assert.ok(String(second.headers.get("x-settld-reason-code") ?? "").length > 0);
+  assert.equal(second.headers.get("x-nooterra-settlement-status"), "released");
+  assert.equal(second.headers.get("x-nooterra-verification-status"), "green");
+  assert.equal(second.headers.get("x-nooterra-policy-decision"), "allow");
+  assert.match(String(second.headers.get("x-nooterra-policy-hash") ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(second.headers.get("x-nooterra-policy-version"), "1");
+  assert.match(String(second.headers.get("x-nooterra-decision-id") ?? ""), /^dec_/);
+  assert.ok(String(second.headers.get("x-nooterra-reason-code") ?? "").length > 0);
 
   assert.equal(upstreamRequests.length >= 2, true);
-  const paidCall = upstreamRequests.find((row) => row.authorization.toLowerCase().startsWith("settldpay "));
-  assert.ok(paidCall, `expected SettldPay retry; stdout=${stdoutBuf} stderr=${stderrBuf}`);
+  const paidCall = upstreamRequests.find((row) => row.authorization.toLowerCase().startsWith("nooterrapay "));
+  assert.ok(paidCall, `expected NooterraPay retry; stdout=${stdoutBuf} stderr=${stderrBuf}`);
   assert.ok(typeof paidCall.xPayment === "string" && paidCall.xPayment.length > 0);
-  const token = paidCall.authorization.slice("SettldPay ".length).trim();
-  const parsedToken = parseSettldPayTokenV1(token);
-  const expectedRequestBindingSha256 = computeSettldPayRequestBindingSha256V1({
+  const token = paidCall.authorization.slice("NooterraPay ".length).trim();
+  const parsedToken = parseNooterraPayTokenV1(token);
+  const expectedRequestBindingSha256 = computeNooterraPayRequestBindingSha256V1({
     method: "GET",
     host: `127.0.0.1:${upstreamBind.port}`,
     pathWithQuery: "/tools/search?q=dentist",
@@ -235,11 +235,11 @@ test("x402 gateway: retries with SettldPay token and returns verified response",
   );
 });
 
-test("x402 gateway: forwards x-settld-agent-passport to gate create and triggers wallet policy authorization checks", async (t) => {
+test("x402 gateway: forwards x-nooterra-agent-passport to gate create and triggers wallet policy authorization checks", async (t) => {
   const upstream = http.createServer((req, res) => {
     const authHeader = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
-    const hasSettldPay = authHeader.toLowerCase().startsWith("settldpay ");
-    if (!hasSettldPay) {
+    const hasNooterraPay = authHeader.toLowerCase().startsWith("nooterrapay ");
+    if (!hasNooterraPay) {
       res.writeHead(402, {
         "content-type": "application/json; charset=utf-8",
         "x-payment-required": "amountCents=500; currency=USD; toolId=mock_search; address=mock:payee; network=mocknet"
@@ -292,8 +292,8 @@ test("x402 gateway: forwards x-settld-agent-passport to gate create and triggers
       ...process.env,
       PORT: String(gatewayPort),
       BIND_HOST: "127.0.0.1",
-      SETTLD_API_URL: apiBase,
-      SETTLD_API_KEY: apiKey,
+      NOOTERRA_API_URL: apiBase,
+      NOOTERRA_API_KEY: apiKey,
       UPSTREAM_URL: upstreamBase,
       X402_AUTOFUND: "1"
     }
@@ -320,17 +320,17 @@ test("x402 gateway: forwards x-settld-agent-passport to gate create and triggers
 
   const first = await fetch(`${gatewayBase}/tools/search?q=policy`, {
     headers: {
-      "x-settld-agent-passport": agentPassportHeader
+      "x-nooterra-agent-passport": agentPassportHeader
     }
   });
   assert.equal(first.status, 402);
-  const gateId = first.headers.get("x-settld-gate-id");
+  const gateId = first.headers.get("x-nooterra-gate-id");
   assert.ok(gateId && gateId.trim() !== "");
 
   const second = await fetch(`${gatewayBase}/tools/search?q=policy`, {
     headers: {
-      "x-settld-gate-id": gateId,
-      "x-settld-agent-passport": agentPassportHeader
+      "x-nooterra-gate-id": gateId,
+      "x-nooterra-agent-passport": agentPassportHeader
     }
   });
   const secondText = await second.text();
@@ -358,11 +358,11 @@ test("x402 gateway: enforces signed provider quote when provider key is configur
 
   const upstream = http.createServer((req, res) => {
     const authHeader = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
-    const hasSettldPay = authHeader.toLowerCase().startsWith("settldpay ");
-    if (!hasSettldPay) {
+    const hasNooterraPay = authHeader.toLowerCase().startsWith("nooterrapay ");
+    if (!hasNooterraPay) {
       const host = String(req.headers.host ?? "");
       const url = new URL(req.url ?? "/", `http://${host || "127.0.0.1"}`);
-      const requestBindingSha256 = computeSettldPayRequestBindingSha256V1({
+      const requestBindingSha256 = computeNooterraPayRequestBindingSha256V1({
         method: String(req.method ?? "GET").toUpperCase(),
         host,
         pathWithQuery: `${url.pathname}${url.search}`,
@@ -395,8 +395,8 @@ test("x402 gateway: enforces signed provider quote when provider key is configur
       res.writeHead(402, {
         "content-type": "application/json; charset=utf-8",
         "x-payment-required": `amountCents=${amountCents}; currency=${currency}; providerId=${providerId}; toolId=${toolId}; address=mock:payee; network=mocknet; requestBindingMode=strict; quoteRequired=1; quoteId=${quoteId}; spendAuthorizationMode=required`,
-        "x-settld-provider-quote": Buffer.from(JSON.stringify(quotePayload), "utf8").toString("base64url"),
-        "x-settld-provider-quote-signature": Buffer.from(JSON.stringify(quoteSignature), "utf8").toString("base64url")
+        "x-nooterra-provider-quote": Buffer.from(JSON.stringify(quotePayload), "utf8").toString("base64url"),
+        "x-nooterra-provider-quote-signature": Buffer.from(JSON.stringify(quoteSignature), "utf8").toString("base64url")
       });
       res.end(JSON.stringify({ ok: false, code: "PAYMENT_REQUIRED" }));
       return;
@@ -415,11 +415,11 @@ test("x402 gateway: enforces signed provider quote when provider key is configur
     });
     res.writeHead(200, {
       "content-type": "application/json; charset=utf-8",
-      "x-settld-provider-key-id": signature.keyId,
-      "x-settld-provider-signed-at": signature.signedAt,
-      "x-settld-provider-nonce": signature.nonce,
-      "x-settld-provider-response-sha256": signature.responseHash,
-      "x-settld-provider-signature": signature.signatureBase64
+      "x-nooterra-provider-key-id": signature.keyId,
+      "x-nooterra-provider-signed-at": signature.signedAt,
+      "x-nooterra-provider-nonce": signature.nonce,
+      "x-nooterra-provider-response-sha256": signature.responseHash,
+      "x-nooterra-provider-signature": signature.signatureBase64
     });
     res.end(responseText);
   });
@@ -440,8 +440,8 @@ test("x402 gateway: enforces signed provider quote when provider key is configur
       ...process.env,
       PORT: String(gatewayPort),
       BIND_HOST: "127.0.0.1",
-      SETTLD_API_URL: apiBase,
-      SETTLD_API_KEY: apiKey,
+      NOOTERRA_API_URL: apiBase,
+      NOOTERRA_API_KEY: apiKey,
       UPSTREAM_URL: upstreamBase,
       X402_AUTOFUND: "1",
       X402_PROVIDER_PUBLIC_KEY_PEM: providerPublicKeyPem
@@ -461,22 +461,22 @@ test("x402 gateway: enforces signed provider quote when provider key is configur
 
   const first = await fetch(`${gatewayBase}/tools/search?q=orthodontist`);
   assert.equal(first.status, 402);
-  const gateId = first.headers.get("x-settld-gate-id");
+  const gateId = first.headers.get("x-nooterra-gate-id");
   assert.ok(gateId && gateId.trim() !== "");
 
   const second = await fetch(`${gatewayBase}/tools/search?q=orthodontist`, {
     headers: {
-      "x-settld-gate-id": gateId
+      "x-nooterra-gate-id": gateId
     }
   });
   assert.equal(second.status, 200, await second.text());
-  assert.equal(second.headers.get("x-settld-settlement-status"), "released");
-  assert.equal(second.headers.get("x-settld-verification-status"), "green");
-  assert.equal(second.headers.get("x-settld-policy-decision"), "allow");
-  assert.match(String(second.headers.get("x-settld-policy-hash") ?? ""), /^[0-9a-f]{64}$/);
-  assert.equal(second.headers.get("x-settld-policy-version"), "1");
-  assert.match(String(second.headers.get("x-settld-decision-id") ?? ""), /^dec_/);
-  assert.ok(String(second.headers.get("x-settld-reason-code") ?? "").length > 0);
+  assert.equal(second.headers.get("x-nooterra-settlement-status"), "released");
+  assert.equal(second.headers.get("x-nooterra-verification-status"), "green");
+  assert.equal(second.headers.get("x-nooterra-policy-decision"), "allow");
+  assert.match(String(second.headers.get("x-nooterra-policy-hash") ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(second.headers.get("x-nooterra-policy-version"), "1");
+  assert.match(String(second.headers.get("x-nooterra-decision-id") ?? ""), /^dec_/);
+  assert.ok(String(second.headers.get("x-nooterra-reason-code") ?? "").length > 0);
 });
 
 test("x402 gateway: verifies provider signatures via JWKS URL", async (t) => {
@@ -489,7 +489,7 @@ test("x402 gateway: verifies provider signatures via JWKS URL", async (t) => {
   const quoteId = "pquote_jwks_1";
 
   const jwksServer = http.createServer((req, res) => {
-    if (req.method === "GET" && req.url === "/.well-known/settld-provider-keys.json") {
+    if (req.method === "GET" && req.url === "/.well-known/nooterra-provider-keys.json") {
       res.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "public, max-age=60"
@@ -501,15 +501,15 @@ test("x402 gateway: verifies provider signatures via JWKS URL", async (t) => {
     res.end(JSON.stringify({ ok: false, error: "not_found" }));
   });
   const jwksBind = await listenOnEphemeralLoopback(jwksServer, { hosts: ["127.0.0.1"] });
-  const jwksUrl = `http://127.0.0.1:${jwksBind.port}/.well-known/settld-provider-keys.json`;
+  const jwksUrl = `http://127.0.0.1:${jwksBind.port}/.well-known/nooterra-provider-keys.json`;
 
   const upstream = http.createServer((req, res) => {
     const authHeader = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
-    const hasSettldPay = authHeader.toLowerCase().startsWith("settldpay ");
-    if (!hasSettldPay) {
+    const hasNooterraPay = authHeader.toLowerCase().startsWith("nooterrapay ");
+    if (!hasNooterraPay) {
       const host = String(req.headers.host ?? "");
       const url = new URL(req.url ?? "/", `http://${host || "127.0.0.1"}`);
-      const requestBindingSha256 = computeSettldPayRequestBindingSha256V1({
+      const requestBindingSha256 = computeNooterraPayRequestBindingSha256V1({
         method: String(req.method ?? "GET").toUpperCase(),
         host,
         pathWithQuery: `${url.pathname}${url.search}`,
@@ -542,8 +542,8 @@ test("x402 gateway: verifies provider signatures via JWKS URL", async (t) => {
       res.writeHead(402, {
         "content-type": "application/json; charset=utf-8",
         "x-payment-required": `amountCents=${amountCents}; currency=${currency}; providerId=${providerId}; toolId=${toolId}; address=mock:payee; network=mocknet; requestBindingMode=strict; quoteRequired=1; quoteId=${quoteId}; spendAuthorizationMode=required`,
-        "x-settld-provider-quote": Buffer.from(JSON.stringify(quotePayload), "utf8").toString("base64url"),
-        "x-settld-provider-quote-signature": Buffer.from(JSON.stringify(quoteSignature), "utf8").toString("base64url")
+        "x-nooterra-provider-quote": Buffer.from(JSON.stringify(quotePayload), "utf8").toString("base64url"),
+        "x-nooterra-provider-quote-signature": Buffer.from(JSON.stringify(quoteSignature), "utf8").toString("base64url")
       });
       res.end(JSON.stringify({ ok: false, code: "PAYMENT_REQUIRED" }));
       return;
@@ -562,11 +562,11 @@ test("x402 gateway: verifies provider signatures via JWKS URL", async (t) => {
     });
     res.writeHead(200, {
       "content-type": "application/json; charset=utf-8",
-      "x-settld-provider-key-id": signature.keyId,
-      "x-settld-provider-signed-at": signature.signedAt,
-      "x-settld-provider-nonce": signature.nonce,
-      "x-settld-provider-response-sha256": signature.responseHash,
-      "x-settld-provider-signature": signature.signatureBase64
+      "x-nooterra-provider-key-id": signature.keyId,
+      "x-nooterra-provider-signed-at": signature.signedAt,
+      "x-nooterra-provider-nonce": signature.nonce,
+      "x-nooterra-provider-response-sha256": signature.responseHash,
+      "x-nooterra-provider-signature": signature.signatureBase64
     });
     res.end(responseText);
   });
@@ -587,8 +587,8 @@ test("x402 gateway: verifies provider signatures via JWKS URL", async (t) => {
       ...process.env,
       PORT: String(gatewayPort),
       BIND_HOST: "127.0.0.1",
-      SETTLD_API_URL: apiBase,
-      SETTLD_API_KEY: apiKey,
+      NOOTERRA_API_URL: apiBase,
+      NOOTERRA_API_KEY: apiKey,
       UPSTREAM_URL: upstreamBase,
       X402_AUTOFUND: "1",
       X402_PROVIDER_JWKS_URL: jwksUrl
@@ -609,20 +609,20 @@ test("x402 gateway: verifies provider signatures via JWKS URL", async (t) => {
 
   const first = await fetch(`${gatewayBase}/tools/search?q=periodontist`);
   assert.equal(first.status, 402);
-  const gateId = first.headers.get("x-settld-gate-id");
+  const gateId = first.headers.get("x-nooterra-gate-id");
   assert.ok(gateId && gateId.trim() !== "");
 
   const second = await fetch(`${gatewayBase}/tools/search?q=periodontist`, {
     headers: {
-      "x-settld-gate-id": gateId
+      "x-nooterra-gate-id": gateId
     }
   });
   assert.equal(second.status, 200, await second.text());
-  assert.equal(second.headers.get("x-settld-settlement-status"), "released");
-  assert.equal(second.headers.get("x-settld-verification-status"), "green");
-  assert.equal(second.headers.get("x-settld-policy-decision"), "allow");
-  assert.match(String(second.headers.get("x-settld-policy-hash") ?? ""), /^[0-9a-f]{64}$/);
-  assert.equal(second.headers.get("x-settld-policy-version"), "1");
-  assert.match(String(second.headers.get("x-settld-decision-id") ?? ""), /^dec_/);
-  assert.ok(String(second.headers.get("x-settld-reason-code") ?? "").length > 0);
+  assert.equal(second.headers.get("x-nooterra-settlement-status"), "released");
+  assert.equal(second.headers.get("x-nooterra-verification-status"), "green");
+  assert.equal(second.headers.get("x-nooterra-policy-decision"), "allow");
+  assert.match(String(second.headers.get("x-nooterra-policy-hash") ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(second.headers.get("x-nooterra-policy-version"), "1");
+  assert.match(String(second.headers.get("x-nooterra-decision-id") ?? ""), /^dec_/);
+  assert.ok(String(second.headers.get("x-nooterra-reason-code") ?? "").length > 0);
 });

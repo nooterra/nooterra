@@ -6,7 +6,7 @@ If you need a single attachment, download the **Security & Controls packet** —
 
 ## Product summary (what is Verify Cloud?)
 
-Verify Cloud accepts a vendor-submitted **Settld bundle** (typically `InvoiceBundle.v1` or `ClosePack.v1`), verifies it deterministically, and exposes:
+Verify Cloud accepts a vendor-submitted **Nooterra bundle** (typically `InvoiceBundle.v1` or `ClosePack.v1`), verifies it deterministically, and exposes:
 
 - a read-only hosted report page (Green/Amber/Red)
 - deterministic machine-readable outputs (`VerifyCliOutput.v1`)
@@ -16,7 +16,7 @@ Verify Cloud accepts a vendor-submitted **Settld bundle** (typically `InvoiceBun
 
 ### What is uploaded?
 
-- A ZIP containing a Settld bundle directory (evidence + protocol metadata + manifest + attestations).
+- A ZIP containing a Nooterra bundle directory (evidence + protocol metadata + manifest + attestations).
 
 ### What is stored?
 
@@ -109,7 +109,7 @@ Mitigations are summarized in the exported **Security & Controls packet** along 
 
 ## Cryptography / verification integrity
 
-- Bundles are verifiable offline: download the bundle ZIP and run `settld-verify` under buyer-controlled trust anchors.
+- Bundles are verifiable offline: download the bundle ZIP and run `nooterra-verify` under buyer-controlled trust anchors.
 - Trust anchors are supplied out-of-band by the buyer (governance roots, pricing signer keys). Hosted verification can run in `strict` or `compat` depending on trust configuration/policy.
 - Cryptographic primitives: SHA-256 hashes and Ed25519 signatures; canonical JSON is used where required for stable hashing.
 
@@ -125,7 +125,7 @@ Mitigations are summarized in the exported **Security & Controls packet** along 
 
 ## Incident response / vulnerability reporting
 
-- Security issues / vulnerability reports: email `aiden@settld.work` (private disclosure).
+- Security issues / vulnerability reports: email `aiden@nooterra.work` (private disclosure).
 - Operational support: see `docs/SUPPORT.md` and `docs/ONCALL_PLAYBOOK.md`.
 
 ## Configuration knobs (most commonly requested)

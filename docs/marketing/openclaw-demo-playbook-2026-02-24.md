@@ -1,6 +1,6 @@
 # OpenClaw Demo Playbook (2026-02-24)
 
-This is the launch demo for Settld as the trust/collaboration substrate.
+This is the launch demo for Nooterra as the trust/collaboration substrate.
 
 ## Goal
 
@@ -15,10 +15,10 @@ Show one continuous flow:
 ## Prerequisites
 
 - OpenClaw installed and onboarded
-- Settld environment set
-  - `SETTLD_BASE_URL`
-  - `SETTLD_TENANT_ID`
-  - `SETTLD_API_KEY`
+- Nooterra environment set
+  - `NOOTERRA_BASE_URL`
+  - `NOOTERRA_TENANT_ID`
+  - `NOOTERRA_API_KEY`
 
 ## Fast technical rehearsal (machine-run)
 
@@ -38,12 +38,12 @@ Output:
 ## Step 1: verify plugin surface
 
 ```bash
-openclaw agent --local --agent main --session-id settld-demo --message "Use tool settld_about and return JSON only." --json
+openclaw agent --local --agent main --session-id nooterra-demo --message "Use tool nooterra_about and return JSON only." --json
 ```
 
 Capture:
 
-- terminal response with Settld tool metadata
+- terminal response with Nooterra tool metadata
 
 ## Step 2: run collaboration toolchain
 
@@ -68,8 +68,8 @@ Capture:
 
 ## Shot list (screenshots)
 
-1. OpenClaw session showing `settld_about` success.
-2. Tool call timeline with `settld.work_order_*` sequence.
+1. OpenClaw session showing `nooterra_about` success.
+2. Tool call timeline with `nooterra.work_order_*` sequence.
 3. Final settlement payload showing `released` status and ids.
 4. Discovery output showing capability-based match.
 5. Local artifact file preview (`artifacts/demo/openclaw-substrate-demo.json`).
@@ -88,4 +88,4 @@ If live OpenClaw interaction fails during recording:
 
 1. use `artifacts/demo/openclaw-substrate-demo.json` from scripted run
 2. replay ids and sequence from transcript
-3. show MCP tool availability via `node scripts/mcp/probe.mjs --call settld.about '{}'`
+3. show MCP tool availability via `node scripts/mcp/probe.mjs --call nooterra.about '{}'`

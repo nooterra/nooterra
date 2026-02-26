@@ -41,9 +41,9 @@ demo/**/output/
 .cache/
 
 # Debug bundles
-settld-debug-*.tar.gz
-settld-debug-*.zip
-settld-debug-*.sha256
+nooterra-debug-*.tar.gz
+nooterra-debug-*.zip
+nooterra-debug-*.sha256
 
 # Local signing / ops keys
 keys/

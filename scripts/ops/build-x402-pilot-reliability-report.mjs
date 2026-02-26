@@ -193,7 +193,7 @@ function replayFromSummary(summary, runDirPath) {
 
 function classifyRun({ runDirPath, summary }) {
   const mcpParsed = safeReadJson(path.join(runDirPath, "mcp-call.parsed.json"));
-  const tokenVerify = safeReadJson(path.join(runDirPath, "settld-pay-token-verification.json"));
+  const tokenVerify = safeReadJson(path.join(runDirPath, "nooterra-pay-token-verification.json"));
   const providerSigVerify = safeReadJson(path.join(runDirPath, "provider-signature-verification.json"));
   const startedAt = safeIso(summary?.timestamps?.startedAt) ?? safeIso(summary?.startedAt) ?? null;
   const completedAt = safeIso(summary?.timestamps?.completedAt) ?? safeIso(summary?.completedAt) ?? null;

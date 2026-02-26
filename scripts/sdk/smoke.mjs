@@ -1,7 +1,7 @@
-import { SettldClient } from "../../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../../packages/api-sdk/src/index.js";
 
 // Minimal smoke check: ensures the SDK can be imported and instantiated.
-const client = new SettldClient({ baseUrl: "http://127.0.0.1:0", tenantId: "tenant_default" });
+const client = new NooterraClient({ baseUrl: "http://127.0.0.1:0", tenantId: "tenant_default" });
 if (
   !client ||
   typeof client.firstVerifiedRun !== "function" ||

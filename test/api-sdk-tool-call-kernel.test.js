@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { SettldClient } from "../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../packages/api-sdk/src/index.js";
 
 function makeJsonResponse(body, { status = 200, requestId = "req_sdk_toolcall_1" } = {}) {
   return new Response(JSON.stringify(body), {
@@ -83,8 +83,8 @@ test("api-sdk: tool-call kernel wrappers compute deterministic ids and dispatch 
     return makeJsonResponse({});
   };
 
-  const client = new SettldClient({
-    baseUrl: "https://api.settld.local",
+  const client = new NooterraClient({
+    baseUrl: "https://api.nooterra.local",
     tenantId: "tenant_sdk",
     opsToken: "tok_ops",
     fetch: fetchStub
@@ -137,7 +137,7 @@ test("api-sdk: tool-call kernel wrappers compute deterministic ids and dispatch 
   assert.equal(settled.hold?.holdHash, "a".repeat(64));
   assert.match(settled.receiptHash, /^[0-9a-f]{64}$/);
 
-  assert.equal(calls[0].url, "https://api.settld.local/ops/tool-calls/holds/lock");
+  assert.equal(calls[0].url, "https://api.nooterra.local/ops/tool-calls/holds/lock");
   assert.equal(calls[0].init?.method, "POST");
   const settleBody = JSON.parse(String(calls[0].init?.body ?? "{}"));
   assert.equal(settleBody.agreementHash, agreementA.agreementHash);
@@ -158,7 +158,7 @@ test("api-sdk: tool-call kernel wrappers compute deterministic ids and dispatch 
     },
     { idempotencyKey: "idmp_toolcall_open_1" }
   );
-  assert.equal(calls[1].url, "https://api.settld.local/tool-calls/arbitration/open");
+  assert.equal(calls[1].url, "https://api.nooterra.local/tool-calls/arbitration/open");
   assert.equal(calls[1].init?.method, "POST");
   const openBody = JSON.parse(String(calls[1].init?.body ?? "{}"));
   assert.equal(openBody.openedByAgentId, "agt_payee_1");
@@ -171,7 +171,7 @@ test("api-sdk: tool-call kernel wrappers compute deterministic ids and dispatch 
   assert.equal(replay.body?.comparisons?.chainConsistent, true);
   assert.equal(
     calls[2].url,
-    "https://api.settld.local/ops/tool-calls/replay-evaluate?agreementHash=1111111111111111111111111111111111111111111111111111111111111111"
+    "https://api.nooterra.local/ops/tool-calls/replay-evaluate?agreementHash=1111111111111111111111111111111111111111111111111111111111111111"
   );
 
   const reputation = await client.opsGetReputationFacts({
@@ -183,11 +183,11 @@ test("api-sdk: tool-call kernel wrappers compute deterministic ids and dispatch 
   assert.equal(reputation.body?.facts?.totals?.decisions?.approved, 1);
   assert.equal(
     calls[3].url,
-    "https://api.settld.local/ops/reputation/facts?agentId=agt_payee_1&toolId=tool_call&window=allTime&includeEvents=1"
+    "https://api.nooterra.local/ops/reputation/facts?agentId=agt_payee_1&toolId=tool_call&window=allTime&includeEvents=1"
   );
 
   const artifacts = await client.getArtifacts({ artifactIds: ["arbitration_case_arb_case_tc_demo", "arbitration_verdict_demo"] });
   assert.equal(artifacts.artifacts.length, 2);
-  assert.equal(calls[4].url, "https://api.settld.local/artifacts/arbitration_case_arb_case_tc_demo");
-  assert.equal(calls[5].url, "https://api.settld.local/artifacts/arbitration_verdict_demo");
+  assert.equal(calls[4].url, "https://api.nooterra.local/artifacts/arbitration_case_arb_case_tc_demo");
+  assert.equal(calls[5].url, "https://api.nooterra.local/artifacts/arbitration_verdict_demo");
 });

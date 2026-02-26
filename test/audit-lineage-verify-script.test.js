@@ -44,7 +44,7 @@ function buildFixtureLineage() {
 }
 
 test("verify-audit-lineage script returns ok for valid lineage input", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-audit-lineage-verify-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-audit-lineage-verify-"));
   try {
     const lineagePath = path.join(tmpDir, "lineage.json");
     const lineage = buildFixtureLineage();
@@ -62,7 +62,7 @@ test("verify-audit-lineage script returns ok for valid lineage input", async () 
 });
 
 test("verify-audit-lineage script fails closed on tampered lineage hash", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-audit-lineage-verify-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-audit-lineage-verify-"));
   try {
     const lineagePath = path.join(tmpDir, "lineage-tampered.json");
     const lineage = buildFixtureLineage();

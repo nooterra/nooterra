@@ -7,7 +7,7 @@ import {
 } from "../scripts/ci/run-agent-substrate-adversarial-harness.mjs";
 
 test("agent substrate adversarial harness parser: supports help mode", () => {
-  const args = parseArgs(["--help"], {}, "/tmp/settld");
+  const args = parseArgs(["--help"], {}, "/tmp/nooterra");
   assert.equal(args.help, true);
 });
 
@@ -27,11 +27,11 @@ test("agent substrate adversarial harness parser: supports profile and bootstrap
       "ops_override"
     ],
     {
-      SETTLD_BASE_URL: "http://127.0.0.1:3000",
-      SETTLD_TENANT_ID: "tenant_default",
+      NOOTERRA_BASE_URL: "http://127.0.0.1:3000",
+      NOOTERRA_TENANT_ID: "tenant_default",
       PROXY_OPS_TOKEN: "tok_ops"
     },
-    "/tmp/settld"
+    "/tmp/nooterra"
   );
   assert.equal(args.profile, "prompt-contagion");
   assert.equal(args.bootstrapLocal, true);
@@ -54,9 +54,9 @@ test("agent substrate adversarial harness runner: applies bootstrap env patch an
   let cleanupCalled = false;
   const bootstrapFn = async () => ({
     envPatch: {
-      SETTLD_BASE_URL: "http://127.0.0.1:3000",
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test.k"
+      NOOTERRA_BASE_URL: "http://127.0.0.1:3000",
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test.k"
     },
     metadata: { enabled: true, startedLocalApi: false },
     cleanup: async () => {
@@ -98,9 +98,9 @@ test("agent substrate adversarial harness runner: applies bootstrap env patch an
   assert.equal(cleanupCalled, true);
   assert.equal(seenEnv.length, 5);
   for (const row of seenEnv) {
-    assert.equal(row.SETTLD_BASE_URL, "http://127.0.0.1:3000");
-    assert.equal(row.SETTLD_TENANT_ID, "tenant_default");
-    assert.equal(row.SETTLD_API_KEY, "sk_test.k");
+    assert.equal(row.NOOTERRA_BASE_URL, "http://127.0.0.1:3000");
+    assert.equal(row.NOOTERRA_TENANT_ID, "tenant_default");
+    assert.equal(row.NOOTERRA_API_KEY, "sk_test.k");
   }
 });
 

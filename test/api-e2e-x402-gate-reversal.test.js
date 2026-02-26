@@ -40,7 +40,7 @@ async function upsertX402WalletPolicy(api, { policy, idempotencyKey }) {
     path: "/ops/x402/wallet-policies",
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { policy }
   });

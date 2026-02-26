@@ -1,13 +1,13 @@
 # Verify Cloud (Magic Link) — Procurement one-pager
 
-Verify Cloud is a hosted (or self-hosted) verification layer for **evidence-backed invoices**. Vendors submit a Settld bundle (typically `InvoiceBundle.v1` or `ClosePack.v1`), and buyers get a deterministic verification result plus audit-grade exports.
+Verify Cloud is a hosted (or self-hosted) verification layer for **evidence-backed invoices**. Vendors submit a Nooterra bundle (typically `InvoiceBundle.v1` or `ClosePack.v1`), and buyers get a deterministic verification result plus audit-grade exports.
 
 ## What you get
 
 - A read-only “Green / Amber / Red” hosted report link per invoice
 - Deterministic verifier output (`VerifyCliOutput.v1`) suitable for archiving and automation
 - An **audit packet** export (bundle ZIP + hosted verification JSON + receipt surfaces + non-normative PDF summary + decision record, when present)
-- Offline verifiability: download the bundle ZIP and re-verify using `settld-verify` under buyer-controlled trust anchors
+- Offline verifiability: download the bundle ZIP and re-verify using `nooterra-verify` under buyer-controlled trust anchors
 
 ## What you need to adopt (pilot)
 

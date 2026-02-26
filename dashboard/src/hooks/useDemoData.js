@@ -32,7 +32,7 @@ async function fetchText(url) {
   return await res.text();
 }
 
-function deriveFromSettldJson({ run, timeline, workCert, creditMemo, settlementStatement }) {
+function deriveFromNooterraJson({ run, timeline, workCert, creditMemo, settlementStatement }) {
   const jobId = run?.jobId ?? workCert?.jobId ?? timeline?.job?.id ?? "job_unknown";
   const robotId =
     timeline?.job?.execution?.robotId ??
@@ -94,7 +94,7 @@ function deriveFromSettldJson({ run, timeline, workCert, creditMemo, settlementS
 }
 
 function deriveFinance({ run, workCert, creditMemo, settlementStatement, glBatchJson, journalCsvText, reconcileJson, steps }) {
-  const base = deriveFromSettldJson({ run, timeline: null, workCert, creditMemo, settlementStatement });
+  const base = deriveFromNooterraJson({ run, timeline: null, workCert, creditMemo, settlementStatement });
   const period = reconcileJson?.period ?? glBatchJson?.period ?? run?.month ?? "2026-01";
   return {
     ...base,
@@ -138,7 +138,7 @@ export default function useDemoData() {
   const [data, setData] = useState(FALLBACK);
   const [scenarioId, setScenarioId] = useState(() => {
     try {
-      return localStorage.getItem("settld_demo_scenario") || "delivery";
+      return localStorage.getItem("nooterra_demo_scenario") || "delivery";
     } catch {
       return "delivery";
     }
@@ -166,7 +166,7 @@ export default function useDemoData() {
             fetchJson("/demo/delivery/latest/SettlementStatement.v1.json").catch(() => fetchJson("/demo/latest/SettlementStatement.v1.json"))
           ]);
           if (cancelled) return;
-          const derived = deriveFromSettldJson({ run, timeline, workCert, creditMemo, settlementStatement });
+          const derived = deriveFromNooterraJson({ run, timeline, workCert, creditMemo, settlementStatement });
           setData(derived);
           setSourceLabel("demo/delivery/latest (exported from npm run demo:delivery)");
           return;
@@ -228,7 +228,7 @@ export default function useDemoData() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("settld_demo_scenario", scenarioId);
+      localStorage.setItem("nooterra_demo_scenario", scenarioId);
     } catch {
       // ignore
     }

@@ -1,6 +1,6 @@
 # Key Management
 
-Settld key handling must preserve both forward security and historical verifiability.
+Nooterra key handling must preserve both forward security and historical verifiability.
 
 ## Key classes
 

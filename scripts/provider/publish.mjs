@@ -17,9 +17,9 @@ function usage() {
     "  node scripts/provider/publish.mjs --manifest <file> --base-url <providerBaseUrl> [options]",
     "",
     "Options:",
-    "  --api-url <url>              Settld API base URL (default: SETTLD_API_URL or http://127.0.0.1:3000)",
-    "  --api-key <token>            Settld API key (default: SETTLD_API_KEY)",
-    "  --tenant-id <id>             Tenant id header (default: SETTLD_TENANT_ID or tenant_default)",
+    "  --api-url <url>              Nooterra API base URL (default: NOOTERRA_API_URL or http://127.0.0.1:3000)",
+    "  --api-key <token>            Nooterra API key (default: NOOTERRA_API_KEY)",
+    "  --tenant-id <id>             Tenant id header (default: NOOTERRA_TENANT_ID or tenant_default)",
     "  --provider-id <providerId>   Override provider id (must match manifest.providerId)",
     "  --tool-id <toolId>           Conformance tool id override",
     "  --provider-key-file <path>   Provider signing public key PEM file",
@@ -46,24 +46,24 @@ function usage() {
 
 function parseArgs(argv) {
   const out = {
-    apiUrl: process.env.SETTLD_API_URL || "http://127.0.0.1:3000",
-    apiKey: process.env.SETTLD_API_KEY || null,
-    tenantId: process.env.SETTLD_TENANT_ID || "tenant_default",
+    apiUrl: process.env.NOOTERRA_API_URL || "http://127.0.0.1:3000",
+    apiKey: process.env.NOOTERRA_API_KEY || null,
+    tenantId: process.env.NOOTERRA_TENANT_ID || "tenant_default",
     manifestPath: null,
     baseUrl: null,
     providerId: null,
     toolId: null,
     providerKeyFile: null,
     providerKeyPem: null,
-    publishProof: process.env.SETTLD_PROVIDER_PUBLISH_PROOF || null,
-    publishProofJwksUrl: process.env.SETTLD_PROVIDER_PUBLISH_PROOF_JWKS_URL || null,
-    publishProofKeyFile: process.env.SETTLD_PROVIDER_PUBLISH_PROOF_KEY_FILE || null,
-    publishProofKeyPem: process.env.SETTLD_PROVIDER_PUBLISH_PROOF_KEY_PEM || null,
-    publishProofKid: process.env.SETTLD_PROVIDER_PUBLISH_PROOF_KID || null,
+    publishProof: process.env.NOOTERRA_PROVIDER_PUBLISH_PROOF || null,
+    publishProofJwksUrl: process.env.NOOTERRA_PROVIDER_PUBLISH_PROOF_JWKS_URL || null,
+    publishProofKeyFile: process.env.NOOTERRA_PROVIDER_PUBLISH_PROOF_KEY_FILE || null,
+    publishProofKeyPem: process.env.NOOTERRA_PROVIDER_PUBLISH_PROOF_KEY_PEM || null,
+    publishProofKid: process.env.NOOTERRA_PROVIDER_PUBLISH_PROOF_KID || null,
     publishProofExpiresInSeconds:
-      process.env.SETTLD_PROVIDER_PUBLISH_PROOF_EXPIRES_IN &&
-      String(process.env.SETTLD_PROVIDER_PUBLISH_PROOF_EXPIRES_IN).trim() !== ""
-        ? Number(process.env.SETTLD_PROVIDER_PUBLISH_PROOF_EXPIRES_IN)
+      process.env.NOOTERRA_PROVIDER_PUBLISH_PROOF_EXPIRES_IN &&
+      String(process.env.NOOTERRA_PROVIDER_PUBLISH_PROOF_EXPIRES_IN).trim() !== ""
+        ? Number(process.env.NOOTERRA_PROVIDER_PUBLISH_PROOF_EXPIRES_IN)
         : 300,
     description: null,
     contactUrl: null,
@@ -312,7 +312,7 @@ async function main() {
     process.stdout.write(`${usage()}\n`);
     return;
   }
-  if (!args.apiKey) throw makeCliError("PROVIDER_PUBLISH_MISSING_API_KEY", "SETTLD_API_KEY or --api-key is required");
+  if (!args.apiKey) throw makeCliError("PROVIDER_PUBLISH_MISSING_API_KEY", "NOOTERRA_API_KEY or --api-key is required");
 
   const manifest = normalizePaidToolManifestV1(readJson(args.manifestPath));
   const effectiveProviderId = args.providerId || manifest.providerId;

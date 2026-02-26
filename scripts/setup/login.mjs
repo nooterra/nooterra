@@ -16,17 +16,17 @@ const KNOWN_AUTH_MODES = new Set([AUTH_MODE_PUBLIC_SIGNUP, AUTH_MODE_ENTERPRISE_
 function usage() {
   const text = [
     "usage:",
-    "  settld login [flags]",
+    "  nooterra login [flags]",
     "  node scripts/setup/login.mjs [flags]",
     "",
     "flags:",
-    "  --base-url <url>                Settld onboarding base URL (default: https://api.settld.work)",
+    "  --base-url <url>                Nooterra onboarding base URL (default: https://api.nooterra.work)",
     "  --tenant-id <id>                Existing tenant ID (omit to create via public signup)",
     "  --email <email>                 Login email",
     "  --company <name>                Company name (required when --tenant-id omitted)",
     "  --otp <code>                    OTP code (otherwise prompted)",
     "  --non-interactive               Disable prompts; require explicit flags",
-    "  --session-file <path>           Session output path (default: ~/.settld/session.json)",
+    "  --session-file <path>           Session output path (default: ~/.nooterra/session.json)",
     "  --format <text|json>            Output format (default: text)",
     "  --help                          Show this help"
   ].join("\n");
@@ -42,7 +42,7 @@ function readArgValue(argv, index, rawArg) {
 
 function parseArgs(argv) {
   const out = {
-    baseUrl: "https://api.settld.work",
+    baseUrl: "https://api.nooterra.work",
     baseUrlProvided: false,
     tenantId: "",
     email: "",
@@ -170,7 +170,7 @@ export async function detectDeploymentAuthMode({ baseUrl, fetchImpl = fetch } = 
     });
   } catch {
     return {
-      schemaVersion: "SettldAuthModeDiscovery.v1",
+      schemaVersion: "NooterraAuthModeDiscovery.v1",
       mode: "unknown",
       source: "network_error",
       enterpriseProvisionedTenantsOnly: null
@@ -178,7 +178,7 @@ export async function detectDeploymentAuthMode({ baseUrl, fetchImpl = fetch } = 
   }
   if (!response.res.ok) {
     return {
-      schemaVersion: "SettldAuthModeDiscovery.v1",
+      schemaVersion: "NooterraAuthModeDiscovery.v1",
       mode: "unknown",
       source: `http_${response.res.status}`,
       enterpriseProvisionedTenantsOnly: null
@@ -194,7 +194,7 @@ export async function detectDeploymentAuthMode({ baseUrl, fetchImpl = fetch } = 
           ? null
           : false;
   return {
-    schemaVersion: "SettldAuthModeDiscovery.v1",
+    schemaVersion: "NooterraAuthModeDiscovery.v1",
     mode,
     source: "endpoint",
     enterpriseProvisionedTenantsOnly: enterpriseOnly
@@ -223,7 +223,7 @@ async function promptLine(rl, label, { defaultValue = "", required = true } = {}
 }
 
 function printBanner(stdout = process.stdout) {
-  stdout.write("Settld login\n");
+  stdout.write("Nooterra login\n");
   stdout.write("============\n");
   stdout.write("Sign in with OTP and save local session for one-command setup.\n\n");
 }
@@ -257,7 +257,7 @@ export async function runLogin({
   try {
     if (interactive) {
       if (!args.baseUrlProvided) {
-        state.baseUrl = await promptLine(rl, "Settld base URL", { defaultValue: state.baseUrl || "https://api.settld.work" });
+        state.baseUrl = await promptLine(rl, "Nooterra base URL", { defaultValue: state.baseUrl || "https://api.nooterra.work" });
       }
       state.tenantId = await promptLine(rl, "Tenant ID (optional, leave blank to create new)", {
         defaultValue: state.tenantId,
@@ -292,7 +292,7 @@ export async function runLogin({
         const code = responseCode(otpRequest);
         if (otpRequest.res.status === 400 && code === "BUYER_AUTH_DISABLED") {
           throw new Error(
-            "buyer OTP login is not enabled for this tenant. This tenant may be stale on the onboarding service; rerun `settld login` without --tenant-id to create a fresh tenant, or use bootstrap/manual API key mode."
+            "buyer OTP login is not enabled for this tenant. This tenant may be stale on the onboarding service; rerun `nooterra login` without --tenant-id to create a fresh tenant, or use bootstrap/manual API key mode."
           );
         }
         if (otpRequest.res.status === 403 && code === "FORBIDDEN") {
@@ -321,7 +321,7 @@ export async function runLogin({
         }
         if (signup.res.status === 403 && code === "FORBIDDEN") {
           throw new Error(
-            "Public signup is unavailable on this base URL. Retry with --tenant-id <existing_tenant>, or in `settld setup` choose `Generate during setup` and provide an onboarding bootstrap API key."
+            "Public signup is unavailable on this base URL. Retry with --tenant-id <existing_tenant>, or in `nooterra setup` choose `Generate during setup` and provide an onboarding bootstrap API key."
           );
         }
         throw new Error(`public signup failed (${signup.res.status}): ${message}`);
@@ -364,7 +364,7 @@ export async function runLogin({
 
     const payload = {
       ok: true,
-      schemaVersion: "SettldLoginResult.v1",
+      schemaVersion: "NooterraLoginResult.v1",
       baseUrl: session.baseUrl,
       tenantId: session.tenantId,
       email: session.email,
@@ -379,7 +379,7 @@ export async function runLogin({
       stdout.write(`Login saved.\n`);
       stdout.write(`Tenant: ${session.tenantId}\n`);
       stdout.write(`Session file: ${state.sessionFile}\n`);
-      stdout.write(`Next: run \`settld setup\`.\n`);
+      stdout.write(`Next: run \`nooterra setup\`.\n`);
     }
     return payload;
   } finally {

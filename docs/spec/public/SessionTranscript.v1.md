@@ -70,11 +70,11 @@ Transcript generation is blocked when:
 
 ## MCP surface
 
-- `settld.session_transcript_get` (`sign`, `signerKeyId` optional)
+- `nooterra.session_transcript_get` (`sign`, `signerKeyId` optional)
 
 ## Implementation references
 
 - `src/core/session-transcript.js`
 - `src/core/session-collab.js`
 - `src/api/app.js`
-- `scripts/mcp/settld-mcp-server.mjs`
+- `scripts/mcp/nooterra-mcp-server.mjs`

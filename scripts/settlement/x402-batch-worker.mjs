@@ -337,12 +337,12 @@ function buildBatchId({ providerId, currency, gateIds }) {
 
 function maybeSignManifest(manifest) {
   const publicKeyPem =
-    typeof process.env.SETTLD_BATCH_SIGNER_PUBLIC_KEY_PEM === "string" && process.env.SETTLD_BATCH_SIGNER_PUBLIC_KEY_PEM.trim() !== ""
-      ? process.env.SETTLD_BATCH_SIGNER_PUBLIC_KEY_PEM
+    typeof process.env.NOOTERRA_BATCH_SIGNER_PUBLIC_KEY_PEM === "string" && process.env.NOOTERRA_BATCH_SIGNER_PUBLIC_KEY_PEM.trim() !== ""
+      ? process.env.NOOTERRA_BATCH_SIGNER_PUBLIC_KEY_PEM
       : null;
   const privateKeyPem =
-    typeof process.env.SETTLD_BATCH_SIGNER_PRIVATE_KEY_PEM === "string" && process.env.SETTLD_BATCH_SIGNER_PRIVATE_KEY_PEM.trim() !== ""
-      ? process.env.SETTLD_BATCH_SIGNER_PRIVATE_KEY_PEM
+    typeof process.env.NOOTERRA_BATCH_SIGNER_PRIVATE_KEY_PEM === "string" && process.env.NOOTERRA_BATCH_SIGNER_PRIVATE_KEY_PEM.trim() !== ""
+      ? process.env.NOOTERRA_BATCH_SIGNER_PRIVATE_KEY_PEM
       : null;
   if (!publicKeyPem || !privateKeyPem) return null;
   const canonical = canonicalJsonStringify(manifest);

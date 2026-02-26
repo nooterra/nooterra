@@ -13,7 +13,7 @@ const REQUIRED_NODE_MAJOR = 20;
 
 function usage() {
   process.stderr.write("usage:\n");
-  process.stderr.write("  settld doctor [--help] [--report <path>] [--allow-unsupported-node]\n");
+  process.stderr.write("  nooterra doctor [--help] [--report <path>] [--allow-unsupported-node]\n");
 }
 
 function readArgValue(argv, index, rawArg) {
@@ -28,7 +28,7 @@ function parseArgs(argv) {
     help: false,
     reportPath: path.resolve(process.cwd(), DEFAULT_REPORT_PATH),
     allowUnsupportedNode:
-      String(process.env.SETTLD_ALLOW_UNSUPPORTED_NODE ?? "").trim() === "1"
+      String(process.env.NOOTERRA_ALLOW_UNSUPPORTED_NODE ?? "").trim() === "1"
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -118,7 +118,7 @@ function checkNodeRuntime({ allowUnsupportedNode }) {
       ok: true,
       version,
       major,
-      message: `Node.js ${REQUIRED_NODE_MAJOR}.x required, current v${version}; continuing due to --allow-unsupported-node/SETTLD_ALLOW_UNSUPPORTED_NODE=1`
+      message: `Node.js ${REQUIRED_NODE_MAJOR}.x required, current v${version}; continuing due to --allow-unsupported-node/NOOTERRA_ALLOW_UNSUPPORTED_NODE=1`
     };
   }
   return {

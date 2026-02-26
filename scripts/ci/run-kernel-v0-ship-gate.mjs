@@ -60,7 +60,7 @@ async function main() {
   if (runQuickstart) {
     checks.push({
       id: "x402_quickstart_smoke",
-      command: "SETTLD_QUICKSTART_KEEP_ALIVE=0 npm run -s quickstart:x402"
+      command: "NOOTERRA_QUICKSTART_KEEP_ALIVE=0 npm run -s quickstart:x402"
     });
   }
 

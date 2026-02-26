@@ -42,7 +42,7 @@ services:
       PROXY_EVIDENCE_S3_ACCESS_KEY_ID: "proxy"
       PROXY_EVIDENCE_S3_SECRET_ACCESS_KEY: "proxysecret"
       PROXY_EXPORT_DESTINATIONS: >
-        {"tenant_default":[{"destinationId":"receiver_v1","kind":"webhook","url":"http://receiver:4000/deliveries/settld","secret":"receiversecret"},{"destinationId":"finance_sink_v1","kind":"webhook","url":"http://finance-sink:4100/deliveries/settld","secret":"financesinksecret","artifactTypes":["JournalCsv.v1","FinancePackBundle.v1"]}]}
+        {"tenant_default":[{"destinationId":"receiver_v1","kind":"webhook","url":"http://receiver:4000/deliveries/nooterra","secret":"receiversecret"},{"destinationId":"finance_sink_v1","kind":"webhook","url":"http://finance-sink:4100/deliveries/nooterra","secret":"financesinksecret","artifactTypes":["JournalCsv.v1","FinancePackBundle.v1"]}]}
     ports:
       - "${PROXY_API_PORT:-3000}:3000"
 
@@ -79,7 +79,7 @@ services:
       RECEIVER_S3_ENDPOINT: "http://minio:9000"
       RECEIVER_S3_REGION: "us-east-1"
       RECEIVER_S3_BUCKET: "proxy-artifacts"
-      RECEIVER_S3_PREFIX: "settld/"
+      RECEIVER_S3_PREFIX: "nooterra/"
       RECEIVER_S3_FORCE_PATH_STYLE: "1"
       RECEIVER_S3_ACCESS_KEY_ID: "proxy"
       RECEIVER_S3_SECRET_ACCESS_KEY: "proxysecret"

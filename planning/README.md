@@ -16,7 +16,7 @@ If you're asking **"what's still open?"**, start with `planning/STATUS.md` and t
   - Use this to answer "is S14/S15 actually done?"
 
 - `planning/sprints/self-serve-icp-v1-30-day.md`
-  - 30-day self-serve launch board for ICP v1 (tickets STLD-T183..STLD-T199).
+  - 30-day self-serve launch board for ICP (tickets STLD-T183..STLD-T199).
 
 ## Backlog Exports (Inputs, Not Status)
 

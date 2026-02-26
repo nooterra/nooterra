@@ -16,9 +16,9 @@ const FORMAT_OPTIONS = new Set(["text", "json"]);
 function usage() {
   const text = [
     "usage:",
-    "  settld wallet status [--base-url <url>] [--tenant-id <id>] [--session-file <path>] [--cookie <cookie>] [--magic-link-api-key <key>] [--format text|json] [--json-out <path>]",
-    "  settld wallet fund [--method card|bank|transfer|faucet] [--open] [--hosted-url <url>] [--non-interactive] [--base-url <url>] [--tenant-id <id>] [--session-file <path>] [--cookie <cookie>] [--magic-link-api-key <key>] [--format text|json] [--json-out <path>]",
-    "  settld wallet balance [--watch] [--min-usdc <amount>] [--interval-seconds <n>] [--timeout-seconds <n>] [--base-url <url>] [--tenant-id <id>] [--session-file <path>] [--cookie <cookie>] [--magic-link-api-key <key>] [--format text|json] [--json-out <path>]",
+    "  nooterra wallet status [--base-url <url>] [--tenant-id <id>] [--session-file <path>] [--cookie <cookie>] [--magic-link-api-key <key>] [--format text|json] [--json-out <path>]",
+    "  nooterra wallet fund [--method card|bank|transfer|faucet] [--open] [--hosted-url <url>] [--non-interactive] [--base-url <url>] [--tenant-id <id>] [--session-file <path>] [--cookie <cookie>] [--magic-link-api-key <key>] [--format text|json] [--json-out <path>]",
+    "  nooterra wallet balance [--watch] [--min-usdc <amount>] [--interval-seconds <n>] [--timeout-seconds <n>] [--base-url <url>] [--tenant-id <id>] [--session-file <path>] [--cookie <cookie>] [--magic-link-api-key <key>] [--format text|json] [--json-out <path>]",
     "",
     "flags:",
     "  --method <name>                 Funding method for `fund`",
@@ -29,9 +29,9 @@ function usage() {
     "  --min-usdc <amount>             Target spend wallet USDC (default watch target: >0)",
     "  --interval-seconds <n>          Poll interval for --watch (default: 5)",
     "  --timeout-seconds <n>           Watch timeout (default: 180)",
-    "  --base-url <url>                Settld onboarding base URL",
+    "  --base-url <url>                Nooterra onboarding base URL",
     "  --tenant-id <id>                Tenant ID",
-    "  --session-file <path>           Saved session path (default: ~/.settld/session.json)",
+    "  --session-file <path>           Saved session path (default: ~/.nooterra/session.json)",
     "  --cookie <cookie>               Buyer session cookie override",
     "  --magic-link-api-key <key>      Control-plane API key (admin mode fallback)",
     "  --bootstrap-api-key <key>       Alias for --magic-link-api-key",
@@ -279,17 +279,17 @@ export function parseArgs(argv) {
   }
   if (!COMMANDS.has(out.command)) fail(`unsupported wallet command: ${out.command}`);
   if (!FORMAT_OPTIONS.has(out.format)) fail("--format must be text|json");
-  if (out.command !== "fund" && out.method !== null) fail("--method only applies to `settld wallet fund`");
+  if (out.command !== "fund" && out.method !== null) fail("--method only applies to `nooterra wallet fund`");
   if (out.command === "fund" && out.method !== null && !FUND_METHODS.has(out.method)) {
     fail("--method must be one of: card|bank|transfer|faucet");
   }
-  if (out.command !== "fund" && out.open) fail("--open only applies to `settld wallet fund`");
-  if (out.command !== "fund" && out.hostedUrl) fail("--hosted-url only applies to `settld wallet fund`");
-  if (out.command !== "fund" && out.nonInteractive) fail("--non-interactive only applies to `settld wallet fund`");
-  if (out.command !== "balance" && out.watch) fail("--watch only applies to `settld wallet balance`");
-  if (out.command !== "balance" && out.minUsdc !== null) fail("--min-usdc only applies to `settld wallet balance`");
-  if (out.command !== "balance" && out.intervalSeconds !== 5) fail("--interval-seconds only applies to `settld wallet balance`");
-  if (out.command !== "balance" && out.timeoutSeconds !== 180) fail("--timeout-seconds only applies to `settld wallet balance`");
+  if (out.command !== "fund" && out.open) fail("--open only applies to `nooterra wallet fund`");
+  if (out.command !== "fund" && out.hostedUrl) fail("--hosted-url only applies to `nooterra wallet fund`");
+  if (out.command !== "fund" && out.nonInteractive) fail("--non-interactive only applies to `nooterra wallet fund`");
+  if (out.command !== "balance" && out.watch) fail("--watch only applies to `nooterra wallet balance`");
+  if (out.command !== "balance" && out.minUsdc !== null) fail("--min-usdc only applies to `nooterra wallet balance`");
+  if (out.command !== "balance" && out.intervalSeconds !== 5) fail("--interval-seconds only applies to `nooterra wallet balance`");
+  if (out.command !== "balance" && out.timeoutSeconds !== 180) fail("--timeout-seconds only applies to `nooterra wallet balance`");
   if (out.command === "balance") {
     out.intervalSeconds = parseNonNegativeNumber(out.intervalSeconds, { field: "--interval-seconds" });
     out.timeoutSeconds = parsePositiveNumber(out.timeoutSeconds, { field: "--timeout-seconds" });
@@ -310,22 +310,22 @@ async function resolveRuntimeConfig({
   readSavedSessionImpl = readSavedSession
 } = {}) {
   const saved = await readSavedSessionImpl({ sessionPath: args.sessionFile });
-  const baseUrl = normalizeHttpUrl(args.baseUrl ?? env.SETTLD_BASE_URL ?? saved?.baseUrl ?? "https://api.settld.work");
+  const baseUrl = normalizeHttpUrl(args.baseUrl ?? env.NOOTERRA_BASE_URL ?? saved?.baseUrl ?? "https://api.nooterra.work");
   if (!baseUrl) fail("base URL must be a valid http(s) URL");
 
-  const tenantId = safeTrim(args.tenantId ?? env.SETTLD_TENANT_ID ?? saved?.tenantId ?? "");
-  if (!tenantId) fail("tenant ID is required (pass --tenant-id or run `settld login` first)");
+  const tenantId = safeTrim(args.tenantId ?? env.NOOTERRA_TENANT_ID ?? saved?.tenantId ?? "");
+  if (!tenantId) fail("tenant ID is required (pass --tenant-id or run `nooterra login` first)");
 
-  const cookie = safeTrim(args.cookie ?? env.SETTLD_SESSION_COOKIE ?? saved?.cookie ?? "");
+  const cookie = safeTrim(args.cookie ?? env.NOOTERRA_SESSION_COOKIE ?? saved?.cookie ?? "");
   const magicLinkApiKey = safeTrim(
     args.magicLinkApiKey ??
-      env.SETTLD_MAGIC_LINK_API_KEY ??
-      env.SETTLD_BOOTSTRAP_API_KEY ??
-      env.SETTLD_SETUP_API_KEY ??
+      env.NOOTERRA_MAGIC_LINK_API_KEY ??
+      env.NOOTERRA_BOOTSTRAP_API_KEY ??
+      env.NOOTERRA_SETUP_API_KEY ??
       ""
   );
   if (!cookie && !magicLinkApiKey) {
-    fail("auth required: pass --cookie/--magic-link-api-key or run `settld login` first");
+    fail("auth required: pass --cookie/--magic-link-api-key or run `nooterra login` first");
   }
 
   return {
@@ -563,7 +563,7 @@ async function runBalance({
     const wallet = await readWalletSnapshot({ args, runtime, fetchImpl, includeBalances: true, faucet: false });
     return {
       ok: true,
-      schemaVersion: "SettldWalletBalance.v1",
+      schemaVersion: "NooterraWalletBalance.v1",
       baseUrl: runtime.baseUrl,
       tenantId: runtime.tenantId,
       watch: null,
@@ -595,7 +595,7 @@ async function runBalance({
 
   return {
     ok: satisfied,
-    schemaVersion: "SettldWalletBalance.v1",
+    schemaVersion: "NooterraWalletBalance.v1",
     baseUrl: runtime.baseUrl,
     tenantId: runtime.tenantId,
     watch: {
@@ -661,7 +661,7 @@ function renderText({ payload, args }) {
     lines.push(`Send: USDC on ${payload.transfer?.blockchain ?? "unknown"}`);
     lines.push(`To: ${payload.transfer?.address ?? "n/a"}`);
     if (payload.transfer?.walletId) lines.push(`Spend wallet: ${payload.transfer.walletId}`);
-    lines.push("Then run: settld wallet balance --watch --min-usdc 1");
+    lines.push("Then run: nooterra wallet balance --watch --min-usdc 1");
   } else if (payload.method === "faucet") {
     const statuses = Array.isArray(payload.faucet?.results)
       ? payload.faucet.results.map((row) => `${row.wallet}:HTTP${row.status}`).join(", ")
@@ -723,7 +723,7 @@ export async function runWalletCli({
     const wallet = await readWalletSnapshot({ args, runtime, fetchImpl, includeBalances: true, faucet: false });
     payload = {
       ok: true,
-      schemaVersion: "SettldWalletStatus.v1",
+      schemaVersion: "NooterraWalletStatus.v1",
       baseUrl: runtime.baseUrl,
       tenantId: runtime.tenantId,
       wallet
@@ -746,7 +746,7 @@ export async function runWalletCli({
       });
       payload = {
         ok: true,
-        schemaVersion: "SettldWalletFundResult.v1",
+        schemaVersion: "NooterraWalletFundResult.v1",
         baseUrl: runtime.baseUrl,
         tenantId: runtime.tenantId,
         method: "faucet",
@@ -801,7 +801,7 @@ export async function runWalletCli({
         }
         payload = {
           ok: true,
-          schemaVersion: "SettldWalletFundResult.v1",
+          schemaVersion: "NooterraWalletFundResult.v1",
           baseUrl: runtime.baseUrl,
           tenantId: runtime.tenantId,
           method: "transfer",
@@ -830,7 +830,7 @@ export async function runWalletCli({
         const openResult = args.open ? openInBrowserImpl(session.url) : { ok: false, message: null };
         payload = {
           ok: true,
-          schemaVersion: "SettldWalletFundResult.v1",
+          schemaVersion: "NooterraWalletFundResult.v1",
           baseUrl: runtime.baseUrl,
           tenantId: runtime.tenantId,
           method: selectedMethod,

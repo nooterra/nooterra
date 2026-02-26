@@ -98,7 +98,7 @@ test("setup wizard: parseArgs supports setup automation aliases and host-config 
   const parsed = parseArgs([
     "--yes",
     "--mode=bootstrap",
-    "--host=codex",
+    "--host=nooterra",
     "--base-url=https://magic.example.test",
     "--tenant-id=tenant_alias",
     "--bootstrap-api-key",
@@ -107,21 +107,21 @@ test("setup wizard: parseArgs supports setup automation aliases and host-config 
     "--bootstrap-scopes=runs:read,runs:write",
     "--idempotency-key=idem_setup_1",
     "--config-path",
-    "./tmp/codex-config.json",
+    "./tmp/nooterra-config.json",
     "--dry-run",
     "--host-config",
     "./tmp/host-config.mjs"
   ]);
   assert.equal(parsed.nonInteractive, true);
   assert.equal(parsed.mode, "bootstrap");
-  assert.equal(parsed.host, "codex");
+  assert.equal(parsed.host, "nooterra");
   assert.equal(parsed.baseUrl, "https://magic.example.test");
   assert.equal(parsed.tenantId, "tenant_alias");
   assert.equal(parsed.magicLinkApiKey, "mlk_alias");
   assert.equal(parsed.bootstrapKeyId, "ak_runtime_alias");
   assert.equal(parsed.bootstrapScopesRaw, "runs:read,runs:write");
   assert.equal(parsed.idempotencyKey, "idem_setup_1");
-  assert.equal(parsed.configPath, path.resolve(process.cwd(), "./tmp/codex-config.json"));
+  assert.equal(parsed.configPath, path.resolve(process.cwd(), "./tmp/nooterra-config.json"));
   assert.equal(parsed.dryRun, true);
   assert.equal(parsed.hostConfigPath, path.resolve(process.cwd(), "./tmp/host-config.mjs"));
 });
@@ -130,11 +130,11 @@ test("setup wizard: extractBootstrapMcpEnv validates and normalizes bootstrap en
   const env = extractBootstrapMcpEnv({
     mcp: {
       env: {
-        SETTLD_BASE_URL: "https://api.mock.settld.work",
-        SETTLD_TENANT_ID: "tenant_runtime",
-        SETTLD_API_KEY: "ak_runtime.secret",
-        SETTLD_PAID_TOOLS_BASE_URL: "https://paid.tools.settld.work/",
-        SETTLD_PAID_TOOLS_AGENT_PASSPORT: {
+        NOOTERRA_BASE_URL: "https://api.mock.nooterra.work",
+        NOOTERRA_TENANT_ID: "tenant_runtime",
+        NOOTERRA_API_KEY: "ak_runtime.secret",
+        NOOTERRA_PAID_TOOLS_BASE_URL: "https://paid.tools.nooterra.work/",
+        NOOTERRA_PAID_TOOLS_AGENT_PASSPORT: {
           schemaVersion: "X402AgentPassport.v1",
           sponsorRef: "sponsor_default",
           sponsorWalletRef: "wallet_runtime",
@@ -146,12 +146,12 @@ test("setup wizard: extractBootstrapMcpEnv validates and normalizes bootstrap en
       }
     }
   });
-  assert.equal(env.SETTLD_BASE_URL, "https://api.mock.settld.work");
-  assert.equal(env.SETTLD_TENANT_ID, "tenant_runtime");
-  assert.equal(env.SETTLD_API_KEY, "ak_runtime.secret");
-  assert.equal(env.SETTLD_PAID_TOOLS_BASE_URL, "https://paid.tools.settld.work/");
-  assert.equal(typeof env.SETTLD_PAID_TOOLS_AGENT_PASSPORT, "string");
-  const passport = JSON.parse(env.SETTLD_PAID_TOOLS_AGENT_PASSPORT);
+  assert.equal(env.NOOTERRA_BASE_URL, "https://api.mock.nooterra.work");
+  assert.equal(env.NOOTERRA_TENANT_ID, "tenant_runtime");
+  assert.equal(env.NOOTERRA_API_KEY, "ak_runtime.secret");
+  assert.equal(env.NOOTERRA_PAID_TOOLS_BASE_URL, "https://paid.tools.nooterra.work/");
+  assert.equal(typeof env.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT, "string");
+  const passport = JSON.parse(env.NOOTERRA_PAID_TOOLS_AGENT_PASSPORT);
   assert.equal(passport.schemaVersion, "X402AgentPassport.v1");
   assert.equal(passport.policyRef, "engineering-spend");
   assert.equal(passport.policyVersion, 1);
@@ -160,14 +160,14 @@ test("setup wizard: extractBootstrapMcpEnv validates and normalizes bootstrap en
   assert.throws(
     () =>
       extractBootstrapMcpEnv({
-        mcp: { env: { SETTLD_TENANT_ID: "tenant_runtime", SETTLD_API_KEY: "ak_runtime.secret" } }
+        mcp: { env: { NOOTERRA_TENANT_ID: "tenant_runtime", NOOTERRA_API_KEY: "ak_runtime.secret" } }
       }),
-    /SETTLD_BASE_URL/
+    /NOOTERRA_BASE_URL/
   );
 });
 
 test("setup wizard: missing host config helper points to host onboarding docs", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-setup-wizard-missing-host-helper-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-setup-wizard-missing-host-helper-"));
   try {
     const missingHostConfigPath = path.join(tmpDir, "does-not-exist.mjs");
     const out = await runWizard([
@@ -175,7 +175,7 @@ test("setup wizard: missing host config helper points to host onboarding docs", 
       "--mode",
       "manual",
       "--host",
-      "codex",
+      "nooterra",
       "--base-url",
       "http://127.0.0.1:3999",
       "--tenant-id",
@@ -193,7 +193,7 @@ test("setup wizard: missing host config helper points to host onboarding docs", 
 });
 
 test("setup wizard: non-interactive manual mode prints export commands", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-setup-wizard-test-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-setup-wizard-test-"));
   try {
     const hostConfigPath = await createTempHostConfigModule(tmpDir);
     const out = await runWizard([
@@ -210,12 +210,12 @@ test("setup wizard: non-interactive manual mode prints export commands", async (
       hostConfigPath
     ]);
     assert.equal(out.code, 0, `stdout:\n${out.stdout}\n\nstderr:\n${out.stderr}`);
-    assert.match(out.stdout, /Settld setup complete\./);
+    assert.match(out.stdout, /Nooterra setup complete\./);
     assert.match(out.stdout, /Mode: manual/);
-    assert.match(out.stdout, /export SETTLD_BASE_URL='http:\/\/127\.0\.0\.1:3999'/);
-    assert.match(out.stdout, /export SETTLD_TENANT_ID='tenant_manual'/);
-    assert.match(out.stdout, /export SETTLD_API_KEY='ak_manual_secret'/);
-    assert.match(out.stdout, /export SETTLD_PAID_TOOLS_AGENT_PASSPORT='/);
+    assert.match(out.stdout, /export NOOTERRA_BASE_URL='http:\/\/127\.0\.0\.1:3999'/);
+    assert.match(out.stdout, /export NOOTERRA_TENANT_ID='tenant_manual'/);
+    assert.match(out.stdout, /export NOOTERRA_API_KEY='ak_manual_secret'/);
+    assert.match(out.stdout, /export NOOTERRA_PAID_TOOLS_AGENT_PASSPORT='/);
     assert.match(out.stdout, /Next steps:/);
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
@@ -223,7 +223,7 @@ test("setup wizard: non-interactive manual mode prints export commands", async (
 });
 
 test("setup wizard: non-interactive manual mode can auto-apply profile to runtime", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-setup-wizard-auto-profile-test-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-setup-wizard-auto-profile-test-"));
   let server = null;
   try {
     const requests = [];
@@ -302,7 +302,7 @@ test("setup wizard: non-interactive manual mode can auto-apply profile to runtim
 });
 
 test("setup wizard: non-interactive setup can drive profile apply through host helper against local stub server", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-setup-wizard-profile-apply-test-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-setup-wizard-profile-apply-test-"));
   let server = null;
   try {
     const requests = [];
@@ -328,7 +328,7 @@ test("setup wizard: non-interactive setup can drive profile apply through host h
     assert.ok(Number.isInteger(port) && port > 0);
 
     const hostConfigPath = path.join(tmpDir, "host-config.mjs");
-    const targetConfigPath = path.join(tmpDir, "codex-mcp.json");
+    const targetConfigPath = path.join(tmpDir, "nooterra-mcp.json");
     await fs.writeFile(
       hostConfigPath,
       [
@@ -336,19 +336,19 @@ test("setup wizard: non-interactive setup can drive profile apply through host h
         "  return { host: String(host || ''), baseUrl: 'http://127.0.0.1:" + String(port) + "' };",
         "}",
         "export async function runHostConfigSetup({ host, env, configPath, dryRun }) {",
-        "  const response = await fetch(new URL('/v1/setup/profile-apply', env.SETTLD_BASE_URL), {",
+        "  const response = await fetch(new URL('/v1/setup/profile-apply', env.NOOTERRA_BASE_URL), {",
         "    method: 'POST',",
         "    headers: {",
         "      'content-type': 'application/json',",
-        "      'x-api-key': String(env.SETTLD_API_KEY || ''),",
-        "      'x-tenant-id': String(env.SETTLD_TENANT_ID || '')",
+        "      'x-api-key': String(env.NOOTERRA_API_KEY || ''),",
+        "      'x-tenant-id': String(env.NOOTERRA_TENANT_ID || '')",
         "    },",
         "    body: JSON.stringify({",
         "      profileId: 'engineering-spend',",
         "      host: String(host || ''),",
-        "      baseUrl: String(env.SETTLD_BASE_URL || ''),",
-        "      tenantId: String(env.SETTLD_TENANT_ID || ''),",
-        "      apiKey: String(env.SETTLD_API_KEY || '')",
+        "      baseUrl: String(env.NOOTERRA_BASE_URL || ''),",
+        "      tenantId: String(env.NOOTERRA_TENANT_ID || ''),",
+        "      apiKey: String(env.NOOTERRA_API_KEY || '')",
         "    })",
         "  });",
         "  if (!response.ok) return { ok: false, error: { message: 'profile apply failed' } };",
@@ -360,7 +360,7 @@ test("setup wizard: non-interactive setup can drive profile apply through host h
         "  };",
         "}",
         "export function listHosts() {",
-        "  return ['codex'];",
+        "  return ['nooterra'];",
         "}"
       ].join("\n") + "\n",
       "utf8"
@@ -371,7 +371,7 @@ test("setup wizard: non-interactive setup can drive profile apply through host h
       "--mode",
       "manual",
       "--host",
-      "codex",
+      "nooterra",
       "--tenant-id",
       "tenant_profile_apply",
       "--api-key",
@@ -385,10 +385,10 @@ test("setup wizard: non-interactive setup can drive profile apply through host h
     assert.equal(out.code, 0, `stdout:\n${out.stdout}\n\nstderr:\n${out.stderr}`);
     assert.match(out.stdout, /Host config dry-run:/);
     assert.match(out.stdout, /Mode: manual/);
-    assert.match(out.stdout, /Host: codex/);
-    assert.match(out.stdout, /export SETTLD_BASE_URL='http:\/\/127\.0\.0\.1:/);
-    assert.match(out.stdout, /export SETTLD_TENANT_ID='tenant_profile_apply'/);
-    assert.match(out.stdout, /export SETTLD_API_KEY='ak_profile_apply'/);
+    assert.match(out.stdout, /Host: nooterra/);
+    assert.match(out.stdout, /export NOOTERRA_BASE_URL='http:\/\/127\.0\.0\.1:/);
+    assert.match(out.stdout, /export NOOTERRA_TENANT_ID='tenant_profile_apply'/);
+    assert.match(out.stdout, /export NOOTERRA_API_KEY='ak_profile_apply'/);
 
     assert.equal(requests.length, 1);
     assert.equal(requests[0].method, "POST");
@@ -398,7 +398,7 @@ test("setup wizard: non-interactive setup can drive profile apply through host h
 
     const requestBody = JSON.parse(requests[0].body);
     assert.equal(requestBody.profileId, "engineering-spend");
-    assert.equal(requestBody.host, "codex");
+    assert.equal(requestBody.host, "nooterra");
     assert.equal(requestBody.tenantId, "tenant_profile_apply");
     assert.equal(requestBody.apiKey, "ak_profile_apply");
     assert.equal(requestBody.baseUrl, `http://127.0.0.1:${port}`);
@@ -411,7 +411,7 @@ test("setup wizard: non-interactive setup can drive profile apply through host h
 });
 
 test("setup wizard: non-interactive bootstrap mode calls runtime endpoint and uses returned mcp env", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-setup-wizard-bootstrap-test-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-setup-wizard-bootstrap-test-"));
   let server = null;
   try {
     const requests = [];
@@ -433,10 +433,10 @@ test("setup wizard: non-interactive bootstrap mode calls runtime endpoint and us
             schemaVersion: "MagicLinkRuntimeBootstrap.v1",
             mcp: {
               env: {
-                SETTLD_BASE_URL: "https://api.runtime.test",
-                SETTLD_TENANT_ID: "tenant_bootstrap",
-                SETTLD_API_KEY: "ak_runtime.secret",
-                SETTLD_PAID_TOOLS_BASE_URL: "https://paid.runtime.test/"
+                NOOTERRA_BASE_URL: "https://api.runtime.test",
+                NOOTERRA_TENANT_ID: "tenant_bootstrap",
+                NOOTERRA_API_KEY: "ak_runtime.secret",
+                NOOTERRA_PAID_TOOLS_BASE_URL: "https://paid.runtime.test/"
               }
             }
           })
@@ -482,11 +482,11 @@ test("setup wizard: non-interactive bootstrap mode calls runtime endpoint and us
     ]);
     assert.equal(out.code, 0, `stdout:\n${out.stdout}\n\nstderr:\n${out.stderr}`);
     assert.match(out.stdout, /Mode: bootstrap/);
-    assert.match(out.stdout, /export SETTLD_BASE_URL='https:\/\/api\.runtime\.test'/);
-    assert.match(out.stdout, /export SETTLD_TENANT_ID='tenant_bootstrap'/);
-    assert.match(out.stdout, /export SETTLD_API_KEY='ak_runtime\.secret'/);
-    assert.match(out.stdout, /export SETTLD_PAID_TOOLS_BASE_URL='https:\/\/paid\.runtime\.test\/'/);
-    assert.match(out.stdout, /export SETTLD_PAID_TOOLS_AGENT_PASSPORT='/);
+    assert.match(out.stdout, /export NOOTERRA_BASE_URL='https:\/\/api\.runtime\.test'/);
+    assert.match(out.stdout, /export NOOTERRA_TENANT_ID='tenant_bootstrap'/);
+    assert.match(out.stdout, /export NOOTERRA_API_KEY='ak_runtime\.secret'/);
+    assert.match(out.stdout, /export NOOTERRA_PAID_TOOLS_BASE_URL='https:\/\/paid\.runtime\.test\/'/);
+    assert.match(out.stdout, /export NOOTERRA_PAID_TOOLS_AGENT_PASSPORT='/);
 
     assert.equal(requests.length, 1);
     assert.equal(requests[0].method, "POST");

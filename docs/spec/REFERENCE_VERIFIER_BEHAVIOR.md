@@ -58,7 +58,7 @@ This ordering prevents ambiguous “first failure wins” behavior across implem
 
 ## Trust anchors (portable minimum)
 
-1. MUST support out-of-band injection of trusted governance roots via `SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON` (see `TRUST_ANCHORS.md`).
+1. MUST support out-of-band injection of trusted governance roots via `NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON` (see `TRUST_ANCHORS.md`).
 2. MUST treat missing trusted governance roots as a hard failure in strict mode when governance-root signatures are required.
 
 ## Strict vs non-strict (portable minimum)

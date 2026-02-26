@@ -40,7 +40,7 @@ async function upsertX402WalletPolicy(api, { policy, idempotencyKey }) {
     path: "/ops/x402/wallet-policies",
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { policy }
   });
@@ -74,7 +74,7 @@ test("API e2e: insolvency sweep auto-freezes exhausted payer and emits lifecycle
     method: "POST",
     path: "/x402/webhooks/endpoints",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_webhook_create_insolvency_1"
     },
     body: {
@@ -94,7 +94,7 @@ test("API e2e: insolvency sweep auto-freezes exhausted payer and emits lifecycle
     method: "POST",
     path: "/x402/gate/create",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_gate_create_insolvency_1"
     },
     body: {
@@ -124,7 +124,7 @@ test("API e2e: insolvency sweep auto-freezes exhausted payer and emits lifecycle
     method: "POST",
     path: "/x402/gate/create",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_gate_create_insolvency_1_blocked"
     },
     body: {
@@ -175,7 +175,7 @@ test("API e2e: insolvency sweep freezes agent when delegation authority is expir
     method: "POST",
     path: "/x402/gate/create",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_gate_create_insolvency_2"
     },
     body: {
@@ -265,7 +265,7 @@ test("API e2e: freeze unwind auto-denies pending escalation and cancels active q
     method: "POST",
     path: "/x402/gate/create",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_gate_create_unwind_1a"
     },
     body: {
@@ -291,7 +291,7 @@ test("API e2e: freeze unwind auto-denies pending escalation and cancels active q
     method: "POST",
     path: "/x402/gate/create",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_gate_create_unwind_1b"
     },
     body: {
@@ -377,7 +377,7 @@ test("API e2e: freeze unwind auto-denies pending escalation and cancels active q
     method: "POST",
     path: `/x402/gate/agents/${encodeURIComponent(payerAgentId)}/wind-down`,
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_agent_wind_down_unwind_1"
     },
     body: {

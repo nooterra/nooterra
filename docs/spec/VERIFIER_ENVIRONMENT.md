@@ -1,6 +1,6 @@
 # Verifier Environment Assumptions + Hardening (v1)
 
-This document describes operational assumptions and recommended hardening when deploying `settld-verify`.
+This document describes operational assumptions and recommended hardening when deploying `nooterra-verify`.
 
 ## Filesystem assumptions
 
@@ -12,14 +12,14 @@ This document describes operational assumptions and recommended hardening when d
 ## CI / production recommendations
 
 - **Regulated workflows**: run **strict mode** by default.
-  - CLI: `settld-verify --strict --format json …`
+  - CLI: `nooterra-verify --strict --format json …`
   - Spec: `STRICTNESS.md`
 - **Warnings policy**:
   - If warnings represent “unknown provenance / incomplete guarantees” in your environment, enable `--fail-on-warnings`.
-  - CLI: `settld-verify --fail-on-warnings …`
+  - CLI: `nooterra-verify --fail-on-warnings …`
   - Spec: `WARNINGS.md`
 - **Pin tool versions**:
-  - Prefer installing a pinned version of `settld-verify` and recording `VerifyCliOutput.v1.tool.{version,commit}` as evidence.
+  - Prefer installing a pinned version of `nooterra-verify` and recording `VerifyCliOutput.v1.tool.{version,commit}` as evidence.
   - Spec: `TOOL_PROVENANCE.md`, `VERSIONING.md`
 
 ## Trust anchor distribution (do / don’t)
@@ -34,5 +34,5 @@ This document describes operational assumptions and recommended hardening when d
 - CLI output ordering of `errors[]` and `warnings[]` is deterministic (sorted) to support CI and archival.
 - If you need stronger determinism guarantees, archive both:
   - `verify/verification_report.json` inside the bundle (receipt), and
-  - `settld-verify --format json` output (what your CI observed).
+  - `nooterra-verify --format json` output (what your CI observed).
 

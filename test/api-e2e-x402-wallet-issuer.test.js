@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
 import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
-import { parseSettldPayTokenV1 } from "../src/core/settld-pay-token.js";
+import { parseNooterraPayTokenV1 } from "../src/core/nooterra-pay-token.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId }) {
@@ -400,7 +400,7 @@ test("API e2e: x402 wallet issuer authorize enforces delegation lineage and pers
     }
   });
   assert.equal(authorized.statusCode, 200, authorized.body);
-  const tokenPayload = parseSettldPayTokenV1(authorized.json?.token ?? "").payload;
+  const tokenPayload = parseNooterraPayTokenV1(authorized.json?.token ?? "").payload;
   assert.equal(tokenPayload.rootDelegationRef, "dlg_wallet_issuer_lineage_root_1");
   assert.equal(tokenPayload.rootDelegationHash, rootDelegation.delegationHash);
   assert.equal(tokenPayload.effectiveDelegationRef, "dlg_wallet_issuer_lineage_leaf_1");

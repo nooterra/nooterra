@@ -90,7 +90,7 @@ function buildRunArtifacts({ gateId, providerId, releasedAmountCents, artifactDi
 }
 
 test("x402 batch settlement worker is idempotent across reruns", async () => {
-  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "settld-x402-batch-worker-"));
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "nooterra-x402-batch-worker-"));
   const artifactRoot = path.join(tmpRoot, "artifacts", "mcp-paid-exa");
   const registryPath = path.join(tmpRoot, "registry.json");
   const statePath = path.join(tmpRoot, "state.json");
@@ -201,7 +201,7 @@ test("x402 batch settlement worker is idempotent across reruns", async () => {
 });
 
 test("x402 batch settlement worker executes stub payouts once and skips reruns", async () => {
-  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "settld-x402-batch-exec-"));
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "nooterra-x402-batch-exec-"));
   const artifactRoot = path.join(tmpRoot, "artifacts", "mcp-paid-exa");
   const registryPath = path.join(tmpRoot, "registry.json");
   const statePath = path.join(tmpRoot, "state.json");
@@ -295,7 +295,7 @@ test("x402 batch settlement worker executes stub payouts once and skips reruns",
 });
 
 test("x402 batch settlement worker does not execute payouts during dry-run", async () => {
-  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "settld-x402-batch-dryrun-"));
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "nooterra-x402-batch-dryrun-"));
   const artifactRoot = path.join(tmpRoot, "artifacts", "mcp-paid-exa");
   const registryPath = path.join(tmpRoot, "registry.json");
   const statePath = path.join(tmpRoot, "state.json");
@@ -363,7 +363,7 @@ test("x402 batch settlement worker does not execute payouts during dry-run", asy
 });
 
 test("x402 batch settlement worker requires Circle env in sandbox mode", async () => {
-  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "settld-x402-batch-sandbox-"));
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "nooterra-x402-batch-sandbox-"));
   const artifactRoot = path.join(tmpRoot, "artifacts", "mcp-paid-exa");
   const registryPath = path.join(tmpRoot, "registry.json");
   const statePath = path.join(tmpRoot, "state.json");

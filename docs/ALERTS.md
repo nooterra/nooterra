@@ -1,8 +1,8 @@
-# Alerts & Runbook (v1)
+# Alerts & Runbook
 
 This file defines a minimal “pilot-safe” alert pack and the exact first actions to take when something pages.
 
-Settld invariants still apply during incidents:
+Nooterra invariants still apply during incidents:
 - never accept an invalid chain
 - never duplicate external effects
 - never break ledger balance / month-close immutability
@@ -141,49 +141,49 @@ These are examples; tune thresholds for your pilot volume and SLOs.
 
 ```yaml
 groups:
-  - name: settld.alerts
+  - name: nooterra.alerts
     rules:
-      - alert: SettldDeliveryDLQNonzero
+      - alert: NooterraDeliveryDLQNonzero
         expr: delivery_dlq_pending_total_gauge > 0
         for: 5m
         labels: { severity: page }
         annotations:
-          summary: "Settld deliveries in DLQ"
+          summary: "Nooterra deliveries in DLQ"
           runbook: "docs/ALERTS.md#1-delivery-dlq-nonzero-customer-impact-likely"
 
-      - alert: SettldOutboxBacklogHigh
+      - alert: NooterraOutboxBacklogHigh
         expr: outbox_pending_gauge > 1000
         for: 10m
         labels: { severity: page }
         annotations:
-          summary: "Settld outbox backlog high"
+          summary: "Nooterra outbox backlog high"
           runbook: "docs/ALERTS.md#2-outbox-backlog-stuck-system-falling-behind"
 
-      - alert: SettldLedgerApplyFailures
+      - alert: NooterraLedgerApplyFailures
         expr: increase(ledger_apply_fail_total[5m]) > 0
         for: 0m
         labels: { severity: page }
         annotations:
-          summary: "Settld ledger apply failures detected"
+          summary: "Nooterra ledger apply failures detected"
           runbook: "docs/ALERTS.md#3-ledger-apply-failures-finance-correctness-risk"
 
-      - alert: SettldIngestRejectSpike
+      - alert: NooterraIngestRejectSpike
         expr: increase(ingest_rejected_total[5m]) > 50
         for: 5m
         labels: { severity: warn }
         annotations:
-          summary: "Settld ingest rejects spiking"
+          summary: "Nooterra ingest rejects spiking"
           runbook: "docs/ALERTS.md#4-ingest-rejects-spiking-upstream-breaking--hostile-input"
 
-      - alert: SettldMaintenanceStaleRetention
+      - alert: NooterraMaintenanceStaleRetention
         expr: time() - maintenance_last_success_unixtime{kind="retention_cleanup"} > 3600
         for: 10m
         labels: { severity: warn }
         annotations:
-          summary: "Settld retention cleanup not succeeding"
+          summary: "Nooterra retention cleanup not succeeding"
           runbook: "docs/ALERTS.md#5-retention-cleanup-stale--failing-unbounded-growth-risk"
 
-      - alert: SettldReplayMismatchDetected
+      - alert: NooterraReplayMismatchDetected
         expr: replay_mismatch_gauge > 0
         for: 5m
         labels: { severity: page }

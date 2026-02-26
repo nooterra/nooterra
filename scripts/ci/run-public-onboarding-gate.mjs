@@ -9,23 +9,23 @@ function usage() {
     "options:",
     "  --base-url <url>   API base URL (required; no production default)",
     "  --tenant-id <id>   Tenant id (default: tenant_default)",
-    "  --email <address>  OTP probe email (default: probe@settld.work)",
+    "  --email <address>  OTP probe email (default: probe@nooterra.work)",
     "  --out <file>       Output report path (default: artifacts/gates/public-onboarding-gate.json)",
     "  --help             Show help",
     "",
     "env fallbacks:",
-    "  SETTLD_BASE_URL",
-    "  SETTLD_TENANT_ID",
-    "  SETTLD_ONBOARDING_PROBE_EMAIL"
+    "  NOOTERRA_BASE_URL",
+    "  NOOTERRA_TENANT_ID",
+    "  NOOTERRA_ONBOARDING_PROBE_EMAIL"
   ].join("\n");
 }
 
 export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
   const out = {
     help: false,
-    baseUrl: env.SETTLD_BASE_URL ?? null,
-    tenantId: env.SETTLD_TENANT_ID ?? "tenant_default",
-    email: env.SETTLD_ONBOARDING_PROBE_EMAIL ?? "probe@settld.work",
+    baseUrl: env.NOOTERRA_BASE_URL ?? null,
+    tenantId: env.NOOTERRA_TENANT_ID ?? "tenant_default",
+    email: env.NOOTERRA_ONBOARDING_PROBE_EMAIL ?? "probe@nooterra.work",
     out: path.resolve(cwd, "artifacts/gates/public-onboarding-gate.json")
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -51,7 +51,7 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
   out.email = String(out.email ?? "").trim().toLowerCase();
   out.out = String(out.out ?? "").trim();
   if (!out.help) {
-    if (!out.baseUrl) throw new Error("--base-url is required (pass flag or SETTLD_BASE_URL)");
+    if (!out.baseUrl) throw new Error("--base-url is required (pass flag or NOOTERRA_BASE_URL)");
     if (!out.tenantId) throw new Error("--tenant-id is required");
     if (!out.email) throw new Error("--email is required");
     if (!out.out) throw new Error("--out is required");

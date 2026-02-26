@@ -5,10 +5,10 @@ import { parseArgs } from "../scripts/ops/run-x402-hitl-smoke.mjs";
 
 test("x402 hitl smoke parser: uses env defaults and accepts api key without ops token", () => {
   const args = parseArgs([], {
-    SETTLD_BASE_URL: "http://127.0.0.1:3999",
-    SETTLD_TENANT_ID: "tenant_ops_test",
-    SETTLD_PROTOCOL: "1.0",
-    SETTLD_API_KEY: "kid.secret"
+    NOOTERRA_BASE_URL: "http://127.0.0.1:3999",
+    NOOTERRA_TENANT_ID: "tenant_ops_test",
+    NOOTERRA_PROTOCOL: "1.0",
+    NOOTERRA_API_KEY: "kid.secret"
   });
   assert.equal(args.baseUrl, "http://127.0.0.1:3999");
   assert.equal(args.tenantId, "tenant_ops_test");
@@ -32,9 +32,9 @@ test("x402 hitl smoke parser: requires api key or ops token", () => {
   assert.throws(
     () =>
       parseArgs([], {
-        SETTLD_BASE_URL: "http://127.0.0.1:3000",
-        SETTLD_TENANT_ID: "tenant_default",
-        SETTLD_PROTOCOL: "1.0"
+        NOOTERRA_BASE_URL: "http://127.0.0.1:3000",
+        NOOTERRA_TENANT_ID: "tenant_default",
+        NOOTERRA_PROTOCOL: "1.0"
       }),
     /provide --api-key or --ops-token/
   );

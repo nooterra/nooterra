@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/PricingMatrixSignatures.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/PricingMatrixSignatures.v1.schema.json",
   "title": "PricingMatrixSignatures.v1",
   "type": "object",
   "required": ["schemaVersion", "pricingMatrixHash", "signatures"],

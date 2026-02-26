@@ -20,7 +20,7 @@ test("protocol: too old rejected with 426", async () => {
     method: "POST",
     path: "/ingest/proxy",
     auth: "none",
-    headers: { "x-settld-protocol": "0.9" }
+    headers: { "x-nooterra-protocol": "0.9" }
   });
   assert.equal(res.statusCode, 426);
   assert.equal(res.json?.code, "PROTOCOL_TOO_OLD");
@@ -32,7 +32,7 @@ test("protocol: too new rejected", async () => {
     method: "POST",
     path: "/ingest/proxy",
     auth: "none",
-    headers: { "x-settld-protocol": "2.0" }
+    headers: { "x-nooterra-protocol": "2.0" }
   });
   assert.equal(res.statusCode, 400);
   assert.equal(res.json?.code, "PROTOCOL_TOO_NEW");
@@ -51,7 +51,7 @@ test("protocol: deprecated protocol rejected with 426", async () => {
     method: "POST",
     path: "/ingest/proxy",
     auth: "none",
-    headers: { "x-settld-protocol": "1.0" }
+    headers: { "x-nooterra-protocol": "1.0" }
   });
   assert.equal(res.statusCode, 426);
   assert.equal(res.json?.code, "PROTOCOL_DEPRECATED");
@@ -63,7 +63,7 @@ test("capabilities: advertises supported versions and emits protocol headers", a
   assert.equal(res.statusCode, 200);
   assert.equal(res.json?.ok, true);
   assert.equal(res.json?.protocol?.current, "1.0");
-  assert.equal(res.headers?.get?.("x-settld-protocol"), "1.0");
+  assert.equal(res.headers?.get?.("x-nooterra-protocol"), "1.0");
   assert.ok(Array.isArray(res.json?.events?.schemaVersionsByType?.JOB_CREATED));
   assert.ok(Array.isArray(res.json?.artifacts?.supportedTypes));
 });
@@ -102,7 +102,7 @@ test("append: unsupported event schemaVersion rejected", async () => {
   const res = await request(api, {
     method: "POST",
     path: `/jobs/${jobId}/events`,
-    headers: { "x-settld-protocol": "1.0" },
+    headers: { "x-nooterra-protocol": "1.0" },
     body: { schemaVersion: 2, type: "MATCHED", actor: { type: "system", id: "proxy" }, payload: { robotId: "rob_1" } }
   });
   assert.equal(res.statusCode, 400);

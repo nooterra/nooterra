@@ -3,20 +3,20 @@
 This example is designed to be a template vendors can copy into their own repo/CI:
 
 - Generate a `MeteringReport.v1` input from a toy telemetry format (adapter).
-- Produce a deterministic `ClosePack.v1` (via `settld-produce closepack-from-json`).
+- Produce a deterministic `ClosePack.v1` (via `nooterra-produce closepack-from-json`).
 - Run a strict “contract test” for CI (`scripts/vendor-contract-test.mjs`).
-- Upload to Verify Cloud using an ingest key (`settld-magic-link ingest`).
+- Upload to Verify Cloud using an ingest key (`nooterra-magic-link ingest`).
 
 ## 0) Prereqs
 
 - Node >= 20
-- Run from repo root (so `npm exec -- settld-*` works)
+- Run from repo root (so `npm exec -- nooterra-*` works)
 
 ## 1) Create trust + keys (local demo)
 
 ```bash
 mkdir -p out/vendor-integration
-npm exec --silent -- settld-trust init \
+npm exec --silent -- nooterra-trust init \
   --out out/vendor-integration/trust \
   --with-time-authority \
   --format json \
@@ -34,7 +34,7 @@ node examples/vendor-integration/scripts/compose-trust.mjs \
 ## 2) Produce a JobProof bundle
 
 ```bash
-npm exec --silent -- settld-produce jobproof \
+npm exec --silent -- nooterra-produce jobproof \
   --out out/vendor-integration/jobproof \
   --keys out/vendor-integration/trust/keypairs.json \
   --format json \
@@ -66,7 +66,7 @@ node examples/vendor-integration/scripts/sign-pricing-matrix.mjs \
 ## 5) Produce ClosePack (deterministic)
 
 ```bash
-npm exec --silent -- settld-produce closepack-from-json \
+npm exec --silent -- nooterra-produce closepack-from-json \
   --out out/vendor-integration/closepack \
   --keys out/vendor-integration/trust/keypairs.json \
   --jobproof out/vendor-integration/jobproof \
@@ -103,7 +103,7 @@ node scripts/vendor-contract-test.mjs \
 Once the buyer gives you an ingest key (in `ingest_key.txt`):
 
 ```bash
-npm exec --silent -- settld-magic-link ingest out/vendor-integration/ClosePack.v1.zip \
+npm exec --silent -- nooterra-magic-link ingest out/vendor-integration/ClosePack.v1.zip \
   --url http://localhost:8787 \
   --tenant <buyerTenant> \
   --ingest-key "$(cat ingest_key.txt)" \

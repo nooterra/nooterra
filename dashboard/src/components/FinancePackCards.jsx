@@ -32,7 +32,7 @@ export default function FinancePackCards({ finance }) {
   }, [finance]);
 
   return (
-    <div className="bg-settld-card border border-settld-border rounded-xl p-6">
+    <div className="bg-nooterra-card border border-nooterra-border rounded-xl p-6">
       <div className="flex items-center gap-3 mb-6">
         <span className="text-2xl">📚</span>
         <h2 className="text-xl font-semibold">Finance Pack</h2>
@@ -45,11 +45,11 @@ export default function FinancePackCards({ finance }) {
             key={card.id}
             onClick={() => setSelected(selected === card.id ? null : card.id)}
             className={`p-4 rounded-lg border-2 transition-all hover:scale-105 ${
-              selected === card.id ? "border-settld-accent bg-settld-accent/10" : "border-settld-border hover:border-settld-accent/50"
+              selected === card.id ? "border-nooterra-accent bg-nooterra-accent/10" : "border-nooterra-border hover:border-nooterra-accent/50"
             }`}
           >
             <p className="font-medium text-sm">{card.title}</p>
-            <p className={`text-xs mt-1 ${card.status === "success" ? "text-settld-success" : "text-gray-500"}`}>
+            <p className={`text-xs mt-1 ${card.status === "success" ? "text-nooterra-success" : "text-gray-500"}`}>
               {card.status === "success" ? "Ready" : "Missing fixture"}
             </p>
           </button>
@@ -60,7 +60,7 @@ export default function FinancePackCards({ finance }) {
         {finance.financePackZipUrl && (
           <a
             href={finance.financePackZipUrl}
-            className="px-3 py-2 rounded-lg border border-settld-border bg-black/20 hover:bg-white/5 text-sm"
+            className="px-3 py-2 rounded-lg border border-nooterra-border bg-black/20 hover:bg-white/5 text-sm"
             download
           >
             Download FinancePackBundle.v1.zip
@@ -69,22 +69,22 @@ export default function FinancePackCards({ finance }) {
         {finance.monthProofBundleZipUrl && (
           <a
             href={finance.monthProofBundleZipUrl}
-            className="px-3 py-2 rounded-lg border border-settld-border bg-black/20 hover:bg-white/5 text-sm"
+            className="px-3 py-2 rounded-lg border border-nooterra-border bg-black/20 hover:bg-white/5 text-sm"
             download
           >
             Download MonthProofBundle.v1.zip
           </a>
         )}
         {finance.jobProofBundleZipUrl && (
-          <a href={finance.jobProofBundleZipUrl} className="px-3 py-2 rounded-lg border border-settld-border bg-black/20 hover:bg-white/5 text-sm" download>
+          <a href={finance.jobProofBundleZipUrl} className="px-3 py-2 rounded-lg border border-nooterra-border bg-black/20 hover:bg-white/5 text-sm" download>
             Download JobProofBundle.v1.zip
           </a>
         )}
       </div>
 
       {selected && cards.find((c) => c.id === selected)?.kind === "csv" && (
-        <div className="bg-settld-dark border border-settld-border rounded-lg overflow-hidden">
-          <div className="px-4 py-2 bg-settld-border/50 border-b border-settld-border">
+        <div className="bg-nooterra-dark border border-nooterra-border rounded-lg overflow-hidden">
+          <div className="px-4 py-2 bg-nooterra-border/50 border-b border-nooterra-border">
             <p className="text-sm text-gray-400">{cards.find((c) => c.id === selected)?.title}</p>
           </div>
           <pre className="p-4 text-xs text-green-400 overflow-x-auto max-h-64">{previewCsv(cards.find((c) => c.id === selected)?.data)}</pre>

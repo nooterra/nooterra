@@ -10,8 +10,8 @@ import { buildX402ReceiptVerifierVector } from "./helpers/x402-receipt-vector.js
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-function runSettldCli(args) {
-  const result = spawnSync(process.execPath, [path.join(REPO_ROOT, "bin", "settld.js"), ...args], {
+function runNooterraCli(args) {
+  const result = spawnSync(process.execPath, [path.join(REPO_ROOT, "bin", "nooterra.js"), ...args], {
     cwd: REPO_ROOT,
     encoding: "utf8"
   });
@@ -22,12 +22,12 @@ function runSettldCli(args) {
   };
 }
 
-test("CLI: settld x402 receipt verify passes for valid vector", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-x402-receipt-cli-"));
+test("CLI: nooterra x402 receipt verify passes for valid vector", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-x402-receipt-cli-"));
   try {
     const receiptPath = path.join(tmpDir, "receipt.json");
     await fs.writeFile(receiptPath, `${JSON.stringify(buildX402ReceiptVerifierVector(), null, 2)}\n`, "utf8");
-    const run = runSettldCli(["x402", "receipt", "verify", receiptPath, "--format", "json"]);
+    const run = runNooterraCli(["x402", "receipt", "verify", receiptPath, "--format", "json"]);
     assert.equal(run.status, 0, `stdout:\n${run.stdout}\n\nstderr:\n${run.stderr}`);
     const report = JSON.parse(run.stdout);
     assert.equal(report.ok, true);
@@ -37,15 +37,15 @@ test("CLI: settld x402 receipt verify passes for valid vector", async () => {
   }
 });
 
-test("CLI: settld x402 receipt verify --strict fails when quote signature material is missing", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-x402-receipt-cli-"));
+test("CLI: nooterra x402 receipt verify --strict fails when quote signature material is missing", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-x402-receipt-cli-"));
   try {
     const receipt = buildX402ReceiptVerifierVector();
     delete receipt.providerQuotePayload;
     delete receipt.providerQuoteSignature;
     const receiptPath = path.join(tmpDir, "receipt-strict.json");
     await fs.writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
-    const run = runSettldCli(["x402", "receipt", "verify", receiptPath, "--format", "json", "--strict"]);
+    const run = runNooterraCli(["x402", "receipt", "verify", receiptPath, "--format", "json", "--strict"]);
     assert.equal(run.status, 1, `stdout:\n${run.stdout}\n\nstderr:\n${run.stderr}`);
     const report = JSON.parse(run.stdout);
     assert.equal(report.ok, false);
@@ -55,8 +55,8 @@ test("CLI: settld x402 receipt verify --strict fails when quote signature materi
   }
 });
 
-test("CLI: settld x402 receipt verify fails when required zk proof is invalid offline", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-x402-receipt-cli-zk-"));
+test("CLI: nooterra x402 receipt verify fails when required zk proof is invalid offline", async () => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-x402-receipt-cli-zk-"));
   try {
     const receipt = buildX402ReceiptVerifierVector();
     receipt.zkProof = {
@@ -83,7 +83,7 @@ test("CLI: settld x402 receipt verify fails when required zk proof is invalid of
     };
     const receiptPath = path.join(tmpDir, "receipt-zk-invalid.json");
     await fs.writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
-    const run = runSettldCli(["x402", "receipt", "verify", receiptPath, "--format", "json"]);
+    const run = runNooterraCli(["x402", "receipt", "verify", receiptPath, "--format", "json"]);
     assert.equal(run.status, 1, `stdout:\n${run.stdout}\n\nstderr:\n${run.stderr}`);
     const report = JSON.parse(run.stdout);
     assert.equal(report.ok, false);

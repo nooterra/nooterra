@@ -13,11 +13,14 @@ async function writeJson(pathname, value) {
 
 function requiredCheckRows(statusesById) {
   const ids = [
-    "settld_verified_collaboration",
+    "nooterra_verified_collaboration",
     "openclaw_substrate_demo_lineage_verified",
     "openclaw_substrate_demo_transcript_verified",
+    "checkpoint_grant_binding_verified",
+    "work_order_metering_durability_verified",
     "sdk_acs_smoke_js_verified",
-    "sdk_acs_smoke_py_verified"
+    "sdk_acs_smoke_py_verified",
+    "sdk_python_contract_freeze_verified"
   ];
   return ids.map((id) => ({ id, status: statusesById[id] ?? "failed" }));
 }
@@ -29,23 +32,26 @@ async function seedInputs(root, { launchOverrides } = {}) {
   const outPath = path.join(root, "artifacts/gates/release-cutover-audit-view.json");
 
   const statusesById = {
-    settld_verified_collaboration: "passed",
+    nooterra_verified_collaboration: "passed",
     openclaw_substrate_demo_lineage_verified: "passed",
     openclaw_substrate_demo_transcript_verified: "passed",
+    checkpoint_grant_binding_verified: "passed",
+    work_order_metering_durability_verified: "passed",
     sdk_acs_smoke_js_verified: "passed",
-    sdk_acs_smoke_py_verified: "passed"
+    sdk_acs_smoke_py_verified: "passed",
+    sdk_python_contract_freeze_verified: "passed"
   };
 
   await writeJson(productionGatePath, {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 5, passedChecks: 5 },
+    verdict: { ok: true, requiredChecks: 8, passedChecks: 8 },
     checks: requiredCheckRows(statusesById)
   });
 
   await writeJson(requiredChecksPath, {
     schemaVersion: "ProductionCutoverRequiredChecksAssertion.v1",
     ok: true,
-    summary: { requiredChecks: 5, passedChecks: 5, failedChecks: 0 },
+    summary: { requiredChecks: 8, passedChecks: 8, failedChecks: 0 },
     checks: requiredCheckRows(statusesById).map((row) => ({ ...row, ok: row.status === "passed" }))
   });
 
@@ -53,11 +59,11 @@ async function seedInputs(root, { launchOverrides } = {}) {
     schemaVersion: "LaunchCutoverPacket.v1",
     requiredCutoverChecks: {
       schemaVersion: "ProductionCutoverRequiredChecksSummary.v1",
-      sourceReportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
-      sourceReportSchemaVersion: "SettldVerifiedGateReport.v1",
+      sourceReportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+      sourceReportSchemaVersion: "NooterraVerifiedGateReport.v1",
       sourceReportOk: true,
       checks: requiredCheckRows(statusesById).map((row) => ({ ...row, ok: row.status === "passed" })),
-      summary: { requiredChecks: 5, passedChecks: 5, failedChecks: 0 }
+      summary: { requiredChecks: 8, passedChecks: 8, failedChecks: 0 }
     },
     verdict: { ok: true, requiredChecks: 1, passedChecks: 1 }
   };
@@ -67,7 +73,7 @@ async function seedInputs(root, { launchOverrides } = {}) {
 }
 
 test("release cutover audit view parser: supports explicit args", () => {
-  const cwd = "/tmp/settld";
+  const cwd = "/tmp/nooterra";
   const args = parseArgs(
     [
       "--production-gate",
@@ -93,7 +99,7 @@ test("release cutover audit view parser: supports explicit args", () => {
 });
 
 test("release cutover audit view: passes when all sources agree and are passed", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-cutover-audit-pass-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-cutover-audit-pass-"));
   t.after(async () => {
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -110,14 +116,14 @@ test("release cutover audit view: passes when all sources agree and are passed",
   assert.equal(report.schemaVersion, "ReleaseCutoverAuditView.v1");
   assert.equal(report.verdict.ok, true);
   assert.equal(report.verdict.status, "pass");
-  assert.equal(report.summary.requiredChecks, 5);
-  assert.equal(report.summary.passedChecks, 5);
+  assert.equal(report.summary.requiredChecks, 8);
+  assert.equal(report.summary.passedChecks, 8);
   assert.equal(report.summary.failedChecks, 0);
   assert.equal(report.requiredChecks.every((row) => row.ok === true), true);
 });
 
 test("release cutover audit view: fails closed on launch summary status mismatch", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-cutover-audit-mismatch-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-cutover-audit-mismatch-"));
   t.after(async () => {
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -126,9 +132,9 @@ test("release cutover audit view: fails closed on launch summary status mismatch
       requiredCutoverChecks: {
         ...packet.requiredCutoverChecks,
         checks: packet.requiredCutoverChecks.checks.map((row) =>
-          row.id === "sdk_acs_smoke_py_verified" ? { ...row, status: "failed", ok: false } : row
+          row.id === "sdk_python_contract_freeze_verified" ? { ...row, status: "failed", ok: false } : row
         ),
-        summary: { requiredChecks: 5, passedChecks: 4, failedChecks: 1 }
+        summary: { requiredChecks: 8, passedChecks: 7, failedChecks: 1 }
       }
     })
   });
@@ -143,14 +149,14 @@ test("release cutover audit view: fails closed on launch summary status mismatch
 
   assert.equal(report.verdict.ok, false);
   assert.equal(report.verdict.status, "fail");
-  const row = report.requiredChecks.find((check) => check.id === "sdk_acs_smoke_py_verified");
+  const row = report.requiredChecks.find((check) => check.id === "sdk_python_contract_freeze_verified");
   assert.ok(row);
   assert.equal(row.parityOk, false);
   assert.equal(row.failureCodes.includes("status_mismatch"), true);
 });
 
 test("release cutover audit view: fails closed when launch packet is missing", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-cutover-audit-missing-"));
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-cutover-audit-missing-"));
   t.after(async () => {
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -171,4 +177,3 @@ test("release cutover audit view: fails closed when launch packet is missing", a
   assert.ok(loadIssue);
   assert.equal(loadIssue.code, "file_missing");
 });
-

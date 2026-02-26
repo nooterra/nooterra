@@ -95,7 +95,7 @@ async function runProcess(cmd, args, { env } = {}) {
 }
 
 test("scripts/examples: sdk tenant analytics run end-to-end against magic-link", { timeout: 120_000 }, async (t) => {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-magic-link-analytics-example-"));
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-magic-link-analytics-example-"));
   const month = monthKeyUtcNow();
   const baseMonth = previousMonthKey(month);
   const tenantId = "tenant_sdk_analytics_example";
@@ -168,11 +168,11 @@ test("scripts/examples: sdk tenant analytics run end-to-end against magic-link",
 
   const commonEnv = {
     ...process.env,
-    SETTLD_BASE_URL: baseUrl,
-    SETTLD_TENANT_ID: tenantId,
-    SETTLD_X_API_KEY: "test_key",
-    SETTLD_MONTH: month,
-    SETTLD_BASE_MONTH: baseMonth
+    NOOTERRA_BASE_URL: baseUrl,
+    NOOTERRA_TENANT_ID: tenantId,
+    NOOTERRA_X_API_KEY: "test_key",
+    NOOTERRA_MONTH: month,
+    NOOTERRA_BASE_MONTH: baseMonth
   };
 
   await t.test("javascript analytics example script", async () => {

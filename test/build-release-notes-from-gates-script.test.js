@@ -15,7 +15,7 @@ async function writeJson(pathname, value) {
 }
 
 test("build release notes parser: supports explicit args", () => {
-  const cwd = "/tmp/settld";
+  const cwd = "/tmp/nooterra";
   const args = parseArgs(
     [
       "--promotion-guard",
@@ -40,8 +40,8 @@ test("build release notes parser: supports explicit args", () => {
   assert.equal(args.jsonOutPath, path.resolve(cwd, "artifacts/release/release-notes-report.json"));
 });
 
-test("build release notes: writes markdown with collaboration, lineage, transcript, and sdk smoke statuses", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-notes-"));
+test("build release notes: writes markdown with collaboration, lineage, transcript, checkpoint binding, and sdk smoke statuses", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-notes-"));
   t.after(async () => {
     await fs.rm(root, { recursive: true, force: true });
   });
@@ -59,11 +59,14 @@ test("build release notes: writes markdown with collaboration, lineage, transcri
     schemaVersion: "ProductionCutoverRequiredChecksAssertion.v1",
     ok: false,
     checks: [
-      { id: "settld_verified_collaboration", ok: true, status: "passed" },
+      { id: "nooterra_verified_collaboration", ok: true, status: "passed" },
       { id: "openclaw_substrate_demo_lineage_verified", ok: false, status: "failed" },
       { id: "openclaw_substrate_demo_transcript_verified", ok: true, status: "passed" },
+      { id: "checkpoint_grant_binding_verified", ok: true, status: "passed" },
+      { id: "work_order_metering_durability_verified", ok: true, status: "passed" },
       { id: "sdk_acs_smoke_js_verified", ok: true, status: "passed" },
-      { id: "sdk_acs_smoke_py_verified", ok: false, status: "failed" }
+      { id: "sdk_acs_smoke_py_verified", ok: false, status: "failed" },
+      { id: "sdk_python_contract_freeze_verified", ok: false, status: "failed" }
     ]
   });
 
@@ -81,18 +84,24 @@ test("build release notes: writes markdown with collaboration, lineage, transcri
   assert.equal(report.summary.collaborationCheckOk, true);
   assert.equal(report.summary.lineageCheckOk, false);
   assert.equal(report.summary.transcriptCheckOk, true);
+  assert.equal(report.summary.checkpointGrantBindingCheckOk, true);
+  assert.equal(report.summary.workOrderMeteringDurabilityCheckOk, true);
   assert.equal(report.summary.sdkJsSmokeCheckOk, true);
   assert.equal(report.summary.sdkPySmokeCheckOk, false);
+  assert.equal(report.summary.sdkPythonContractFreezeCheckOk, false);
 
   const markdown = await fs.readFile(outPath, "utf8");
   assert.match(markdown, /Tag: `v0\.3\.1`/);
   assert.match(markdown, /Version: `0\.3\.1`/);
   assert.match(markdown, /Release promotion guard: \*\*pass\*\*/);
-  assert.match(markdown, /settld_verified_collaboration: \*\*pass\*\*/);
+  assert.match(markdown, /nooterra_verified_collaboration: \*\*pass\*\*/);
   assert.match(markdown, /openclaw_substrate_demo_lineage_verified: \*\*fail\*\*/);
   assert.match(markdown, /openclaw_substrate_demo_transcript_verified: \*\*pass\*\*/);
+  assert.match(markdown, /checkpoint_grant_binding_verified: \*\*pass\*\*/);
+  assert.match(markdown, /work_order_metering_durability_verified: \*\*pass\*\*/);
   assert.match(markdown, /sdk_acs_smoke_js_verified: \*\*pass\*\*/);
   assert.match(markdown, /sdk_acs_smoke_py_verified: \*\*fail\*\*/);
+  assert.match(markdown, /sdk_python_contract_freeze_verified: \*\*fail\*\*/);
 
   const json = JSON.parse(await fs.readFile(jsonOutPath, "utf8"));
   assert.equal(json.schemaVersion, "ReleaseNotesFromGates.v1");

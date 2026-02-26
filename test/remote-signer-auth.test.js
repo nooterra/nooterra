@@ -30,9 +30,9 @@ test("remote signer auth: bearer token from env is applied to fetch headers", as
     const client = createRemoteSignerClient({
       url: "https://signer.example",
       auth: "bearer",
-      tokenEnv: "SETTLD_SIGNER_TOKEN",
+      tokenEnv: "NOOTERRA_SIGNER_TOKEN",
       headers: ["X-Test: 1"],
-      env: { ...process.env, SETTLD_SIGNER_TOKEN: "sekret" }
+      env: { ...process.env, NOOTERRA_SIGNER_TOKEN: "sekret" }
     });
     await client.getPublicKeyPem({ keyId: "key_test" });
     assert.equal(calls.length, 1);
@@ -53,7 +53,7 @@ test("remote signer auth: missing token fails before fetch", async () => {
     const client = createRemoteSignerClient({
       url: "https://signer.example",
       auth: "bearer",
-      tokenEnv: "SETTLD_SIGNER_TOKEN",
+      tokenEnv: "NOOTERRA_SIGNER_TOKEN",
       env: { ...process.env }
     });
     await assert.rejects(() => client.getPublicKeyPem({ keyId: "key_test" }), (e) => e?.code === "REMOTE_SIGNER_AUTH_MISSING");
@@ -63,7 +63,7 @@ test("remote signer auth: missing token fails before fetch", async () => {
 });
 
 test("remote signer auth: bearer token from file is applied", async () => {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-signer-token-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-signer-token-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
   const tokenPath = path.join(tmp, "token.txt");
   await fs.writeFile(tokenPath, "sekret-file\n", "utf8");
@@ -105,7 +105,7 @@ test("remote signer auth: bearer token from file is applied", async () => {
 test("remote signer client enforces message size cap", async () => {
   const client = createRemoteSignerClient({
     command: process.execPath,
-    args: ["packages/artifact-produce/bin/settld-signer-dev.js", "--stdio", "--keys", "test/fixtures/keys/fixture_keypairs.json"]
+    args: ["packages/artifact-produce/bin/nooterra-signer-dev.js", "--stdio", "--keys", "test/fixtures/keys/fixture_keypairs.json"]
   });
   const msg = new Uint8Array(1024 * 1024 + 1);
   await assert.rejects(

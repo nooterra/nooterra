@@ -14,7 +14,7 @@ test("loadSignerPlugin: missing module -> SIGNER_PLUGIN_LOAD_FAILED", async () =
 });
 
 test("loadSignerPlugin: missing export -> SIGNER_PLUGIN_MISSING_EXPORT", async () => {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-plugin-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-plugin-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
   const pluginPath = path.join(tmp, "plugin.mjs");
   await fs.writeFile(pluginPath, "export const nope = 1;\n", "utf8");
@@ -26,7 +26,7 @@ test("loadSignerPlugin: missing export -> SIGNER_PLUGIN_MISSING_EXPORT", async (
 });
 
 test("loadSignerPlugin: factory throws -> SIGNER_PLUGIN_INIT_FAILED", async () => {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-plugin-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-plugin-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
   const pluginPath = path.join(tmp, "plugin.mjs");
   await fs.writeFile(pluginPath, "export function createSignerProvider(){ throw new Error('boom'); }\n", "utf8");
@@ -38,7 +38,7 @@ test("loadSignerPlugin: factory throws -> SIGNER_PLUGIN_INIT_FAILED", async () =
 });
 
 test("loadSignerPlugin: provider missing methods -> SIGNER_PLUGIN_INVALID_PROVIDER", async () => {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-plugin-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-plugin-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
   const pluginPath = path.join(tmp, "plugin.mjs");
   await fs.writeFile(pluginPath, "export async function createSignerProvider(){ return {}; }\n", "utf8");

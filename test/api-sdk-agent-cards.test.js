@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { SettldClient } from "../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../packages/api-sdk/src/index.js";
 
 function makeJsonResponse(body, { status = 200, requestId = "req_test_agent_cards_1" } = {}) {
   return new Response(JSON.stringify(body), {
@@ -54,8 +54,8 @@ test("api-sdk: agent-card methods call expected endpoints", async () => {
     return makeJsonResponse({}, { status: 404 });
   };
 
-  const client = new SettldClient({
-    baseUrl: "https://api.settld.local",
+  const client = new NooterraClient({
+    baseUrl: "https://api.nooterra.local",
     tenantId: "tenant_sdk",
     fetch: fetchStub
   });
@@ -66,17 +66,18 @@ test("api-sdk: agent-card methods call expected endpoints", async () => {
     capabilities: ["travel.booking"],
     visibility: "public"
   });
-  assert.equal(calls[0].url, "https://api.settld.local/agent-cards");
+  assert.equal(calls[0].url, "https://api.nooterra.local/agent-cards");
   assert.equal(calls[0].init?.method, "POST");
 
   await client.getAgentCard("agt_sdk_card_1");
-  assert.equal(calls[1].url, "https://api.settld.local/agent-cards/agt_sdk_card_1");
+  assert.equal(calls[1].url, "https://api.nooterra.local/agent-cards/agt_sdk_card_1");
   assert.equal(calls[1].init?.method, "GET");
 
   await client.listAgentCards({
     status: "active",
     visibility: "public",
     capability: "travel.booking",
+    executionCoordinatorDid: "did:nooterra:coord_alpha",
     runtime: "openclaw",
     toolId: "travel.book_flight",
     toolMcpName: "travel_book_flight",
@@ -89,7 +90,7 @@ test("api-sdk: agent-card methods call expected endpoints", async () => {
   });
   assert.equal(
     calls[2].url,
-    "https://api.settld.local/agent-cards?status=active&visibility=public&capability=travel.booking&runtime=openclaw&limit=20&offset=0&toolId=travel.book_flight&toolMcpName=travel_book_flight&toolRiskClass=action&toolSideEffecting=true&toolMaxPriceCents=500&toolRequiresEvidenceKind=artifact"
+    "https://api.nooterra.local/agent-cards?status=active&visibility=public&capability=travel.booking&executionCoordinatorDid=did%3Anooterra%3Acoord_alpha&runtime=openclaw&limit=20&offset=0&toolId=travel.book_flight&toolMcpName=travel_book_flight&toolRiskClass=action&toolSideEffecting=true&toolMaxPriceCents=500&toolRequiresEvidenceKind=artifact"
   );
   assert.equal(calls[2].init?.method, "GET");
 
@@ -97,6 +98,7 @@ test("api-sdk: agent-card methods call expected endpoints", async () => {
     status: "active",
     visibility: "all",
     capability: "travel.booking",
+    executionCoordinatorDid: "did:nooterra:coord_alpha",
     runtime: "openclaw",
     toolId: "travel.book_flight",
     toolMcpName: "travel_book_flight",
@@ -121,7 +123,7 @@ test("api-sdk: agent-card methods call expected endpoints", async () => {
   });
   assert.equal(
     calls[3].url,
-    "https://api.settld.local/agent-cards/discover?status=active&visibility=all&capability=travel.booking&runtime=openclaw&requireCapabilityAttestation=true&attestationMinLevel=attested&attestationIssuerAgentId=agt_issuer_1&includeAttestationMetadata=true&minTrustScore=90&riskTier=guarded&includeReputation=true&reputationVersion=v2&reputationWindow=30d&scoreStrategy=trust_weighted&requesterAgentId=agt_requester_1&includeRoutingFactors=true&limit=20&offset=0&toolId=travel.book_flight&toolMcpName=travel_book_flight&toolRiskClass=action&toolSideEffecting=true&toolMaxPriceCents=500&toolRequiresEvidenceKind=artifact"
+    "https://api.nooterra.local/agent-cards/discover?status=active&visibility=all&capability=travel.booking&executionCoordinatorDid=did%3Anooterra%3Acoord_alpha&runtime=openclaw&requireCapabilityAttestation=true&attestationMinLevel=attested&attestationIssuerAgentId=agt_issuer_1&includeAttestationMetadata=true&minTrustScore=90&riskTier=guarded&includeReputation=true&reputationVersion=v2&reputationWindow=30d&scoreStrategy=trust_weighted&requesterAgentId=agt_requester_1&includeRoutingFactors=true&limit=20&offset=0&toolId=travel.book_flight&toolMcpName=travel_book_flight&toolRiskClass=action&toolSideEffecting=true&toolMaxPriceCents=500&toolRequiresEvidenceKind=artifact"
   );
   assert.equal(calls[3].init?.method, "GET");
 
@@ -129,6 +131,7 @@ test("api-sdk: agent-card methods call expected endpoints", async () => {
     status: "active",
     visibility: "public",
     capability: "travel.booking",
+    executionCoordinatorDid: "did:nooterra:coord_alpha",
     runtime: "openclaw",
     toolId: "travel.book_flight",
     toolMcpName: "travel_book_flight",
@@ -153,9 +156,77 @@ test("api-sdk: agent-card methods call expected endpoints", async () => {
   });
   assert.equal(
     calls[4].url,
-    "https://api.settld.local/public/agent-cards/discover?status=active&visibility=public&capability=travel.booking&runtime=openclaw&requireCapabilityAttestation=true&attestationMinLevel=attested&attestationIssuerAgentId=agt_issuer_1&includeAttestationMetadata=true&minTrustScore=90&riskTier=guarded&includeReputation=true&reputationVersion=v2&reputationWindow=30d&scoreStrategy=trust_weighted&requesterAgentId=agt_requester_1&includeRoutingFactors=true&limit=20&offset=0&toolId=travel.book_flight&toolMcpName=travel_book_flight&toolRiskClass=action&toolSideEffecting=true&toolMaxPriceCents=500&toolRequiresEvidenceKind=artifact"
+    "https://api.nooterra.local/public/agent-cards/discover?status=active&visibility=public&capability=travel.booking&executionCoordinatorDid=did%3Anooterra%3Acoord_alpha&runtime=openclaw&requireCapabilityAttestation=true&attestationMinLevel=attested&attestationIssuerAgentId=agt_issuer_1&includeAttestationMetadata=true&minTrustScore=90&riskTier=guarded&includeReputation=true&reputationVersion=v2&reputationWindow=30d&scoreStrategy=trust_weighted&requesterAgentId=agt_requester_1&includeRoutingFactors=true&limit=20&offset=0&toolId=travel.book_flight&toolMcpName=travel_book_flight&toolRiskClass=action&toolSideEffecting=true&toolMaxPriceCents=500&toolRequiresEvidenceKind=artifact"
   );
   assert.equal(calls[4].init?.method, "GET");
+});
+
+test("api-sdk: reputation + relationship wrappers call expected endpoints", async () => {
+  const calls = [];
+  const fetchStub = async (url, init) => {
+    calls.push({ url: String(url), init });
+    if (String(url).includes("/public/agents/agt_sdk_card_1/reputation-summary?") && String(init?.method) === "GET") {
+      return makeJsonResponse({ summary: { agentId: "agt_sdk_card_1", relationships: [] } });
+    }
+    if (String(url).includes("/agents/agt_sdk_card_1/interaction-graph-pack?") && String(init?.method) === "GET") {
+      return makeJsonResponse({ graphPack: { schemaVersion: "VerifiedInteractionGraphPack.v1", relationships: [] } });
+    }
+    if (String(url).includes("/relationships?") && String(init?.method) === "GET") {
+      return makeJsonResponse({ relationships: [], limit: 10, offset: 0 });
+    }
+    return makeJsonResponse({}, { status: 404 });
+  };
+
+  const client = new NooterraClient({
+    baseUrl: "https://api.nooterra.local",
+    tenantId: "tenant_sdk",
+    fetch: fetchStub
+  });
+
+  await client.getPublicAgentReputationSummary("agt_sdk_card_1", {
+    reputationVersion: "v2",
+    reputationWindow: "30d",
+    asOf: "2026-02-25T00:00:00.000Z",
+    includeRelationships: true,
+    relationshipLimit: 5
+  });
+  assert.equal(
+    calls[0].url,
+    "https://api.nooterra.local/public/agents/agt_sdk_card_1/reputation-summary?reputationVersion=v2&reputationWindow=30d&asOf=2026-02-25T00%3A00%3A00.000Z&includeRelationships=true&relationshipLimit=5"
+  );
+  assert.equal(calls[0].init?.method, "GET");
+
+  await client.getAgentInteractionGraphPack("agt_sdk_card_1", {
+    reputationVersion: "v2",
+    reputationWindow: "30d",
+    asOf: "2026-02-25T00:00:00.000Z",
+    counterpartyAgentId: "agt_peer_1",
+    visibility: "all",
+    sign: true,
+    signerKeyId: "key_sdk_graph",
+    limit: 10,
+    offset: 0
+  });
+  assert.equal(
+    calls[1].url,
+    "https://api.nooterra.local/agents/agt_sdk_card_1/interaction-graph-pack?reputationVersion=v2&reputationWindow=30d&asOf=2026-02-25T00%3A00%3A00.000Z&counterpartyAgentId=agt_peer_1&visibility=all&sign=true&signerKeyId=key_sdk_graph&limit=10&offset=0"
+  );
+  assert.equal(calls[1].init?.method, "GET");
+
+  await client.listRelationships({
+    agentId: "agt_sdk_card_1",
+    counterpartyAgentId: "agt_peer_1",
+    reputationWindow: "30d",
+    asOf: "2026-02-25T00:00:00.000Z",
+    visibility: "all",
+    limit: 10,
+    offset: 0
+  });
+  assert.equal(
+    calls[2].url,
+    "https://api.nooterra.local/relationships?agentId=agt_sdk_card_1&counterpartyAgentId=agt_peer_1&reputationWindow=30d&asOf=2026-02-25T00%3A00%3A00.000Z&visibility=all&limit=10&offset=0"
+  );
+  assert.equal(calls[2].init?.method, "GET");
 });
 
 test("api-sdk: streamPublicAgentCards parses SSE and calls public stream endpoint", async () => {
@@ -171,8 +242,8 @@ test("api-sdk: streamPublicAgentCards parses SSE and calls public stream endpoin
     ]);
   };
 
-  const client = new SettldClient({
-    baseUrl: "https://api.settld.local",
+  const client = new NooterraClient({
+    baseUrl: "https://api.nooterra.local",
     tenantId: "tenant_sdk",
     fetch: fetchStub
   });
@@ -181,6 +252,7 @@ test("api-sdk: streamPublicAgentCards parses SSE and calls public stream endpoin
   for await (const event of client.streamPublicAgentCards(
     {
       capability: "travel.booking",
+      executionCoordinatorDid: "did:nooterra:coord_alpha",
       toolRiskClass: "action",
       toolSideEffecting: true,
       status: "active",
@@ -196,7 +268,7 @@ test("api-sdk: streamPublicAgentCards parses SSE and calls public stream endpoin
   assert.equal(calls[0].url.includes("/public/agent-cards/stream?"), true);
   assert.equal(
     calls[0].url,
-    "https://api.settld.local/public/agent-cards/stream?capability=travel.booking&toolRiskClass=action&toolSideEffecting=true&status=active&runtime=openclaw&sinceCursor=2026-02-25T00%3A00%3A00.000Z%7Ctenant_default%7Cagt_prev"
+    "https://api.nooterra.local/public/agent-cards/stream?capability=travel.booking&executionCoordinatorDid=did%3Anooterra%3Acoord_alpha&toolRiskClass=action&toolSideEffecting=true&status=active&runtime=openclaw&sinceCursor=2026-02-25T00%3A00%3A00.000Z%7Ctenant_default%7Cagt_prev"
   );
   assert.equal(calls[0].init?.method, "GET");
   assert.equal(calls[0].init?.headers?.["last-event-id"], "cursor_resume_1");

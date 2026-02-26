@@ -15,7 +15,7 @@ import { writeFilesToDir } from "../scripts/proof-bundle/lib.mjs";
 import { VERIFICATION_WARNING_CODE } from "../packages/artifact-verify/src/verification-warnings.js";
 
 async function runCli(args, { env } = {}) {
-  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "settld-verify.js");
+  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "nooterra-verify.js");
   const proc = spawn(process.execPath, [bin, ...args], {
     env: { ...process.env, ...(env ?? {}) },
     stdio: ["ignore", "pipe", "pipe"]
@@ -93,7 +93,7 @@ async function buildJobProofDirMissingVerificationReport({ strictReady } = {}) {
     generatedAt
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-cli-json-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-cli-json-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
   await fs.rm(path.join(dir, "verify", "verification_report.json"));
@@ -124,7 +124,7 @@ test("CLI --format json: strict missing report -> fail (exit 1) with stable erro
   const { dir, keyId, publicKeyPem } = await buildJobProofDirMissingVerificationReport({ strictReady: true });
 
   const strict = await runCli(["--format", "json", "--strict", "--job-proof", dir], {
-    env: { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [keyId]: publicKeyPem }) }
+    env: { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [keyId]: publicKeyPem }) }
   });
   assert.equal(strict.code, 1, strict.stderr || strict.stdout);
   const parsed = JSON.parse(strict.stdout);

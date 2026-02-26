@@ -113,28 +113,28 @@ test(
       return;
     }
 
-    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "settld-circle-batch-e2e-"));
+    const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "nooterra-circle-batch-e2e-"));
     const artifactDir = path.join(tmpRoot, "artifacts", "mcp-paid-exa", `run-${Date.now()}`);
     const apiPort = await reservePort();
     const upstreamPort = await reservePort();
     const gatewayPort = await reservePort();
-    const providerWalletId = readEnv("SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID", readEnv("CIRCLE_WALLET_ID_ESCROW", ""));
+    const providerWalletId = readEnv("NOOTERRA_DEMO_BATCH_PROVIDER_WALLET_ID", readEnv("CIRCLE_WALLET_ID_ESCROW", ""));
     const amountCents = readEnv("CIRCLE_BATCH_E2E_AMOUNT_CENTS", "100");
 
     const demo = await runNode({
       args: ["scripts/demo/mcp-paid-exa.mjs", "--circle=sandbox"],
       env: {
-        SETTLD_DEMO_API_PORT: String(apiPort),
-        SETTLD_DEMO_UPSTREAM_PORT: String(upstreamPort),
-        SETTLD_DEMO_GATEWAY_PORT: String(gatewayPort),
-        SETTLD_DEMO_KEEP_ALIVE: "0",
-        SETTLD_DEMO_QUERY: readEnv("CIRCLE_BATCH_E2E_QUERY", "dentist near me chicago"),
-        SETTLD_DEMO_NUM_RESULTS: readEnv("CIRCLE_BATCH_E2E_NUM_RESULTS", "1"),
-        SETTLD_DEMO_ARTIFACT_DIR: artifactDir,
-        SETTLD_DEMO_CIRCLE_MODE: "sandbox",
-        SETTLD_DEMO_RUN_BATCH_SETTLEMENT: "1",
-        SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID: providerWalletId,
-        SETTLD_PRICE_AMOUNT_CENTS: amountCents
+        NOOTERRA_DEMO_API_PORT: String(apiPort),
+        NOOTERRA_DEMO_UPSTREAM_PORT: String(upstreamPort),
+        NOOTERRA_DEMO_GATEWAY_PORT: String(gatewayPort),
+        NOOTERRA_DEMO_KEEP_ALIVE: "0",
+        NOOTERRA_DEMO_QUERY: readEnv("CIRCLE_BATCH_E2E_QUERY", "dentist near me chicago"),
+        NOOTERRA_DEMO_NUM_RESULTS: readEnv("CIRCLE_BATCH_E2E_NUM_RESULTS", "1"),
+        NOOTERRA_DEMO_ARTIFACT_DIR: artifactDir,
+        NOOTERRA_DEMO_CIRCLE_MODE: "sandbox",
+        NOOTERRA_DEMO_RUN_BATCH_SETTLEMENT: "1",
+        NOOTERRA_DEMO_BATCH_PROVIDER_WALLET_ID: providerWalletId,
+        NOOTERRA_PRICE_AMOUNT_CENTS: amountCents
       }
     });
 

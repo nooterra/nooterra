@@ -17,20 +17,20 @@ import {
   listProfileTemplates
 } from "../../src/core/profile-templates.js";
 
-const VALIDATION_REPORT_SCHEMA_VERSION = "SettldProfileValidationReport.v1";
-const SIMULATION_REPORT_SCHEMA_VERSION = "SettldProfileSimulationReport.v1";
-const APPLY_REPORT_SCHEMA_VERSION = "SettldProfileApplyReport.v1";
+const VALIDATION_REPORT_SCHEMA_VERSION = "NooterraProfileValidationReport.v1";
+const SIMULATION_REPORT_SCHEMA_VERSION = "NooterraProfileSimulationReport.v1";
+const APPLY_REPORT_SCHEMA_VERSION = "NooterraProfileApplyReport.v1";
 const DEFAULT_WIZARD_TEMPLATE_ID = "engineering-spend";
 
 function usage() {
   const lines = [
     "usage:",
-    "  settld profile list [--format json|text] [--json-out <path>]",
-    "  settld profile init <profile-id> [--out <path>] [--force] [--format json|text] [--json-out <path>]",
-    "  settld profile wizard [--template <profile-id>] [--non-interactive] [--profile-id <id>] [--name <text>] [--vertical <text>] [--description <text>] [--currency <code>] [--per-request-usd-cents <int>] [--monthly-usd-cents <int>] [--providers <csv>] [--tools <csv>] [--out <path>] [--force] [--format json|text] [--json-out <path>]",
-    "  settld profile validate <profile.json|-> [--format json|text] [--json-out <path>]",
-    "  settld profile simulate <profile.json|-> [--scenario <scenario.json|->|--scenario-json <json>] [--format json|text] [--json-out <path>]",
-    "  settld profile apply <profile.json|-> [--base-url <url>] [--tenant-id <id>] [--api-key <key>] [--sponsor-ref <id>] [--sponsor-wallet-ref <id>] [--policy-ref <id>] [--policy-version <int>] [--idempotency-prefix <prefix>] [--dry-run] [--format json|text] [--json-out <path>]"
+    "  nooterra profile list [--format json|text] [--json-out <path>]",
+    "  nooterra profile init <profile-id> [--out <path>] [--force] [--format json|text] [--json-out <path>]",
+    "  nooterra profile wizard [--template <profile-id>] [--non-interactive] [--profile-id <id>] [--name <text>] [--vertical <text>] [--description <text>] [--currency <code>] [--per-request-usd-cents <int>] [--monthly-usd-cents <int>] [--providers <csv>] [--tools <csv>] [--out <path>] [--force] [--format json|text] [--json-out <path>]",
+    "  nooterra profile validate <profile.json|-> [--format json|text] [--json-out <path>]",
+    "  nooterra profile simulate <profile.json|-> [--scenario <scenario.json|->|--scenario-json <json>] [--format json|text] [--json-out <path>]",
+    "  nooterra profile apply <profile.json|-> [--base-url <url>] [--tenant-id <id>] [--api-key <key>] [--sponsor-ref <id>] [--sponsor-wallet-ref <id>] [--policy-ref <id>] [--policy-version <int>] [--idempotency-prefix <prefix>] [--dry-run] [--format json|text] [--json-out <path>]"
   ];
   process.stderr.write(`${lines.join("\n")}\n`);
 }
@@ -614,7 +614,7 @@ function renderSimulationText(report) {
 
 function normalizeApplyBaseUrl(rawValue) {
   const value = String(rawValue ?? "").trim();
-  if (!value) fail("--base-url or SETTLD_BASE_URL is required");
+  if (!value) fail("--base-url or NOOTERRA_BASE_URL is required");
   let parsed;
   try {
     parsed = new URL(value);
@@ -645,28 +645,28 @@ function resolveApplyConfig(parsed, profile) {
   if (!profileSchemaVersion) fail("profile.schemaVersion must be a non-empty string");
   const baseUrl = normalizeApplyBaseUrl(
     parsed.baseUrl ??
-      process.env.SETTLD_BASE_URL ??
-      process.env.SETTLD_RUNTIME_BASE_URL ??
-      process.env.SETTLD_RUNTIME_URL ??
-      process.env.SETTLD_API_URL ??
+      process.env.NOOTERRA_BASE_URL ??
+      process.env.NOOTERRA_RUNTIME_BASE_URL ??
+      process.env.NOOTERRA_RUNTIME_URL ??
+      process.env.NOOTERRA_API_URL ??
       ""
   );
-  const tenantId = toTrimmedOrNull(parsed.tenantId ?? process.env.SETTLD_TENANT_ID ?? process.env.SETTLD_RUNTIME_TENANT_ID ?? "");
+  const tenantId = toTrimmedOrNull(parsed.tenantId ?? process.env.NOOTERRA_TENANT_ID ?? process.env.NOOTERRA_RUNTIME_TENANT_ID ?? "");
   const apiKey = toTrimmedOrNull(
     parsed.apiKey ??
-      process.env.SETTLD_API_KEY ??
-      process.env.SETTLD_RUNTIME_BEARER_TOKEN ??
-      process.env.SETTLD_BEARER_TOKEN ??
-      process.env.SETTLD_TOKEN ??
+      process.env.NOOTERRA_API_KEY ??
+      process.env.NOOTERRA_RUNTIME_BEARER_TOKEN ??
+      process.env.NOOTERRA_BEARER_TOKEN ??
+      process.env.NOOTERRA_TOKEN ??
       ""
   );
-  const sponsorRef = toTrimmedOrNull(parsed.sponsorRef ?? process.env.SETTLD_SPONSOR_REF ?? "sponsor_default");
+  const sponsorRef = toTrimmedOrNull(parsed.sponsorRef ?? process.env.NOOTERRA_SPONSOR_REF ?? "sponsor_default");
   const sponsorWalletRef = toTrimmedOrNull(
-    parsed.sponsorWalletRef ?? process.env.SETTLD_SPONSOR_WALLET_REF ?? process.env.SETTLD_RUNTIME_WALLET_REF ?? `wallet_${profileId}`
+    parsed.sponsorWalletRef ?? process.env.NOOTERRA_SPONSOR_WALLET_REF ?? process.env.NOOTERRA_RUNTIME_WALLET_REF ?? `wallet_${profileId}`
   );
-  const policyRef = toTrimmedOrNull(parsed.policyRef ?? process.env.SETTLD_POLICY_REF ?? profileId);
-  const policyVersion = Number(parsed.policyVersion ?? process.env.SETTLD_POLICY_VERSION ?? 1);
-  const idempotencyPrefix = toTrimmedOrNull(parsed.idempotencyPrefix ?? process.env.SETTLD_IDEMPOTENCY_PREFIX ?? "settld_profile_apply");
+  const policyRef = toTrimmedOrNull(parsed.policyRef ?? process.env.NOOTERRA_POLICY_REF ?? profileId);
+  const policyVersion = Number(parsed.policyVersion ?? process.env.NOOTERRA_POLICY_VERSION ?? 1);
+  const idempotencyPrefix = toTrimmedOrNull(parsed.idempotencyPrefix ?? process.env.NOOTERRA_IDEMPOTENCY_PREFIX ?? "nooterra_profile_apply");
 
   if (!sponsorRef) fail("--sponsor-ref must be a non-empty string");
   if (!sponsorWalletRef) fail("--sponsor-wallet-ref must be a non-empty string");
@@ -674,8 +674,8 @@ function resolveApplyConfig(parsed, profile) {
   if (!idempotencyPrefix) fail("--idempotency-prefix must be a non-empty string");
   if (!Number.isSafeInteger(policyVersion) || policyVersion < 1) fail("--policy-version must be an integer >= 1");
   if (!parsed.dryRun) {
-    if (!tenantId) fail("--tenant-id or SETTLD_TENANT_ID is required");
-    if (!apiKey) fail("--api-key or SETTLD_API_KEY is required");
+    if (!tenantId) fail("--tenant-id or NOOTERRA_TENANT_ID is required");
+    if (!apiKey) fail("--api-key or NOOTERRA_API_KEY is required");
   }
 
   return {
@@ -1251,7 +1251,7 @@ async function handleApply(parsed) {
       authorization: `Bearer ${config.apiKey}`,
       "x-proxy-tenant-id": config.tenantId,
       "content-type": "application/json",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     };
     const x402Response = await runApplyRequest({
       method: "PUT",

@@ -25,7 +25,7 @@ See [Quickstart](./quickstart.md).
 - Map your lifecycle to agreement/evidence/decision stages
 - Persist artifact IDs for audit and replay
 - Add replay and closepack checks into operational workflows
-- For MCP host wiring (Claude/Cursor/Codex/OpenClaw), see `../QUICKSTART_MCP_HOSTS.md`
+- For MCP host wiring (Claude/Cursor/Nooterra/OpenClaw), see `../QUICKSTART_MCP_HOSTS.md`
 
 ## Operate disputes safely
 

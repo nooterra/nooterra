@@ -43,7 +43,7 @@ npm run ops:lighthouse:update -- \
   --account lh_001 \
   --status paid_production_settlement_confirmed \
   --company-name "Example Co" \
-  --owner "am@settld" \
+  --owner "am@nooterra" \
   --signed-at 2026-02-10T12:00:00.000Z \
   --go-live-at 2026-02-11T15:30:00.000Z \
   --settlement-ref settle_run_abc123 \

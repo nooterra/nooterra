@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/ProofBundleManifest.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/ProofBundleManifest.v1.schema.json",
   "title": "ProofBundleManifest.v1",
   "type": "object",
   "required": ["schemaVersion", "kind", "tenantId", "scope", "generatedAt", "hashing", "files"],

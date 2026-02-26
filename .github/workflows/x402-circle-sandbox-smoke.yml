@@ -24,7 +24,7 @@ jobs:
       CIRCLE_WALLET_ID_ESCROW: ${{ secrets.CIRCLE_SANDBOX_WALLET_ID_ESCROW }}
       CIRCLE_TOKEN_ID_USDC: ${{ secrets.CIRCLE_SANDBOX_TOKEN_ID_USDC }}
       CIRCLE_ENTITY_SECRET_HEX: ${{ secrets.CIRCLE_SANDBOX_ENTITY_SECRET_HEX }}
-      SETTLD_DEMO_CIRCLE_MODE: sandbox
+      NOOTERRA_DEMO_CIRCLE_MODE: sandbox
       X402_CIRCLE_RESERVE_MODE: sandbox
       X402_REQUIRE_EXTERNAL_RESERVE: "1"
       CIRCLE_E2E_AMOUNT_CENTS: "100"
@@ -74,10 +74,10 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf artifacts/mcp-paid-exa
-          SETTLD_DEMO_CIRCLE_MODE=sandbox \
-          SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1 \
+          NOOTERRA_DEMO_CIRCLE_MODE=sandbox \
+          NOOTERRA_DEMO_RUN_BATCH_SETTLEMENT=1 \
           X402_REQUIRE_EXTERNAL_RESERVE=1 \
-          SETTLD_PRICE_AMOUNT_CENTS=100 \
+          NOOTERRA_PRICE_AMOUNT_CENTS=100 \
           npm run demo:mcp-paid-exa -- --circle=sandbox
 
       - name: Enforce x402 weekly reliability thresholds

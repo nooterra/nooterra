@@ -77,10 +77,10 @@ Revocation is explicit and terminal for authorization enforcement.
 
 ## MCP surface
 
-- `settld.authority_grant_issue`
-- `settld.authority_grant_get`
-- `settld.authority_grant_list`
-- `settld.authority_grant_revoke`
+- `nooterra.authority_grant_issue`
+- `nooterra.authority_grant_get`
+- `nooterra.authority_grant_list`
+- `nooterra.authority_grant_revoke`
 
 ## Implementation references
 

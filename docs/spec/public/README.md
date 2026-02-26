@@ -1,8 +1,8 @@
-# Public Agent Substrate Specs (v1)
+# Public Agent Substrate Specs
 
-These documents are the public protocol surface for Settld agent collaboration.
+These documents are the public protocol surface for Nooterra agent collaboration.
 
-They are written for runtime integrators (OpenClaw, Codex, Claude Desktop, Cursor, custom hosts) and for service providers implementing compatible control planes.
+They are written for runtime integrators (OpenClaw, Nooterra, Claude Desktop, Cursor, custom hosts) and for service providers implementing compatible control planes.
 
 ## Documents
 
@@ -21,13 +21,16 @@ They are written for runtime integrators (OpenClaw, Codex, Claude Desktop, Curso
 - `TaskAcceptance.v1.md`
 - `SubAgentWorkOrder.v1.md`
 - `SubAgentCompletionReceipt.v1.md`
+- `Meter.v1.md`
+- `ArtifactRef.v1.md`
+- `StateCheckpoint.v1.md`
 - `CapabilityAttestation.v1.md`
 - `ReputationEvent.v1.md`
 - `RelationshipEdge.v1.md`
 - `PublicAgentReputationSummary.v1.md`
 - `AuditLineage.v1.md`
 - `VerifiedInteractionGraphPack.v1.md`
-- `SettldVerified.v1.md`
+- `NooterraVerified.v1.md`
 
 ## Normative source of truth
 

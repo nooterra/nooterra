@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/ToolCallAgreement.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/ToolCallAgreement.v1.schema.json",
   "title": "ToolCallAgreement.v1",
   "type": "object",
   "additionalProperties": false,

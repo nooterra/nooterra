@@ -16,18 +16,24 @@ const DEFAULT_ONBOARDING_HOST_SUCCESS_GATE_PATH = "artifacts/gates/onboarding-ho
 const DEFAULT_GO_LIVE_GATE_PATH = "artifacts/gates/s13-go-live-gate.json";
 const DEFAULT_LAUNCH_CUTOVER_PACKET_PATH = "artifacts/gates/s13-launch-cutover-packet.json";
 const DEFAULT_HOSTED_BASELINE_EVIDENCE_PATH = "artifacts/ops/hosted-baseline-evidence-production.json";
-const PRODUCTION_COLLAB_CHECK_ID = "settld_verified_collaboration";
+const PRODUCTION_COLLAB_CHECK_ID = "nooterra_verified_collaboration";
 const PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID = "openclaw_substrate_demo_lineage_verified";
 const PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID = "openclaw_substrate_demo_transcript_verified";
+const PRODUCTION_CHECKPOINT_GRANT_BINDING_CHECK_ID = "checkpoint_grant_binding_verified";
+const PRODUCTION_WORK_ORDER_METERING_DURABILITY_CHECK_ID = "work_order_metering_durability_verified";
 const PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID = "sdk_acs_smoke_js_verified";
 const PRODUCTION_SDK_ACS_SMOKE_PY_CHECK_ID = "sdk_acs_smoke_py_verified";
+const PRODUCTION_SDK_PYTHON_CONTRACT_FREEZE_CHECK_ID = "sdk_python_contract_freeze_verified";
 const LAUNCH_REQUIRED_CUTOVER_CHECKS_SUMMARY_SCHEMA_VERSION = "ProductionCutoverRequiredChecksSummary.v1";
 const REQUIRED_PRODUCTION_CUTOVER_CHECK_IDS = Object.freeze([
   PRODUCTION_COLLAB_CHECK_ID,
   PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID,
   PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID,
+  PRODUCTION_CHECKPOINT_GRANT_BINDING_CHECK_ID,
+  PRODUCTION_WORK_ORDER_METERING_DURABILITY_CHECK_ID,
   PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID,
-  PRODUCTION_SDK_ACS_SMOKE_PY_CHECK_ID
+  PRODUCTION_SDK_ACS_SMOKE_PY_CHECK_ID,
+  PRODUCTION_SDK_PYTHON_CONTRACT_FREEZE_CHECK_ID
 ]);
 
 const REQUIRED_ARTIFACT_SPECS = [
@@ -462,7 +468,7 @@ async function evaluateRequiredArtifact(spec, args) {
 
 async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd }) {
   const result = {
-    id: "launch_packet_settld_verified_collaboration_binding",
+    id: "launch_packet_nooterra_verified_collaboration_binding",
     status: "failed",
     ok: false,
     failureCodes: [],
@@ -489,18 +495,18 @@ async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })
   const launchJson = launchLoaded.json;
   const launchRequiredCutover = launchJson?.requiredCutoverChecks;
   let launchRequiredStatusById = null;
-  const boundPathRaw = normalizeOptionalString(launchJson?.sources?.settldVerifiedCollaborationGateReportPath);
-  const boundSha256 = normalizeSha256Hex(launchJson?.sources?.settldVerifiedCollaborationGateReportSha256);
+  const boundPathRaw = normalizeOptionalString(launchJson?.sources?.nooterraVerifiedCollaborationGateReportPath);
+  const boundSha256 = normalizeSha256Hex(launchJson?.sources?.nooterraVerifiedCollaborationGateReportSha256);
   const boundPath = boundPathRaw ? path.resolve(cwd, boundPathRaw) : null;
   result.details.boundPath = boundPath;
   result.details.boundSha256 = boundSha256;
 
   if (!boundPath) {
-    markArtifactFailed(launchArtifact, "binding_source_path_missing", "launch packet missing Settld Verified collaboration binding path");
+    markArtifactFailed(launchArtifact, "binding_source_path_missing", "launch packet missing Nooterra Verified collaboration binding path");
     result.failureCodes.push("binding_source_path_missing");
   }
   if (!boundSha256) {
-    markArtifactFailed(launchArtifact, "binding_source_sha_missing", "launch packet missing Settld Verified collaboration binding hash");
+    markArtifactFailed(launchArtifact, "binding_source_sha_missing", "launch packet missing Nooterra Verified collaboration binding hash");
     result.failureCodes.push("binding_source_sha_missing");
   }
 
@@ -609,23 +615,23 @@ async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })
   if (boundPath) {
     collabLoaded = await loadJsonArtifact(boundPath);
     if (!collabLoaded.readOk) {
-      markArtifactFailed(launchArtifact, "binding_source_missing", "bound Settld Verified collaboration report is missing");
+      markArtifactFailed(launchArtifact, "binding_source_missing", "bound Nooterra Verified collaboration report is missing");
       result.failureCodes.push("binding_source_missing");
     } else if (!collabLoaded.parseOk) {
-      markArtifactFailed(launchArtifact, "binding_source_json_invalid", "bound Settld Verified collaboration report is not valid JSON");
+      markArtifactFailed(launchArtifact, "binding_source_json_invalid", "bound Nooterra Verified collaboration report is not valid JSON");
       result.failureCodes.push("binding_source_json_invalid");
     } else {
-      if (collabLoaded.json?.schemaVersion !== "SettldVerifiedGateReport.v1") {
-        markArtifactFailed(launchArtifact, "binding_source_schema_mismatch", "bound Settld Verified collaboration report schema mismatch");
+      if (collabLoaded.json?.schemaVersion !== "NooterraVerifiedGateReport.v1") {
+        markArtifactFailed(launchArtifact, "binding_source_schema_mismatch", "bound Nooterra Verified collaboration report schema mismatch");
         result.failureCodes.push("binding_source_schema_mismatch");
       }
       if (collabLoaded.json?.ok !== true) {
-        markArtifactFailed(launchArtifact, "binding_source_verdict_not_ok", "bound Settld Verified collaboration report verdict not ok");
+        markArtifactFailed(launchArtifact, "binding_source_verdict_not_ok", "bound Nooterra Verified collaboration report verdict not ok");
         result.failureCodes.push("binding_source_verdict_not_ok");
       }
     }
     if (boundSha256 && collabLoaded?.sourceSha256 && boundSha256 !== collabLoaded.sourceSha256) {
-      markArtifactFailed(launchArtifact, "binding_source_sha_mismatch", "launch packet bound hash does not match Settld Verified collaboration report");
+      markArtifactFailed(launchArtifact, "binding_source_sha_mismatch", "launch packet bound hash does not match Nooterra Verified collaboration report");
       result.failureCodes.push("binding_source_sha_mismatch");
     }
   }
@@ -637,7 +643,7 @@ async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })
       const checks = Array.isArray(productionLoaded.json?.checks) ? productionLoaded.json.checks : [];
       const collabCheck = checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_COLLAB_CHECK_ID) ?? null;
       if (!collabCheck) {
-        markArtifactFailed(launchArtifact, "production_gate_binding_check_missing", "production cutover gate missing Settld Verified collaboration check");
+        markArtifactFailed(launchArtifact, "production_gate_binding_check_missing", "production cutover gate missing Nooterra Verified collaboration check");
         result.failureCodes.push("production_gate_binding_check_missing");
       } else {
         const productionCheckPathRaw = normalizeOptionalString(collabCheck?.reportPath);
@@ -687,7 +693,43 @@ async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })
           "production_gate_transcript_check_not_passed",
           "production cutover gate transcript verification check is not passed"
         );
-        result.failureCodes.push("production_gate_transcript_check_not_passed");
+          result.failureCodes.push("production_gate_transcript_check_not_passed");
+      }
+
+      const checkpointGrantBindingCheck =
+        checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_CHECKPOINT_GRANT_BINDING_CHECK_ID) ?? null;
+      if (!checkpointGrantBindingCheck) {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_checkpoint_grant_binding_check_missing",
+          "production cutover gate missing checkpoint grant binding verification check"
+        );
+        result.failureCodes.push("production_gate_checkpoint_grant_binding_check_missing");
+      } else if (normalizeOptionalString(checkpointGrantBindingCheck?.status) !== "passed") {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_checkpoint_grant_binding_check_not_passed",
+          "production cutover gate checkpoint grant binding verification check is not passed"
+        );
+        result.failureCodes.push("production_gate_checkpoint_grant_binding_check_not_passed");
+      }
+
+      const workOrderMeteringDurabilityCheck =
+        checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_WORK_ORDER_METERING_DURABILITY_CHECK_ID) ?? null;
+      if (!workOrderMeteringDurabilityCheck) {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_work_order_metering_durability_check_missing",
+          "production cutover gate missing work order metering durability verification check"
+        );
+        result.failureCodes.push("production_gate_work_order_metering_durability_check_missing");
+      } else if (normalizeOptionalString(workOrderMeteringDurabilityCheck?.status) !== "passed") {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_work_order_metering_durability_check_not_passed",
+          "production cutover gate work order metering durability verification check is not passed"
+        );
+        result.failureCodes.push("production_gate_work_order_metering_durability_check_not_passed");
       }
 
       const sdkJsCheck = checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID) ?? null;
@@ -722,6 +764,24 @@ async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })
           "production cutover gate SDK Python ACS smoke verification check is not passed"
         );
         result.failureCodes.push("production_gate_sdk_py_smoke_check_not_passed");
+      }
+
+      const sdkPythonContractFreezeCheck =
+        checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_SDK_PYTHON_CONTRACT_FREEZE_CHECK_ID) ?? null;
+      if (!sdkPythonContractFreezeCheck) {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_sdk_python_contract_freeze_check_missing",
+          "production cutover gate missing Python SDK contract freeze verification check"
+        );
+        result.failureCodes.push("production_gate_sdk_python_contract_freeze_check_missing");
+      } else if (normalizeOptionalString(sdkPythonContractFreezeCheck?.status) !== "passed") {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_sdk_python_contract_freeze_check_not_passed",
+          "production cutover gate Python SDK contract freeze verification check is not passed"
+        );
+        result.failureCodes.push("production_gate_sdk_python_contract_freeze_check_not_passed");
       }
 
       if (launchRequiredStatusById instanceof Map) {

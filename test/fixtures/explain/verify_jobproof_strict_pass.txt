@@ -1,4 +1,4 @@
-settld-verify explain v1
+nooterra-verify explain v1
 target.kind=job-proof
 target.input=test/fixtures/bundles/v1/jobproof/strict-pass
 target.resolved=<REPO>/test/fixtures/bundles/v1/jobproof/strict-pass

@@ -45,10 +45,10 @@ const REQUIRED_INPUTS = Object.freeze([
     destination: "artifacts/gates/s13-launch-cutover-packet.json"
   },
   {
-    id: "settld_verified_collaboration_gate",
+    id: "nooterra_verified_collaboration_gate",
     rootKey: "goLiveRoot",
-    fileName: "settld-verified-collaboration-gate.json",
-    destination: "artifacts/gates/settld-verified-collaboration-gate.json"
+    fileName: "nooterra-verified-collaboration-gate.json",
+    destination: "artifacts/gates/nooterra-verified-collaboration-gate.json"
   },
   {
     id: "hosted_baseline_evidence",

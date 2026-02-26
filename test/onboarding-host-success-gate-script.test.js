@@ -12,18 +12,18 @@ import {
 } from "../scripts/ci/run-onboarding-host-success-gate.mjs";
 
 test("onboarding host success gate parser: uses env defaults and supports overrides", () => {
-  const cwd = "/tmp/settld";
+  const cwd = "/tmp/nooterra";
   const args = parseArgs(
-    ["--report", "artifacts/custom/host-success.json", "--hosts", "Codex,claude,codex"],
+    ["--report", "artifacts/custom/host-success.json", "--hosts", "Nooterra,claude,nooterra"],
     {
       ONBOARDING_HOST_SUCCESS_GATE_REPORT_PATH: "artifacts/gates/default.json",
       ONBOARDING_HOST_SUCCESS_METRICS_DIR: "artifacts/ops/host-success",
       ONBOARDING_HOST_SUCCESS_ATTEMPTS: "3",
       ONBOARDING_HOST_SUCCESS_RATE_MIN_PCT: "95",
       ONBOARDING_HOST_SUCCESS_TIMEOUT_MS: "45000",
-      SETTLD_BASE_URL: "https://api.settld.local/",
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test",
+      NOOTERRA_BASE_URL: "https://api.nooterra.local/",
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test",
       ONBOARDING_PROFILE_ID: "ops-critical"
     },
     cwd
@@ -31,11 +31,11 @@ test("onboarding host success gate parser: uses env defaults and supports overri
 
   assert.equal(args.reportPath, path.resolve(cwd, "artifacts/custom/host-success.json"));
   assert.equal(args.metricsDir, path.resolve(cwd, "artifacts/ops/host-success"));
-  assert.deepEqual(args.hosts, ["codex", "claude"]);
+  assert.deepEqual(args.hosts, ["nooterra", "claude"]);
   assert.equal(args.attemptsPerHost, 3);
   assert.equal(args.minSuccessRatePct, 95);
   assert.equal(args.timeoutMs, 45000);
-  assert.equal(args.baseUrl, "https://api.settld.local");
+  assert.equal(args.baseUrl, "https://api.nooterra.local");
   assert.equal(args.tenantId, "tenant_default");
   assert.equal(args.apiKey, "sk_test");
   assert.equal(args.profileId, "ops-critical");
@@ -45,19 +45,19 @@ test("onboarding host success gate parser: rejects unsupported host and missing 
   assert.throws(
     () =>
       parseArgs(
-        ["--hosts", "codex,unknown"],
+        ["--hosts", "nooterra,unknown"],
         {
-          SETTLD_BASE_URL: "https://api.settld.local",
-          SETTLD_TENANT_ID: "tenant_default",
-          SETTLD_API_KEY: "sk_test"
+          NOOTERRA_BASE_URL: "https://api.nooterra.local",
+          NOOTERRA_TENANT_ID: "tenant_default",
+          NOOTERRA_API_KEY: "sk_test"
         },
-        "/tmp/settld"
+        "/tmp/nooterra"
       ),
     /unsupported host/i
   );
 
   assert.throws(
-    () => parseArgs([], { SETTLD_BASE_URL: "https://api.settld.local", SETTLD_API_KEY: "sk_test" }, "/tmp/settld"),
+    () => parseArgs([], { NOOTERRA_BASE_URL: "https://api.nooterra.local", NOOTERRA_API_KEY: "sk_test" }, "/tmp/nooterra"),
     /--tenant-id is required/
   );
 });
@@ -65,7 +65,7 @@ test("onboarding host success gate parser: rejects unsupported host and missing 
 test("onboarding host success verdict: computes pass/fail counts from host rows", () => {
   const verdict = evaluateHostSuccessVerdict(
     [
-      { host: "codex", status: "passed" },
+      { host: "nooterra", status: "passed" },
       { host: "claude", status: "failed" },
       { host: "cursor", status: "passed" }
     ],
@@ -81,7 +81,7 @@ test("onboarding host success verdict: computes pass/fail counts from host rows"
 });
 
 test("onboarding host success gate runner: emits per-host metrics and fails closed under threshold", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-onboarding-host-success-gate-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-onboarding-host-success-gate-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -92,7 +92,7 @@ test("onboarding host success gate runner: emits per-host metrics and fails clos
 
   const runAttempt = async ({ host, attempt }) => {
     calls.push({ host, attempt });
-    if (host === "codex") {
+    if (host === "nooterra") {
       return { ok: true, detail: "ok", durationMs: 11 + attempt };
     }
     if (host === "claude" && attempt === 1) {
@@ -106,11 +106,11 @@ test("onboarding host success gate runner: emits per-host metrics and fails clos
       help: false,
       reportPath,
       metricsDir,
-      hosts: ["claude", "codex"],
+      hosts: ["claude", "nooterra"],
       attemptsPerHost: 2,
       minSuccessRatePct: 90,
       timeoutMs: 5000,
-      baseUrl: "https://api.settld.local",
+      baseUrl: "https://api.nooterra.local",
       tenantId: "tenant_default",
       apiKey: "sk_test",
       profileId: "engineering-spend",
@@ -125,9 +125,9 @@ test("onboarding host success gate runner: emits per-host metrics and fails clos
   assert.equal(report.hosts.length, 2);
   assert.deepEqual(
     report.hosts.map((row) => row.host),
-    ["claude", "codex"]
+    ["claude", "nooterra"]
   );
-  assert.equal(report.hosts.find((row) => row.host === "codex")?.status, "passed");
+  assert.equal(report.hosts.find((row) => row.host === "nooterra")?.status, "passed");
   assert.equal(report.hosts.find((row) => row.host === "claude")?.status, "failed");
   assert.equal(report.blockingIssues.some((issue) => issue.host === "claude"), true);
   assert.equal(report.verdict.ok, false);
@@ -136,14 +136,14 @@ test("onboarding host success gate runner: emits per-host metrics and fails clos
   assert.equal(calls.length, 4);
 
   const claudeMetrics = await fs.readFile(path.join(metricsDir, "claude.prom"), "utf8");
-  const codexMetrics = await fs.readFile(path.join(metricsDir, "codex.prom"), "utf8");
+  const nooterraMetrics = await fs.readFile(path.join(metricsDir, "nooterra.prom"), "utf8");
   assert.match(claudeMetrics, /onboarding_host_setup_attempts_total_gauge/);
   assert.match(claudeMetrics, /onboarding_host_setup_success_rate_pct_gauge/);
-  assert.match(codexMetrics, /host="codex"/);
+  assert.match(nooterraMetrics, /host="nooterra"/);
 });
 
 test("onboarding host success artifact hash: stable across volatile report fields", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-onboarding-host-success-hash-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-onboarding-host-success-hash-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -156,11 +156,11 @@ test("onboarding host success artifact hash: stable across volatile report field
       help: false,
       reportPath,
       metricsDir,
-      hosts: ["codex"],
+      hosts: ["nooterra"],
       attemptsPerHost: 1,
       minSuccessRatePct: 100,
       timeoutMs: 5000,
-      baseUrl: "https://api.settld.local",
+      baseUrl: "https://api.nooterra.local",
       tenantId: "tenant_default",
       apiKey: "sk_test",
       profileId: "engineering-spend",
@@ -181,7 +181,7 @@ test("onboarding host success artifact hash: stable across volatile report field
       baseUrl: "https://another-host.example",
       tenantId: "tenant_other"
     },
-    blockingIssues: [{ host: "codex", code: "noop", detail: "not in deterministic core" }]
+    blockingIssues: [{ host: "nooterra", code: "noop", detail: "not in deterministic core" }]
   };
 
   assert.equal(computeOnboardingHostSuccessArtifactHash(mutated), report.artifactHash);

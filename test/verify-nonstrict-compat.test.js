@@ -131,7 +131,7 @@ test("non-strict: missing verify/verification_report.json is warned + accepted (
     generatedAt
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-nonstrict-missing-report-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-nonstrict-missing-report-"));
 
   const jobDir = path.join(tmp, "job");
   await writeFilesToDir({ files: jobFiles, outDir: jobDir });
@@ -248,7 +248,7 @@ test("non-strict: missing verify/verification_report.json is warned + accepted (
     reconcileReportBytes: reconcileBytes
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-nonstrict-missing-report-finance-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-nonstrict-missing-report-finance-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files: built.files, outDir: dir });
   await fs.rm(path.join(dir, "verify", "verification_report.json"));
@@ -364,12 +364,12 @@ test("strict vs non-strict: GovernancePolicy.v1 accepted only non-strict (JobPro
     files.set("verify/verification_report.json", bytes(`${canonicalJsonStringify(newRep)}\n`));
   }
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-nonstrict-policy-v1-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-nonstrict-policy-v1-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 
   const strictRes = await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => verifyJobProofBundleDir({ dir, strict: true })
   );
   assert.equal(strictRes.ok, false);

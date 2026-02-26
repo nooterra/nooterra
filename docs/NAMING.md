@@ -21,7 +21,7 @@ Keep runtime names exactly as required by integrations and tooling.
 
 Examples:
 
-- `codex`
+- `nooterra`
 - `claude`
 - `cursor`
 - `openclaw`

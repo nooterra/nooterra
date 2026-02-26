@@ -13,6 +13,6 @@ const hasLegacyCompose = hasExecutable("docker-compose", ["--version"]);
 if (!hasDockerComposePlugin && !hasLegacyCompose) {
   // eslint-disable-next-line no-console
   console.warn(
-    "[settld] warning: docker compose is not installed. `settld dev up` requires Docker to run the local stack."
+    "[nooterra] warning: docker compose is not installed. `nooterra dev up` requires Docker to run the local stack."
   );
 }

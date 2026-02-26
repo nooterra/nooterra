@@ -295,8 +295,8 @@ export function createDeliveryWorker({
             "x-proxy-order-key": headerSafeValue(delivery.orderKey ?? ""),
             "x-proxy-timestamp": timestamp,
             "x-proxy-signature": signatureHeader,
-            "x-settld-timestamp": timestamp,
-            "x-settld-signature": signatureHeader
+            "x-nooterra-timestamp": timestamp,
+            "x-nooterra-signature": signatureHeader
           },
           body
         },

@@ -15,7 +15,7 @@ import {
 import { collectOperationalSloSummary, parsePrometheusText } from "../scripts/slo/check.mjs";
 
 test("onboarding policy slo gate parser: uses env defaults and supports overrides", () => {
-  const cwd = "/tmp/settld";
+  const cwd = "/tmp/nooterra";
   const args = parseArgs(
     ["--report", "artifacts/custom/gate.json", "--metrics-ext", ".metrics"],
     {
@@ -46,11 +46,11 @@ test("onboarding policy slo host readiness: passes when all thresholds are met",
   ].join("\n"));
 
   const row = evaluateHostReadiness({
-    host: "codex",
+    host: "nooterra",
     compatibilityOk: true,
     series,
     thresholds,
-    metricsPath: "/tmp/codex.prom"
+    metricsPath: "/tmp/nooterra.prom"
   });
 
   assert.equal(row.ready, true);
@@ -100,7 +100,7 @@ test("operational slo collector: sums multi-series DLQ and delivery states fail-
 });
 
 test("onboarding policy slo gate runner: emits per-host rows and fails closed on missing host metrics", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-onboarding-policy-slo-gate-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-onboarding-policy-slo-gate-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -114,9 +114,9 @@ test("onboarding policy slo gate runner: emits per-host rows and fails closed on
     matrixPath,
     JSON.stringify(
       {
-        schemaVersion: "SettldMcpHostCertMatrix.v1",
+        schemaVersion: "NooterraMcpHostCertMatrix.v1",
         checks: [
-          { host: "codex", ok: true },
+          { host: "nooterra", ok: true },
           { host: "claude", ok: true }
         ]
       },
@@ -127,7 +127,7 @@ test("onboarding policy slo gate runner: emits per-host rows and fails closed on
   );
 
   await fs.writeFile(
-    path.join(metricsDir, "codex.prom"),
+    path.join(metricsDir, "nooterra.prom"),
     [
       "onboarding_first_paid_call_runtime_ms_p95_gauge 1300",
       "policy_decision_latency_ms_p95_gauge 100",
@@ -156,7 +156,7 @@ test("onboarding policy slo gate runner: emits per-host rows and fails closed on
   assert.equal(report.schemaVersion, "OnboardingPolicySloGateReport.v1");
   assert.equal(Array.isArray(report.hosts), true);
   assert.equal(report.hosts.length, 2);
-  assert.equal(report.hosts.some((row) => row.host === "codex" && row.ready === true), true);
+  assert.equal(report.hosts.some((row) => row.host === "nooterra" && row.ready === true), true);
   assert.equal(report.hosts.some((row) => row.host === "claude" && row.ready === false), true);
   assert.equal(Array.isArray(report.blockingIssues), true);
   assert.equal(report.blockingIssues.some((issue) => issue.host === "claude"), true);
@@ -167,21 +167,21 @@ test("onboarding policy slo gate runner: emits per-host rows and fails closed on
 
 test("onboarding policy slo host extraction: fails closed on duplicate host rows", () => {
   const rows = extractHostRows({
-    schemaVersion: "SettldMcpHostCertMatrix.v1",
+    schemaVersion: "NooterraMcpHostCertMatrix.v1",
     checks: [
-      { host: "Codex", ok: true },
-      { host: "codex", ok: true },
+      { host: "Nooterra", ok: true },
+      { host: "nooterra", ok: true },
       { host: "claude", ok: true }
     ]
   });
   const byHost = new Map(rows.map((row) => [row.host, row]));
-  assert.equal(byHost.get("codex")?.compatibilityOk, false);
-  assert.match(String(byHost.get("codex")?.matrixDetail ?? ""), /duplicate rows/i);
+  assert.equal(byHost.get("nooterra")?.compatibilityOk, false);
+  assert.match(String(byHost.get("nooterra")?.matrixDetail ?? ""), /duplicate rows/i);
   assert.equal(byHost.get("claude")?.compatibilityOk, true);
 });
 
 test("onboarding policy slo artifact hash: stable across volatile report fields", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-onboarding-slo-hash-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-onboarding-slo-hash-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -194,8 +194,8 @@ test("onboarding policy slo artifact hash: stable across volatile report fields"
     matrixPath,
     JSON.stringify(
       {
-        schemaVersion: "SettldMcpHostCertMatrix.v1",
-        checks: [{ host: "codex", ok: true }]
+        schemaVersion: "NooterraMcpHostCertMatrix.v1",
+        checks: [{ host: "nooterra", ok: true }]
       },
       null,
       2

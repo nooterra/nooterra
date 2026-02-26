@@ -245,7 +245,7 @@ export async function sendBuyerVerificationNotifications({
   }
 
   const summary = createNotificationSummary({ tenantId, token, runId: runIdNorm, publicSummary, cliOut, magicLinkUrl });
-  const subject = `Settld verification ready: ${summary.statusLabel}`;
+  const subject = `Nooterra verification ready: ${summary.statusLabel}`;
   const webhookUrl = typeof tenantSettings?.buyerNotifications?.webhookUrl === "string" ? tenantSettings.buyerNotifications.webhookUrl.trim() : "";
   const webhookSecret = decryptStoredSecret({ settingsKey, storedSecret: tenantSettings?.buyerNotifications?.webhookSecret });
   const results = [];
@@ -310,13 +310,13 @@ export async function sendBuyerVerificationNotifications({
     const headers = {
       "content-type": "application/json; charset=utf-8",
       "content-length": String(Buffer.byteLength(body, "utf8")),
-      "x-settld-notification-event": "verification.email"
+      "x-nooterra-notification-event": "verification.email"
     };
     if (webhookSecret) {
       const ts = new Date().toISOString();
       const sig = crypto.createHmac("sha256", webhookSecret).update(`${ts}.${body}`, "utf8").digest("hex");
-      headers["x-settld-timestamp"] = ts;
-      headers["x-settld-signature"] = `v1=${sig}`;
+      headers["x-nooterra-timestamp"] = ts;
+      headers["x-nooterra-signature"] = `v1=${sig}`;
     }
     const res = await request({ url: webhookUrl, method: "POST", headers, body, timeoutMs });
     if (res.ok && res.statusCode >= 200 && res.statusCode < 300) {

@@ -33,7 +33,7 @@
         {
             "Epic Key": "STLD-E25",
             "Summary": "MCP Gateway + Agent Protocol Bridge",
-            "Description": "Production MCP server, HTTP gateway, and framework adapters turning Settld into infrastructure for the agent ecosystem.",
+            "Description": "Production MCP server, HTTP gateway, and framework adapters turning Nooterra into infrastructure for the agent ecosystem.",
             "Owner": "Platform",
             "Priority": "Highest",
             "Labels": "mcp,agents,protocol,s25",
@@ -178,14 +178,14 @@
             "Ticket Key": "STLD-T2305",
             "Epic Key": "STLD-E23",
             "Summary": "MCP server spike (stdio transport)",
-            "Description": "Prototype MCP server exposing Settld tools (create agreement, submit evidence, settle, dispute) via stdio transport.",
+            "Description": "Prototype MCP server exposing Nooterra tools (create agreement, submit evidence, settle, dispute) via stdio transport.",
             "Owner": "Platform",
             "Estimate": "3d",
             "Priority": "High",
             "Sprint": "S23",
             "Dependencies": "STLD-T2301",
             "Labels": "mcp,spike,agent-protocol",
-            "Acceptance Criteria": "MCP-compatible agent can discover + invoke Settld tools; spike doc with API surface and latency measurements committed"
+            "Acceptance Criteria": "MCP-compatible agent can discover + invoke Nooterra tools; spike doc with API surface and latency measurements committed"
         },
         {
             "Ticket Key": "STLD-T2306",
@@ -281,8 +281,8 @@
         {
             "Ticket Key": "STLD-T2407",
             "Epic Key": "STLD-E24",
-            "Summary": "CLI v2 (settld CLI)",
-            "Description": "settld CLI with init, dev, deploy, status, logs subcommands. Installable via npm/brew with shell completions.",
+            "Summary": "CLI v2 (nooterra CLI)",
+            "Description": "nooterra CLI with init, dev, deploy, status, logs subcommands. Installable via npm/brew with shell completions.",
             "Owner": "SDK/DevEx",
             "Estimate": "3d",
             "Priority": "Medium",
@@ -302,13 +302,13 @@
             "Sprint": "S25",
             "Dependencies": "STLD-T2305,STLD-T2401",
             "Labels": "mcp,server,production",
-            "Acceptance Criteria": "MCP-compatible agent discovers + invokes Settld tools in production; handles auth and errors gracefully"
+            "Acceptance Criteria": "MCP-compatible agent discovers + invokes Nooterra tools in production; handles auth and errors gracefully"
         },
         {
             "Ticket Key": "STLD-T2502",
             "Epic Key": "STLD-E25",
             "Summary": "MCP gateway service (HTTP\u2192MCP bridge)",
-            "Description": "HTTP\u2192MCP bridge that proxies authenticated Settld API calls as tool responses with conformance vector passthrough.",
+            "Description": "HTTP\u2192MCP bridge that proxies authenticated Nooterra API calls as tool responses with conformance vector passthrough.",
             "Owner": "Platform",
             "Estimate": "4d",
             "Priority": "Highest",
@@ -347,7 +347,7 @@
             "Ticket Key": "STLD-T2505",
             "Epic Key": "STLD-E25",
             "Summary": "MCP quickstart docs (final, polished)",
-            "Description": "Polished 5-minute 'connect your agent to Settld' tutorial with video walkthrough artifact.",
+            "Description": "Polished 5-minute 'connect your agent to Nooterra' tutorial with video walkthrough artifact.",
             "Owner": "Platform + PM",
             "Estimate": "2d",
             "Priority": "High",
@@ -1022,8 +1022,8 @@
         {
             "Ticket Key": "STLD-T3305",
             "Epic Key": "STLD-E33",
-            "Summary": "Embeddable verification widget (<settld-verify>)",
-            "Description": "<settld-verify> web component for embedding verification receipts in any app. < 50KB, themeable.",
+            "Summary": "Embeddable verification widget (<nooterra-verify>)",
+            "Description": "<nooterra-verify> web component for embedding verification receipts in any app. < 50KB, themeable.",
             "Owner": "Frontend",
             "Estimate": "4d",
             "Priority": "Medium",
@@ -1049,7 +1049,7 @@
             "Ticket Key": "STLD-T3307",
             "Epic Key": "STLD-E33",
             "Summary": "Public status page",
-            "Description": "Settld status page with incident history, uptime metrics, automated by monitoring with RSS feed.",
+            "Description": "Nooterra status page with incident history, uptime metrics, automated by monitoring with RSS feed.",
             "Owner": "DevOps",
             "Estimate": "2d",
             "Priority": "Medium",
@@ -1075,7 +1075,7 @@
             "Ticket Key": "STLD-T3402",
             "Epic Key": "STLD-E34",
             "Summary": "Third-party verifier certification program",
-            "Description": "Certification program for external verifiers to become 'Settld Certified' with test suite.",
+            "Description": "Certification program for external verifiers to become 'Nooterra Certified' with test suite.",
             "Owner": "QA + Platform",
             "Estimate": "4d",
             "Priority": "High",
@@ -1114,7 +1114,7 @@
             "Ticket Key": "STLD-T3405",
             "Epic Key": "STLD-E34",
             "Summary": "Industry working group (open standard proposal)",
-            "Description": "Publish Settld protocol as open standard proposal to relevant standards body or as RFC.",
+            "Description": "Publish Nooterra protocol as open standard proposal to relevant standards body or as RFC.",
             "Owner": "PM + Tech Lead",
             "Estimate": "3d",
             "Priority": "Medium",
@@ -1127,7 +1127,7 @@
             "Ticket Key": "STLD-T3406",
             "Epic Key": "STLD-E34",
             "Summary": "Ecosystem directory",
-            "Description": "Public directory of Settld-integrated agents, tools, and services with programmatic listing API.",
+            "Description": "Public directory of Nooterra-integrated agents, tools, and services with programmatic listing API.",
             "Owner": "Product + Frontend",
             "Estimate": "3d",
             "Priority": "Medium",
@@ -1141,7 +1141,7 @@
         {
             "Sprint": "S23",
             "Artifact": "artifacts/ops/hosted-baseline-prod.json",
-            "Gate Command": "npm run ops:hosted-baseline:evidence -- --base-url \"$SETTLD_BASE_URL\" --tenant-id \"$SETTLD_TENANT_ID\" --ops-token \"$SETTLD_OPS_TOKEN\" --environment prod --run-backup-restore true --require-backup-restore true --database-url \"$DATABASE_URL\" --restore-database-url \"$RESTORE_DATABASE_URL\" --out ./artifacts/ops/hosted-baseline-prod.json",
+            "Gate Command": "npm run ops:hosted-baseline:evidence -- --base-url \"$NOOTERRA_BASE_URL\" --tenant-id \"$NOOTERRA_TENANT_ID\" --ops-token \"$NOOTERRA_OPS_TOKEN\" --environment prod --run-backup-restore true --require-backup-restore true --database-url \"$DATABASE_URL\" --restore-database-url \"$RESTORE_DATABASE_URL\" --out ./artifacts/ops/hosted-baseline-prod.json",
             "Runbook": "docs/ops/HOSTED_BASELINE_R2.md"
         },
         {

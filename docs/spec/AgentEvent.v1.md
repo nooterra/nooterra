@@ -38,7 +38,7 @@ The following fields are optional in `AgentEvent.v1` but reserved for signed cha
 - `signature`
 - `signerKeyId`
 
-If present, these fields must be verifiable using the same hash/signature model used by Settld chained events.
+If present, these fields must be verifiable using the same hash/signature model used by Nooterra chained events.
 
 ## Determinism
 

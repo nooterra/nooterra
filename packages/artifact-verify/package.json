@@ -1,5 +1,5 @@
 {
-  "name": "settld-artifact-verify",
+  "name": "nooterra-artifact-verify",
   "version": "0.2.1",
   "private": true,
   "type": "module",
@@ -7,8 +7,8 @@
     "node": ">=20"
   },
   "bin": {
-    "settld-verify": "./bin/settld-verify.js",
-    "settld-release": "./bin/settld-release.js"
+    "nooterra-verify": "./bin/nooterra-verify.js",
+    "nooterra-release": "./bin/nooterra-release.js"
   },
   "files": [
     "bin",

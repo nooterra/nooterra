@@ -19,9 +19,10 @@ import { appendChainedEvent, createChainedEvent } from "../core/event-chain.js";
 import { normalizeBillingPlanId } from "../core/billing-plans.js";
 import { validateAgentCardV1 } from "../core/agent-card.js";
 import { validateSessionV1 } from "../core/session-collab.js";
+import { validateStateCheckpointV1 } from "../core/state-checkpoint.js";
 
 const SERVER_SIGNER_FILENAME = "server-signer.json";
-const SETTLD_PAY_KEYSET_STORE_FILENAME = "settld-pay-keyset-store.json";
+const NOOTERRA_PAY_KEYSET_STORE_FILENAME = "nooterra-pay-keyset-store.json";
 const EMERGENCY_SCOPE_TYPE = Object.freeze({
   TENANT: "tenant",
   AGENT: "agent",
@@ -51,7 +52,7 @@ function readJsonFileSafe(filePath) {
   return JSON.parse(raw);
 }
 
-function normalizeSettldPayPreviousRows(rows) {
+function normalizeNooterraPayPreviousRows(rows) {
   const out = [];
   const list = Array.isArray(rows) ? rows : [];
   const seen = new Set();
@@ -61,7 +62,7 @@ function normalizeSettldPayPreviousRows(rows) {
     if (!publicKeyPem.trim()) continue;
     const derivedKeyId = keyIdFromPublicKeyPem(publicKeyPem);
     const keyId = typeof row.keyId === "string" && row.keyId.trim() !== "" ? row.keyId.trim() : derivedKeyId;
-    if (keyId !== derivedKeyId) throw new Error("invalid settld-pay-keyset-store.json: previous[].keyId mismatch");
+    if (keyId !== derivedKeyId) throw new Error("invalid nooterra-pay-keyset-store.json: previous[].keyId mismatch");
     if (seen.has(keyId)) continue;
     seen.add(keyId);
     const rotatedAt = typeof row.rotatedAt === "string" && row.rotatedAt.trim() !== "" ? row.rotatedAt.trim() : null;
@@ -70,24 +71,24 @@ function normalizeSettldPayPreviousRows(rows) {
   return out;
 }
 
-function normalizeSettldPayKeysetStore(payload) {
+function normalizeNooterraPayKeysetStore(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error("invalid settld-pay-keyset-store.json: object expected");
+    throw new Error("invalid nooterra-pay-keyset-store.json: object expected");
   }
   const active = payload.active;
   if (!active || typeof active !== "object" || Array.isArray(active)) {
-    throw new Error("invalid settld-pay-keyset-store.json: active key missing");
+    throw new Error("invalid nooterra-pay-keyset-store.json: active key missing");
   }
   const activePublicKeyPem = typeof active.publicKeyPem === "string" ? active.publicKeyPem : "";
   const activePrivateKeyPem = typeof active.privateKeyPem === "string" ? active.privateKeyPem : "";
   if (!activePublicKeyPem.trim() || !activePrivateKeyPem.trim()) {
-    throw new Error("invalid settld-pay-keyset-store.json: active keypair missing");
+    throw new Error("invalid nooterra-pay-keyset-store.json: active keypair missing");
   }
   const activeDerivedKeyId = keyIdFromPublicKeyPem(activePublicKeyPem);
   const activeKeyId = typeof active.keyId === "string" && active.keyId.trim() !== "" ? active.keyId.trim() : activeDerivedKeyId;
-  if (activeKeyId !== activeDerivedKeyId) throw new Error("invalid settld-pay-keyset-store.json: active.keyId mismatch");
+  if (activeKeyId !== activeDerivedKeyId) throw new Error("invalid nooterra-pay-keyset-store.json: active.keyId mismatch");
 
-  const previous = normalizeSettldPayPreviousRows(payload.previous);
+  const previous = normalizeNooterraPayPreviousRows(payload.previous);
   return {
     active: {
       keyId: activeKeyId,
@@ -105,11 +106,11 @@ function loadOrCreateServerSigner({ persistenceDir }) {
   }
 
   fs.mkdirSync(persistenceDir, { recursive: true });
-  const keysetStorePath = path.join(persistenceDir, SETTLD_PAY_KEYSET_STORE_FILENAME);
+  const keysetStorePath = path.join(persistenceDir, NOOTERRA_PAY_KEYSET_STORE_FILENAME);
   const signerPath = path.join(persistenceDir, SERVER_SIGNER_FILENAME);
   if (fs.existsSync(keysetStorePath)) {
     const parsed = readJsonFileSafe(keysetStorePath);
-    const normalized = normalizeSettldPayKeysetStore(parsed);
+    const normalized = normalizeNooterraPayKeysetStore(parsed);
     // Keep legacy signer file in sync for compatibility with existing tooling.
     fs.writeFileSync(
       signerPath,
@@ -369,6 +370,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     agentCardAbuseReports: new Map(), // `${tenantId}\n${reportId}` -> AgentCardAbuseReport.v1
     sessions: new Map(), // `${tenantId}\n${sessionId}` -> Session.v1 record
     sessionEvents: new Map(), // `${tenantId}\n${sessionId}` -> SessionEvent.v1[] (chained envelope records)
+    stateCheckpoints: new Map(), // `${tenantId}\n${checkpointId}` -> StateCheckpoint.v1
     agentPassports: new Map(), // `${tenantId}\n${agentId}` -> AgentPassport.v1 record
     agentWallets: new Map(), // `${tenantId}\n${agentId}` -> AgentWallet.v1 record
     agentRuns: new Map(), // `${tenantId}\n${runId}` -> AgentRun.v1 snapshot
@@ -413,7 +415,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
 	    idempotency: new Map(),
 	    publicKeyByKeyId,
 	    serverSigner: { keyId: serverKeyId, publicKeyPem: serverPublicKeyPem, privateKeyPem: serverPrivateKeyPem },
-      settldPayFallbackKeys: loadedServerSigner.previous.map((row) => ({ keyId: row.keyId, publicKeyPem: row.publicKeyPem })),
+      nooterraPayFallbackKeys: loadedServerSigner.previous.map((row) => ({ keyId: row.keyId, publicKeyPem: row.publicKeyPem })),
 	    ledgerByTenant,
 	    // Back-compat: keep store.ledger and store.config as the default tenant's objects.
 	    ledger: ledgerByTenant.get(DEFAULT_TENANT_ID),
@@ -1092,6 +1094,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     status = null,
     visibility = null,
     capability = null,
+    executionCoordinatorDid = null,
     toolId = null,
     toolMcpName = null,
     toolRiskClass = null,
@@ -1107,6 +1110,9 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
     if (visibility !== null && (typeof visibility !== "string" || visibility.trim() === "")) throw new TypeError("visibility must be null or a non-empty string");
     if (capability !== null && (typeof capability !== "string" || capability.trim() === "")) throw new TypeError("capability must be null or a non-empty string");
+    if (executionCoordinatorDid !== null && (typeof executionCoordinatorDid !== "string" || executionCoordinatorDid.trim() === "")) {
+      throw new TypeError("executionCoordinatorDid must be null or a non-empty string");
+    }
     if (runtime !== null && (typeof runtime !== "string" || runtime.trim() === "")) throw new TypeError("runtime must be null or a non-empty string");
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
     if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
@@ -1115,6 +1121,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     const statusFilter = status ? String(status).trim().toLowerCase() : null;
     const visibilityFilter = visibility ? String(visibility).trim().toLowerCase() : null;
     const capabilityFilter = capability ? String(capability).trim() : null;
+    const executionCoordinatorDidFilter = executionCoordinatorDid ? String(executionCoordinatorDid).trim() : null;
     const toolFilterState = normalizeAgentCardToolDescriptorFilterState({
       toolId,
       toolMcpName,
@@ -1133,6 +1140,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       if (agentFilter && String(row.agentId ?? "") !== agentFilter) continue;
       if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
       if (visibilityFilter && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
+      if (executionCoordinatorDidFilter && String(row.executionCoordinatorDid ?? "") !== executionCoordinatorDidFilter) continue;
       if (runtimeFilter) {
         const rowRuntime =
           row?.host && typeof row.host === "object" && !Array.isArray(row.host) && typeof row.host.runtime === "string"
@@ -1155,6 +1163,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     status = null,
     visibility = "public",
     capability = null,
+    executionCoordinatorDid = null,
     toolId = null,
     toolMcpName = null,
     toolRiskClass = null,
@@ -1172,6 +1181,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     }
     const statusFilter = status ? String(status).trim().toLowerCase() : null;
     const capabilityFilter = capability ? String(capability).trim() : null;
+    const executionCoordinatorDidFilter = executionCoordinatorDid ? String(executionCoordinatorDid).trim() : null;
     const toolFilterState = normalizeAgentCardToolDescriptorFilterState({
       toolId,
       toolMcpName,
@@ -1188,6 +1198,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
       if (!row || typeof row !== "object") continue;
       if (String(row.visibility ?? "").toLowerCase() !== "public") continue;
       if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+      if (executionCoordinatorDidFilter && String(row.executionCoordinatorDid ?? "") !== executionCoordinatorDidFilter) continue;
       if (runtimeFilter) {
         const rowRuntime =
           row?.host && typeof row.host === "object" && !Array.isArray(row.host) && typeof row.host.runtime === "string"
@@ -1273,6 +1284,82 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     tenantId = normalizeTenantId(tenantId);
     if (typeof sessionId !== "string" || sessionId.trim() === "") throw new TypeError("sessionId is required");
     return store.sessionEvents.get(makeScopedKey({ tenantId, id: String(sessionId) })) ?? [];
+  };
+
+  store.getStateCheckpoint = async function getStateCheckpoint({ tenantId = DEFAULT_TENANT_ID, checkpointId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof checkpointId !== "string" || checkpointId.trim() === "") throw new TypeError("checkpointId is required");
+    return store.stateCheckpoints.get(makeScopedKey({ tenantId, id: String(checkpointId) })) ?? null;
+  };
+
+  store.putStateCheckpoint = async function putStateCheckpoint({ tenantId = DEFAULT_TENANT_ID, stateCheckpoint, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!stateCheckpoint || typeof stateCheckpoint !== "object" || Array.isArray(stateCheckpoint)) {
+      throw new TypeError("stateCheckpoint is required");
+    }
+    validateStateCheckpointV1(stateCheckpoint);
+    const checkpointId = stateCheckpoint.checkpointId ?? null;
+    if (typeof checkpointId !== "string" || checkpointId.trim() === "") {
+      throw new TypeError("stateCheckpoint.checkpointId is required");
+    }
+    const at = stateCheckpoint.updatedAt ?? stateCheckpoint.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "STATE_CHECKPOINT_UPSERT", tenantId, checkpointId, stateCheckpoint: { ...stateCheckpoint, tenantId, checkpointId } }],
+      audit
+    });
+    return store.stateCheckpoints.get(makeScopedKey({ tenantId, id: String(checkpointId) })) ?? null;
+  };
+
+  store.listStateCheckpoints = async function listStateCheckpoints({
+    tenantId = DEFAULT_TENANT_ID,
+    checkpointId = null,
+    projectId = null,
+    sessionId = null,
+    ownerAgentId = null,
+    traceId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (checkpointId !== null && (typeof checkpointId !== "string" || checkpointId.trim() === "")) {
+      throw new TypeError("checkpointId must be null or a non-empty string");
+    }
+    if (projectId !== null && (typeof projectId !== "string" || projectId.trim() === "")) {
+      throw new TypeError("projectId must be null or a non-empty string");
+    }
+    if (sessionId !== null && (typeof sessionId !== "string" || sessionId.trim() === "")) {
+      throw new TypeError("sessionId must be null or a non-empty string");
+    }
+    if (ownerAgentId !== null && (typeof ownerAgentId !== "string" || ownerAgentId.trim() === "")) {
+      throw new TypeError("ownerAgentId must be null or a non-empty string");
+    }
+    if (traceId !== null && (typeof traceId !== "string" || traceId.trim() === "")) {
+      throw new TypeError("traceId must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+
+    const checkpointFilter = checkpointId ? String(checkpointId).trim() : null;
+    const projectFilter = projectId ? String(projectId).trim() : null;
+    const sessionFilter = sessionId ? String(sessionId).trim() : null;
+    const ownerFilter = ownerAgentId ? String(ownerAgentId).trim() : null;
+    const traceFilter = traceId ? String(traceId).trim() : null;
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const out = [];
+    for (const row of store.stateCheckpoints.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (checkpointFilter && String(row.checkpointId ?? "") !== checkpointFilter) continue;
+      if (projectFilter && String(row.projectId ?? "") !== projectFilter) continue;
+      if (sessionFilter && String(row.sessionId ?? "") !== sessionFilter) continue;
+      if (ownerFilter && String(row.ownerAgentId ?? "") !== ownerFilter) continue;
+      if (traceFilter && String(row.traceId ?? "") !== traceFilter) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => String(left.checkpointId ?? "").localeCompare(String(right.checkpointId ?? "")));
+    return out.slice(safeOffset, safeOffset + safeLimit);
   };
 
   store.putAgentPassport = async function putAgentPassport({ tenantId = DEFAULT_TENANT_ID, agentPassport, audit = null } = {}) {

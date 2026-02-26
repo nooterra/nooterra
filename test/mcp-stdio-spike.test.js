@@ -39,7 +39,7 @@ test("mcp spike: initialize -> tools/list -> tools/call (submit_evidence)", asyn
       }
       if (req.method === "POST" && req.url === "/agents/agt_1/runs/run_1/events") {
         assert.equal(req.headers["x-proxy-expected-prev-chain-hash"], "ch_1");
-        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-nooterra-protocol"], "1.0");
         res.writeHead(201, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, event: { id: "evt_1" } }));
         return;
@@ -53,15 +53,15 @@ test("mcp spike: initialize -> tools/list -> tools/call (submit_evidence)", asyn
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -106,64 +106,66 @@ test("mcp spike: initialize -> tools/list -> tools/call (submit_evidence)", asyn
     clientInfo: { name: "node-test", version: "0" },
     capabilities: {}
   });
-  assert.equal(init.result?.serverInfo?.name, "settld-mcp-spike");
+  assert.equal(init.result?.serverInfo?.name, "nooterra-mcp-spike");
 
   const list = await rpc("tools/list", {});
   const names = (list.result?.tools || []).map((t) => t.name);
-  assert.ok(names.includes("settld.create_agreement"));
-  assert.ok(names.includes("settld.submit_evidence"));
-  assert.ok(names.includes("settld.settle_run"));
-  assert.ok(names.includes("settld.open_dispute"));
-  assert.ok(names.includes("settld.dispute_add_evidence"));
-  assert.ok(names.includes("settld.dispute_escalate"));
-  assert.ok(names.includes("settld.dispute_close"));
-  assert.ok(names.includes("settld.arbitration_open"));
-  assert.ok(names.includes("settld.arbitration_issue_verdict"));
-  assert.ok(names.includes("settld.delegation_grant_issue"));
-  assert.ok(names.includes("settld.delegation_grant_get"));
-  assert.ok(names.includes("settld.delegation_grant_list"));
-  assert.ok(names.includes("settld.delegation_grant_revoke"));
-  assert.ok(names.includes("settld.authority_grant_issue"));
-  assert.ok(names.includes("settld.authority_grant_get"));
-  assert.ok(names.includes("settld.authority_grant_list"));
-  assert.ok(names.includes("settld.authority_grant_revoke"));
-  assert.ok(names.includes("settld.agent_card_upsert"));
-  assert.ok(names.includes("settld.agent_discover"));
-  assert.ok(names.includes("settld.agent_discover_stream"));
-  assert.ok(names.includes("settld.capability_attest"));
-  assert.ok(names.includes("settld.capability_attestation_list"));
-  assert.ok(names.includes("settld.capability_attestation_revoke"));
-  assert.ok(names.includes("settld.work_order_create"));
-  assert.ok(names.includes("settld.work_order_accept"));
-  assert.ok(names.includes("settld.work_order_progress"));
-  assert.ok(names.includes("settld.work_order_complete"));
-  assert.ok(names.includes("settld.work_order_settle"));
-  assert.ok(names.includes("settld.session_create"));
-  assert.ok(names.includes("settld.session_list"));
-  assert.ok(names.includes("settld.session_get"));
-  assert.ok(names.includes("settld.session_events_list"));
-  assert.ok(names.includes("settld.session_events_stream"));
-  assert.ok(names.includes("settld.session_event_append"));
-  assert.ok(names.includes("settld.session_replay_pack_get"));
-  assert.ok(names.includes("settld.session_transcript_get"));
-  assert.ok(names.includes("settld.audit_lineage_list"));
-  assert.ok(names.includes("settld.relationships_list"));
-  assert.ok(names.includes("settld.public_reputation_summary_get"));
-  assert.ok(names.includes("settld.interaction_graph_pack_get"));
-  assert.ok(names.includes("settld.x402_gate_create"));
-  assert.ok(names.includes("settld.x402_gate_verify"));
-  assert.ok(names.includes("settld.x402_gate_get"));
-  assert.ok(names.includes("settld.x402_agent_lifecycle_get"));
-  assert.ok(names.includes("settld.x402_agent_lifecycle_set"));
+  assert.ok(names.includes("nooterra.create_agreement"));
+  assert.ok(names.includes("nooterra.submit_evidence"));
+  assert.ok(names.includes("nooterra.settle_run"));
+  assert.ok(names.includes("nooterra.open_dispute"));
+  assert.ok(names.includes("nooterra.dispute_add_evidence"));
+  assert.ok(names.includes("nooterra.dispute_escalate"));
+  assert.ok(names.includes("nooterra.dispute_close"));
+  assert.ok(names.includes("nooterra.arbitration_open"));
+  assert.ok(names.includes("nooterra.arbitration_issue_verdict"));
+  assert.ok(names.includes("nooterra.delegation_grant_issue"));
+  assert.ok(names.includes("nooterra.delegation_grant_get"));
+  assert.ok(names.includes("nooterra.delegation_grant_list"));
+  assert.ok(names.includes("nooterra.delegation_grant_revoke"));
+  assert.ok(names.includes("nooterra.authority_grant_issue"));
+  assert.ok(names.includes("nooterra.authority_grant_get"));
+  assert.ok(names.includes("nooterra.authority_grant_list"));
+  assert.ok(names.includes("nooterra.authority_grant_revoke"));
+  assert.ok(names.includes("nooterra.agent_card_upsert"));
+  assert.ok(names.includes("nooterra.agent_discover"));
+  assert.ok(names.includes("nooterra.agent_discover_stream"));
+  assert.ok(names.includes("nooterra.capability_attest"));
+  assert.ok(names.includes("nooterra.capability_attestation_list"));
+  assert.ok(names.includes("nooterra.capability_attestation_revoke"));
+  assert.ok(names.includes("nooterra.work_order_create"));
+  assert.ok(names.includes("nooterra.work_order_accept"));
+  assert.ok(names.includes("nooterra.work_order_progress"));
+  assert.ok(names.includes("nooterra.work_order_topup"));
+  assert.ok(names.includes("nooterra.work_order_metering_get"));
+  assert.ok(names.includes("nooterra.work_order_complete"));
+  assert.ok(names.includes("nooterra.work_order_settle"));
+  assert.ok(names.includes("nooterra.session_create"));
+  assert.ok(names.includes("nooterra.session_list"));
+  assert.ok(names.includes("nooterra.session_get"));
+  assert.ok(names.includes("nooterra.session_events_list"));
+  assert.ok(names.includes("nooterra.session_events_stream"));
+  assert.ok(names.includes("nooterra.session_event_append"));
+  assert.ok(names.includes("nooterra.session_replay_pack_get"));
+  assert.ok(names.includes("nooterra.session_transcript_get"));
+  assert.ok(names.includes("nooterra.audit_lineage_list"));
+  assert.ok(names.includes("nooterra.relationships_list"));
+  assert.ok(names.includes("nooterra.public_reputation_summary_get"));
+  assert.ok(names.includes("nooterra.interaction_graph_pack_get"));
+  assert.ok(names.includes("nooterra.x402_gate_create"));
+  assert.ok(names.includes("nooterra.x402_gate_verify"));
+  assert.ok(names.includes("nooterra.x402_gate_get"));
+  assert.ok(names.includes("nooterra.x402_agent_lifecycle_get"));
+  assert.ok(names.includes("nooterra.x402_agent_lifecycle_set"));
 
   const called = await rpc("tools/call", {
-    name: "settld.submit_evidence",
+    name: "nooterra.submit_evidence",
     arguments: { agentId: "agt_1", runId: "run_1", evidenceRef: "evidence://demo/1" }
   });
   assert.equal(called.result?.isError, false);
   const text = called.result?.content?.[0]?.text || "";
   const parsed = JSON.parse(text);
-  assert.equal(parsed.tool, "settld.submit_evidence");
+  assert.equal(parsed.tool, "nooterra.submit_evidence");
   assert.equal(parsed.result?.ok, true);
 
   child.kill("SIGTERM");
@@ -192,35 +194,35 @@ test("mcp spike: dispute and arbitration tools map to dispute APIs", async () =>
       });
 
       if (req.method === "POST" && req.url === `/runs/${runId}/dispute/evidence`) {
-        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-nooterra-protocol"], "1.0");
         assert.ok(typeof req.headers["x-idempotency-key"] === "string" && req.headers["x-idempotency-key"].length > 0);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ settlement: { runId, disputeStatus: "open" }, disputeEvidence: { evidenceRef: parsedBody?.evidenceRef } }));
         return;
       }
       if (req.method === "POST" && req.url === `/runs/${runId}/dispute/escalate`) {
-        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-nooterra-protocol"], "1.0");
         assert.ok(typeof req.headers["x-idempotency-key"] === "string" && req.headers["x-idempotency-key"].length > 0);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ settlement: { runId, disputeStatus: "open" }, disputeEscalation: { escalationLevel: parsedBody?.escalationLevel } }));
         return;
       }
       if (req.method === "POST" && req.url === `/runs/${runId}/dispute/close`) {
-        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-nooterra-protocol"], "1.0");
         assert.ok(typeof req.headers["x-idempotency-key"] === "string" && req.headers["x-idempotency-key"].length > 0);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ settlement: { runId, disputeStatus: "closed" } }));
         return;
       }
       if (req.method === "POST" && req.url === `/runs/${runId}/arbitration/open`) {
-        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-nooterra-protocol"], "1.0");
         assert.ok(typeof req.headers["x-idempotency-key"] === "string" && req.headers["x-idempotency-key"].length > 0);
         res.writeHead(201, { "content-type": "application/json" });
         res.end(JSON.stringify({ arbitrationCase: { caseId: "arb_case_1", runId, status: "under_review" } }));
         return;
       }
       if (req.method === "POST" && req.url === `/runs/${runId}/arbitration/verdict`) {
-        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-nooterra-protocol"], "1.0");
         assert.ok(typeof req.headers["x-idempotency-key"] === "string" && req.headers["x-idempotency-key"].length > 0);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ arbitrationCase: { caseId: parsedBody?.caseId, runId, status: "verdict_issued" } }));
@@ -235,15 +237,15 @@ test("mcp spike: dispute and arbitration tools map to dispute APIs", async () =>
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -286,38 +288,38 @@ test("mcp spike: dispute and arbitration tools map to dispute APIs", async () =>
     clientInfo: { name: "node-test", version: "0" },
     capabilities: {}
   });
-  assert.equal(init.result?.serverInfo?.name, "settld-mcp-spike");
+  assert.equal(init.result?.serverInfo?.name, "nooterra-mcp-spike");
 
   const evidence = await rpc("tools/call", {
-    name: "settld.dispute_add_evidence",
+    name: "nooterra.dispute_add_evidence",
     arguments: { runId, disputeId: "dsp_1", evidenceRef: "evidence://dispute/1.json", reason: "counterparty proof" }
   });
   assert.equal(evidence.result?.isError, false);
   assert.equal(JSON.parse(evidence.result?.content?.[0]?.text ?? "{}")?.result?.disputeEvidence?.evidenceRef, "evidence://dispute/1.json");
 
   const escalate = await rpc("tools/call", {
-    name: "settld.dispute_escalate",
+    name: "nooterra.dispute_escalate",
     arguments: { runId, disputeId: "dsp_1", escalationLevel: "l2_arbiter", reason: "needs review" }
   });
   assert.equal(escalate.result?.isError, false);
   assert.equal(JSON.parse(escalate.result?.content?.[0]?.text ?? "{}")?.result?.disputeEscalation?.escalationLevel, "l2_arbiter");
 
   const close = await rpc("tools/call", {
-    name: "settld.dispute_close",
+    name: "nooterra.dispute_close",
     arguments: { runId, disputeId: "dsp_1", resolution: { outcome: "rejected", summary: "closed by ops" } }
   });
   assert.equal(close.result?.isError, false);
   assert.equal(JSON.parse(close.result?.content?.[0]?.text ?? "{}")?.result?.settlement?.disputeStatus, "closed");
 
   const arbOpen = await rpc("tools/call", {
-    name: "settld.arbitration_open",
+    name: "nooterra.arbitration_open",
     arguments: { runId, caseId: "arb_case_1", disputeId: "dsp_1", arbiterAgentId: "agt_arbiter_1", evidenceRefs: [] }
   });
   assert.equal(arbOpen.result?.isError, false);
   assert.equal(JSON.parse(arbOpen.result?.content?.[0]?.text ?? "{}")?.result?.arbitrationCase?.status, "under_review");
 
   const arbVerdict = await rpc("tools/call", {
-    name: "settld.arbitration_issue_verdict",
+    name: "nooterra.arbitration_issue_verdict",
     arguments: {
       runId,
       caseId: "arb_case_1",
@@ -373,7 +375,7 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
       });
 
       if (req.method === "POST" && req.url === "/sessions") {
-        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-nooterra-protocol"], "1.0");
         assert.ok(typeof req.headers["x-idempotency-key"] === "string" && req.headers["x-idempotency-key"].length > 0);
         assert.equal(body?.sessionId, sessionId);
         res.writeHead(201, { "content-type": "application/json" });
@@ -424,7 +426,7 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
       }
 
       if (req.method === "POST" && req.url === `/sessions/${sessionId}/events`) {
-        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-nooterra-protocol"], "1.0");
         assert.equal(req.headers["x-proxy-expected-prev-chain-hash"], "null");
         assert.ok(typeof req.headers["x-idempotency-key"] === "string" && req.headers["x-idempotency-key"].length > 0);
         assert.equal(body?.eventType, "TASK_REQUESTED");
@@ -490,15 +492,15 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -542,7 +544,7 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
   });
 
   const created = await rpc("tools/call", {
-    name: "settld.session_create",
+    name: "nooterra.session_create",
     arguments: {
       sessionId,
       visibility: "tenant",
@@ -553,7 +555,7 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
   assert.equal(JSON.parse(created.result?.content?.[0]?.text ?? "{}")?.result?.session?.sessionId, sessionId);
 
   const listed = await rpc("tools/call", {
-    name: "settld.session_list",
+    name: "nooterra.session_list",
     arguments: {
       participantAgentId: "agt_worker_1",
       limit: 25,
@@ -564,21 +566,21 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
   assert.equal(JSON.parse(listed.result?.content?.[0]?.text ?? "{}")?.result?.sessions?.[0]?.sessionId, sessionId);
 
   const got = await rpc("tools/call", {
-    name: "settld.session_get",
+    name: "nooterra.session_get",
     arguments: { sessionId }
   });
   assert.equal(got.result?.isError, false);
   assert.equal(JSON.parse(got.result?.content?.[0]?.text ?? "{}")?.result?.session?.sessionId, sessionId);
 
   const events = await rpc("tools/call", {
-    name: "settld.session_events_list",
+    name: "nooterra.session_events_list",
     arguments: { sessionId, eventType: "TASK_REQUESTED", limit: 10, offset: 0 }
   });
   assert.equal(events.result?.isError, false);
   assert.equal(JSON.parse(events.result?.content?.[0]?.text ?? "{}")?.result?.sessionId, sessionId);
 
   const streamEvents = await rpc("tools/call", {
-    name: "settld.session_events_stream",
+    name: "nooterra.session_events_stream",
     arguments: {
       sessionId,
       eventType: "TASK_REQUESTED",
@@ -594,7 +596,7 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
   assert.equal(streamEventsParsed?.result?.lastEventId, "evt_session_2");
 
   const appended = await rpc("tools/call", {
-    name: "settld.session_event_append",
+    name: "nooterra.session_event_append",
     arguments: {
       sessionId,
       eventType: "TASK_REQUESTED",
@@ -607,7 +609,7 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
   assert.equal(appendedParsed?.result?.event?.id, "evt_session_1");
 
   const replayPack = await rpc("tools/call", {
-    name: "settld.session_replay_pack_get",
+    name: "nooterra.session_replay_pack_get",
     arguments: { sessionId, sign: true, signerKeyId: "key_session_signer_1" }
   });
   assert.equal(replayPack.result?.isError, false);
@@ -617,7 +619,7 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
   assert.equal(replayPackParsed?.result?.replayPack?.signature?.schemaVersion, "SessionReplayPackSignature.v1");
 
   const transcript = await rpc("tools/call", {
-    name: "settld.session_transcript_get",
+    name: "nooterra.session_transcript_get",
     arguments: { sessionId, sign: true }
   });
   assert.equal(transcript.result?.isError, false);
@@ -684,15 +686,15 @@ test("mcp spike: audit lineage tool mapping", async () => {
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -737,7 +739,7 @@ test("mcp spike: audit lineage tool mapping", async () => {
   });
 
   const listed = await rpc("tools/call", {
-    name: "settld.audit_lineage_list",
+    name: "nooterra.audit_lineage_list",
     arguments: {
       agentId: "agt_audit_1",
       traceId: "trace_audit_1",
@@ -749,19 +751,19 @@ test("mcp spike: audit lineage tool mapping", async () => {
   });
   assert.equal(listed.result?.isError, false);
   const listedParsed = JSON.parse(listed.result?.content?.[0]?.text ?? "{}");
-  assert.equal(listedParsed?.tool, "settld.audit_lineage_list");
+  assert.equal(listedParsed?.tool, "nooterra.audit_lineage_list");
   assert.equal(listedParsed?.result?.lineage?.schemaVersion, "AuditLineage.v1");
   assert.equal(listedParsed?.result?.lineage?.lineageHash, "a".repeat(64));
 
   const invalid = await rpc("tools/call", {
-    name: "settld.audit_lineage_list",
+    name: "nooterra.audit_lineage_list",
     arguments: {
       limit: 1001
     }
   });
   assert.equal(invalid.result?.isError, true);
   const invalidParsed = JSON.parse(invalid.result?.content?.[0]?.text ?? "{}");
-  assert.equal(invalidParsed?.tool, "settld.audit_lineage_list");
+  assert.equal(invalidParsed?.tool, "nooterra.audit_lineage_list");
   assert.match(String(invalidParsed?.error ?? ""), /limit must be <= 1000/i);
 
   child.kill("SIGTERM");
@@ -792,7 +794,7 @@ test("mcp spike: x402 gate create -> verify -> get with idempotency", async () =
 
       if (req.method === "POST" && req.url === "/x402/gate/create") {
         assert.equal(req.headers["x-idempotency-key"], "idem_create_1");
-        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-nooterra-protocol"], "1.0");
         assert.equal(parsedBody?.gateId, gateId);
         res.writeHead(201, { "content-type": "application/json" });
         res.end(
@@ -861,15 +863,15 @@ test("mcp spike: x402 gate create -> verify -> get with idempotency", async () =
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -916,7 +918,7 @@ test("mcp spike: x402 gate create -> verify -> get with idempotency", async () =
   });
 
   const create = await rpc("tools/call", {
-    name: "settld.x402_gate_create",
+    name: "nooterra.x402_gate_create",
     arguments: {
       gateId,
       payerAgentId: "agt_payer_1",
@@ -928,12 +930,12 @@ test("mcp spike: x402 gate create -> verify -> get with idempotency", async () =
   });
   assert.equal(create.result?.isError, false);
   const createParsed = JSON.parse(create.result?.content?.[0]?.text || "{}");
-  assert.equal(createParsed?.tool, "settld.x402_gate_create");
+  assert.equal(createParsed?.tool, "nooterra.x402_gate_create");
   assert.equal(createParsed?.result?.ok, true);
   assert.equal(createParsed?.result?.gateId, gateId);
 
   const verify = await rpc("tools/call", {
-    name: "settld.x402_gate_verify",
+    name: "nooterra.x402_gate_verify",
     arguments: {
       gateId,
       ensureAuthorized: true,
@@ -945,18 +947,18 @@ test("mcp spike: x402 gate create -> verify -> get with idempotency", async () =
   });
   assert.equal(verify.result?.isError, false);
   const verifyParsed = JSON.parse(verify.result?.content?.[0]?.text || "{}");
-  assert.equal(verifyParsed?.tool, "settld.x402_gate_verify");
+  assert.equal(verifyParsed?.tool, "nooterra.x402_gate_verify");
   assert.equal(verifyParsed?.result?.ok, true);
   assert.equal(verifyParsed?.result?.ensureAuthorized, true);
   assert.equal(verifyParsed?.result?.verify?.ok, true);
 
   const get = await rpc("tools/call", {
-    name: "settld.x402_gate_get",
+    name: "nooterra.x402_gate_get",
     arguments: { gateId }
   });
   assert.equal(get.result?.isError, false);
   const getParsed = JSON.parse(get.result?.content?.[0]?.text || "{}");
-  assert.equal(getParsed?.tool, "settld.x402_gate_get");
+  assert.equal(getParsed?.tool, "nooterra.x402_gate_get");
   assert.equal(getParsed?.result?.ok, true);
   assert.equal(getParsed?.result?.gate?.status, "resolved");
 
@@ -990,7 +992,7 @@ test("mcp spike: x402 agent lifecycle get/set tool mappings", async () => {
       });
 
       if (req.method === "POST" && req.url === `/x402/gate/agents/${agentId}/lifecycle`) {
-        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-nooterra-protocol"], "1.0");
         assert.equal(req.headers["x-idempotency-key"], "idem_lifecycle_set_1");
         assert.equal(parsedBody?.status, "throttled");
         res.writeHead(200, { "content-type": "application/json" });
@@ -1034,15 +1036,15 @@ test("mcp spike: x402 agent lifecycle get/set tool mappings", async () => {
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -1088,7 +1090,7 @@ test("mcp spike: x402 agent lifecycle get/set tool mappings", async () => {
   });
 
   const setLifecycle = await rpc("tools/call", {
-    name: "settld.x402_agent_lifecycle_set",
+    name: "nooterra.x402_agent_lifecycle_set",
     arguments: {
       agentId,
       status: "throttled",
@@ -1098,17 +1100,17 @@ test("mcp spike: x402 agent lifecycle get/set tool mappings", async () => {
   });
   assert.equal(setLifecycle.result?.isError, false);
   const setParsed = JSON.parse(setLifecycle.result?.content?.[0]?.text || "{}");
-  assert.equal(setParsed?.tool, "settld.x402_agent_lifecycle_set");
+  assert.equal(setParsed?.tool, "nooterra.x402_agent_lifecycle_set");
   assert.equal(setParsed?.result?.ok, true);
   assert.equal(setParsed?.result?.lifecycle?.status, "throttled");
 
   const getLifecycle = await rpc("tools/call", {
-    name: "settld.x402_agent_lifecycle_get",
+    name: "nooterra.x402_agent_lifecycle_get",
     arguments: { agentId }
   });
   assert.equal(getLifecycle.result?.isError, false);
   const getParsed = JSON.parse(getLifecycle.result?.content?.[0]?.text || "{}");
-  assert.equal(getParsed?.tool, "settld.x402_agent_lifecycle_get");
+  assert.equal(getParsed?.tool, "nooterra.x402_agent_lifecycle_get");
   assert.equal(getParsed?.result?.ok, true);
   assert.equal(getParsed?.result?.lifecycle?.status, "throttled");
 
@@ -1193,15 +1195,15 @@ test("mcp spike: agreement delegation create/list includes delegationHash", asyn
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -1248,7 +1250,7 @@ test("mcp spike: agreement delegation create/list includes delegationHash", asyn
   });
 
   const create = await rpc("tools/call", {
-    name: "settld.agreement_delegation_create",
+    name: "nooterra.agreement_delegation_create",
     arguments: {
       parentAgreementHash,
       childAgreementHash,
@@ -1260,17 +1262,17 @@ test("mcp spike: agreement delegation create/list includes delegationHash", asyn
   });
   assert.equal(create.result?.isError, false);
   const createParsed = JSON.parse(create.result?.content?.[0]?.text || "{}");
-  assert.equal(createParsed?.tool, "settld.agreement_delegation_create");
+  assert.equal(createParsed?.tool, "nooterra.agreement_delegation_create");
   assert.equal(createParsed?.result?.ok, true);
   assert.equal(createParsed?.result?.delegation?.delegationHash, delegationHash);
 
   const list = await rpc("tools/call", {
-    name: "settld.agreement_delegation_list",
+    name: "nooterra.agreement_delegation_list",
     arguments: { agreementHash: parentAgreementHash, status: "active", limit: 20, offset: 0 }
   });
   assert.equal(list.result?.isError, false);
   const listParsed = JSON.parse(list.result?.content?.[0]?.text || "{}");
-  assert.equal(listParsed?.tool, "settld.agreement_delegation_list");
+  assert.equal(listParsed?.tool, "nooterra.agreement_delegation_list");
   assert.equal(listParsed?.result?.ok, true);
   assert.equal(listParsed?.result?.delegations?.[0]?.delegationHash, delegationHash);
 
@@ -1391,15 +1393,15 @@ test("mcp spike: delegation grant issue/get/list/revoke tool mappings", async ()
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -1444,7 +1446,7 @@ test("mcp spike: delegation grant issue/get/list/revoke tool mappings", async ()
   });
 
   const issued = await rpc("tools/call", {
-    name: "settld.delegation_grant_issue",
+    name: "nooterra.delegation_grant_issue",
     arguments: {
       grantId,
       delegatorAgentId: "agt_manager",
@@ -1456,34 +1458,34 @@ test("mcp spike: delegation grant issue/get/list/revoke tool mappings", async ()
   });
   assert.equal(issued.result?.isError, false);
   const issueParsed = JSON.parse(issued.result?.content?.[0]?.text || "{}");
-  assert.equal(issueParsed?.tool, "settld.delegation_grant_issue");
+  assert.equal(issueParsed?.tool, "nooterra.delegation_grant_issue");
   assert.equal(issueParsed?.result?.delegationGrant?.grantId, grantId);
 
   const fetched = await rpc("tools/call", {
-    name: "settld.delegation_grant_get",
+    name: "nooterra.delegation_grant_get",
     arguments: { grantId }
   });
   assert.equal(fetched.result?.isError, false);
   const fetchedParsed = JSON.parse(fetched.result?.content?.[0]?.text || "{}");
-  assert.equal(fetchedParsed?.tool, "settld.delegation_grant_get");
+  assert.equal(fetchedParsed?.tool, "nooterra.delegation_grant_get");
   assert.equal(fetchedParsed?.result?.delegationGrant?.grantId, grantId);
 
   const listed = await rpc("tools/call", {
-    name: "settld.delegation_grant_list",
+    name: "nooterra.delegation_grant_list",
     arguments: { delegateeAgentId: "agt_worker", includeRevoked: false, limit: 20, offset: 0 }
   });
   assert.equal(listed.result?.isError, false);
   const listedParsed = JSON.parse(listed.result?.content?.[0]?.text || "{}");
-  assert.equal(listedParsed?.tool, "settld.delegation_grant_list");
+  assert.equal(listedParsed?.tool, "nooterra.delegation_grant_list");
   assert.equal(listedParsed?.result?.grants?.[0]?.grantId, grantId);
 
   const revoked = await rpc("tools/call", {
-    name: "settld.delegation_grant_revoke",
+    name: "nooterra.delegation_grant_revoke",
     arguments: { grantId, revocationReasonCode: "MANUAL_REVOKE", idempotencyKey: "idem_delegation_grant_revoke_1" }
   });
   assert.equal(revoked.result?.isError, false);
   const revokedParsed = JSON.parse(revoked.result?.content?.[0]?.text || "{}");
-  assert.equal(revokedParsed?.tool, "settld.delegation_grant_revoke");
+  assert.equal(revokedParsed?.tool, "nooterra.delegation_grant_revoke");
   assert.equal(revokedParsed?.result?.delegationGrant?.grantId, grantId);
 
   child.kill("SIGTERM");
@@ -1610,15 +1612,15 @@ test("mcp spike: authority grant issue/get/list/revoke tool mappings", async () 
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -1663,7 +1665,7 @@ test("mcp spike: authority grant issue/get/list/revoke tool mappings", async () 
   });
 
   const issued = await rpc("tools/call", {
-    name: "settld.authority_grant_issue",
+    name: "nooterra.authority_grant_issue",
     arguments: {
       grantId,
       principalRef: { principalType: "org", principalId: "org_acme" },
@@ -1675,34 +1677,34 @@ test("mcp spike: authority grant issue/get/list/revoke tool mappings", async () 
   });
   assert.equal(issued.result?.isError, false);
   const issueParsed = JSON.parse(issued.result?.content?.[0]?.text || "{}");
-  assert.equal(issueParsed?.tool, "settld.authority_grant_issue");
+  assert.equal(issueParsed?.tool, "nooterra.authority_grant_issue");
   assert.equal(issueParsed?.result?.authorityGrant?.grantId, grantId);
 
   const fetched = await rpc("tools/call", {
-    name: "settld.authority_grant_get",
+    name: "nooterra.authority_grant_get",
     arguments: { grantId }
   });
   assert.equal(fetched.result?.isError, false);
   const fetchedParsed = JSON.parse(fetched.result?.content?.[0]?.text || "{}");
-  assert.equal(fetchedParsed?.tool, "settld.authority_grant_get");
+  assert.equal(fetchedParsed?.tool, "nooterra.authority_grant_get");
   assert.equal(fetchedParsed?.result?.authorityGrant?.grantId, grantId);
 
   const listed = await rpc("tools/call", {
-    name: "settld.authority_grant_list",
+    name: "nooterra.authority_grant_list",
     arguments: { granteeAgentId: "agt_worker", includeRevoked: false, limit: 20, offset: 0 }
   });
   assert.equal(listed.result?.isError, false);
   const listedParsed = JSON.parse(listed.result?.content?.[0]?.text || "{}");
-  assert.equal(listedParsed?.tool, "settld.authority_grant_list");
+  assert.equal(listedParsed?.tool, "nooterra.authority_grant_list");
   assert.equal(listedParsed?.result?.grants?.[0]?.grantId, grantId);
 
   const revoked = await rpc("tools/call", {
-    name: "settld.authority_grant_revoke",
+    name: "nooterra.authority_grant_revoke",
     arguments: { grantId, revocationReasonCode: "MANUAL_REVOKE", idempotencyKey: "idem_authority_grant_revoke_1" }
   });
   assert.equal(revoked.result?.isError, false);
   const revokedParsed = JSON.parse(revoked.result?.content?.[0]?.text || "{}");
-  assert.equal(revokedParsed?.tool, "settld.authority_grant_revoke");
+  assert.equal(revokedParsed?.tool, "nooterra.authority_grant_revoke");
   assert.equal(revokedParsed?.result?.authorityGrant?.grantId, grantId);
 
   child.kill("SIGTERM");
@@ -1836,15 +1838,15 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -1889,7 +1891,7 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   });
 
   const upserted = await rpc("tools/call", {
-    name: "settld.agent_card_upsert",
+    name: "nooterra.agent_card_upsert",
     arguments: {
       agentId: "agt_card_1",
       displayName: "Travel Agent",
@@ -1902,11 +1904,11 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   });
   assert.equal(upserted.result?.isError, false);
   const upsertedParsed = JSON.parse(upserted.result?.content?.[0]?.text || "{}");
-  assert.equal(upsertedParsed?.tool, "settld.agent_card_upsert");
+  assert.equal(upsertedParsed?.tool, "nooterra.agent_card_upsert");
   assert.equal(upsertedParsed?.result?.agentCard?.agentId, "agt_card_1");
 
   const discovered = await rpc("tools/call", {
-    name: "settld.agent_discover",
+    name: "nooterra.agent_discover",
     arguments: {
       capability: "travel.booking",
       status: "active",
@@ -1923,11 +1925,11 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   });
   assert.equal(discovered.result?.isError, false);
   const discoveredParsed = JSON.parse(discovered.result?.content?.[0]?.text || "{}");
-  assert.equal(discoveredParsed?.tool, "settld.agent_discover");
+  assert.equal(discoveredParsed?.tool, "nooterra.agent_discover");
   assert.equal(discoveredParsed?.result?.results?.[0]?.agentCard?.agentId, "agt_card_1");
 
   const discoveredPublic = await rpc("tools/call", {
-    name: "settld.agent_discover",
+    name: "nooterra.agent_discover",
     arguments: {
       scope: "public",
       capability: "travel.booking",
@@ -1941,11 +1943,11 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   });
   assert.equal(discoveredPublic.result?.isError, false);
   const discoveredPublicParsed = JSON.parse(discoveredPublic.result?.content?.[0]?.text || "{}");
-  assert.equal(discoveredPublicParsed?.tool, "settld.agent_discover");
+  assert.equal(discoveredPublicParsed?.tool, "nooterra.agent_discover");
   assert.equal(discoveredPublicParsed?.result?.results?.[0]?.agentCard?.agentId, "agt_card_1");
 
   const streamDiscover = await rpc("tools/call", {
-    name: "settld.agent_discover_stream",
+    name: "nooterra.agent_discover_stream",
     arguments: {
       capability: "travel.booking",
       status: "active",
@@ -1957,13 +1959,13 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   });
   assert.equal(streamDiscover.result?.isError, false);
   const streamDiscoverParsed = JSON.parse(streamDiscover.result?.content?.[0]?.text || "{}");
-  assert.equal(streamDiscoverParsed?.tool, "settld.agent_discover_stream");
+  assert.equal(streamDiscoverParsed?.tool, "nooterra.agent_discover_stream");
   assert.equal(streamDiscoverParsed?.result?.scope, "public");
   assert.equal(streamDiscoverParsed?.result?.eventCount, 2);
   assert.equal(streamDiscoverParsed?.result?.lastEventId, "cursor_1");
 
   const invalidDiscover = await rpc("tools/call", {
-    name: "settld.agent_discover",
+    name: "nooterra.agent_discover",
     arguments: {
       scope: "public",
       visibility: "all"
@@ -1971,7 +1973,7 @@ test("mcp spike: agent card upsert/discover tool mappings", async () => {
   });
   assert.equal(invalidDiscover.result?.isError, true);
   const invalidDiscoverParsed = JSON.parse(invalidDiscover.result?.content?.[0]?.text || "{}");
-  assert.equal(invalidDiscoverParsed?.tool, "settld.agent_discover");
+  assert.equal(invalidDiscoverParsed?.tool, "nooterra.agent_discover");
   assert.match(String(invalidDiscoverParsed?.error ?? ""), /visibility must be public when scope=public/i);
 
   child.kill("SIGTERM");
@@ -2035,7 +2037,7 @@ test("mcp spike: relationship and interaction graph tools map to reputation APIs
     if (
       req.method === "GET" &&
       req.url ===
-        "/agents/agt_card_1/interaction-graph-pack?reputationVersion=v2&reputationWindow=30d&visibility=public_summary&sign=true&signerKeyId=settld_test_ed25519&limit=5&offset=0"
+        "/agents/agt_card_1/interaction-graph-pack?reputationVersion=v2&reputationWindow=30d&visibility=public_summary&sign=true&signerKeyId=nooterra_test_ed25519&limit=5&offset=0"
     ) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
@@ -2046,7 +2048,7 @@ test("mcp spike: relationship and interaction graph tools map to reputation APIs
             agentId: "agt_card_1",
             relationshipsHash: "a".repeat(64),
             summaryHash: "b".repeat(64),
-            signatures: [{ schemaVersion: "VerifiedInteractionGraphPackSignature.v1", keyId: "settld_test_ed25519" }]
+            signatures: [{ schemaVersion: "VerifiedInteractionGraphPackSignature.v1", keyId: "nooterra_test_ed25519" }]
           }
         })
       );
@@ -2060,15 +2062,15 @@ test("mcp spike: relationship and interaction graph tools map to reputation APIs
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -2113,7 +2115,7 @@ test("mcp spike: relationship and interaction graph tools map to reputation APIs
   });
 
   const relationships = await rpc("tools/call", {
-    name: "settld.relationships_list",
+    name: "nooterra.relationships_list",
     arguments: {
       agentId: "agt_card_1",
       counterpartyAgentId: "agt_card_2",
@@ -2125,11 +2127,11 @@ test("mcp spike: relationship and interaction graph tools map to reputation APIs
   });
   assert.equal(relationships.result?.isError, false);
   const relationshipsParsed = JSON.parse(relationships.result?.content?.[0]?.text || "{}");
-  assert.equal(relationshipsParsed?.tool, "settld.relationships_list");
+  assert.equal(relationshipsParsed?.tool, "nooterra.relationships_list");
   assert.equal(relationshipsParsed?.result?.relationships?.[0]?.counterpartyAgentId, "agt_card_2");
 
   const summary = await rpc("tools/call", {
-    name: "settld.public_reputation_summary_get",
+    name: "nooterra.public_reputation_summary_get",
     arguments: {
       agentId: "agt_card_1",
       reputationVersion: "v2",
@@ -2140,38 +2142,38 @@ test("mcp spike: relationship and interaction graph tools map to reputation APIs
   });
   assert.equal(summary.result?.isError, false);
   const summaryParsed = JSON.parse(summary.result?.content?.[0]?.text || "{}");
-  assert.equal(summaryParsed?.tool, "settld.public_reputation_summary_get");
+  assert.equal(summaryParsed?.tool, "nooterra.public_reputation_summary_get");
   assert.equal(summaryParsed?.result?.summary?.agentId, "agt_card_1");
 
   const graphPack = await rpc("tools/call", {
-    name: "settld.interaction_graph_pack_get",
+    name: "nooterra.interaction_graph_pack_get",
     arguments: {
       agentId: "agt_card_1",
       reputationVersion: "v2",
       reputationWindow: "30d",
       visibility: "public_summary",
       sign: true,
-      signerKeyId: "settld_test_ed25519",
+      signerKeyId: "nooterra_test_ed25519",
       limit: 5,
       offset: 0
     }
   });
   assert.equal(graphPack.result?.isError, false);
   const graphPackParsed = JSON.parse(graphPack.result?.content?.[0]?.text || "{}");
-  assert.equal(graphPackParsed?.tool, "settld.interaction_graph_pack_get");
+  assert.equal(graphPackParsed?.tool, "nooterra.interaction_graph_pack_get");
   assert.equal(graphPackParsed?.result?.signed, true);
-  assert.equal(graphPackParsed?.result?.graphPack?.signatures?.[0]?.keyId, "settld_test_ed25519");
+  assert.equal(graphPackParsed?.result?.graphPack?.signatures?.[0]?.keyId, "nooterra_test_ed25519");
 
   const invalidGraphPack = await rpc("tools/call", {
-    name: "settld.interaction_graph_pack_get",
+    name: "nooterra.interaction_graph_pack_get",
     arguments: {
       agentId: "agt_card_1",
-      signerKeyId: "settld_test_ed25519"
+      signerKeyId: "nooterra_test_ed25519"
     }
   });
   assert.equal(invalidGraphPack.result?.isError, true);
   const invalidGraphPackParsed = JSON.parse(invalidGraphPack.result?.content?.[0]?.text || "{}");
-  assert.equal(invalidGraphPackParsed?.tool, "settld.interaction_graph_pack_get");
+  assert.equal(invalidGraphPackParsed?.tool, "nooterra.interaction_graph_pack_get");
   assert.match(String(invalidGraphPackParsed?.error ?? ""), /signerKeyId requires sign=true/i);
 
   child.kill("SIGTERM");
@@ -2182,7 +2184,7 @@ test("mcp spike: relationship and interaction graph tools map to reputation APIs
   assert.deepEqual(methodsAndUrls, [
     "GET /relationships?agentId=agt_card_1&counterpartyAgentId=agt_card_2&reputationWindow=30d&visibility=public_summary&limit=10&offset=0",
     "GET /public/agents/agt_card_1/reputation-summary?reputationVersion=v2&reputationWindow=30d&includeRelationships=true&relationshipLimit=3",
-    "GET /agents/agt_card_1/interaction-graph-pack?reputationVersion=v2&reputationWindow=30d&visibility=public_summary&sign=true&signerKeyId=settld_test_ed25519&limit=5&offset=0"
+    "GET /agents/agt_card_1/interaction-graph-pack?reputationVersion=v2&reputationWindow=30d&visibility=public_summary&sign=true&signerKeyId=nooterra_test_ed25519&limit=5&offset=0"
   ]);
 });
 
@@ -2262,15 +2264,15 @@ test("mcp spike: capability attestation tool mappings", async () => {
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -2315,7 +2317,7 @@ test("mcp spike: capability attestation tool mappings", async () => {
   });
 
   const attested = await rpc("tools/call", {
-    name: "settld.capability_attest",
+    name: "nooterra.capability_attest",
     arguments: {
       attestationId: "catt_1",
       subjectAgentId: "agt_card_1",
@@ -2328,11 +2330,11 @@ test("mcp spike: capability attestation tool mappings", async () => {
   });
   assert.equal(attested.result?.isError, false);
   const attestedParsed = JSON.parse(attested.result?.content?.[0]?.text || "{}");
-  assert.equal(attestedParsed?.tool, "settld.capability_attest");
+  assert.equal(attestedParsed?.tool, "nooterra.capability_attest");
   assert.equal(attestedParsed?.result?.capabilityAttestation?.attestationId, "catt_1");
 
   const listed = await rpc("tools/call", {
-    name: "settld.capability_attestation_list",
+    name: "nooterra.capability_attestation_list",
     arguments: {
       subjectAgentId: "agt_card_1",
       capability: "travel.booking",
@@ -2344,11 +2346,11 @@ test("mcp spike: capability attestation tool mappings", async () => {
   });
   assert.equal(listed.result?.isError, false);
   const listedParsed = JSON.parse(listed.result?.content?.[0]?.text || "{}");
-  assert.equal(listedParsed?.tool, "settld.capability_attestation_list");
+  assert.equal(listedParsed?.tool, "nooterra.capability_attestation_list");
   assert.equal(listedParsed?.result?.attestations?.[0]?.capabilityAttestation?.attestationId, "catt_1");
 
   const revoked = await rpc("tools/call", {
-    name: "settld.capability_attestation_revoke",
+    name: "nooterra.capability_attestation_revoke",
     arguments: {
       attestationId: "catt_1",
       reasonCode: "MANUAL_REVOKE",
@@ -2357,7 +2359,7 @@ test("mcp spike: capability attestation tool mappings", async () => {
   });
   assert.equal(revoked.result?.isError, false);
   const revokedParsed = JSON.parse(revoked.result?.content?.[0]?.text || "{}");
-  assert.equal(revokedParsed?.tool, "settld.capability_attestation_revoke");
+  assert.equal(revokedParsed?.tool, "nooterra.capability_attestation_revoke");
   assert.equal(revokedParsed?.result?.runtime?.status, "revoked");
 
   child.kill("SIGTERM");
@@ -2492,15 +2494,15 @@ test("mcp spike: task negotiation tool mappings", async () => {
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -2545,7 +2547,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
   });
 
   const quote = await rpc("tools/call", {
-    name: "settld.task_quote_issue",
+    name: "nooterra.task_quote_issue",
     arguments: {
       buyerAgentId: "agt_buyer_1",
       sellerAgentId: "agt_seller_1",
@@ -2561,7 +2563,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
   assert.equal(JSON.parse(quote.result?.content?.[0]?.text || "{}")?.result?.taskQuote?.quoteId, "tquote_mcp_1");
 
   const quoteList = await rpc("tools/call", {
-    name: "settld.task_quote_list",
+    name: "nooterra.task_quote_list",
     arguments: {
       buyerAgentId: "agt_buyer_1",
       status: "open",
@@ -2573,7 +2575,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
   assert.equal(JSON.parse(quoteList.result?.content?.[0]?.text || "{}")?.result?.taskQuotes?.[0]?.quoteId, "tquote_mcp_1");
 
   const offer = await rpc("tools/call", {
-    name: "settld.task_offer_issue",
+    name: "nooterra.task_offer_issue",
     arguments: {
       buyerAgentId: "agt_buyer_1",
       sellerAgentId: "agt_seller_1",
@@ -2590,7 +2592,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
   assert.equal(JSON.parse(offer.result?.content?.[0]?.text || "{}")?.result?.taskOffer?.offerId, "toffer_mcp_1");
 
   const offerList = await rpc("tools/call", {
-    name: "settld.task_offer_list",
+    name: "nooterra.task_offer_list",
     arguments: {
       quoteId: "tquote_mcp_1",
       status: "open",
@@ -2602,7 +2604,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
   assert.equal(JSON.parse(offerList.result?.content?.[0]?.text || "{}")?.result?.taskOffers?.[0]?.offerId, "toffer_mcp_1");
 
   const acceptance = await rpc("tools/call", {
-    name: "settld.task_acceptance_issue",
+    name: "nooterra.task_acceptance_issue",
     arguments: {
       quoteId: "tquote_mcp_1",
       offerId: "toffer_mcp_1",
@@ -2616,7 +2618,7 @@ test("mcp spike: task negotiation tool mappings", async () => {
   assert.equal(JSON.parse(acceptance.result?.content?.[0]?.text || "{}")?.result?.taskAcceptance?.acceptanceId, "taccept_mcp_1");
 
   const acceptanceList = await rpc("tools/call", {
-    name: "settld.task_acceptance_list",
+    name: "nooterra.task_acceptance_list",
     arguments: {
       quoteId: "tquote_mcp_1",
       status: "accepted",
@@ -2718,6 +2720,65 @@ test("mcp spike: work order tool mappings", async () => {
         return;
       }
 
+      if (req.method === "POST" && req.url === "/work-orders/workord_1/topup") {
+        assert.equal(req.headers["x-idempotency-key"], "idem_work_order_topup_1");
+        assert.equal(parsedBody?.topUpId, "topup_1");
+        assert.equal(parsedBody?.amountCents, 100);
+        assert.equal(parsedBody?.quantity, 1);
+        res.writeHead(201, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            appended: true,
+            metering: { schemaVersion: "WorkOrderMeteringSnapshot.v1", meterCount: 1 }
+          })
+        );
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/work-orders/workord_1/metering?includeMeters=true&limit=5&offset=0") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            workOrderId: "workord_1",
+            metering: {
+              schemaVersion: "WorkOrderMeteringSnapshot.v1",
+              meterSchemaVersion: "Meter.v1",
+              meterCount: 1,
+              meterDigest: "a".repeat(64),
+              meters: [
+                {
+                  schemaVersion: "Meter.v1",
+                  meterId: "work_order_topup:workord_1:topup_1",
+                  workOrderId: "workord_1",
+                  meterType: "topup",
+                  sourceType: "work_order_meter_topup",
+                  quantity: 1,
+                  amountCents: 100,
+                  occurredAt: "2026-02-26T00:00:00.000Z",
+                  recordedAt: "2026-02-26T00:00:00.000Z",
+                  meterHash: "b".repeat(64)
+                }
+              ],
+              summary: {
+                baseAmountCents: 450,
+                topUpTotalCents: 100,
+                usageTotalCents: 0,
+                coveredAmountCents: 550,
+                maxCostCents: null,
+                remainingCents: null
+              }
+            },
+            totalMeters: 1,
+            count: 1,
+            limit: 5,
+            offset: 0
+          })
+        );
+        return;
+      }
+
       if (req.method === "POST" && req.url === "/work-orders/workord_1/complete") {
         assert.equal(req.headers["x-idempotency-key"], "idem_work_order_complete_1");
         assert.equal(parsedBody?.status, "success");
@@ -2796,15 +2857,15 @@ test("mcp spike: work order tool mappings", async () => {
   const addr = await listen(api);
   const baseUrl = `http://${addr.address}:${addr.port}`;
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0"
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0"
     }
   });
 
@@ -2849,7 +2910,7 @@ test("mcp spike: work order tool mappings", async () => {
   });
 
   const created = await rpc("tools/call", {
-    name: "settld.work_order_create",
+    name: "nooterra.work_order_create",
     arguments: {
       principalAgentId: "agt_principal_1",
       subAgentId: "agt_worker_1",
@@ -2869,11 +2930,11 @@ test("mcp spike: work order tool mappings", async () => {
   });
   assert.equal(created.result?.isError, false);
   const createdParsed = JSON.parse(created.result?.content?.[0]?.text || "{}");
-  assert.equal(createdParsed?.tool, "settld.work_order_create");
+  assert.equal(createdParsed?.tool, "nooterra.work_order_create");
   assert.equal(createdParsed?.result?.workOrder?.workOrderId, "workord_1");
 
   const accepted = await rpc("tools/call", {
-    name: "settld.work_order_accept",
+    name: "nooterra.work_order_accept",
     arguments: {
       workOrderId: "workord_1",
       acceptedByAgentId: "agt_worker_1",
@@ -2882,11 +2943,11 @@ test("mcp spike: work order tool mappings", async () => {
   });
   assert.equal(accepted.result?.isError, false);
   const acceptedParsed = JSON.parse(accepted.result?.content?.[0]?.text || "{}");
-  assert.equal(acceptedParsed?.tool, "settld.work_order_accept");
+  assert.equal(acceptedParsed?.tool, "nooterra.work_order_accept");
   assert.equal(acceptedParsed?.result?.workOrder?.status, "accepted");
 
   const progressed = await rpc("tools/call", {
-    name: "settld.work_order_progress",
+    name: "nooterra.work_order_progress",
     arguments: {
       workOrderId: "workord_1",
       eventType: "progress",
@@ -2896,11 +2957,41 @@ test("mcp spike: work order tool mappings", async () => {
   });
   assert.equal(progressed.result?.isError, false);
   const progressedParsed = JSON.parse(progressed.result?.content?.[0]?.text || "{}");
-  assert.equal(progressedParsed?.tool, "settld.work_order_progress");
+  assert.equal(progressedParsed?.tool, "nooterra.work_order_progress");
   assert.equal(progressedParsed?.result?.workOrder?.status, "working");
 
+  const toppedUp = await rpc("tools/call", {
+    name: "nooterra.work_order_topup",
+    arguments: {
+      workOrderId: "workord_1",
+      topUpId: "topup_1",
+      amountCents: 100,
+      quantity: 1,
+      idempotencyKey: "idem_work_order_topup_1"
+    }
+  });
+  assert.equal(toppedUp.result?.isError, false);
+  const toppedUpParsed = JSON.parse(toppedUp.result?.content?.[0]?.text || "{}");
+  assert.equal(toppedUpParsed?.tool, "nooterra.work_order_topup");
+  assert.equal(toppedUpParsed?.result?.metering?.schemaVersion, "WorkOrderMeteringSnapshot.v1");
+
+  const meteringRead = await rpc("tools/call", {
+    name: "nooterra.work_order_metering_get",
+    arguments: {
+      workOrderId: "workord_1",
+      includeMeters: true,
+      limit: 5,
+      offset: 0
+    }
+  });
+  assert.equal(meteringRead.result?.isError, false);
+  const meteringParsed = JSON.parse(meteringRead.result?.content?.[0]?.text || "{}");
+  assert.equal(meteringParsed?.tool, "nooterra.work_order_metering_get");
+  assert.equal(meteringParsed?.result?.metering?.meterSchemaVersion, "Meter.v1");
+  assert.equal(meteringParsed?.result?.metering?.meterCount, 1);
+
   const completed = await rpc("tools/call", {
-    name: "settld.work_order_complete",
+    name: "nooterra.work_order_complete",
     arguments: {
       workOrderId: "workord_1",
       receiptId: "worec_1",
@@ -2911,11 +3002,11 @@ test("mcp spike: work order tool mappings", async () => {
   });
   assert.equal(completed.result?.isError, false);
   const completedParsed = JSON.parse(completed.result?.content?.[0]?.text || "{}");
-  assert.equal(completedParsed?.tool, "settld.work_order_complete");
+  assert.equal(completedParsed?.tool, "nooterra.work_order_complete");
   assert.equal(completedParsed?.result?.completionReceipt?.receiptId, "worec_1");
 
   const settled = await rpc("tools/call", {
-    name: "settld.work_order_settle",
+    name: "nooterra.work_order_settle",
     arguments: {
       workOrderId: "workord_1",
       completionReceiptId: "worec_1",
@@ -2929,12 +3020,12 @@ test("mcp spike: work order tool mappings", async () => {
   });
   assert.equal(settled.result?.isError, false);
   const settledParsed = JSON.parse(settled.result?.content?.[0]?.text || "{}");
-  assert.equal(settledParsed?.tool, "settld.work_order_settle");
+  assert.equal(settledParsed?.tool, "nooterra.work_order_settle");
   assert.equal(settledParsed?.result?.workOrder?.status, "settled");
   assert.equal(settledParsed?.result?.workOrder?.settlement?.authorityGrantRef, "agrant_mcp_1");
 
   const settleConflict = await rpc("tools/call", {
-    name: "settld.work_order_settle",
+    name: "nooterra.work_order_settle",
     arguments: {
       workOrderId: "workord_1",
       completionReceiptId: "worec_1",
@@ -2948,7 +3039,7 @@ test("mcp spike: work order tool mappings", async () => {
   });
   assert.equal(settleConflict.result?.isError, true);
   const settleConflictParsed = JSON.parse(settleConflict.result?.content?.[0]?.text || "{}");
-  assert.equal(settleConflictParsed?.tool, "settld.work_order_settle");
+  assert.equal(settleConflictParsed?.tool, "nooterra.work_order_settle");
   assert.equal(settleConflictParsed?.code, "WORK_ORDER_SETTLEMENT_CONFLICT");
   assert.match(String(settleConflictParsed?.error ?? ""), /settlement conflict/i);
 
@@ -2961,6 +3052,8 @@ test("mcp spike: work order tool mappings", async () => {
     "POST /work-orders",
     "POST /work-orders/workord_1/accept",
     "POST /work-orders/workord_1/progress",
+    "POST /work-orders/workord_1/topup",
+    "GET /work-orders/workord_1/metering?includeMeters=true&limit=5&offset=0",
     "POST /work-orders/workord_1/complete",
     "POST /work-orders/workord_1/settle",
     "POST /work-orders/workord_1/settle"

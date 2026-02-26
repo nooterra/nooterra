@@ -320,13 +320,13 @@ async function runRuntimeBindingMismatchScenario({
     assert.ok(gateId.length > 0, "x402 gate id should be present");
     assert.ok(x402RunId.length > 0, "x402 run id should be present");
 
-    mcpChild = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+    mcpChild = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        SETTLD_BASE_URL: baseUrl,
-        SETTLD_TENANT_ID: tenantId,
-        SETTLD_API_KEY: apiKey
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_TENANT_ID: tenantId,
+        NOOTERRA_API_KEY: apiKey
       },
       stdio: ["pipe", "pipe", "pipe"]
     });
@@ -340,7 +340,7 @@ async function runRuntimeBindingMismatchScenario({
     assert.ok(!initialized?.error, JSON.stringify(initialized?.error ?? null));
 
     const createdCall = await mcp.call("tools/call", {
-      name: "settld.work_order_create",
+      name: "nooterra.work_order_create",
       arguments: {
         workOrderId,
         principalAgentId,
@@ -395,7 +395,7 @@ async function runRuntimeBindingMismatchScenario({
     assert.ok(completionReceiptHash.length > 0, "completion receipt hash should be present");
 
     const settleCall = await mcp.call("tools/call", {
-      name: "settld.work_order_settle",
+      name: "nooterra.work_order_settle",
       arguments: {
         workOrderId,
         completionReceiptId: receiptId,
@@ -409,7 +409,7 @@ async function runRuntimeBindingMismatchScenario({
     });
     assert.equal(settleCall?.result?.isError, true, JSON.stringify(settleCall?.result ?? null));
     const settleParsed = parseToolResult(settleCall);
-    assert.equal(settleParsed?.tool, "settld.work_order_settle");
+    assert.equal(settleParsed?.tool, "nooterra.work_order_settle");
     assert.equal(typeof settleParsed?.error, "string");
     assert.match(String(settleParsed?.error ?? ""), /settlement conflict/i);
     const conflictCode =

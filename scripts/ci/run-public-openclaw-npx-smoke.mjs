@@ -34,10 +34,10 @@ function parseJsonText(text, label) {
 
 async function main() {
   const repoRoot = process.cwd();
-  const packDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-public-openclaw-pack-"));
-  const unpackDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-public-openclaw-unpack-"));
-  const npmCacheDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-public-openclaw-cache-"));
-  const fakeHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-public-openclaw-home-"));
+  const packDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-public-openclaw-pack-"));
+  const unpackDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-public-openclaw-unpack-"));
+  const npmCacheDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-public-openclaw-cache-"));
+  const fakeHomeDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-public-openclaw-home-"));
 
   const npmEnv = {
     ...process.env,
@@ -71,7 +71,7 @@ async function main() {
         "--package",
         packedTarballPath,
         "--",
-        "settld",
+        "nooterra",
         "--version"
       ],
       { cwd: packDir, env: npmEnv }
@@ -86,16 +86,16 @@ async function main() {
         "--package",
         packedTarballPath,
         "--",
-        "settld",
+        "nooterra",
         "setup",
         "--non-interactive",
         "--host",
         "openclaw",
         "--base-url",
-        "https://api.settld.work",
+        "https://api.nooterra.work",
         "--tenant-id",
         "tenant_public_smoke",
-        "--settld-api-key",
+        "--nooterra-api-key",
         "sk_public_smoke.x",
         "--wallet-mode",
         "none",
@@ -115,7 +115,7 @@ async function main() {
         }
       }
     );
-    const setupResult = parseJsonText(await fs.readFile(setupReportPath, "utf8"), "settld setup report");
+    const setupResult = parseJsonText(await fs.readFile(setupReportPath, "utf8"), "nooterra setup report");
     assert(setupResult?.ok === true, "public npx setup did not return ok=true");
     assert(String(setupResult?.host ?? "") === "openclaw", "public npx setup host mismatch");
     assert(String(setupResult?.wallet?.mode ?? "") === "none", "public npx wallet mode mismatch");
@@ -127,16 +127,16 @@ async function main() {
       env: {
         ...npmEnv,
         HOME: fakeHomeDir,
-        SETTLD_BASE_URL: "https://api.settld.work",
-        SETTLD_TENANT_ID: "tenant_public_smoke",
-        SETTLD_API_KEY: "sk_public_smoke.x"
+        NOOTERRA_BASE_URL: "https://api.nooterra.work",
+        NOOTERRA_TENANT_ID: "tenant_public_smoke",
+        NOOTERRA_API_KEY: "sk_public_smoke.x"
       }
     });
     assert(hostConfigSummary?.ok === true, "host-config dry-run summary missing ok=true");
     assert(String(hostConfigSummary?.serverCommand ?? "") === "npx", "public openclaw server command must default to npx");
     assert(Array.isArray(hostConfigSummary?.serverArgs), "public openclaw server args missing");
     assert(hostConfigSummary.serverArgs.includes("-y"), "public openclaw server args missing -y");
-    assert(hostConfigSummary.serverArgs.includes("settld-mcp"), "public openclaw server args missing settld-mcp");
+    assert(hostConfigSummary.serverArgs.includes("nooterra-mcp"), "public openclaw server args missing nooterra-mcp");
   } finally {
     await fs.rm(packDir, { recursive: true, force: true });
     await fs.rm(unpackDir, { recursive: true, force: true });

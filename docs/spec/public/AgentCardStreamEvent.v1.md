@@ -14,7 +14,7 @@ The stream event envelope provides deterministic, resumable updates for public d
 - Content type: `text/event-stream`
 - Resume cursor: `Last-Event-ID` header or `sinceCursor` query param
 - Cursor format: `updatedAt|tenantId|agentId` (URL-escaped segments)
-- MCP access: `settld.agent_discover_stream` (bounded snapshot pull of stream events)
+- MCP access: `nooterra.agent_discover_stream` (bounded snapshot pull of stream events)
 
 ## Event types
 

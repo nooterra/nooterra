@@ -8,7 +8,7 @@ import { canonicalJsonStringify } from "../../../src/core/canonical-json.js";
 import { keyIdFromPublicKeyPem } from "../../../src/core/crypto.js";
 import { normalizeReasonCodes as normalizePolicyDecisionReasonCodes } from "../../../src/core/policy-decision.js";
 import { buildToolProviderQuotePayloadV1, verifyToolProviderQuoteSignatureV1 } from "../../../src/core/provider-quote-signature.js";
-import { computeSettldPayRequestBindingSha256V1 } from "../../../src/core/settld-pay-token.js";
+import { computeNooterraPayRequestBindingSha256V1 } from "../../../src/core/nooterra-pay-token.js";
 import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "../../../src/core/tool-provider-signature.js";
 
 function readRequiredEnv(name) {
@@ -123,7 +123,7 @@ function computeStrictRequestBindingSha256ForRetry({ reqMethod, upstreamUrl }) {
   const host = String(upstreamUrl.host ?? "").trim().toLowerCase();
   const pathWithQuery = `${upstreamUrl.pathname}${upstreamUrl.search}`;
   const emptyBodySha256 = sha256Hex(Buffer.from("", "utf8"));
-  return computeSettldPayRequestBindingSha256V1({ method, host, pathWithQuery, bodySha256: emptyBodySha256 });
+  return computeNooterraPayRequestBindingSha256V1({ method, host, pathWithQuery, bodySha256: emptyBodySha256 });
 }
 
 function createProviderKeyResolver({
@@ -219,15 +219,15 @@ function parseBase64UrlJson(rawValue) {
 
 function parseProviderQuoteHeaders(headers) {
   return {
-    quote: parseBase64UrlJson(headers?.["x-settld-provider-quote"] ?? headers?.["X-Settld-Provider-Quote"] ?? null),
+    quote: parseBase64UrlJson(headers?.["x-nooterra-provider-quote"] ?? headers?.["X-Nooterra-Provider-Quote"] ?? null),
     signature: parseBase64UrlJson(
-      headers?.["x-settld-provider-quote-signature"] ?? headers?.["X-Settld-Provider-Quote-Signature"] ?? null
+      headers?.["x-nooterra-provider-quote-signature"] ?? headers?.["X-Nooterra-Provider-Quote-Signature"] ?? null
     )
   };
 }
 
 function parseAgentPassportHeader(headers) {
-  const rawHeader = headers?.["x-settld-agent-passport"] ?? headers?.["X-Settld-Agent-Passport"] ?? null;
+  const rawHeader = headers?.["x-nooterra-agent-passport"] ?? headers?.["X-Nooterra-Agent-Passport"] ?? null;
   const raw = typeof rawHeader === "string" ? rawHeader.trim() : Array.isArray(rawHeader) ? String(rawHeader[0] ?? "").trim() : "";
   if (!raw) return { ok: true, agentPassport: null };
   let text = null;
@@ -238,16 +238,16 @@ function parseAgentPassportHeader(headers) {
       text = Buffer.from(raw, "base64url").toString("utf8");
     }
   } catch {
-    return { ok: false, message: "x-settld-agent-passport must be base64url JSON or raw JSON object" };
+    return { ok: false, message: "x-nooterra-agent-passport must be base64url JSON or raw JSON object" };
   }
   try {
     const parsed = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ok: false, message: "x-settld-agent-passport must decode to a JSON object" };
+      return { ok: false, message: "x-nooterra-agent-passport must decode to a JSON object" };
     }
     return { ok: true, agentPassport: parsed };
   } catch {
-    return { ok: false, message: "x-settld-agent-passport is not valid JSON" };
+    return { ok: false, message: "x-nooterra-agent-passport is not valid JSON" };
   }
 }
 
@@ -393,8 +393,8 @@ async function readBodyWithLimit(res, { maxBytes }) {
   return { ok: true, bytes: total, buf: Buffer.concat(chunks) };
 }
 
-const SETTLD_API_URL = new URL(readRequiredEnv("SETTLD_API_URL"));
-const SETTLD_API_KEY = readRequiredEnv("SETTLD_API_KEY");
+const NOOTERRA_API_URL = new URL(readRequiredEnv("NOOTERRA_API_URL"));
+const NOOTERRA_API_KEY = readRequiredEnv("NOOTERRA_API_KEY");
 const UPSTREAM_URL = new URL(readRequiredEnv("UPSTREAM_URL"));
 const PORT = readOptionalIntEnv("PORT", 8402);
 const HOLDBACK_BPS = readOptionalIntEnv("HOLDBACK_BPS", 0);
@@ -415,7 +415,7 @@ const providerKeyResolver = createProviderKeyResolver({
 if (HOLDBACK_BPS < 0 || HOLDBACK_BPS > 10_000) throw new Error("HOLDBACK_BPS must be within 0..10000");
 if (DISPUTE_WINDOW_MS < 0) throw new Error("DISPUTE_WINDOW_MS must be >= 0");
 
-const SETTLD_PROTOCOL = "1.0";
+const NOOTERRA_PROTOCOL = "1.0";
 const DEFAULT_TENANT_ID = "tenant_default";
 
 function tenantIdForRequest(req) {
@@ -425,7 +425,7 @@ function tenantIdForRequest(req) {
 }
 
 function derivePayerAgentId() {
-  const keyId = String(SETTLD_API_KEY.split(".")[0] ?? "").trim();
+  const keyId = String(NOOTERRA_API_KEY.split(".")[0] ?? "").trim();
   return `agt_x402_payer_${sanitizeIdSegment(keyId || "api_key")}`;
 }
 
@@ -434,13 +434,13 @@ function derivePayeeAgentId() {
   return `agt_x402_payee_${sanitizeIdSegment(host)}`;
 }
 
-async function settldJson(path, { tenantId, method, idempotencyKey = null, body } = {}) {
-  const res = await fetch(new URL(path, SETTLD_API_URL), {
+async function nooterraJson(path, { tenantId, method, idempotencyKey = null, body } = {}) {
+  const res = await fetch(new URL(path, NOOTERRA_API_URL), {
     method: method ?? "POST",
     headers: {
-      authorization: `Bearer ${SETTLD_API_KEY}`,
+      authorization: `Bearer ${NOOTERRA_API_KEY}`,
       "x-proxy-tenant-id": String(tenantId ?? DEFAULT_TENANT_ID),
-      "x-settld-protocol": SETTLD_PROTOCOL,
+      "x-nooterra-protocol": NOOTERRA_PROTOCOL,
       ...(idempotencyKey ? { "x-idempotency-key": idempotencyKey } : {}),
       "content-type": "application/json; charset=utf-8"
     },
@@ -453,7 +453,7 @@ async function settldJson(path, { tenantId, method, idempotencyKey = null, body 
   } catch {}
   if (!res.ok) {
     const msg = json?.message ?? json?.error ?? text ?? `HTTP ${res.status}`;
-    const err = new Error(`Settld ${method ?? "POST"} ${path} failed: ${msg}`);
+    const err = new Error(`Nooterra ${method ?? "POST"} ${path} failed: ${msg}`);
     err.status = res.status;
     err.body = json;
     throw err;
@@ -492,24 +492,24 @@ function derivePolicyDecisionFromVerify(gateVerify) {
   return null;
 }
 
-function applySettldDecisionHeaders(outHeaders, { gateId, gateVerify } = {}) {
-  if (gateId) outHeaders["x-settld-gate-id"] = gateId;
+function applyNooterraDecisionHeaders(outHeaders, { gateId, gateVerify } = {}) {
+  if (gateId) outHeaders["x-nooterra-gate-id"] = gateId;
   if (!gateVerify || typeof gateVerify !== "object" || Array.isArray(gateVerify)) return;
 
-  outHeaders["x-settld-settlement-status"] = String(gateVerify?.settlement?.status ?? "");
-  outHeaders["x-settld-released-amount-cents"] = String(gateVerify?.settlement?.releasedAmountCents ?? "");
-  outHeaders["x-settld-refunded-amount-cents"] = String(gateVerify?.settlement?.refundedAmountCents ?? "");
+  outHeaders["x-nooterra-settlement-status"] = String(gateVerify?.settlement?.status ?? "");
+  outHeaders["x-nooterra-released-amount-cents"] = String(gateVerify?.settlement?.releasedAmountCents ?? "");
+  outHeaders["x-nooterra-refunded-amount-cents"] = String(gateVerify?.settlement?.refundedAmountCents ?? "");
 
   const verificationStatus = String(gateVerify?.gate?.decision?.verificationStatus ?? "").trim();
-  if (verificationStatus) outHeaders["x-settld-verification-status"] = verificationStatus;
+  if (verificationStatus) outHeaders["x-nooterra-verification-status"] = verificationStatus;
 
   const policyDecision = derivePolicyDecisionFromVerify(gateVerify);
-  if (policyDecision) outHeaders["x-settld-policy-decision"] = policyDecision;
+  if (policyDecision) outHeaders["x-nooterra-policy-decision"] = policyDecision;
 
   const reasonCodes = collectReasonCodesFromVerify(gateVerify);
   if (reasonCodes.length > 0) {
-    outHeaders["x-settld-verification-codes"] = reasonCodes.join(",");
-    outHeaders["x-settld-reason-code"] = reasonCodes[0];
+    outHeaders["x-nooterra-verification-codes"] = reasonCodes.join(",");
+    outHeaders["x-nooterra-reason-code"] = reasonCodes[0];
   } else if (policyDecision) {
     const fallbackReasonCode =
       policyDecision === "allow"
@@ -519,12 +519,12 @@ function applySettldDecisionHeaders(outHeaders, { gateId, gateVerify } = {}) {
           : policyDecision === "challenge"
             ? "POLICY_CHALLENGE"
             : "POLICY_ESCALATE";
-    outHeaders["x-settld-reason-code"] = fallbackReasonCode;
+    outHeaders["x-nooterra-reason-code"] = fallbackReasonCode;
   }
 
   const decisionRecord = readDecisionRecordFromVerify(gateVerify);
   const decisionId = typeof decisionRecord?.decisionId === "string" ? decisionRecord.decisionId.trim() : "";
-  if (decisionId) outHeaders["x-settld-decision-id"] = decisionId;
+  if (decisionId) outHeaders["x-nooterra-decision-id"] = decisionId;
 
   const policyHashRaw =
     typeof decisionRecord?.policyHashUsed === "string" && decisionRecord.policyHashUsed.trim() !== ""
@@ -533,11 +533,11 @@ function applySettldDecisionHeaders(outHeaders, { gateId, gateVerify } = {}) {
         ? decisionRecord.policyRef.policyHash
         : null;
   const policyHash = typeof policyHashRaw === "string" ? policyHashRaw.trim().toLowerCase() : "";
-  if (/^[0-9a-f]{64}$/.test(policyHash)) outHeaders["x-settld-policy-hash"] = policyHash;
+  if (/^[0-9a-f]{64}$/.test(policyHash)) outHeaders["x-nooterra-policy-hash"] = policyHash;
 
   const policyVersion = Number(decisionRecord?.bindings?.policyDecisionFingerprint?.policyVersion ?? Number.NaN);
   if (Number.isSafeInteger(policyVersion) && policyVersion > 0) {
-    outHeaders["x-settld-policy-version"] = String(policyVersion);
+    outHeaders["x-nooterra-policy-version"] = String(policyVersion);
   }
   const policyDecisionFingerprint =
     decisionRecord?.bindings?.policyDecisionFingerprint &&
@@ -550,16 +550,16 @@ function applySettldDecisionHeaders(outHeaders, { gateId, gateVerify } = {}) {
       ? policyDecisionFingerprint.verificationMethodHash.trim().toLowerCase()
       : "";
   if (/^[0-9a-f]{64}$/.test(policyVerificationMethodHash)) {
-    outHeaders["x-settld-policy-verification-method-hash"] = policyVerificationMethodHash;
+    outHeaders["x-nooterra-policy-verification-method-hash"] = policyVerificationMethodHash;
   }
   const policyEvaluationHash =
     typeof policyDecisionFingerprint?.evaluationHash === "string" ? policyDecisionFingerprint.evaluationHash.trim().toLowerCase() : "";
   if (/^[0-9a-f]{64}$/.test(policyEvaluationHash)) {
-    outHeaders["x-settld-policy-evaluation-hash"] = policyEvaluationHash;
+    outHeaders["x-nooterra-policy-evaluation-hash"] = policyEvaluationHash;
   }
 
-  if (gateVerify?.gate?.holdback?.status) outHeaders["x-settld-holdback-status"] = String(gateVerify.gate.holdback.status);
-  if (gateVerify?.gate?.holdback?.amountCents !== undefined) outHeaders["x-settld-holdback-amount-cents"] = String(gateVerify.gate.holdback.amountCents);
+  if (gateVerify?.gate?.holdback?.status) outHeaders["x-nooterra-holdback-status"] = String(gateVerify.gate.holdback.status);
+  if (gateVerify?.gate?.holdback?.amountCents !== undefined) outHeaders["x-nooterra-holdback-amount-cents"] = String(gateVerify.gate.holdback.amountCents);
 }
 
 async function handleProxy(req, res) {
@@ -589,11 +589,11 @@ async function handleProxy(req, res) {
   for (const [k, v] of Object.entries(req.headers)) {
     if (v === undefined) continue;
     if (k.toLowerCase() === "host") continue;
-    if (k.toLowerCase() === "x-settld-agent-passport") continue;
+    if (k.toLowerCase() === "x-nooterra-agent-passport") continue;
     if (Array.isArray(v)) headers.set(k, v.join(","));
     else headers.set(k, String(v));
   }
-  const gateId = req.headers["x-settld-gate-id"] ? String(req.headers["x-settld-gate-id"]).trim() : null;
+  const gateId = req.headers["x-nooterra-gate-id"] ? String(req.headers["x-nooterra-gate-id"]).trim() : null;
   let providerQuoteVerification = null;
 
   const ac = new AbortController();
@@ -609,11 +609,11 @@ async function handleProxy(req, res) {
     signal: ac.signal
   });
 
-  // If upstream requests payment, create a Settld gate and return the 402 to the client.
+  // If upstream requests payment, create a Nooterra gate and return the 402 to the client.
   if (upstreamRes.status === 402) {
     if (gateId) {
       if (hasBody) {
-        res.writeHead(502, { "content-type": "application/json; charset=utf-8", "x-settld-gate-id": gateId });
+        res.writeHead(502, { "content-type": "application/json; charset=utf-8", "x-nooterra-gate-id": gateId });
         res.end(JSON.stringify({ ok: false, error: "gateway_retry_requires_buffered_body", gateId }));
         return;
       }
@@ -627,7 +627,7 @@ async function handleProxy(req, res) {
       const offerToolId = normalizeOfferRef(offerFields.toolId);
       const parsedAmount = extractAmountAndCurrency(offerFields);
       if (!parsedAmount.ok) {
-        res.writeHead(502, { "content-type": "application/json; charset=utf-8", "x-settld-gate-id": gateId });
+        res.writeHead(502, { "content-type": "application/json; charset=utf-8", "x-nooterra-gate-id": gateId });
         res.end(JSON.stringify({ ok: false, error: "gateway_offer_invalid", gateId, reason: parsedAmount.error }));
         return;
       }
@@ -646,7 +646,7 @@ async function handleProxy(req, res) {
         quoteHeaders
       });
       if (!quoteVerified.ok) {
-        res.writeHead(502, { "content-type": "application/json; charset=utf-8", "x-settld-gate-id": gateId });
+        res.writeHead(502, { "content-type": "application/json; charset=utf-8", "x-nooterra-gate-id": gateId });
         res.end(
           JSON.stringify({
             ok: false,
@@ -672,7 +672,7 @@ async function handleProxy(req, res) {
       const challengeQuoteId = verifiedQuote?.quoteId ? String(verifiedQuote.quoteId) : offerQuoteId ?? null;
       const shouldFetchQuote = quoteRequired || requestBindingMode === "strict" || Boolean(challengeQuoteId);
       if (shouldFetchQuote) {
-        quoted = await settldJson("/x402/gate/quote", {
+        quoted = await nooterraJson("/x402/gate/quote", {
           tenantId,
           method: "POST",
           idempotencyKey: stableIdemKey(
@@ -693,7 +693,7 @@ async function handleProxy(req, res) {
           }
         });
       }
-      const authz = await settldJson("/x402/gate/authorize-payment", {
+      const authz = await nooterraJson("/x402/gate/authorize-payment", {
         tenantId,
         method: "POST",
         idempotencyKey: stableIdemKey(
@@ -719,20 +719,20 @@ async function handleProxy(req, res) {
       });
       const token = typeof authz?.token === "string" ? authz.token.trim() : "";
       if (!token) {
-        res.writeHead(502, { "content-type": "application/json; charset=utf-8", "x-settld-gate-id": gateId });
+        res.writeHead(502, { "content-type": "application/json; charset=utf-8", "x-nooterra-gate-id": gateId });
         res.end(JSON.stringify({ ok: false, error: "gateway_authorization_token_missing", gateId }));
         return;
       }
-      headers.set("authorization", `SettldPay ${token}`);
+      headers.set("authorization", `NooterraPay ${token}`);
       // Back-compat with the local upstream mock; provider wrappers can rely on Authorization only.
       headers.set("x-payment", token);
       if (typeof authz?.authorizationRef === "string" && authz.authorizationRef.trim() !== "") {
-        headers.set("x-settld-authorization-ref", authz.authorizationRef.trim());
+        headers.set("x-nooterra-authorization-ref", authz.authorizationRef.trim());
       }
       if (typeof authz?.quoteId === "string" && authz.quoteId.trim() !== "") {
-        headers.set("x-settld-quote-id", authz.quoteId.trim());
+        headers.set("x-nooterra-quote-id", authz.quoteId.trim());
       } else if (quoted?.quote?.quoteId) {
-        headers.set("x-settld-quote-id", String(quoted.quote.quoteId));
+        headers.set("x-nooterra-quote-id", String(quoted.quote.quoteId));
       }
       upstreamRes = await fetch(upstreamUrl, {
         method: req.method,
@@ -745,7 +745,7 @@ async function handleProxy(req, res) {
 
     if (upstreamRes.status === 402 && gateId) {
       const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
-      outHeaders["x-settld-gate-id"] = gateId;
+      outHeaders["x-nooterra-gate-id"] = gateId;
       res.writeHead(402, outHeaders);
       res.end(await upstreamRes.text());
       return;
@@ -769,7 +769,7 @@ async function handleProxy(req, res) {
 
       const payerAgentId = derivePayerAgentId();
       const payeeAgentId = derivePayeeAgentId();
-      const gateCreate = await settldJson("/x402/gate/create", {
+      const gateCreate = await nooterraJson("/x402/gate/create", {
         tenantId,
         method: "POST",
         idempotencyKey: stableIdemKey("x402_create", `${upstreamUrl.toString()}\n${parsed.raw}\n${payerAgentId}\n${payeeAgentId}`),
@@ -790,7 +790,7 @@ async function handleProxy(req, res) {
       });
 
       const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
-      outHeaders["x-settld-gate-id"] = String(gateCreate?.gate?.gateId ?? "");
+      outHeaders["x-nooterra-gate-id"] = String(gateCreate?.gate?.gateId ?? "");
       res.writeHead(402, outHeaders);
       res.end(await upstreamRes.text());
       return;
@@ -812,7 +812,7 @@ async function handleProxy(req, res) {
     // For "paid" requests, capture a small deterministic response hash and verify before returning.
     const capture = await readBodyWithLimit(upstreamRes, { maxBytes: 2 * 1024 * 1024 });
     if (!capture.ok) {
-      const gateVerify = await settldJson("/x402/gate/verify", {
+      const gateVerify = await nooterraJson("/x402/gate/verify", {
         tenantId,
         method: "POST",
         idempotencyKey: stableIdemKey("x402_verify", `${gateId}\nUNVERIFIABLE\n${upstreamRes.status}`),
@@ -838,7 +838,7 @@ async function handleProxy(req, res) {
       });
 
       const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
-      applySettldDecisionHeaders(outHeaders, { gateId, gateVerify });
+      applyNooterraDecisionHeaders(outHeaders, { gateId, gateVerify });
 
       res.writeHead(502, outHeaders);
       res.end(`gateway: response too large to verify (>${2 * 1024 * 1024} bytes); refunded`);
@@ -860,11 +860,11 @@ async function handleProxy(req, res) {
     let providerSignature = null;
     let providerSignaturePublicKeyPem = null;
     if (providerKeyResolver.enabled) {
-      const keyId = upstreamRes.headers.get("x-settld-provider-key-id");
-      const signedAt = upstreamRes.headers.get("x-settld-provider-signed-at");
-      const nonce = upstreamRes.headers.get("x-settld-provider-nonce");
-      const signedResponseHash = upstreamRes.headers.get("x-settld-provider-response-sha256");
-      const signatureBase64 = upstreamRes.headers.get("x-settld-provider-signature");
+      const keyId = upstreamRes.headers.get("x-nooterra-provider-key-id");
+      const signedAt = upstreamRes.headers.get("x-nooterra-provider-signed-at");
+      const nonce = upstreamRes.headers.get("x-nooterra-provider-nonce");
+      const signedResponseHash = upstreamRes.headers.get("x-nooterra-provider-response-sha256");
+      const signatureBase64 = upstreamRes.headers.get("x-nooterra-provider-signature");
 
       if (!keyId || !signedAt || !nonce || !signedResponseHash || !signatureBase64) {
         providerReasonCodes.push("X402_PROVIDER_SIGNATURE_MISSING");
@@ -918,7 +918,7 @@ async function handleProxy(req, res) {
       }
     };
 
-    const gateVerify = await settldJson("/x402/gate/verify", {
+    const gateVerify = await nooterraJson("/x402/gate/verify", {
       tenantId,
       method: "POST",
       idempotencyKey: stableIdemKey("x402_verify", `${gateId}\n${respHash}`),
@@ -984,8 +984,8 @@ async function handleProxy(req, res) {
     });
 
     const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
-    outHeaders["x-settld-response-sha256"] = respHash;
-    applySettldDecisionHeaders(outHeaders, { gateId, gateVerify });
+    outHeaders["x-nooterra-response-sha256"] = respHash;
+    applyNooterraDecisionHeaders(outHeaders, { gateId, gateVerify });
 
     res.writeHead(upstreamRes.status, outHeaders);
     res.end(capture.buf);
@@ -993,7 +993,7 @@ async function handleProxy(req, res) {
     // Best-effort: if anything goes wrong after a hold exists, force the gate red to refund instead of stranding escrow.
     let gateVerify = null;
     try {
-      gateVerify = await settldJson("/x402/gate/verify", {
+      gateVerify = await nooterraJson("/x402/gate/verify", {
         tenantId,
         method: "POST",
         idempotencyKey: stableIdemKey("x402_verify", `${gateId}\nERROR\n${upstreamRes.status}`),
@@ -1021,9 +1021,9 @@ async function handleProxy(req, res) {
 
     const outHeaders = Object.fromEntries(upstreamRes.headers.entries());
     if (gateVerify) {
-      applySettldDecisionHeaders(outHeaders, { gateId, gateVerify });
+      applyNooterraDecisionHeaders(outHeaders, { gateId, gateVerify });
     } else if (gateId) {
-      outHeaders["x-settld-gate-id"] = gateId;
+      outHeaders["x-nooterra-gate-id"] = gateId;
     }
 
     res.writeHead(502, outHeaders);
@@ -1048,7 +1048,7 @@ const listenCb = () => {
       ...(BIND_HOST ? { host: BIND_HOST } : {}),
       port: PORT,
       upstreamUrl: UPSTREAM_URL.toString(),
-      settldApiUrl: SETTLD_API_URL.toString(),
+      nooterraApiUrl: NOOTERRA_API_URL.toString(),
       holdbackBps: HOLDBACK_BPS,
       disputeWindowMs: DISPUTE_WINDOW_MS
     })

@@ -47,8 +47,8 @@ An offer carries executable pricing/constraints and can optionally bind to a quo
 
 ## MCP surface
 
-- `settld.task_offer_issue`
-- `settld.task_offer_list`
+- `nooterra.task_offer_issue`
+- `nooterra.task_offer_list`
 
 ## Implementation references
 

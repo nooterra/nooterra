@@ -148,8 +148,8 @@ export function defaultTenantSettings() {
       approveOnAmber: false,
       holdOnRed: false,
       templateIds: null,
-      actorName: "Settld AutoDecision",
-      actorEmail: "automation@settld.local"
+      actorName: "Nooterra AutoDecision",
+      actorEmail: "automation@nooterra.local"
     },
     paymentTriggers: { enabled: false, deliveryMode: "record", webhookUrl: null, webhookSecret: null },
     decisionAuthEmailDomains: [],

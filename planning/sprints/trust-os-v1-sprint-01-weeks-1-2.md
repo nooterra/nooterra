@@ -1,11 +1,11 @@
-# Trust OS v1 Sprint 01 Plan (Weeks 1-2)
+# Trust OS Sprint 01 Plan (Weeks 1-2)
 
 Window: 2026-02-23 to 2026-03-06
-Project: Trust OS v1 (Linear)
+Project: Trust OS (Linear)
 
 ## Sprint objective
 
-Ship the first enforceability slice of Trust OS v1:
+Ship the first enforceability slice of Trust OS:
 
 1. Policy decision artifacts + high-risk route enforcement.
 2. Execution intent binding + replay/mutation denial.
@@ -19,14 +19,14 @@ Ship the first enforceability slice of Trust OS v1:
 
 ## Committed tickets (Sprint 01)
 
-1. `NOO-43` Define and implement `PolicyDecision.v1` schema + signing.
+1. `NOO-43` Define and implement `PolicyDecision` schema + signing.
 2. `NOO-45` Normalize reason codes and policy fingerprinting across runtimes.
 3. `NOO-44` Enforce trust-kernel middleware on all high-risk routes.
 4. `NOO-47` Enforce `ExecutionIntent` request fingerprint binding across authorize+execute.
 5. `NOO-48` Implement replay/mutation deterministic denial paths.
 6. `NOO-46` Add MCP/host bridge bypass regression suite.
 7. `NOO-50` Add offline verification parity gate for receipt bundles.
-8. `NOO-55` Define `OperatorAction.v1` schema and signature verification.
+8. `NOO-55` Define `OperatorAction` schema and signature verification.
 9. `NOO-57` Implement emergency control APIs (pause/quarantine/revoke/kill-switch).
 10. `NOO-62` Publish hosted baseline evidence packet per release candidate.
 

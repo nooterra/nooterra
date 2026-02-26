@@ -1,11 +1,11 @@
-# Trust OS v1 (Jira-Ready Backlog)
+# Trust OS (Jira-Ready Backlog)
 
 Date: 2026-02-20
 Owner: CEO / Product / Platform
-Release Name: `Trust OS v1`
+Release Name: `Trust OS`
 Release Objective: Ship a production-grade, rail-agnostic inter-agent trust kernel with deterministic policy enforcement, dispute/reversal handling, auditable receipts, and operator controls.
 
-## Scope Boundaries (v1)
+## Scope Boundaries
 
 In scope:
 - Runtime decisions: `allow`, `challenge`, `deny`, `escalate`.
@@ -261,7 +261,7 @@ Out of scope:
 #### `STLD-T2451`
 - Type: Story
 - Priority: P0
-- Summary: Add CLI commands: `settld profile init`, `validate`, `simulate`.
+- Summary: Add CLI commands: `nooterra profile init`, `validate`, `simulate`.
 - Owner: CLI
 - Estimate: 4d
 - Dependencies: `STLD-T2450`
@@ -318,7 +318,7 @@ Out of scope:
 #### `STLD-T2462`
 - Type: Task
 - Priority: P0
-- Summary: Enforce release gate checklist for Trust OS v1 (conformance, receipts, disputes, adapters, docs).
+- Summary: Enforce release gate checklist for Trust OS (conformance, receipts, disputes, adapters, docs).
 - Owner: DevOps
 - Estimate: 2d
 - Dependencies: `STLD-T2460`, `STLD-T2461`, `STLD-T2441`, `STLD-T2453`
@@ -337,7 +337,7 @@ Out of scope:
 ### Sprint 3 (Weeks 5-6)
 - `STLD-T2440`, `STLD-T2441`, `STLD-T2450`, `STLD-T2451`, `STLD-T2452`, `STLD-T2461`, `STLD-T2462`, `STLD-T2453`
 
-## Release Exit Criteria (Trust OS v1)
+## Release Exit Criteria (Trust OS)
 
 - Runtime policy enforcement is mandatory for all paid actions.
 - Request binding enforcement blocks replay/mutation attempts.

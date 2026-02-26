@@ -16,7 +16,7 @@ test("resolveSettlementVerifierRef defaults to policy engine for unknown verifie
       source: "verifier://unknown/example"
     }
   });
-  assert.equal(out.verifierId, "settld.policy-engine");
+  assert.equal(out.verifierId, "nooterra.policy-engine");
   assert.equal(out.verifierVersion, "v1");
   assert.equal(out.verifierHash, null);
   assert.equal(out.modality, "deterministic");
@@ -30,7 +30,7 @@ test("resolveSettlementVerifierRef resolves deterministic latency plugin", () =>
       source: SETTLEMENT_VERIFIER_SOURCE.DETERMINISTIC_LATENCY_THRESHOLD_V1
     }
   });
-  assert.equal(out.verifierId, "settld.deterministic.latency-threshold");
+  assert.equal(out.verifierId, "nooterra.deterministic.latency-threshold");
   assert.equal(out.verifierVersion, "v1");
   assert.match(String(out.verifierHash), /^[0-9a-f]{64}$/);
   assert.equal(out.modality, "deterministic");
@@ -68,7 +68,7 @@ test("resolveSettlementVerifierRef resolves deterministic schema-check plugin", 
       source: `${SETTLEMENT_VERIFIER_SOURCE.DETERMINISTIC_SCHEMA_CHECK_V1}?latencyMaxMs=300`
     }
   });
-  assert.equal(out.verifierId, "settld.deterministic.schema-check");
+  assert.equal(out.verifierId, "nooterra.deterministic.schema-check");
   assert.equal(out.verifierVersion, "v1");
   assert.match(String(out.verifierHash), /^[0-9a-f]{64}$/);
   assert.equal(out.modality, "deterministic");

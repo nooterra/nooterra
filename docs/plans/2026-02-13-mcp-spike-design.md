@@ -8,7 +8,7 @@ Tickets: `STLD-T2305`, `STLD-T2306`
 
 ## Goal
 
-Prove that an MCP-compatible agent can reliably discover and invoke a *curated* set of Settld tools over `stdio`, using a **restricted API key** (not an ops token).
+Prove that an MCP-compatible agent can reliably discover and invoke a *curated* set of Nooterra tools over `stdio`, using a **restricted API key** (not an ops token).
 
 This is a spike: correctness and minimal compatibility matter more than feature breadth. Production hardening (SSE transport, rate limiting, etc.) is explicitly deferred to Sprint 25.
 
@@ -17,7 +17,7 @@ This is a spike: correctness and minimal compatibility matter more than feature 
 - No SSE transport.
 - No multi-tenant discovery. Tenant is configured via env.
 - No generic “HTTP proxy tool”. We expose curated tools only.
-- No persistence inside the MCP server. It is a stateless bridge to the Settld API.
+- No persistence inside the MCP server. It is a stateless bridge to the Nooterra API.
 
 ## Transport + Protocol
 
@@ -34,13 +34,13 @@ This is a spike: correctness and minimal compatibility matter more than feature 
 
 ## Auth Model
 
-- The MCP server requires `SETTLD_API_KEY` and uses `x-proxy-api-key` for all API calls.
+- The MCP server requires `NOOTERRA_API_KEY` and uses `x-proxy-api-key` for all API calls.
 - The API key must have the minimum scopes needed for:
   - registering agents
   - marketplace RFQ/bid/accept
-  - wallet credit (requires `x-settld-protocol` header)
-  - agent run event appends (requires `x-settld-protocol` + `x-proxy-expected-prev-chain-hash`)
-  - run dispute transitions (requires `x-settld-protocol`)
+  - wallet credit (requires `x-nooterra-protocol` header)
+  - agent run event appends (requires `x-nooterra-protocol` + `x-proxy-expected-prev-chain-hash`)
+  - run dispute transitions (requires `x-nooterra-protocol`)
 
 No ops token handling is included in the spike.
 
@@ -48,14 +48,14 @@ No ops token handling is included in the spike.
 
 Environment variables:
 
-- `SETTLD_BASE_URL` (default: `http://127.0.0.1:3000`)
-- `SETTLD_TENANT_ID` (default: `tenant_default`)
-- `SETTLD_API_KEY` (required)
-- `SETTLD_PROTOCOL` (optional; if unset the server attempts to discover via `GET /healthz` response header `x-settld-protocol`, falling back to `1.0`)
+- `NOOTERRA_BASE_URL` (default: `http://127.0.0.1:3000`)
+- `NOOTERRA_TENANT_ID` (default: `tenant_default`)
+- `NOOTERRA_API_KEY` (required)
+- `NOOTERRA_PROTOCOL` (optional; if unset the server attempts to discover via `GET /healthz` response header `x-nooterra-protocol`, falling back to `1.0`)
 
 ## Tool Surface (Curated)
 
-### `settld.create_agreement`
+### `nooterra.create_agreement`
 
 Creates a real marketplace-backed agreement by executing:
 
@@ -68,21 +68,21 @@ Creates a real marketplace-backed agreement by executing:
 
 Returns IDs needed for subsequent tools: `payerAgentId`, `payeeAgentId`, `rfqId`, `bidId`, `runId`, `settlementId`, `agreementId`.
 
-### `settld.submit_evidence`
+### `nooterra.submit_evidence`
 
 Appends an agent run event:
 
 - `GET /agents/{agentId}/runs/{runId}/events` to obtain current `prevChainHash`
 - `POST /agents/{agentId}/runs/{runId}/events` with `type=EVIDENCE_ADDED` and `x-proxy-expected-prev-chain-hash`
 
-### `settld.settle_run`
+### `nooterra.settle_run`
 
-Moves a run to terminal state (which triggers auto-resolution in the Settld API):
+Moves a run to terminal state (which triggers auto-resolution in the Nooterra API):
 
 - `GET /agents/{agentId}/runs/{runId}/events` (prevChainHash)
 - `POST /agents/{agentId}/runs/{runId}/events` with `type=RUN_COMPLETED` (or `RUN_FAILED`)
 
-### `settld.open_dispute`
+### `nooterra.open_dispute`
 
 Opens a dispute for a resolved run settlement:
 

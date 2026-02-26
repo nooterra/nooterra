@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { SettldClient } from "../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../packages/api-sdk/src/index.js";
 
 function makeJsonResponse(body, { status = 200, requestId = "req_test_sdk_sessions_1" } = {}) {
   return new Response(JSON.stringify(body), {
@@ -72,8 +72,8 @@ test("api-sdk: session methods call expected endpoints", async () => {
     return makeJsonResponse({}, { status: 404 });
   };
 
-  const client = new SettldClient({
-    baseUrl: "https://api.settld.local",
+  const client = new NooterraClient({
+    baseUrl: "https://api.nooterra.local",
     tenantId: "tenant_sdk",
     fetch: fetchStub
   });
@@ -83,7 +83,7 @@ test("api-sdk: session methods call expected endpoints", async () => {
     participants: [{ agentId: "agt_manager" }, { agentId: "agt_worker" }],
     visibility: "tenant"
   });
-  assert.equal(calls[0].url, "https://api.settld.local/sessions");
+  assert.equal(calls[0].url, "https://api.nooterra.local/sessions");
   assert.equal(calls[0].init?.method, "POST");
 
   await client.listSessions({
@@ -92,11 +92,11 @@ test("api-sdk: session methods call expected endpoints", async () => {
     limit: 20,
     offset: 0
   });
-  assert.equal(calls[1].url, "https://api.settld.local/sessions?participantAgentId=agt_manager&status=open&limit=20&offset=0");
+  assert.equal(calls[1].url, "https://api.nooterra.local/sessions?participantAgentId=agt_manager&status=open&limit=20&offset=0");
   assert.equal(calls[1].init?.method, "GET");
 
   await client.getSession("sess_sdk_1");
-  assert.equal(calls[2].url, "https://api.settld.local/sessions/sess_sdk_1");
+  assert.equal(calls[2].url, "https://api.nooterra.local/sessions/sess_sdk_1");
   assert.equal(calls[2].init?.method, "GET");
 
   await client.listSessionEvents("sess_sdk_1", {
@@ -104,7 +104,7 @@ test("api-sdk: session methods call expected endpoints", async () => {
     limit: 20,
     offset: 0
   });
-  assert.equal(calls[3].url, "https://api.settld.local/sessions/sess_sdk_1/events?eventType=TASK_REQUESTED&limit=20&offset=0");
+  assert.equal(calls[3].url, "https://api.nooterra.local/sessions/sess_sdk_1/events?eventType=TASK_REQUESTED&limit=20&offset=0");
   assert.equal(calls[3].init?.method, "GET");
 
   await client.appendSessionEvent(
@@ -117,7 +117,7 @@ test("api-sdk: session methods call expected endpoints", async () => {
       expectedPrevChainHash: "a".repeat(64)
     }
   );
-  assert.equal(calls[4].url, "https://api.settld.local/sessions/sess_sdk_1/events");
+  assert.equal(calls[4].url, "https://api.nooterra.local/sessions/sess_sdk_1/events");
   assert.equal(calls[4].init?.method, "POST");
 
   await client.getSessionReplayPack("sess_sdk_1", {
@@ -126,12 +126,12 @@ test("api-sdk: session methods call expected endpoints", async () => {
   });
   assert.equal(
     calls[5].url,
-    "https://api.settld.local/sessions/sess_sdk_1/replay-pack?sign=true&signerKeyId=key_session_signer_1"
+    "https://api.nooterra.local/sessions/sess_sdk_1/replay-pack?sign=true&signerKeyId=key_session_signer_1"
   );
   assert.equal(calls[5].init?.method, "GET");
 
   await client.getSessionTranscript("sess_sdk_1", { sign: true });
-  assert.equal(calls[6].url, "https://api.settld.local/sessions/sess_sdk_1/transcript?sign=true");
+  assert.equal(calls[6].url, "https://api.nooterra.local/sessions/sess_sdk_1/transcript?sign=true");
   assert.equal(calls[6].init?.method, "GET");
 
   const streamEvents = [];
@@ -147,7 +147,7 @@ test("api-sdk: session methods call expected endpoints", async () => {
   )) {
     streamEvents.push(event);
   }
-  assert.equal(calls[7].url, "https://api.settld.local/sessions/sess_sdk_1/events/stream?eventType=TASK_REQUESTED&sinceEventId=evt_prev_1");
+  assert.equal(calls[7].url, "https://api.nooterra.local/sessions/sess_sdk_1/events/stream?eventType=TASK_REQUESTED&sinceEventId=evt_prev_1");
   assert.equal(calls[7].init?.method, "GET");
   assert.equal(calls[7].init?.headers?.["last-event-id"], "evt_resume_1");
   assert.equal(calls[7].init?.headers?.accept, "text/event-stream");

@@ -1,7 +1,7 @@
 {
   "meta": {
-    "initiative": "Settld Trust OS v1 State-of-the-Art Launch",
-    "schemaVersion": "SettldJiraBacklog.v2",
+    "initiative": "Nooterra Trust OS v1 State-of-the-Art Launch",
+    "schemaVersion": "NooterraJiraBacklog.v2",
     "generatedAt": "2026-02-22",
     "horizonSprints": 6,
     "ticketCount": 24,

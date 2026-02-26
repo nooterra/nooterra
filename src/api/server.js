@@ -7,6 +7,15 @@ import { configForLog, loadConfig } from "../core/config.js";
 
 const cfg = loadConfig({ mode: "api" });
 logger.info("config.effective", { config: configForLog(cfg) });
+if (cfg.federation?.enabled) {
+  logger.info("federation.coordinator", {
+    coordinatorDid: cfg.federation.coordinatorDid,
+    trustedCoordinatorDidCount: Array.isArray(cfg.federation.trustedCoordinatorDids)
+      ? cfg.federation.trustedCoordinatorDids.length
+      : 0,
+    signingEnabled: Boolean(cfg.federation.signing?.enabled)
+  });
+}
 
 const corsAllowOriginsEnv =
   typeof process !== "undefined" && typeof process.env.PROXY_CORS_ALLOW_ORIGINS === "string"
@@ -44,7 +53,7 @@ function applyCorsHeaders(req, res) {
       "x-proxy-tenant-id",
       "x-proxy-ops-token",
       "x-request-id",
-      "x-settld-protocol"
+      "x-nooterra-protocol"
     ].join(", ")
   );
   res.setHeader("access-control-max-age", "600");

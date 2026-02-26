@@ -3,6 +3,6 @@
   "command": "init",
   "profileId": "engineering-spend",
   "outPath": "__PROFILE_PATH__",
-  "profileFingerprintVersion": "SettldProfileFingerprint.v1",
-  "profileFingerprint": "863affd4af9dd54bb993f8035580cf960e26fc3336af108a17c528b685d7246d"
+  "profileFingerprintVersion": "NooterraProfileFingerprint.v1",
+  "profileFingerprint": "6f811105712b80d145da4bc14dd45a15a4e77ff557e5eaecf171ea71a1195d5e"
 }

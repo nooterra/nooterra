@@ -92,7 +92,7 @@ export async function loadConfig() {
   const s3Endpoint = typeof process !== "undefined" ? (process.env.RECEIVER_S3_ENDPOINT ?? null) : null;
   const s3Region = typeof process !== "undefined" ? (process.env.RECEIVER_S3_REGION ?? "us-east-1") : "us-east-1";
   const s3Bucket = typeof process !== "undefined" ? (process.env.RECEIVER_S3_BUCKET ?? null) : null;
-  const s3Prefix = typeof process !== "undefined" ? (process.env.RECEIVER_S3_PREFIX ?? "settld/") : "settld/";
+  const s3Prefix = typeof process !== "undefined" ? (process.env.RECEIVER_S3_PREFIX ?? "nooterra/") : "nooterra/";
   const s3ForcePathStyle = parseFlagEnv("RECEIVER_S3_FORCE_PATH_STYLE", true);
 
   const s3AccessKeyIdInline = typeof process !== "undefined" ? (process.env.RECEIVER_S3_ACCESS_KEY_ID ?? null) : null;

@@ -6,7 +6,7 @@ import { codesFromCliOutput, diffSets, readJsonFile, spawnCapture } from "./lib/
 
 function parseArgs(argv) {
   const out = {
-    releaseBin: "settld-release",
+    releaseBin: "nooterra-release",
     releaseNodeBin: null,
     caseId: null,
     list: false
@@ -41,7 +41,7 @@ function parseArgs(argv) {
 function usage() {
   // eslint-disable-next-line no-console
   console.error("usage:");
-  console.error("  node conformance/v1/run-release.mjs [--release-bin settld-release] [--release-node-bin <path/to/settld-release.js>] [--case <id>] [--list]");
+  console.error("  node conformance/v1/run-release.mjs [--release-bin nooterra-release] [--release-node-bin <path/to/nooterra-release.js>] [--case <id>] [--list]");
 }
 
 function normalizeExpected(cliJson, expected) {

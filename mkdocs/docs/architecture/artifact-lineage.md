@@ -1,6 +1,6 @@
 # Artifact Lineage
 
-Settld artifacts are linked by deterministic IDs and hashes.
+Nooterra artifacts are linked by deterministic IDs and hashes.
 
 ## Core lineage chain
 

@@ -7,7 +7,7 @@ import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
 
 import { createEd25519Keypair, keyIdFromPublicKeyPem } from "../src/core/crypto.js";
-import { buildSettldPayKeysetV1 } from "../src/core/settld-keys.js";
+import { buildNooterraPayKeysetV1 } from "../src/core/nooterra-keys.js";
 import { computePaidToolManifestHashV1 } from "../src/core/paid-tool-manifest.js";
 import { verifyProviderPublishProofTokenV1 } from "../src/core/provider-publish-proof.js";
 
@@ -54,7 +54,7 @@ function parseSingleJson(raw) {
 }
 
 test("provider:publish emits machine-readable failure and writes publication/conformance artifacts", async (t) => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-provider-publish-cli-"));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-provider-publish-cli-"));
   const manifestPath = path.join(tempDir, "manifest.json");
   const publicationOutPath = path.join(tempDir, "publication.json");
   const conformanceOutPath = path.join(tempDir, "publication.conformance.json");
@@ -165,7 +165,7 @@ test("provider:publish emits machine-readable failure and writes publication/con
 });
 
 test("provider:conformance emits machine-readable failure and exits non-zero by default", async (t) => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-provider-conformance-cli-"));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-provider-conformance-cli-"));
   const manifestPath = path.join(tempDir, "manifest.json");
   const reportOutPath = path.join(tempDir, "conformance.json");
   await fs.writeFile(
@@ -249,13 +249,13 @@ test("provider:conformance emits machine-readable failure and exits non-zero by 
 });
 
 test("provider:publish auto-mints publish proof when key material is provided", async (t) => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-provider-publish-auto-mint-cli-"));
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-provider-publish-auto-mint-cli-"));
   const manifestPath = path.join(tempDir, "manifest.json");
   const privateKeyPath = path.join(tempDir, "identity.ed25519.private.pem");
 
   const keypair = createEd25519Keypair();
   const publishProofKid = keyIdFromPublicKeyPem(keypair.publicKeyPem);
-  const publishProofJwks = buildSettldPayKeysetV1({
+  const publishProofJwks = buildNooterraPayKeysetV1({
     activeKey: { keyId: publishProofKid, publicKeyPem: keypair.publicKeyPem },
     refreshedAt: new Date().toISOString()
   });

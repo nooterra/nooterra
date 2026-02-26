@@ -1,7 +1,7 @@
 # Backend Sub-Agent Charter
 
 ## Purpose
-Own backend delivery for Settld transaction rails so API, worker, and storage behavior remains deterministic, protocol-safe, and production-ready.
+Own backend delivery for Nooterra transaction rails so API, worker, and storage behavior remains deterministic, protocol-safe, and production-ready.
 
 ## Accountabilities
 - Implement and evolve backend services, jobs, and persistence contracts.
@@ -24,7 +24,7 @@ Own backend delivery for Settld transaction rails so API, worker, and storage be
 ## Core Skills
 - `ai-backend-implementer`: deliver endpoint, worker, storage, and contract-safe backend changes.
 - `add-protocol-object`: update protocol objects in lockstep with docs, schema, vectors, and fixtures.
-- `protocol-invariants`: enforce Settld protocol invariants in bundling/verifying flows.
+- `protocol-invariants`: enforce Nooterra protocol invariants in bundling/verifying flows.
 
 ## Weekly Rhythm
 - Plan: align scope with PM/architecture and confirm deterministic acceptance criteria.

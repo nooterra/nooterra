@@ -28,7 +28,7 @@ test("dispute-open-envelope schema validates canonical example", async () => {
     }
   }
 
-  const validate = ajv.getSchema("https://settld.local/schemas/DisputeOpenEnvelope.v1.schema.json");
+  const validate = ajv.getSchema("https://nooterra.local/schemas/DisputeOpenEnvelope.v1.schema.json");
   assert.ok(validate);
 
   const example = buildDisputeOpenEnvelopeV1({

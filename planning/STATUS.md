@@ -13,10 +13,10 @@ From now on, **planning lives in GitHub Issues** (milestones + labels). This fil
 
 Handy commands:
 
-- List S20 issues: `gh issue list --milestone S20 --label prio:p0 --repo aidenlippert/settld`
-- List S23 issues: `gh issue list --milestone S23 --repo aidenlippert/settld`
-- List S32 issues: `gh issue list --milestone S32 --repo aidenlippert/settld`
-- List all open: `gh issue list --repo aidenlippert/settld`
+- List S20 issues: `gh issue list --milestone S20 --label prio:p0 --repo nooterra/nooterra`
+- List S23 issues: `gh issue list --milestone S23 --repo nooterra/nooterra`
+- List S32 issues: `gh issue list --milestone S32 --repo nooterra/nooterra`
+- List all open: `gh issue list --repo nooterra/nooterra`
 
 ## What Stays In-Repo
 

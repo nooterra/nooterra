@@ -78,11 +78,11 @@ async function mkdirp(fp) {
 
 function renderPackageJson({ name }) {
   return {
-    name: `@settld/capability-${name}`,
+    name: `@nooterra/capability-${name}`,
     private: true,
     type: "module",
     dependencies: {
-      "settld-api-sdk": "latest"
+      "nooterra-api-sdk": "latest"
     },
     scripts: {
       dev: "node server.js",
@@ -171,10 +171,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-const baseUrl = (process.env.SETTLD_BASE_URL || "http://127.0.0.1:3000").replace(/\\/+$/, "");
-const tenantId = process.env.SETTLD_TENANT_ID || "tenant_default";
-const opsToken = process.env.SETTLD_OPS_TOKEN || "tok_ops";
-const protocol = process.env.SETTLD_PROTOCOL || "1.0";
+const baseUrl = (process.env.NOOTERRA_BASE_URL || "http://127.0.0.1:3000").replace(/\\/+$/, "");
+const tenantId = process.env.NOOTERRA_TENANT_ID || "tenant_default";
+const opsToken = process.env.NOOTERRA_OPS_TOKEN || "tok_ops";
+const protocol = process.env.NOOTERRA_PROTOCOL || "1.0";
 const capabilityBaseUrl = (process.env.CAPABILITY_BASE_URL || "http://127.0.0.1:3900").replace(/\\/+$/, "");
 
 function idem(prefix) {
@@ -184,7 +184,7 @@ function idem(prefix) {
 function findRepoRoot(startDir) {
   let dir = startDir;
   for (let i = 0; i < 20; i += 1) {
-    if (fs.existsSync(path.join(dir, "bin", "settld.js")) && fs.existsSync(path.join(dir, "SETTLD_VERSION"))) return dir;
+    if (fs.existsSync(path.join(dir, "bin", "nooterra.js")) && fs.existsSync(path.join(dir, "NOOTERRA_VERSION"))) return dir;
     const next = path.dirname(dir);
     if (next === dir) break;
     dir = next;
@@ -192,16 +192,16 @@ function findRepoRoot(startDir) {
   return null;
 }
 
-async function loadSettldClient({ repoRoot }) {
+async function loadNooterraClient({ repoRoot }) {
   try {
-    const pkg = await import("settld-api-sdk");
-    if (typeof pkg?.SettldClient === "function") return pkg.SettldClient;
+    const pkg = await import("nooterra-api-sdk");
+    if (typeof pkg?.NooterraClient === "function") return pkg.NooterraClient;
   } catch {}
-  if (!repoRoot) throw new Error("could not resolve Settld SDK; install dependencies (npm install) or set SETTLD_REPO_ROOT");
+  if (!repoRoot) throw new Error("could not resolve Nooterra SDK; install dependencies (npm install) or set NOOTERRA_REPO_ROOT");
   const sdkPath = path.join(repoRoot, "packages", "api-sdk", "src", "index.js");
   const pkg = await import(pathToFileURL(sdkPath).href);
-  if (typeof pkg?.SettldClient !== "function") throw new Error("invalid Settld SDK module (SettldClient missing)");
-  return pkg.SettldClient;
+  if (typeof pkg?.NooterraClient !== "function") throw new Error("invalid Nooterra SDK module (NooterraClient missing)");
+  return pkg.NooterraClient;
 }
 
 async function callCapability(text) {
@@ -217,10 +217,10 @@ async function callCapability(text) {
 }
 
 async function main() {
-  const repoRoot = process.env.SETTLD_REPO_ROOT || findRepoRoot(path.resolve(__dirname, "..", "..", ".."));
-  const SettldClient = await loadSettldClient({ repoRoot });
+  const repoRoot = process.env.NOOTERRA_REPO_ROOT || findRepoRoot(path.resolve(__dirname, "..", "..", ".."));
+  const NooterraClient = await loadNooterraClient({ repoRoot });
 
-  const client = new SettldClient({ baseUrl, tenantId, protocol, opsToken });
+  const client = new NooterraClient({ baseUrl, tenantId, protocol, opsToken });
   const manifest = await (await fetch(new URL("/manifest.json", capabilityBaseUrl).toString())).json();
   const manifestHash = String(manifest?.signature?.manifestHash || "");
   if (!/^[0-9a-f]{64}$/.test(manifestHash)) throw new Error("manifest missing signature.manifestHash");
@@ -375,7 +375,7 @@ import path from "node:path";
 function findRepoRoot(startDir) {
   let dir = startDir;
   for (let i = 0; i < 20; i += 1) {
-    if (fs.existsSync(path.join(dir, "bin", "settld.js")) && fs.existsSync(path.join(dir, "SETTLD_VERSION"))) return dir;
+    if (fs.existsSync(path.join(dir, "bin", "nooterra.js")) && fs.existsSync(path.join(dir, "NOOTERRA_VERSION"))) return dir;
     const next = path.dirname(dir);
     if (next === dir) break;
     dir = next;
@@ -383,18 +383,18 @@ function findRepoRoot(startDir) {
   return null;
 }
 
-const repoRoot = process.env.SETTLD_REPO_ROOT || findRepoRoot(process.cwd());
+const repoRoot = process.env.NOOTERRA_REPO_ROOT || findRepoRoot(process.cwd());
 if (!repoRoot) {
-  console.error("could not find Settld repo root (set SETTLD_REPO_ROOT)");
+  console.error("could not find Nooterra repo root (set NOOTERRA_REPO_ROOT)");
   process.exit(1);
 }
 
-const baseUrl = process.env.SETTLD_BASE_URL || "http://127.0.0.1:3000";
-const tenantId = process.env.SETTLD_TENANT_ID || "tenant_default";
-const protocol = process.env.SETTLD_PROTOCOL || "1.0";
-const opsToken = process.env.SETTLD_OPS_TOKEN || "tok_ops";
+const baseUrl = process.env.NOOTERRA_BASE_URL || "http://127.0.0.1:3000";
+const tenantId = process.env.NOOTERRA_TENANT_ID || "tenant_default";
+const protocol = process.env.NOOTERRA_PROTOCOL || "1.0";
+const opsToken = process.env.NOOTERRA_OPS_TOKEN || "tok_ops";
 
-const jsonOut = process.env.SETTLD_KERNEL_REPORT || "/tmp/settld-kernel-v0-report.json";
+const jsonOut = process.env.NOOTERRA_KERNEL_REPORT || "/tmp/nooterra-kernel-v0-report.json";
 
 const args = [
   path.join(repoRoot, "conformance", "kernel-v0", "run.mjs"),

@@ -1,17 +1,17 @@
-# Settld Founder Architecture Guide
+# Nooterra Founder Architecture Guide
 
 Status date: February 12, 2026
 
 ## Why this document exists
 
-This is the founder-level map of what Settld is actually building, what is already true in code, and what is still planned.  
+This is the founder-level map of what Nooterra is actually building, what is already true in code, and what is still planned.  
 It is intentionally opinionated: if a claim is not enforced by code/tests/conformance, it is not treated as shipped truth.
 
 ---
 
-## 1) What Settld is
+## 1) What Nooterra is
 
-Settld is a verifiable execution-and-settlement infrastructure for delegated agent work.
+Nooterra is a verifiable execution-and-settlement infrastructure for delegated agent work.
 
 The product has two surfaces that share one truth model:
 
@@ -40,8 +40,8 @@ Primary references:
 
 Key files:
 
-- `packages/artifact-verify/bin/settld-verify.js`
-- `packages/artifact-produce/bin/settld-produce.js`
+- `packages/artifact-verify/bin/nooterra-verify.js`
+- `packages/artifact-produce/bin/nooterra-produce.js`
 - `conformance/v1/README.md`
 - `docs/spec/CANONICAL_JSON.md`
 - `docs/spec/STRICTNESS.md`
@@ -162,7 +162,7 @@ Evidence anchor:
 - `planning/kernel-v0-truth-audit.md`
 - `docs/ops/PAYMENTS_ALPHA_R5.md`
 
-## 4.3 Exact tarball `npx --package ./settld-<version>.tgz` CI smoke is partial
+## 4.3 Exact tarball `npx --package ./nooterra-<version>.tgz` CI smoke is partial
 
 Status: PARTIAL (per truth audit)
 
@@ -274,7 +274,7 @@ Reference:
 
 ## 9) Founder summary in one page
 
-- Settld is building verifiable economic finality for agent work, not just another workflow dashboard.
+- Nooterra is building verifiable economic finality for agent work, not just another workflow dashboard.
 - The strongest moat already shipped is protocol determinism + offline verification + conformance.
 - The biggest business-risk gaps are operational/commercial, not core protocol correctness:
   - hosted baseline hardening

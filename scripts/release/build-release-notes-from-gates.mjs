@@ -5,11 +5,14 @@ import path from "node:path";
 
 const SCHEMA_VERSION = "ReleaseNotesFromGates.v1";
 const REQUIRED_PRODUCTION_CHECK_IDS = Object.freeze([
-  "settld_verified_collaboration",
+  "nooterra_verified_collaboration",
   "openclaw_substrate_demo_lineage_verified",
   "openclaw_substrate_demo_transcript_verified",
+  "checkpoint_grant_binding_verified",
+  "work_order_metering_durability_verified",
   "sdk_acs_smoke_js_verified",
-  "sdk_acs_smoke_py_verified"
+  "sdk_acs_smoke_py_verified",
+  "sdk_python_contract_freeze_verified"
 ]);
 
 function normalizeOptionalString(value) {
@@ -98,9 +101,22 @@ function pickRequiredCheck(requiredChecks, id) {
   return rows.find((row) => normalizeOptionalString(row?.id) === id) ?? null;
 }
 
-function buildMarkdown({ tag, version, promotionGuard, requiredChecks, collabCheck, lineageCheck, transcriptCheck, sdkJsCheck, sdkPyCheck }) {
+function buildMarkdown({
+  tag,
+  version,
+  promotionGuard,
+  requiredChecks,
+  collabCheck,
+  lineageCheck,
+  transcriptCheck,
+  checkpointGrantBindingCheck,
+  workOrderMeteringDurabilityCheck,
+  sdkJsCheck,
+  sdkPyCheck,
+  sdkPythonContractFreezeCheck
+}) {
   const lines = [
-    "# Settld Release",
+    "# Nooterra Release",
     "",
     `- Tag: \`${tag ?? "unknown"}\``,
     `- Version: \`${version ?? "unknown"}\``,
@@ -110,17 +126,20 @@ function buildMarkdown({ tag, version, promotionGuard, requiredChecks, collabChe
     `- Production cutover required checks: **${requiredChecks?.ok === true ? "pass" : "fail"}**`,
     "",
     "### Required Cutover Checks",
-    `- settld_verified_collaboration: **${collabCheck?.ok === true ? "pass" : "fail"}**`,
+    `- nooterra_verified_collaboration: **${collabCheck?.ok === true ? "pass" : "fail"}**`,
     `- openclaw_substrate_demo_lineage_verified: **${lineageCheck?.ok === true ? "pass" : "fail"}**`,
     `- openclaw_substrate_demo_transcript_verified: **${transcriptCheck?.ok === true ? "pass" : "fail"}**`,
+    `- checkpoint_grant_binding_verified: **${checkpointGrantBindingCheck?.ok === true ? "pass" : "fail"}**`,
+    `- work_order_metering_durability_verified: **${workOrderMeteringDurabilityCheck?.ok === true ? "pass" : "fail"}**`,
     `- sdk_acs_smoke_js_verified: **${sdkJsCheck?.ok === true ? "pass" : "fail"}**`,
     `- sdk_acs_smoke_py_verified: **${sdkPyCheck?.ok === true ? "pass" : "fail"}**`,
+    `- sdk_python_contract_freeze_verified: **${sdkPythonContractFreezeCheck?.ok === true ? "pass" : "fail"}**`,
     "",
     "## Artifacts",
     "- `release-promotion-guard.json`",
     "- `production-cutover-required-checks.json`",
     "- `s13-launch-cutover-packet.json`",
-    "- `settld-verified-collaboration-gate.json`",
+    "- `nooterra-verified-collaboration-gate.json`",
     ""
   ];
   return `${lines.join("\n")}\n`;
@@ -131,11 +150,14 @@ export async function buildReleaseNotesFromGates(args) {
   const promotionGuard = await readJson(args.promotionGuardPath);
   const requiredChecks = await readJson(args.requiredChecksPath);
 
-  const collabCheck = pickRequiredCheck(requiredChecks, "settld_verified_collaboration");
+  const collabCheck = pickRequiredCheck(requiredChecks, "nooterra_verified_collaboration");
   const lineageCheck = pickRequiredCheck(requiredChecks, "openclaw_substrate_demo_lineage_verified");
   const transcriptCheck = pickRequiredCheck(requiredChecks, "openclaw_substrate_demo_transcript_verified");
+  const checkpointGrantBindingCheck = pickRequiredCheck(requiredChecks, "checkpoint_grant_binding_verified");
+  const workOrderMeteringDurabilityCheck = pickRequiredCheck(requiredChecks, "work_order_metering_durability_verified");
   const sdkJsCheck = pickRequiredCheck(requiredChecks, "sdk_acs_smoke_js_verified");
   const sdkPyCheck = pickRequiredCheck(requiredChecks, "sdk_acs_smoke_py_verified");
+  const sdkPythonContractFreezeCheck = pickRequiredCheck(requiredChecks, "sdk_python_contract_freeze_verified");
   const markdown = buildMarkdown({
     tag: args.tag,
     version: args.version,
@@ -144,8 +166,11 @@ export async function buildReleaseNotesFromGates(args) {
     collabCheck,
     lineageCheck,
     transcriptCheck,
+    checkpointGrantBindingCheck,
+    workOrderMeteringDurabilityCheck,
     sdkJsCheck,
-    sdkPyCheck
+    sdkPyCheck,
+    sdkPythonContractFreezeCheck
   });
 
   await mkdir(path.dirname(args.outPath), { recursive: true });
@@ -169,8 +194,11 @@ export async function buildReleaseNotesFromGates(args) {
       collaborationCheckOk: collabCheck?.ok === true,
       lineageCheckOk: lineageCheck?.ok === true,
       transcriptCheckOk: transcriptCheck?.ok === true,
+      checkpointGrantBindingCheckOk: checkpointGrantBindingCheck?.ok === true,
+      workOrderMeteringDurabilityCheckOk: workOrderMeteringDurabilityCheck?.ok === true,
       sdkJsSmokeCheckOk: sdkJsCheck?.ok === true,
       sdkPySmokeCheckOk: sdkPyCheck?.ok === true,
+      sdkPythonContractFreezeCheckOk: sdkPythonContractFreezeCheck?.ok === true,
       requiredCheckIds: [...REQUIRED_PRODUCTION_CHECK_IDS]
     }
   };

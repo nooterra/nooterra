@@ -6,9 +6,9 @@ This is the smallest topology that supports real paid agent tool calls with audi
 
 | Component | Purpose | Start command |
 |---|---|---|
-| `settld-api` | control plane + kernel APIs + receipts + ops endpoints | `npm run start:prod` |
-| `settld-magic-link` | public onboarding/auth/wallet bootstrap service | `npm run start:magic-link` |
-| `settld-maintenance` | reconciliation/cleanup/maintenance ticks | `npm run start:maintenance` |
+| `nooterra-api` | control plane + kernel APIs + receipts + ops endpoints | `npm run start:prod` |
+| `nooterra-magic-link` | public onboarding/auth/wallet bootstrap service | `npm run start:magic-link` |
+| `nooterra-maintenance` | reconciliation/cleanup/maintenance ticks | `npm run start:maintenance` |
 | `postgres` | system of record for tenants, gates, receipts, ops state | managed Postgres |
 | `x402-gateway` | payment challenge/authorize/verify wrapper for paid tool calls | `npm run start:x402-gateway` |
 | paid upstream tool API(s) | actual provider tools (`/exa`, `/weather`, etc.) | provider-specific |
@@ -17,16 +17,16 @@ Without all six, public onboarding + paid tool path is incomplete.
 
 ## 2) Recommended production shape
 
-- `app.settld.work` -> frontend (Vercel or equivalent)
-- `api.settld.work` -> `settld-api`
-- `gateway.settld.work` -> `x402-gateway` (or internal service DNS)
+- `app.nooterra.work` -> frontend (Vercel or equivalent)
+- `api.nooterra.work` -> `nooterra-api`
+- `gateway.nooterra.work` -> `x402-gateway` (or internal service DNS)
 - Separate staging/prod stacks with separate DBs (or schemas + strict separation), separate secret sets, and separate signing keys.
 
 Reference baseline: `docs/ops/HOSTED_BASELINE_R2.md`.
 
 ## 3) Minimum environment contract
 
-### `settld-api`
+### `nooterra-api`
 
 - `NODE_ENV=production`
 - `STORE=pg`
@@ -40,24 +40,24 @@ Reference baseline: `docs/ops/HOSTED_BASELINE_R2.md`.
 
 Primary config source: `docs/CONFIG.md`.
 
-### `settld-magic-link`
+### `nooterra-magic-link`
 
 - `NODE_ENV=production`
 - `MAGIC_LINK_API_KEY` (admin key)
 - `MAGIC_LINK_PUBLIC_SIGNUP_ENABLED=1` (for self-serve public onboarding)
 - `MAGIC_LINK_BUYER_OTP_DELIVERY_MODE=smtp` + SMTP env
-- `MAGIC_LINK_SETTLD_API_BASE_URL=https://<settld-api-host>`
-- `MAGIC_LINK_SETTLD_OPS_TOKEN=<scoped ops token>`
+- `MAGIC_LINK_NOOTERRA_API_BASE_URL=https://<nooterra-api-host>`
+- `MAGIC_LINK_NOOTERRA_OPS_TOKEN=<scoped ops token>`
 
-### `settld-maintenance`
+### `nooterra-maintenance`
 
-- Same DB/env set as `settld-api`
+- Same DB/env set as `nooterra-api`
 - `PROXY_MAINTENANCE_INTERVAL_SECONDS` tuned for your traffic profile
 
 ### `x402-gateway`
 
-- `SETTLD_API_URL` (usually `https://api.settld.work`)
-- `SETTLD_API_KEY` (`keyId.secret`)
+- `NOOTERRA_API_URL` (usually `https://api.nooterra.work`)
+- `NOOTERRA_API_KEY` (`keyId.secret`)
 - `UPSTREAM_URL` (provider tool base URL)
 - `HOLDBACK_BPS`
 - `DISPUTE_WINDOW_MS`
@@ -77,9 +77,9 @@ Reference flow: `docs/QUICKSTART_X402_GATEWAY.md`.
 
 Must host for real customer traffic:
 
-1. `settld-api`
-2. `settld-magic-link`
-3. `settld-maintenance`
+1. `nooterra-api`
+2. `nooterra-magic-link`
+3. `nooterra-maintenance`
 4. Postgres
 5. `x402-gateway`
 6. At least one paid upstream provider API

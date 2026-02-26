@@ -1,13 +1,13 @@
 # Onboarding Failure Taxonomy
 
-Settld setup surfaces stable failure codes with deterministic remediation text.
+Nooterra setup surfaces stable failure codes with deterministic remediation text.
 
 ## Current Failure Classes
 
 | Code | Phase | Typical Trigger | Default Remediation |
 | --- | --- | --- | --- |
 | `ONBOARDING_AUTH_PUBLIC_SIGNUP_UNAVAILABLE` | `auth` | Public signup is disabled/unavailable | Use `Generate during setup` with a bootstrap key, or pass `--tenant-id` for an existing tenant. |
-| `ONBOARDING_AUTH_OTP_INVALID` | `auth` | OTP/login code rejected | Request a fresh OTP and retry `settld login`. |
+| `ONBOARDING_AUTH_OTP_INVALID` | `auth` | OTP/login code rejected | Request a fresh OTP and retry `nooterra login`. |
 | `ONBOARDING_BOOTSTRAP_FORBIDDEN` | `bootstrap` | Runtime bootstrap 403 | Verify bootstrap key scopes and tenant binding. |
 | `ONBOARDING_BOOTSTRAP_UNAUTHORIZED` | `bootstrap` | Runtime bootstrap 401 | Verify key/session validity and retry. |
 | `ONBOARDING_WALLET_BOOTSTRAP_FAILED` | `wallet` | Remote wallet bootstrap error | Continue with trust wiring (`wallet mode none`) and retry wallet setup separately. |

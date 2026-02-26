@@ -1,7 +1,7 @@
 {
   "schemaVersion": "ProduceCliOutput.v1",
   "tool": {
-    "name": "settld",
+    "name": "nooterra",
     "version": "0.0.0",
     "commit": "0123456789abcdef0123456789abcdef01234567"
   },

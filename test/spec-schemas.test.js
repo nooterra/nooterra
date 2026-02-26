@@ -181,14 +181,14 @@ test("docs/spec/schemas validate real generated bundles (smoke)", async () => {
     if (schema && typeof schema === "object" && typeof schema.$id === "string") ajv.addSchema(schema, schema.$id);
   }
 
-  const validateReport = ajv.getSchema("https://settld.local/schemas/VerificationReport.v1.schema.json");
-  const validateAttestation = ajv.getSchema("https://settld.local/schemas/BundleHeadAttestation.v1.schema.json");
-  const validateProofManifest = ajv.getSchema("https://settld.local/schemas/ProofBundleManifest.v1.schema.json");
-  const validateFinanceManifest = ajv.getSchema("https://settld.local/schemas/FinancePackBundleManifest.v1.schema.json");
-  const validateKeys = ajv.getSchema("https://settld.local/schemas/PublicKeys.v1.schema.json");
-  const validateGovernancePolicy = ajv.getSchema("https://settld.local/schemas/GovernancePolicy.v2.schema.json");
-  const validateRevocationList = ajv.getSchema("https://settld.local/schemas/RevocationList.v1.schema.json");
-  const validateVerifyCliOutput = ajv.getSchema("https://settld.local/schemas/VerifyCliOutput.v1.schema.json");
+  const validateReport = ajv.getSchema("https://nooterra.local/schemas/VerificationReport.v1.schema.json");
+  const validateAttestation = ajv.getSchema("https://nooterra.local/schemas/BundleHeadAttestation.v1.schema.json");
+  const validateProofManifest = ajv.getSchema("https://nooterra.local/schemas/ProofBundleManifest.v1.schema.json");
+  const validateFinanceManifest = ajv.getSchema("https://nooterra.local/schemas/FinancePackBundleManifest.v1.schema.json");
+  const validateKeys = ajv.getSchema("https://nooterra.local/schemas/PublicKeys.v1.schema.json");
+  const validateGovernancePolicy = ajv.getSchema("https://nooterra.local/schemas/GovernancePolicy.v2.schema.json");
+  const validateRevocationList = ajv.getSchema("https://nooterra.local/schemas/RevocationList.v1.schema.json");
+  const validateVerifyCliOutput = ajv.getSchema("https://nooterra.local/schemas/VerifyCliOutput.v1.schema.json");
 
   assert.ok(validateReport);
   assert.ok(validateAttestation);
@@ -229,15 +229,15 @@ test("schema catches missing required fields (smoke)", async () => {
   for (const schema of await loadSchemas()) {
     if (schema && typeof schema === "object" && typeof schema.$id === "string") ajv.addSchema(schema, schema.$id);
   }
-  const validateReport = ajv.getSchema("https://settld.local/schemas/VerificationReport.v1.schema.json");
-  const validateVerifyCliOutput = ajv.getSchema("https://settld.local/schemas/VerifyCliOutput.v1.schema.json");
-  const validateProduceCliOutput = ajv.getSchema("https://settld.local/schemas/ProduceCliOutput.v1.schema.json");
-  const validateReleaseIndex = ajv.getSchema("https://settld.local/schemas/ReleaseIndex.v1.schema.json");
-  const validateReleaseSig = ajv.getSchema("https://settld.local/schemas/ReleaseIndexSignature.v1.schema.json");
-  const validateReleaseSigs = ajv.getSchema("https://settld.local/schemas/ReleaseIndexSignatures.v1.schema.json");
-  const validateReleaseTrust = ajv.getSchema("https://settld.local/schemas/ReleaseTrust.v1.schema.json");
-  const validateReleaseTrustV2 = ajv.getSchema("https://settld.local/schemas/ReleaseTrust.v2.schema.json");
-  const validateVerifyReleaseOut = ajv.getSchema("https://settld.local/schemas/VerifyReleaseOutput.v1.schema.json");
+  const validateReport = ajv.getSchema("https://nooterra.local/schemas/VerificationReport.v1.schema.json");
+  const validateVerifyCliOutput = ajv.getSchema("https://nooterra.local/schemas/VerifyCliOutput.v1.schema.json");
+  const validateProduceCliOutput = ajv.getSchema("https://nooterra.local/schemas/ProduceCliOutput.v1.schema.json");
+  const validateReleaseIndex = ajv.getSchema("https://nooterra.local/schemas/ReleaseIndex.v1.schema.json");
+  const validateReleaseSig = ajv.getSchema("https://nooterra.local/schemas/ReleaseIndexSignature.v1.schema.json");
+  const validateReleaseSigs = ajv.getSchema("https://nooterra.local/schemas/ReleaseIndexSignatures.v1.schema.json");
+  const validateReleaseTrust = ajv.getSchema("https://nooterra.local/schemas/ReleaseTrust.v1.schema.json");
+  const validateReleaseTrustV2 = ajv.getSchema("https://nooterra.local/schemas/ReleaseTrust.v2.schema.json");
+  const validateVerifyReleaseOut = ajv.getSchema("https://nooterra.local/schemas/VerifyReleaseOutput.v1.schema.json");
   assert.ok(validateReport);
   assert.ok(validateVerifyCliOutput);
   assert.ok(validateProduceCliOutput);

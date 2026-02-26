@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 const REPO_ROOT = process.cwd();
 
 test("mcp host smoke script emits fail-closed runtime/policy metadata evidence", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-mcp-host-smoke-test-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-mcp-host-smoke-test-"));
   const reportPath = path.join(tmpDir, "report.json");
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });

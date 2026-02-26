@@ -4,7 +4,7 @@ function assertNonEmptyString(value, name) {
   if (typeof value !== "string" || value.trim() === "") throw new TypeError(`${name} must be a non-empty string`);
 }
 
-export const SETTLD_PROTOCOL_CURRENT = "1.0";
+export const NOOTERRA_PROTOCOL_CURRENT = "1.0";
 
 export function parseProtocolVersion(text) {
   assertNonEmptyString(text, "protocol");
@@ -65,7 +65,7 @@ export function loadProtocolDeprecations(filePath) {
 }
 
 export function resolveProtocolPolicy({
-  current = SETTLD_PROTOCOL_CURRENT,
+  current = NOOTERRA_PROTOCOL_CURRENT,
   min = null,
   max = null,
   requireHeader = null,
@@ -78,7 +78,7 @@ export function resolveProtocolPolicy({
   const envDep = typeof process !== "undefined" ? (process.env.PROXY_PROTOCOL_DEPRECATIONS ?? null) : null;
   const envBuild =
     typeof process !== "undefined"
-      ? (process.env.PROXY_BUILD ?? process.env.SETTLD_BUILD ?? process.env.GIT_SHA ?? process.env.SOURCE_VERSION ?? null)
+      ? (process.env.PROXY_BUILD ?? process.env.NOOTERRA_BUILD ?? process.env.GIT_SHA ?? process.env.SOURCE_VERSION ?? null)
       : null;
 
   const effectiveMin = (min ?? (envMin && String(envMin).trim() ? String(envMin).trim() : null) ?? current).trim();

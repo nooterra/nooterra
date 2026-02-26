@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/VerifyCliOutput.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/VerifyCliOutput.v1.schema.json",
   "title": "VerifyCliOutput.v1",
   "type": "object",
   "required": ["schemaVersion", "tool", "mode", "target", "ok", "verificationOk", "errors", "warnings", "summary"],

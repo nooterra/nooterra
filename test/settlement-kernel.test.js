@@ -29,7 +29,7 @@ test("Settlement kernel builds bound decision + receipt artifacts", () => {
       verificationMethodHash: "4".repeat(64)
     },
     verifierRef: {
-      verifierId: "settld.policy-engine",
+      verifierId: "nooterra.policy-engine",
       verifierVersion: "v1",
       verifierHash: "5".repeat(64),
       modality: "deterministic"
@@ -106,7 +106,7 @@ test("Settlement kernel v2 normalizes optional profileHashUsed deterministically
       verificationMethodHash: "4".repeat(64)
     },
     verifierRef: {
-      verifierId: "settld.policy-engine",
+      verifierId: "nooterra.policy-engine",
       verifierVersion: "v1",
       verifierHash: "5".repeat(64),
       modality: "deterministic"
@@ -147,7 +147,7 @@ test("Settlement kernel verification reports decision/receipt binding mismatches
       verificationMethodHash: "4".repeat(64)
     },
     verifierRef: {
-      verifierId: "settld.policy-engine",
+      verifierId: "nooterra.policy-engine",
       verifierVersion: "v1",
       verifierHash: "5".repeat(64),
       modality: "deterministic"
@@ -216,7 +216,7 @@ test("Settlement kernel verification reports invalid optional profileHashUsed", 
       verificationMethodHash: "4".repeat(64)
     },
     verifierRef: {
-      verifierId: "settld.policy-engine",
+      verifierId: "nooterra.policy-engine",
       verifierVersion: "v1",
       verifierHash: "5".repeat(64),
       modality: "deterministic"
@@ -281,7 +281,7 @@ test("Settlement kernel verification reports temporal ordering violations", () =
       verificationMethodHash: "4".repeat(64)
     },
     verifierRef: {
-      verifierId: "settld.policy-engine",
+      verifierId: "nooterra.policy-engine",
       verifierVersion: "v1",
       verifierHash: "5".repeat(64),
       modality: "deterministic"
@@ -346,7 +346,7 @@ test("Settlement kernel preserves x402 authorization/request/response bindings",
       verificationMethodHash: "4".repeat(64)
     },
     verifierRef: {
-      verifierId: "settld.policy-engine",
+      verifierId: "nooterra.policy-engine",
       verifierVersion: "v1",
       verifierHash: "5".repeat(64),
       modality: "deterministic"

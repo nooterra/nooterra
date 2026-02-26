@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { runHostConfigSetup, SUPPORTED_HOSTS } from "../setup/host-config.mjs";
 
-const REPORT_SCHEMA_VERSION = "SettldMcpHostCertMatrix.v1";
+const REPORT_SCHEMA_VERSION = "NooterraMcpHostCertMatrix.v1";
 const DEFAULT_REPORT_PATH = path.resolve(process.cwd(), "artifacts/ops/mcp-host-cert-matrix.json");
 
 function parseArgs(argv) {
@@ -28,8 +28,8 @@ function parseArgs(argv) {
 
 function getServerNode(config, host) {
   if (config && typeof config === "object") {
-    if (config.mcpServers && typeof config.mcpServers === "object" && config.mcpServers.settld) return config.mcpServers.settld;
-    if (config.servers && typeof config.servers === "object" && config.servers.settld) return config.servers.settld;
+    if (config.mcpServers && typeof config.mcpServers === "object" && config.mcpServers.nooterra) return config.mcpServers.nooterra;
+    if (config.servers && typeof config.servers === "object" && config.servers.nooterra) return config.servers.nooterra;
     if (host === "openclaw" && typeof config.command === "string") return config;
   }
   return null;
@@ -45,20 +45,20 @@ async function runFailClosedBypassChecks({ host, configPath, env }) {
     {
       id: "reject_missing_api_key",
       expectedCode: "MISSING_ENV",
-      expectedMessageIncludes: "SETTLD_API_KEY",
+      expectedMessageIncludes: "NOOTERRA_API_KEY",
       buildEnv: () => {
         const next = { ...env };
-        delete next.SETTLD_API_KEY;
+        delete next.NOOTERRA_API_KEY;
         return next;
       }
     },
     {
       id: "reject_invalid_base_url",
       expectedCode: "INVALID_ENV",
-      expectedMessageIncludes: "SETTLD_BASE_URL must be a valid http(s) URL",
+      expectedMessageIncludes: "NOOTERRA_BASE_URL must be a valid http(s) URL",
       buildEnv: () => ({
         ...env,
-        SETTLD_BASE_URL: "ftp://127.0.0.1:3000"
+        NOOTERRA_BASE_URL: "ftp://127.0.0.1:3000"
       })
     }
   ];
@@ -97,11 +97,11 @@ async function runFailClosedBypassChecks({ host, configPath, env }) {
 async function certHost({ host, rootDir }) {
   const configPath = path.join(rootDir, `${host}.json`);
   const env = {
-    SETTLD_BASE_URL: "http://127.0.0.1:3000",
-    SETTLD_TENANT_ID: "tenant_default",
-    SETTLD_API_KEY: "key_test.secret_test",
-    SETTLD_PAID_TOOLS_BASE_URL: "http://127.0.0.1:3005",
-    SETTLD_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
+    NOOTERRA_BASE_URL: "http://127.0.0.1:3000",
+    NOOTERRA_TENANT_ID: "tenant_default",
+    NOOTERRA_API_KEY: "key_test.secret_test",
+    NOOTERRA_PAID_TOOLS_BASE_URL: "http://127.0.0.1:3005",
+    NOOTERRA_PAID_TOOLS_AGENT_PASSPORT: JSON.stringify({
       schemaVersion: "X402AgentPassport.v1",
       sponsorRef: "sponsor_local",
       sponsorWalletRef: "wallet_local",
@@ -118,10 +118,10 @@ async function certHost({ host, rootDir }) {
   const parsed = JSON.parse(await fs.readFile(configPath, "utf8"));
   const server = getServerNode(parsed, host);
   if (!server || typeof server !== "object") {
-    throw new Error(`missing settld server entry for host ${host}`);
+    throw new Error(`missing nooterra server entry for host ${host}`);
   }
   const envKeys = Object.keys(server.env ?? {});
-  if (!envKeys.includes("SETTLD_BASE_URL") || !envKeys.includes("SETTLD_TENANT_ID") || !envKeys.includes("SETTLD_API_KEY")) {
+  if (!envKeys.includes("NOOTERRA_BASE_URL") || !envKeys.includes("NOOTERRA_TENANT_ID") || !envKeys.includes("NOOTERRA_API_KEY")) {
     throw new Error(`incomplete env projection for host ${host}`);
   }
   if (second.changed !== false) {
@@ -158,7 +158,7 @@ async function main() {
     return;
   }
 
-  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-mcp-host-cert-"));
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-mcp-host-cert-"));
   const checks = [];
   let ok = true;
 

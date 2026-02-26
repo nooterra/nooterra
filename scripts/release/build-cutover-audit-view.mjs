@@ -9,11 +9,14 @@ const REQUIRED_CHECKS_SCHEMA_VERSION = "ProductionCutoverRequiredChecksAssertion
 const LAUNCH_PACKET_SCHEMA_VERSION = "LaunchCutoverPacket.v1";
 const LAUNCH_REQUIRED_SUMMARY_SCHEMA_VERSION = "ProductionCutoverRequiredChecksSummary.v1";
 const REQUIRED_CHECK_IDS = Object.freeze([
-  "settld_verified_collaboration",
+  "nooterra_verified_collaboration",
   "openclaw_substrate_demo_lineage_verified",
   "openclaw_substrate_demo_transcript_verified",
+  "checkpoint_grant_binding_verified",
+  "work_order_metering_durability_verified",
   "sdk_acs_smoke_js_verified",
-  "sdk_acs_smoke_py_verified"
+  "sdk_acs_smoke_py_verified",
+  "sdk_python_contract_freeze_verified"
 ]);
 
 function normalizeOptionalString(value) {
@@ -365,4 +368,3 @@ if (isDirectExecution) {
     process.exit(1);
   });
 }
-

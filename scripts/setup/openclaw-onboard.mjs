@@ -18,9 +18,9 @@ function usage() {
     "  node scripts/setup/openclaw-onboard.mjs [flags]",
     "",
     "flags:",
-    "  --base-url <url>                 Settld API base URL (or SETTLD_BASE_URL)",
-    "  --tenant-id <id>                 Settld tenant ID (or SETTLD_TENANT_ID)",
-    "  --settld-api-key <key>           Settld tenant API key (or SETTLD_API_KEY)",
+    "  --base-url <url>                 Nooterra API base URL (or NOOTERRA_BASE_URL)",
+    "  --tenant-id <id>                 Nooterra tenant ID (or NOOTERRA_TENANT_ID)",
+    "  --nooterra-api-key <key>           Nooterra tenant API key (or NOOTERRA_API_KEY)",
     "  --wallet-provider <name>         Wallet provider (circle; default: circle)",
     "  --wallet-bootstrap <auto|local|remote>  Wallet setup path (default: auto)",
     "  --circle-api-key <key>           Circle API key (or CIRCLE_API_KEY)",
@@ -50,7 +50,7 @@ function parseArgs(argv) {
   const out = {
     baseUrl: null,
     tenantId: null,
-    settldApiKey: null,
+    nooterraApiKey: null,
     walletProvider: "circle",
     walletBootstrap: "auto",
     circleApiKey: null,
@@ -103,9 +103,9 @@ function parseArgs(argv) {
       i = parsed.nextIndex;
       continue;
     }
-    if (arg === "--settld-api-key" || arg.startsWith("--settld-api-key=")) {
+    if (arg === "--nooterra-api-key" || arg.startsWith("--nooterra-api-key=")) {
       const parsed = readArgValue(argv, i, arg);
-      out.settldApiKey = parsed.value;
+      out.nooterraApiKey = parsed.value;
       i = parsed.nextIndex;
       continue;
     }
@@ -217,7 +217,7 @@ function toExportText(env) {
 async function requestRemoteWalletBootstrap({
   baseUrl,
   tenantId,
-  settldApiKey,
+  nooterraApiKey,
   walletProvider,
   circleMode,
   circleBaseUrl,
@@ -245,7 +245,7 @@ async function requestRemoteWalletBootstrap({
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": String(settldApiKey ?? "")
+      "x-api-key": String(nooterraApiKey ?? "")
     },
     body: JSON.stringify(body)
   });
@@ -288,12 +288,12 @@ export async function runOpenclawOnboard({
     return { ok: true, code: 0 };
   }
 
-  const baseUrl = mustString(args.baseUrl ?? process.env.SETTLD_BASE_URL ?? "", "SETTLD_BASE_URL / --base-url");
+  const baseUrl = mustString(args.baseUrl ?? process.env.NOOTERRA_BASE_URL ?? "", "NOOTERRA_BASE_URL / --base-url");
   const normalizedBaseUrl = normalizeHttpUrl(baseUrl);
-  if (!normalizedBaseUrl) throw new Error(`invalid Settld base URL: ${baseUrl}`);
+  if (!normalizedBaseUrl) throw new Error(`invalid Nooterra base URL: ${baseUrl}`);
 
-  const tenantId = mustString(args.tenantId ?? process.env.SETTLD_TENANT_ID ?? "tenant_default", "SETTLD_TENANT_ID / --tenant-id");
-  const settldApiKey = mustString(args.settldApiKey ?? process.env.SETTLD_API_KEY ?? "", "SETTLD_API_KEY / --settld-api-key");
+  const tenantId = mustString(args.tenantId ?? process.env.NOOTERRA_TENANT_ID ?? "tenant_default", "NOOTERRA_TENANT_ID / --tenant-id");
+  const nooterraApiKey = mustString(args.nooterraApiKey ?? process.env.NOOTERRA_API_KEY ?? "", "NOOTERRA_API_KEY / --nooterra-api-key");
   const circleApiKey = String(args.circleApiKey ?? process.env.CIRCLE_API_KEY ?? "").trim();
   const walletBootstrapMode =
     args.walletBootstrap === "auto"
@@ -313,7 +313,7 @@ export async function runOpenclawOnboard({
     circle = await requestRemoteWalletBootstrapImpl({
       baseUrl: normalizedBaseUrl,
       tenantId,
-      settldApiKey,
+      nooterraApiKey,
       walletProvider: args.walletProvider,
       circleMode: args.circleMode,
       circleBaseUrl: args.circleBaseUrl,
@@ -333,7 +333,7 @@ export async function runOpenclawOnboard({
     "--tenant-id",
     tenantId,
     "--api-key",
-    settldApiKey
+    nooterraApiKey
   ];
   if (args.skipProfileApply) wizardArgv.push("--skip-profile-apply");
   else wizardArgv.push("--profile-id", args.profileId || "engineering-spend");
@@ -372,7 +372,7 @@ export async function runOpenclawOnboard({
       tokenIdUsdc: circle?.tokenIdUsdc ?? null,
       faucetEnabled: Boolean(circle?.faucetEnabled)
     },
-    settld: {
+    nooterra: {
       baseUrl: normalizedBaseUrl,
       tenantId,
       smoke: Boolean(args.smoke),
@@ -388,7 +388,7 @@ export async function runOpenclawOnboard({
   } else {
     const lines = [];
     lines.push("OpenClaw onboarding complete.");
-    lines.push(`Settld: ${normalizedBaseUrl} (tenant=${tenantId})`);
+    lines.push(`Nooterra: ${normalizedBaseUrl} (tenant=${tenantId})`);
     lines.push(`Wallet provider: ${args.walletProvider}`);
     lines.push(`Wallet bootstrap mode: ${walletBootstrapMode}`);
     lines.push(`Circle mode: ${circle?.mode ?? "unknown"}`);

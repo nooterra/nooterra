@@ -29,17 +29,17 @@ test("remote signer: trust init (remote-only) + produce jobproof + strict verify
   const govKeyId = keypairs.govRoot.keyId;
   const serverKeyId = keypairs.serverA.keyId;
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-remote-signer-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-remote-signer-"));
   await test.after(async () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
-  const signerScript = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "settld-signer-dev.js");
+  const signerScript = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "nooterra-signer-dev.js");
   const signerCommand = process.execPath;
   const signerArgsJson = JSON.stringify([signerScript, "--stdio", "--keys", keypairsPath]);
 
   const trustDir = path.join(tmp, "trust");
-  const trustCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "settld-trust.js");
+  const trustCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "nooterra-trust.js");
   const trustRes = await runNode(
     [
       trustCli,
@@ -69,7 +69,7 @@ test("remote signer: trust init (remote-only) + produce jobproof + strict verify
   assert.equal(typeof trust?.governanceRoots?.[govKeyId], "string");
 
   const bundleDir = path.join(tmp, "jobproof");
-  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "settld-produce.js");
+  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "nooterra-produce.js");
   const prodRes = await runNode([
     produceCli,
     "jobproof",
@@ -95,10 +95,10 @@ test("remote signer: trust init (remote-only) + produce jobproof + strict verify
   assert.equal(prodOut.schemaVersion, "ProduceCliOutput.v1");
   assert.equal(prodOut.ok, true);
 
-  const verifyCli = path.resolve(repoRoot, "packages", "artifact-verify", "bin", "settld-verify.js");
+  const verifyCli = path.resolve(repoRoot, "packages", "artifact-verify", "bin", "nooterra-verify.js");
   const env = {
-    SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
-    SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust.timeAuthorities ?? {})
+    NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
+    NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust.timeAuthorities ?? {})
   };
   const verifyRes = await runNode([verifyCli, "--format", "json", "--strict", "--job-proof", bundleDir], { env });
   assert.equal(verifyRes.code, 0, verifyRes.stderr || verifyRes.stdout);

@@ -117,7 +117,7 @@ test("JobProofBundle.v1 verification derives server key revocation from governan
     ["manifest.json", bytes(`${canonicalJsonStringify(manifest)}\n`)]
   ]);
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-job-proof-gov-revoke-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-job-proof-gov-revoke-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 

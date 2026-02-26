@@ -151,6 +151,14 @@ import {
   validateSubAgentWorkOrderV1
 } from "../core/subagent-work-order.js";
 import {
+  buildStateCheckpointV1,
+  validateStateCheckpointV1
+} from "../core/state-checkpoint.js";
+import {
+  METER_SCHEMA_VERSION,
+  buildMeterV1FromBillableUsageEvent
+} from "../core/meter.js";
+import {
   TASK_NEGOTIATION_STATUS,
   validateTaskAcceptanceV1,
   validateTaskOfferV1,
@@ -182,7 +190,7 @@ import {
   AGENT_CARD_VISIBILITY,
   TOOL_DESCRIPTOR_RISK_CLASS,
   buildAgentCardV1,
-  buildSettldAgentCard,
+  buildNooterraAgentCard,
   validateAgentCardV1
 } from "../core/agent-card.js";
 import { buildX402SettlementTerms, parseX402PaymentRequired } from "../core/x402-gate.js";
@@ -308,11 +316,11 @@ import {
   verifySettlementKernelArtifacts
 } from "../core/settlement-kernel.js";
 import {
-  buildSettldPayPayloadV1,
-  computeSettldPayTokenSha256,
-  mintSettldPayTokenV1,
-  parseSettldPayTokenV1
-} from "../core/settld-pay-token.js";
+  buildNooterraPayPayloadV1,
+  computeNooterraPayTokenSha256,
+  mintNooterraPayTokenV1,
+  parseNooterraPayTokenV1
+} from "../core/nooterra-pay-token.js";
 import {
   buildX402WalletIssuerDecisionPayloadV1,
   mintX402WalletIssuerDecisionTokenV1,
@@ -324,7 +332,7 @@ import {
   mintX402EscalationOverrideTokenV1,
   verifyX402EscalationOverrideTokenV1
 } from "../core/x402-escalation-override.js";
-import { buildSettldPayKeysetV1 } from "../core/settld-keys.js";
+import { buildNooterraPayKeysetV1 } from "../core/nooterra-keys.js";
 import {
   buildMarketplaceOffer,
   buildMarketplaceAcceptance
@@ -447,9 +455,9 @@ export function createApi({
   x402SessionTaintEscalateAmountCents = null,
   x402WebhookAutoDisableFailures = null,
   x402WebhookSecretRotationWindowSeconds = null,
-  settldPayTokenTtlSeconds = null,
-  settldPayFallbackKeys = null,
-  settldPayIssuer = null,
+  nooterraPayTokenTtlSeconds = null,
+  nooterraPayFallbackKeys = null,
+  nooterraPayIssuer = null,
   agentCardPublicListingFeeCents = null,
   agentCardPublicListingFeeCurrency = null,
   agentCardPublicListingFeeCollectorAgentId = null,
@@ -592,19 +600,19 @@ export function createApi({
 
   function setProtocolResponseHeaders(res) {
     try {
-      res.setHeader("x-settld-protocol", protocolPolicy.current);
-      res.setHeader("x-settld-supported-protocols", protocolPolicy.supported.join(","));
-      if (protocolPolicy.buildId) res.setHeader("x-settld-build", String(protocolPolicy.buildId));
+      res.setHeader("x-nooterra-protocol", protocolPolicy.current);
+      res.setHeader("x-nooterra-supported-protocols", protocolPolicy.supported.join(","));
+      if (protocolPolicy.buildId) res.setHeader("x-nooterra-build", String(protocolPolicy.buildId));
     } catch {
       // ignore
     }
   }
 
   function parseAndValidateRequestProtocol({ req, required }) {
-    const header = req?.headers?.["x-settld-protocol"] ? String(req.headers["x-settld-protocol"]).trim() : "";
+    const header = req?.headers?.["x-nooterra-protocol"] ? String(req.headers["x-nooterra-protocol"]).trim() : "";
     if (!header) {
       if (required) {
-        return { ok: false, statusCode: 400, code: "PROTOCOL_VERSION_REQUIRED", message: "x-settld-protocol is required" };
+        return { ok: false, statusCode: 400, code: "PROTOCOL_VERSION_REQUIRED", message: "x-nooterra-protocol is required" };
       }
       return { ok: true, protocol: protocolPolicy.current, assumed: true };
     }
@@ -1208,7 +1216,7 @@ export function createApi({
     const raw =
       agentCardPublicListingFeeCollectorAgentId ??
       (typeof process !== "undefined" && process.env ? process.env.PROXY_AGENT_CARD_PUBLIC_LISTING_FEE_COLLECTOR_AGENT_ID ?? null : null);
-    const normalized = raw === null || raw === undefined || String(raw).trim() === "" ? "__settld_registry__" : String(raw).trim();
+    const normalized = raw === null || raw === undefined || String(raw).trim() === "" ? "__nooterra_registry__" : String(raw).trim();
     if (!normalized) throw new TypeError("PROXY_AGENT_CARD_PUBLIC_LISTING_FEE_COLLECTOR_AGENT_ID must be a non-empty string");
     return normalized;
   })();
@@ -1799,22 +1807,22 @@ export function createApi({
   function isProductionLikeRuntimeEnv() {
     const nodeEnv = typeof process !== "undefined" ? String(process.env.NODE_ENV ?? "").trim().toLowerCase() : "";
     if (nodeEnv === "production") return true;
-    const settldEnv = typeof process !== "undefined" ? String(process.env.SETTLD_ENV ?? "").trim().toLowerCase() : "";
-    if (settldEnv === "production" || settldEnv === "prod") return true;
+    const nooterraEnv = typeof process !== "undefined" ? String(process.env.NOOTERRA_ENV ?? "").trim().toLowerCase() : "";
+    if (nooterraEnv === "production" || nooterraEnv === "prod") return true;
     const railwayEnv =
       typeof process !== "undefined" ? String(process.env.RAILWAY_ENVIRONMENT_NAME ?? "").trim().toLowerCase() : "";
     if (railwayEnv === "production" || railwayEnv === "prod") return true;
     return false;
   }
 
-  function normalizeSettldPayFallbackKeysInput(raw) {
+  function normalizeNooterraPayFallbackKeysInput(raw) {
     if (raw === null || raw === undefined || raw === "") return [];
     let parsed = raw;
     if (typeof parsed === "string") {
       try {
         parsed = JSON.parse(parsed);
       } catch (err) {
-        throw new TypeError(`invalid SETTLD_PAY_FALLBACK_KEYS JSON: ${err?.message ?? String(err ?? "")}`);
+        throw new TypeError(`invalid NOOTERRA_PAY_FALLBACK_KEYS JSON: ${err?.message ?? String(err ?? "")}`);
       }
     }
     const entries = Array.isArray(parsed) ? parsed : [parsed];
@@ -1829,7 +1837,7 @@ export function createApi({
     return out;
   }
 
-  function mergeSettldPayFallbackKeys(...lists) {
+  function mergeNooterraPayFallbackKeys(...lists) {
     const out = [];
     const seen = new Set();
     for (const list of lists) {
@@ -1853,38 +1861,38 @@ export function createApi({
     store.nowIso = nowIso;
   }
 
-  const settldPayIssuerValue =
-    typeof settldPayIssuer === "string" && settldPayIssuer.trim() !== ""
-      ? settldPayIssuer.trim()
-      : typeof process !== "undefined" && typeof process.env.SETTLD_PAY_ISSUER === "string" && process.env.SETTLD_PAY_ISSUER.trim() !== ""
-        ? process.env.SETTLD_PAY_ISSUER.trim()
-        : "settld";
-  const settldPayTokenTtlSecondsValue = (() => {
+  const nooterraPayIssuerValue =
+    typeof nooterraPayIssuer === "string" && nooterraPayIssuer.trim() !== ""
+      ? nooterraPayIssuer.trim()
+      : typeof process !== "undefined" && typeof process.env.NOOTERRA_PAY_ISSUER === "string" && process.env.NOOTERRA_PAY_ISSUER.trim() !== ""
+        ? process.env.NOOTERRA_PAY_ISSUER.trim()
+        : "nooterra";
+  const nooterraPayTokenTtlSecondsValue = (() => {
     const raw =
-      settldPayTokenTtlSeconds ??
-      (typeof process !== "undefined" ? (process.env.SETTLD_PAY_TOKEN_TTL_SECONDS ?? null) : null) ??
+      nooterraPayTokenTtlSeconds ??
+      (typeof process !== "undefined" ? (process.env.NOOTERRA_PAY_TOKEN_TTL_SECONDS ?? null) : null) ??
       300;
     const n = Number(raw);
-    if (!Number.isSafeInteger(n) || n <= 0 || n > 3600) throw new TypeError("SETTLD_PAY_TOKEN_TTL_SECONDS must be an integer within 1..3600");
+    if (!Number.isSafeInteger(n) || n <= 0 || n > 3600) throw new TypeError("NOOTERRA_PAY_TOKEN_TTL_SECONDS must be an integer within 1..3600");
     return n;
   })();
-  const settldPayFallbackKeysValue = (() => {
-    const fromStore = normalizeSettldPayFallbackKeysInput(store?.settldPayFallbackKeys ?? null);
-    const explicit = normalizeSettldPayFallbackKeysInput(settldPayFallbackKeys);
-    if (explicit.length > 0) return mergeSettldPayFallbackKeys(fromStore, explicit);
+  const nooterraPayFallbackKeysValue = (() => {
+    const fromStore = normalizeNooterraPayFallbackKeysInput(store?.nooterraPayFallbackKeys ?? null);
+    const explicit = normalizeNooterraPayFallbackKeysInput(nooterraPayFallbackKeys);
+    if (explicit.length > 0) return mergeNooterraPayFallbackKeys(fromStore, explicit);
     const fromEnvJson =
-      typeof process !== "undefined" ? normalizeSettldPayFallbackKeysInput(process.env.SETTLD_PAY_FALLBACK_KEYS ?? null) : [];
-    if (fromEnvJson.length > 0) return mergeSettldPayFallbackKeys(fromStore, fromEnvJson);
+      typeof process !== "undefined" ? normalizeNooterraPayFallbackKeysInput(process.env.NOOTERRA_PAY_FALLBACK_KEYS ?? null) : [];
+    if (fromEnvJson.length > 0) return mergeNooterraPayFallbackKeys(fromStore, fromEnvJson);
     const singlePem =
-      typeof process !== "undefined" && typeof process.env.SETTLD_PAY_FALLBACK_PUBLIC_KEY_PEM === "string"
-        ? process.env.SETTLD_PAY_FALLBACK_PUBLIC_KEY_PEM.trim()
+      typeof process !== "undefined" && typeof process.env.NOOTERRA_PAY_FALLBACK_PUBLIC_KEY_PEM === "string"
+        ? process.env.NOOTERRA_PAY_FALLBACK_PUBLIC_KEY_PEM.trim()
         : "";
     if (!singlePem) return fromStore;
     const singleKid =
-      typeof process !== "undefined" && typeof process.env.SETTLD_PAY_FALLBACK_KEY_ID === "string"
-        ? process.env.SETTLD_PAY_FALLBACK_KEY_ID.trim()
+      typeof process !== "undefined" && typeof process.env.NOOTERRA_PAY_FALLBACK_KEY_ID === "string"
+        ? process.env.NOOTERRA_PAY_FALLBACK_KEY_ID.trim()
         : "";
-    return mergeSettldPayFallbackKeys(fromStore, [{ publicKeyPem: singlePem, keyId: singleKid || null }]);
+    return mergeNooterraPayFallbackKeys(fromStore, [{ publicKeyPem: singlePem, keyId: singleKid || null }]);
   })();
   const productionLikeEnv = isProductionLikeRuntimeEnv();
   const x402RequireExternalReserveValue = (() => {
@@ -2306,13 +2314,13 @@ export function createApi({
     return total;
   }
 
-  function buildSettldPayKeyset() {
-    return buildSettldPayKeysetV1({
+  function buildNooterraPayKeyset() {
+    return buildNooterraPayKeysetV1({
       activeKey: {
         keyId: store.serverSigner.keyId,
         publicKeyPem: store.serverSigner.publicKeyPem
       },
-      fallbackKeys: settldPayFallbackKeysValue,
+      fallbackKeys: nooterraPayFallbackKeysValue,
       refreshedAt: nowIso()
     });
   }
@@ -3920,12 +3928,12 @@ export function createApi({
     const operationId =
       normalizeNonEmptyStringOrNull(root.operationId) ??
       normalizeNonEmptyStringOrNull(object?.operationId) ??
-      normalizeNonEmptyStringOrNull(metadata?.settld_operation_id) ??
+      normalizeNonEmptyStringOrNull(metadata?.nooterra_operation_id) ??
       normalizeNonEmptyStringOrNull(metadata?.operation_id);
     const payoutKey =
       normalizeNonEmptyStringOrNull(root?.payoutKey) ??
       normalizeNonEmptyStringOrNull(object?.payoutKey) ??
-      normalizeNonEmptyStringOrNull(metadata?.settld_payout_key);
+      normalizeNonEmptyStringOrNull(metadata?.nooterra_payout_key);
     const providerRef =
       normalizeNonEmptyStringOrNull(root.providerRef) ??
       normalizeNonEmptyStringOrNull(object?.providerRef) ??
@@ -7642,6 +7650,48 @@ export function createApi({
       );
   }
 
+  function toWorkOrderMeterV1(event, { workOrderId }) {
+    const normalizedWorkOrderId = typeof workOrderId === "string" && workOrderId.trim() !== "" ? workOrderId.trim() : null;
+    if (!normalizedWorkOrderId) throw new TypeError("workOrderId is required");
+    return buildMeterV1FromBillableUsageEvent({
+      event,
+      expectedWorkOrderId: normalizedWorkOrderId
+    });
+  }
+
+  function buildWorkOrderMeteringSnapshotV1({ workOrder, meterEvents = [] } = {}) {
+    const workOrderId = typeof workOrder?.workOrderId === "string" && workOrder.workOrderId.trim() !== "" ? workOrder.workOrderId.trim() : null;
+    if (!workOrderId) throw new TypeError("workOrder.workOrderId is required");
+    const meteringPolicy = resolveWorkOrderMeteringPolicy(workOrder, { allowNull: true });
+    const coverage = summarizeWorkOrderMeteringCoverage({ workOrder, meterEvents });
+    const maxCostRaw = Number(workOrder?.constraints?.maxCostCents ?? Number.NaN);
+    const maxCostCents = Number.isSafeInteger(maxCostRaw) && maxCostRaw >= 0 ? maxCostRaw : null;
+    const meters = (Array.isArray(meterEvents) ? meterEvents : [])
+      .map((event) => toWorkOrderMeterV1(event, { workOrderId }))
+      .sort((left, right) => String(left.occurredAt ?? "").localeCompare(String(right.occurredAt ?? "")) || String(left.meterId ?? "").localeCompare(String(right.meterId ?? "")));
+    const meterDigest = sha256Hex(canonicalJsonStringify(meters));
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "WorkOrderMeteringSnapshot.v1",
+        meterSchemaVersion: METER_SCHEMA_VERSION,
+        workOrderId,
+        policy: meteringPolicy,
+        summary: {
+          baseAmountCents: coverage.baseAmountCents,
+          topUpTotalCents: coverage.topUpTotalCents,
+          usageTotalCents: coverage.usageTotalCents,
+          coveredAmountCents: coverage.coveredAmountCents,
+          maxCostCents,
+          remainingCents: Number.isSafeInteger(maxCostCents) ? Math.max(0, maxCostCents - coverage.coveredAmountCents) : null
+        },
+        meterCount: meters.length,
+        meterDigest,
+        meters
+      },
+      { path: "$.meteringSnapshot" }
+    );
+  }
+
   function summarizeWorkOrderMeteringCoverage({ workOrder, meterEvents = [] } = {}) {
     const baseAmountRaw = Number(workOrder?.pricing?.amountCents ?? Number.NaN);
     const baseAmountCents = Number.isSafeInteger(baseAmountRaw) && baseAmountRaw >= 0 ? baseAmountRaw : 0;
@@ -8308,6 +8358,17 @@ export function createApi({
     return value;
   }
 
+  function parseExecutionCoordinatorDid(rawValue, { allowNull = true, fieldName = "executionCoordinatorDid" } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldName} is required`);
+    }
+    const value = String(rawValue).trim();
+    if (value.length > 256) throw new TypeError(`${fieldName} must be <= 256 characters`);
+    if (!value.includes(":")) throw new TypeError(`${fieldName} must be a DID-like identifier`);
+    return value;
+  }
+
   function normalizeAgentCardToolDescriptorsForDiscovery(agentCard) {
     const source = Array.isArray(agentCard?.tools) ? agentCard.tools : [];
     const out = [];
@@ -8368,7 +8429,10 @@ export function createApi({
       if (allowNull) return null;
       throw new TypeError("cursor is required");
     }
-    return String(rawValue).trim();
+    const value = String(rawValue).trim();
+    if (value.length > 200) throw new TypeError("cursor must be <= 200 characters");
+    if (!/^[A-Za-z0-9:_./-]+$/.test(value)) throw new TypeError("cursor must match ^[A-Za-z0-9:_./-]+$");
+    return value;
   }
 
   function parseAuditLineageFilter(rawValue, { name, max = 256, allowNull = true } = {}) {
@@ -9207,7 +9271,7 @@ export function createApi({
     return value;
   }
 
-  function resolveSessionArtifactSigningCandidate({ signerKeyId = null } = {}) {
+  async function resolveSessionArtifactSigningCandidate({ tenantId, signerKeyId = null, at = null } = {}) {
     const normalizedSignerKeyId = parseSessionArtifactSignerKeyId(signerKeyId, { allowNull: true });
     const serverPublicKeyPem = typeof store?.serverSigner?.publicKeyPem === "string" ? store.serverSigner.publicKeyPem : "";
     const serverPrivateKeyPem = typeof store?.serverSigner?.privateKeyPem === "string" ? store.serverSigner.privateKeyPem : "";
@@ -9254,9 +9318,50 @@ export function createApi({
     if (normalizedSignerKeyId) {
       const selected = byKeyId.get(normalizedSignerKeyId) ?? null;
       if (!selected) throw new TypeError("session artifact signerKeyId is not available");
+      const lifecycle = await evaluateSessionSignerKeyLifecycle({
+        tenantId,
+        signerKeyId: selected.keyId,
+        at: typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso(),
+        requireRegistered: false
+      });
+      if (!lifecycle.ok) {
+        const err = new TypeError(`session artifact signer key blocked: ${lifecycle.reasonCode ?? "SIGNER_KEY_INVALID"}`);
+        err.code = "SESSION_ARTIFACT_SIGNER_KEY_INVALID";
+        err.details = {
+          signerKeyId: selected.keyId,
+          reasonCode: lifecycle.reasonCode ?? "SIGNER_KEY_INVALID",
+          reason: lifecycle.message ?? "signer key lifecycle verification failed",
+          signerStatus: lifecycle.signerStatus ?? null,
+          validFrom: lifecycle.validFrom ?? null,
+          validTo: lifecycle.validTo ?? null,
+          revokedAt: lifecycle.revokedAt ?? null
+        };
+        throw err;
+      }
       return selected;
     }
-    return overrideSigner ?? normalizedServer;
+    const selected = overrideSigner ?? normalizedServer;
+    const lifecycle = await evaluateSessionSignerKeyLifecycle({
+      tenantId,
+      signerKeyId: selected.keyId,
+      at: typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso(),
+      requireRegistered: false
+    });
+    if (!lifecycle.ok) {
+      const err = new TypeError(`session artifact signer key blocked: ${lifecycle.reasonCode ?? "SIGNER_KEY_INVALID"}`);
+      err.code = "SESSION_ARTIFACT_SIGNER_KEY_INVALID";
+      err.details = {
+        signerKeyId: selected.keyId,
+        reasonCode: lifecycle.reasonCode ?? "SIGNER_KEY_INVALID",
+        reason: lifecycle.message ?? "signer key lifecycle verification failed",
+        signerStatus: lifecycle.signerStatus ?? null,
+        validFrom: lifecycle.validFrom ?? null,
+        validTo: lifecycle.validTo ?? null,
+        revokedAt: lifecycle.revokedAt ?? null
+      };
+      throw err;
+    }
+    return selected;
   }
 
   function parseInteractionGraphPackSignerKeyId(rawValue, { allowNull = true } = {}) {
@@ -9739,6 +9844,7 @@ export function createApi({
     tenantId,
     scope = "tenant",
     capability = null,
+    executionCoordinatorDid = null,
     toolId = null,
     toolMcpName = null,
     toolRiskClass = null,
@@ -9777,6 +9883,10 @@ export function createApi({
       throw new TypeError("public discovery visibility must be public");
     }
     const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const executionCoordinatorDidFilter = parseExecutionCoordinatorDid(executionCoordinatorDid, {
+      allowNull: true,
+      fieldName: "executionCoordinatorDid"
+    });
     const toolIdFilter =
       toolId === null || toolId === undefined || String(toolId).trim() === ""
         ? null
@@ -9874,6 +9984,7 @@ export function createApi({
         status: statusFilter === "all" ? null : statusFilter,
         visibility: visibilityFilter === "all" ? null : visibilityFilter,
         capability: capabilityFilter,
+        executionCoordinatorDid: executionCoordinatorDidFilter,
         toolId: toolIdFilter,
         toolMcpName: toolMcpNameFilter,
         toolRiskClass: parsedToolRiskClass,
@@ -9890,6 +10001,7 @@ export function createApi({
         status: statusFilter === "all" ? null : statusFilter,
         visibility: visibilityFilter === "all" ? null : visibilityFilter,
         capability: capabilityFilter,
+        executionCoordinatorDid: executionCoordinatorDidFilter,
         toolId: toolIdFilter,
         toolMcpName: toolMcpNameFilter,
         toolRiskClass: parsedToolRiskClass,
@@ -9913,6 +10025,7 @@ export function createApi({
               : "";
           if (rowRuntime !== runtimeFilter) continue;
         }
+        if (executionCoordinatorDidFilter && String(row.executionCoordinatorDid ?? "") !== executionCoordinatorDidFilter) continue;
         if (capabilityFilter) {
           const rowCaps = Array.isArray(row.capabilities) ? row.capabilities : [];
           if (!rowCaps.includes(capabilityFilter)) continue;
@@ -10153,6 +10266,7 @@ export function createApi({
 
   async function listPublicAgentCardsForStream({
     capability = null,
+    executionCoordinatorDid = null,
     toolId = null,
     toolMcpName = null,
     toolRiskClass = null,
@@ -10164,6 +10278,10 @@ export function createApi({
   } = {}) {
     const statusFilter = parseDiscoveryStatus(status);
     const capabilityFilter = capability && String(capability).trim() !== "" ? String(capability).trim() : null;
+    const executionCoordinatorDidFilter = parseExecutionCoordinatorDid(executionCoordinatorDid, {
+      allowNull: true,
+      fieldName: "executionCoordinatorDid"
+    });
     const toolIdFilter =
       toolId === null || toolId === undefined || String(toolId).trim() === ""
         ? null
@@ -10202,6 +10320,7 @@ export function createApi({
         status: statusFilter === "all" ? null : statusFilter,
         visibility: AGENT_CARD_VISIBILITY.PUBLIC,
         capability: capabilityFilter,
+        executionCoordinatorDid: executionCoordinatorDidFilter,
         toolId: toolIdFilter,
         toolMcpName: toolMcpNameFilter,
         toolRiskClass: parsedToolRiskClass,
@@ -10224,6 +10343,7 @@ export function createApi({
               : "";
           if (rowRuntime !== runtimeFilter) continue;
         }
+        if (executionCoordinatorDidFilter && String(row.executionCoordinatorDid ?? "") !== executionCoordinatorDidFilter) continue;
         if (capabilityFilter) {
           const rowCaps = Array.isArray(row.capabilities) ? row.capabilities : [];
           if (!rowCaps.includes(capabilityFilter)) continue;
@@ -14430,6 +14550,241 @@ export function createApi({
     }
   }
 
+  function grantAllowsSubstrateWriteRisk(scope) {
+    const allowedRiskClasses = Array.isArray(scope?.allowedRiskClasses)
+      ? scope.allowedRiskClasses.map((row) => String(row).toLowerCase())
+      : [];
+    return allowedRiskClasses.includes(DELEGATION_GRANT_RISK_CLASS.ACTION) || allowedRiskClasses.includes(DELEGATION_GRANT_RISK_CLASS.FINANCIAL);
+  }
+
+  async function resolveDelegationGrantForStateCheckpointWrite({
+    tenantId,
+    delegationGrantRef,
+    ownerAgentId,
+    nowAt,
+    toolId = "state_checkpoint_create"
+  } = {}) {
+    const explicitRef =
+      typeof delegationGrantRef === "string" && delegationGrantRef.trim() !== ""
+        ? delegationGrantRef.trim()
+        : null;
+    if (!explicitRef) return { delegationGrant: null, delegationGrantRef: null };
+    const normalizedGrantId = normalizeOptionalX402RefInput(explicitRef, "delegationGrantRef", { allowNull: false, max: 200 });
+    if (typeof store.getDelegationGrant !== "function") {
+      throw buildX402DelegationGrantError(
+        "X402_DELEGATION_GRANT_RESOLVER_UNAVAILABLE",
+        "delegation grant resolver is unavailable for this store",
+        { delegationGrantRef: normalizedGrantId }
+      );
+    }
+    const grant = await store.getDelegationGrant({ tenantId, grantId: normalizedGrantId });
+    if (!grant) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_NOT_FOUND", "delegation grant was not found", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    try {
+      validateDelegationGrantV1(grant);
+    } catch (err) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_SCHEMA_INVALID", "delegation grant failed schema validation", {
+        delegationGrantRef: normalizedGrantId,
+        message: err?.message ?? null
+      });
+    }
+    const atIso = typeof nowAt === "string" && nowAt.trim() !== "" ? nowAt.trim() : nowIso();
+    const nowMs = Date.parse(atIso);
+    if (!Number.isFinite(nowMs)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_TIME_INVALID", "authorization timestamp must be an ISO timestamp");
+    }
+    const revokedAt =
+      grant?.revocation && typeof grant.revocation === "object" && !Array.isArray(grant.revocation) ? grant.revocation.revokedAt : null;
+    if (typeof revokedAt === "string" && revokedAt.trim() !== "") {
+      const revokedMs = Date.parse(revokedAt);
+      if (Number.isFinite(revokedMs) && revokedMs <= nowMs) {
+        throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_REVOKED", "delegation grant is revoked", {
+          delegationGrantRef: normalizedGrantId,
+          revokedAt
+        });
+      }
+    }
+    const notBefore = String(grant?.validity?.notBefore ?? "");
+    const expiresAt = String(grant?.validity?.expiresAt ?? "");
+    const notBeforeMs = Date.parse(notBefore);
+    const expiresAtMs = Date.parse(expiresAt);
+    if (!Number.isFinite(notBeforeMs) || !Number.isFinite(expiresAtMs)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_VALIDITY_INVALID", "delegation grant validity window is invalid", {
+        delegationGrantRef: normalizedGrantId
+      });
+    }
+    if (nowMs < notBeforeMs) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_NOT_ACTIVE", "delegation grant is not active yet", {
+        delegationGrantRef: normalizedGrantId,
+        notBefore
+      });
+    }
+    if (nowMs >= expiresAtMs) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_EXPIRED", "delegation grant is expired", {
+        delegationGrantRef: normalizedGrantId,
+        expiresAt
+      });
+    }
+    const depth = Number(grant?.chainBinding?.depth);
+    const maxDepth = Number(grant?.chainBinding?.maxDelegationDepth);
+    if (!Number.isSafeInteger(depth) || !Number.isSafeInteger(maxDepth) || depth < 0 || maxDepth < 0 || depth > maxDepth) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_DEPTH_INVALID", "delegation grant chain depth exceeds max depth", {
+        delegationGrantRef: normalizedGrantId,
+        depth: grant?.chainBinding?.depth ?? null,
+        maxDelegationDepth: grant?.chainBinding?.maxDelegationDepth ?? null
+      });
+    }
+    if (String(grant?.delegateeAgentId ?? "") !== String(ownerAgentId ?? "")) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_ACTOR_MISMATCH", "delegation grant delegatee does not match checkpoint owner", {
+        delegationGrantRef: normalizedGrantId,
+        delegateeAgentId: grant?.delegateeAgentId ?? null,
+        ownerAgentId: ownerAgentId ?? null
+      });
+    }
+    const scope = grant?.scope && typeof grant.scope === "object" && !Array.isArray(grant.scope) ? grant.scope : {};
+    if (scope.sideEffectingAllowed !== true) {
+      throw buildX402DelegationGrantError(
+        "X402_DELEGATION_GRANT_SIDE_EFFECTING_DENIED",
+        "delegation grant does not allow side-effecting execution",
+        { delegationGrantRef: normalizedGrantId }
+      );
+    }
+    if (!grantAllowsSubstrateWriteRisk(scope)) {
+      throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_RISK_CLASS_DENIED", "delegation grant does not allow action risk class", {
+        delegationGrantRef: normalizedGrantId,
+        allowedRiskClasses: Array.isArray(scope.allowedRiskClasses) ? scope.allowedRiskClasses : []
+      });
+    }
+    const allowedTools = Array.isArray(scope.allowedToolIds) ? scope.allowedToolIds.filter(Boolean) : [];
+    if (allowedTools.length > 0) {
+      const normalizedToolId = typeof toolId === "string" && toolId.trim() !== "" ? toolId.trim() : null;
+      if (!normalizedToolId || !allowedTools.includes(normalizedToolId)) {
+        throw buildX402DelegationGrantError("X402_DELEGATION_GRANT_TOOL_DENIED", "tool is not allowlisted by delegation grant", {
+          delegationGrantRef: normalizedGrantId,
+          toolId: normalizedToolId,
+          allowedToolIds: allowedTools
+        });
+      }
+    }
+    return { delegationGrant: grant, delegationGrantRef: normalizedGrantId };
+  }
+
+  async function resolveAuthorityGrantForStateCheckpointWrite({
+    tenantId,
+    authorityGrantRef,
+    ownerAgentId,
+    nowAt,
+    toolId = "state_checkpoint_create"
+  } = {}) {
+    const explicitRef =
+      typeof authorityGrantRef === "string" && authorityGrantRef.trim() !== ""
+        ? authorityGrantRef.trim()
+        : null;
+    if (!explicitRef) return { authorityGrant: null, authorityGrantRef: null };
+    const normalizedGrantId = normalizeOptionalX402RefInput(explicitRef, "authorityGrantRef", { allowNull: false, max: 200 });
+    if (typeof store.getAuthorityGrant !== "function") {
+      throw buildX402AuthorityGrantError(
+        "X402_AUTHORITY_GRANT_RESOLVER_UNAVAILABLE",
+        "authority grant resolver is unavailable for this store",
+        { authorityGrantRef: normalizedGrantId }
+      );
+    }
+    const grant = await store.getAuthorityGrant({ tenantId, grantId: normalizedGrantId });
+    if (!grant) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_NOT_FOUND", "authority grant was not found", {
+        authorityGrantRef: normalizedGrantId
+      });
+    }
+    try {
+      validateAuthorityGrantV1(grant);
+    } catch (err) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_SCHEMA_INVALID", "authority grant failed schema validation", {
+        authorityGrantRef: normalizedGrantId,
+        message: err?.message ?? null
+      });
+    }
+    const atIso = typeof nowAt === "string" && nowAt.trim() !== "" ? nowAt.trim() : nowIso();
+    const nowMs = Date.parse(atIso);
+    if (!Number.isFinite(nowMs)) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_TIME_INVALID", "authorization timestamp must be an ISO timestamp");
+    }
+    const revokedAt =
+      grant?.revocation && typeof grant.revocation === "object" && !Array.isArray(grant.revocation) ? grant.revocation.revokedAt : null;
+    if (typeof revokedAt === "string" && revokedAt.trim() !== "") {
+      const revokedMs = Date.parse(revokedAt);
+      if (Number.isFinite(revokedMs) && revokedMs <= nowMs) {
+        throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_REVOKED", "authority grant is revoked", {
+          authorityGrantRef: normalizedGrantId,
+          revokedAt
+        });
+      }
+    }
+    const notBefore = String(grant?.validity?.notBefore ?? "");
+    const expiresAt = String(grant?.validity?.expiresAt ?? "");
+    const notBeforeMs = Date.parse(notBefore);
+    const expiresAtMs = Date.parse(expiresAt);
+    if (!Number.isFinite(notBeforeMs) || !Number.isFinite(expiresAtMs)) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_VALIDITY_INVALID", "authority grant validity window is invalid", {
+        authorityGrantRef: normalizedGrantId
+      });
+    }
+    if (nowMs < notBeforeMs) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_NOT_ACTIVE", "authority grant is not active yet", {
+        authorityGrantRef: normalizedGrantId,
+        notBefore
+      });
+    }
+    if (nowMs >= expiresAtMs) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_EXPIRED", "authority grant is expired", {
+        authorityGrantRef: normalizedGrantId,
+        expiresAt
+      });
+    }
+    const depth = Number(grant?.chainBinding?.depth);
+    const maxDepth = Number(grant?.chainBinding?.maxDelegationDepth);
+    if (!Number.isSafeInteger(depth) || !Number.isSafeInteger(maxDepth) || depth < 0 || maxDepth < 0 || depth > maxDepth) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_DEPTH_INVALID", "authority grant chain depth exceeds max depth", {
+        authorityGrantRef: normalizedGrantId,
+        depth: grant?.chainBinding?.depth ?? null,
+        maxDelegationDepth: grant?.chainBinding?.maxDelegationDepth ?? null
+      });
+    }
+    if (String(grant?.granteeAgentId ?? "") !== String(ownerAgentId ?? "")) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_ACTOR_MISMATCH", "authority grant grantee does not match checkpoint owner", {
+        authorityGrantRef: normalizedGrantId,
+        granteeAgentId: grant?.granteeAgentId ?? null,
+        ownerAgentId: ownerAgentId ?? null
+      });
+    }
+    const scope = grant?.scope && typeof grant.scope === "object" && !Array.isArray(grant.scope) ? grant.scope : {};
+    if (scope.sideEffectingAllowed !== true) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_SIDE_EFFECTING_DENIED", "authority grant does not allow side-effecting execution", {
+        authorityGrantRef: normalizedGrantId
+      });
+    }
+    if (!grantAllowsSubstrateWriteRisk(scope)) {
+      throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_RISK_CLASS_DENIED", "authority grant does not allow action risk class", {
+        authorityGrantRef: normalizedGrantId,
+        allowedRiskClasses: Array.isArray(scope.allowedRiskClasses) ? scope.allowedRiskClasses : []
+      });
+    }
+    const allowedTools = Array.isArray(scope.allowedToolIds) ? scope.allowedToolIds.filter(Boolean) : [];
+    if (allowedTools.length > 0) {
+      const normalizedToolId = typeof toolId === "string" && toolId.trim() !== "" ? toolId.trim() : null;
+      if (!normalizedToolId || !allowedTools.includes(normalizedToolId)) {
+        throw buildX402AuthorityGrantError("X402_AUTHORITY_GRANT_TOOL_DENIED", "tool is not allowlisted by authority grant", {
+          authorityGrantRef: normalizedGrantId,
+          toolId: normalizedToolId,
+          allowedToolIds: allowedTools
+        });
+      }
+    }
+    return { authorityGrant: grant, authorityGrantRef: normalizedGrantId };
+  }
+
   function tenantSettlementPolicyStoreKey({ tenantId, policyId, policyVersion }) {
     return makeScopedKey({
       tenantId: normalizeTenant(tenantId),
@@ -16029,6 +16384,136 @@ export function createApi({
     throw new TypeError("session events not supported for this store");
   }
 
+  function parseSessionSignerLifecycleIsoDate(value, { fieldName } = {}) {
+    if (value === null || value === undefined || String(value).trim() === "") return null;
+    const iso = String(value).trim();
+    const ms = Date.parse(iso);
+    if (!Number.isFinite(ms)) throw new TypeError(`${fieldName} must be an ISO date-time`);
+    return { iso, ms };
+  }
+
+  function evaluateSessionSignerLifecycleAt({ signerKey, at } = {}) {
+    const atValue = typeof at === "string" && at.trim() !== "" ? at.trim() : null;
+    if (!atValue) {
+      return { ok: false, reasonCode: "SIGNER_EVENT_TIME_INVALID", message: "event timestamp is required" };
+    }
+    const atMs = Date.parse(atValue);
+    if (!Number.isFinite(atMs)) {
+      return { ok: false, reasonCode: "SIGNER_EVENT_TIME_INVALID", message: "event timestamp must be an ISO date-time" };
+    }
+
+    let validFrom = null;
+    let validTo = null;
+    let revokedAt = null;
+    let signerStatus = SIGNER_KEY_STATUS.ACTIVE;
+    try {
+      signerStatus = normalizeSignerKeyStatus(signerKey?.status ?? SIGNER_KEY_STATUS.ACTIVE);
+    } catch {
+      return { ok: false, reasonCode: "SIGNER_KEY_STATUS_INVALID", message: "signer key status is invalid" };
+    }
+    try {
+      validFrom = parseSessionSignerLifecycleIsoDate(signerKey?.validFrom ?? null, { fieldName: "signerKey.validFrom" });
+      validTo = parseSessionSignerLifecycleIsoDate(signerKey?.validTo ?? null, { fieldName: "signerKey.validTo" });
+      revokedAt = parseSessionSignerLifecycleIsoDate(signerKey?.revokedAt ?? null, { fieldName: "signerKey.revokedAt" });
+    } catch (err) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_LIFECYCLE_INVALID",
+        message: err?.message ?? "signer key lifecycle fields are invalid",
+        signerStatus
+      };
+    }
+    if (signerStatus === SIGNER_KEY_STATUS.REVOKED && revokedAt && atMs >= revokedAt.ms) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_REVOKED",
+        message: "signer key is revoked at event time",
+        signerStatus,
+        revokedAt: revokedAt.iso
+      };
+    }
+    if (signerStatus !== SIGNER_KEY_STATUS.ACTIVE) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_NOT_ACTIVE",
+        message: "signer key is not active",
+        signerStatus,
+        revokedAt: revokedAt?.iso ?? null
+      };
+    }
+
+    if (validFrom && atMs < validFrom.ms) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_NOT_YET_VALID",
+        message: "signer key is not yet valid at event time",
+        signerStatus,
+        validFrom: validFrom.iso
+      };
+    }
+    if (validTo && atMs > validTo.ms) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_EXPIRED",
+        message: "signer key is expired at event time",
+        signerStatus,
+        validTo: validTo.iso
+      };
+    }
+    if (revokedAt && atMs >= revokedAt.ms) {
+      return {
+        ok: false,
+        reasonCode: "SIGNER_KEY_REVOKED",
+        message: "signer key is revoked at event time",
+        signerStatus,
+        revokedAt: revokedAt.iso
+      };
+    }
+
+    return {
+      ok: true,
+      reasonCode: null,
+      message: null,
+      signerStatus,
+      validFrom: validFrom?.iso ?? null,
+      validTo: validTo?.iso ?? null,
+      revokedAt: revokedAt?.iso ?? null
+    };
+  }
+
+  async function evaluateSessionSignerKeyLifecycle({
+    tenantId,
+    signerKeyId,
+    at,
+    signerKeyCache = null,
+    requireRegistered = true
+  } = {}) {
+    const normalizedKeyId = typeof signerKeyId === "string" && signerKeyId.trim() !== "" ? signerKeyId.trim() : null;
+    if (!normalizedKeyId) {
+      return { ok: false, reasonCode: "SIGNER_KEY_ID_MISSING", message: "signerKeyId is required" };
+    }
+    const serverSignerKeyId = typeof store?.serverSigner?.keyId === "string" ? store.serverSigner.keyId.trim() : "";
+    let signerKey = null;
+    if (signerKeyCache instanceof Map && signerKeyCache.has(normalizedKeyId)) {
+      signerKey = signerKeyCache.get(normalizedKeyId) ?? null;
+    } else {
+      signerKey = await getSignerKeyRecord({ tenantId: normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID), keyId: normalizedKeyId });
+      if (signerKeyCache instanceof Map) signerKeyCache.set(normalizedKeyId, signerKey ?? null);
+    }
+
+    if (!signerKey) {
+      if (normalizedKeyId === serverSignerKeyId) {
+        return { ok: true, reasonCode: null, message: null, signerStatus: null, validFrom: null, validTo: null, revokedAt: null };
+      }
+      if (requireRegistered) {
+        return { ok: false, reasonCode: "SIGNER_KEY_UNREGISTERED", message: "signer key is not registered" };
+      }
+      return { ok: true, reasonCode: null, message: null, signerStatus: null, validFrom: null, validTo: null, revokedAt: null };
+    }
+
+    return evaluateSessionSignerLifecycleAt({ signerKey, at });
+  }
+
   async function resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel = "session artifact" } = {}) {
     const session = await getSessionRecord({ tenantId, sessionId });
     if (!session) {
@@ -16056,6 +16541,35 @@ export function createApi({
           sessionId,
           reason: "event streamId mismatch",
           eventId: streamMismatch.id ?? null
+        }
+      };
+    }
+    const signerKeyCache = new Map();
+    for (const event of events) {
+      if (!event?.signature) continue;
+      const lifecycle = await evaluateSessionSignerKeyLifecycle({
+        tenantId,
+        signerKeyId: event?.signerKeyId ?? null,
+        at: event?.at ?? null,
+        signerKeyCache
+      });
+      if (lifecycle.ok) continue;
+      return {
+        ok: false,
+        httpStatus: 409,
+        code: "SESSION_REPLAY_SIGNER_KEY_INVALID",
+        message: `${artifactLabel} blocked`,
+        details: {
+          sessionId,
+          eventId: event?.id ?? null,
+          signerKeyId: event?.signerKeyId ?? null,
+          eventAt: event?.at ?? null,
+          reasonCode: lifecycle.reasonCode ?? "SIGNER_KEY_INVALID",
+          reason: lifecycle.message ?? "signer key lifecycle verification failed",
+          signerStatus: lifecycle.signerStatus ?? null,
+          validFrom: lifecycle.validFrom ?? null,
+          validTo: lifecycle.validTo ?? null,
+          revokedAt: lifecycle.revokedAt ?? null
         }
       };
     }
@@ -16279,6 +16793,61 @@ export function createApi({
       return store.subAgentCompletionReceipts.get(makeScopedKey({ tenantId, id: String(receiptId) })) ?? null;
     }
     throw new TypeError("sub-agent completion receipts not supported for this store");
+  }
+
+  async function getStateCheckpointRecord({ tenantId, checkpointId }) {
+    if (typeof store.getStateCheckpoint === "function") return store.getStateCheckpoint({ tenantId, checkpointId });
+    if (store.stateCheckpoints instanceof Map) {
+      return store.stateCheckpoints.get(makeScopedKey({ tenantId, id: String(checkpointId) })) ?? null;
+    }
+    throw new TypeError("state checkpoints not supported for this store");
+  }
+
+  async function listStateCheckpointRecords({
+    tenantId,
+    checkpointId = null,
+    projectId = null,
+    sessionId = null,
+    ownerAgentId = null,
+    traceId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    if (typeof store.listStateCheckpoints === "function") {
+      return store.listStateCheckpoints({
+        tenantId,
+        checkpointId,
+        projectId,
+        sessionId,
+        ownerAgentId,
+        traceId,
+        limit,
+        offset
+      });
+    }
+    if (!(store.stateCheckpoints instanceof Map)) throw new TypeError("state checkpoints not supported for this store");
+    const checkpointFilter =
+      typeof checkpointId === "string" && checkpointId.trim() !== "" ? checkpointId.trim() : null;
+    const projectFilter = typeof projectId === "string" && projectId.trim() !== "" ? projectId.trim() : null;
+    const sessionFilter = typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId.trim() : null;
+    const ownerFilter =
+      typeof ownerAgentId === "string" && ownerAgentId.trim() !== "" ? ownerAgentId.trim() : null;
+    const traceFilter = typeof traceId === "string" && traceId.trim() !== "" ? traceId.trim() : null;
+    const safeLimit = Math.min(1000, Number.isSafeInteger(limit) && limit > 0 ? limit : 200);
+    const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+    const rows = [];
+    for (const row of store.stateCheckpoints.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (checkpointFilter && String(row.checkpointId ?? "") !== checkpointFilter) continue;
+      if (projectFilter && String(row.projectId ?? "") !== projectFilter) continue;
+      if (sessionFilter && String(row.sessionId ?? "") !== sessionFilter) continue;
+      if (ownerFilter && String(row.ownerAgentId ?? "") !== ownerFilter) continue;
+      if (traceFilter && String(row.traceId ?? "") !== traceFilter) continue;
+      rows.push(row);
+    }
+    rows.sort((left, right) => String(left.checkpointId ?? "").localeCompare(String(right.checkpointId ?? "")));
+    return rows.slice(safeOffset, safeOffset + safeLimit);
   }
 
   async function getAgentPassportRecord({ tenantId, agentId }) {
@@ -17078,7 +17647,7 @@ export function createApi({
     profileHash = null,
     verificationMethodHash = null,
     verificationMethodMode = null,
-    verifierId = "settld.policy-engine",
+    verifierId = "nooterra.policy-engine",
     verifierVersion = "v1",
     verifierHash = null,
     resolutionEventId = null,
@@ -19888,7 +20457,7 @@ export function createApi({
 
   function readMetadataPlanCandidate(value) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-    const candidates = [value.settldPlan, value.settld_plan, value.plan, value.planId, value.plan_id];
+    const candidates = [value.nooterraPlan, value.nooterra_plan, value.plan, value.planId, value.plan_id];
     for (const candidate of candidates) {
       if (candidate === null || candidate === undefined || String(candidate).trim() === "") continue;
       const normalized = normalizeOptionalBillingPlanId(candidate, { strict: false });
@@ -27320,7 +27889,7 @@ export function createApi({
           (req.method === "GET" && path === "/public/agent-cards/stream") ||
           (req.method === "GET" && /^\/public\/agents\/[^/]+\/reputation-summary$/.test(path)) ||
           (req.method === "GET" && path === "/.well-known/agent.json") ||
-          (req.method === "GET" && path === "/.well-known/settld-keys.json") ||
+          (req.method === "GET" && path === "/.well-known/nooterra-keys.json") ||
           (req.method === "GET" && path === "/openapi.json") ||
           (req.method === "POST" && path === "/ingest/proxy") ||
           (req.method === "POST" && path === "/exports/ack");
@@ -27541,14 +28110,14 @@ export function createApi({
         }
 
         if (req.method === "GET" && path === "/.well-known/agent.json") {
-          const baseUrl = deriveRequestBaseUrl(req) ?? "https://settld.local";
-          const version = typeof process !== "undefined" ? (process.env.SETTLD_VERSION ?? null) : null;
-          const card = buildSettldAgentCard({ baseUrl, version });
+          const baseUrl = deriveRequestBaseUrl(req) ?? "https://nooterra.local";
+          const version = typeof process !== "undefined" ? (process.env.NOOTERRA_VERSION ?? null) : null;
+          const card = buildNooterraAgentCard({ baseUrl, version });
           return sendJson(res, 200, card);
         }
 
-        if (req.method === "GET" && path === "/.well-known/settld-keys.json") {
-          const keyset = buildSettldPayKeyset();
+        if (req.method === "GET" && path === "/.well-known/nooterra-keys.json") {
+          const keyset = buildNooterraPayKeyset();
           try {
             res.setHeader("cache-control", "public, max-age=86400");
           } catch {
@@ -27576,7 +28145,7 @@ export function createApi({
 	          // Non-sensitive deploy/config hints (do not include tokens/secrets).
 	          build: {
 	            gitSha: typeof process !== "undefined" ? (process.env.GIT_SHA ?? null) : null,
-	            version: typeof process !== "undefined" ? (process.env.SETTLD_VERSION ?? null) : null,
+	            version: typeof process !== "undefined" ? (process.env.NOOTERRA_VERSION ?? null) : null,
 	            railwayEnvironment: typeof process !== "undefined" ? (process.env.RAILWAY_ENVIRONMENT_NAME ?? null) : null,
 	            railwayService: typeof process !== "undefined" ? (process.env.RAILWAY_SERVICE_NAME ?? null) : null
 	          },
@@ -29701,7 +30270,7 @@ export function createApi({
             "<ul class=\"list\">",
             "<li>Use a token with `finance_write` or `ops_write` for ruling actions.</li>",
             "<li>`Submit verdict` requires a fully signed `arbitrationVerdict` payload.</li>",
-            "<li>All write actions include `x-settld-protocol` and unique idempotency keys.</li>",
+            "<li>All write actions include `x-nooterra-protocol` and unique idempotency keys.</li>",
             "<li>Queue ordering follows over-SLA first, then oldest opened case.</li>",
             "<li>`Open appeal` is available after verdict issuance while dispute window remains open.</li>",
             "</ul>",
@@ -29726,7 +30295,7 @@ export function createApi({
             "function setStatus(id, text, kind){ const el=byId(id); if(!el) return; el.className='status'+(kind?(' '+kind):''); el.textContent=String(text ?? ''); }",
             "function fmt(v){ return (typeof v==='string' && v.trim()) ? v : 'n/a'; }",
             "function fmtHours(value){ const n = Number(value); return Number.isFinite(n) ? n.toFixed(2) : 'n/a'; }",
-            "function headers({ write=false, json=false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-settld-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type']='application/json'; return h; }",
+            "function headers({ write=false, json=false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-nooterra-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type']='application/json'; return h; }",
             "async function requestJson(path, { method='GET', body=null, write=false, idem=null } = {}){ const h = headers({ write, json: body!==null }); if(idem) h['x-idempotency-key']=idem; const res = await fetch(path, { method, headers:h, body: body===null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ const msg = (j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP '+res.status)); throw new Error(msg); } return j; }",
             "function queueQuery(){ const q = new URLSearchParams(); const status = String(byId('statusFilter').value || '').trim(); const priority = String(byId('priorityFilter').value || '').trim(); const runId = String(byId('runIdFilter').value || '').trim(); const caseId = String(byId('caseIdFilter').value || '').trim(); const slaHours = String(byId('slaHoursInput').value || '').trim(); const assigned = byId('assignedArbiterFilter').checked; if(status) q.set('status', status); if(priority) q.set('priority', priority); if(runId) q.set('runId', runId); if(caseId) q.set('caseId', caseId); if(assigned) q.set('assignedArbiter', 'true'); if(slaHours) q.set('slaHours', slaHours); return q.toString(); }",
             "function renderQueue(){ const body = byId('arbitrationQueueBody'); if(!body) return; body.innerHTML=''; if(!state.queue.length){ body.innerHTML='<tr><td colspan=\"7\" class=\"muted\">No arbitration cases for the selected filters.</td></tr>'; return; } for(const item of state.queue){ const tr = document.createElement('tr'); const statusTag = item.overSla ? '<span class=\"tag bad\">over_sla</span>' : '<span class=\"tag good\">within_sla</span>'; tr.innerHTML = `<td><div class=\\\"mono\\\">${item.caseId || 'n/a'}</div><div class=\\\"muted mono\\\">${item.runId || 'n/a'}</div></td><td><span class=\\\"tag\\\">${item.status || 'n/a'}</span> ${statusTag}</td><td>${item.priority || 'n/a'}</td><td>${fmtHours(item.ageHours)}h</td><td class=\\\"mono\\\">${fmt(item.dueAt)}</td><td class=\\\"mono\\\">${fmt(item.arbiterAgentId)}</td><td><button class=\\\"secondary\\\" type=\\\"button\\\">Open</button></td>`; tr.querySelector('button').addEventListener('click', ()=>openCase(item)); body.appendChild(tr); } }",
@@ -29973,7 +30542,7 @@ export function createApi({
             "function setText(id, text){ const el = byId(id); if(el) el.textContent = String(text ?? ''); }",
             "function setStatus(id, text, kind){ const el = byId(id); if(!el) return; el.className = 'status' + (kind ? (' ' + kind) : ''); el.textContent = String(text ?? ''); }",
             "function tag(value){ const v = String(value || 'n/a').toLowerCase(); return `<span class=\\\"tag ${v}\\\">${v}</span>`; }",
-            "function headers({ write = false, json = false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-settld-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type'] = 'application/json'; return h; }",
+            "function headers({ write = false, json = false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-nooterra-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type'] = 'application/json'; return h; }",
             "async function requestJson(path, { method='GET', body=null, write=false, idem=null } = {}){ const h = headers({ write, json: body !== null }); if(idem) h['x-idempotency-key'] = idem; const res = await fetch(path, { method, headers: h, body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
             "function idem(prefix){ return `mkt_ws_${prefix}_${Date.now()}_${Math.random().toString(16).slice(2,10)}`; }",
             "function selectedRfq(){ const id = String(state.selectedRfqId || '').trim(); return state.rfqs.find((row)=>String(row.rfqId||'')===id) || null; }",
@@ -30133,7 +30702,7 @@ export function createApi({
             "function setText(id, text){ const el = byId(id); if(el) el.textContent = String(text ?? ''); }",
             "function setStatus(id, text, kind){ const el = byId(id); if(!el) return; el.className = 'status' + (kind ? (' ' + kind) : ''); el.textContent = String(text ?? ''); }",
             "function headers(){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; return h; }",
-            "async function requestJson(path, { method='GET', body=null } = {}){ const res = await fetch(path, { method, headers: { ...headers(), ...(body !== null ? { 'content-type': 'application/json', 'x-settld-protocol': String(byId('protocolInput').value || '').trim() || INITIAL.protocol } : {}) }, body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
+            "async function requestJson(path, { method='GET', body=null } = {}){ const res = await fetch(path, { method, headers: { ...headers(), ...(body !== null ? { 'content-type': 'application/json', 'x-nooterra-protocol': String(byId('protocolInput').value || '').trim() || INITIAL.protocol } : {}) }, body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
 	            "async function loadRun(){ const runId = String(byId('runIdInput').value || '').trim(); if(!runId){ setStatus('workspaceStatus','runId is required.','bad'); return; } setStatus('workspaceStatus',`Loading run ${runId}...`,''); try { const [ag, st, cs, rp, re] = await Promise.all([ requestJson(`/runs/${encodeURIComponent(runId)}/agreement`), requestJson(`/runs/${encodeURIComponent(runId)}/settlement`), requestJson(`/runs/${encodeURIComponent(runId)}/arbitration/cases`), requestJson(`/runs/${encodeURIComponent(runId)}/settlement/policy-replay`), requestJson(`/runs/${encodeURIComponent(runId)}/settlement/replay-evaluate`) ]); setText('runAgreement', JSON.stringify(ag, null, 2)); setText('runSettlement', JSON.stringify(st, null, 2)); setText('runCases', JSON.stringify(cs, null, 2)); setText('runReplay', JSON.stringify(rp, null, 2)); setText('runReplayEvaluate', JSON.stringify(re, null, 2)); const match = rp && rp.matchesStoredDecision === true; const kernelOk = re && re.comparisons && re.comparisons.kernelBindingsValid === true; setStatus('workspaceStatus', `Loaded run. policyReplay.matchesStoredDecision=${match}; replayEvaluate.kernelBindingsValid=${kernelOk}.`, (match && kernelOk) ? 'good' : 'warn'); } catch (err){ setStatus('workspaceStatus', `Run load failed: ${err.message}`, 'bad'); } }",
             "async function loadReceipt(){ const receiptId = String(byId('receiptIdInput').value || '').trim(); const runId = String(byId('runIdInput').value || '').trim(); const agreementId = String(byId('agreementIdInput').value || '').trim(); if(!receiptId && !runId && !agreementId){ setStatus('workspaceStatus','receiptId, runId, or agreementId is required.','bad'); return; } setStatus('workspaceStatus','Loading receipt explorer...',''); try { let receipt = null; if(receiptId){ const out = await requestJson(`/x402/receipts/${encodeURIComponent(receiptId)}`); receipt = out && out.receipt ? out.receipt : null; } else { const qs = new URLSearchParams({ limit: '20' }); if(runId) qs.set('runId', runId); if(agreementId) qs.set('agreementId', agreementId); const list = await requestJson(`/x402/receipts?${qs.toString()}`); const rows = list && Array.isArray(list.receipts) ? list.receipts : []; if(!rows.length) throw new Error('No receipts matched query.'); receipt = rows[0]; if(receipt && receipt.receiptId && !receiptId){ byId('receiptIdInput').value = String(receipt.receiptId); } } if(!receipt){ throw new Error('Receipt not found.'); } const decisionRecord = receipt && receipt.decisionRecord ? receipt.decisionRecord : null; const settlementReceipt = receipt && receipt.settlementReceipt ? receipt.settlementReceipt : null; if(decisionRecord && decisionRecord.agreementId){ byId('agreementIdInput').value = String(decisionRecord.agreementId); } const links = { evidenceRefs: Array.isArray(receipt.evidenceRefs) ? receipt.evidenceRefs : [], workLedgerHead: decisionRecord && decisionRecord.workRef ? { runLastEventId: decisionRecord.workRef.runLastEventId || null, runLastChainHash: decisionRecord.workRef.runLastChainHash || null, resolutionEventId: decisionRecord.workRef.resolutionEventId || null } : null }; setText('receiptRecord', JSON.stringify(receipt, null, 2)); setText('receiptDecisionRecord', JSON.stringify(decisionRecord || {}, null, 2)); setText('receiptSettlementReceipt', JSON.stringify(settlementReceipt || {}, null, 2)); setText('receiptLinks', JSON.stringify(links, null, 2)); setStatus('workspaceStatus', `Loaded receipt ${String(receipt.receiptId || 'unknown')}.`, 'good'); } catch (err){ setStatus('workspaceStatus', `Receipt load failed: ${err.message}`, 'bad'); } }",
             "async function loadToolCall(){ const agreementHash = String(byId('agreementHashInput').value || '').trim(); if(!agreementHash){ setStatus('workspaceStatus','agreementHash is required.','bad'); return; } setStatus('workspaceStatus',`Loading tool-call ${agreementHash}...`,''); try { const qs = new URLSearchParams({ agreementHash }); const [holds, cases, replay] = await Promise.all([ requestJson(`/ops/tool-calls/holds?${qs.toString()}`), requestJson(`/tool-calls/arbitration/cases?${qs.toString()}`), requestJson(`/ops/tool-calls/replay-evaluate?${qs.toString()}`) ]); setText('toolCallHolds', JSON.stringify(holds, null, 2)); setText('toolCallCases', JSON.stringify(cases, null, 2)); setText('toolCallReplayEvaluate', JSON.stringify(replay, null, 2)); const adjustmentId = `sadj_agmt_${agreementHash}_holdback`; try { const adj = await requestJson(`/ops/settlement-adjustments/${encodeURIComponent(adjustmentId)}`); setText('toolCallAdjustment', JSON.stringify(adj, null, 2)); } catch (err){ setText('toolCallAdjustment', JSON.stringify({ ok:false, message: String(err.message || err) }, null, 2)); } const caseRows = cases && Array.isArray(cases.cases) ? cases.cases : []; const closed = caseRows.find((row)=>String(row && row.status ? row.status : '').toLowerCase()==='closed') || caseRows[0] || null; if(closed && closed.caseId){ const revRaw = Number(closed.revision || 1); const rev = Number.isSafeInteger(revRaw) && revRaw > 1 ? revRaw : 1; const caseArtId = rev > 1 ? `arbitration_case_${closed.caseId}_r${rev}` : `arbitration_case_${closed.caseId}`; try { const art = await requestJson(`/artifacts/${encodeURIComponent(caseArtId)}`); setText('toolCallCaseArtifact', JSON.stringify(art, null, 2)); } catch (err){ setText('toolCallCaseArtifact', JSON.stringify({ ok:false, message: String(err.message || err), artifactId: caseArtId }, null, 2)); } const verdictId = closed.verdictId ? String(closed.verdictId) : ''; if(verdictId){ const verdictArtId = `arbitration_verdict_${verdictId}`; try { const art2 = await requestJson(`/artifacts/${encodeURIComponent(verdictArtId)}`); setText('toolCallVerdictArtifact', JSON.stringify(art2, null, 2)); } catch (err){ setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message: String(err.message || err), artifactId: verdictArtId }, null, 2)); } } else { setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message:'no verdictId on case (open or missing)' }, null, 2)); } } else { setText('toolCallCaseArtifact', JSON.stringify({ ok:false, message:'no cases found' }, null, 2)); setText('toolCallVerdictArtifact', JSON.stringify({ ok:false, message:'no cases found' }, null, 2)); } const consistent = replay && replay.comparisons && replay.comparisons.chainConsistent === true; setStatus('workspaceStatus', `Loaded tool-call chain. replayEvaluate.chainConsistent=${consistent}.`, consistent ? 'good' : 'warn'); } catch (err){ setStatus('workspaceStatus', `Tool-call load failed: ${err.message}`, 'bad'); } }",
@@ -30224,7 +30793,7 @@ export function createApi({
             "<div class=\"row\">",
             "<div class=\"field small\"><div class=\"muted\">Status</div><select id=\"triageStatus\"><option value=\"open\">open</option><option value=\"acknowledged\">acknowledged</option><option value=\"in_progress\">in_progress</option><option value=\"resolved\">resolved</option><option value=\"dismissed\">dismissed</option></select></div>",
             "<div class=\"field small\"><div class=\"muted\">Severity</div><select id=\"triageSeverity\"><option value=\"\">inherit</option><option value=\"low\">low</option><option value=\"medium\">medium</option><option value=\"high\">high</option><option value=\"critical\">critical</option></select></div>",
-            "<div class=\"field\"><div class=\"muted\">Owner principal</div><input id=\"triageOwner\" placeholder=\"ops.user@settld\"/></div>",
+            "<div class=\"field\"><div class=\"muted\">Owner principal</div><input id=\"triageOwner\" placeholder=\"ops.user@nooterra\"/></div>",
             "<div class=\"field\"><div class=\"muted\">Action label</div><input id=\"triageAction\" value=\"triage_update\"/></div>",
             "</div>",
             "<div style=\"margin-top:10px\"><div class=\"muted\">Notes</div><textarea id=\"triageNotes\" placeholder=\"Describe investigation, owner handoff, or closure rationale\"></textarea></div>",
@@ -30254,7 +30823,7 @@ export function createApi({
             "function byId(id){ return document.getElementById(id); }",
             "function setText(id, text){ const el = byId(id); if(el) el.textContent = String(text ?? ''); }",
             "function setStatus(id, text, kind){ const el = byId(id); if(!el) return; el.className = 'status' + (kind ? (' ' + kind) : ''); el.textContent = String(text ?? ''); }",
-            "function headers({ write=false, json=false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-settld-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type'] = 'application/json'; return h; }",
+            "function headers({ write=false, json=false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-nooterra-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type'] = 'application/json'; return h; }",
             "async function requestJson(path, { method='GET', body=null, write=false, idem=null } = {}){ const h = headers({ write, json: body!==null }); if(idem) h['x-idempotency-key'] = idem; const res = await fetch(path, { method, headers: h, body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
             "function triageTag(status){ const normalized = String(status || 'open').trim().toLowerCase() || 'open'; return `<span class=\\\"tag ${normalized}\\\">${normalized}</span>`; }",
             "function idem(prefix){ return `fin_recon_ws_${prefix}_${Date.now()}_${Math.random().toString(16).slice(2,10)}`; }",
@@ -30824,7 +31393,7 @@ export function createApi({
             "function byId(id){ return document.getElementById(id); }",
             "function setText(id, text){ const el = byId(id); if(el) el.textContent = String(text ?? ''); }",
             "function setStatus(id, text, kind){ const el = byId(id); if(!el) return; el.className = 'status' + (kind ? (' ' + kind) : ''); el.textContent = String(text ?? ''); }",
-            "function headers({ write=false, json=false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-settld-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type'] = 'application/json'; return h; }",
+            "function headers({ write=false, json=false } = {}){ const h = { 'x-proxy-tenant-id': String(byId('tenantIdInput').value || '').trim() }; const tok = String(byId('opsTokenInput').value || '').trim(); if(tok) h['x-proxy-ops-token'] = tok; if(write) h['x-nooterra-protocol'] = String(byId('protocolInput').value || '').trim() || INITIAL.protocol; if(json) h['content-type'] = 'application/json'; return h; }",
             "async function requestJson(path, { method='GET', body=null, write=false, idem=null } = {}){ const h = headers({ write, json: body !== null }); if(idem) h['x-idempotency-key'] = idem; const res = await fetch(path, { method, headers: h, body: body === null ? undefined : JSON.stringify(body) }); const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch {} if(!res.ok){ throw new Error((j && (j.message || j.error)) ? (j.message || j.error) : (txt || ('HTTP ' + res.status))); } return j; }",
             "function idem(prefix){ return `policy_ws_${prefix}_${Date.now()}_${Math.random().toString(16).slice(2,10)}`; }",
             "function parseJsonInput(id, allowEmpty = false){ const raw = String(byId(id).value || '').trim(); if(!raw){ if(allowEmpty) return null; throw new Error(`${id} is required`); } try { return JSON.parse(raw); } catch (err){ throw new Error(`${id} must be valid JSON`); } }",
@@ -30847,7 +31416,7 @@ export function createApi({
             "byId('replayRunIdInput').value = String(INITIAL.runId || '');",
             "byId('upsertPolicyIdInput').value = String(INITIAL.policyId || 'market.default.auto-v1');",
             "byId('upsertPolicyJson').value = JSON.stringify({ mode: 'automatic', rules: { requireDeterministicVerification: true, autoReleaseOnGreen: true, autoReleaseOnAmber: false, autoReleaseOnRed: false, greenReleaseRatePct: 100, amberReleaseRatePct: 25, redReleaseRatePct: 0 } }, null, 2);",
-            "byId('upsertVerificationJson').value = JSON.stringify({ mode: 'deterministic', source: 'verifier://settld-verify' }, null, 2);",
+            "byId('upsertVerificationJson').value = JSON.stringify({ mode: 'deterministic', source: 'verifier://nooterra-verify' }, null, 2);",
             "byId('refreshPolicyStateBtn').addEventListener('click', ()=>loadState());",
             "byId('refreshPolicyDiffBtn').addEventListener('click', ()=>runDiff());",
             "byId('refreshPolicyReplayBtn').addEventListener('click', ()=>runReplay());",
@@ -31005,10 +31574,10 @@ export function createApi({
 
           const requestBaseUrl = deriveRequestBaseUrl(req);
           const env = {
-            SETTLD_TENANT_ID: tenantId
+            NOOTERRA_TENANT_ID: tenantId
           };
-          if (requestBaseUrl) env.SETTLD_BASE_URL = requestBaseUrl;
-          if (createdApiKey?.token) env.SETTLD_API_KEY = createdApiKey.token;
+          if (requestBaseUrl) env.NOOTERRA_BASE_URL = requestBaseUrl;
+          if (createdApiKey?.token) env.NOOTERRA_API_KEY = createdApiKey.token;
           const exportCommands = Object.entries(env)
             .map(([name, value]) => `export ${name}=${JSON.stringify(String(value))}`)
             .join("\n");
@@ -31883,11 +32452,11 @@ export function createApi({
                     currency,
                     destination: stripeConnectAccountId,
                     transfer_group: payoutKey,
-                    description: `Settld payout ${operationId}`,
-                    "metadata[settld_tenant_id]": String(tenantId),
-                    "metadata[settld_operation_id]": String(operationId),
-                    "metadata[settld_provider_id]": String(providerId),
-                    "metadata[settld_payout_key]": String(payoutKey)
+                    description: `Nooterra payout ${operationId}`,
+                    "metadata[nooterra_tenant_id]": String(tenantId),
+                    "metadata[nooterra_operation_id]": String(operationId),
+                    "metadata[nooterra_provider_id]": String(providerId),
+                    "metadata[nooterra_payout_key]": String(payoutKey)
                   }
                 });
               } catch (err) {
@@ -33230,7 +33799,7 @@ export function createApi({
                 "line_items[0][price]": livePriceId,
                 "line_items[0][quantity]": "1",
                 "metadata[tenantId]": tenantId,
-                "metadata[settldPlan]": selectedPlan,
+                "metadata[nooterraPlan]": selectedPlan,
                 ...(resolvedCustomerId ? { customer: resolvedCustomerId } : {})
               });
 
@@ -39467,7 +40036,7 @@ export function createApi({
               providerId,
               conformanceToolId,
               providerSigningPublicKeyPem,
-              settldSigner: {
+              nooterraSigner: {
                 keyId: store?.serverSigner?.keyId,
                 publicKeyPem: store?.serverSigner?.publicKeyPem,
                 privateKeyPem: store?.serverSigner?.privateKeyPem
@@ -39642,7 +40211,7 @@ export function createApi({
                 providerId,
                 conformanceToolId,
                 providerSigningPublicKeyPem,
-                settldSigner: {
+                nooterraSigner: {
                   keyId: store?.serverSigner?.keyId,
                   publicKeyPem: store?.serverSigner?.publicKeyPem,
                   privateKeyPem: store?.serverSigner?.privateKeyPem
@@ -41323,7 +41892,7 @@ export function createApi({
             policyHash: agreement?.policyHash ?? null,
             verificationMethodHash: agreement?.verificationMethodHash ?? null,
             verificationMethodMode: pendingVerifierRef?.modality ?? agreement?.verificationMethod?.mode ?? null,
-            verifierId: pendingVerifierRef?.verifierId ?? "settld.policy-engine",
+            verifierId: pendingVerifierRef?.verifierId ?? "nooterra.policy-engine",
             verifierVersion: pendingVerifierRef?.verifierVersion ?? "v1",
             verifierHash: pendingVerifierRef?.verifierHash ?? null,
             finalityState: SETTLEMENT_FINALITY_STATE.PENDING,
@@ -42842,7 +43411,7 @@ export function createApi({
             idempotencyKey: idemHeaderValue ?? `x402wallet:${gateId}:${effectiveQuoteId ?? "noquote"}`,
             nonce: createId("x402nonce"),
             iat: nowUnix,
-            exp: nowUnix + settldPayTokenTtlSecondsValue
+            exp: nowUnix + nooterraPayTokenTtlSecondsValue
           });
           const mintedDecision = mintX402WalletIssuerDecisionTokenV1({
             payload: decisionPayload,
@@ -43420,7 +43989,7 @@ export function createApi({
             idempotencyKey: `x402escalation:${escalationId}`,
             nonce: createId("x402nonce"),
             iat: nowUnix,
-            exp: nowUnix + settldPayTokenTtlSecondsValue
+            exp: nowUnix + nooterraPayTokenTtlSecondsValue
           });
           const mintedDecision = mintX402WalletIssuerDecisionTokenV1({
             payload: decisionPayload,
@@ -43452,7 +44021,7 @@ export function createApi({
             idempotencyKey: `x402escalation:${escalationId}`,
             nonce: createId("x402nonce"),
             iat: nowUnix,
-            exp: nowUnix + settldPayTokenTtlSecondsValue
+            exp: nowUnix + nooterraPayTokenTtlSecondsValue
           });
           const mintedOverride = mintX402EscalationOverrideTokenV1({
             payload: overridePayload,
@@ -44538,7 +45107,7 @@ export function createApi({
           let existingTokenQuoteSha256 = null;
           if (hasLiveToken) {
             try {
-              const parsedToken = parseSettldPayTokenV1(existingToken.value);
+              const parsedToken = parseNooterraPayTokenV1(existingToken.value);
               const payload = parsedToken?.payload && typeof parsedToken.payload === "object" ? parsedToken.payload : {};
               existingTokenRequestBindingMode =
                 typeof payload.requestBindingMode === "string" && payload.requestBindingMode.trim() !== ""
@@ -45320,8 +45889,8 @@ export function createApi({
                 )
               )
             : null;
-          const payload = buildSettldPayPayloadV1({
-            iss: settldPayIssuerValue,
+          const payload = buildNooterraPayPayloadV1({
+            iss: nooterraPayIssuerValue,
             aud: String(gate?.payeeAgentId ?? ""),
             gateId,
             authorizationRef,
@@ -45380,9 +45949,9 @@ export function createApi({
                 }
               : {}),
             iat: nowUnix,
-            exp: nowUnix + settldPayTokenTtlSecondsValue
+            exp: nowUnix + nooterraPayTokenTtlSecondsValue
           });
-          const minted = mintSettldPayTokenV1({
+          const minted = mintNooterraPayTokenV1({
             payload,
             keyId: store.serverSigner.keyId,
             publicKeyPem: store.serverSigner.publicKeyPem,
@@ -46094,7 +46663,7 @@ export function createApi({
           let tokenPayloadForBindings = null;
           try {
             if (typeof gateAuthorization?.token?.value === "string" && gateAuthorization.token.value.trim() !== "") {
-              const parsed = parseSettldPayTokenV1(gateAuthorization.token.value);
+              const parsed = parseNooterraPayTokenV1(gateAuthorization.token.value);
               tokenPayloadForBindings = parsed?.payload && typeof parsed.payload === "object" && !Array.isArray(parsed.payload) ? parsed.payload : null;
             }
           } catch {}
@@ -46454,7 +47023,7 @@ export function createApi({
               sha256:
                 gateAuthorization?.token?.sha256 ??
                 (typeof gateAuthorization?.token?.value === "string" && gateAuthorization.token.value.trim() !== ""
-                  ? computeSettldPayTokenSha256(gateAuthorization.token.value)
+                  ? computeNooterraPayTokenSha256(gateAuthorization.token.value)
                   : null),
               expiresAt: gateAuthorization?.token?.expiresAt ?? null
             },
@@ -46625,7 +47194,7 @@ export function createApi({
             policyHash: policyHashUsed,
             verificationMethodHash: verificationMethodHashUsed,
             verificationMethodMode: policyDecision?.verificationMethod?.mode ?? null,
-            verifierId: "settld.x402",
+            verifierId: "nooterra.x402",
             verifierVersion: "v1",
             verifierHash: null,
             resolutionEventId,
@@ -47235,7 +47804,7 @@ export function createApi({
               policyHash: null,
               verificationMethodHash: null,
               verificationMethodMode: "manual",
-              verifierId: "settld.x402.reversal",
+              verifierId: "nooterra.x402.reversal",
               verifierVersion: "v1",
               verifierHash: null,
               resolutionEventId: reversalEventId,
@@ -47592,7 +48161,7 @@ export function createApi({
                 policyHash: null,
                 verificationMethodHash: null,
                 verificationMethodMode: "manual",
-                verifierId: "settld.x402.reversal",
+                verifierId: "nooterra.x402.reversal",
                 verifierVersion: "v1",
                 verifierHash: null,
                 resolutionEventId: reversalEventId,
@@ -47953,7 +48522,7 @@ export function createApi({
               verification: verified.verification
             });
             if (signReplayPack) {
-              const signingCandidate = resolveSessionArtifactSigningCandidate({ signerKeyId });
+              const signingCandidate = await resolveSessionArtifactSigningCandidate({ tenantId, signerKeyId, at: replayPack.generatedAt });
               replayPack = signSessionReplayPackV1({
                 replayPack,
                 signedAt: replayPack.generatedAt,
@@ -48008,7 +48577,7 @@ export function createApi({
               verification: verified.verification
             });
             if (signTranscript) {
-              const signingCandidate = resolveSessionArtifactSigningCandidate({ signerKeyId });
+              const signingCandidate = await resolveSessionArtifactSigningCandidate({ tenantId, signerKeyId, at: transcript.generatedAt });
               transcript = signSessionTranscriptV1({
                 transcript,
                 signedAt: transcript.generatedAt,
@@ -48239,6 +48808,9 @@ export function createApi({
           } catch (err) {
             return sendError(res, 400, "invalid idempotency key", { message: err?.message });
           }
+          if (!idemStoreKey) {
+            return sendError(res, 400, "x-idempotency-key is required", null, { code: "SESSION_EVENT_IDEMPOTENCY_REQUIRED" });
+          }
           if (idemStoreKey) {
             const existing = store.idempotency.get(idemStoreKey);
             if (existing) {
@@ -48291,6 +48863,30 @@ export function createApi({
             validateSessionEventPayloadV1(payload);
           } catch (err) {
             return sendError(res, 400, "invalid session event payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const signerLifecycle = await evaluateSessionSignerKeyLifecycle({
+            tenantId,
+            signerKeyId: serverSigner?.keyId ?? null,
+            at: payload.at,
+            requireRegistered: false
+          });
+          if (!signerLifecycle.ok) {
+            return sendError(
+              res,
+              409,
+              "session event append blocked",
+              {
+                reasonCode: signerLifecycle.reasonCode ?? "SIGNER_KEY_INVALID",
+                reason: signerLifecycle.message ?? "session signer key lifecycle validation failed",
+                signerKeyId: serverSigner?.keyId ?? null,
+                signerStatus: signerLifecycle.signerStatus ?? null,
+                validFrom: signerLifecycle.validFrom ?? null,
+                validTo: signerLifecycle.validTo ?? null,
+                revokedAt: signerLifecycle.revokedAt ?? null
+              },
+              { code: "SESSION_EVENT_SIGNER_KEY_INVALID" }
+            );
           }
 
           const draft = createChainedEvent({
@@ -48443,6 +49039,7 @@ export function createApi({
               description: body?.description ?? undefined,
               capabilities: body?.capabilities ?? undefined,
               visibility: body?.visibility ?? undefined,
+              executionCoordinatorDid: body?.executionCoordinatorDid ?? undefined,
               host: body?.host ?? undefined,
               priceHint: body?.priceHint ?? undefined,
               attestations: body?.attestations ?? undefined,
@@ -48632,6 +49229,7 @@ export function createApi({
                 description: body?.description ?? undefined,
                 capabilities: body?.capabilities ?? undefined,
                 visibility: body?.visibility ?? undefined,
+                executionCoordinatorDid: body?.executionCoordinatorDid ?? undefined,
                 host: body?.host ?? undefined,
                 priceHint: body?.priceHint ?? undefined,
                 attestations: body?.attestations ?? undefined,
@@ -48683,6 +49281,7 @@ export function createApi({
           const result = await discoverAgentCards({
             scope: "public",
             capability: url.searchParams.get("capability"),
+            executionCoordinatorDid: url.searchParams.get("executionCoordinatorDid"),
             toolId: url.searchParams.get("toolId"),
             toolMcpName: url.searchParams.get("toolMcpName"),
             toolRiskClass: url.searchParams.get("toolRiskClass"),
@@ -48716,12 +49315,17 @@ export function createApi({
       if (req.method === "GET" && path === "/public/agent-cards/stream") {
         let toolSideEffecting = null;
         let sinceCursor = null;
+        let executionCoordinatorDid = null;
         try {
           const toolSideEffectingRaw = url.searchParams.get("toolSideEffecting");
           toolSideEffecting =
             toolSideEffectingRaw === null
               ? null
               : parseBooleanQueryValue(toolSideEffectingRaw, { defaultValue: false, name: "toolSideEffecting" });
+          executionCoordinatorDid = parseExecutionCoordinatorDid(url.searchParams.get("executionCoordinatorDid"), {
+            allowNull: true,
+            fieldName: "executionCoordinatorDid"
+          });
           sinceCursor = parseAgentCardStreamCursor(
             url.searchParams.get("sinceCursor") ??
               (typeof req.headers["last-event-id"] === "string" ? req.headers["last-event-id"] : null),
@@ -48733,6 +49337,7 @@ export function createApi({
 
         const query = {
           capability: url.searchParams.get("capability"),
+          executionCoordinatorDid,
           toolId: url.searchParams.get("toolId"),
           toolMcpName: url.searchParams.get("toolMcpName"),
           toolRiskClass: url.searchParams.get("toolRiskClass"),
@@ -48775,6 +49380,7 @@ export function createApi({
             query: normalizeForCanonicalJson(
               {
                 capability: query.capability ?? null,
+                executionCoordinatorDid: query.executionCoordinatorDid ?? null,
                 toolId: query.toolId ?? null,
                 toolMcpName: query.toolMcpName ?? null,
                 toolRiskClass: query.toolRiskClass ?? null,
@@ -49195,6 +49801,7 @@ export function createApi({
             tenantId,
             scope: "tenant",
             capability: url.searchParams.get("capability"),
+            executionCoordinatorDid: url.searchParams.get("executionCoordinatorDid"),
             toolId: url.searchParams.get("toolId"),
             toolMcpName: url.searchParams.get("toolMcpName"),
             toolRiskClass: url.searchParams.get("toolRiskClass"),
@@ -49229,6 +49836,7 @@ export function createApi({
         const status = url.searchParams.get("status");
         const visibility = url.searchParams.get("visibility");
         const capability = url.searchParams.get("capability");
+        const executionCoordinatorDid = url.searchParams.get("executionCoordinatorDid");
         const runtime = url.searchParams.get("runtime");
         const agentId = url.searchParams.get("agentId");
         const limitRaw = url.searchParams.get("limit");
@@ -49239,9 +49847,14 @@ export function createApi({
         const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
         let statusFilter = null;
         let visibilityFilter = null;
+        let executionCoordinatorDidFilter = null;
         try {
           statusFilter = status && status.trim() !== "" ? parseDiscoveryStatus(status) : null;
           visibilityFilter = visibility && visibility.trim() !== "" ? parseAgentCardVisibility(visibility, { allowAll: false }) : null;
+          executionCoordinatorDidFilter =
+            typeof executionCoordinatorDid === "string" && executionCoordinatorDid.trim() !== ""
+              ? parseExecutionCoordinatorDid(executionCoordinatorDid, { allowNull: false, fieldName: "executionCoordinatorDid" })
+              : null;
         } catch (err) {
           return sendError(res, 400, "invalid agent card query", { message: err?.message }, { code: "SCHEMA_INVALID" });
         }
@@ -49254,6 +49867,7 @@ export function createApi({
               status: statusFilter === "all" ? null : statusFilter,
               visibility: visibilityFilter,
               capability: typeof capability === "string" && capability.trim() !== "" ? capability.trim() : null,
+              executionCoordinatorDid: executionCoordinatorDidFilter,
               runtime: typeof runtime === "string" && runtime.trim() !== "" ? runtime.trim().toLowerCase() : null,
               limit: safeLimit,
               offset: safeOffset
@@ -49267,6 +49881,11 @@ export function createApi({
               .filter((row) =>
                 typeof capability === "string" && capability.trim() !== ""
                   ? Array.isArray(row.capabilities) && row.capabilities.includes(capability.trim())
+                  : true
+              )
+              .filter((row) =>
+                executionCoordinatorDidFilter
+                  ? String(row.executionCoordinatorDid ?? "") === executionCoordinatorDidFilter
                   : true
               )
               .filter((row) => {
@@ -50412,6 +51031,239 @@ export function createApi({
         });
       }
 
+      if (req.method === "POST" && path === "/state-checkpoints") {
+        if (typeof store.getStateCheckpoint !== "function" && !(store.stateCheckpoints instanceof Map)) {
+          return sendError(res, 501, "state checkpoints not supported for this store");
+        }
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+
+        const body = await readJsonBody(req);
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        const checkpointId =
+          typeof body?.checkpointId === "string" && body.checkpointId.trim() !== "" ? body.checkpointId.trim() : createId("chkpt");
+        const ownerAgentId =
+          typeof body?.ownerAgentId === "string" && body.ownerAgentId.trim() !== "" ? body.ownerAgentId.trim() : null;
+        if (!ownerAgentId) {
+          return sendError(res, 400, "ownerAgentId is required", null, { code: "SCHEMA_INVALID" });
+        }
+        const ownerIdentity = await getAgentIdentityRecord({ tenantId, agentId: ownerAgentId });
+        if (!ownerIdentity) return sendError(res, 404, "owner agent identity not found", null, { code: "NOT_FOUND" });
+
+        let existingStateCheckpoint = null;
+        try {
+          existingStateCheckpoint = await getStateCheckpointRecord({ tenantId, checkpointId });
+        } catch (err) {
+          return sendError(res, 501, "state checkpoints not supported for this store", { message: err?.message });
+        }
+        if (existingStateCheckpoint) return sendError(res, 409, "state checkpoint already exists", null, { code: "CONFLICT" });
+
+        const nowAt = nowIso();
+        const checkpointToolId = "state_checkpoint_create";
+        let delegationGrantRef = null;
+        try {
+          delegationGrantRef = normalizeOptionalX402RefInput(body?.delegationGrantRef ?? null, "delegationGrantRef", {
+            allowNull: true,
+            max: 200
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid delegationGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        let authorityGrantRef = null;
+        try {
+          authorityGrantRef = normalizeOptionalX402RefInput(body?.authorityGrantRef ?? null, "authorityGrantRef", {
+            allowNull: true,
+            max: 200
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid authorityGrantRef", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        if (x402RequireAuthorityGrantValue && !authorityGrantRef) {
+          return sendError(
+            res,
+            409,
+            "state checkpoint authority grant is required",
+            { checkpointId, ownerAgentId },
+            { code: "X402_AUTHORITY_GRANT_REQUIRED" }
+          );
+        }
+        let resolvedDelegationGrant = null;
+        if (delegationGrantRef) {
+          try {
+            const delegationResolution = await resolveDelegationGrantForStateCheckpointWrite({
+              tenantId,
+              delegationGrantRef,
+              ownerAgentId,
+              nowAt,
+              toolId: checkpointToolId
+            });
+            resolvedDelegationGrant = delegationResolution?.delegationGrant ?? null;
+            delegationGrantRef = delegationResolution?.delegationGrantRef ?? delegationGrantRef;
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "state checkpoint delegation grant blocked",
+              {
+                reasonCode: err?.code ?? "X402_DELEGATION_GRANT_INVALID",
+                message: err?.message ?? null,
+                ...(err?.details && typeof err.details === "object" ? err.details : {})
+              },
+              { code: err?.code ?? "X402_DELEGATION_GRANT_INVALID" }
+            );
+          }
+        }
+        let resolvedAuthorityGrant = null;
+        if (authorityGrantRef) {
+          try {
+            const authorityResolution = await resolveAuthorityGrantForStateCheckpointWrite({
+              tenantId,
+              authorityGrantRef,
+              ownerAgentId,
+              nowAt,
+              toolId: checkpointToolId
+            });
+            resolvedAuthorityGrant = authorityResolution?.authorityGrant ?? null;
+            authorityGrantRef = authorityResolution?.authorityGrantRef ?? authorityGrantRef;
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "state checkpoint authority grant blocked",
+              {
+                reasonCode: err?.code ?? "X402_AUTHORITY_GRANT_INVALID",
+                message: err?.message ?? null,
+                ...(err?.details && typeof err.details === "object" ? err.details : {})
+              },
+              { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
+            );
+          }
+        }
+        if (resolvedDelegationGrant && resolvedAuthorityGrant) {
+          try {
+            assertDelegationGrantWithinAuthorityGrant({
+              delegationGrant: resolvedDelegationGrant,
+              delegationGrantRef,
+              authorityGrant: resolvedAuthorityGrant,
+              authorityGrantRef
+            });
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "state checkpoint authority-delegation consistency check failed",
+              {
+                reasonCode: err?.code ?? "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION",
+                message: err?.message ?? null,
+                ...(err?.details && typeof err.details === "object" ? err.details : {})
+              },
+              { code: err?.code ?? "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION" }
+            );
+          }
+        }
+
+        let stateCheckpoint = null;
+        try {
+          stateCheckpoint = buildStateCheckpointV1({
+            checkpointId,
+            tenantId,
+            ownerAgentId,
+            projectId:
+              typeof body?.projectId === "string" && body.projectId.trim() !== "" ? body.projectId.trim() : null,
+            sessionId:
+              typeof body?.sessionId === "string" && body.sessionId.trim() !== "" ? body.sessionId.trim() : null,
+            traceId: parseSubstrateTraceIdInput(body?.traceId ?? null, { name: "traceId", allowNull: true }),
+            parentCheckpointId:
+              typeof body?.parentCheckpointId === "string" && body.parentCheckpointId.trim() !== ""
+                ? body.parentCheckpointId.trim()
+                : null,
+            stateRef: body?.stateRef,
+            diffRefs: Array.isArray(body?.diffRefs) ? body.diffRefs : [],
+            delegationGrantRef,
+            authorityGrantRef,
+            redactionPolicyRef:
+              typeof body?.redactionPolicyRef === "string" && body.redactionPolicyRef.trim() !== ""
+                ? body.redactionPolicyRef.trim()
+                : null,
+            metadata: body?.metadata ?? null,
+            createdAt:
+              typeof body?.createdAt === "string" && body.createdAt.trim() !== "" ? body.createdAt.trim() : nowAt,
+            updatedAt:
+              typeof body?.updatedAt === "string" && body.updatedAt.trim() !== ""
+                ? body.updatedAt.trim()
+                : typeof body?.createdAt === "string" && body.createdAt.trim() !== ""
+                  ? body.createdAt.trim()
+                  : nowAt
+          });
+          validateStateCheckpointV1(stateCheckpoint);
+        } catch (err) {
+          return sendError(res, 400, "invalid state checkpoint", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        const responseBody = { ok: true, stateCheckpoint };
+        const ops = [{ kind: "STATE_CHECKPOINT_UPSERT", tenantId, checkpointId, stateCheckpoint }];
+        if (idemStoreKey) {
+          ops.push({
+            kind: "IDEMPOTENCY_PUT",
+            key: idemStoreKey,
+            value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody }
+          });
+        }
+        await commitTx(ops);
+        return sendJson(res, 201, responseBody);
+      }
+
+      if (req.method === "GET" && path === "/state-checkpoints") {
+        const checkpointId = url.searchParams.get("checkpointId");
+        const projectId = url.searchParams.get("projectId");
+        const sessionId = url.searchParams.get("sessionId");
+        const ownerAgentId = url.searchParams.get("ownerAgentId");
+        const traceId = url.searchParams.get("traceId");
+        const limitRaw = url.searchParams.get("limit");
+        const offsetRaw = url.searchParams.get("offset");
+        const limit = limitRaw ? Number(limitRaw) : 200;
+        const offset = offsetRaw ? Number(offsetRaw) : 0;
+        const safeLimit = Number.isSafeInteger(limit) && limit > 0 ? Math.min(1000, limit) : 200;
+        const safeOffset = Number.isSafeInteger(offset) && offset >= 0 ? offset : 0;
+        let traceFilter = null;
+        try {
+          traceFilter = parseSubstrateTraceIdInput(traceId ?? null, { name: "traceId", allowNull: true });
+        } catch (err) {
+          return sendError(res, 400, "invalid state checkpoint query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        let stateCheckpoints = [];
+        try {
+          stateCheckpoints = await listStateCheckpointRecords({
+            tenantId,
+            checkpointId: typeof checkpointId === "string" && checkpointId.trim() !== "" ? checkpointId.trim() : null,
+            projectId: typeof projectId === "string" && projectId.trim() !== "" ? projectId.trim() : null,
+            sessionId: typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId.trim() : null,
+            ownerAgentId: typeof ownerAgentId === "string" && ownerAgentId.trim() !== "" ? ownerAgentId.trim() : null,
+            traceId: traceFilter,
+            limit: safeLimit,
+            offset: safeOffset
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid state checkpoint query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+        return sendJson(res, 200, { ok: true, stateCheckpoints, limit: safeLimit, offset: safeOffset });
+      }
+
       {
         const parts = path.split("/").filter(Boolean);
         if (parts[0] === "task-quotes" && parts[1] && parts.length === 2 && req.method === "GET") {
@@ -50526,6 +51378,18 @@ export function createApi({
           }
           await commitTx(ops);
           return sendJson(res, 200, responseBody);
+        }
+
+        if (parts[0] === "state-checkpoints" && parts[1] && parts.length === 2 && req.method === "GET") {
+          const checkpointId = decodePathPart(parts[1]);
+          let stateCheckpoint = null;
+          try {
+            stateCheckpoint = await getStateCheckpointRecord({ tenantId, checkpointId });
+          } catch (err) {
+            return sendError(res, 501, "state checkpoints not supported for this store", { message: err?.message });
+          }
+          if (!stateCheckpoint) return sendError(res, 404, "state checkpoint not found", null, { code: "NOT_FOUND" });
+          return sendJson(res, 200, { ok: true, stateCheckpoint });
         }
       }
 
@@ -51091,6 +51955,66 @@ export function createApi({
           }
           if (!workOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
           return sendJson(res, 200, { ok: true, workOrder });
+        }
+
+        if (parts[0] === "work-orders" && parts[1] && parts[2] === "metering" && parts.length === 3 && req.method === "GET") {
+          if (typeof store.listBillableUsageEvents !== "function") {
+            return sendError(res, 501, "work order metering is not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+          }
+          const workOrderId = decodePathPart(parts[1]);
+          let includeMeters = true;
+          let limit = 200;
+          let offset = 0;
+          try {
+            includeMeters = parseBooleanLike(url.searchParams.get("includeMeters") ?? "true", true);
+            ({ limit, offset } = parsePagination({
+              limitRaw: url.searchParams.get("limit"),
+              offsetRaw: url.searchParams.get("offset"),
+              defaultLimit: 200,
+              maxLimit: 1000
+            }));
+          } catch (err) {
+            return sendError(res, 400, "invalid work order metering query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const workOrder = await getSubAgentWorkOrderRecord({ tenantId, workOrderId });
+          if (!workOrder) return sendError(res, 404, "work order not found", null, { code: "NOT_FOUND" });
+          let meterEvents = [];
+          try {
+            meterEvents = await listWorkOrderMeteringEvents({ tenantId, workOrderId });
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "work order metering unavailable",
+              { message: err?.message ?? "unable to list metering events" },
+              { code: "WORK_ORDER_METERING_UNAVAILABLE" }
+            );
+          }
+          const pagedMeterEvents = includeMeters ? meterEvents.slice(offset, offset + limit) : [];
+          let snapshot = null;
+          try {
+            snapshot = buildWorkOrderMeteringSnapshotV1({
+              workOrder,
+              meterEvents: pagedMeterEvents
+            });
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "work order metering snapshot invalid",
+              { message: err?.message ?? "unable to build metering snapshot" },
+              { code: "WORK_ORDER_METERING_UNAVAILABLE" }
+            );
+          }
+          return sendJson(res, 200, {
+            ok: true,
+            workOrderId,
+            metering: snapshot,
+            totalMeters: meterEvents.length,
+            count: pagedMeterEvents.length,
+            limit,
+            offset
+          });
         }
 
         if (parts[0] === "work-orders" && parts[1] === "receipts" && parts[2] && parts.length === 3 && req.method === "GET") {
@@ -54387,7 +55311,7 @@ export function createApi({
             policyHash: agreement?.policyHash ?? settlement.decisionPolicyHash ?? null,
             verificationMethodHash: agreement?.verificationMethodHash ?? null,
             verificationMethodMode: cancellationVerifierRef?.modality ?? agreement?.verificationMethod?.mode ?? null,
-            verifierId: cancellationVerifierRef?.verifierId ?? "settld.policy-engine",
+            verifierId: cancellationVerifierRef?.verifierId ?? "nooterra.policy-engine",
             verifierVersion: cancellationVerifierRef?.verifierVersion ?? "v1",
             verifierHash: cancellationVerifierRef?.verifierHash ?? null,
             resolutionEventId: cancellationId,
@@ -57287,7 +58211,7 @@ export function createApi({
               verification: {
                 deterministicOrdering: true,
                 antiGamingSignalsPresent: true,
-                generatedBy: "settld.api"
+                generatedBy: "nooterra.api"
               },
               generatedAt: asOf
             });
@@ -57820,7 +58744,7 @@ export function createApi({
             }
             const type = body?.type;
             if (!type) return sendError(res, 400, "type is required");
-            res.__settldEventType = type;
+            res.__nooterraEventType = type;
             const supported = new Set([
               AGENT_RUN_EVENT_TYPE.RUN_STARTED,
               AGENT_RUN_EVENT_TYPE.RUN_HEARTBEAT,
@@ -58015,7 +58939,7 @@ export function createApi({
                       policyHash: agreementPolicyMaterial.policyHash ?? null,
                       verificationMethodHash: agreementPolicyMaterial.verificationMethodHash ?? null,
                       verificationMethodMode: verifierExecution.verifierRef?.modality ?? agreementVerificationMethod?.mode ?? null,
-                      verifierId: verifierExecution.verifierRef?.verifierId ?? "settld.policy-engine",
+                      verifierId: verifierExecution.verifierRef?.verifierId ?? "nooterra.policy-engine",
                       verifierVersion: verifierExecution.verifierRef?.verifierVersion ?? "v1",
                       verifierHash: verifierExecution.verifierRef?.verifierHash ?? null,
                       resolutionEventId: null,
@@ -58119,7 +59043,7 @@ export function createApi({
                       policyHash: agreementPolicyMaterial.policyHash ?? null,
                       verificationMethodHash: agreementPolicyMaterial.verificationMethodHash ?? null,
                       verificationMethodMode: verifierExecution.verifierRef?.modality ?? agreementVerificationMethod?.mode ?? null,
-                      verifierId: verifierExecution.verifierRef?.verifierId ?? "settld.policy-engine",
+                      verifierId: verifierExecution.verifierRef?.verifierId ?? "nooterra.policy-engine",
                       verifierVersion: verifierExecution.verifierRef?.verifierVersion ?? "v1",
                       verifierHash: verifierExecution.verifierRef?.verifierHash ?? null,
                       resolutionEventId: event.id,
@@ -58376,7 +59300,7 @@ export function createApi({
 	            }
 	            const type = body?.type;
 	            if (!type) return sendError(res, 400, "type is required");
-	            res.__settldEventType = type;
+	            res.__nooterraEventType = type;
             const supported = new Set([
               "ROBOT_HEARTBEAT",
               "ROBOT_UNHEALTHY",
@@ -60849,13 +61773,13 @@ export function createApi({
 	        (route === "/jobs/:jobId/events" || route === "/robots/:robotId/events" || route === "/operators/:operatorId/events") &&
 	        statusCode >= 400
 	      ) {
-	        const reason = typeof res?.__settldErrorCode === "string" && res.__settldErrorCode.trim() ? res.__settldErrorCode : "UNKNOWN";
+	        const reason = typeof res?.__nooterraErrorCode === "string" && res.__nooterraErrorCode.trim() ? res.__nooterraErrorCode : "UNKNOWN";
 	        metricInc("append_rejected_total", { reason }, 1);
 	      }
 
 	      if (req.method === "POST" && route === "/jobs/:jobId/events") {
-	        const eventType = typeof res?.__settldEventType === "string" ? res.__settldEventType : null;
-	        const reason = typeof res?.__settldErrorCode === "string" && res.__settldErrorCode.trim() ? res.__settldErrorCode : "UNKNOWN";
+	        const eventType = typeof res?.__nooterraEventType === "string" ? res.__nooterraEventType : null;
+	        const reason = typeof res?.__nooterraErrorCode === "string" && res.__nooterraErrorCode.trim() ? res.__nooterraErrorCode : "UNKNOWN";
 	        if (eventType === "SETTLED" && statusCode >= 400) metricInc("settlement_rejected_total", { reason }, 1);
 	        if (eventType === "SETTLEMENT_HELD" && statusCode === 201) metricInc("settlement_held_total", {}, 1);
 	        if (eventType === "SETTLEMENT_RELEASED" && statusCode === 201) metricInc("settlement_released_total", {}, 1);
@@ -60871,7 +61795,7 @@ export function createApi({
         path,
         statusCode,
         durationMs,
-        code: res?.__settldErrorCode ?? null
+        code: res?.__nooterraErrorCode ?? null
       });
     }
     });
@@ -61220,7 +62144,7 @@ export function createApi({
       policyHash: null,
       verificationMethodHash: null,
       verificationMethodMode: "manual",
-      verifierId: "settld.x402.reversal",
+      verifierId: "nooterra.x402.reversal",
       verifierVersion: "v1",
       verifierHash: null,
       resolutionEventId: reversalEventId,

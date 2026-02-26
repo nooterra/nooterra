@@ -2,9 +2,9 @@
 
 ## Title (pick one)
 
-1. Show HN (Repost): Settld – verify-before-release gateway for HTTP 402 (x402) APIs (OSS)
-2. Show HN (Repost): Settld – verifiable settlement receipts for agent spend (OSS)
-3. Show HN (Repost): Settld – deterministic release/refund decisions + receipt trail for x402
+1. Show HN (Repost): Nooterra – verify-before-release gateway for HTTP 402 (x402) APIs (OSS)
+2. Show HN (Repost): Nooterra – verifiable settlement receipts for agent spend (OSS)
+3. Show HN (Repost): Nooterra – deterministic release/refund decisions + receipt trail for x402
 
 ---
 
@@ -12,7 +12,7 @@
 
 Hi HN,
 
-Settld is an open source artifact protocol + verifier for producing hash-bound “settlement receipts”: deterministic records that tie *terms + evidence refs + a release/refund decision* together so a counterparty can verify what happened without trusting your database.
+Nooterra is an open source artifact protocol + verifier for producing hash-bound “settlement receipts”: deterministic records that tie *terms + evidence refs + a release/refund decision* together so a counterparty can verify what happened without trusting your database.
 
 Fastest way to try it is the in-repo x402 gateway demo (about 10 minutes):
 
@@ -20,9 +20,9 @@ Fastest way to try it is the in-repo x402 gateway demo (about 10 minutes):
 npm ci && npm run quickstart:x402
 ```
 
-It runs a local Settld API, a mock upstream that returns `HTTP 402 Payment Required` + `x-payment-required`, and a thin gateway. First request returns `402` plus `x-settld-gate-id`. Retry with that gate id and `x-payment: paid`, and the gateway calls Settld to:
+It runs a local Nooterra API, a mock upstream that returns `HTTP 402 Payment Required` + `x-payment-required`, and a thin gateway. First request returns `402` plus `x-nooterra-gate-id`. Retry with that gate id and `x-payment: paid`, and the gateway calls Nooterra to:
 
-`hold -> verify -> release/refund (+ optional holdback)` and returns a receipt-like trail via `x-settld-*` headers (and a `GET /x402/gate/:id` inspection endpoint).
+`hold -> verify -> release/refund (+ optional holdback)` and returns a receipt-like trail via `x-nooterra-*` headers (and a `GET /x402/gate/:id` inspection endpoint).
 
 Full quickstart (Docker + Linux notes): `docs/QUICKSTART_X402_GATEWAY.md`
 
@@ -41,5 +41,5 @@ Feedback I’d love:
 ## Submission Notes (not part of the post)
 
 - Post Tue-Thu mornings ET if you want feedback quickly.
-- If someone says “just use Stripe Connect”: Stripe moves money; Settld decides how much should move based on verifiable evidence, deterministically.
-- If someone says “just use a smart contract”: smart contracts can enforce on-chain state; Settld is about verifying off-chain work completion and producing portable, deterministic receipts.
+- If someone says “just use Stripe Connect”: Stripe moves money; Nooterra decides how much should move based on verifiable evidence, deterministically.
+- If someone says “just use a smart contract”: smart contracts can enforce on-chain state; Nooterra is about verifying off-chain work completion and producing portable, deterministic receipts.

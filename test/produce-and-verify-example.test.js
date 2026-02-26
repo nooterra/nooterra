@@ -6,7 +6,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 test("example producer script: produce → verify (JobProof)", async () => {
-  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-produce-verify-"));
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-produce-verify-"));
   await test.after(() => fs.rm(outDir, { recursive: true, force: true }));
 
   const script = path.resolve(process.cwd(), "scripts", "examples", "produce-and-verify-jobproof.mjs");
@@ -21,7 +21,7 @@ test("example producer script: produce → verify (JobProof)", async () => {
   });
   assert.equal(code, 0, Buffer.concat(stderr).toString("utf8") || Buffer.concat(stdout).toString("utf8"));
 
-  const outPath = path.join(outDir, "settld-verify-output.json");
+  const outPath = path.join(outDir, "nooterra-verify-output.json");
   const raw = await fs.readFile(outPath, "utf8");
   const json = JSON.parse(raw);
   assert.equal(json.schemaVersion, "VerifyCliOutput.v1");

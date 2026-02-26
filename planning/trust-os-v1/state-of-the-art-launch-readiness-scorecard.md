@@ -1,4 +1,4 @@
-# Settld Trust OS v1: State-of-the-Art Launch Readiness Scorecard
+# Nooterra Trust OS: State-of-the-Art Launch Readiness Scorecard
 
 ## Purpose
 
@@ -21,9 +21,9 @@ This scorecard is designed for launch decisions, not roadmap storytelling.
 
 ### Gate A: Onboarding Quality (P0)
 
-- Scope: first-run UX for OpenClaw/Codex/Claude/Cursor.
+- Scope: first-run UX for OpenClaw/Nooterra/Claude/Cursor.
 - Pass criteria:
-  - `npx settld setup` completes without dead-end loops.
+  - `npx nooterra setup` completes without dead-end loops.
   - Interactive wizard requires <= 6 decisions in quick mode.
   - Failure paths always present a next valid action (no cliff errors).
   - First verified receipt median time <= 10 minutes for clean environment.

@@ -33,7 +33,7 @@ async function readJson(fp) {
 }
 
 test("payment trigger retry: dead-letters after max attempts", async (t) => {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-payment-trigger-test-"));
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-payment-trigger-test-"));
   await t.after(async () => {
     await fs.rm(dataDir, { recursive: true, force: true });
   });
@@ -84,7 +84,7 @@ test("payment trigger retry: dead-letters after max attempts", async (t) => {
 });
 
 test("payment trigger retry: succeeds on retry delivery", async (t) => {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-payment-trigger-test-"));
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-payment-trigger-test-"));
   await t.after(async () => {
     await fs.rm(dataDir, { recursive: true, force: true });
   });

@@ -108,7 +108,7 @@ export async function issueDecisionOtp({ dataDir, token, email, ttlSeconds, deli
         auth: smtp?.user && smtp?.pass ? { user: smtp.user, pass: smtp.pass } : null,
         from,
         to: emailNorm,
-        subject: "Your Settld decision code",
+        subject: "Your Nooterra decision code",
         text: `Your decision code is: ${code}\n\nThis code expires at: ${expiresAt}\n\nIf you did not request this code, you can ignore this email.\n`
       });
     } catch (err) {
@@ -129,7 +129,7 @@ export async function issueDecisionOtp({ dataDir, token, email, ttlSeconds, deli
         apiKey,
         from,
         to: emailNorm,
-        subject: "Your Settld decision code",
+        subject: "Your Nooterra decision code",
         text: `Your decision code is: ${code}\n\nThis code expires at: ${expiresAt}\n\nIf you did not request this code, you can ignore this email.\n`,
         baseUrl: resend?.baseUrl
       });

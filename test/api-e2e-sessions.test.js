@@ -134,6 +134,20 @@ test("API e2e: Session.v1 create/list/get and SessionEvent.v1 append/list", asyn
   assert.equal(mismatch.statusCode, 409, mismatch.body);
   assert.equal(mismatch.json?.message ?? mismatch.json?.error, "event append conflict");
 
+  const missingIdempotency = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_e2e_1/events",
+    headers: {
+      "x-proxy-expected-prev-chain-hash": listedEvents.json?.currentPrevChainHash ?? ""
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      payload: { progress: 75 }
+    }
+  });
+  assert.equal(missingIdempotency.statusCode, 400, missingIdempotency.body);
+  assert.equal(missingIdempotency.json?.code, "SESSION_EVENT_IDEMPOTENCY_REQUIRED");
+
   const badType = await request(api, {
     method: "POST",
     path: "/sessions/sess_e2e_1/events",
@@ -244,6 +258,99 @@ test("API e2e: Session.v1 create/list/get and SessionEvent.v1 append/list", asyn
   });
   assert.equal(transcriptInvalidSignerQuery.statusCode, 400, transcriptInvalidSignerQuery.body);
   assert.equal(transcriptInvalidSignerQuery.json?.code, "SCHEMA_INVALID");
+});
+
+test("API e2e: Session signer lifecycle gates append and replay materialization", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_signer_lifecycle_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const signerRegistered = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId: api.store.serverSigner.keyId,
+      publicKeyPem: api.store.serverSigner.publicKeyPem,
+      purpose: "server",
+      status: "active",
+      description: "session signer lifecycle test"
+    }
+  });
+  assert.equal(signerRegistered.statusCode, 201, signerRegistered.body);
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_create_signer_lifecycle_1" },
+    body: {
+      sessionId: "sess_signer_lifecycle_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const firstAppend = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_signer_lifecycle_1/events",
+    headers: {
+      "x-idempotency-key": "session_signer_lifecycle_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      at: "2030-01-01T00:00:00.000Z",
+      payload: { taskId: "task_signer_lifecycle_1" }
+    }
+  });
+  assert.equal(firstAppend.statusCode, 201, firstAppend.body);
+
+  const replayBeforeRevoke = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_signer_lifecycle_1/replay-pack"
+  });
+  assert.equal(replayBeforeRevoke.statusCode, 200, replayBeforeRevoke.body);
+
+  const revoked = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(api.store.serverSigner.keyId)}/revoke`,
+    body: {}
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+  assert.equal(revoked.json?.signerKey?.status, "revoked");
+
+  const replayAfterRevoke = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_signer_lifecycle_1/replay-pack"
+  });
+  assert.equal(replayAfterRevoke.statusCode, 409, replayAfterRevoke.body);
+  assert.equal(replayAfterRevoke.json?.code, "SESSION_REPLAY_SIGNER_KEY_INVALID");
+  assert.equal(replayAfterRevoke.json?.details?.reasonCode, "SIGNER_KEY_REVOKED");
+
+  const transcriptAfterRevoke = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_signer_lifecycle_1/transcript"
+  });
+  assert.equal(transcriptAfterRevoke.statusCode, 409, transcriptAfterRevoke.body);
+  assert.equal(transcriptAfterRevoke.json?.code, "SESSION_REPLAY_SIGNER_KEY_INVALID");
+  assert.equal(transcriptAfterRevoke.json?.details?.reasonCode, "SIGNER_KEY_REVOKED");
+
+  const appendAfterRevoke = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_signer_lifecycle_1/events",
+    headers: {
+      "x-idempotency-key": "session_signer_lifecycle_append_2",
+      "x-proxy-expected-prev-chain-hash": String(firstAppend.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      at: "2030-01-01T00:05:00.000Z",
+      payload: { progressPct: 10 }
+    }
+  });
+  assert.equal(appendAfterRevoke.statusCode, 409, appendAfterRevoke.body);
+  assert.equal(appendAfterRevoke.json?.code, "SESSION_EVENT_SIGNER_KEY_INVALID");
+  assert.equal(appendAfterRevoke.json?.details?.reasonCode, "SIGNER_KEY_REVOKED");
 });
 
 test("API e2e: SessionReplayPack.v1 fails closed on tampered event chain", async () => {

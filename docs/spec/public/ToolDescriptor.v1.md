@@ -49,4 +49,4 @@ Invalid filter values fail closed with `SCHEMA_INVALID`.
 - `src/core/agent-card.js`
 - `src/api/app.js`
 - `src/api/openapi.js`
-- `scripts/mcp/settld-mcp-server.mjs`
+- `scripts/mcp/nooterra-mcp-server.mjs`

@@ -13,8 +13,20 @@ function readFile(relativePath) {
   return fs.readFileSync(path.resolve(process.cwd(), relativePath), "utf8");
 }
 
+function extractJsMethodNames(source) {
+  return new Set(
+    Array.from(source.matchAll(/^\s{2}(?:async\s+)?\*?\s*([A-Za-z_][A-Za-z0-9_]*)\(([^)]*)\)\s*\{/gm), (match) => String(match[1]))
+  );
+}
+
+function extractPythonMethodNames(source) {
+  return new Set(
+    Array.from(source.matchAll(/^\s{4}def\s+([A-Za-z_][A-Za-z0-9_]*)\(/gm), (match) => String(match[1]))
+  );
+}
+
 test("api-sdk-python contract freeze: manual-review + dispute lifecycle methods remain published", () => {
-  const source = readFile("packages/api-sdk-python/settld_api_sdk/client.py");
+  const source = readFile("packages/api-sdk-python/nooterra_api_sdk/client.py");
   const readme = readFile("packages/api-sdk-python/README.md");
 
   assert.match(source, /def get_run_settlement_policy_replay\(/);
@@ -35,6 +47,10 @@ test("api-sdk-python contract freeze: manual-review + dispute lifecycle methods 
   assert.match(source, /def close_run_dispute\(/);
   assert.match(source, /def upsert_agent_card\(/);
   assert.match(source, /def discover_public_agent_cards\(/);
+  assert.match(source, /def stream_public_agent_cards\(/);
+  assert.match(source, /def get_public_agent_reputation_summary\(/);
+  assert.match(source, /def get_agent_interaction_graph_pack\(/);
+  assert.match(source, /def list_relationships\(/);
   assert.match(source, /def issue_delegation_grant\(/);
   assert.match(source, /def get_delegation_grant\(/);
   assert.match(source, /def issue_authority_grant\(/);
@@ -46,7 +62,16 @@ test("api-sdk-python contract freeze: manual-review + dispute lifecycle methods 
   assert.match(source, /def create_task_acceptance\(/);
   assert.match(source, /def get_task_acceptance\(/);
   assert.match(source, /def create_work_order\(/);
+  assert.match(source, /def top_up_work_order\(/);
+  assert.match(source, /def get_work_order_metering\(/);
+  assert.match(source, /def create_state_checkpoint\(/);
+  assert.match(source, /def list_state_checkpoints\(/);
+  assert.match(source, /def get_state_checkpoint\(/);
   assert.match(source, /def create_session\(/);
+  assert.match(source, /def list_sessions\(/);
+  assert.match(source, /def get_session\(/);
+  assert.match(source, /def list_session_events\(/);
+  assert.match(source, /def stream_session_events\(/);
   assert.match(source, /def append_session_event\(/);
   assert.match(source, /def get_session_replay_pack\(/);
   assert.match(source, /def create_capability_attestation\(/);
@@ -71,7 +96,13 @@ test("api-sdk-python contract freeze: manual-review + dispute lifecycle methods 
   assert.match(source, /\/task-offers/);
   assert.match(source, /\/task-acceptances/);
   assert.match(source, /\/work-orders/);
+  assert.match(source, /\/work-orders\/.*\/metering/);
   assert.match(source, /\/sessions/);
+  assert.match(source, /\/relationships/);
+  assert.match(source, /public\/agent-cards\/stream/);
+  assert.match(source, /\/public\/agents\/.*\/reputation-summary/);
+  assert.match(source, /\/interaction-graph-pack/);
+  assert.match(source, /\/state-checkpoints/);
   assert.match(source, /\/capability-attestations/);
   assert.match(source, /includeRoutingFactors/);
   assert.match(source, /subjectAgentId/);
@@ -94,6 +125,10 @@ test("api-sdk-python contract freeze: manual-review + dispute lifecycle methods 
   assert.match(readme, /close_run_dispute/);
   assert.match(readme, /upsert_agent_card/);
   assert.match(readme, /discover_public_agent_cards/);
+  assert.match(readme, /stream_public_agent_cards/);
+  assert.match(readme, /get_public_agent_reputation_summary/);
+  assert.match(readme, /get_agent_interaction_graph_pack/);
+  assert.match(readme, /list_relationships/);
   assert.match(readme, /issue_delegation_grant/);
   assert.match(readme, /get_delegation_grant/);
   assert.match(readme, /issue_authority_grant/);
@@ -101,9 +136,78 @@ test("api-sdk-python contract freeze: manual-review + dispute lifecycle methods 
   assert.match(readme, /create_task_quote\|offer\|acceptance/);
   assert.match(readme, /list\/get/);
   assert.match(readme, /create_work_order/);
+  assert.match(readme, /create_state_checkpoint/);
   assert.match(readme, /create_session/);
+  assert.match(readme, /stream_session_events/);
   assert.match(readme, /create_capability_attestation/);
   assert.match(readme, /list\/get\/revoke_capability_attestation/);
+});
+
+test("api-sdk-python contract freeze: JS to Python ACS surface mapping remains complete", () => {
+  const jsSource = readFile("packages/api-sdk/src/client.js");
+  const pySource = readFile("packages/api-sdk-python/nooterra_api_sdk/client.py");
+  const jsMethods = extractJsMethodNames(jsSource);
+  const pyMethods = extractPythonMethodNames(pySource);
+
+  const requiredAcsMethodMap = [
+    ["upsertAgentCard", "upsert_agent_card"],
+    ["listAgentCards", "list_agent_cards"],
+    ["getAgentCard", "get_agent_card"],
+    ["discoverAgentCards", "discover_agent_cards"],
+    ["discoverPublicAgentCards", "discover_public_agent_cards"],
+    ["streamPublicAgentCards", "stream_public_agent_cards"],
+    ["getPublicAgentReputationSummary", "get_public_agent_reputation_summary"],
+    ["getAgentInteractionGraphPack", "get_agent_interaction_graph_pack"],
+    ["listRelationships", "list_relationships"],
+    ["createDelegationGrant", "issue_delegation_grant"],
+    ["listDelegationGrants", "list_delegation_grants"],
+    ["getDelegationGrant", "get_delegation_grant"],
+    ["revokeDelegationGrant", "revoke_delegation_grant"],
+    ["createAuthorityGrant", "issue_authority_grant"],
+    ["listAuthorityGrants", "list_authority_grants"],
+    ["getAuthorityGrant", "get_authority_grant"],
+    ["revokeAuthorityGrant", "revoke_authority_grant"],
+    ["createTaskQuote", "create_task_quote"],
+    ["listTaskQuotes", "list_task_quotes"],
+    ["getTaskQuote", "get_task_quote"],
+    ["createTaskOffer", "create_task_offer"],
+    ["listTaskOffers", "list_task_offers"],
+    ["getTaskOffer", "get_task_offer"],
+    ["createTaskAcceptance", "create_task_acceptance"],
+    ["listTaskAcceptances", "list_task_acceptances"],
+    ["getTaskAcceptance", "get_task_acceptance"],
+    ["createWorkOrder", "create_work_order"],
+    ["listWorkOrders", "list_work_orders"],
+    ["getWorkOrder", "get_work_order"],
+    ["acceptWorkOrder", "accept_work_order"],
+    ["progressWorkOrder", "progress_work_order"],
+    ["topUpWorkOrder", "top_up_work_order"],
+    ["getWorkOrderMetering", "get_work_order_metering"],
+    ["completeWorkOrder", "complete_work_order"],
+    ["settleWorkOrder", "settle_work_order"],
+    ["listWorkOrderReceipts", "list_work_order_receipts"],
+    ["getWorkOrderReceipt", "get_work_order_receipt"],
+    ["createStateCheckpoint", "create_state_checkpoint"],
+    ["listStateCheckpoints", "list_state_checkpoints"],
+    ["getStateCheckpoint", "get_state_checkpoint"],
+    ["createSession", "create_session"],
+    ["listSessions", "list_sessions"],
+    ["getSession", "get_session"],
+    ["listSessionEvents", "list_session_events"],
+    ["appendSessionEvent", "append_session_event"],
+    ["streamSessionEvents", "stream_session_events"],
+    ["getSessionReplayPack", "get_session_replay_pack"],
+    ["getSessionTranscript", "get_session_transcript"],
+    ["createCapabilityAttestation", "create_capability_attestation"],
+    ["listCapabilityAttestations", "list_capability_attestations"],
+    ["getCapabilityAttestation", "get_capability_attestation"],
+    ["revokeCapabilityAttestation", "revoke_capability_attestation"],
+  ];
+
+  for (const [jsName, pyName] of requiredAcsMethodMap) {
+    assert.equal(jsMethods.has(jsName), true, `missing JS SDK ACS method: ${jsName}`);
+    assert.equal(pyMethods.has(pyName), true, `missing Python SDK ACS method: ${pyName}`);
+  }
 });
 
 test("api-sdk-python contract freeze: dispute lifecycle dispatch wiring remains stable", { skip: !pythonAvailable() }, () => {
@@ -111,7 +215,7 @@ test("api-sdk-python contract freeze: dispute lifecycle dispatch wiring remains 
     "import json, pathlib, sys",
     "repo = pathlib.Path.cwd()",
     "sys.path.insert(0, str(repo / 'packages' / 'api-sdk-python'))",
-    "from settld_api_sdk import SettldClient",
+    "from nooterra_api_sdk import NooterraClient",
     "calls = []",
     "def fake(method, path, **kwargs):",
     "    calls.append({",
@@ -121,7 +225,7 @@ test("api-sdk-python contract freeze: dispute lifecycle dispatch wiring remains 
     "        'body': kwargs.get('body')",
     "    })",
     "    return {'ok': True, 'status': 200, 'requestId': 'req_py_sdk_1', 'body': {'settlement': {'disputeStatus': 'open'}}}",
-    "client = SettldClient(base_url='https://api.settld.local', tenant_id='tenant_py_sdk')",
+    "client = NooterraClient(base_url='https://api.nooterra.local', tenant_id='tenant_py_sdk')",
     "client._request = fake",
     "client.get_run_settlement_policy_replay('run_py_1')",
     "client.resolve_run_settlement('run_py_1', {'status': 'released'}, idempotency_key='py_resolve_1')",
@@ -164,7 +268,7 @@ test("api-sdk-python contract freeze: tool-call kernel wrappers remain wired", {
     "import json, pathlib, sys",
     "repo = pathlib.Path.cwd()",
     "sys.path.insert(0, str(repo / 'packages' / 'api-sdk-python'))",
-    "from settld_api_sdk import SettldClient",
+    "from nooterra_api_sdk import NooterraClient",
     "calls = []",
     "def fake(method, path, **kwargs):",
     "    calls.append({",
@@ -184,7 +288,7 @@ test("api-sdk-python contract freeze: tool-call kernel wrappers remain wired", {
     "        aid = path.split('/artifacts/', 1)[1]",
     "        return {'ok': True, 'status': 200, 'requestId': 'req_py_sdk_tool_3', 'body': {'artifact': {'artifactId': aid}}}",
     "    return {'ok': True, 'status': 200, 'requestId': 'req_py_sdk_tool_0', 'body': {}}",
-    "client = SettldClient(base_url='https://api.settld.local', tenant_id='tenant_py_sdk')",
+    "client = NooterraClient(base_url='https://api.nooterra.local', tenant_id='tenant_py_sdk')",
     "client._request = fake",
     "agreement = client.create_agreement({'toolId':'cap_demo','manifestHash':'f'*64,'callId':'call_demo_1','input':{'text':'hello'},'createdAt':'2026-02-11T00:00:00.000Z'})",
     "evidence = client.sign_evidence({'agreement': agreement['agreement'], 'output': {'upper':'HELLO'}, 'startedAt':'2026-02-11T00:00:01.000Z','completedAt':'2026-02-11T00:00:02.000Z'})",
@@ -227,7 +331,7 @@ test("api-sdk-python contract freeze: ACS substrate wrappers remain wired", { sk
     "import json, pathlib, sys",
     "repo = pathlib.Path.cwd()",
     "sys.path.insert(0, str(repo / 'packages' / 'api-sdk-python'))",
-    "from settld_api_sdk import SettldClient",
+    "from nooterra_api_sdk import NooterraClient",
     "calls = []",
     "def fake(method, path, **kwargs):",
     "    calls.append({",
@@ -238,7 +342,7 @@ test("api-sdk-python contract freeze: ACS substrate wrappers remain wired", { sk
     "        'body': kwargs.get('body')",
     "    })",
     "    return {'ok': True, 'status': 200, 'requestId': 'req_py_sdk_acs_1', 'body': {'ok': True}}",
-    "client = SettldClient(base_url='https://api.settld.local', tenant_id='tenant_py_sdk')",
+    "client = NooterraClient(base_url='https://api.nooterra.local', tenant_id='tenant_py_sdk')",
     "client._request = fake",
     "client.upsert_agent_card({'agentId':'agt_alpha'})",
     "client.discover_agent_cards({'capability':'capability://code','includeRoutingFactors':True,'requesterAgentId':'agt_buyer'})",

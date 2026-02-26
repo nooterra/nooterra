@@ -62,17 +62,17 @@ function writeJson(res, statusCode, payload) {
 async function setupGatewayFixture(t, { gateId, verifyResponse } = {}) {
   const resolvedGateId = typeof gateId === "string" && gateId.trim() !== "" ? gateId : "gate_reason_codes_1";
   const upstreamRequests = [];
-  const settldApiRequests = [];
+  const nooterraApiRequests = [];
 
   const upstream = http.createServer((req, res) => {
     const authHeader = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
-    const hasSettldPay = authHeader.toLowerCase().startsWith("settldpay ");
+    const hasNooterraPay = authHeader.toLowerCase().startsWith("nooterrapay ");
     upstreamRequests.push({
       method: req.method,
       url: req.url,
       authorization: authHeader
     });
-    if (!hasSettldPay) {
+    if (!hasNooterraPay) {
       res.writeHead(402, {
         "content-type": "application/json; charset=utf-8",
         "x-payment-required": "amountCents=500; currency=USD; toolId=mock_search; address=mock:payee; network=mocknet"
@@ -85,10 +85,10 @@ async function setupGatewayFixture(t, { gateId, verifyResponse } = {}) {
   const upstreamBind = await listenOnEphemeralLoopback(upstream, { hosts: ["127.0.0.1"] });
   const upstreamBase = `http://127.0.0.1:${upstreamBind.port}`;
 
-  const settldApi = http.createServer(async (req, res) => {
+  const nooterraApi = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const body = req.method === "POST" ? await readJsonBody(req) : null;
-    settldApiRequests.push({
+    nooterraApiRequests.push({
       method: req.method,
       path: url.pathname,
       body
@@ -102,7 +102,7 @@ async function setupGatewayFixture(t, { gateId, verifyResponse } = {}) {
       writeJson(res, 200, {
         gateId: resolvedGateId,
         authorizationRef: "authz_gateway_reason_1",
-        token: "settldpay_gateway_reason_token_1"
+        token: "nooterrapay_gateway_reason_token_1"
       });
       return;
     }
@@ -112,7 +112,7 @@ async function setupGatewayFixture(t, { gateId, verifyResponse } = {}) {
     }
     writeJson(res, 404, { ok: false, error: "not_found" });
   });
-  const apiBind = await listenOnEphemeralLoopback(settldApi, { hosts: ["127.0.0.1"] });
+  const apiBind = await listenOnEphemeralLoopback(nooterraApi, { hosts: ["127.0.0.1"] });
   const apiBase = `http://127.0.0.1:${apiBind.port}`;
 
   const gatewayPort = await reservePort();
@@ -123,8 +123,8 @@ async function setupGatewayFixture(t, { gateId, verifyResponse } = {}) {
       ...process.env,
       PORT: String(gatewayPort),
       BIND_HOST: "127.0.0.1",
-      SETTLD_API_URL: apiBase,
-      SETTLD_API_KEY: "sk_gateway_reason.secret",
+      NOOTERRA_API_URL: apiBase,
+      NOOTERRA_API_KEY: "sk_gateway_reason.secret",
       UPSTREAM_URL: upstreamBase,
       X402_AUTOFUND: "1"
     }
@@ -135,7 +135,7 @@ async function setupGatewayFixture(t, { gateId, verifyResponse } = {}) {
     const exited = await Promise.race([onceProcessExit(gateway), sleep(1_500).then(() => null)]);
     if (!exited && !gateway.killed) gateway.kill("SIGKILL");
     await new Promise((resolve) => upstream.close(resolve));
-    await new Promise((resolve) => settldApi.close(resolve));
+    await new Promise((resolve) => nooterraApi.close(resolve));
   });
 
   await waitForGatewayReady({ port: gatewayPort });
@@ -145,20 +145,20 @@ async function setupGatewayFixture(t, { gateId, verifyResponse } = {}) {
     gatewayBase,
     gateId: resolvedGateId,
     upstreamRequests,
-    settldApiRequests
+    nooterraApiRequests
   };
 }
 
 async function runGatewayPaidFlow({ gatewayBase, query, gateId }) {
   const first = await fetch(`${gatewayBase}/tools/search?q=${encodeURIComponent(query)}`);
   assert.equal(first.status, 402);
-  const returnedGateId = first.headers.get("x-settld-gate-id");
+  const returnedGateId = first.headers.get("x-nooterra-gate-id");
   assert.ok(returnedGateId && returnedGateId.trim() !== "");
   if (gateId) assert.equal(returnedGateId, gateId);
 
   const second = await fetch(`${gatewayBase}/tools/search?q=${encodeURIComponent(query)}`, {
     headers: {
-      "x-settld-gate-id": returnedGateId
+      "x-nooterra-gate-id": returnedGateId
     }
   });
   const secondBody = await second.text();
@@ -209,7 +209,7 @@ test("x402 gateway: reason-code headers match shared normalization with determin
   assert.equal(JSON.parse(paid.secondBody)?.ok, true);
 
   const normalizedExpected = normalizeReasonCodes([...fromGateDecision, ...fromDecision]);
-  const headerValue = String(paid.second.headers.get("x-settld-verification-codes") ?? "");
+  const headerValue = String(paid.second.headers.get("x-nooterra-verification-codes") ?? "");
   assert.ok(headerValue.length > 0);
   const headerReasonCodes = headerValue
     .split(",")
@@ -217,7 +217,7 @@ test("x402 gateway: reason-code headers match shared normalization with determin
     .filter(Boolean);
 
   assert.deepEqual(headerReasonCodes, normalizedExpected);
-  assert.equal(paid.second.headers.get("x-settld-reason-code"), normalizedExpected[0]);
+  assert.equal(paid.second.headers.get("x-nooterra-reason-code"), normalizedExpected[0]);
   assert.equal(new Set(headerReasonCodes).size, headerReasonCodes.length);
   assert.deepEqual([...headerReasonCodes].sort((left, right) => left.localeCompare(right)), headerReasonCodes);
 });
@@ -267,16 +267,16 @@ test("x402 gateway: policy fingerprint headers are emitted and match decisionRec
   const expectedVerificationMethodHash = String(fingerprint.verificationMethodHash).toLowerCase();
   const expectedEvaluationHash = String(fingerprint.evaluationHash).toLowerCase();
 
-  assert.equal(paid.second.headers.get("x-settld-decision-id"), verifyResponse.decisionRecord.decisionId);
-  assert.equal(paid.second.headers.get("x-settld-policy-hash"), expectedPolicyHash);
+  assert.equal(paid.second.headers.get("x-nooterra-decision-id"), verifyResponse.decisionRecord.decisionId);
+  assert.equal(paid.second.headers.get("x-nooterra-policy-hash"), expectedPolicyHash);
   assert.equal(
-    paid.second.headers.get("x-settld-policy-version"),
+    paid.second.headers.get("x-nooterra-policy-version"),
     String(verifyResponse.decisionRecord.bindings.policyDecisionFingerprint.policyVersion)
   );
-  assert.equal(paid.second.headers.get("x-settld-policy-verification-method-hash"), expectedVerificationMethodHash);
-  assert.equal(paid.second.headers.get("x-settld-policy-evaluation-hash"), expectedEvaluationHash);
+  assert.equal(paid.second.headers.get("x-nooterra-policy-verification-method-hash"), expectedVerificationMethodHash);
+  assert.equal(paid.second.headers.get("x-nooterra-policy-evaluation-hash"), expectedEvaluationHash);
 
-  const verifyCalls = fixture.settldApiRequests.filter((row) => row.method === "POST" && row.path === "/x402/gate/verify");
+  const verifyCalls = fixture.nooterraApiRequests.filter((row) => row.method === "POST" && row.path === "/x402/gate/verify");
   assert.equal(verifyCalls.length, 1);
   assert.equal(verifyCalls[0]?.body?.gateId, fixture.gateId);
 });

@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 async function runCli(args, { env } = {}) {
-  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "settld-verify.js");
+  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "nooterra-verify.js");
   const proc = spawn(process.execPath, [bin, ...args], {
     env: { ...process.env, ...(env ?? {}) },
     stdio: ["ignore", "pipe", "pipe"]
@@ -21,10 +21,10 @@ async function runCli(args, { env } = {}) {
   return { code, stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8") };
 }
 
-test("settld-verify --format json output is byte-stable across runs (with concurrency)", async () => {
+test("nooterra-verify --format json output is byte-stable across runs (with concurrency)", async () => {
   const trustPath = path.resolve(process.cwd(), "test", "fixtures", "bundles", "v1", "trust.json");
   const trust = JSON.parse(await fs.readFile(trustPath, "utf8"));
-  const env = { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}) };
+  const env = { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}) };
 
   const target = path.resolve(process.cwd(), "test", "fixtures", "bundles", "v1", "jobproof", "strict-pass");
   const args = ["--format", "json", "--strict", "--hash-concurrency", "8", "--job-proof", target];
@@ -39,7 +39,7 @@ test("settld-verify --format json output is byte-stable across runs (with concur
   assert.equal(a.stdout, c.stdout);
 });
 
-test("settld-verify rejects invalid --hash-concurrency", async () => {
+test("nooterra-verify rejects invalid --hash-concurrency", async () => {
   const target = path.resolve(process.cwd(), "test", "fixtures", "bundles", "v1", "jobproof", "strict-pass");
   const res = await runCli(["--format", "json", "--hash-concurrency", "0", "--job-proof", target], { env: {} });
   assert.equal(res.code, 2);

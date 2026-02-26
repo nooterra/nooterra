@@ -159,10 +159,10 @@ export async function deliverTenantWebhooks({
     const headers = {
       "content-type": "application/json; charset=utf-8",
       "content-length": String(Buffer.byteLength(body, "utf8")),
-      "user-agent": "settld-magic-link/0",
-      "x-settld-event": String(event),
-      "x-settld-timestamp": sig.timestamp,
-      "x-settld-signature": sig.signature
+      "user-agent": "nooterra-magic-link/0",
+      "x-nooterra-event": String(event),
+      "x-nooterra-timestamp": sig.timestamp,
+      "x-nooterra-signature": sig.signature
     };
 
     const attempt = {

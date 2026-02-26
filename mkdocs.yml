@@ -1,6 +1,6 @@
-site_name: Settld Docs
+site_name: Nooterra Docs
 site_description: Deterministic primitives for autonomous production systems
-site_url: https://docs.settld.work
+site_url: https://docs.nooterra.work
 docs_dir: mkdocs/docs
 site_dir: mkdocs/site
 theme:
@@ -33,7 +33,7 @@ nav:
       - Onboarding State Machine: guides/onboarding-state-machine.md
       - Onboarding Failure Taxonomy: guides/onboarding-failure-taxonomy.md
       - Launch Readiness Scorecard: guides/launch-readiness-scorecard.md
-      - V1 Execution Plan: guides/v1-execution-plan.md
+      - Execution Plan: guides/execution-plan.md
       - Local Environment: guides/local-environment.md
       - Production Cutover: guides/production-cutover.md
       - Policy Packs: guides/policy-packs.md

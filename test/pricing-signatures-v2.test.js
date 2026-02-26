@@ -56,7 +56,7 @@ function parseJsonFromBytes(bytes) {
 }
 
 function regenerateInvoiceBundleIntegrity({ files, manifestSigner, verificationReportSigner, timestampAuthoritySigner, toolVersion, toolCommit }) {
-  const header = parseJsonFromBytes(files.get("settld.json"));
+  const header = parseJsonFromBytes(files.get("nooterra.json"));
   const tenantId = String(header.tenantId);
   const invoiceId = String(header.invoiceId);
   const protocol = String(header.protocol ?? "1.0");
@@ -73,7 +73,7 @@ function regenerateInvoiceBundleIntegrity({ files, manifestSigner, verificationR
   inputs.invoiceClaimHash = sha256Hex(files.get("invoice/invoice_claim.json"));
 
   const headerNext = { ...header, inputs };
-  files.set("settld.json", new TextEncoder().encode(`${canonicalJsonStringify(headerNext)}\n`));
+  files.set("nooterra.json", new TextEncoder().encode(`${canonicalJsonStringify(headerNext)}\n`));
 
   // Mirror buildInvoiceBundleV1 manifest computation:
   // - exclude `manifest.json` itself
@@ -128,7 +128,7 @@ function regenerateInvoiceBundleIntegrity({ files, manifestSigner, verificationR
 }
 
 test("PricingMatrixSignatures.v2: canonical JSON binding is formatting-independent", async (t) => {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-pricing-sig-v2-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-pricing-sig-v2-"));
   await t.after(async () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
@@ -139,16 +139,16 @@ test("PricingMatrixSignatures.v2: canonical JSON binding is formatting-independe
   const timeAuthority = keypairs.timeAuthority;
 
   const trust = JSON.parse(await fs.readFile(path.resolve(process.cwd(), "test/fixtures/bundles/v1/trust.json"), "utf8"));
-  const oldGov = process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
-  const oldPricing = process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON;
-  const oldTime = process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON;
-  process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-  process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
-  process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON = JSON.stringify(trust.timeAuthorities ?? {});
+  const oldGov = process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
+  const oldPricing = process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON;
+  const oldTime = process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON;
+  process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+  process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+  process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON = JSON.stringify(trust.timeAuthorities ?? {});
   await t.after(() => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = oldGov;
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = oldPricing;
-    process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON = oldTime;
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = oldGov;
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = oldPricing;
+    process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON = oldTime;
   });
 
   const fxInvoiceDir = path.resolve(process.cwd(), "test/fixtures/bundles/v1/invoicebundle/strict-pass");
@@ -223,7 +223,7 @@ test("PricingMatrixSignatures.v2: canonical JSON binding is formatting-independe
 });
 
 test("PricingMatrixSignatures.v1: compat warns; strict rejects", async (t) => {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-pricing-sig-v1-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-pricing-sig-v1-"));
   await t.after(async () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
@@ -234,16 +234,16 @@ test("PricingMatrixSignatures.v1: compat warns; strict rejects", async (t) => {
   const timeAuthority = keypairs.timeAuthority;
 
   const trust = JSON.parse(await fs.readFile(path.resolve(process.cwd(), "test/fixtures/bundles/v1/trust.json"), "utf8"));
-  const oldGov = process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
-  const oldPricing = process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON;
-  const oldTime = process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON;
-  process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-  process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
-  process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON = JSON.stringify(trust.timeAuthorities ?? {});
+  const oldGov = process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
+  const oldPricing = process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON;
+  const oldTime = process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON;
+  process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+  process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+  process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON = JSON.stringify(trust.timeAuthorities ?? {});
   await t.after(() => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = oldGov;
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = oldPricing;
-    process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON = oldTime;
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = oldGov;
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = oldPricing;
+    process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON = oldTime;
   });
 
   const fxInvoiceDir = path.resolve(process.cwd(), "test/fixtures/bundles/v1/invoicebundle/strict-pass");

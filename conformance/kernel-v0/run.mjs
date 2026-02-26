@@ -120,7 +120,7 @@ async function requestJson({ baseUrl, tenantId, protocol, apiKey, opsToken, meth
   const headers = {
     "content-type": "application/json",
     "x-proxy-tenant-id": String(tenantId),
-    "x-settld-protocol": String(protocol),
+    "x-nooterra-protocol": String(protocol),
     "x-request-id": `conf_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`
   };
   if (idempotencyKey) headers["x-idempotency-key"] = String(idempotencyKey);
@@ -802,7 +802,7 @@ async function runToolCallHoldbackDisputeCase({ opts, verdict }) {
   const closepackOutDir =
     typeof opts.closepackOutDir === "string" && opts.closepackOutDir.trim() !== ""
       ? path.resolve(process.cwd(), opts.closepackOutDir.trim())
-      : path.resolve("/tmp", "settld-kernel-closepacks");
+      : path.resolve("/tmp", "nooterra-kernel-closepacks");
   const closepackZipPath = path.join(closepackOutDir, `${agreementHash}.zip`);
 
   const closepackExport = await exportToolCallClosepack({
@@ -989,7 +989,7 @@ async function runMarketplaceRunReplayEvaluateCase({ opts }) {
     "run settlement decisionRecord.verifierRef.modality must be deterministic"
   );
   assert(
-    String(decisionRecord?.verifierRef?.verifierId ?? "") === "settld.deterministic.latency-threshold",
+    String(decisionRecord?.verifierRef?.verifierId ?? "") === "nooterra.deterministic.latency-threshold",
     "run settlement decisionRecord.verifierRef.verifierId mismatch"
   );
   assert(isSha256Hex(String(decisionRecord?.verifierRef?.verifierHash ?? "")), "run settlement decisionRecord.verifierRef.verifierHash must be sha256");

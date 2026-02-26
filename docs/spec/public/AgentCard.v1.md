@@ -23,6 +23,7 @@ Runtime status: implemented.
 - `status`
 - `visibility`
 - `capabilities`
+- `executionCoordinatorDid` (optional DID-like coordinator hint for federation-aware routing)
 - `createdAt`
 - `updatedAt`
 - `revision`
@@ -37,6 +38,7 @@ Runtime status: implemented.
 - `capabilities` MUST be a subset of the registered `AgentIdentity.v1` capabilities.
 - `agentId` MUST reference an existing agent identity.
 - `updatedAt` MUST move forward monotonically per card revision.
+- if present, `executionCoordinatorDid` MUST be a DID-like identifier (`:` required).
 - If present, `tools[].toolId` MUST be unique within a card.
 - If present, each `tools[]` entry MUST validate as `ToolDescriptor.v1`.
 
@@ -54,6 +56,7 @@ Runtime status: implemented.
 - Non-public visibility filters are rejected fail-closed (`SCHEMA_INVALID`).
 - Agents under active emergency quarantine are excluded from public discoverability.
 - Tool descriptor filters are supported on discover endpoints:
+  - `executionCoordinatorDid`
   - `toolId`
   - `toolMcpName`
   - `toolRiskClass`
@@ -62,6 +65,7 @@ Runtime status: implemented.
   - `toolRequiresEvidenceKind`
 - Invalid discovery query filters fail closed with `SCHEMA_INVALID`.
 - Public stream updates use `AgentCardStreamEvent.v1` (`agent_card.upsert`, `agent_card.removed`).
+- `/public/agent-cards/stream` supports `executionCoordinatorDid` filter for coordinator-aware subscriptions.
 
 ## Public publish anti-abuse controls
 
@@ -86,8 +90,8 @@ Runtime status: implemented.
 
 ## MCP surface
 
-- `settld.agent_card_upsert`
-- `settld.agent_discover` (supports `scope=tenant|public`; public scope requires `visibility=public`)
+- `nooterra.agent_card_upsert`
+- `nooterra.agent_discover` (supports `scope=tenant|public`; public scope requires `visibility=public`)
 
 ## Implementation references
 

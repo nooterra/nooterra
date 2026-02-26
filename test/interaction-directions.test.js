@@ -75,7 +75,7 @@ test("InteractionDirectionMatrix.v1: builder + validator enforce fixed matrix", 
   for (const schema of await loadSchemas()) {
     if (schema && typeof schema === "object" && typeof schema.$id === "string") ajv.addSchema(schema, schema.$id);
   }
-  const validate = ajv.getSchema("https://settld.local/schemas/InteractionDirectionMatrix.v1.schema.json");
+  const validate = ajv.getSchema("https://nooterra.local/schemas/InteractionDirectionMatrix.v1.schema.json");
   assert.ok(validate);
   assert.equal(validate(matrix), true);
 

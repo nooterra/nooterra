@@ -72,7 +72,7 @@ describe("FinancePackBundle.v1 zip determinism", () => {
       reconcileReportBytes: reconcileBytes
     });
 
-    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-finance-pack-zip-"));
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-finance-pack-zip-"));
     const dir = path.join(tmp, "bundle");
     await writeFilesToDir({ files: built.files, outDir: dir });
 

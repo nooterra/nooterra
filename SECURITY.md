@@ -1,12 +1,12 @@
 # Security
 
-Settld is a system-of-record product. We take security issues seriously.
+Nooterra is a system-of-record product. We take security issues seriously.
 
 ## Reporting a vulnerability
 
 Please report suspected vulnerabilities privately.
 
-- Email: `aiden@settld.work`
+- Email: `aiden@nooterra.work`
 
 Include:
 

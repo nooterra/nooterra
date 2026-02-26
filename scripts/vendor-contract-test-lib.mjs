@@ -44,9 +44,9 @@ function trustToEnv(trustJson) {
     ok: true,
     trust: { governanceRoots, pricingSigners, timeAuthorities },
     env: {
-      SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(governanceRoots),
-      SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(pricingSigners),
-      SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(timeAuthorities)
+      NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(governanceRoots),
+      NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(pricingSigners),
+      NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(timeAuthorities)
     }
   };
 }
@@ -130,19 +130,19 @@ export async function runVendorContractTest({ bundlePath, trustPath, expect }) {
   let pricingCheck = null;
 
   try {
-    const header = await readJsonBestEffort(path.join(unzip.dir, "settld.json"));
+    const header = await readJsonBestEffort(path.join(unzip.dir, "nooterra.json"));
     bundleType = typeof header?.type === "string" ? header.type : null;
 
     const envKeys = [
-      "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON",
-      "SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON",
-      "SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON"
+      "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON",
+      "NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON",
+      "NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON"
     ];
     const old = {};
     for (const k of envKeys) old[k] = process.env[k];
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = trustParsed.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = trustParsed.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON;
-    process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON = trustParsed.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON;
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = trustParsed.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = trustParsed.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON;
+    process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON = trustParsed.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON;
     try {
       if (bundleType === "ClosePack.v1") verifyRes = await verifyClosePackBundleDir({ dir: unzip.dir, strict: true, hashConcurrency: 16 });
       else if (bundleType === "InvoiceBundle.v1") verifyRes = await verifyInvoiceBundleDir({ dir: unzip.dir, strict: true, hashConcurrency: 16 });

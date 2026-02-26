@@ -32,7 +32,7 @@ async function writeFilesToDir({ files, outDir }) {
 }
 
 async function runCli(args) {
-  const proc = spawn("node", ["packages/artifact-verify/bin/settld-verify.js", ...args], {
+  const proc = spawn("node", ["packages/artifact-verify/bin/nooterra-verify.js", ...args], {
     cwd: process.cwd(),
     stdio: "pipe"
   });
@@ -60,7 +60,7 @@ test("FinancePackBundle.v1 strict verification succeeds (MonthProof strict + sig
   const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
   const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
   await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => {
 
   const publicKeyByKeyId = new Map([[keyId, publicKeyPem]]);
@@ -151,7 +151,7 @@ test("FinancePackBundle.v1 strict verification succeeds (MonthProof strict + sig
 		    reconcileReportBytes: reconcileBytes
 	  });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-finance-pack-strict-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-finance-pack-strict-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files: built.files, outDir: dir });
 
@@ -179,7 +179,7 @@ test("FinancePackBundle.v1 strict verification fails if verification report is u
   const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
   const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
   await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => {
       const publicKeyByKeyId = new Map([[keyId, publicKeyPem]]);
 
@@ -257,7 +257,7 @@ test("FinancePackBundle.v1 strict verification fails if verification report is u
         reconcileReportBytes: reconcileBytes
       });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-finance-pack-strict-unsigned-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-finance-pack-strict-unsigned-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files: built.files, outDir: dir });
 
@@ -280,7 +280,7 @@ test("FinancePackBundle.v1 strict verification fails if head attestation is miss
   const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
   const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
   await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => {
       const publicKeyByKeyId = new Map([[keyId, publicKeyPem]]);
 
@@ -360,7 +360,7 @@ test("FinancePackBundle.v1 strict verification fails if head attestation is miss
 
   built.files.delete("attestation/bundle_head_attestation.json");
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-finance-pack-strict-missing-attestation-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-finance-pack-strict-missing-attestation-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files: built.files, outDir: dir });
 
@@ -383,7 +383,7 @@ test("FinancePackBundle.v1 strict verification fails if report attestationHash b
   const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
   const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
   await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => {
       const publicKeyByKeyId = new Map([[keyId, publicKeyPem]]);
 
@@ -475,7 +475,7 @@ test("FinancePackBundle.v1 strict verification fails if report attestationHash b
 
   built.files.set("verify/verification_report.json", bytes(`${canonicalJsonStringify(report)}\n`));
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-finance-pack-strict-wrong-att-hash-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-finance-pack-strict-wrong-att-hash-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files: built.files, outDir: dir });
 

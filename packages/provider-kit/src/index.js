@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 
 import { canonicalJsonStringify } from "./internal/canonical-json.js";
 import { keyIdFromPublicKeyPem, sha256Hex } from "./internal/crypto.js";
-import { buildSettldPayKeysetV1 } from "./internal/settld-keys.js";
-import { computeSettldPayRequestBindingSha256V1, verifySettldPayTokenV1 } from "./internal/settld-pay-token.js";
+import { buildNooterraPayKeysetV1 } from "./internal/nooterra-keys.js";
+import { computeNooterraPayRequestBindingSha256V1, verifyNooterraPayTokenV1 } from "./internal/nooterra-pay-token.js";
 import { buildToolProviderQuotePayloadV1, signToolProviderQuoteSignatureV1 } from "./internal/provider-quote-signature.js";
 import { signToolProviderSignatureV1 } from "./internal/tool-provider-signature.js";
 
@@ -35,8 +35,8 @@ function sanitizeIdSegment(text, { maxLen = 96 } = {}) {
   return safe || "unknown";
 }
 
-const PROVIDER_QUOTE_HEADER = "x-settld-provider-quote";
-const PROVIDER_QUOTE_SIGNATURE_HEADER = "x-settld-provider-quote-signature";
+const PROVIDER_QUOTE_HEADER = "x-nooterra-provider-quote";
+const PROVIDER_QUOTE_SIGNATURE_HEADER = "x-nooterra-provider-quote-signature";
 
 function toBase64UrlJson(value) {
   return Buffer.from(canonicalJsonStringify(value), "utf8").toString("base64url");
@@ -81,7 +81,7 @@ function normalizeSpendAuthorizationMode(value, { fallback = "optional" } = {}) 
 }
 
 function parseVerificationCode(err) {
-  const code = typeof err?.code === "string" && err.code.trim() !== "" ? err.code.trim() : "SETTLD_PAY_VERIFICATION_ERROR";
+  const code = typeof err?.code === "string" && err.code.trim() !== "" ? err.code.trim() : "NOOTERRA_PAY_VERIFICATION_ERROR";
   return code;
 }
 
@@ -128,7 +128,7 @@ async function readRequestBodyBuffer(req, { maxBytes = 1_000_000 } = {}) {
     total += buf.length;
     if (total > limit) {
       const err = new Error(`request body exceeds maxRequestBodyBytes (${limit})`);
-      err.code = "SETTLD_PAY_REQUEST_BODY_TOO_LARGE";
+      err.code = "NOOTERRA_PAY_REQUEST_BODY_TOO_LARGE";
       throw err;
     }
     chunks.push(buf);
@@ -141,7 +141,7 @@ function computeRequestBindingSha256({ req, url, bodyBuffer }) {
   const host = String(req?.headers?.host ?? url?.host ?? "").trim().toLowerCase();
   const pathWithQuery = `${url?.pathname ?? "/"}${url?.search ?? ""}`;
   const bodySha256 = sha256Hex(Buffer.isBuffer(bodyBuffer) ? bodyBuffer : Buffer.from("", "utf8"));
-  return computeSettldPayRequestBindingSha256V1({ method, host, pathWithQuery, bodySha256 });
+  return computeNooterraPayRequestBindingSha256V1({ method, host, pathWithQuery, bodySha256 });
 }
 
 function normalizeExecutionResult(raw) {
@@ -189,12 +189,12 @@ function defaultProviderIdForRequest(req) {
   return `provider_${sanitizeIdSegment(host)}`;
 }
 
-export function parseSettldPayAuthorizationHeader(authorizationHeaderRaw) {
+export function parseNooterraPayAuthorizationHeader(authorizationHeaderRaw) {
   const authorizationHeader = typeof authorizationHeaderRaw === "string" ? authorizationHeaderRaw.trim() : "";
   if (!authorizationHeader) return null;
   const lower = authorizationHeader.toLowerCase();
-  if (!lower.startsWith("settldpay ")) return null;
-  const token = authorizationHeader.slice("settldpay ".length).trim();
+  if (!lower.startsWith("nooterrapay ")) return null;
+  const token = authorizationHeader.slice("nooterrapay ".length).trim();
   return token || null;
 }
 
@@ -251,7 +251,7 @@ export function createInMemoryReplayStore({ maxKeys = 10_000 } = {}) {
   };
 }
 
-export function createSettldPayKeysetResolver({
+export function createNooterraPayKeysetResolver({
   keysetUrl,
   fetch: fetchImpl = null,
   defaultMaxAgeMs = 300_000,
@@ -277,14 +277,14 @@ export function createSettldPayKeysetResolver({
     const derivedKid = keyIdFromPublicKeyPem(pinnedPublicKeyPem);
     const kid = typeof pinnedKeyId === "string" && pinnedKeyId.trim() !== "" ? pinnedKeyId.trim() : derivedKid;
     if (kid !== derivedKid) throw new TypeError("pinnedKeyId does not match pinnedPublicKeyPem");
-    return buildSettldPayKeysetV1({
+    return buildNooterraPayKeysetV1({
       activeKey: { keyId: kid, publicKeyPem: pinnedPublicKeyPem },
       fallbackKeys: [],
       refreshedAt: new Date().toISOString()
     });
   })();
 
-  async function fetchSettldKeysetFromUrl() {
+  async function fetchNooterraKeysetFromUrl() {
     if (typeof keysetUrl !== "string" || keysetUrl.trim() === "") {
       throw new TypeError("keysetUrl is required when pinnedOnly=false");
     }
@@ -326,7 +326,7 @@ export function createSettldPayKeysetResolver({
       }
 
       try {
-        const fetched = await fetchSettldKeysetFromUrl();
+        const fetched = await fetchNooterraKeysetFromUrl();
         cache.keyset = fetched.keyset;
         cache.expiresAtMs = nowMs + fetched.maxAgeMs;
         cache.source = "well-known";
@@ -382,13 +382,13 @@ function normalizeOffer({ offer, req, url, providerId, providerIdForRequest, pay
       ? raw.address.trim()
       : typeof paymentAddress === "string" && paymentAddress.trim() !== ""
         ? paymentAddress.trim()
-        : "settld:provider";
+        : "nooterra:provider";
   const network =
     typeof raw.network === "string" && raw.network.trim() !== ""
       ? raw.network.trim()
       : typeof paymentNetwork === "string" && paymentNetwork.trim() !== ""
         ? paymentNetwork.trim()
-        : "settld";
+        : "nooterra";
 
   return {
     amountCents,
@@ -475,7 +475,7 @@ function sendPaymentRequired(res, { offer, quoteAttestation = null, code = "PAYM
     headers: {
       "x-payment-required": headerValue,
       "PAYMENT-REQUIRED": headerValue,
-      "x-settld-payment-error": String(code),
+      "x-nooterra-payment-error": String(code),
       ...quoteHeaders
     },
     payload: {
@@ -490,26 +490,26 @@ function sendPaymentRequired(res, { offer, quoteAttestation = null, code = "PAYM
   });
 }
 
-async function verifySettldPaymentToken({ token, offer, keysetResolver, expectedRequestBindingSha256 = null }) {
+async function verifyNooterraPaymentToken({ token, offer, keysetResolver, expectedRequestBindingSha256 = null }) {
   let keysetResult;
   try {
     keysetResult = await keysetResolver.getKeyset();
   } catch (err) {
-    return { ok: false, code: "SETTLD_PAY_KEYSET_UNAVAILABLE", message: err?.message ?? String(err ?? "") };
+    return { ok: false, code: "NOOTERRA_PAY_KEYSET_UNAVAILABLE", message: err?.message ?? String(err ?? "") };
   }
   const keyset = keysetResult?.keyset ?? keysetResult;
   const keysetSource = typeof keysetResult?.source === "string" && keysetResult.source.trim() !== "" ? keysetResult.source : "unknown";
 
   let verified;
   try {
-    verified = verifySettldPayTokenV1({ token, keyset, expectedRequestBindingSha256 });
+    verified = verifyNooterraPayTokenV1({ token, keyset, expectedRequestBindingSha256 });
   } catch (err) {
     return { ok: false, code: parseVerificationCode(err), message: err?.message ?? String(err ?? "") };
   }
   if (!verified?.ok) {
     return {
       ok: false,
-      code: String(verified?.code ?? "SETTLD_PAY_VERIFICATION_ERROR"),
+      code: String(verified?.code ?? "NOOTERRA_PAY_VERIFICATION_ERROR"),
       message: verified?.message ?? "token verification failed",
       details: verified?.payload ? { payload: verified.payload } : null
     };
@@ -521,7 +521,7 @@ async function verifySettldPaymentToken({ token, offer, keysetResolver, expected
   if (payloadAud !== offer.providerId || payloadPayeeProviderId !== offer.providerId) {
     return {
       ok: false,
-      code: "SETTLD_PAY_PROVIDER_MISMATCH",
+      code: "NOOTERRA_PAY_PROVIDER_MISMATCH",
       message: "token does not match provider offer",
       details: {
         expectedProviderId: offer.providerId,
@@ -535,7 +535,7 @@ async function verifySettldPaymentToken({ token, offer, keysetResolver, expected
   if (!Number.isSafeInteger(payloadAmountCents) || payloadAmountCents !== offer.amountCents) {
     return {
       ok: false,
-      code: "SETTLD_PAY_AMOUNT_MISMATCH",
+      code: "NOOTERRA_PAY_AMOUNT_MISMATCH",
       message: "token does not match provider offer",
       details: {
         expectedAmountCents: offer.amountCents,
@@ -548,7 +548,7 @@ async function verifySettldPaymentToken({ token, offer, keysetResolver, expected
   if (payloadCurrency !== offer.currency) {
     return {
       ok: false,
-      code: "SETTLD_PAY_CURRENCY_MISMATCH",
+      code: "NOOTERRA_PAY_CURRENCY_MISMATCH",
       message: "token does not match provider offer",
       details: {
         expectedCurrency: offer.currency,
@@ -561,14 +561,14 @@ async function verifySettldPaymentToken({ token, offer, keysetResolver, expected
   if (offer.quoteRequired === true && !payloadQuoteId) {
     return {
       ok: false,
-      code: "SETTLD_PAY_QUOTE_REQUIRED",
+      code: "NOOTERRA_PAY_QUOTE_REQUIRED",
       message: "token is missing required quoteId"
     };
   }
   if (offer.quoteId && payloadQuoteId !== offer.quoteId) {
     return {
       ok: false,
-      code: "SETTLD_PAY_QUOTE_MISMATCH",
+      code: "NOOTERRA_PAY_QUOTE_MISMATCH",
       message: "token quoteId does not match provider offer",
       details: {
         expectedQuoteId: offer.quoteId,
@@ -592,7 +592,7 @@ async function verifySettldPaymentToken({ token, offer, keysetResolver, expected
     if (missingClaims.length > 0) {
       return {
         ok: false,
-        code: "SETTLD_PAY_SPEND_AUTH_REQUIRED",
+        code: "NOOTERRA_PAY_SPEND_AUTH_REQUIRED",
         message: "token is missing required spend-authorization claims",
         details: { missingClaims }
       };
@@ -606,21 +606,21 @@ async function verifySettldPaymentToken({ token, offer, keysetResolver, expected
   };
 }
 
-export function createSettldPaidNodeHttpHandler({
+export function createNooterraPaidNodeHttpHandler({
   providerId = null,
   providerIdForRequest = null,
   priceFor,
   execute,
   providerPublicKeyPem,
   providerPrivateKeyPem,
-  paymentAddress = "settld:provider",
-  paymentNetwork = "settld",
+  paymentAddress = "nooterra:provider",
+  paymentNetwork = "nooterra",
   replayStore = null,
   replayTtlBufferMs = 60_000,
   replayMaxKeys = 10_000,
   quoteTtlSeconds = 300,
   keysetResolver = null,
-  settldPay = {},
+  nooterraPay = {},
   mutateSignature = null
 } = {}) {
   const priceForFn = assertFn(priceFor, "priceFor");
@@ -631,8 +631,8 @@ export function createSettldPaidNodeHttpHandler({
   const normalizedQuoteTtlSeconds = assertPositiveSafeInt(quoteTtlSeconds, "quoteTtlSeconds");
   const signerKeyId = keyIdFromPublicKeyPem(publicKeyPem);
   const maxRequestBodyBytes = (() => {
-    if (settldPay && typeof settldPay === "object" && !Array.isArray(settldPay) && settldPay.maxRequestBodyBytes !== undefined) {
-      return assertPositiveSafeInt(settldPay.maxRequestBodyBytes, "settldPay.maxRequestBodyBytes");
+    if (nooterraPay && typeof nooterraPay === "object" && !Array.isArray(nooterraPay) && nooterraPay.maxRequestBodyBytes !== undefined) {
+      return assertPositiveSafeInt(nooterraPay.maxRequestBodyBytes, "nooterraPay.maxRequestBodyBytes");
     }
     return 1_000_000;
   })();
@@ -642,7 +642,7 @@ export function createSettldPaidNodeHttpHandler({
   }
 
   const resolver =
-    keysetResolver && typeof keysetResolver.getKeyset === "function" ? keysetResolver : createSettldPayKeysetResolver(settldPay);
+    keysetResolver && typeof keysetResolver.getKeyset === "function" ? keysetResolver : createNooterraPayKeysetResolver(nooterraPay);
 
   async function paidHandler(req, res) {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -680,7 +680,7 @@ export function createSettldPaidNodeHttpHandler({
       } catch (err) {
         sendPaymentRequired(res, {
           offer,
-          code: typeof err?.code === "string" && err.code.trim() !== "" ? err.code.trim() : "SETTLD_PAY_REQUEST_BINDING_INPUT_INVALID",
+          code: typeof err?.code === "string" && err.code.trim() !== "" ? err.code.trim() : "NOOTERRA_PAY_REQUEST_BINDING_INPUT_INVALID",
           message: err?.message ?? "request binding input invalid"
         });
         return;
@@ -697,18 +697,18 @@ export function createSettldPaidNodeHttpHandler({
     });
     offer = quoteAttestation.offer;
 
-    const token = parseSettldPayAuthorizationHeader(req.headers?.authorization);
+    const token = parseNooterraPayAuthorizationHeader(req.headers?.authorization);
     if (!token) {
       sendPaymentRequired(res, {
         offer,
         quoteAttestation,
         code: "PAYMENT_REQUIRED",
-        message: "missing or invalid SettldPay authorization"
+        message: "missing or invalid NooterraPay authorization"
       });
       return;
     }
 
-    const verified = await verifySettldPaymentToken({
+    const verified = await verifyNooterraPaymentToken({
       token,
       offer,
       keysetResolver: resolver,
@@ -738,19 +738,19 @@ export function createSettldPaidNodeHttpHandler({
     if (replayExisting) {
       const replayHeaders = {
         ...(replayExisting.headers ?? {}),
-        "x-settld-provider-key-id": replayExisting.signature?.keyId ?? signerKeyId,
-        "x-settld-provider-signed-at": replayExisting.signature?.signedAt ?? "",
-        "x-settld-provider-nonce": replayExisting.signature?.nonce ?? "",
-        "x-settld-provider-response-sha256": replayExisting.signature?.responseHash ?? "",
-        "x-settld-provider-signature": replayExisting.signature?.signatureBase64 ?? "",
-        "x-settld-provider-authorization-ref": String(payload.authorizationRef ?? ""),
-        "x-settld-provider-gate-id": String(payload.gateId ?? ""),
-        "x-settld-provider-quote-id": String(payload.quoteId ?? ""),
-        "x-settld-provider-token-sha256": String(verification.tokenSha256 ?? ""),
-        "x-settld-keyset-source": verified.keysetSource,
-        "x-settld-provider-replay": "duplicate",
-        "x-settld-request-binding-mode": replayExisting.requestBindingMode ?? offer.requestBindingMode ?? "none",
-        "x-settld-request-binding-sha256": replayExisting.requestBindingSha256 ?? requestBindingSha256 ?? ""
+        "x-nooterra-provider-key-id": replayExisting.signature?.keyId ?? signerKeyId,
+        "x-nooterra-provider-signed-at": replayExisting.signature?.signedAt ?? "",
+        "x-nooterra-provider-nonce": replayExisting.signature?.nonce ?? "",
+        "x-nooterra-provider-response-sha256": replayExisting.signature?.responseHash ?? "",
+        "x-nooterra-provider-signature": replayExisting.signature?.signatureBase64 ?? "",
+        "x-nooterra-provider-authorization-ref": String(payload.authorizationRef ?? ""),
+        "x-nooterra-provider-gate-id": String(payload.gateId ?? ""),
+        "x-nooterra-provider-quote-id": String(payload.quoteId ?? ""),
+        "x-nooterra-provider-token-sha256": String(verification.tokenSha256 ?? ""),
+        "x-nooterra-keyset-source": verified.keysetSource,
+        "x-nooterra-provider-replay": "duplicate",
+        "x-nooterra-request-binding-mode": replayExisting.requestBindingMode ?? offer.requestBindingMode ?? "none",
+        "x-nooterra-request-binding-sha256": replayExisting.requestBindingSha256 ?? requestBindingSha256 ?? ""
       };
       if (!replayHeaders["content-type"]) replayHeaders["content-type"] = replayExisting.contentType ?? "application/json; charset=utf-8";
       res.writeHead(replayExisting.statusCode ?? 200, replayHeaders);
@@ -800,18 +800,18 @@ export function createSettldPaidNodeHttpHandler({
     const responseHeaders = {
       ...execResult.headers,
       "content-type": contentType,
-      "x-settld-provider-key-id": signature.keyId ?? signerKeyId,
-      "x-settld-provider-signed-at": signature.signedAt ?? signedAt,
-      "x-settld-provider-nonce": signature.nonce ?? nonce,
-      "x-settld-provider-response-sha256": signature.responseHash ?? responseHash,
-      "x-settld-provider-signature": signature.signatureBase64 ?? "",
-      "x-settld-provider-authorization-ref": String(payload.authorizationRef ?? ""),
-      "x-settld-provider-gate-id": String(payload.gateId ?? ""),
-      "x-settld-provider-quote-id": String(payload.quoteId ?? ""),
-      "x-settld-provider-token-sha256": String(verification.tokenSha256 ?? ""),
-      "x-settld-keyset-source": verified.keysetSource,
-      "x-settld-request-binding-mode": offer.requestBindingMode ?? "none",
-      "x-settld-request-binding-sha256": requestBindingSha256 ?? ""
+      "x-nooterra-provider-key-id": signature.keyId ?? signerKeyId,
+      "x-nooterra-provider-signed-at": signature.signedAt ?? signedAt,
+      "x-nooterra-provider-nonce": signature.nonce ?? nonce,
+      "x-nooterra-provider-response-sha256": signature.responseHash ?? responseHash,
+      "x-nooterra-provider-signature": signature.signatureBase64 ?? "",
+      "x-nooterra-provider-authorization-ref": String(payload.authorizationRef ?? ""),
+      "x-nooterra-provider-gate-id": String(payload.gateId ?? ""),
+      "x-nooterra-provider-quote-id": String(payload.quoteId ?? ""),
+      "x-nooterra-provider-token-sha256": String(verification.tokenSha256 ?? ""),
+      "x-nooterra-keyset-source": verified.keysetSource,
+      "x-nooterra-request-binding-mode": offer.requestBindingMode ?? "none",
+      "x-nooterra-request-binding-sha256": requestBindingSha256 ?? ""
     };
     res.writeHead(execResult.statusCode, responseHeaders);
     res.end(body.bodyBuffer);

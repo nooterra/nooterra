@@ -25,8 +25,8 @@ function spawnCapture(cmd, args, opts) {
   });
 }
 
-test("settld-produce closepack-from-json: produces strict-verifiable ClosePack (local + plugin signer)", async (t) => {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-closepack-json-"));
+test("nooterra-produce closepack-from-json: produces strict-verifiable ClosePack (local + plugin signer)", async (t) => {
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-closepack-json-"));
   await t.after(() => fs.rm(tmp, { recursive: true, force: true }));
 
   const keysSrcPath = path.resolve(process.cwd(), "test/fixtures/keys/fixture_keypairs.json");
@@ -81,19 +81,19 @@ test("settld-produce closepack-from-json: produces strict-verifiable ClosePack (
 
   // Trust env for verifier.
   const trust = await readJson(path.resolve(process.cwd(), "test/fixtures/bundles/v1/trust.json"));
-  const oldGov = process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
-  const oldPricing = process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON;
-  const oldTime = process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON;
-  process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
-  process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
-  process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON = JSON.stringify(trust.timeAuthorities ?? {});
+  const oldGov = process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON;
+  const oldPricing = process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON;
+  const oldTime = process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON;
+  process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = JSON.stringify(trust.governanceRoots ?? {});
+  process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = JSON.stringify(trust.pricingSigners ?? {});
+  process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON = JSON.stringify(trust.timeAuthorities ?? {});
   await t.after(() => {
-    process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = oldGov;
-    process.env.SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON = oldPricing;
-    process.env.SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON = oldTime;
+    process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON = oldGov;
+    process.env.NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON = oldPricing;
+    process.env.NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON = oldTime;
   });
 
-  const cli = path.resolve(process.cwd(), "packages/artifact-produce/bin/settld-produce.js");
+  const cli = path.resolve(process.cwd(), "packages/artifact-produce/bin/nooterra-produce.js");
 
   // Local signer path (no presigned governance surfaces).
   {

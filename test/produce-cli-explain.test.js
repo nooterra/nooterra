@@ -18,15 +18,15 @@ async function runNode(args, { env } = {}) {
   return { code, stdout: Buffer.concat(stdout).toString("utf8"), stderr: Buffer.concat(stderr).toString("utf8") };
 }
 
-test("settld-produce --explain prints deterministic diagnostics to stderr without leaking secrets", async () => {
+test("nooterra-produce --explain prints deterministic diagnostics to stderr without leaking secrets", async () => {
   const repoRoot = process.cwd();
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-produce-explain-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-produce-explain-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
 
   const token = "SENTINEL_TOKEN_DO_NOT_LEAK_EXPLAIN";
   const headerSecret = "SENTINEL_HEADER_DO_NOT_LEAK_EXPLAIN";
 
-  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "settld-produce.js");
+  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "nooterra-produce.js");
   const res = await runNode(
     [
       produceCli,
@@ -40,7 +40,7 @@ test("settld-produce --explain prints deterministic diagnostics to stderr withou
       "--signer-auth",
       "bearer",
       "--signer-token-env",
-      "SETTLD_SIGNER_TOKEN",
+      "NOOTERRA_SIGNER_TOKEN",
       "--signer-header",
       `X-Secret: ${headerSecret}`,
       "--gov-key-id",
@@ -53,7 +53,7 @@ test("settld-produce --explain prints deterministic diagnostics to stderr withou
       "--force",
       "--explain"
     ],
-    { env: { SETTLD_SIGNER_TOKEN: token } }
+    { env: { NOOTERRA_SIGNER_TOKEN: token } }
   );
 
   assert.notEqual(res.code, 0, res.stderr || res.stdout);
@@ -61,7 +61,7 @@ test("settld-produce --explain prints deterministic diagnostics to stderr withou
   assert.equal(out.schemaVersion, "ProduceCliOutput.v1");
   assert.equal(out.ok, false);
 
-  assert.ok(res.stderr.includes("settld-produce explain"));
+  assert.ok(res.stderr.includes("nooterra-produce explain"));
   assert.equal(res.stderr.includes(token), false);
   assert.equal(res.stderr.includes(headerSecret), false);
   assert.equal(res.stdout.includes(token), false);

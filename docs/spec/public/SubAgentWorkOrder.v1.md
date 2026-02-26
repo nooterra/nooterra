@@ -73,11 +73,11 @@ When settled, binding includes:
 
 ## MCP surface
 
-- `settld.work_order_create`
-- `settld.work_order_accept`
-- `settld.work_order_progress`
-- `settld.work_order_complete`
-- `settld.work_order_settle`
+- `nooterra.work_order_create`
+- `nooterra.work_order_accept`
+- `nooterra.work_order_progress`
+- `nooterra.work_order_complete`
+- `nooterra.work_order_settle`
 
 ## Implementation references
 

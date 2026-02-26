@@ -1,6 +1,6 @@
 # InteractionDirectionMatrix.v1
 
-`InteractionDirectionMatrix.v1` freezes the autonomous interaction-direction contract for Settld entity types.
+`InteractionDirectionMatrix.v1` freezes the autonomous interaction-direction contract for Nooterra entity types.
 
 This object is intentionally simple and strict: every directional pair in the `4x4` matrix is allowed.
 

@@ -46,7 +46,7 @@ This receipt proves completion output, metrics, and evidence for a delegated tas
 
 ## MCP surface
 
-- produced by `settld.work_order_complete`
+- produced by `nooterra.work_order_complete`
 
 ## Implementation references
 

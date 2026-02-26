@@ -1,4 +1,4 @@
-# 30-Day Self-Serve Launch Board (ICP v1: AI Tool Providers)
+# 30-Day Self-Serve Launch Board (ICP: AI Tool Providers)
 
 Date baseline: February 7, 2026
 Owner: PM + Backend + DevEx + GTM
@@ -31,7 +31,7 @@ Legend:
 | `STLD-T198` Benchmark report + referral loop | done | referral event instrumentation (`referral_link_shared` / `referral_signup`) shipped in `services/magic-link/src/tenant-onboarding.js`; benchmark artifact builder shipped in `scripts/ci/build-self-serve-benchmark-report.mjs` with tests | None |
 | `STLD-T199` MVSV dashboard + launch gate | done | explicit self-serve launch tracker (`planning/launch/self-serve-launch-tracker.json`) + gate evaluator (`scripts/ci/lib/self-serve-launch-gate.mjs`) + runnable gate report (`scripts/ci/run-self-serve-launch-gate.mjs`) with test coverage (`test/self-serve-launch-gate.test.js`) and npm entrypoint (`test:ops:self-serve-gate`) | None |
 
-## ICP v1 definition
+## ICP definition
 
 - Segment: AI tool providers (1-30 engineers, API-first, rapid ship cadence)
 - Buyers: founder, product engineer, platform lead
@@ -41,11 +41,11 @@ Legend:
 
 ## Positioning
 
-Settld for AI Tool Providers:
+Nooterra for AI Tool Providers:
 
 `Turn any tool invocation into a verified economic transaction: contract, proof, settlement, dispute.`
 
-## Pricing v1 (self-serve usage-led)
+## Pricing (self-serve usage-led)
 
 1. Free
 - Sandbox only + capped live trial

@@ -12,9 +12,9 @@ If you are shipping agents, you have this problem already:
 
 Most teams answer with logs, screenshots, and vibes. That does not scale, and it does not pass a CFO or audit review.
 
-Settld is the missing layer between "work done" and "money moved": deterministic settlement with verifiable evidence and a receipt trail.
+Nooterra is the missing layer between "work done" and "money moved": deterministic settlement with verifiable evidence and a receipt trail.
 
-This post is a 10-minute, self-serve demo: put a thin gateway in front of an `x402`-style API. When the upstream says `402 Payment Required`, the gateway creates a Settld hold. When the upstream returns the resource, Settld verifies evidence and releases (or holds back) deterministically.
+This post is a 10-minute, self-serve demo: put a thin gateway in front of an `x402`-style API. When the upstream says `402 Payment Required`, the gateway creates a Nooterra hold. When the upstream returns the resource, Nooterra verifies evidence and releases (or holds back) deterministically.
 
 ## The Wedge: x402 Gateway (Verify Before Release)
 
@@ -30,9 +30,9 @@ The x402 gateway is the smallest thing you can install to feel the difference im
 
 1. Client requests `/resource`
 2. Upstream replies `402` with `x-payment-required`
-3. Gateway creates a Settld gate + escrow hold and returns `x-settld-gate-id`
-4. Client retries with `x-settld-gate-id` + payment proof
-5. Gateway verifies the delivered response, Settld issues a deterministic decision and receipt
+3. Gateway creates a Nooterra gate + escrow hold and returns `x-nooterra-gate-id`
+4. Client retries with `x-nooterra-gate-id` + payment proof
+5. Gateway verifies the delivered response, Nooterra issues a deterministic decision and receipt
 
 You do not need to redesign your API. You put a proxy in front of it.
 
@@ -40,7 +40,7 @@ You do not need to redesign your API. You put a proxy in front of it.
 
 This repo includes:
 
-- A local Settld API (in-memory)
+- A local Nooterra API (in-memory)
 - A mock x402-style upstream (`services/x402-gateway/examples/upstream-mock.js`)
 - The x402 gateway (`services/x402-gateway/`)
 
@@ -54,7 +54,7 @@ The single thing to notice: your client experience stays the same (it still sees
 
 - A stable "gate id" you can attach to your own logs and job ids
 - A deterministic verify+decision step (no human-in-the-loop required for the happy path)
-- A receipt-like trail (`x-settld-*` headers + API query surface) that you can store and audit later
+- A receipt-like trail (`x-nooterra-*` headers + API query surface) that you can store and audit later
 
 ## What This Unlocks
 

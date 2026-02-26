@@ -1,7 +1,7 @@
 # Frontend Sub-Agent Charter
 
 ## Purpose
-Own buyer/operator workflow delivery for Settld so UI decisions, approvals, and status surfaces stay clear, audit-ready, and aligned with deterministic protocol guarantees.
+Own buyer/operator workflow delivery for Nooterra so UI decisions, approvals, and status surfaces stay clear, audit-ready, and aligned with deterministic protocol guarantees.
 
 ## Accountabilities
 - Build and maintain dashboard and workflow UI paths from intake to decision/action.

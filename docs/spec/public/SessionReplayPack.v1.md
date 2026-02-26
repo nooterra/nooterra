@@ -56,7 +56,7 @@ When present, `signature.payloadHash` must equal `packHash`.
 
 ## MCP surface
 
-- `settld.session_replay_pack_get` (`sign`, `signerKeyId` optional)
+- `nooterra.session_replay_pack_get` (`sign`, `signerKeyId` optional)
 
 ## Implementation references
 

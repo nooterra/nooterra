@@ -14,12 +14,12 @@ test("mcp probe parser: defaults include empty required tool list", () => {
 test("mcp probe parser: supports --require-tool and dedupes", () => {
   const args = parseArgs([
     "--require-tool",
-    "settld.agent_discover",
-    "--require-tool=settld.interaction_graph_pack_get",
+    "nooterra.agent_discover",
+    "--require-tool=nooterra.interaction_graph_pack_get",
     "--require-tool",
-    "settld.agent_discover"
+    "nooterra.agent_discover"
   ]);
-  assert.deepEqual(args.requireTools, ["settld.agent_discover", "settld.interaction_graph_pack_get"]);
+  assert.deepEqual(args.requireTools, ["nooterra.agent_discover", "nooterra.interaction_graph_pack_get"]);
 });
 
 test("mcp probe parser: supports expected tool result mode", () => {

@@ -238,7 +238,7 @@ export function buildVerificationReportV1ForProofBundle({
     schemaVersion: "VerificationReport.v1",
     profile: "strict",
     tool: {
-      name: "settld",
+      name: "nooterra",
       version: tool.version,
       commit: tool.commit
     },

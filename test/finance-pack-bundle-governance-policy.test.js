@@ -71,7 +71,7 @@ test("FinancePackBundle.v1 strict verification enforces governance/policy.json a
   const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
   const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
   await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => {
       const publicKeyByKeyId = new Map([
         [keyAId, keyA.publicKeyPem],
@@ -190,7 +190,7 @@ test("FinancePackBundle.v1 strict verification enforces governance/policy.json a
     reconcileReportBytes: reconcileBytes
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-finance-policy-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-finance-policy-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files: finance.files, outDir: dir });
 

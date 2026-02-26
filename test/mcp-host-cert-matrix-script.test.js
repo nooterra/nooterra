@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 const REPO_ROOT = process.cwd();
 
 test("mcp host cert matrix script writes green report for supported hosts", async (t) => {
-  const reportPath = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "settld-host-cert-test-")), "report.json");
+  const reportPath = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-host-cert-test-")), "report.json");
   t.after(async () => {
     await fs.rm(path.dirname(reportPath), { recursive: true, force: true });
   });
@@ -20,7 +20,7 @@ test("mcp host cert matrix script writes green report for supported hosts", asyn
 
   assert.equal(result.status, 0, `stdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
   const report = JSON.parse(await fs.readFile(reportPath, "utf8"));
-  assert.equal(report.schemaVersion, "SettldMcpHostCertMatrix.v1");
+  assert.equal(report.schemaVersion, "NooterraMcpHostCertMatrix.v1");
   assert.equal(report.ok, true);
   assert.equal(Array.isArray(report.checks), true);
   assert.equal(report.checks.length, 4);

@@ -21,17 +21,17 @@ test("Agent run + wallet schemas validate canonical examples", async () => {
     if (schema && typeof schema === "object" && typeof schema.$id === "string") ajv.addSchema(schema, schema.$id);
   }
 
-  const validateRun = ajv.getSchema("https://settld.local/schemas/AgentRun.v1.schema.json");
-  const validateEvent = ajv.getSchema("https://settld.local/schemas/AgentEvent.v1.schema.json");
-  const validateWallet = ajv.getSchema("https://settld.local/schemas/AgentWallet.v1.schema.json");
-  const validateSettlement = ajv.getSchema("https://settld.local/schemas/AgentRunSettlement.v1.schema.json");
-  const validateSettlementDecisionRecord = ajv.getSchema("https://settld.local/schemas/SettlementDecisionRecord.v1.schema.json");
-  const validateSettlementDecisionRecordV2 = ajv.getSchema("https://settld.local/schemas/SettlementDecisionRecord.v2.schema.json");
-  const validateSettlementReceipt = ajv.getSchema("https://settld.local/schemas/SettlementReceipt.v1.schema.json");
-  const validateMarketplaceOffer = ajv.getSchema("https://settld.local/schemas/MarketplaceOffer.v2.schema.json");
-  const validateMarketplaceAcceptance = ajv.getSchema("https://settld.local/schemas/MarketplaceAcceptance.v2.schema.json");
-  const validateReputation = ajv.getSchema("https://settld.local/schemas/AgentReputation.v1.schema.json");
-  const validateReputationV2 = ajv.getSchema("https://settld.local/schemas/AgentReputation.v2.schema.json");
+  const validateRun = ajv.getSchema("https://nooterra.local/schemas/AgentRun.v1.schema.json");
+  const validateEvent = ajv.getSchema("https://nooterra.local/schemas/AgentEvent.v1.schema.json");
+  const validateWallet = ajv.getSchema("https://nooterra.local/schemas/AgentWallet.v1.schema.json");
+  const validateSettlement = ajv.getSchema("https://nooterra.local/schemas/AgentRunSettlement.v1.schema.json");
+  const validateSettlementDecisionRecord = ajv.getSchema("https://nooterra.local/schemas/SettlementDecisionRecord.v1.schema.json");
+  const validateSettlementDecisionRecordV2 = ajv.getSchema("https://nooterra.local/schemas/SettlementDecisionRecord.v2.schema.json");
+  const validateSettlementReceipt = ajv.getSchema("https://nooterra.local/schemas/SettlementReceipt.v1.schema.json");
+  const validateMarketplaceOffer = ajv.getSchema("https://nooterra.local/schemas/MarketplaceOffer.v2.schema.json");
+  const validateMarketplaceAcceptance = ajv.getSchema("https://nooterra.local/schemas/MarketplaceAcceptance.v2.schema.json");
+  const validateReputation = ajv.getSchema("https://nooterra.local/schemas/AgentReputation.v1.schema.json");
+  const validateReputationV2 = ajv.getSchema("https://nooterra.local/schemas/AgentReputation.v2.schema.json");
   assert.ok(validateRun);
   assert.ok(validateEvent);
   assert.ok(validateWallet);
@@ -131,7 +131,7 @@ test("Agent run + wallet schemas validate canonical examples", async () => {
       verificationMethodHash: "4".repeat(64)
     },
     verifierRef: {
-      verifierId: "settld.policy-engine",
+      verifierId: "nooterra.policy-engine",
       verifierVersion: "v1",
       verifierHash: "5".repeat(64),
       modality: "deterministic"

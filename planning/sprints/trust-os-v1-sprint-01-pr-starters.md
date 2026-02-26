@@ -1,4 +1,4 @@
-# Trust OS v1 Sprint 01 PR Starters
+# Trust OS Sprint 01 PR Starters
 
 Use these as starter branch names and PR titles for Sprint 01 committed tickets.
 
@@ -9,7 +9,7 @@ Branch prefix rule: `acs/`
 
 1. `NOO-43`
 - Branch: `acs/noo-43-policydecision-schema-signing`
-- PR title: `NOO-43 define and implement PolicyDecision.v1 schema + signing`
+- PR title: `NOO-43 define and implement PolicyDecision schema + signing`
 
 2. `NOO-45`
 - Branch: `acs/noo-45-normalize-reason-codes-policy-fingerprints`
@@ -37,7 +37,7 @@ Branch prefix rule: `acs/`
 
 8. `NOO-55`
 - Branch: `acs/noo-55-operatoraction-schema-signature-verification`
-- PR title: `NOO-55 define OperatorAction.v1 schema and signature verification`
+- PR title: `NOO-55 define OperatorAction schema and signature verification`
 
 9. `NOO-57`
 - Branch: `acs/noo-57-emergency-control-apis`

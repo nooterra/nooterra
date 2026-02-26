@@ -28,12 +28,12 @@ export default function TelemetryCard({ telemetry, phase }) {
   const isOverSLA = elapsedSec > slaSec;
 
   return (
-    <div className="bg-settld-card border border-settld-border rounded-xl p-6">
+    <div className="bg-nooterra-card border border-nooterra-border rounded-xl p-6">
       <div className="flex items-center gap-3 mb-6">
         <span className="text-2xl">Telemetry</span>
         <h2 className="text-xl font-semibold">Incoming Facts</h2>
         {(phase === "telemetry" || phase === "breach") && (
-          <span className="ml-auto px-3 py-1 bg-settld-accent/20 text-settld-accent rounded-full text-sm animate-pulse">
+          <span className="ml-auto px-3 py-1 bg-nooterra-accent/20 text-nooterra-accent rounded-full text-sm animate-pulse">
             LIVE
           </span>
         )}
@@ -54,7 +54,7 @@ export default function TelemetryCard({ telemetry, phase }) {
         </div>
         <div>
           <p className="text-gray-400 text-sm">Elapsed</p>
-          <p className={`font-mono text-lg ${isOverSLA ? "text-settld-error" : "text-white"}`}>
+          <p className={`font-mono text-lg ${isOverSLA ? "text-nooterra-error" : "text-white"}`}>
             {Math.floor(elapsedSec / 60)}m {String(elapsedSec % 60).padStart(2, "0")}s
           </p>
         </div>
@@ -62,7 +62,7 @@ export default function TelemetryCard({ telemetry, phase }) {
 
       <ProgressBar progress={progress} isOverSLA={isOverSLA} />
       {isOverSLA && (
-        <div className="mt-3 text-settld-warning text-sm font-semibold">
+        <div className="mt-3 text-nooterra-warning text-sm font-semibold">
           SLA breach: late by {telemetry.breachAmount}
         </div>
       )}

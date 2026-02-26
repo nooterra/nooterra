@@ -8,8 +8,8 @@ import { fileURLToPath } from "node:url";
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { createEd25519Keypair, keyIdFromPublicKeyPem, sha256Hex } from "../src/core/crypto.js";
 import { verifyToolProviderQuoteSignatureV1 } from "../src/core/provider-quote-signature.js";
-import { buildSettldPayPayloadV1, mintSettldPayTokenV1 } from "../src/core/settld-pay-token.js";
-import { buildSettldPayKeysetV1 } from "../src/core/settld-keys.js";
+import { buildNooterraPayPayloadV1, mintNooterraPayTokenV1 } from "../src/core/nooterra-pay-token.js";
+import { buildNooterraPayKeysetV1 } from "../src/core/nooterra-keys.js";
 import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "../src/core/tool-provider-signature.js";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -55,13 +55,13 @@ function buildKeyset(keys) {
   const rows = Array.isArray(keys) ? keys : [];
   if (rows.length === 0) throw new Error("keys are required");
   const [activeKey, ...fallbackKeys] = rows;
-  return buildSettldPayKeysetV1({ activeKey, fallbackKeys, refreshedAt: new Date().toISOString() });
+  return buildNooterraPayKeysetV1({ activeKey, fallbackKeys, refreshedAt: new Date().toISOString() });
 }
 
-function mintSettldPay({ signer, providerId, amountCents = 500, currency = "USD", authorizationRef, gateId, ttlSeconds = 300 }) {
+function mintNooterraPay({ signer, providerId, amountCents = 500, currency = "USD", authorizationRef, gateId, ttlSeconds = 300 }) {
   const nowUnix = Math.floor(Date.now() / 1000);
-  const payload = buildSettldPayPayloadV1({
-    iss: "settld",
+  const payload = buildNooterraPayPayloadV1({
+    iss: "nooterra",
     aud: providerId,
     gateId,
     authorizationRef,
@@ -71,7 +71,7 @@ function mintSettldPay({ signer, providerId, amountCents = 500, currency = "USD"
     iat: nowUnix,
     exp: nowUnix + ttlSeconds
   });
-  const minted = mintSettldPayTokenV1({
+  const minted = mintNooterraPayTokenV1({
     payload,
     keyId: keyIdFromPublicKeyPem(signer.publicKeyPem),
     publicKeyPem: signer.publicKeyPem,
@@ -85,7 +85,7 @@ function parseBase64UrlJson(raw) {
   return JSON.parse(Buffer.from(raw.trim(), "base64url").toString("utf8"));
 }
 
-test("provider kit hardening: offline SettldPay verification, replay handling, and key rotation", async (t) => {
+test("provider kit hardening: offline NooterraPay verification, replay handling, and key rotation", async (t) => {
   const providerId = "prov_exa_mock";
 
   const signerA = createEd25519Keypair();
@@ -98,7 +98,7 @@ test("provider kit hardening: offline SettldPay verification, replay handling, a
   };
 
   const keysetServer = http.createServer((req, res) => {
-    if (req.method === "GET" && req.url === "/.well-known/settld-keys.json") {
+    if (req.method === "GET" && req.url === "/.well-known/nooterra-keys.json") {
       keysetState.hits += 1;
       res.writeHead(200, {
         "content-type": "application/json; charset=utf-8",
@@ -122,8 +122,8 @@ test("provider kit hardening: offline SettldPay verification, replay handling, a
       ...process.env,
       BIND_HOST: "127.0.0.1",
       PORT: String(upstreamPort),
-      SETTLD_PROVIDER_ID: providerId,
-      SETTLD_PAY_KEYSET_URL: `http://127.0.0.1:${keysetPort}/.well-known/settld-keys.json`
+      NOOTERRA_PROVIDER_ID: providerId,
+      NOOTERRA_PAY_KEYSET_URL: `http://127.0.0.1:${keysetPort}/.well-known/nooterra-keys.json`
     }
   });
 
@@ -143,12 +143,12 @@ test("provider kit hardening: offline SettldPay verification, replay handling, a
   const upstreamBase = `http://127.0.0.1:${upstreamPort}`;
   await waitForHealth(`${upstreamBase}/healthz`);
 
-  const providerKeyRes = await fetch(`${upstreamBase}/settld/provider-key`);
+  const providerKeyRes = await fetch(`${upstreamBase}/nooterra/provider-key`);
   assert.equal(providerKeyRes.status, 200);
   const providerKey = await providerKeyRes.json();
   const providerPublicKeyPem = String(providerKey?.publicKeyPem ?? "");
   assert.ok(providerPublicKeyPem.includes("BEGIN PUBLIC KEY"));
-  const providerJwksRes = await fetch(`${upstreamBase}/.well-known/settld-provider-keys.json`);
+  const providerJwksRes = await fetch(`${upstreamBase}/.well-known/nooterra-provider-keys.json`);
   assert.equal(providerJwksRes.status, 200);
   const providerJwks = await providerJwksRes.json();
   assert.equal(providerJwks?.schemaVersion, "ToolProviderKeyset.v1");
@@ -164,8 +164,8 @@ test("provider kit hardening: offline SettldPay verification, replay handling, a
   assert.match(challengeHeader, /currency=USD/);
   assert.match(challengeHeader, /providerId=prov_exa_mock/);
   assert.match(challengeHeader, /toolId=exa\.search/);
-  const quotePayload = parseBase64UrlJson(challengeMissing.headers.get("x-settld-provider-quote"));
-  const quoteSignature = parseBase64UrlJson(challengeMissing.headers.get("x-settld-provider-quote-signature"));
+  const quotePayload = parseBase64UrlJson(challengeMissing.headers.get("x-nooterra-provider-quote"));
+  const quoteSignature = parseBase64UrlJson(challengeMissing.headers.get("x-nooterra-provider-quote-signature"));
   assert.ok(quotePayload && quoteSignature);
   assert.equal(quotePayload.providerId, providerId);
   assert.equal(quotePayload.toolId, "exa.search");
@@ -174,26 +174,26 @@ test("provider kit hardening: offline SettldPay verification, replay handling, a
   assert.equal(verifyToolProviderQuoteSignatureV1({ quote: quotePayload, signature: quoteSignature, publicKeyPem: providerPublicKeyPem }), true);
 
   const malformed = await fetch(`${upstreamBase}/exa/search?q=dentist`, {
-    headers: { authorization: "SettldPay not_a_token" }
+    headers: { authorization: "NooterraPay not_a_token" }
   });
   assert.equal(malformed.status, 402);
-  assert.equal(malformed.headers.get("x-settld-payment-error"), "SETTLD_PAY_VERIFICATION_ERROR");
+  assert.equal(malformed.headers.get("x-nooterra-payment-error"), "NOOTERRA_PAY_VERIFICATION_ERROR");
 
   const unknownSigner = createEd25519Keypair();
-  const unknownToken = mintSettldPay({
+  const unknownToken = mintNooterraPay({
     signer: unknownSigner,
     providerId,
     authorizationRef: "auth_unknown_1",
     gateId: "gate_unknown_1"
   });
   const unknownKid = await fetch(`${upstreamBase}/exa/search?q=dentist`, {
-    headers: { authorization: `SettldPay ${unknownToken}` }
+    headers: { authorization: `NooterraPay ${unknownToken}` }
   });
   assert.equal(unknownKid.status, 402);
-  assert.equal(unknownKid.headers.get("x-settld-payment-error"), "SETTLD_PAY_UNKNOWN_KID");
+  assert.equal(unknownKid.headers.get("x-nooterra-payment-error"), "NOOTERRA_PAY_UNKNOWN_KID");
 
-  const expiredPayload = buildSettldPayPayloadV1({
-    iss: "settld",
+  const expiredPayload = buildNooterraPayPayloadV1({
+    iss: "nooterra",
     aud: providerId,
     gateId: "gate_expired_1",
     authorizationRef: "auth_expired_1",
@@ -203,31 +203,31 @@ test("provider kit hardening: offline SettldPay verification, replay handling, a
     iat: Math.floor(Date.now() / 1000) - 600,
     exp: Math.floor(Date.now() / 1000) - 300
   });
-  const expiredToken = mintSettldPayTokenV1({
+  const expiredToken = mintNooterraPayTokenV1({
     payload: expiredPayload,
     keyId: keyIdFromPublicKeyPem(signerA.publicKeyPem),
     publicKeyPem: signerA.publicKeyPem,
     privateKeyPem: signerA.privateKeyPem
   }).token;
   const expired = await fetch(`${upstreamBase}/exa/search?q=dentist`, {
-    headers: { authorization: `SettldPay ${expiredToken}` }
+    headers: { authorization: `NooterraPay ${expiredToken}` }
   });
   assert.equal(expired.status, 402);
-  assert.equal(expired.headers.get("x-settld-payment-error"), "SETTLD_PAY_EXPIRED");
+  assert.equal(expired.headers.get("x-nooterra-payment-error"), "NOOTERRA_PAY_EXPIRED");
 
-  const wrongProviderToken = mintSettldPay({
+  const wrongProviderToken = mintNooterraPay({
     signer: signerA,
     providerId: "prov_other",
     authorizationRef: "auth_provider_bad_1",
     gateId: "gate_provider_bad_1"
   });
   const wrongProvider = await fetch(`${upstreamBase}/exa/search?q=dentist`, {
-    headers: { authorization: `SettldPay ${wrongProviderToken}` }
+    headers: { authorization: `NooterraPay ${wrongProviderToken}` }
   });
   assert.equal(wrongProvider.status, 402);
-  assert.equal(wrongProvider.headers.get("x-settld-payment-error"), "SETTLD_PAY_PROVIDER_MISMATCH");
+  assert.equal(wrongProvider.headers.get("x-nooterra-payment-error"), "NOOTERRA_PAY_PROVIDER_MISMATCH");
 
-  const amountMismatchToken = mintSettldPay({
+  const amountMismatchToken = mintNooterraPay({
     signer: signerA,
     providerId,
     amountCents: 999,
@@ -235,19 +235,19 @@ test("provider kit hardening: offline SettldPay verification, replay handling, a
     gateId: "gate_amount_bad_1"
   });
   const amountMismatch = await fetch(`${upstreamBase}/exa/search?q=dentist`, {
-    headers: { authorization: `SettldPay ${amountMismatchToken}` }
+    headers: { authorization: `NooterraPay ${amountMismatchToken}` }
   });
   assert.equal(amountMismatch.status, 402);
-  assert.equal(amountMismatch.headers.get("x-settld-payment-error"), "SETTLD_PAY_AMOUNT_MISMATCH");
+  assert.equal(amountMismatch.headers.get("x-nooterra-payment-error"), "NOOTERRA_PAY_AMOUNT_MISMATCH");
 
-  const validToken = mintSettldPay({
+  const validToken = mintNooterraPay({
     signer: signerA,
     providerId,
     authorizationRef: "auth_valid_1",
     gateId: "gate_valid_1"
   });
   const valid = await fetch(`${upstreamBase}/exa/search?q=dentist&numResults=2`, {
-    headers: { authorization: `SettldPay ${validToken}` }
+    headers: { authorization: `NooterraPay ${validToken}` }
   });
   assert.equal(valid.status, 200, `stderr=${stderrBuf}`);
   const validText = await valid.text();
@@ -256,31 +256,31 @@ test("provider kit hardening: offline SettldPay verification, replay handling, a
   assert.equal(validBody.provider, "exa-mock");
 
   const responseHash = sha256Hex(canonicalJsonStringify(validBody));
-  assert.equal(valid.headers.get("x-settld-provider-response-sha256"), responseHash);
+  assert.equal(valid.headers.get("x-nooterra-provider-response-sha256"), responseHash);
   const signature = {
     schemaVersion: "ToolProviderSignature.v1",
     algorithm: "ed25519",
-    keyId: String(valid.headers.get("x-settld-provider-key-id") ?? ""),
-    signedAt: String(valid.headers.get("x-settld-provider-signed-at") ?? ""),
-    nonce: String(valid.headers.get("x-settld-provider-nonce") ?? ""),
+    keyId: String(valid.headers.get("x-nooterra-provider-key-id") ?? ""),
+    signedAt: String(valid.headers.get("x-nooterra-provider-signed-at") ?? ""),
+    nonce: String(valid.headers.get("x-nooterra-provider-nonce") ?? ""),
     responseHash,
     payloadHash: computeToolProviderSignaturePayloadHashV1({
       responseHash,
-      nonce: String(valid.headers.get("x-settld-provider-nonce") ?? ""),
-      signedAt: String(valid.headers.get("x-settld-provider-signed-at") ?? "")
+      nonce: String(valid.headers.get("x-nooterra-provider-nonce") ?? ""),
+      signedAt: String(valid.headers.get("x-nooterra-provider-signed-at") ?? "")
     }),
-    signatureBase64: String(valid.headers.get("x-settld-provider-signature") ?? "")
+    signatureBase64: String(valid.headers.get("x-nooterra-provider-signature") ?? "")
   };
   assert.equal(verifyToolProviderSignatureV1({ signature, publicKeyPem: providerPublicKeyPem }), true);
 
   const duplicate = await fetch(`${upstreamBase}/exa/search?q=dentist&numResults=2`, {
-    headers: { authorization: `SettldPay ${validToken}` }
+    headers: { authorization: `NooterraPay ${validToken}` }
   });
   assert.equal(duplicate.status, 200);
-  assert.equal(duplicate.headers.get("x-settld-provider-replay"), "duplicate");
+  assert.equal(duplicate.headers.get("x-nooterra-provider-replay"), "duplicate");
   const duplicateText = await duplicate.text();
   assert.equal(duplicateText, validText);
-  assert.equal(duplicate.headers.get("x-settld-provider-signature"), valid.headers.get("x-settld-provider-signature"));
+  assert.equal(duplicate.headers.get("x-nooterra-provider-signature"), valid.headers.get("x-nooterra-provider-signature"));
 
   keysetState.rows = [
     { keyId: keyIdFromPublicKeyPem(signerA.publicKeyPem), publicKeyPem: signerA.publicKeyPem },
@@ -289,25 +289,25 @@ test("provider kit hardening: offline SettldPay verification, replay handling, a
 
   await sleep(1_200);
 
-  const rotatedBToken = mintSettldPay({
+  const rotatedBToken = mintNooterraPay({
     signer: signerB,
     providerId,
     authorizationRef: "auth_rotated_b_1",
     gateId: "gate_rotated_b_1"
   });
   const rotatedB = await fetch(`${upstreamBase}/exa/search?q=dentist`, {
-    headers: { authorization: `SettldPay ${rotatedBToken}` }
+    headers: { authorization: `NooterraPay ${rotatedBToken}` }
   });
   assert.equal(rotatedB.status, 200);
 
-  const rotatedAToken = mintSettldPay({
+  const rotatedAToken = mintNooterraPay({
     signer: signerA,
     providerId,
     authorizationRef: "auth_rotated_a_1",
     gateId: "gate_rotated_a_1"
   });
   const rotatedA = await fetch(`${upstreamBase}/exa/search?q=dentist`, {
-    headers: { authorization: `SettldPay ${rotatedAToken}` }
+    headers: { authorization: `NooterraPay ${rotatedAToken}` }
   });
   assert.equal(rotatedA.status, 200);
 

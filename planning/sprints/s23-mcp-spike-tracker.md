@@ -18,7 +18,7 @@ Tickets:
 
 - Design: `docs/plans/2026-02-13-mcp-spike-design.md`
 - Quickstart: `docs/QUICKSTART_MCP.md`
-- Server: `scripts/mcp/settld-mcp-server.mjs`
+- Server: `scripts/mcp/nooterra-mcp-server.mjs`
 - Smoke test: `test/mcp-stdio-spike.test.js`
 
 ## How To Run
@@ -26,9 +26,9 @@ Tickets:
 Server:
 
 ```bash
-export SETTLD_BASE_URL='https://api.settld.work'
-export SETTLD_TENANT_ID='tenant_default'
-export SETTLD_API_KEY='sk_live_xxx.yyy'
+export NOOTERRA_BASE_URL='https://api.nooterra.work'
+export NOOTERRA_TENANT_ID='tenant_default'
+export NOOTERRA_API_KEY='sk_live_xxx.yyy'
 npm run mcp:server
 ```
 

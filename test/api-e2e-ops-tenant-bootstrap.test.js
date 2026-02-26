@@ -34,8 +34,8 @@ test("API e2e: ops tenant bootstrap creates scoped API key + applies billing pla
   assert.equal(bootstrap.json?.bootstrap?.billing?.hardLimitEnforced, false);
   assert.equal(bootstrap.json?.bootstrap?.apiKey?.description, "bootstrap key");
   assert.deepEqual(bootstrap.json?.bootstrap?.apiKey?.scopes, ["finance_read", "ops_read"]);
-  assert.equal(bootstrap.json?.bootstrap?.env?.SETTLD_TENANT_ID, tenantId);
-  assert.match(String(bootstrap.json?.bootstrap?.exportCommands ?? ""), /SETTLD_API_KEY=/);
+  assert.equal(bootstrap.json?.bootstrap?.env?.NOOTERRA_TENANT_ID, tenantId);
+  assert.match(String(bootstrap.json?.bootstrap?.exportCommands ?? ""), /NOOTERRA_API_KEY=/);
 
   const token = String(bootstrap.json?.bootstrap?.apiKey?.token ?? "");
   assert.ok(token.includes("."));

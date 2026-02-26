@@ -5,7 +5,7 @@ This file is the operating contract for AI coding agents in this repository.
 Apply these rules for all changes under this directory.
 
 ## Project Context
-- Product: Settld Trust OS (policy enforcement, deterministic evidence, dispute/reversal, production gates).
+- Product: Nooterra Trust OS (policy enforcement, deterministic evidence, dispute/reversal, production gates).
 - Stack: Node.js 20, ESM JavaScript, npm scripts, CI on GitHub Actions.
 - Priority qualities: deterministic behavior, fail-closed safety, auditable artifacts, idempotency.
 
@@ -35,7 +35,7 @@ Apply these rules for all changes under this directory.
 - Single test file: `node --test test/<file>.test.js`
 - Production cutover gate: `npm run -s test:ops:production-cutover-gate`
 - Hosted baseline evidence: `npm run -s ops:hosted-baseline:evidence -- ...`
-- OpenAPI drift check: `npm run -s openapi:write && git diff --exit-code -- openapi/settld.openapi.json`
+- OpenAPI drift check: `npm run -s openapi:write && git diff --exit-code -- openapi/nooterra.openapi.json`
 
 ## Gate and Artifact Rules
 - Gate/report scripts must emit machine-readable JSON with explicit `schemaVersion`.

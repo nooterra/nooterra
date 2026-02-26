@@ -42,7 +42,7 @@ async function runWizard(args) {
 }
 
 test("trust wizard CLI: list returns catalog json", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-trust-wizard-test-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-trust-wizard-test-"));
   try {
     const outPath = path.join(tmpDir, "catalog.json");
     const res = await runWizard(["list", "--format", "json", "--out", outPath]);
@@ -68,7 +68,7 @@ test("trust wizard CLI: list returns catalog json", async () => {
 });
 
 test("trust wizard CLI: render output is deterministic for identical input", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-trust-wizard-test-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-trust-wizard-test-"));
   const args = [
     "render",
     "--template",
@@ -94,7 +94,7 @@ test("trust wizard CLI: render output is deterministic for identical input", asy
 });
 
 test("trust wizard CLI: validate rejects invalid override payload", async () => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-trust-wizard-test-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-trust-wizard-test-"));
   try {
     const outPath = path.join(tmpDir, "validate.json");
     const res = await runWizard([

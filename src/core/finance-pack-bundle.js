@@ -162,7 +162,7 @@ function buildVerificationReportV1({
     schemaVersion: "VerificationReport.v1",
     profile: "strict",
     tool: {
-      name: "settld",
+      name: "nooterra",
       version: tool.version,
       commit: tool.commit
     },
@@ -476,7 +476,7 @@ export function buildFinancePackBundleV1({
     financeAccountMapHash: String(journalCsvArtifact.accountMapHash)
   };
 
-  // settld.json header
+  // nooterra.json header
   const header = {
     type: FINANCE_PACK_BUNDLE_SCHEMA_VERSION_V1,
     tenantId,
@@ -486,7 +486,7 @@ export function buildFinancePackBundleV1({
     inputs
   };
 
-  files.set("settld.json", encoder.encode(`${canonicalJsonStringify(header)}\n`));
+  files.set("nooterra.json", encoder.encode(`${canonicalJsonStringify(header)}\n`));
 
   // VerificationReport.v1: machine-ingestible strict verification summary.
   const monthAttestation = parseJsonFromBytes(monthProofFiles.get("attestation/bundle_head_attestation.json") ?? null);

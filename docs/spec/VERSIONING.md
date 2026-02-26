@@ -1,8 +1,8 @@
 # Versioning (tools vs protocol)
 
-Settld has **two coupled version surfaces**:
+Nooterra has **two coupled version surfaces**:
 
-1. **Tool versions** (SemVer): the software you install/run (`settld-verify`, bundlers, services).
+1. **Tool versions** (SemVer): the software you install/run (`nooterra-verify`, bundlers, services).
 2. **Protocol versions** (object `*.v1`, `*.v2`, …): on-disk/wire-format contracts (schemas + semantics).
 
 This document defines when to bump **tool SemVer**, when to introduce **new protocol object versions**, and how to avoid accidental drift.

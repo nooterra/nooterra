@@ -1,6 +1,6 @@
 # Performance Baseline (Local)
 
-This doc is the repeatable “truth under load” baseline for Settld. Update it when hot-path behavior changes (indexes, worker concurrency, timeouts).
+This doc is the repeatable “truth under load” baseline for Nooterra. Update it when hot-path behavior changes (indexes, worker concurrency, timeouts).
 
 ## Prereqs
 

@@ -25,7 +25,7 @@ function runNodeScript(scriptRelativePath, args, { cwd, env = {} }) {
 }
 
 async function exportE2eArtifact(sourcePath, artifactFileName) {
-  const outputDir = String(process.env.SETTLD_RELEASE_PROMOTION_E2E_ARTIFACT_DIR ?? "").trim();
+  const outputDir = String(process.env.NOOTERRA_RELEASE_PROMOTION_E2E_ARTIFACT_DIR ?? "").trim();
   if (!outputDir) return;
   await fs.mkdir(outputDir, { recursive: true });
   try {
@@ -47,12 +47,12 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
 
   await writeJson(path.join(testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 5, passedChecks: 5 },
+    verdict: { ok: true, requiredChecks: 8, passedChecks: 8 },
     checks: [
       {
-        id: "settld_verified_collaboration",
+        id: "nooterra_verified_collaboration",
         status: "passed",
-        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json"
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json"
       },
       {
         id: "openclaw_substrate_demo_lineage_verified",
@@ -63,24 +63,36 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
         status: "passed"
       },
       {
+        id: "checkpoint_grant_binding_verified",
+        status: "passed"
+      },
+      {
+        id: "work_order_metering_durability_verified",
+        status: "passed"
+      },
+      {
         id: "sdk_acs_smoke_js_verified",
         status: "passed"
       },
       {
         id: "sdk_acs_smoke_py_verified",
         status: "passed"
+      },
+      {
+        id: "sdk_python_contract_freeze_verified",
+        status: "passed"
       }
     ]
   });
   const requiredCutoverChecks = [
     {
-      id: "settld_verified_collaboration",
+      id: "nooterra_verified_collaboration",
       status: "passed",
       ok: true,
       source: {
         type: "report_verdict",
-        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
-        reportSchemaVersion: "SettldVerifiedGateReport.v1",
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+        reportSchemaVersion: "NooterraVerifiedGateReport.v1",
         sourceCheckId: null
       }
     },
@@ -90,8 +102,8 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
       ok: true,
       source: {
         type: "collaboration_check",
-        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
-        reportSchemaVersion: "SettldVerifiedGateReport.v1",
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+        reportSchemaVersion: "NooterraVerifiedGateReport.v1",
         sourceCheckId: "openclaw_substrate_demo_lineage_verified"
       }
     },
@@ -101,9 +113,31 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
       ok: true,
       source: {
         type: "collaboration_check",
-        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
-        reportSchemaVersion: "SettldVerifiedGateReport.v1",
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+        reportSchemaVersion: "NooterraVerifiedGateReport.v1",
         sourceCheckId: "openclaw_substrate_demo_transcript_verified"
+      }
+    },
+    {
+      id: "checkpoint_grant_binding_verified",
+      status: "passed",
+      ok: true,
+      source: {
+        type: "collaboration_check",
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+        reportSchemaVersion: "NooterraVerifiedGateReport.v1",
+        sourceCheckId: "ops_agent_substrate_fast_loop_checkpoint_grant_binding"
+      }
+    },
+    {
+      id: "work_order_metering_durability_verified",
+      status: "passed",
+      ok: true,
+      source: {
+        type: "collaboration_check",
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+        reportSchemaVersion: "NooterraVerifiedGateReport.v1",
+        sourceCheckId: "pg_work_order_metering_durability"
       }
     },
     {
@@ -112,8 +146,8 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
       ok: true,
       source: {
         type: "collaboration_check",
-        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
-        reportSchemaVersion: "SettldVerifiedGateReport.v1",
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+        reportSchemaVersion: "NooterraVerifiedGateReport.v1",
         sourceCheckId: "e2e_js_sdk_acs_substrate_smoke"
       }
     },
@@ -123,9 +157,20 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
       ok: true,
       source: {
         type: "collaboration_check",
-        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
-        reportSchemaVersion: "SettldVerifiedGateReport.v1",
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+        reportSchemaVersion: "NooterraVerifiedGateReport.v1",
         sourceCheckId: "e2e_python_sdk_acs_substrate_smoke"
+      }
+    },
+    {
+      id: "sdk_python_contract_freeze_verified",
+      status: "passed",
+      ok: true,
+      source: {
+        type: "collaboration_check",
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+        reportSchemaVersion: "NooterraVerifiedGateReport.v1",
+        sourceCheckId: "e2e_python_sdk_contract_freeze"
       }
     }
   ];
@@ -140,12 +185,12 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
     verdict: { ok: true, requiredHosts: 4, passedHosts: 4 }
   });
 
-  const collabGatePath = path.join(goLiveRoot, "s13", "settld-verified-collaboration-gate.json");
+  const collabGatePath = path.join(goLiveRoot, "s13", "nooterra-verified-collaboration-gate.json");
   await writeJson(collabGatePath, {
-    schemaVersion: "SettldVerifiedGateReport.v1",
+    schemaVersion: "NooterraVerifiedGateReport.v1",
     level: "collaboration",
     ok: true,
-    summary: { totalChecks: 9, passedChecks: 9, failedChecks: 0 }
+    summary: { totalChecks: 12, passedChecks: 12, failedChecks: 0 }
   });
 
   const collabGateRaw = await fs.readFile(collabGatePath, "utf8");
@@ -159,13 +204,13 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
   await writeJson(path.join(goLiveRoot, "s13", "s13-launch-cutover-packet.json"), {
     schemaVersion: "LaunchCutoverPacket.v1",
     sources: {
-      settldVerifiedCollaborationGateReportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
-      settldVerifiedCollaborationGateReportSha256: collabGateSha256
+      nooterraVerifiedCollaborationGateReportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+      nooterraVerifiedCollaborationGateReportSha256: collabGateSha256
     },
     requiredCutoverChecks: {
       schemaVersion: "ProductionCutoverRequiredChecksSummary.v1",
-      sourceReportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
-      sourceReportSchemaVersion: "SettldVerifiedGateReport.v1",
+      sourceReportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+      sourceReportSchemaVersion: "NooterraVerifiedGateReport.v1",
       sourceReportOk: true,
       checks: requiredCutoverChecks,
       summary: {
@@ -188,7 +233,7 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
 }
 
 test("release promotion guard e2e: materialized upstream artifacts pass NOO-65 guard", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-e2e-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-promotion-e2e-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -266,7 +311,7 @@ test("release promotion guard e2e: materialized upstream artifacts pass NOO-65 g
   assert.equal(guardReport.verdict.status, "pass");
 
   const bindingCheck = Array.isArray(guardReport.bindingChecks)
-    ? guardReport.bindingChecks.find((row) => row.id === "launch_packet_settld_verified_collaboration_binding")
+    ? guardReport.bindingChecks.find((row) => row.id === "launch_packet_nooterra_verified_collaboration_binding")
     : null;
   assert.ok(bindingCheck, "expected launch packet collaboration binding check row");
   assert.equal(bindingCheck.ok, true);
@@ -279,7 +324,7 @@ test("release promotion guard e2e: materialized upstream artifacts pass NOO-65 g
 });
 
 test("release promotion guard e2e: tampered launch packet collaboration binding fails closed", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-e2e-tamper-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-promotion-e2e-tamper-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -288,8 +333,8 @@ test("release promotion guard e2e: tampered launch packet collaboration binding 
   await writeJson(path.join(roots.goLiveRoot, "s13", "s13-launch-cutover-packet.json"), {
     schemaVersion: "LaunchCutoverPacket.v1",
     sources: {
-      settldVerifiedCollaborationGateReportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
-      settldVerifiedCollaborationGateReportSha256: "0".repeat(64)
+      nooterraVerifiedCollaborationGateReportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+      nooterraVerifiedCollaborationGateReportSha256: "0".repeat(64)
     },
     verdict: { ok: true, requiredChecks: 1, passedChecks: 1 }
   });
@@ -358,7 +403,7 @@ test("release promotion guard e2e: tampered launch packet collaboration binding 
   assert.equal(guardReport.verdict.status, "fail");
 
   const bindingCheck = Array.isArray(guardReport.bindingChecks)
-    ? guardReport.bindingChecks.find((row) => row.id === "launch_packet_settld_verified_collaboration_binding")
+    ? guardReport.bindingChecks.find((row) => row.id === "launch_packet_nooterra_verified_collaboration_binding")
     : null;
   assert.ok(bindingCheck, "expected launch packet collaboration binding check row");
   assert.equal(bindingCheck.ok, false);
@@ -373,7 +418,7 @@ test("release promotion guard e2e: tampered launch packet collaboration binding 
 });
 
 test("release promotion guard e2e: production gate collaboration report path mismatch fails closed", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-e2e-path-mismatch-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-promotion-e2e-path-mismatch-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -381,12 +426,12 @@ test("release promotion guard e2e: production gate collaboration report path mis
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 5, passedChecks: 5 },
+    verdict: { ok: true, requiredChecks: 7, passedChecks: 7 },
     checks: [
       {
-        id: "settld_verified_collaboration",
+        id: "nooterra_verified_collaboration",
         status: "passed",
-        reportPath: "artifacts/gates/settld-verified-collaboration-gate-v2.json"
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate-v2.json"
       },
       {
         id: "openclaw_substrate_demo_lineage_verified",
@@ -397,11 +442,19 @@ test("release promotion guard e2e: production gate collaboration report path mis
         status: "passed"
       },
       {
+        id: "checkpoint_grant_binding_verified",
+        status: "passed"
+      },
+      {
         id: "sdk_acs_smoke_js_verified",
         status: "passed"
       },
       {
         id: "sdk_acs_smoke_py_verified",
+        status: "passed"
+      },
+      {
+        id: "sdk_python_contract_freeze_verified",
         status: "passed"
       }
     ]
@@ -474,7 +527,7 @@ test("release promotion guard e2e: production gate collaboration report path mis
   assert.equal(guardReport.verdict.status, "fail");
 
   const bindingCheck = Array.isArray(guardReport.bindingChecks)
-    ? guardReport.bindingChecks.find((row) => row.id === "launch_packet_settld_verified_collaboration_binding")
+    ? guardReport.bindingChecks.find((row) => row.id === "launch_packet_nooterra_verified_collaboration_binding")
     : null;
   assert.ok(bindingCheck, "expected launch packet collaboration binding check row");
   assert.equal(bindingCheck.ok, false);
@@ -495,7 +548,7 @@ test("release promotion guard e2e: production gate collaboration report path mis
 });
 
 test("release promotion guard e2e: production gate collaboration check not passed fails closed", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-e2e-check-not-passed-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-promotion-e2e-check-not-passed-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -503,12 +556,12 @@ test("release promotion guard e2e: production gate collaboration check not passe
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 5, passedChecks: 4 },
+    verdict: { ok: true, requiredChecks: 7, passedChecks: 6 },
     checks: [
       {
-        id: "settld_verified_collaboration",
+        id: "nooterra_verified_collaboration",
         status: "failed",
-        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json"
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json"
       },
       {
         id: "openclaw_substrate_demo_lineage_verified",
@@ -519,11 +572,19 @@ test("release promotion guard e2e: production gate collaboration check not passe
         status: "passed"
       },
       {
+        id: "checkpoint_grant_binding_verified",
+        status: "passed"
+      },
+      {
         id: "sdk_acs_smoke_js_verified",
         status: "passed"
       },
       {
         id: "sdk_acs_smoke_py_verified",
+        status: "passed"
+      },
+      {
+        id: "sdk_python_contract_freeze_verified",
         status: "passed"
       }
     ]
@@ -596,7 +657,7 @@ test("release promotion guard e2e: production gate collaboration check not passe
   assert.equal(guardReport.verdict.status, "fail");
 
   const bindingCheck = Array.isArray(guardReport.bindingChecks)
-    ? guardReport.bindingChecks.find((row) => row.id === "launch_packet_settld_verified_collaboration_binding")
+    ? guardReport.bindingChecks.find((row) => row.id === "launch_packet_nooterra_verified_collaboration_binding")
     : null;
   assert.ok(bindingCheck, "expected launch packet collaboration binding check row");
   assert.equal(bindingCheck.ok, false);
@@ -617,7 +678,7 @@ test("release promotion guard e2e: production gate collaboration check not passe
 });
 
 test("release promotion guard e2e: production gate collaboration check missing fails closed", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-e2e-check-missing-"));
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-promotion-e2e-check-missing-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
@@ -625,7 +686,7 @@ test("release promotion guard e2e: production gate collaboration check missing f
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 5, passedChecks: 4 },
+    verdict: { ok: true, requiredChecks: 7, passedChecks: 6 },
     checks: [
       {
         id: "mcp_host_runtime_smoke",
@@ -640,11 +701,19 @@ test("release promotion guard e2e: production gate collaboration check missing f
         status: "passed"
       },
       {
+        id: "checkpoint_grant_binding_verified",
+        status: "passed"
+      },
+      {
         id: "sdk_acs_smoke_js_verified",
         status: "passed"
       },
       {
         id: "sdk_acs_smoke_py_verified",
+        status: "passed"
+      },
+      {
+        id: "sdk_python_contract_freeze_verified",
         status: "passed"
       }
     ]
@@ -717,7 +786,7 @@ test("release promotion guard e2e: production gate collaboration check missing f
   assert.equal(guardReport.verdict.status, "fail");
 
   const bindingCheck = Array.isArray(guardReport.bindingChecks)
-    ? guardReport.bindingChecks.find((row) => row.id === "launch_packet_settld_verified_collaboration_binding")
+    ? guardReport.bindingChecks.find((row) => row.id === "launch_packet_nooterra_verified_collaboration_binding")
     : null;
   assert.ok(bindingCheck, "expected launch packet collaboration binding check row");
   assert.equal(bindingCheck.ok, false);

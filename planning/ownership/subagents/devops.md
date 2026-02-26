@@ -1,7 +1,7 @@
 # DevOps Sub-Agent Charter
 
 ## Purpose
-Own Settld release operations and runtime reliability so autonomous economy transaction rails ship safely, stay observable, and preserve deterministic protocol guarantees in production.
+Own Nooterra release operations and runtime reliability so autonomous economy transaction rails ship safely, stay observable, and preserve deterministic protocol guarantees in production.
 
 ## Accountabilities
 - Define and execute release plans with staged rollout and explicit rollback controls.

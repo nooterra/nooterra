@@ -28,7 +28,7 @@ test("PolicyDecision.v1 schema validates canonical decision artifact", async () 
     }
   }
 
-  const validate = ajv.getSchema("https://settld.local/schemas/PolicyDecision.v1.schema.json");
+  const validate = ajv.getSchema("https://nooterra.local/schemas/PolicyDecision.v1.schema.json");
   assert.ok(validate);
 
   const policyDecision = buildPolicyDecisionV1({

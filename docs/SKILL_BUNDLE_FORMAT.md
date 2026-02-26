@@ -1,6 +1,6 @@
 # Skill Bundle Format (v0)
 
-Settld skills are **signed bundles** with deterministic policies and testable constraints.
+Nooterra skills are **signed bundles** with deterministic policies and testable constraints.
 
 ## Goals
 
@@ -44,5 +44,5 @@ Deterministic policy representation (behavior tree or state machine) that calls 
 
 ### Signatures
 
-- Signed by Settld certification key (tier-dependent).
+- Signed by Nooterra certification key (tier-dependent).
 - Agent verifies signature before installation/execution.

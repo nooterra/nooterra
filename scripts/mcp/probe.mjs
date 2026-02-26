@@ -4,13 +4,13 @@
  *
  * Usage:
  *   npm run mcp:probe
- *   node scripts/mcp/probe.mjs --call settld.about '{}'
+ *   node scripts/mcp/probe.mjs --call nooterra.about '{}'
  */
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { verifyVerifiedInteractionGraphPackV1 } from "../../src/core/interaction-graph-pack.js";
-import { keyMapFromSettldKeyset } from "../../src/core/settld-keys.js";
+import { keyMapFromNooterraKeyset } from "../../src/core/nooterra-keys.js";
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -99,34 +99,34 @@ async function readJsonResponse(response) {
   }
 }
 
-async function fetchSettldPayKeysetPublicKey({ baseUrl, signatureKeyId }) {
+async function fetchNooterraPayKeysetPublicKey({ baseUrl, signatureKeyId }) {
   const targetKeyId = assertNonEmptyString(signatureKeyId, "graphPack.signature.keyId");
-  const response = await fetch(new URL("/.well-known/settld-keys.json", baseUrl).toString(), {
+  const response = await fetch(new URL("/.well-known/nooterra-keys.json", baseUrl).toString(), {
     method: "GET",
     headers: { accept: "application/json" }
   });
   if (!response.ok) {
-    throw new Error(`failed loading settld keyset (HTTP ${response.status})`);
+    throw new Error(`failed loading nooterra keyset (HTTP ${response.status})`);
   }
   const keyset = await readJsonResponse(response);
-  const keyMap = keyMapFromSettldKeyset(keyset ?? {});
+  const keyMap = keyMapFromNooterraKeyset(keyset ?? {});
   const row = keyMap.get(targetKeyId) ?? null;
   if (!row?.publicKeyPem) {
-    throw new Error(`settld keyset missing signature keyId: ${targetKeyId}`);
+    throw new Error(`nooterra keyset missing signature keyId: ${targetKeyId}`);
   }
   return row.publicKeyPem;
 }
 
 function assertProbeEnv() {
-  const apiKey = process.env.SETTLD_API_KEY;
+  const apiKey = process.env.NOOTERRA_API_KEY;
   if (typeof apiKey === "string" && apiKey.trim() !== "") return;
   throw new Error(
     [
-      "[mcp:probe] missing required env var: SETTLD_API_KEY",
+      "[mcp:probe] missing required env var: NOOTERRA_API_KEY",
       "Set env and retry:",
-      "  export SETTLD_BASE_URL=http://127.0.0.1:3000",
-      "  export SETTLD_TENANT_ID=tenant_default",
-      "  export SETTLD_API_KEY='sk_live_or_sk_test_keyid.secret'",
+      "  export NOOTERRA_BASE_URL=http://127.0.0.1:3000",
+      "  export NOOTERRA_TENANT_ID=tenant_default",
+      "  export NOOTERRA_API_KEY='sk_live_or_sk_test_keyid.secret'",
       "Docs: docs/QUICKSTART_MCP.md"
     ].join("\n")
   );
@@ -136,7 +136,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2));
   assertProbeEnv();
 
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     cwd: process.cwd(),
     stdio: ["pipe", "pipe", "inherit"],
     env: { ...process.env }
@@ -213,7 +213,7 @@ async function main() {
 
   const init = await rpc("initialize", {
     protocolVersion: "2024-11-05",
-    clientInfo: { name: "settld-mcp-probe", version: "s23" },
+    clientInfo: { name: "nooterra-mcp-probe", version: "s23" },
     capabilities: {}
   });
   process.stdout.write(JSON.stringify(init, null, 2) + "\n");
@@ -293,9 +293,9 @@ async function main() {
       idempotencyKey: `mcp_probe_x402_gate_create_${seed}`,
       ...(smokeCfg?.create && typeof smokeCfg.create === "object" ? smokeCfg.create : {})
     };
-    const createRes = await rpc("tools/call", { name: "settld.x402_gate_create", arguments: createArgs });
+    const createRes = await rpc("tools/call", { name: "nooterra.x402_gate_create", arguments: createArgs });
     process.stdout.write(JSON.stringify(createRes, null, 2) + "\n");
-    const createParsed = parseToolCallResult(createRes, "settld.x402_gate_create");
+    const createParsed = parseToolCallResult(createRes, "nooterra.x402_gate_create");
     const gateId =
       createParsed?.result?.gateId ??
       createParsed?.result?.gate?.gateId ??
@@ -310,14 +310,14 @@ async function main() {
       idempotencyKey: `mcp_probe_x402_gate_verify_${seed}`,
       ...(smokeCfg?.verify && typeof smokeCfg.verify === "object" ? smokeCfg.verify : {})
     };
-    const verifyRes = await rpc("tools/call", { name: "settld.x402_gate_verify", arguments: verifyArgs });
+    const verifyRes = await rpc("tools/call", { name: "nooterra.x402_gate_verify", arguments: verifyArgs });
     process.stdout.write(JSON.stringify(verifyRes, null, 2) + "\n");
 
     const getArgs = {
       gateId,
       ...(smokeCfg?.get && typeof smokeCfg.get === "object" ? smokeCfg.get : {})
     };
-    const getRes = await rpc("tools/call", { name: "settld.x402_gate_get", arguments: getArgs });
+    const getRes = await rpc("tools/call", { name: "nooterra.x402_gate_get", arguments: getArgs });
     process.stdout.write(JSON.stringify(getRes, null, 2) + "\n");
   }
 
@@ -343,7 +343,7 @@ async function main() {
       payeeDisplayName: `mcp_probe_payee_${seed}`,
       ...(smokeCfg?.createAgreement && typeof smokeCfg.createAgreement === "object" ? smokeCfg.createAgreement : {})
     };
-    const createAgreement = await callToolStrict("settld.create_agreement", createAgreementArgs);
+    const createAgreement = await callToolStrict("nooterra.create_agreement", createAgreementArgs);
     const createAgreementResult =
       createAgreement?.result && typeof createAgreement.result === "object" && !Array.isArray(createAgreement.result)
         ? createAgreement.result
@@ -358,7 +358,7 @@ async function main() {
       evidenceRef: `evidence://mcp-probe/interaction-graph/${seed}/output.json`,
       ...(smokeCfg?.submitEvidence && typeof smokeCfg.submitEvidence === "object" ? smokeCfg.submitEvidence : {})
     };
-    await callToolStrict("settld.submit_evidence", submitEvidenceArgs);
+    await callToolStrict("nooterra.submit_evidence", submitEvidenceArgs);
 
     const settleRunArgs = {
       agentId: payeeAgentId,
@@ -367,7 +367,7 @@ async function main() {
       outputRef: `evidence://mcp-probe/interaction-graph/${seed}/output.json`,
       ...(smokeCfg?.settleRun && typeof smokeCfg.settleRun === "object" ? smokeCfg.settleRun : {})
     };
-    await callToolStrict("settld.settle_run", settleRunArgs);
+    await callToolStrict("nooterra.settle_run", settleRunArgs);
 
     const graphPackArgs = {
       agentId: payeeAgentId,
@@ -381,9 +381,9 @@ async function main() {
       ...(smokeCfg?.graphPack && typeof smokeCfg.graphPack === "object" ? smokeCfg.graphPack : {})
     };
     graphPackArgs.sign = true;
-    const envSignerKeyId = String(process.env.SETTLD_INTERACTION_GRAPH_PACK_SIGNER_KEY_ID ?? "").trim();
+    const envSignerKeyId = String(process.env.NOOTERRA_INTERACTION_GRAPH_PACK_SIGNER_KEY_ID ?? "").trim();
     if (!graphPackArgs.signerKeyId && envSignerKeyId) graphPackArgs.signerKeyId = envSignerKeyId;
-    const graphPackResponse = await callToolStrict("settld.interaction_graph_pack_get", graphPackArgs);
+    const graphPackResponse = await callToolStrict("nooterra.interaction_graph_pack_get", graphPackArgs);
     const graphPackResult =
       graphPackResponse?.result && typeof graphPackResponse.result === "object" && !Array.isArray(graphPackResponse.result)
         ? graphPackResponse.result
@@ -400,13 +400,13 @@ async function main() {
     const explicitPublicKeyPem =
       String(smokeCfg?.verify?.publicKeyPem ?? "").trim() ||
       String(smokeCfg?.publicKeyPem ?? "").trim() ||
-      String(process.env.SETTLD_INTERACTION_GRAPH_PACK_SIGNER_PUBLIC_KEY_PEM ?? "").trim() ||
+      String(process.env.NOOTERRA_INTERACTION_GRAPH_PACK_SIGNER_PUBLIC_KEY_PEM ?? "").trim() ||
       String(process.env.PROXY_INTERACTION_GRAPH_PACK_SIGNER_PUBLIC_KEY_PEM ?? "").trim() ||
       null;
     const publicKeyPem =
       explicitPublicKeyPem ||
-      (await fetchSettldPayKeysetPublicKey({
-        baseUrl: process.env.SETTLD_BASE_URL || "http://127.0.0.1:3000",
+      (await fetchNooterraPayKeysetPublicKey({
+        baseUrl: process.env.NOOTERRA_BASE_URL || "http://127.0.0.1:3000",
         signatureKeyId
       }));
 

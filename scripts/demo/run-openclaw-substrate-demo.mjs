@@ -19,9 +19,9 @@ function usage() {
     "  --help         Show help",
     "",
     "required env:",
-    "  SETTLD_BASE_URL",
-    "  SETTLD_TENANT_ID",
-    "  SETTLD_API_KEY"
+    "  NOOTERRA_BASE_URL",
+    "  NOOTERRA_TENANT_ID",
+    "  NOOTERRA_API_KEY"
   ].join("\n");
 }
 
@@ -172,9 +172,9 @@ async function main() {
     return;
   }
 
-  const baseUrl = assertEnv("SETTLD_BASE_URL");
-  const tenantId = assertEnv("SETTLD_TENANT_ID");
-  const apiKey = assertEnv("SETTLD_API_KEY");
+  const baseUrl = assertEnv("NOOTERRA_BASE_URL");
+  const tenantId = assertEnv("NOOTERRA_TENANT_ID");
+  const apiKey = assertEnv("NOOTERRA_API_KEY");
 
   const demoSeed = `${Date.now()}`;
   const principalAgentId = sanitizeId(`agt_openclaw_demo_principal_${demoSeed}`, `agt_openclaw_demo_principal`);
@@ -205,7 +205,7 @@ async function main() {
       capabilities: ["travel.booking.flights"]
     });
 
-    child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+    child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
       cwd: process.cwd(),
       env: { ...process.env },
       stdio: ["pipe", "pipe", "inherit"]
@@ -250,8 +250,8 @@ async function main() {
       return parsed;
     }
 
-    const about = await tool("settld.about", {});
-    const gateCreate = await tool("settld.x402_gate_create", {
+    const about = await tool("nooterra.about", {});
+    const gateCreate = await tool("nooterra.x402_gate_create", {
       amountCents: 275,
       currency: "USD",
       payerAgentId: principalAgentId,
@@ -265,9 +265,9 @@ async function main() {
       gateCreate?.result?.gate?.gateId ??
       gateCreate?.gateId ??
       null;
-    if (!gateId) throw new Error("x402 gate id missing from settld.x402_gate_create");
+    if (!gateId) throw new Error("x402 gate id missing from nooterra.x402_gate_create");
 
-    const gateVerify = await tool("settld.x402_gate_verify", {
+    const gateVerify = await tool("nooterra.x402_gate_verify", {
       gateId,
       ensureAuthorized: true,
       verificationStatus: "green",
@@ -276,7 +276,7 @@ async function main() {
       idempotencyKey: `demo_gate_verify_${demoSeed}`
     });
 
-    const gateGet = await tool("settld.x402_gate_get", { gateId });
+    const gateGet = await tool("nooterra.x402_gate_get", { gateId });
     const x402RunId =
       gateGet?.result?.gate?.runId ??
       gateVerify?.result?.gate?.runId ??
@@ -284,7 +284,7 @@ async function main() {
       null;
     if (!x402RunId) throw new Error("x402 run id missing for work order settlement binding");
 
-    await tool("settld.agent_card_upsert", {
+    await tool("nooterra.agent_card_upsert", {
       agentId: principalAgentId,
       displayName: "OpenClaw Demo Principal",
       capabilities: ["orchestration", "travel.booking"],
@@ -292,7 +292,7 @@ async function main() {
       hostRuntime: "openclaw",
       hostProtocols: ["mcp", "json-rpc"]
     });
-    await tool("settld.agent_card_upsert", {
+    await tool("nooterra.agent_card_upsert", {
       agentId: workerAgentId,
       displayName: "OpenClaw Demo Worker",
       capabilities: ["travel.booking.flights"],
@@ -301,14 +301,14 @@ async function main() {
       hostProtocols: ["mcp", "json-rpc"]
     });
 
-    await tool("settld.session_create", {
+    await tool("nooterra.session_create", {
       sessionId,
       visibility: "tenant",
       participants: [principalAgentId, workerAgentId],
       policyRef: "policy://openclaw/substrate-demo/session-default",
       idempotencyKey: `demo_session_create_${demoSeed}`
     });
-    await tool("settld.session_event_append", {
+    await tool("nooterra.session_event_append", {
       sessionId,
       eventType: "TASK_REQUESTED",
       traceId,
@@ -320,7 +320,7 @@ async function main() {
       idempotencyKey: `demo_session_event_${demoSeed}`
     });
 
-    const delegationGrant = await tool("settld.delegation_grant_issue", {
+    const delegationGrant = await tool("nooterra.delegation_grant_issue", {
       grantId: `dgrant_openclaw_demo_${demoSeed}`,
       delegatorAgentId: principalAgentId,
       delegateeAgentId: workerAgentId,
@@ -337,7 +337,7 @@ async function main() {
       delegationGrant?.result?.delegationGrant?.grantId ??
       `dgrant_openclaw_demo_${demoSeed}`;
 
-    const taskQuote = await tool("settld.task_quote_issue", {
+    const taskQuote = await tool("nooterra.task_quote_issue", {
       quoteId: `tquote_openclaw_demo_${demoSeed}`,
       buyerAgentId: principalAgentId,
       sellerAgentId: workerAgentId,
@@ -355,9 +355,9 @@ async function main() {
       taskQuote?.taskQuote?.quoteHash ??
       taskQuote?.result?.taskQuote?.quoteHash ??
       null;
-    if (!quoteHash) throw new Error("task quote hash missing from settld.task_quote_issue");
+    if (!quoteHash) throw new Error("task quote hash missing from nooterra.task_quote_issue");
 
-    const taskOffer = await tool("settld.task_offer_issue", {
+    const taskOffer = await tool("nooterra.task_offer_issue", {
       offerId: `toffer_openclaw_demo_${demoSeed}`,
       buyerAgentId: principalAgentId,
       sellerAgentId: workerAgentId,
@@ -373,7 +373,7 @@ async function main() {
       taskOffer?.result?.taskOffer?.offerId ??
       `toffer_openclaw_demo_${demoSeed}`;
 
-    const taskAcceptance = await tool("settld.task_acceptance_issue", {
+    const taskAcceptance = await tool("nooterra.task_acceptance_issue", {
       acceptanceId: `taccept_openclaw_demo_${demoSeed}`,
       quoteId,
       offerId,
@@ -390,7 +390,7 @@ async function main() {
       taskAcceptance?.result?.taskAcceptance?.acceptanceHash ??
       null;
 
-    const workOrderCreate = await tool("settld.work_order_create", {
+    const workOrderCreate = await tool("nooterra.work_order_create", {
       workOrderId: `workord_openclaw_demo_${demoSeed}`,
       principalAgentId,
       subAgentId: workerAgentId,
@@ -417,13 +417,13 @@ async function main() {
       workOrderCreate?.result?.workOrder?.workOrderId ??
       `workord_openclaw_demo_${demoSeed}`;
 
-    await tool("settld.work_order_accept", {
+    await tool("nooterra.work_order_accept", {
       workOrderId,
       acceptedByAgentId: workerAgentId,
       idempotencyKey: `demo_workorder_accept_${demoSeed}`
     });
 
-    await tool("settld.work_order_progress", {
+    await tool("nooterra.work_order_progress", {
       workOrderId,
       eventType: "progress",
       message: "queried providers and selected itinerary",
@@ -432,7 +432,7 @@ async function main() {
       idempotencyKey: `demo_workorder_progress_${demoSeed}`
     });
 
-    const workOrderComplete = await tool("settld.work_order_complete", {
+    const workOrderComplete = await tool("nooterra.work_order_complete", {
       workOrderId,
       receiptId: `worec_openclaw_demo_${demoSeed}`,
       status: "success",
@@ -457,7 +457,7 @@ async function main() {
       workOrderComplete?.result?.completionReceipt?.receiptHash ??
       null;
 
-    const workOrderSettle = await tool("settld.work_order_settle", {
+    const workOrderSettle = await tool("nooterra.work_order_settle", {
       workOrderId,
       completionReceiptId,
       completionReceiptHash,
@@ -469,7 +469,7 @@ async function main() {
       idempotencyKey: `demo_workorder_settle_${demoSeed}`
     });
 
-    const auditLineage = await tool("settld.audit_lineage_list", {
+    const auditLineage = await tool("nooterra.audit_lineage_list", {
       traceId,
       includeSessionEvents: true,
       limit: 200,
@@ -526,7 +526,7 @@ async function main() {
       throw new Error(`audit lineage verification report is not ok: ${lineageVerification?.code ?? "UNKNOWN"}`);
     }
 
-    const sessionReplayPackResult = await tool("settld.session_replay_pack_get", { sessionId });
+    const sessionReplayPackResult = await tool("nooterra.session_replay_pack_get", { sessionId });
     const sessionReplayPack =
       sessionReplayPackResult?.replayPack ??
       sessionReplayPackResult?.result?.replayPack ??
@@ -538,7 +538,7 @@ async function main() {
       throw new Error(`unexpected session replay pack schema: ${sessionReplayPack?.schemaVersion ?? "null"}`);
     }
 
-    const sessionTranscriptResult = await tool("settld.session_transcript_get", { sessionId });
+    const sessionTranscriptResult = await tool("nooterra.session_transcript_get", { sessionId });
     const sessionTranscript =
       sessionTranscriptResult?.transcript ??
       sessionTranscriptResult?.result?.transcript ??
@@ -569,7 +569,7 @@ async function main() {
       throw new Error("session transcript sessionHash mismatch vs replay pack");
     }
 
-    const discover = await tool("settld.agent_discover", {
+    const discover = await tool("nooterra.agent_discover", {
       capability: "travel.booking.flights",
       includeReputation: true,
       limit: 5

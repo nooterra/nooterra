@@ -1,13 +1,13 @@
 # Deprecation Policy
 
-Settld is infrastructure. We don’t break integrators casually.
+Nooterra is infrastructure. We don’t break integrators casually.
 
-## Protocol versions (`x-settld-protocol`)
+## Protocol versions (`x-nooterra-protocol`)
 
 - Format: `major.minor` (example: `1.0`)
 - Server advertises:
-  - `x-settld-protocol` (current)
-  - `x-settld-supported-protocols` (comma-separated)
+  - `x-nooterra-protocol` (current)
+  - `x-nooterra-supported-protocols` (comma-separated)
 
 ### Minimum windows
 

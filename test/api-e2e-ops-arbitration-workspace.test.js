@@ -132,7 +132,7 @@ test("API e2e: ops arbitration workspace page renders queue + case workspace con
   assert.match(workspace.body, /id="submitVerdictBtn"/);
   assert.match(workspace.body, /id="openAppealBtn"/);
   assert.match(workspace.body, /\/ops\/arbitration\/queue/);
-  assert.match(workspace.body, /x-settld-protocol/);
+  assert.match(workspace.body, /x-nooterra-protocol/);
 
   const workspaceWithQueryAuth = await request(api, {
     method: "GET",

@@ -21,7 +21,7 @@ export default function DemoApp() {
       const u = new URL(window.location.href);
       const forcedTour = u.searchParams.get("tour") === "1" || u.hash === "#tour";
       if (forcedTour) return "story";
-      return localStorage.getItem("settld_demo_ui_mode") || "story";
+      return localStorage.getItem("nooterra_demo_ui_mode") || "story";
     } catch {
       return "story";
     }
@@ -29,7 +29,7 @@ export default function DemoApp() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("settld_demo_ui_mode", uiMode);
+      localStorage.setItem("nooterra_demo_ui_mode", uiMode);
     } catch {
       // ignore
     }
@@ -67,7 +67,7 @@ export default function DemoApp() {
       <header className="demo-topbar">
         <div>
           <p className="demo-eyebrow">Runtime Playground</p>
-          <h1>Settld Demo Environment</h1>
+          <h1>Nooterra Demo Environment</h1>
           <p>Watch autonomous workflows produce finance-grade artifacts with deterministic verification.</p>
         </div>
         <div className="demo-top-actions">
@@ -134,7 +134,7 @@ export default function DemoApp() {
           )}
 
           {scenarioId !== "finance" && phase !== "idle" && phase !== "before" && phase !== "telemetry" && phase !== "breach" && (
-            <div className="flex justify-center text-settld-accent text-3xl animate-slide-in">↓</div>
+            <div className="flex justify-center text-nooterra-accent text-3xl animate-slide-in">↓</div>
           )}
 
           {scenarioId !== "finance" && (phase === "sla" || phase === "outputs" || phase === "complete") && (
@@ -144,7 +144,7 @@ export default function DemoApp() {
           )}
 
           {scenarioId !== "finance" && (phase === "outputs" || phase === "complete") && (
-            <div className="flex justify-center text-settld-accent text-3xl animate-slide-in">↓</div>
+            <div className="flex justify-center text-nooterra-accent text-3xl animate-slide-in">↓</div>
           )}
 
           {phase === "complete" && (

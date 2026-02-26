@@ -16,7 +16,7 @@ test("secrets: env provider is disabled unless explicitly enabled", async () => 
 });
 
 test("secrets: file provider reads and trims trailing newline", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "settld_secrets_"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra_secrets_"));
   const fp = path.join(dir, "secret.txt");
   await fs.writeFile(fp, "hello\n", "utf8");
 

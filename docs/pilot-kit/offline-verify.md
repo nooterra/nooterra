@@ -9,12 +9,12 @@ From the Magic Link page, download:
 - `bundle.zip` (the canonical input)
 - `verify.json` (hosted `VerifyCliOutput.v1`, for reference)
 
-## 2) Verify locally with `settld-verify`
+## 2) Verify locally with `nooterra-verify`
 
 Extract the bundle ZIP to a directory, then run:
 
 ```sh
-node packages/artifact-verify/bin/settld-verify.js --format json --strict --invoice-bundle /path/to/extracted/bundle > out.verify.json
+node packages/artifact-verify/bin/nooterra-verify.js --format json --strict --invoice-bundle /path/to/extracted/bundle > out.verify.json
 ```
 
 ### Trust anchors (strict mode)
@@ -22,8 +22,8 @@ node packages/artifact-verify/bin/settld-verify.js --format json --strict --invo
 Strict verification requires governance trust roots to be provided out-of-band. If you have a trust file:
 
 ```sh
-export SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON='{"key_...":"-----BEGIN PUBLIC KEY-----..."}'
-export SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON='{"key_...":"-----BEGIN PUBLIC KEY-----..."}'
+export NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON='{"key_...":"-----BEGIN PUBLIC KEY-----..."}'
+export NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON='{"key_...":"-----BEGIN PUBLIC KEY-----..."}'
 ```
 
 Then rerun the strict command above.

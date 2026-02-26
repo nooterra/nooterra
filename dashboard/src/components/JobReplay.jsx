@@ -50,7 +50,7 @@ export default function JobReplay({ timeline, money }) {
   }, [job]);
 
   return (
-    <div className="bg-settld-card border border-settld-border rounded-xl p-6">
+    <div className="bg-nooterra-card border border-nooterra-border rounded-xl p-6">
       <div className="flex items-center justify-between gap-4 mb-4">
         <div>
           <h2 className="text-xl font-semibold">Job Replay</h2>
@@ -62,8 +62,8 @@ export default function JobReplay({ timeline, money }) {
         <div className="text-right">
           <div className="text-sm text-gray-400">Gross / Credit / Net</div>
           <div className="font-mono text-lg">
-            {fmtMoney(money?.grossCents)} / <span className="text-settld-warning">{fmtMoney(money?.creditCents)}</span> /{" "}
-            <span className="text-settld-success">{fmtMoney(money?.netCents)}</span>
+            {fmtMoney(money?.grossCents)} / <span className="text-nooterra-warning">{fmtMoney(money?.creditCents)}</span> /{" "}
+            <span className="text-nooterra-success">{fmtMoney(money?.netCents)}</span>
           </div>
           <div className="text-xs text-gray-500 mt-1">
             chain: {chain.ok ? "OK" : "broken"} · ledger: {ledger.ok ? "OK" : "broken"}
@@ -72,17 +72,17 @@ export default function JobReplay({ timeline, money }) {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="p-4 rounded-lg border border-settld-border bg-black/20">
+        <div className="p-4 rounded-lg border border-nooterra-border bg-black/20">
           <div className="text-xs text-gray-500">SLA</div>
           <div className="text-sm font-semibold mt-1">{summary.breaches ? "Breach detected" : "No breach"}</div>
           <div className="text-xs text-gray-400 mt-2">Credits issued: {summary.credits}</div>
         </div>
-        <div className="p-4 rounded-lg border border-settld-border bg-black/20">
+        <div className="p-4 rounded-lg border border-nooterra-border bg-black/20">
           <div className="text-xs text-gray-500">Integrity</div>
           <div className="text-sm font-semibold mt-1">{chain.ok ? "Hash-chained event log" : "Chain broken"}</div>
           <div className="text-xs text-gray-400 mt-2">{chain.reason}</div>
         </div>
-        <div className="p-4 rounded-lg border border-settld-border bg-black/20">
+        <div className="p-4 rounded-lg border border-nooterra-border bg-black/20">
           <div className="text-xs text-gray-500">Accounting</div>
           <div className="text-sm font-semibold mt-1">{ledger.ok ? "Ledger net-zero" : "Ledger mismatch"}</div>
           <div className="text-xs text-gray-400 mt-2">{ledger.reason}</div>
@@ -94,7 +94,7 @@ export default function JobReplay({ timeline, money }) {
           <div className="text-sm font-semibold">Append-only event stream</div>
           <div className="text-xs text-gray-500">click any row to inspect</div>
         </div>
-        <div className="border border-settld-border rounded-lg overflow-hidden">
+        <div className="border border-nooterra-border rounded-lg overflow-hidden">
           <div className="grid grid-cols-12 bg-black/20 text-xs text-gray-400 px-3 py-2">
             <div className="col-span-2">at</div>
             <div className="col-span-3">type</div>
@@ -107,7 +107,7 @@ export default function JobReplay({ timeline, money }) {
               <button
                 key={e.id}
                 onClick={() => setSelected(e)}
-                className="w-full text-left grid grid-cols-12 px-3 py-2 border-t border-settld-border/40 hover:bg-white/5 text-xs font-mono"
+                className="w-full text-left grid grid-cols-12 px-3 py-2 border-t border-nooterra-border/40 hover:bg-white/5 text-xs font-mono"
               >
                 <div className="col-span-2 text-gray-400">{(e.at ?? "").slice(11, 19)}</div>
                 <div className="col-span-3 text-gray-200">{e.type}</div>

@@ -1,6 +1,6 @@
 # Onboarding State Machine
 
-Settld setup now uses a deterministic onboarding state machine with fail-closed transitions.
+Nooterra setup now uses a deterministic onboarding state machine with fail-closed transitions.
 
 ## States
 

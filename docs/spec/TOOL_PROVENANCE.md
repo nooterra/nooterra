@@ -1,6 +1,6 @@
 # Tool provenance (version + commit)
 
-Settld surfaces tool identity in:
+Nooterra surfaces tool identity in:
 
 - `VerificationReport.v1.tool` (producer/receipt provenance)
 - `VerifyCliOutput.v1.tool` (verifier CLI provenance)
@@ -9,7 +9,7 @@ Settld surfaces tool identity in:
 
 When a commit/build identifier is not explicitly provided by the caller, tools try these environment variables in order:
 
-1. `SETTLD_COMMIT_SHA`
+1. `NOOTERRA_COMMIT_SHA`
 2. `PROXY_BUILD` (Docker build arg often mapped from `GIT_SHA`)
 3. `GIT_SHA`
 4. `GITHUB_SHA`
@@ -22,9 +22,9 @@ If no valid value is available, tools omit `tool.commit` (or set it to `null` in
 
 When a version is not explicitly provided by the caller, tools try:
 
-1. `SETTLD_VERSION` (if set in the environment)
-2. Repo/service version stamp from `SETTLD_VERSION` file (when present in the working directory)
-3. Package `package.json` version (for published tools like `settld-verify`)
+1. `NOOTERRA_VERSION` (if set in the environment)
+2. Repo/service version stamp from `NOOTERRA_VERSION` file (when present in the working directory)
+3. Package `package.json` version (for published tools like `nooterra-verify`)
 
 If no value is available, tools omit `tool.version` (or set it to `null` in CLI output) and producers emit `TOOL_VERSION_UNKNOWN`.
 

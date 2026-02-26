@@ -86,7 +86,7 @@ async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, rea
     path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       status,
@@ -535,7 +535,7 @@ test("API e2e: /public/agent-cards/stream emits removal when abuse suppression t
     path: `/agent-cards/${encodeURIComponent(workerId)}/abuse-reports`,
     headers: {
       "x-idempotency-key": "stream_abuse_report_1",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       reportId: "acabr_stream_abuse_1",
@@ -604,7 +604,7 @@ test("API e2e: /public/agent-cards/stream re-emits upsert when abuse suppression
       path: `/agent-cards/${encodeURIComponent(workerId)}/abuse-reports`,
       headers: {
         "x-idempotency-key": "stream_abuse_resolved_report_1",
-        "x-settld-protocol": "1.0"
+        "x-nooterra-protocol": "1.0"
       },
       body: {
         reportId: "acabr_stream_abuse_resolved_1",
@@ -626,7 +626,7 @@ test("API e2e: /public/agent-cards/stream re-emits upsert when abuse suppression
       path: `/agent-cards/${encodeURIComponent(workerId)}/abuse-reports/acabr_stream_abuse_resolved_1/status`,
       headers: {
         "x-idempotency-key": "stream_abuse_resolved_status_1",
-        "x-settld-protocol": "1.0"
+        "x-nooterra-protocol": "1.0"
       },
       body: {
         status: "resolved",

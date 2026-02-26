@@ -39,9 +39,9 @@ A session provides a stable context boundary for participants, policy linkage, a
 
 ## MCP surface
 
-- `settld.session_create`
-- `settld.session_list`
-- `settld.session_get`
+- `nooterra.session_create`
+- `nooterra.session_list`
+- `nooterra.session_get`
 
 ## Implementation references
 

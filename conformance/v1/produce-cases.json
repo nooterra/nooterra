@@ -66,7 +66,7 @@
     },
     {
       "id": "produce_trust_remote_only_init_then_remote_sign_strict_verify",
-      "description": "Producer pass: settld-trust init --mode remote-only produces a trust.json that strict-verifies a remote-signed JobProof",
+      "description": "Producer pass: nooterra-trust init --mode remote-only produces a trust.json that strict-verifies a remote-signed JobProof",
       "scenario": "trust_remote_only_init_remote_sign",
       "expected": { "exitCode": 0, "errors": [], "warnings": [], "verifyOk": true },
       "invariantIds": ["PROD-001", "PROD-008"]

@@ -246,7 +246,7 @@ function startPolicyBypassProbeServer({ port }) {
     if (req.method === "GET" && url.pathname === "/weather/current") {
       res.statusCode = 200;
       res.setHeader("content-type", "application/json");
-      // Deliberately omit x-settld-* headers to prove paid MCP tools fail closed.
+      // Deliberately omit x-nooterra-* headers to prove paid MCP tools fail closed.
       res.end(JSON.stringify({ ok: true, forecast: "sunny" }));
       return;
     }
@@ -285,7 +285,7 @@ async function main() {
   const magicLinkPort = await pickPort();
   const baseApiUrl = `http://127.0.0.1:${apiPort}`;
   const baseMagicLinkUrl = `http://127.0.0.1:${magicLinkPort}`;
-  const dataDir = await mkdtemp(path.join(os.tmpdir(), "settld-ci-mcp-host-smoke-"));
+  const dataDir = await mkdtemp(path.join(os.tmpdir(), "nooterra-ci-mcp-host-smoke-"));
   let policyBypassProbe = null;
 
   const api = startNodeProc({
@@ -309,8 +309,8 @@ async function main() {
       MAGIC_LINK_API_KEY: magicLinkApiKey,
       MAGIC_LINK_DATA_DIR: dataDir,
       MAGIC_LINK_ARCHIVE_EXPORT_ENABLED: "0",
-      MAGIC_LINK_SETTLD_API_BASE_URL: baseApiUrl,
-      MAGIC_LINK_SETTLD_OPS_TOKEN: opsToken
+      MAGIC_LINK_NOOTERRA_API_BASE_URL: baseApiUrl,
+      MAGIC_LINK_NOOTERRA_OPS_TOKEN: opsToken
     }
   });
 
@@ -348,8 +348,8 @@ async function main() {
       body: {
         tenantId,
         name: "CI MCP Host Smoke Tenant",
-        contactEmail: "ci@settld.work",
-        billingEmail: "ci-billing@settld.work"
+        contactEmail: "ci@nooterra.work",
+        billingEmail: "ci-billing@nooterra.work"
       }
     });
 
@@ -365,19 +365,19 @@ async function main() {
     if (!mcpEnv || typeof mcpEnv !== "object") {
       throw new Error("runtime bootstrap did not return mcp.env");
     }
-    if (typeof mcpEnv.SETTLD_API_KEY !== "string" || !mcpEnv.SETTLD_API_KEY.trim()) {
-      throw new Error("runtime bootstrap did not return SETTLD_API_KEY");
+    if (typeof mcpEnv.NOOTERRA_API_KEY !== "string" || !mcpEnv.NOOTERRA_API_KEY.trim()) {
+      throw new Error("runtime bootstrap did not return NOOTERRA_API_KEY");
     }
     report.checks.push({ id: "runtime_bootstrap", ok: true });
-    if (typeof mcpEnv.SETTLD_BASE_URL !== "string" || !mcpEnv.SETTLD_BASE_URL.trim()) {
-      throw new Error("runtime bootstrap did not return SETTLD_BASE_URL");
+    if (typeof mcpEnv.NOOTERRA_BASE_URL !== "string" || !mcpEnv.NOOTERRA_BASE_URL.trim()) {
+      throw new Error("runtime bootstrap did not return NOOTERRA_BASE_URL");
     }
-    const projectedBaseUrl = normalizeBaseUrlForCompare(mcpEnv.SETTLD_BASE_URL);
+    const projectedBaseUrl = normalizeBaseUrlForCompare(mcpEnv.NOOTERRA_BASE_URL);
     const expectedBaseUrl = normalizeBaseUrlForCompare(baseApiUrl);
-    const projectedEndpoint = normalizeBaseUrlEndpointForCompare(mcpEnv.SETTLD_BASE_URL);
+    const projectedEndpoint = normalizeBaseUrlEndpointForCompare(mcpEnv.NOOTERRA_BASE_URL);
     const expectedEndpoint = normalizeBaseUrlEndpointForCompare(baseApiUrl);
     if (!projectedEndpoint || !expectedEndpoint) {
-      throw new Error("runtime bootstrap SETTLD_BASE_URL is not a valid URL");
+      throw new Error("runtime bootstrap NOOTERRA_BASE_URL is not a valid URL");
     }
     const sameEndpoint =
       projectedEndpoint.host === expectedEndpoint.host &&
@@ -385,7 +385,7 @@ async function main() {
       projectedEndpoint.pathname === expectedEndpoint.pathname;
     if (!sameEndpoint) {
       throw new Error(
-        `runtime bootstrap returned SETTLD_BASE_URL mismatch (expected ${expectedBaseUrl}, got ${projectedBaseUrl || "<empty>"})`
+        `runtime bootstrap returned NOOTERRA_BASE_URL mismatch (expected ${expectedBaseUrl}, got ${projectedBaseUrl || "<empty>"})`
       );
     }
     report.checks.push({
@@ -396,14 +396,14 @@ async function main() {
       expectedEndpoint,
       observedEndpoint: projectedEndpoint
     });
-    if (mcpEnv.SETTLD_TENANT_ID !== tenantId) {
-      throw new Error("runtime bootstrap returned SETTLD_TENANT_ID mismatch");
+    if (mcpEnv.NOOTERRA_TENANT_ID !== tenantId) {
+      throw new Error("runtime bootstrap returned NOOTERRA_TENANT_ID mismatch");
     }
-    const mcpConfigEnv = runtimeBootstrap?.mcpConfigJson?.mcpServers?.settld?.env ?? null;
+    const mcpConfigEnv = runtimeBootstrap?.mcpConfigJson?.mcpServers?.nooterra?.env ?? null;
     if (!mcpConfigEnv || typeof mcpConfigEnv !== "object") {
-      throw new Error("runtime bootstrap did not return mcpConfigJson.mcpServers.settld.env");
+      throw new Error("runtime bootstrap did not return mcpConfigJson.mcpServers.nooterra.env");
     }
-    const requiredRuntimeKeys = ["SETTLD_BASE_URL", "SETTLD_TENANT_ID", "SETTLD_API_KEY"];
+    const requiredRuntimeKeys = ["NOOTERRA_BASE_URL", "NOOTERRA_TENANT_ID", "NOOTERRA_API_KEY"];
     for (const key of requiredRuntimeKeys) {
       if (typeof mcpConfigEnv[key] !== "string" || !mcpConfigEnv[key].trim()) {
         throw new Error(`runtime bootstrap mcpConfigJson missing ${key}`);
@@ -416,13 +416,13 @@ async function main() {
 
     const runtimeMcpEnv = {
       ...mcpEnv,
-      SETTLD_BASE_URL: baseApiUrl,
-      SETTLD_TENANT_ID: tenantId
+      NOOTERRA_BASE_URL: baseApiUrl,
+      NOOTERRA_TENANT_ID: tenantId
     };
 
     const mismatchTenantEnv = {
       ...mcpEnv,
-      SETTLD_TENANT_ID: `${tenantId}_mismatch`
+      NOOTERRA_TENANT_ID: `${tenantId}_mismatch`
     };
     const mismatchResponse = await requestJsonExpectError(
       {
@@ -459,21 +459,21 @@ async function main() {
       "scripts/mcp/probe.mjs",
       [
         "--call",
-        "settld.about",
+        "nooterra.about",
         "{}",
         "--require-tool",
-        "settld.relationships_list",
+        "nooterra.relationships_list",
         "--require-tool",
-        "settld.public_reputation_summary_get",
+        "nooterra.public_reputation_summary_get",
         "--require-tool",
-        "settld.interaction_graph_pack_get"
+        "nooterra.interaction_graph_pack_get"
       ],
       {
         env: { ...process.env, ...runtimeMcpEnv, MCP_PROBE_TIMEOUT_MS: "30000" }
       }
     );
     report.checks.push({ id: "mcp_initialize_tools_list", ok: true });
-    report.checks.push({ id: "mcp_tool_call_settld_about", ok: true });
+    report.checks.push({ id: "mcp_tool_call_nooterra_about", ok: true });
 
     await runNodeScript("scripts/mcp/probe.mjs", ["--interaction-graph-smoke"], {
       env: { ...process.env, ...runtimeMcpEnv, MCP_PROBE_TIMEOUT_MS: "30000" }
@@ -484,12 +484,12 @@ async function main() {
     policyBypassProbe = await startPolicyBypassProbeServer({ port: paidToolsPort });
     const paidToolProbe = await runNodeScriptCapture(
       "scripts/mcp/probe.mjs",
-      ["--call", "settld.weather_current_paid", '{"city":"Austin","unit":"f"}'],
+      ["--call", "nooterra.weather_current_paid", '{"city":"Austin","unit":"f"}'],
       {
         env: {
           ...process.env,
           ...runtimeMcpEnv,
-          SETTLD_PAID_TOOLS_BASE_URL: `http://127.0.0.1:${paidToolsPort}`,
+          NOOTERRA_PAID_TOOLS_BASE_URL: `http://127.0.0.1:${paidToolsPort}`,
           MCP_PROBE_TIMEOUT_MS: "30000"
         },
         timeoutMs: 45_000
@@ -507,7 +507,7 @@ async function main() {
     const sawProbeRequest = policyBypassProbe.getRequestCount() > 0;
     const sawToolError = paidToolProbe.stdout.includes('"isError": true');
     const sawPolicyMetadataError = paidToolProbe.stdout.includes(
-      "settld.weather_current_paid response missing settld policy runtime metadata"
+      "nooterra.weather_current_paid response missing nooterra policy runtime metadata"
     );
     if (!sawProbeRequest || !sawToolError || !sawPolicyMetadataError) {
       const err = new Error("paid MCP tool did not fail closed when policy runtime metadata was absent");
@@ -522,7 +522,7 @@ async function main() {
       id: "mcp_paid_tool_runtime_policy_metadata_fail_closed",
       ok: true,
       requestCount: policyBypassProbe.getRequestCount(),
-      expectedError: "settld.weather_current_paid response missing settld policy runtime metadata"
+      expectedError: "nooterra.weather_current_paid response missing nooterra policy runtime metadata"
     });
 
     report.ok = true;

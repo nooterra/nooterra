@@ -1,6 +1,6 @@
 # SDK Reference
 
-Settld provides JavaScript and Python SDKs to reduce raw-HTTP integration overhead.
+Nooterra provides JavaScript and Python SDKs to reduce raw-HTTP integration overhead.
 
 ## JavaScript SDK
 

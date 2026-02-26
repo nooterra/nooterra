@@ -87,8 +87,8 @@ async function main() {
     "conformance-v1-SHA256SUMS",
     "release_index_v1.json",
     "release_index_v1.sig",
-    "settld-audit-packet-v1.zip",
-    "settld-audit-packet-v1.zip.sha256",
+    "nooterra-audit-packet-v1.zip",
+    "nooterra-audit-packet-v1.zip.sha256",
     "npm-SHA256SUMS",
     "python-SHA256SUMS"
   ];
@@ -101,7 +101,7 @@ async function main() {
   await assertFileSha256({ dir, checksumFile: "conformance-v1-SHA256SUMS", targetName: "conformance-v1.tar.gz" });
 
   // Validate audit packet checksum
-  await assertFileSha256({ dir, checksumFile: "settld-audit-packet-v1.zip.sha256", targetName: "settld-audit-packet-v1.zip" });
+  await assertFileSha256({ dir, checksumFile: "nooterra-audit-packet-v1.zip.sha256", targetName: "nooterra-audit-packet-v1.zip" });
 
   // Validate npm tgz checksums based on npm-SHA256SUMS entries.
   const npmSumRaw = await fs.readFile(path.join(dir, "npm-SHA256SUMS"), "utf8");
@@ -143,7 +143,7 @@ async function main() {
   for (const must of ["conformance-v1/README.md", "conformance-v1/cases.json", "conformance-v1/expected/"]) {
     if (!conformanceListing.includes(must)) throw new Error(`conformance-v1.tar.gz missing expected entry: ${must}`);
   }
-  const auditListing = sh("unzip", ["-l", "settld-audit-packet-v1.zip"], { cwd: dir });
+  const auditListing = sh("unzip", ["-l", "nooterra-audit-packet-v1.zip"], { cwd: dir });
   const auditExpectedEntries = [
     // Current audit packet layout (scripts/audit/build-audit-packet.mjs)
     "spec/THREAT_MODEL.md",
@@ -154,7 +154,7 @@ async function main() {
     "SHA256SUMS"
   ];
   for (const must of auditExpectedEntries) {
-    if (!auditListing.includes(must)) throw new Error(`settld-audit-packet-v1.zip missing expected entry: ${must}`);
+    if (!auditListing.includes(must)) throw new Error(`nooterra-audit-packet-v1.zip missing expected entry: ${must}`);
   }
 
   // Verify signed ReleaseIndex and ensure artifacts match its hashes.

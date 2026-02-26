@@ -8,11 +8,11 @@ import { codesFromCliOutput, diffSets, readJsonFile, spawnCapture } from "./lib/
 
 function parseArgs(argv) {
   const out = {
-    produceBin: "settld-produce",
+    produceBin: "nooterra-produce",
     produceNodeBin: null,
-    trustBin: "settld-trust",
+    trustBin: "nooterra-trust",
     trustNodeBin: null,
-    verifyBin: "settld-verify",
+    verifyBin: "nooterra-verify",
     verifyNodeBin: null,
     caseId: null,
     list: false,
@@ -75,7 +75,7 @@ function usage() {
   // eslint-disable-next-line no-console
   console.error("usage:");
   console.error(
-    "  node conformance/v1/run-produce.mjs [--produce-bin settld-produce] [--produce-node-bin <path/to/settld-produce.js>] [--trust-bin settld-trust] [--trust-node-bin <path/to/settld-trust.js>] [--verify-bin settld-verify] [--verify-node-bin <path/to/settld-verify.js>] [--case <id>] [--list] [--keep-temp]"
+    "  node conformance/v1/run-produce.mjs [--produce-bin nooterra-produce] [--produce-node-bin <path/to/nooterra-produce.js>] [--trust-bin nooterra-trust] [--trust-node-bin <path/to/nooterra-trust.js>] [--verify-bin nooterra-verify] [--verify-node-bin <path/to/nooterra-verify.js>] [--case <id>] [--list] [--keep-temp]"
   );
 }
 
@@ -99,17 +99,17 @@ function buildCli({ bin, nodeBin }) {
 function signerDevFor({ produceCli }) {
   if (produceCli?.nodeBin) {
     const dir = path.dirname(produceCli.nodeBin);
-    return { signerCommand: process.execPath, signerArgsJson: JSON.stringify([path.join(dir, "settld-signer-dev.js")]) };
+    return { signerCommand: process.execPath, signerArgsJson: JSON.stringify([path.join(dir, "nooterra-signer-dev.js")]) };
   }
   // Fall back to PATH-resolved binary.
-  return { signerCommand: "settld-signer-dev", signerArgsJson: JSON.stringify([]) };
+  return { signerCommand: "nooterra-signer-dev", signerArgsJson: JSON.stringify([]) };
 }
 
 function trustCliFor({ trustCli, produceCli }) {
   if (trustCli?.nodeBin) return trustCli;
   if (produceCli?.nodeBin) {
     const dir = path.dirname(produceCli.nodeBin);
-    return { cmd: process.execPath, args: [path.join(dir, "settld-trust.js")], nodeBin: path.join(dir, "settld-trust.js") };
+    return { cmd: process.execPath, args: [path.join(dir, "nooterra-trust.js")], nodeBin: path.join(dir, "nooterra-trust.js") };
   }
   return trustCli;
 }
@@ -152,7 +152,7 @@ async function runProduce({ cli, scenario, outDir, packDir, trustCli }) {
       "--signer-auth",
       "bearer",
       "--signer-token-env",
-      "SETTLD_SIGNER_TOKEN",
+      "NOOTERRA_SIGNER_TOKEN",
       "--gov-key-id",
       "key_gov",
       "--server-key-id",
@@ -385,9 +385,9 @@ async function runVerifyStrict({ cli, packDir, bundleDir, trustJsonOverride = nu
   const trust = trustJsonOverride ? requireObject(trustJsonOverride, "trustJsonOverride") : requireObject(await readJsonFile(path.join(packDir, "trust.json")), "trust.json");
   const env = {
     ...process.env,
-    SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust?.governanceRoots ?? {}),
-    SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust?.pricingSigners ?? {}),
-    SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust?.timeAuthorities ?? {})
+    NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust?.governanceRoots ?? {}),
+    NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust?.pricingSigners ?? {}),
+    NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust?.timeAuthorities ?? {})
   };
   const args = [...cli.args, "--format", "json", "--strict", "--hash-concurrency", "4", "--job-proof", bundleDir];
   return spawnCapture({ cmd: cli.cmd, args, cwd: packDir, env });
@@ -429,7 +429,7 @@ async function main() {
     const scenario = String(c?.scenario ?? "");
     const expected = requireObject(c?.expected ?? null, `case ${id}.expected`);
 
-      const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), `settld-produce-conformance-v1-${id}-`));
+      const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), `nooterra-produce-conformance-v1-${id}-`));
       const bundleDir = path.join(tmpRoot, "bundle");
     try {
       const produced = await runProduce({ cli: produceCli, scenario, outDir: bundleDir, packDir, trustCli });

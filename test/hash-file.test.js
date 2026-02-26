@@ -12,7 +12,7 @@ function sha256HexBytes(bytes) {
 }
 
 test("hashFile() hashes via streaming (empty + small file)", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-hashfile-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-hashfile-"));
   await test.after(() => fs.rm(dir, { recursive: true, force: true }));
 
   const emptyPath = path.join(dir, "empty.bin");
@@ -26,7 +26,7 @@ test("hashFile() hashes via streaming (empty + small file)", async () => {
 });
 
 test("hashFile() enforces maxBytes when provided", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-hashfile-max-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-hashfile-max-"));
   await test.after(() => fs.rm(dir, { recursive: true, force: true }));
 
   const bytes = new Uint8Array(10);

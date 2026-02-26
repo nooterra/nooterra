@@ -2,7 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 
 import { keyIdFromPublicKeyPem } from "../../../src/core/crypto.js";
-import { createSettldPaidNodeHttpHandler } from "../../../packages/provider-kit/src/index.js";
+import { createNooterraPaidNodeHttpHandler } from "../../../packages/provider-kit/src/index.js";
 
 function readBoolEnv(name, fallback = false) {
   const raw = process.env[name];
@@ -32,59 +32,59 @@ if (!Number.isSafeInteger(PORT) || PORT <= 0) throw new Error("PORT must be a po
 const BIND_HOST =
   typeof process.env.BIND_HOST === "string" && process.env.BIND_HOST.trim() !== "" ? process.env.BIND_HOST.trim() : null;
 
-const PRICE_AMOUNT_CENTS = readIntEnv("SETTLD_PRICE_AMOUNT_CENTS", 500);
+const PRICE_AMOUNT_CENTS = readIntEnv("NOOTERRA_PRICE_AMOUNT_CENTS", 500);
 if (!Number.isSafeInteger(PRICE_AMOUNT_CENTS) || PRICE_AMOUNT_CENTS <= 0) {
-  throw new Error("SETTLD_PRICE_AMOUNT_CENTS must be a positive integer");
+  throw new Error("NOOTERRA_PRICE_AMOUNT_CENTS must be a positive integer");
 }
 const PRICE_CURRENCY =
-  typeof process.env.SETTLD_PRICE_CURRENCY === "string" && process.env.SETTLD_PRICE_CURRENCY.trim() !== ""
-    ? process.env.SETTLD_PRICE_CURRENCY.trim().toUpperCase()
+  typeof process.env.NOOTERRA_PRICE_CURRENCY === "string" && process.env.NOOTERRA_PRICE_CURRENCY.trim() !== ""
+    ? process.env.NOOTERRA_PRICE_CURRENCY.trim().toUpperCase()
     : "USD";
 const PROVIDER_ID_CONFIG =
-  typeof process.env.SETTLD_PROVIDER_ID === "string" && process.env.SETTLD_PROVIDER_ID.trim() !== ""
-    ? process.env.SETTLD_PROVIDER_ID.trim()
+  typeof process.env.NOOTERRA_PROVIDER_ID === "string" && process.env.NOOTERRA_PROVIDER_ID.trim() !== ""
+    ? process.env.NOOTERRA_PROVIDER_ID.trim()
     : null;
 const PAYMENT_ADDRESS =
-  typeof process.env.SETTLD_PAYMENT_ADDRESS === "string" && process.env.SETTLD_PAYMENT_ADDRESS.trim() !== ""
-    ? process.env.SETTLD_PAYMENT_ADDRESS.trim()
+  typeof process.env.NOOTERRA_PAYMENT_ADDRESS === "string" && process.env.NOOTERRA_PAYMENT_ADDRESS.trim() !== ""
+    ? process.env.NOOTERRA_PAYMENT_ADDRESS.trim()
     : "mock:payee";
 const PAYMENT_NETWORK =
-  typeof process.env.SETTLD_PAYMENT_NETWORK === "string" && process.env.SETTLD_PAYMENT_NETWORK.trim() !== ""
-    ? process.env.SETTLD_PAYMENT_NETWORK.trim()
+  typeof process.env.NOOTERRA_PAYMENT_NETWORK === "string" && process.env.NOOTERRA_PAYMENT_NETWORK.trim() !== ""
+    ? process.env.NOOTERRA_PAYMENT_NETWORK.trim()
     : "mocknet";
 
-const SETTLD_PAY_KEYSET_URL =
-  typeof process.env.SETTLD_PAY_KEYSET_URL === "string" && process.env.SETTLD_PAY_KEYSET_URL.trim() !== ""
-    ? process.env.SETTLD_PAY_KEYSET_URL.trim()
-    : "http://127.0.0.1:3000/.well-known/settld-keys.json";
-const SETTLD_PAY_KEYSET_DEFAULT_MAX_AGE_MS = readIntEnv("SETTLD_PAY_KEYSET_DEFAULT_MAX_AGE_MS", 300_000);
-if (!Number.isSafeInteger(SETTLD_PAY_KEYSET_DEFAULT_MAX_AGE_MS) || SETTLD_PAY_KEYSET_DEFAULT_MAX_AGE_MS <= 0) {
-  throw new Error("SETTLD_PAY_KEYSET_DEFAULT_MAX_AGE_MS must be a positive integer");
+const NOOTERRA_PAY_KEYSET_URL =
+  typeof process.env.NOOTERRA_PAY_KEYSET_URL === "string" && process.env.NOOTERRA_PAY_KEYSET_URL.trim() !== ""
+    ? process.env.NOOTERRA_PAY_KEYSET_URL.trim()
+    : "http://127.0.0.1:3000/.well-known/nooterra-keys.json";
+const NOOTERRA_PAY_KEYSET_DEFAULT_MAX_AGE_MS = readIntEnv("NOOTERRA_PAY_KEYSET_DEFAULT_MAX_AGE_MS", 300_000);
+if (!Number.isSafeInteger(NOOTERRA_PAY_KEYSET_DEFAULT_MAX_AGE_MS) || NOOTERRA_PAY_KEYSET_DEFAULT_MAX_AGE_MS <= 0) {
+  throw new Error("NOOTERRA_PAY_KEYSET_DEFAULT_MAX_AGE_MS must be a positive integer");
 }
-const SETTLD_PAY_KEYSET_FETCH_TIMEOUT_MS = readIntEnv("SETTLD_PAY_KEYSET_FETCH_TIMEOUT_MS", 3000);
-if (!Number.isSafeInteger(SETTLD_PAY_KEYSET_FETCH_TIMEOUT_MS) || SETTLD_PAY_KEYSET_FETCH_TIMEOUT_MS <= 0) {
-  throw new Error("SETTLD_PAY_KEYSET_FETCH_TIMEOUT_MS must be a positive integer");
+const NOOTERRA_PAY_KEYSET_FETCH_TIMEOUT_MS = readIntEnv("NOOTERRA_PAY_KEYSET_FETCH_TIMEOUT_MS", 3000);
+if (!Number.isSafeInteger(NOOTERRA_PAY_KEYSET_FETCH_TIMEOUT_MS) || NOOTERRA_PAY_KEYSET_FETCH_TIMEOUT_MS <= 0) {
+  throw new Error("NOOTERRA_PAY_KEYSET_FETCH_TIMEOUT_MS must be a positive integer");
 }
-const SETTLD_PAY_REPLAY_TTL_BUFFER_MS = readIntEnv("SETTLD_PAY_REPLAY_TTL_BUFFER_MS", 60_000);
-if (!Number.isSafeInteger(SETTLD_PAY_REPLAY_TTL_BUFFER_MS) || SETTLD_PAY_REPLAY_TTL_BUFFER_MS < 0) {
-  throw new Error("SETTLD_PAY_REPLAY_TTL_BUFFER_MS must be a non-negative integer");
+const NOOTERRA_PAY_REPLAY_TTL_BUFFER_MS = readIntEnv("NOOTERRA_PAY_REPLAY_TTL_BUFFER_MS", 60_000);
+if (!Number.isSafeInteger(NOOTERRA_PAY_REPLAY_TTL_BUFFER_MS) || NOOTERRA_PAY_REPLAY_TTL_BUFFER_MS < 0) {
+  throw new Error("NOOTERRA_PAY_REPLAY_TTL_BUFFER_MS must be a non-negative integer");
 }
-const SETTLD_PAY_REPLAY_MAX_KEYS = readIntEnv("SETTLD_PAY_REPLAY_MAX_KEYS", 10_000);
-if (!Number.isSafeInteger(SETTLD_PAY_REPLAY_MAX_KEYS) || SETTLD_PAY_REPLAY_MAX_KEYS <= 0) {
-  throw new Error("SETTLD_PAY_REPLAY_MAX_KEYS must be a positive integer");
+const NOOTERRA_PAY_REPLAY_MAX_KEYS = readIntEnv("NOOTERRA_PAY_REPLAY_MAX_KEYS", 10_000);
+if (!Number.isSafeInteger(NOOTERRA_PAY_REPLAY_MAX_KEYS) || NOOTERRA_PAY_REPLAY_MAX_KEYS <= 0) {
+  throw new Error("NOOTERRA_PAY_REPLAY_MAX_KEYS must be a positive integer");
 }
-const SETTLD_PAY_PINNED_KID =
-  typeof process.env.SETTLD_PAY_PINNED_KID === "string" && process.env.SETTLD_PAY_PINNED_KID.trim() !== ""
-    ? process.env.SETTLD_PAY_PINNED_KID.trim()
+const NOOTERRA_PAY_PINNED_KID =
+  typeof process.env.NOOTERRA_PAY_PINNED_KID === "string" && process.env.NOOTERRA_PAY_PINNED_KID.trim() !== ""
+    ? process.env.NOOTERRA_PAY_PINNED_KID.trim()
     : null;
-const SETTLD_PAY_PINNED_PUBLIC_KEY_PEM =
-  typeof process.env.SETTLD_PAY_PINNED_PUBLIC_KEY_PEM === "string" && process.env.SETTLD_PAY_PINNED_PUBLIC_KEY_PEM.trim() !== ""
-    ? process.env.SETTLD_PAY_PINNED_PUBLIC_KEY_PEM.trim()
+const NOOTERRA_PAY_PINNED_PUBLIC_KEY_PEM =
+  typeof process.env.NOOTERRA_PAY_PINNED_PUBLIC_KEY_PEM === "string" && process.env.NOOTERRA_PAY_PINNED_PUBLIC_KEY_PEM.trim() !== ""
+    ? process.env.NOOTERRA_PAY_PINNED_PUBLIC_KEY_PEM.trim()
     : null;
-const SETTLD_PAY_PINNED_ONLY = readBoolEnv("SETTLD_PAY_PINNED_ONLY", false);
-const SETTLD_PAY_PINNED_MAX_AGE_MS = readIntEnv("SETTLD_PAY_PINNED_MAX_AGE_MS", 3_600_000);
-if (!Number.isSafeInteger(SETTLD_PAY_PINNED_MAX_AGE_MS) || SETTLD_PAY_PINNED_MAX_AGE_MS <= 0) {
-  throw new Error("SETTLD_PAY_PINNED_MAX_AGE_MS must be a positive integer");
+const NOOTERRA_PAY_PINNED_ONLY = readBoolEnv("NOOTERRA_PAY_PINNED_ONLY", false);
+const NOOTERRA_PAY_PINNED_MAX_AGE_MS = readIntEnv("NOOTERRA_PAY_PINNED_MAX_AGE_MS", 3_600_000);
+if (!Number.isSafeInteger(NOOTERRA_PAY_PINNED_MAX_AGE_MS) || NOOTERRA_PAY_PINNED_MAX_AGE_MS <= 0) {
+  throw new Error("NOOTERRA_PAY_PINNED_MAX_AGE_MS must be a positive integer");
 }
 
 // Dev-only demo key. Do not reuse this key for any real workloads.
@@ -235,7 +235,7 @@ function buildResponseObject(req, url) {
   };
 }
 
-const paidHandler = createSettldPaidNodeHttpHandler({
+const paidHandler = createNooterraPaidNodeHttpHandler({
   providerIdForRequest: ({ req }) => providerIdForRequest(req),
   priceFor: ({ req, url }) => ({
     amountCents: PRICE_AMOUNT_CENTS,
@@ -247,16 +247,16 @@ const paidHandler = createSettldPaidNodeHttpHandler({
   providerPrivateKeyPem: PROVIDER_PRIVATE_KEY_PEM,
   paymentAddress: PAYMENT_ADDRESS,
   paymentNetwork: PAYMENT_NETWORK,
-  replayTtlBufferMs: SETTLD_PAY_REPLAY_TTL_BUFFER_MS,
-  replayMaxKeys: SETTLD_PAY_REPLAY_MAX_KEYS,
-  settldPay: {
-    keysetUrl: SETTLD_PAY_KEYSET_URL,
-    defaultMaxAgeMs: SETTLD_PAY_KEYSET_DEFAULT_MAX_AGE_MS,
-    fetchTimeoutMs: SETTLD_PAY_KEYSET_FETCH_TIMEOUT_MS,
-    pinnedPublicKeyPem: SETTLD_PAY_PINNED_PUBLIC_KEY_PEM,
-    pinnedKeyId: SETTLD_PAY_PINNED_KID,
-    pinnedOnly: SETTLD_PAY_PINNED_ONLY,
-    pinnedMaxAgeMs: SETTLD_PAY_PINNED_MAX_AGE_MS
+  replayTtlBufferMs: NOOTERRA_PAY_REPLAY_TTL_BUFFER_MS,
+  replayMaxKeys: NOOTERRA_PAY_REPLAY_MAX_KEYS,
+  nooterraPay: {
+    keysetUrl: NOOTERRA_PAY_KEYSET_URL,
+    defaultMaxAgeMs: NOOTERRA_PAY_KEYSET_DEFAULT_MAX_AGE_MS,
+    fetchTimeoutMs: NOOTERRA_PAY_KEYSET_FETCH_TIMEOUT_MS,
+    pinnedPublicKeyPem: NOOTERRA_PAY_PINNED_PUBLIC_KEY_PEM,
+    pinnedKeyId: NOOTERRA_PAY_PINNED_KID,
+    pinnedOnly: NOOTERRA_PAY_PINNED_ONLY,
+    pinnedMaxAgeMs: NOOTERRA_PAY_PINNED_MAX_AGE_MS
   },
   mutateSignature: ({ signature, url }) => {
     const fraud = ["1", "true", "yes", "on"].includes(String(url.searchParams.get("fraud") ?? "").trim().toLowerCase());
@@ -279,7 +279,7 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/settld/provider-key") {
+  if (req.method === "GET" && url.pathname === "/nooterra/provider-key") {
     res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
     res.end(
       JSON.stringify({
@@ -292,7 +292,7 @@ async function handleRequest(req, res) {
     return;
   }
 
-  if (req.method === "GET" && url.pathname === "/.well-known/settld-provider-keys.json") {
+  if (req.method === "GET" && url.pathname === "/.well-known/nooterra-provider-keys.json") {
     res.writeHead(200, {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "public, max-age=86400"

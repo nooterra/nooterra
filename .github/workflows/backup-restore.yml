@@ -36,15 +36,15 @@ jobs:
         run: |
           set -euo pipefail
           export PGPASSWORD="test"
-          psql -h 127.0.0.1 -U postgres -d postgres -c "DROP DATABASE IF EXISTS settld_src;"
-          psql -h 127.0.0.1 -U postgres -d postgres -c "DROP DATABASE IF EXISTS settld_restore;"
-          psql -h 127.0.0.1 -U postgres -d postgres -c "CREATE DATABASE settld_src;"
-          psql -h 127.0.0.1 -U postgres -d postgres -c "CREATE DATABASE settld_restore;"
+          psql -h 127.0.0.1 -U postgres -d postgres -c "DROP DATABASE IF EXISTS nooterra_src;"
+          psql -h 127.0.0.1 -U postgres -d postgres -c "DROP DATABASE IF EXISTS nooterra_restore;"
+          psql -h 127.0.0.1 -U postgres -d postgres -c "CREATE DATABASE nooterra_src;"
+          psql -h 127.0.0.1 -U postgres -d postgres -c "CREATE DATABASE nooterra_restore;"
       - name: Run backup/restore drill
         run: ./scripts/backup-restore-test.sh
         env:
-          DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/settld_src
-          RESTORE_DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/settld_restore
+          DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/nooterra_src
+          RESTORE_DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/nooterra_restore
           STORE: pg
           NODE_ENV: production
           PROXY_MIGRATE_ON_STARTUP: "1"

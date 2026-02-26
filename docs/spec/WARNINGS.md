@@ -59,7 +59,7 @@ Warnings are non-fatal by default, but they are part of the **public contract**.
   - Action: ensure the bundler emits `governance/policy.json` (and related materials); prefer strict mode for audit posture.
 - `TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT`
   - Meaning: verifier is running without out-of-band governance trust anchors; non-strict continues but governance signatures are not validated.
-  - Action: provide `SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON` and run strict mode for audit posture (see `TRUST_ANCHORS.md`).
+  - Action: provide `NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON` and run strict mode for audit posture (see `TRUST_ANCHORS.md`).
 - `GOVERNANCE_POLICY_V1_ACCEPTED_LENIENT`
   - Meaning: legacy `GovernancePolicy.v1` was accepted (compat mode).
   - Action: upgrade to `GovernancePolicy.v2` and re-bundle; strict mode should require v2.

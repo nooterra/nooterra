@@ -57,9 +57,9 @@ test("api-sdk-python: ACS substrate wrappers execute a live end-to-end collabora
         env: {
           ...process.env,
           PYTHONDONTWRITEBYTECODE: "1",
-          SETTLD_BASE_URL: `http://127.0.0.1:${port}`,
-          SETTLD_TENANT_ID: tenantId,
-          SETTLD_API_KEY: `${keyId}.${secret}`,
+          NOOTERRA_BASE_URL: `http://127.0.0.1:${port}`,
+          NOOTERRA_TENANT_ID: tenantId,
+          NOOTERRA_API_KEY: `${keyId}.${secret}`,
         },
       });
       let stdout = "";
@@ -88,11 +88,22 @@ test("api-sdk-python: ACS substrate wrappers execute a live end-to-end collabora
     assert.equal(summary.workOrderStatus, "completed");
     assert.equal(summary.completionStatus, "success");
     assert.ok(Number(summary.workOrderReceiptCount) >= 1);
+    assert.ok(Number(summary.workOrderMeterCount) >= 1);
+    assert.ok(typeof summary.workOrderMeterDigest === "string" && summary.workOrderMeterDigest.length === 64);
     assert.ok(typeof summary.sessionId === "string" && summary.sessionId.length > 0);
     assert.ok(Number(summary.sessionEventCount) >= 1);
+    assert.ok(typeof summary.checkpointId === "string" && summary.checkpointId.length > 0);
+    assert.ok(typeof summary.checkpointHash === "string" && summary.checkpointHash.length === 64);
+    assert.ok(Number(summary.checkpointListCount) >= 1);
+    assert.ok(typeof summary.checkpointDelegationGrantRef === "string" && summary.checkpointDelegationGrantRef.length > 0);
+    assert.equal(summary.checkpointAuthorityGrantRef, summary.authorityGrantId);
     assert.ok(typeof summary.attestationId === "string" && summary.attestationId.length > 0);
     assert.equal(summary.attestationRuntimeStatus, "valid");
     assert.ok(Number(summary.attestationListCount) >= 1);
+    assert.equal(summary.publicReputationSummaryAgentId, summary.workerAgentId);
+    assert.ok(Number(summary.publicReputationRelationshipCount) >= 0);
+    assert.ok(Number(summary.interactionGraphRelationshipCount) >= 0);
+    assert.ok(Number(summary.relationshipsCount) >= 0);
     assert.ok(typeof summary.delegationRevokedAt === "string" && summary.delegationRevokedAt.length > 0);
     assert.ok(typeof summary.authorityRevokedAt === "string" && summary.authorityRevokedAt.length > 0);
   } finally {

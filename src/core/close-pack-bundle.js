@@ -146,7 +146,7 @@ function buildVerificationReportV1ForClosePack({
   const coreNoProof = stripUndefinedDeep({
     schemaVersion: "VerificationReport.v1",
     profile: "strict",
-    tool: { name: "settld", version: tool.version, commit: tool.commit },
+    tool: { name: "nooterra", version: tool.version, commit: tool.commit },
     warnings: normalizeVerificationWarnings(tool.warnings),
     signer: signerKeyId
       ? {
@@ -381,7 +381,7 @@ export function buildClosePackBundleV1({
     files.set(`payload/invoice_bundle/${name}`, bytes);
   }
 
-  const invoiceHeader = parseJsonFromBytes(invoiceBundleFiles.get("settld.json") ?? null);
+  const invoiceHeader = parseJsonFromBytes(invoiceBundleFiles.get("nooterra.json") ?? null);
   const invoiceType = invoiceHeader?.type ?? null;
   const invoiceTenantId = typeof invoiceHeader?.tenantId === "string" ? invoiceHeader.tenantId : null;
   const invoiceCreatedAt = typeof invoiceHeader?.createdAt === "string" ? invoiceHeader.createdAt : null;
@@ -459,7 +459,7 @@ export function buildClosePackBundleV1({
     jobProofHeadAttestationHash: String(jobProofHeadAttestationHash)
   };
 
-  // settld.json header
+  // nooterra.json header
   const header = {
     type: CLOSE_PACK_SCHEMA_VERSION_V1,
     tenantId,
@@ -473,7 +473,7 @@ export function buildClosePackBundleV1({
     },
     inputs
   };
-  files.set("settld.json", encoder.encode(`${canonicalJsonStringify(header)}\n`));
+  files.set("nooterra.json", encoder.encode(`${canonicalJsonStringify(header)}\n`));
 
   const { manifest, manifestHash } = computeClosePackManifestV1({ files, tenantId, invoiceId, createdAt, protocol });
   files.set("manifest.json", encoder.encode(`${canonicalJsonStringify({ ...manifest, manifestHash })}\n`));

@@ -12,7 +12,7 @@ import { verifyJobProofBundleDir } from "../packages/artifact-verify/src/job-pro
 import { writeFilesToDir } from "../scripts/proof-bundle/lib.mjs";
 import { withEnv } from "./lib/with-env.js";
 
-test("perf: verifyJobProofBundleDir baseline (skipped unless SETTLD_PERF_TESTS=1)", { skip: process.env.SETTLD_PERF_TESTS !== "1" }, async () => {
+test("perf: verifyJobProofBundleDir baseline (skipped unless NOOTERRA_PERF_TESTS=1)", { skip: process.env.NOOTERRA_PERF_TESTS !== "1" }, async () => {
   const tenantId = "tenant_default";
   const jobId = "job_perf_verify_1";
   const generatedAt = "2026-01-01T00:00:03.000000Z";
@@ -23,7 +23,7 @@ test("perf: verifyJobProofBundleDir baseline (skipped unless SETTLD_PERF_TESTS=1
   const govRootKeyId = keyIdFromPublicKeyPem(govRoot.publicKeyPem);
   const govSigner = { keyId: govRootKeyId, privateKeyPem: govRoot.privateKeyPem };
   await withEnv(
-    { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
+    { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }) },
     async () => {
 
   const jobEvents = [];
@@ -62,7 +62,7 @@ test("perf: verifyJobProofBundleDir baseline (skipped unless SETTLD_PERF_TESTS=1
     generatedAt
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-perf-job-proof-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-perf-job-proof-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 

@@ -263,7 +263,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true });
   }
 
-  if (method === "POST" && pathname === "/deliveries/settld") {
+  if (method === "POST" && pathname === "/deliveries/nooterra") {
     if (!delayedOnce && cfg.test?.delayFirstResponseMs && cfg.test.delayFirstResponseMs > 0) {
       delayedOnce = true;
       await new Promise((resolve) => setTimeout(resolve, cfg.test.delayFirstResponseMs));

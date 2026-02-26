@@ -34,7 +34,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Start Settld API (pg mode)
+      - name: Start Nooterra API (pg mode)
         run: |
           set -euo pipefail
           STORE=pg \
@@ -45,7 +45,7 @@ jobs:
           PROXY_OPS_TOKENS="ops_ci:ops_read,ops_write,finance_read,finance_write,audit_read" \
           PORT=3000 \
           node src/api/server.js &
-          echo $! > /tmp/settld_pid
+          echo $! > /tmp/nooterra_pid
 
       - name: Wait for readiness
         run: |
@@ -85,27 +85,27 @@ jobs:
           printf '%s\n' "${LAUNCH_CUTOVER_PACKET_SIGNING_PRIVATE_KEY_PEM}" > /tmp/launch-cutover-signing/ed25519-private.pem
           chmod 600 /tmp/launch-cutover-signing/ed25519-private.pem
 
-      - name: Run Settld Verified collaboration gate (binding source)
+      - name: Run Nooterra Verified collaboration gate (binding source)
         if: always()
         env:
           DATABASE_URL: postgres://postgres:test@127.0.0.1:5432/postgres
-          SETTLD_BASE_URL: http://127.0.0.1:3000
-          SETTLD_TENANT_ID: tenant_default
+          NOOTERRA_BASE_URL: http://127.0.0.1:3000
+          NOOTERRA_TENANT_ID: tenant_default
           PROXY_OPS_TOKEN: ops_ci
         run: |
           set -euo pipefail
-          npm run -s test:ops:settld-verified-gate -- \
+          npm run -s test:ops:nooterra-verified-gate -- \
             --level collaboration \
             --bootstrap-local \
             --include-pg \
-            --out artifacts/gates/settld-verified-collaboration-gate.json
+            --out artifacts/gates/nooterra-verified-collaboration-gate.json
 
       - name: Build launch cutover packet
         if: always()
         env:
           LAUNCH_CUTOVER_PACKET_SIGNING_KEY_FILE: ${{ secrets.LAUNCH_CUTOVER_PACKET_SIGNING_PRIVATE_KEY_PEM != '' && '/tmp/launch-cutover-signing/ed25519-private.pem' || '' }}
           LAUNCH_CUTOVER_PACKET_SIGNATURE_KEY_ID: ${{ vars.LAUNCH_CUTOVER_PACKET_SIGNATURE_KEY_ID || '' }}
-          SETTLD_VERIFIED_COLLAB_REPORT_PATH: artifacts/gates/settld-verified-collaboration-gate.json
+          NOOTERRA_VERIFIED_COLLAB_REPORT_PATH: artifacts/gates/nooterra-verified-collaboration-gate.json
         run: node scripts/ci/build-launch-cutover-packet.mjs
 
       - name: Upload go-live artifacts
@@ -116,7 +116,7 @@ jobs:
           path: |
             artifacts/gates/s13-go-live-gate.json
             artifacts/gates/s13-launch-cutover-packet.json
-            artifacts/gates/settld-verified-collaboration-gate.json
+            artifacts/gates/nooterra-verified-collaboration-gate.json
             artifacts/throughput/10x-drill-summary.json
             artifacts/throughput/10x-drill-k6-summary.json
             artifacts/throughput/10x-incident-rehearsal-summary.json
@@ -130,4 +130,4 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if [[ -f /tmp/settld_pid ]]; then kill "$(cat /tmp/settld_pid)" || true; fi
+          if [[ -f /tmp/nooterra_pid ]]; then kill "$(cat /tmp/nooterra_pid)" || true; fi

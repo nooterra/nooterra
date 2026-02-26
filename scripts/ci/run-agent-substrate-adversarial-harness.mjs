@@ -19,8 +19,8 @@ function usage() {
     "  --profile <core|full|prompt-contagion>   Check profile (default: core)",
     "  --out <file>                             Report path (default: artifacts/security/agent-substrate-adversarial-harness.json)",
     "  --bootstrap-local                        Bootstrap local API + temporary API key for local runs only",
-    "  --bootstrap-base-url <url>               Bootstrap API base URL (default: SETTLD_BASE_URL or http://127.0.0.1:3000)",
-    "  --bootstrap-tenant-id <id>               Bootstrap tenant id (default: SETTLD_TENANT_ID or tenant_default)",
+    "  --bootstrap-base-url <url>               Bootstrap API base URL (default: NOOTERRA_BASE_URL or http://127.0.0.1:3000)",
+    "  --bootstrap-tenant-id <id>               Bootstrap tenant id (default: NOOTERRA_TENANT_ID or tenant_default)",
     "  --bootstrap-ops-token <tok>              Bootstrap ops token (default: PROXY_OPS_TOKEN or tok_ops)",
     "  --help                                   Show help"
   ].join("\n");
@@ -32,8 +32,8 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     out: path.resolve(cwd, "artifacts/security/agent-substrate-adversarial-harness.json"),
     help: false,
     bootstrapLocal: false,
-    bootstrapBaseUrl: String(env?.SETTLD_BASE_URL ?? "http://127.0.0.1:3000").trim(),
-    bootstrapTenantId: String(env?.SETTLD_TENANT_ID ?? "tenant_default").trim(),
+    bootstrapBaseUrl: String(env?.NOOTERRA_BASE_URL ?? "http://127.0.0.1:3000").trim(),
+    bootstrapTenantId: String(env?.NOOTERRA_TENANT_ID ?? "tenant_default").trim(),
     bootstrapOpsToken: String(env?.PROXY_OPS_TOKEN ?? "tok_ops").trim()
   };
   for (let i = 0; i < argv.length; i += 1) {

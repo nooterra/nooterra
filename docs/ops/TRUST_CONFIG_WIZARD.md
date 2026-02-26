@@ -7,7 +7,7 @@ Use this when you want to create an SLA policy config from a template.
 If you want a ready starter policy during host setup, run:
 
 ```bash
-settld setup --yes --mode manual --host codex --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_live_xxx.yyy --profile-id engineering-spend --smoke
+nooterra setup --yes --mode manual --host nooterra --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_live_xxx.yyy --profile-id engineering-spend --smoke
 ```
 
 This sets up host MCP config and applies a starter policy profile in one run.

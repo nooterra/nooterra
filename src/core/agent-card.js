@@ -86,6 +86,15 @@ function normalizeOptionalString(value, name, { max = 1024 } = {}) {
   return normalized;
 }
 
+function normalizeOptionalDid(value, name) {
+  if (value === null || value === undefined) return null;
+  const normalized = String(value).trim();
+  if (!normalized) return null;
+  if (normalized.length > 256) throw new TypeError(`${name} must be <= 256 characters`);
+  if (!normalized.includes(":")) throw new TypeError(`${name} must be a DID-like identifier`);
+  return normalized;
+}
+
 function normalizeStringArray(value, name, { max = 128 } = {}) {
   if (value === null || value === undefined) return [];
   if (!Array.isArray(value)) throw new TypeError(`${name} must be an array`);
@@ -219,7 +228,7 @@ function normalizeToolDescriptors(value, name) {
   return out;
 }
 
-export function buildSettldAgentCard({
+export function buildNooterraAgentCard({
   baseUrl,
   version = null,
   protocols = ["SettlementKernel.v1"],
@@ -235,7 +244,7 @@ export function buildSettldAgentCard({
   const resolvedRails = Array.isArray(paymentRails) ? paymentRails.map((r) => String(r)).filter(Boolean) : [];
 
   const card = {
-    name: "settld-settlement-agent",
+    name: "nooterra-settlement-agent",
     description: "Settlement kernel for autonomous economic agreements (agreement -> evidence -> decision -> receipt -> dispute).",
     url,
     version: resolvedVersion,
@@ -400,6 +409,10 @@ export function buildAgentCardV1({
         ? previousCard.tools
         : undefined;
   const tools = sourceTools === undefined ? undefined : normalizeToolDescriptors(sourceTools, "tools");
+  const executionCoordinatorDid =
+    cardInput?.executionCoordinatorDid !== undefined
+      ? normalizeOptionalDid(cardInput.executionCoordinatorDid, "cardInput.executionCoordinatorDid")
+      : normalizeOptionalDid(previousCard?.executionCoordinatorDid, "previousCard.executionCoordinatorDid");
 
   const createdAt =
     normalizeOptionalString(previousCard?.createdAt, "previousCard.createdAt", { max: 128 }) ?? resolvedNowAt;
@@ -417,6 +430,7 @@ export function buildAgentCardV1({
       status: resolvedStatus,
       visibility,
       capabilities: requestedCapabilities,
+      ...(executionCoordinatorDid ? { executionCoordinatorDid } : {}),
       host,
       priceHint,
       attestations,
@@ -476,6 +490,9 @@ export function validateAgentCardV1(agentCard) {
   }
   if (agentCard.tools !== null && agentCard.tools !== undefined) {
     normalizeToolDescriptors(agentCard.tools, "agentCard.tools");
+  }
+  if (agentCard.executionCoordinatorDid !== null && agentCard.executionCoordinatorDid !== undefined) {
+    normalizeOptionalDid(agentCard.executionCoordinatorDid, "agentCard.executionCoordinatorDid");
   }
   return true;
 }

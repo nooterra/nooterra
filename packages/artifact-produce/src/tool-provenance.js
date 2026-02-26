@@ -9,7 +9,7 @@ export function normalizeCommitSha(value) {
 }
 
 export function readToolCommitBestEffort({ env = process.env } = {}) {
-  const candidates = [env.SETTLD_COMMIT_SHA, env.PROXY_BUILD, env.GIT_SHA, env.GITHUB_SHA];
+  const candidates = [env.NOOTERRA_COMMIT_SHA, env.PROXY_BUILD, env.GIT_SHA, env.GITHUB_SHA];
   for (const c of candidates) {
     const v = normalizeCommitSha(c);
     if (v) return v;

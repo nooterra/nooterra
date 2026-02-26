@@ -6,9 +6,11 @@ const BASE_URL = __ENV.BASE_URL || "http://localhost:3000";
 const OPS_TOKEN = __ENV.OPS_TOKEN || "";
 
 const TENANTS = Number.parseInt(__ENV.TENANTS || "10", 10);
-const ROBOTS_PER_TENANT = Number.parseInt(__ENV.ROBOTS_PER_TENANT || "3", 10);
 const JOBS_PER_MIN_PER_TENANT = Number.parseInt(__ENV.JOBS_PER_MIN_PER_TENANT || "50", 10);
+const DEFAULT_ROBOTS_PER_TENANT = Math.max(3, Math.ceil(JOBS_PER_MIN_PER_TENANT / 10));
+const ROBOTS_PER_TENANT = Number.parseInt(__ENV.ROBOTS_PER_TENANT || String(DEFAULT_ROBOTS_PER_TENANT), 10);
 const DURATION = __ENV.DURATION || "2m";
+const MAX_FAILURE_RATE = Number.parseFloat(__ENV.MAX_FAILURE_RATE || "0.05");
 
 const INJECT_REJECTS_PCT = Number.parseFloat(__ENV.INJECT_REJECTS_PCT || "0.02"); // 2%
 
@@ -37,7 +39,7 @@ export const options = {
     }
   },
   thresholds: {
-    http_req_failed: ["rate<0.05"]
+    http_req_failed: [`rate<${MAX_FAILURE_RATE}`]
   }
 };
 
@@ -45,7 +47,7 @@ function jsonHeaders({ tenantId, token, extra = {} } = {}) {
   const headers = {
     "content-type": "application/json",
     "x-proxy-tenant-id": tenantId,
-    "x-settld-protocol": "1.0"
+    "x-nooterra-protocol": "1.0"
   };
   if (token) headers.authorization = `Bearer ${token}`;
   for (const [k, v] of Object.entries(extra)) headers[k] = v;
@@ -56,7 +58,7 @@ function opsTokenHeaders({ tenantId, extra = {} } = {}) {
   const headers = {
     "content-type": "application/json",
     "x-proxy-tenant-id": tenantId,
-    "x-settld-protocol": "1.0",
+    "x-nooterra-protocol": "1.0",
     "x-proxy-ops-token": OPS_TOKEN
   };
   for (const [k, v] of Object.entries(extra)) headers[k] = v;

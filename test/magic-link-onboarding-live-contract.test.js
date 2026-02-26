@@ -111,7 +111,7 @@ test("live contract: magic-link onboarding runtime flow stays green against real
   const opsToken = `tok_ops_${crypto.randomBytes(6).toString("hex")}`;
   const apiPort = await pickPort();
   const magicPort = await pickPort();
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-ml-live-contract-"));
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-ml-live-contract-"));
 
   const api = startNodeProcess({
     name: "api",
@@ -132,8 +132,8 @@ test("live contract: magic-link onboarding runtime flow stays green against real
       MAGIC_LINK_DATA_DIR: dataDir,
       MAGIC_LINK_PUBLIC_SIGNUP_ENABLED: "1",
       MAGIC_LINK_ARCHIVE_EXPORT_ENABLED: "0",
-      MAGIC_LINK_SETTLD_API_BASE_URL: `http://127.0.0.1:${apiPort}`,
-      MAGIC_LINK_SETTLD_OPS_TOKEN: opsToken
+      MAGIC_LINK_NOOTERRA_API_BASE_URL: `http://127.0.0.1:${apiPort}`,
+      MAGIC_LINK_NOOTERRA_OPS_TOKEN: opsToken
     }
   });
 
@@ -162,8 +162,8 @@ test("live contract: magic-link onboarding runtime flow stays green against real
       method: "POST",
       route: "/v1/public/signup",
       body: {
-        email: "founder@settld.work",
-        company: "Settld",
+        email: "founder@nooterra.work",
+        company: "Nooterra",
         name: "Founding User"
       }
     });
@@ -182,7 +182,7 @@ test("live contract: magic-link onboarding runtime flow stays green against real
     assert.equal(bootstrap.json?.ok, true, bootstrap.text);
     const mcpEnv = bootstrap.json?.mcp?.env ?? null;
     assert.ok(mcpEnv && typeof mcpEnv === "object", "runtime bootstrap must return mcp.env");
-    assert.equal(typeof mcpEnv.SETTLD_API_KEY, "string", "runtime bootstrap must return API key token");
+    assert.equal(typeof mcpEnv.NOOTERRA_API_KEY, "string", "runtime bootstrap must return API key token");
 
     const smoke = await httpJson({
       baseUrl: magicBase,
@@ -223,7 +223,7 @@ test("live contract: magic-link onboarding runtime flow stays green against real
       method: "POST",
       route: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/conformance-matrix`,
       headers: { "x-idempotency-key": idemKey },
-      body: { targets: ["codex", "claude", "cursor", "openclaw"] }
+      body: { targets: ["nooterra", "claude", "cursor", "openclaw"] }
     });
     assert.equal(conformance.status, 200, conformance.text);
     assert.equal(conformance.json?.ok, true, conformance.text);
@@ -240,7 +240,7 @@ test("live contract: magic-link onboarding runtime flow stays green against real
       method: "POST",
       route: `/v1/tenants/${encodeURIComponent(tenantId)}/onboarding/conformance-matrix`,
       headers: { "x-idempotency-key": idemKey },
-      body: { targets: ["codex"] }
+      body: { targets: ["nooterra"] }
     });
     assert.equal(conformanceReplay.status, 200, conformanceReplay.text);
     assert.equal(conformanceReplay.json?.idempotency?.reused, true, conformanceReplay.text);

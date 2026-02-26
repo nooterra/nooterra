@@ -1,6 +1,6 @@
 # Kernel Conformance (v0)
 
-This conformance pack exercises Settld's **economic kernel control plane** behavior for:
+This conformance pack exercises Nooterra's **economic kernel control plane** behavior for:
 
 - Tool-call holdback escrow (`FundingHold.v1`)
 - Dispute opening (`ArbitrationCase.v1` metadata `caseType: "tool_call"`)
@@ -23,15 +23,15 @@ PROXY_OPS_TOKENS='tok_ops:ops_read,ops_write,finance_read,finance_write,audit_re
 Example (docker compose dev stack):
 
 ```sh
-./bin/settld.js dev up
+./bin/nooterra.js dev up
 ```
 
 2. Run conformance:
 
 ```sh
-./bin/settld.js conformance kernel --ops-token tok_ops
+./bin/nooterra.js conformance kernel --ops-token tok_ops
 # or, once published:
-npx settld conformance kernel --ops-token tok_ops
+npx nooterra conformance kernel --ops-token tok_ops
 ```
 
 Optional:
@@ -40,13 +40,13 @@ Optional:
 node conformance/kernel-v0/run.mjs --ops-token tok_ops --case tool_call_holdback_release
 node conformance/kernel-v0/run.mjs --ops-token tok_ops --case marketplace_run_replay_evaluate
 node conformance/kernel-v0/run.mjs --ops-token tok_ops --list
-node conformance/kernel-v0/run.mjs --ops-token tok_ops --closepack-out-dir /tmp/settld-closepacks
+node conformance/kernel-v0/run.mjs --ops-token tok_ops --closepack-out-dir /tmp/nooterra-closepacks
 ```
 
 Write a machine-readable report:
 
 ```sh
-./bin/settld.js conformance kernel --ops-token tok_ops --json-out /tmp/settld-kernel-v0-report.json
+./bin/nooterra.js conformance kernel --ops-token tok_ops --json-out /tmp/nooterra-kernel-v0-report.json
 ```
 
 The runner prints `INFO ...` lines with `agreementHash` / `runId` and direct links to:
@@ -63,5 +63,5 @@ The runner prints `INFO ...` lines with `agreementHash` / `runId` and direct lin
 - Applying the same verdict again is **idempotent** (returns the existing adjustment and reports `alreadyExisted=true`).
 - Reputation facts remain stable under retries/tick reruns, and closepack verify enforces sourceRef hash resolution against the portable artifact graph.
 - A kernel closepack can be exported from `agreementHash` and verified offline:
-  - `settld closepack export ...`
-  - `settld closepack verify ...`
+  - `nooterra closepack export ...`
+  - `nooterra closepack verify ...`

@@ -28,7 +28,7 @@ test("reputation event schema validates canonical example", async () => {
     }
   }
 
-  const validate = ajv.getSchema("https://settld.local/schemas/ReputationEvent.v1.schema.json");
+  const validate = ajv.getSchema("https://nooterra.local/schemas/ReputationEvent.v1.schema.json");
   assert.ok(validate);
 
   const example = buildReputationEventV1({
@@ -108,7 +108,7 @@ test("reputation event schema rejects invalid occurredAt date-time", async () =>
     }
   }
 
-  const validate = ajv.getSchema("https://settld.local/schemas/ReputationEvent.v1.schema.json");
+  const validate = ajv.getSchema("https://nooterra.local/schemas/ReputationEvent.v1.schema.json");
   assert.ok(validate);
 
   const invalid = buildReputationEventV1({

@@ -4,7 +4,7 @@ This page is the integration map. For endpoint-level schema details, use the gen
 
 ## OpenAPI source of truth
 
-- `openapi/settld.openapi.json`
+- `openapi/nooterra.openapi.json`
 
 ## Auth model
 

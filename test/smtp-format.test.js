@@ -28,9 +28,9 @@ test("dotStuffSmtpData: prefixes lines that start with '.'", () => {
 
 test("extractSmtpEnvelopeAddress: accepts plain and display-name forms", () => {
   assert.equal(extractSmtpEnvelopeAddress("ops@example.test"), "ops@example.test");
-  assert.equal(extractSmtpEnvelopeAddress("Settld Ops <ops@example.test>"), "ops@example.test");
+  assert.equal(extractSmtpEnvelopeAddress("Nooterra Ops <ops@example.test>"), "ops@example.test");
 });
 
 test("extractSmtpEnvelopeAddress: rejects invalid values", () => {
-  assert.throws(() => extractSmtpEnvelopeAddress("Settld Ops"), /smtp address must be an email address/);
+  assert.throws(() => extractSmtpEnvelopeAddress("Nooterra Ops"), /smtp address must be an email address/);
 });

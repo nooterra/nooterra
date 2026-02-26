@@ -64,7 +64,7 @@ async function setX402AgentLifecycle(
     path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       status,
@@ -674,7 +674,7 @@ async function createTerminalRun({
       path: `/agent-cards/${encodeURIComponent(workerA)}/abuse-reports/pg_sub_abuse_report_1/status`,
       headers: {
         "x-idempotency-key": "pg_sub_abuse_report_resolve_1",
-        "x-settld-protocol": "1.0"
+        "x-nooterra-protocol": "1.0"
       },
       body: {
         status: "resolved",

@@ -25,7 +25,7 @@ test("delivery: supports s3/minio artifact drop destinations", async () => {
             kind: "s3",
             endpoint: "http://minio.local:9000",
             region: "us-east-1",
-            bucket: "settld-artifacts",
+            bucket: "nooterra-artifacts",
             accessKeyId: "minio",
             secretAccessKey: "miniosecret",
             forcePathStyle: true,
@@ -69,7 +69,7 @@ test("delivery: supports s3/minio artifact drop destinations", async () => {
 
     const call = fetched[0];
     assert.equal(call.method, "PUT");
-    assert.ok(call.url.startsWith("http://minio.local:9000/settld-artifacts/"));
+    assert.ok(call.url.startsWith("http://minio.local:9000/nooterra-artifacts/"));
     assert.equal(call.headers["content-type"], "application/json; charset=utf-8");
     const delivered = JSON.parse(String(call.body ?? ""));
     assert.equal(delivered.artifactHash, artifact.artifactHash);

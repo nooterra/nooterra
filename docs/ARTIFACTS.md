@@ -1,6 +1,6 @@
 # Artifacts
 
-Settld artifacts are immutable, verifiable JSON documents (often later delivered via webhook/S3) derived from an event-sourced job stream.
+Nooterra artifacts are immutable, verifiable JSON documents (often later delivered via webhook/S3) derived from an event-sourced job stream.
 
 ## Finance Finality: "Effective" Artifacts
 
@@ -48,7 +48,7 @@ Moving dataset semantics:
 - A cursor walk does not guarantee you will see inserts that occur after you started paging.
 - If you need the latest artifacts, restart from the top (no cursor) or use `/artifacts/effective` for finance truth.
 
-Cursor payload format (v1):
+Cursor payload format:
 
 ```json
 {

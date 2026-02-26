@@ -1,12 +1,12 @@
 export type ProtocolVersion = `${number}.${number}`;
 
-export type SettldAutopayFetchOptions = {
+export type NooterraAutopayFetchOptions = {
   fetch?: typeof fetch;
   gateHeaderName?: string;
   maxAttempts?: number;
 };
 
-export type SettldClientOptions = {
+export type NooterraClientOptions = {
   baseUrl: string;
   tenantId: string;
   protocol?: ProtocolVersion;
@@ -55,17 +55,17 @@ export type X402GateVerifyErrorCode =
   | "X402_REQUEST_BINDING_EVIDENCE_REQUIRED"
   | "X402_REQUEST_BINDING_EVIDENCE_MISMATCH";
 
-export type SettldApiErrorCode = X402ExecutionIntentErrorCode | X402GateVerifyErrorCode | "SCHEMA_INVALID" | (string & {});
+export type NooterraApiErrorCode = X402ExecutionIntentErrorCode | X402GateVerifyErrorCode | "SCHEMA_INVALID" | (string & {});
 
-export type SettldError = {
+export type NooterraError = {
   status: number;
-  code?: SettldApiErrorCode | null;
+  code?: NooterraApiErrorCode | null;
   message: string;
   details?: unknown;
   requestId?: string | null;
 };
 
-export type SettldResponse<T> = {
+export type NooterraResponse<T> = {
   ok: boolean;
   status: number;
   requestId: string | null;
@@ -73,57 +73,57 @@ export type SettldResponse<T> = {
   headers: Record<string, string>;
 };
 
-export type SettldSseEvent<T = unknown> = {
+export type NooterraSseEvent<T = unknown> = {
   event: string;
   id: string | null;
   rawData: string;
   data: T | string | null;
 };
 
-export declare function fetchWithSettldAutopay(
+export declare function fetchWithNooterraAutopay(
   url: string | URL,
   init?: RequestInit,
-  opts?: SettldAutopayFetchOptions
+  opts?: NooterraAutopayFetchOptions
 ): Promise<Response>;
 
-export type SettldWebhookSignatureVerifyOptions = {
+export type NooterraWebhookSignatureVerifyOptions = {
   toleranceSeconds?: number;
   timestamp?: string | number | null;
   nowMs?: number;
 };
 
-export type SettldWebhookMiddlewareOptions = {
+export type NooterraWebhookMiddlewareOptions = {
   toleranceSeconds?: number;
   signatureHeaderName?: string;
   timestampHeaderName?: string;
 };
 
-export type SettldWebhookSecretResolver = string | ((req: unknown) => string | Promise<string>);
+export type NooterraWebhookSecretResolver = string | ((req: unknown) => string | Promise<string>);
 
-export declare class SettldWebhookSignatureError extends Error {
+export declare class NooterraWebhookSignatureError extends Error {
   code: string;
 }
 
-export declare class SettldWebhookSignatureHeaderError extends SettldWebhookSignatureError {}
+export declare class NooterraWebhookSignatureHeaderError extends NooterraWebhookSignatureError {}
 
-export declare class SettldWebhookTimestampToleranceError extends SettldWebhookSignatureError {
+export declare class NooterraWebhookTimestampToleranceError extends NooterraWebhookSignatureError {
   timestamp: string | null;
   toleranceSeconds: number | null;
   nowMs: number | null;
 }
 
-export declare class SettldWebhookNoMatchingSignatureError extends SettldWebhookSignatureError {}
+export declare class NooterraWebhookNoMatchingSignatureError extends NooterraWebhookSignatureError {}
 
-export declare function verifySettldWebhookSignature(
+export declare function verifyNooterraWebhookSignature(
   rawBody: string | Uint8Array | ArrayBuffer,
   signatureHeader: string,
   secret: string,
-  optionsOrTolerance?: number | SettldWebhookSignatureVerifyOptions
+  optionsOrTolerance?: number | NooterraWebhookSignatureVerifyOptions
 ): true;
 
-export declare function verifySettldWebhook(
-  secretOrResolver: SettldWebhookSecretResolver,
-  optionsOrTolerance?: number | SettldWebhookMiddlewareOptions
+export declare function verifyNooterraWebhook(
+  secretOrResolver: NooterraWebhookSecretResolver,
+  optionsOrTolerance?: number | NooterraWebhookMiddlewareOptions
 ): (req: any, res: any, next: (err?: unknown) => void) => void;
 
 export type InteractionEntityType = "agent" | "human" | "robot" | "machine";
@@ -789,16 +789,16 @@ export type FirstVerifiedRunOptions = {
 
 export type FirstVerifiedRunResult = {
   ids: { runId: string; payeeAgentId: string; payerAgentId: string | null };
-  payeeRegistration: SettldResponse<{ agentIdentity: AgentIdentityV1; keyId: string }>;
-  payerRegistration: SettldResponse<{ agentIdentity: AgentIdentityV1; keyId: string }> | null;
-  payerCredit: SettldResponse<{ wallet: AgentWalletV1 }> | null;
-  runCreated: SettldResponse<{ run: AgentRunV1; event: AgentEventV1; settlement?: AgentRunSettlementV1 | null }>;
-  runStarted: SettldResponse<{ event: AgentEventV1; run: AgentRunV1; settlement?: AgentRunSettlementV1 | null }>;
-  runEvidenceAdded: SettldResponse<{ event: AgentEventV1; run: AgentRunV1; settlement?: AgentRunSettlementV1 | null }>;
-  runCompleted: SettldResponse<{ event: AgentEventV1; run: AgentRunV1; settlement?: AgentRunSettlementV1 | null }>;
-  run: SettldResponse<{ run: AgentRunV1; verification: Record<string, unknown>; settlement?: AgentRunSettlementV1 | null }>;
-  verification: SettldResponse<Record<string, unknown>>;
-  settlement: SettldResponse<{ settlement: AgentRunSettlementV1 }> | null;
+  payeeRegistration: NooterraResponse<{ agentIdentity: AgentIdentityV1; keyId: string }>;
+  payerRegistration: NooterraResponse<{ agentIdentity: AgentIdentityV1; keyId: string }> | null;
+  payerCredit: NooterraResponse<{ wallet: AgentWalletV1 }> | null;
+  runCreated: NooterraResponse<{ run: AgentRunV1; event: AgentEventV1; settlement?: AgentRunSettlementV1 | null }>;
+  runStarted: NooterraResponse<{ event: AgentEventV1; run: AgentRunV1; settlement?: AgentRunSettlementV1 | null }>;
+  runEvidenceAdded: NooterraResponse<{ event: AgentEventV1; run: AgentRunV1; settlement?: AgentRunSettlementV1 | null }>;
+  runCompleted: NooterraResponse<{ event: AgentEventV1; run: AgentRunV1; settlement?: AgentRunSettlementV1 | null }>;
+  run: NooterraResponse<{ run: AgentRunV1; verification: Record<string, unknown>; settlement?: AgentRunSettlementV1 | null }>;
+  verification: NooterraResponse<Record<string, unknown>>;
+  settlement: NooterraResponse<{ settlement: AgentRunSettlementV1 }> | null;
 };
 
 export type ToolCallAgreementV1 = {
@@ -840,7 +840,7 @@ export type ToolCallSettleResult = {
   receiptHash: string;
   receiptRef: Record<string, unknown>;
   hold: Record<string, unknown> | null;
-  holdResponse: SettldResponse<{ hold: Record<string, unknown> }>;
+  holdResponse: NooterraResponse<{ hold: Record<string, unknown> }>;
 };
 
 export type TenantAnalyticsQuery = {
@@ -1001,19 +1001,19 @@ export type VerifiedInteractionGraphPack = {
   signature?: InteractionGraphPackSignature;
 };
 
-export class SettldClient {
-  constructor(opts: SettldClientOptions);
+export class NooterraClient {
+  constructor(opts: NooterraClientOptions);
 
-  capabilities(opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
-  openApi(opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
-  x402GateAuthorizePayment(body: X402GateAuthorizePaymentRequest, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  capabilities(opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
+  openApi(opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
+  x402GateAuthorizePayment(body: X402GateAuthorizePaymentRequest, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
 
-  createJob(body: { templateId: string } & Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
-  getJob(jobId: string, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  createJob(body: { templateId: string } & Record<string, unknown>, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
+  getJob(jobId: string, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
   registerAgent(
     body: AgentRegistrationInput,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ agentIdentity: AgentIdentityV1; keyId: string }>>;
+  ): Promise<NooterraResponse<{ agentIdentity: AgentIdentityV1; keyId: string }>>;
   listAgents(
     params?: {
       status?: "active" | "suspended" | "revoked";
@@ -1026,20 +1026,21 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ agents: AgentIdentityV1[]; reputations?: Record<string, AgentReputation>; limit: number; offset: number }>>;
-  getAgent(agentId: string, opts?: RequestOptions): Promise<SettldResponse<{ agentIdentity: AgentIdentityV1 }>>;
+  ): Promise<NooterraResponse<{ agents: AgentIdentityV1[]; reputations?: Record<string, AgentReputation>; limit: number; offset: number }>>;
+  getAgent(agentId: string, opts?: RequestOptions): Promise<NooterraResponse<{ agentIdentity: AgentIdentityV1 }>>;
   getAgentReputation(
     agentId: string,
     opts?: RequestOptions & { reputationVersion?: "v1" | "v2"; reputationWindow?: "7d" | "30d" | "allTime" }
-  ): Promise<SettldResponse<{ reputation: AgentReputation }>>;
-  upsertAgentCard(body: Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
-  getAgentCard(agentId: string, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  ): Promise<NooterraResponse<{ reputation: AgentReputation }>>;
+  upsertAgentCard(body: Record<string, unknown>, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
+  getAgentCard(agentId: string, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
   listAgentCards(
     params?: {
       agentId?: string;
       status?: "active" | "suspended" | "revoked";
       visibility?: "public" | "tenant" | "private";
       capability?: string;
+      executionCoordinatorDid?: string;
       runtime?: string;
       toolId?: string;
       toolMcpName?: string;
@@ -1051,12 +1052,13 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<Record<string, unknown>>>;
+  ): Promise<NooterraResponse<Record<string, unknown>>>;
   discoverAgentCards(
     params?: {
       status?: "active" | "suspended" | "revoked" | "all";
       visibility?: "all" | "public" | "tenant" | "private";
       capability?: string;
+      executionCoordinatorDid?: string;
       runtime?: string;
       toolId?: string;
       toolMcpName?: string;
@@ -1080,12 +1082,13 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<Record<string, unknown>>>;
+  ): Promise<NooterraResponse<Record<string, unknown>>>;
   discoverPublicAgentCards(
     params?: {
       status?: "active" | "suspended" | "revoked" | "all";
       visibility?: "public";
       capability?: string;
+      executionCoordinatorDid?: string;
       runtime?: string;
       toolId?: string;
       toolMcpName?: string;
@@ -1109,10 +1112,11 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<Record<string, unknown>>>;
+  ): Promise<NooterraResponse<Record<string, unknown>>>;
   streamPublicAgentCards(
     params?: {
       capability?: string;
+      executionCoordinatorDid?: string;
       toolId?: string;
       toolMcpName?: string;
       toolRiskClass?: "read" | "compute" | "action" | "financial";
@@ -1124,7 +1128,7 @@ export class SettldClient {
       sinceCursor?: string;
     },
     opts?: Pick<RequestOptions, "requestId" | "signal"> & { lastEventId?: string }
-  ): AsyncGenerator<SettldSseEvent, void, unknown>;
+  ): AsyncGenerator<NooterraSseEvent, void, unknown>;
   getPublicAgentReputationSummary(
     agentId: string,
     params?: {
@@ -1135,7 +1139,7 @@ export class SettldClient {
       relationshipLimit?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ ok: boolean; summary: PublicAgentReputationSummary }>>;
+  ): Promise<NooterraResponse<{ ok: boolean; summary: PublicAgentReputationSummary }>>;
   getAgentInteractionGraphPack(
     agentId: string,
     params?: {
@@ -1150,7 +1154,7 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ ok: boolean; graphPack: VerifiedInteractionGraphPack }>>;
+  ): Promise<NooterraResponse<{ ok: boolean; graphPack: VerifiedInteractionGraphPack }>>;
   listRelationships(
     params: {
       agentId: string;
@@ -1163,7 +1167,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       ok: boolean;
       agentId: string;
       reputationWindow: "7d" | "30d" | "allTime";
@@ -1189,7 +1193,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       reputationVersion: "v1" | "v2";
       reputationWindow: "7d" | "30d" | "allTime";
       scoreStrategy: "balanced" | "recent_bias";
@@ -1236,16 +1240,16 @@ export class SettldClient {
       metadata?: Record<string, unknown>;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ policy: TenantSettlementPolicyV1 }>>;
+  ): Promise<NooterraResponse<{ policy: TenantSettlementPolicyV1 }>>;
   listMarketplaceSettlementPolicies(
     params?: { policyId?: string; limit?: number; offset?: number },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ policies: TenantSettlementPolicyV1[]; total: number; limit: number; offset: number }>>;
+  ): Promise<NooterraResponse<{ policies: TenantSettlementPolicyV1[]; total: number; limit: number; offset: number }>>;
   getMarketplaceSettlementPolicy(
     policyId: string,
     policyVersion: number,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ policy: TenantSettlementPolicyV1 }>>;
+  ): Promise<NooterraResponse<{ policy: TenantSettlementPolicyV1 }>>;
   createMarketplaceRfq(
     body: {
       rfqId?: string;
@@ -1267,7 +1271,7 @@ export class SettldClient {
       metadata?: Record<string, unknown>;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ rfq: MarketplaceRfqV1 }>>;
+  ): Promise<NooterraResponse<{ rfq: MarketplaceRfqV1 }>>;
   listMarketplaceRfqs(
     params?: {
       status?: "open" | "assigned" | "cancelled" | "closed" | "all";
@@ -1277,7 +1281,7 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ rfqs: MarketplaceRfqV1[]; total: number; limit: number; offset: number }>>;
+  ): Promise<NooterraResponse<{ rfqs: MarketplaceRfqV1[]; total: number; limit: number; offset: number }>>;
   submitMarketplaceBid(
     rfqId: string,
     body: {
@@ -1323,7 +1327,7 @@ export class SettldClient {
       metadata?: Record<string, unknown>;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ rfq: MarketplaceRfqV1; bid: MarketplaceRfqBidV1 }>>;
+  ): Promise<NooterraResponse<{ rfq: MarketplaceRfqV1; bid: MarketplaceRfqBidV1 }>>;
   listMarketplaceBids(
     rfqId: string,
     params?: {
@@ -1333,7 +1337,7 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ rfqId: string; bids: MarketplaceRfqBidV1[]; total: number; limit: number; offset: number }>>;
+  ): Promise<NooterraResponse<{ rfqId: string; bids: MarketplaceRfqBidV1[]; total: number; limit: number; offset: number }>>;
   applyMarketplaceBidCounterOffer(
     rfqId: string,
     bidId: string,
@@ -1378,7 +1382,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       rfq: MarketplaceRfqV1;
       bid: MarketplaceRfqBidV1;
       negotiation: MarketplaceBidNegotiationV1;
@@ -1471,7 +1475,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       rfq: MarketplaceRfqV1;
       acceptedBid: MarketplaceRfqBidV1 | null;
       run: AgentRunV1;
@@ -1492,7 +1496,7 @@ export class SettldClient {
       metadata?: Record<string, unknown> | null;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ taskQuote: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ taskQuote: Record<string, unknown> }>>;
   listTaskQuotes(
     params?: {
       quoteId?: string;
@@ -1507,8 +1511,8 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ taskQuotes: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
-  getTaskQuote(quoteId: string, opts?: RequestOptions): Promise<SettldResponse<{ taskQuote: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ taskQuotes: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
+  getTaskQuote(quoteId: string, opts?: RequestOptions): Promise<NooterraResponse<{ taskQuote: Record<string, unknown> }>>;
   createTaskOffer(
     body: {
       offerId?: string;
@@ -1523,7 +1527,7 @@ export class SettldClient {
       metadata?: Record<string, unknown> | null;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ taskOffer: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ taskOffer: Record<string, unknown> }>>;
   listTaskOffers(
     params?: {
       offerId?: string;
@@ -1539,8 +1543,8 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ taskOffers: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
-  getTaskOffer(offerId: string, opts?: RequestOptions): Promise<SettldResponse<{ taskOffer: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ taskOffers: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
+  getTaskOffer(offerId: string, opts?: RequestOptions): Promise<NooterraResponse<{ taskOffer: Record<string, unknown> }>>;
   createTaskAcceptance(
     body: {
       acceptanceId?: string;
@@ -1551,7 +1555,7 @@ export class SettldClient {
       metadata?: Record<string, unknown> | null;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ taskAcceptance: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ taskAcceptance: Record<string, unknown> }>>;
   listTaskAcceptances(
     params?: {
       acceptanceId?: string;
@@ -1565,15 +1569,15 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ taskAcceptances: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
+  ): Promise<NooterraResponse<{ taskAcceptances: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
   getTaskAcceptance(
     acceptanceId: string,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ taskAcceptance: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ taskAcceptance: Record<string, unknown> }>>;
   createWorkOrder(
     body: Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ workOrder: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown> }>>;
   listWorkOrders(
     params?: {
       workOrderId?: string;
@@ -1584,36 +1588,45 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ workOrders: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  ): Promise<NooterraResponse<{ workOrders: Array<Record<string, unknown>>; limit: number; offset: number }>>;
   getWorkOrder(
     workOrderId: string,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ workOrder: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown> }>>;
   acceptWorkOrder(
     workOrderId: string,
     body?: Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ workOrder: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown> }>>;
   progressWorkOrder(
     workOrderId: string,
     body: Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ workOrder: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown> }>>;
   topUpWorkOrder(
     workOrderId: string,
     body: Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<SettldResponse<Record<string, unknown>>>;
+  ): Promise<NooterraResponse<Record<string, unknown>>>;
+  getWorkOrderMetering(
+    workOrderId: string,
+    params?: {
+      includeMeters?: boolean;
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<NooterraResponse<Record<string, unknown>>>;
   completeWorkOrder(
     workOrderId: string,
     body: Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ workOrder: Record<string, unknown>; completionReceipt: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown>; completionReceipt: Record<string, unknown> }>>;
   settleWorkOrder(
     workOrderId: string,
     body?: Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ workOrder: Record<string, unknown>; completionReceipt: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ workOrder: Record<string, unknown>; completionReceipt: Record<string, unknown> }>>;
   listWorkOrderReceipts(
     params?: {
       receiptId?: string;
@@ -1625,11 +1638,60 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ receipts: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  ): Promise<NooterraResponse<{ receipts: Array<Record<string, unknown>>; limit: number; offset: number }>>;
   getWorkOrderReceipt(
     receiptId: string,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ completionReceipt: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ completionReceipt: Record<string, unknown> }>>;
+  createStateCheckpoint(
+    body: {
+      checkpointId?: string;
+      ownerAgentId: string;
+      projectId?: string | null;
+      sessionId?: string | null;
+      traceId?: string | null;
+      parentCheckpointId?: string | null;
+      delegationGrantRef?: string | null;
+      authorityGrantRef?: string | null;
+      stateRef: {
+        schemaVersion?: "ArtifactRef.v1";
+        artifactId: string;
+        artifactHash: string;
+        artifactType?: string | null;
+        tenantId?: string | null;
+        metadata?: Record<string, unknown> | null;
+      };
+      diffRefs?: Array<{
+        schemaVersion?: "ArtifactRef.v1";
+        artifactId: string;
+        artifactHash: string;
+        artifactType?: string | null;
+        tenantId?: string | null;
+        metadata?: Record<string, unknown> | null;
+      }>;
+      redactionPolicyRef?: string | null;
+      metadata?: Record<string, unknown> | null;
+      createdAt?: string | null;
+      updatedAt?: string | null;
+    },
+    opts?: RequestOptions
+  ): Promise<NooterraResponse<{ stateCheckpoint: Record<string, unknown> }>>;
+  listStateCheckpoints(
+    params?: {
+      checkpointId?: string;
+      projectId?: string;
+      sessionId?: string;
+      ownerAgentId?: string;
+      traceId?: string;
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<NooterraResponse<{ stateCheckpoints: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  getStateCheckpoint(
+    checkpointId: string,
+    opts?: RequestOptions
+  ): Promise<NooterraResponse<{ stateCheckpoint: Record<string, unknown> }>>;
   createSession(
     body: {
       sessionId?: string;
@@ -1641,7 +1703,7 @@ export class SettldClient {
       metadata?: Record<string, unknown> | null;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ session: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ session: Record<string, unknown> }>>;
   listSessions(
     params?: {
       sessionId?: string;
@@ -1652,13 +1714,13 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ sessions: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
-  getSession(sessionId: string, opts?: RequestOptions): Promise<SettldResponse<{ session: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ sessions: Array<Record<string, unknown>>; total: number; limit: number; offset: number }>>;
+  getSession(sessionId: string, opts?: RequestOptions): Promise<NooterraResponse<{ session: Record<string, unknown> }>>;
   listSessionEvents(
     sessionId: string,
     params?: { eventType?: string; limit?: number; offset?: number },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ sessionId: string; events: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  ): Promise<NooterraResponse<{ sessionId: string; events: Array<Record<string, unknown>>; limit: number; offset: number }>>;
   appendSessionEvent(
     sessionId: string,
     body: {
@@ -1669,26 +1731,26 @@ export class SettldClient {
       provenance?: Record<string, unknown>;
     },
     opts: RequestOptions
-  ): Promise<SettldResponse<{ sessionId: string; event: Record<string, unknown>; currentPrevChainHash: string | null }>>;
-  getSessionReplayPack(sessionId: string, opts?: RequestOptions): Promise<SettldResponse<{ replayPack: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ sessionId: string; event: Record<string, unknown>; currentPrevChainHash: string | null }>>;
+  getSessionReplayPack(sessionId: string, opts?: RequestOptions): Promise<NooterraResponse<{ replayPack: Record<string, unknown> }>>;
   getSessionTranscript(
     sessionId: string,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ transcript: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ transcript: Record<string, unknown> }>>;
   streamSessionEvents(
     sessionId: string,
     params?: { eventType?: string; sinceEventId?: string },
     opts?: Pick<RequestOptions, "requestId" | "signal"> & { lastEventId?: string }
-  ): AsyncGenerator<SettldSseEvent, void, unknown>;
-  getAgentWallet(agentId: string, opts?: RequestOptions): Promise<SettldResponse<{ wallet: AgentWalletV1 }>>;
+  ): AsyncGenerator<NooterraSseEvent, void, unknown>;
+  getAgentWallet(agentId: string, opts?: RequestOptions): Promise<NooterraResponse<{ wallet: AgentWalletV1 }>>;
   createDelegationGrant(
     body: Record<string, unknown> & { delegatorAgentId: string; delegateeAgentId: string },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ delegationGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ delegationGrant: Record<string, unknown> }>>;
   issueDelegationGrant(
     body: Record<string, unknown> & { delegatorAgentId: string; delegateeAgentId: string },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ delegationGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ delegationGrant: Record<string, unknown> }>>;
   listDelegationGrants(
     params?: {
       grantId?: string;
@@ -1700,13 +1762,13 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ grants: Array<Record<string, unknown>>; limit: number; offset: number }>>;
-  getDelegationGrant(grantId: string, opts?: RequestOptions): Promise<SettldResponse<{ delegationGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ grants: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  getDelegationGrant(grantId: string, opts?: RequestOptions): Promise<NooterraResponse<{ delegationGrant: Record<string, unknown> }>>;
   revokeDelegationGrant(
     grantId: string,
     body?: { revocationReasonCode?: string; reasonCode?: string } & Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ delegationGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ delegationGrant: Record<string, unknown> }>>;
   createAuthorityGrant(
     body: {
       grantId?: string;
@@ -1743,7 +1805,7 @@ export class SettldClient {
       metadata?: Record<string, unknown>;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ authorityGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ authorityGrant: Record<string, unknown> }>>;
   listAuthorityGrants(
     params?: {
       grantId?: string;
@@ -1755,18 +1817,18 @@ export class SettldClient {
       offset?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ grants: Array<Record<string, unknown>>; limit: number; offset: number }>>;
-  getAuthorityGrant(grantId: string, opts?: RequestOptions): Promise<SettldResponse<{ authorityGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ grants: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  getAuthorityGrant(grantId: string, opts?: RequestOptions): Promise<NooterraResponse<{ authorityGrant: Record<string, unknown> }>>;
   revokeAuthorityGrant(
     grantId: string,
     body?: { revocationReasonCode?: string },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ authorityGrant: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ authorityGrant: Record<string, unknown> }>>;
   creditAgentWallet(
     agentId: string,
     body: { amountCents: number; currency?: string },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ wallet: AgentWalletV1 }>>;
+  ): Promise<NooterraResponse<{ wallet: AgentWalletV1 }>>;
   createAgentRun(
     agentId: string,
     body?: {
@@ -1776,18 +1838,18 @@ export class SettldClient {
       settlement?: { payerAgentId: string; amountCents: number; currency?: string };
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ run: AgentRunV1; event: AgentEventV1; settlement?: AgentRunSettlementV1 | null }>>;
+  ): Promise<NooterraResponse<{ run: AgentRunV1; event: AgentEventV1; settlement?: AgentRunSettlementV1 | null }>>;
   listAgentRuns(
     agentId: string,
     params?: { status?: "created" | "running" | "completed" | "failed"; limit?: number; offset?: number },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ runs: AgentRunV1[]; total: number; limit: number; offset: number }>>;
+  ): Promise<NooterraResponse<{ runs: AgentRunV1[]; total: number; limit: number; offset: number }>>;
   getAgentRun(
     agentId: string,
     runId: string,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ run: AgentRunV1; verification: Record<string, unknown>; settlement?: AgentRunSettlementV1 | null }>>;
-  listAgentRunEvents(agentId: string, runId: string, opts?: RequestOptions): Promise<SettldResponse<{ events: AgentEventV1[] }>>;
+  ): Promise<NooterraResponse<{ run: AgentRunV1; verification: Record<string, unknown>; settlement?: AgentRunSettlementV1 | null }>>;
+  listAgentRunEvents(agentId: string, runId: string, opts?: RequestOptions): Promise<NooterraResponse<{ events: AgentEventV1[] }>>;
   appendAgentRunEvent(
     agentId: string,
     runId: string,
@@ -1798,14 +1860,14 @@ export class SettldClient {
       payload: Record<string, unknown>;
     },
     opts: RequestOptions
-  ): Promise<SettldResponse<{ event: AgentEventV1; run: AgentRunV1; settlement?: AgentRunSettlementV1 | null }>>;
-  getRunVerification(runId: string, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
-  getRunSettlement(runId: string, opts?: RequestOptions): Promise<SettldResponse<{ settlement: AgentRunSettlementV1 }>>;
+  ): Promise<NooterraResponse<{ event: AgentEventV1; run: AgentRunV1; settlement?: AgentRunSettlementV1 | null }>>;
+  getRunVerification(runId: string, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
+  getRunSettlement(runId: string, opts?: RequestOptions): Promise<NooterraResponse<{ settlement: AgentRunSettlementV1 }>>;
   getRunAgreement(
     runId: string,
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       runId: string;
       rfqId?: string | null;
       agreementId?: string | null;
@@ -1831,7 +1893,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       runId: string;
       rfq: MarketplaceRfqV1;
       agreement: MarketplaceTaskAgreementV2;
@@ -1851,7 +1913,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       runId: string;
       rfq: MarketplaceRfqV1;
       run: AgentRunV1;
@@ -1865,7 +1927,7 @@ export class SettldClient {
     runId: string,
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       runId: string;
       agreementId?: string | null;
       policyVersion?: number | null;
@@ -1894,14 +1956,14 @@ export class SettldClient {
       resolutionEventId?: string;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ settlement: AgentRunSettlementV1 }>>;
+  ): Promise<NooterraResponse<{ settlement: AgentRunSettlementV1 }>>;
 
-  opsLockToolCallHold(body: Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<{ hold: Record<string, unknown> }>>;
+  opsLockToolCallHold(body: Record<string, unknown>, opts?: RequestOptions): Promise<NooterraResponse<{ hold: Record<string, unknown> }>>;
   opsListToolCallHolds(
     params?: { agreementHash?: string; status?: string; limit?: number; offset?: number },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       ok: boolean;
       tenantId: string;
       agreementHash: string | null;
@@ -1915,7 +1977,7 @@ export class SettldClient {
     agreementHash: string,
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       ok: boolean;
       tenantId: string;
       agreementHash: string;
@@ -1926,7 +1988,7 @@ export class SettldClient {
       issues: string[];
     }>
   >;
-  opsGetToolCallHold(holdHash: string, opts?: RequestOptions): Promise<SettldResponse<{ ok: boolean; tenantId: string; hold: Record<string, unknown> }>>;
+  opsGetToolCallHold(holdHash: string, opts?: RequestOptions): Promise<NooterraResponse<{ ok: boolean; tenantId: string; hold: Record<string, unknown> }>>;
   opsGetReputationFacts(
     params: {
       agentId: string;
@@ -1937,7 +1999,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       ok: boolean;
       tenantId: string;
       agentId: string;
@@ -1952,26 +2014,26 @@ export class SettldClient {
   opsRunToolCallHoldbackMaintenance(
     body?: { dryRun?: boolean; limit?: number; maxHolds?: number } & Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<SettldResponse<Record<string, unknown>>>;
+  ): Promise<NooterraResponse<Record<string, unknown>>>;
   toolCallListArbitrationCases(
     params?: { agreementHash?: string; status?: string },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       agreementHash: string;
       runId: string;
       cases: Array<Record<string, unknown>>;
     }>
   >;
-  toolCallGetArbitrationCase(caseId: string, opts?: RequestOptions): Promise<SettldResponse<{ caseId: string; arbitrationCase: Record<string, unknown> }>>;
-  toolCallOpenArbitration(body: Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
-  toolCallSubmitArbitrationVerdict(body: Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
-  opsGetSettlementAdjustment(adjustmentId: string, opts?: RequestOptions): Promise<SettldResponse<{ ok: boolean; tenantId: string; adjustment: Record<string, unknown> }>>;
-  getArtifact(artifactId: string, opts?: RequestOptions): Promise<SettldResponse<{ artifact: Record<string, unknown> }>>;
+  toolCallGetArbitrationCase(caseId: string, opts?: RequestOptions): Promise<NooterraResponse<{ caseId: string; arbitrationCase: Record<string, unknown> }>>;
+  toolCallOpenArbitration(body: Record<string, unknown>, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
+  toolCallSubmitArbitrationVerdict(body: Record<string, unknown>, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
+  opsGetSettlementAdjustment(adjustmentId: string, opts?: RequestOptions): Promise<NooterraResponse<{ ok: boolean; tenantId: string; adjustment: Record<string, unknown> }>>;
+  getArtifact(artifactId: string, opts?: RequestOptions): Promise<NooterraResponse<{ artifact: Record<string, unknown> }>>;
   createCapabilityAttestation(
     body: Record<string, unknown> & { subjectAgentId: string; capability: string },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ capabilityAttestation: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ capabilityAttestation: Record<string, unknown> }>>;
   listCapabilityAttestations(
     params?: {
       attestationId?: string;
@@ -1986,7 +2048,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       attestations: Array<{ capabilityAttestation: Record<string, unknown>; runtime: Record<string, unknown> }>;
       total: number;
       limit: number;
@@ -1996,16 +2058,16 @@ export class SettldClient {
   getCapabilityAttestation(
     attestationId: string,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ capabilityAttestation: Record<string, unknown>; runtime: Record<string, unknown> | null }>>;
+  ): Promise<NooterraResponse<{ capabilityAttestation: Record<string, unknown>; runtime: Record<string, unknown> | null }>>;
   revokeCapabilityAttestation(
     attestationId: string,
     body?: { revokedAt?: string; reasonCode?: string } & Record<string, unknown>,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ capabilityAttestation: Record<string, unknown>; runtime: Record<string, unknown> | null }>>;
+  ): Promise<NooterraResponse<{ capabilityAttestation: Record<string, unknown>; runtime: Record<string, unknown> | null }>>;
   getArtifacts(
     params: { artifactIds: string[] } | string[],
     opts?: RequestOptions
-  ): Promise<{ artifacts: Array<{ artifactId: string; artifact: Record<string, unknown> | null }>; responses: Array<SettldResponse<{ artifact: Record<string, unknown> }>> }>;
+  ): Promise<{ artifacts: Array<{ artifactId: string; artifact: Record<string, unknown> | null }>; responses: Array<NooterraResponse<{ artifact: Record<string, unknown> }>> }>;
 
   createAgreement(params: {
     toolId: string;
@@ -2055,7 +2117,7 @@ export class SettldClient {
       challengeWindowMs?: number;
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ hold: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ hold: Record<string, unknown> }>>;
   settle(
     params: {
       agreement?: ToolCallAgreementV1;
@@ -2095,7 +2157,7 @@ export class SettldClient {
       adminOverride?: { enabled?: boolean; reason?: string };
     },
     opts?: RequestOptions
-  ): Promise<SettldResponse<Record<string, unknown>>>;
+  ): Promise<NooterraResponse<Record<string, unknown>>>;
   buildDisputeOpenEnvelope(params: {
     agreementHash: string;
     receiptHash: string;
@@ -2130,7 +2192,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       settlement: AgentRunSettlementV1;
       disputeEvidence?: RunDisputeEvidenceSubmissionV1 | null;
       disputeEscalation?: RunDisputeEscalationV1 | null;
@@ -2152,7 +2214,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       settlement: AgentRunSettlementV1;
       disputeEvidence?: RunDisputeEvidenceSubmissionV1 | null;
       disputeEscalation?: RunDisputeEscalationV1 | null;
@@ -2170,7 +2232,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       settlement: AgentRunSettlementV1;
       disputeEvidence?: RunDisputeEvidenceSubmissionV1 | null;
       disputeEscalation?: RunDisputeEscalationV1 | null;
@@ -2189,7 +2251,7 @@ export class SettldClient {
     },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       settlement: AgentRunSettlementV1;
       disputeEvidence?: RunDisputeEvidenceSubmissionV1 | null;
       disputeEscalation?: RunDisputeEscalationV1 | null;
@@ -2198,35 +2260,35 @@ export class SettldClient {
     }>
   >;
   firstVerifiedRun(params: FirstVerifiedRunParams, opts?: FirstVerifiedRunOptions): Promise<FirstVerifiedRunResult>;
-  quoteJob(jobId: string, body: Record<string, unknown>, opts: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
-  bookJob(jobId: string, body: Record<string, unknown>, opts: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
-  appendJobEvent(jobId: string, body: Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  quoteJob(jobId: string, body: Record<string, unknown>, opts: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
+  bookJob(jobId: string, body: Record<string, unknown>, opts: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
+  appendJobEvent(jobId: string, body: Record<string, unknown>, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
 
-  opsStatus(opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  opsStatus(opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
   listPartyStatements(
     params: { period: string; partyId?: string; status?: string },
     opts?: RequestOptions
-  ): Promise<SettldResponse<Record<string, unknown>>>;
-  getPartyStatement(partyId: string, period: string, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
-  enqueuePayout(partyId: string, period: string, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  ): Promise<NooterraResponse<Record<string, unknown>>>;
+  getPartyStatement(partyId: string, period: string, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
+  enqueuePayout(partyId: string, period: string, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
 
-  requestMonthClose(body: { month: string; basis?: string }, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
+  requestMonthClose(body: { month: string; basis?: string }, opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
   getTenantAnalytics(
     tenantId: string,
     params?: TenantAnalyticsQuery,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ ok: true; report: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ ok: true; report: Record<string, unknown> }>>;
   getTenantTrustGraph(
     tenantId: string,
     params?: TenantTrustGraphQuery,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ ok: true; graph: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ ok: true; graph: Record<string, unknown> }>>;
   listTenantTrustGraphSnapshots(
     tenantId: string,
     params?: { limit?: number },
     opts?: RequestOptions
   ): Promise<
-    SettldResponse<{
+    NooterraResponse<{
       ok: true;
       schemaVersion: "MagicLinkTrustGraphSnapshotList.v1";
       tenantId: string;
@@ -2239,10 +2301,10 @@ export class SettldClient {
     tenantId: string,
     body?: TenantTrustGraphSnapshotCreateInput,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ ok: true; snapshot: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ ok: true; snapshot: Record<string, unknown> }>>;
   diffTenantTrustGraph(
     tenantId: string,
     params?: TenantTrustGraphDiffQuery,
     opts?: RequestOptions
-  ): Promise<SettldResponse<{ ok: true; diff: Record<string, unknown> }>>;
+  ): Promise<NooterraResponse<{ ok: true; diff: Record<string, unknown> }>>;
 }

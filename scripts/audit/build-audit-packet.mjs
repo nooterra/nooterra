@@ -74,7 +74,7 @@ async function listFilesRecursive(root) {
 }
 
 async function writeReadme({ dst, packetName, tool }) {
-  const text = `# Settld Audit Packet (${packetName})
+  const text = `# Nooterra Audit Packet (${packetName})
 
 This archive is intended to be a self-contained “evidence bundle” for a hostile/skeptical reader.
 
@@ -94,12 +94,12 @@ This archive is intended to be a self-contained “evidence bundle” for a host
 (cd ${packetName} && sha256sum -c SHA256SUMS)
 \`\`\`
 
-2. Install the released verifier CLI (\`settld-verify\`).
+2. Install the released verifier CLI (\`nooterra-verify\`).
 
 - If published to npm, install a pinned version.
-- Otherwise, download the release npm tarball for \`settld-artifact-verify\` and install it locally.
+- Otherwise, download the release npm tarball for \`nooterra-artifact-verify\` and install it locally.
 
-3. Run conformance pack (requires \`settld-verify\` in PATH):
+3. Run conformance pack (requires \`nooterra-verify\` in PATH):
 
 \`\`\`sh
 tar -xzf conformance/conformance-v1.tar.gz
@@ -125,7 +125,7 @@ async function main() {
 
   const toolVersion = (() => {
     try {
-      const v = String((sh(process.execPath, ["-e", "const fs=require('fs'); console.log(String(fs.readFileSync('SETTLD_VERSION','utf8')).trim())"]).trim()) ?? "");
+      const v = String((sh(process.execPath, ["-e", "const fs=require('fs'); console.log(String(fs.readFileSync('NOOTERRA_VERSION','utf8')).trim())"]).trim()) ?? "");
       return v || null;
     } catch {
       return null;
@@ -140,7 +140,7 @@ async function main() {
     }
   })();
 
-  const packetName = `settld-audit-packet-${version}`;
+  const packetName = `nooterra-audit-packet-${version}`;
   const stagingRoot = await fs.mkdtemp(path.join(outDir, `${packetName}-staging-`));
   const packetRoot = path.join(stagingRoot, packetName);
   await fs.mkdir(packetRoot, { recursive: true });
@@ -177,7 +177,7 @@ async function main() {
     // 4) Tool provenance summary
     const tool = {
       schemaVersion: "AuditToolSummary.v1",
-      tool: { name: "settld-verify", version: toolVersion, commit: toolCommit },
+      tool: { name: "nooterra-verify", version: toolVersion, commit: toolCommit },
       repo: { commit: toolCommit }
     };
     await fs.writeFile(path.join(packetRoot, "tool.json"), JSON.stringify(tool, null, 2) + "\n", "utf8");

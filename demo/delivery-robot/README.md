@@ -2,7 +2,7 @@
 
 This demo is designed to be **bulletproof**:
 - Runs **in-process** (no ports, no Docker, no external deps).
-- Produces real Settld artifacts as JSON.
+- Produces real Nooterra artifacts as JSON.
 - Includes an upstream “telemetry ingest” example (`/ingest/proxy`).
 
 ## Practical checklist (demo-ready?)
@@ -35,8 +35,8 @@ Open these files during the demo:
 
 1) **Upstream facts in**: we ingest dispatch evaluation telemetry (`/ingest/proxy`) and correlate it to the job.
 2) **Robot signs execution**: the robot appends signed events to the job stream (tamper-evident chain).
-3) **SLA breach detected**: the robot starts after the booking window ends → Settld emits `SLA_BREACH_DETECTED`.
-4) **Credit issued + settlement updates**: quote is `$125.00` and the configured SLA credit is `$12.50` → Settld emits `SLA_CREDIT_ISSUED`, generates `CreditMemo.v1`, and updates `SettlementStatement.v1`.
+3) **SLA breach detected**: the robot starts after the booking window ends → Nooterra emits `SLA_BREACH_DETECTED`.
+4) **Credit issued + settlement updates**: quote is `$125.00` and the configured SLA credit is `$12.50` → Nooterra emits `SLA_CREDIT_ISSUED`, generates `CreditMemo.v1`, and updates `SettlementStatement.v1`.
 
 ## “Before vs After”
 

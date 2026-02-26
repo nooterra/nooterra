@@ -1,5 +1,5 @@
 {
-  "name": "settld-artifact-produce",
+  "name": "nooterra-artifact-produce",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -7,9 +7,9 @@
     "node": ">=20"
   },
   "bin": {
-    "settld-produce": "./bin/settld-produce.js",
-    "settld-trust": "./bin/settld-trust.js",
-    "settld-signer-dev": "./bin/settld-signer-dev.js"
+    "nooterra-produce": "./bin/nooterra-produce.js",
+    "nooterra-trust": "./bin/nooterra-trust.js",
+    "nooterra-signer-dev": "./bin/nooterra-signer-dev.js"
   },
   "files": [
     "bin",

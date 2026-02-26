@@ -14,9 +14,9 @@ for bin in curl jq; do
   fi
 done
 
-: "${SETTLD_BASE_URL:?SETTLD_BASE_URL is required}"
+: "${NOOTERRA_BASE_URL:?NOOTERRA_BASE_URL is required}"
 : "${PROXY_OPS_TOKEN:?PROXY_OPS_TOKEN is required}"
-: "${SETTLD_TENANT_ID:?SETTLD_TENANT_ID is required}"
+: "${NOOTERRA_TENANT_ID:?NOOTERRA_TENANT_ID is required}"
 
 LIMIT="${LIMIT:-200}"
 OFFSET="${OFFSET:-0}"
@@ -39,9 +39,9 @@ urlencode() {
 api_get() {
   local path="$1"
   local response body status
-  response="$(curl -sS "$SETTLD_BASE_URL$path" \
+  response="$(curl -sS "$NOOTERRA_BASE_URL$path" \
     -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
-    -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
+    -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
     -w $'\n%{http_code}')"
   body="$(printf "%s" "$response" | sed '$d')"
   status="$(printf "%s" "$response" | tail -n1)"
@@ -57,9 +57,9 @@ api_post_json() {
   local path="$1"
   local payload="$2"
   local response body status
-  response="$(curl -sS -X POST "$SETTLD_BASE_URL$path" \
+  response="$(curl -sS -X POST "$NOOTERRA_BASE_URL$path" \
     -H "x-proxy-ops-token: $PROXY_OPS_TOKEN" \
-    -H "x-proxy-tenant-id: $SETTLD_TENANT_ID" \
+    -H "x-proxy-tenant-id: $NOOTERRA_TENANT_ID" \
     -H "content-type: application/json" \
     -d "$payload" \
     -w $'\n%{http_code}')"

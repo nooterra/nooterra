@@ -44,7 +44,7 @@ async function setX402AgentLifecycle(
     headers: {
       "x-proxy-tenant-id": tenantId,
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       status,
@@ -161,7 +161,7 @@ test("API e2e: tool-call dispute freezes holdback auto-release; payee-win verdic
   const lock = await request(api, {
     method: "POST",
     path: "/ops/tool-calls/holds/lock",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_hold_1" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_hold_1" },
     body: {
       agreementHash,
       receiptHash,
@@ -184,7 +184,7 @@ test("API e2e: tool-call dispute freezes holdback auto-release; payee-win verdic
   const open = await request(api, {
     method: "POST",
     path: "/tool-calls/arbitration/open",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_open_1" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_open_1" },
     body: {
       agreementHash,
       receiptHash,
@@ -219,7 +219,7 @@ test("API e2e: tool-call dispute freezes holdback auto-release; payee-win verdic
   const duplicateOpen = await request(api, {
     method: "POST",
     path: "/tool-calls/arbitration/open",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_open_1_duplicate" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_open_1_duplicate" },
     body: {
       agreementHash,
       receiptHash,
@@ -264,7 +264,7 @@ test("API e2e: tool-call dispute freezes holdback auto-release; payee-win verdic
   const maintenance = await request(api, {
     method: "POST",
     path: "/ops/maintenance/tool-call-holdback/run",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0" },
     body: { dryRun: false, limit: 1000 }
   });
   assert.equal(maintenance.statusCode, 200, maintenance.body);
@@ -295,7 +295,7 @@ test("API e2e: tool-call dispute freezes holdback auto-release; payee-win verdic
   const verdict = await request(api, {
     method: "POST",
     path: "/tool-calls/arbitration/verdict",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_verdict_1" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_verdict_1" },
     body: { caseId: arbitrationCase.caseId, arbitrationVerdict: signedVerdict }
   });
   assert.equal(verdict.statusCode, 200, verdict.body);
@@ -344,7 +344,7 @@ test("API e2e: tool-call dispute freezes holdback auto-release; payee-win verdic
   const verdictReplay = await request(api, {
     method: "POST",
     path: "/tool-calls/arbitration/verdict",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_verdict_replay_1" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_verdict_replay_1" },
     body: { caseId: arbitrationCase.caseId, arbitrationVerdict: signedVerdict }
   });
   assert.equal(verdictReplay.statusCode, 200, verdictReplay.body);
@@ -354,7 +354,7 @@ test("API e2e: tool-call dispute freezes holdback auto-release; payee-win verdic
   const maintenanceReplay = await request(api, {
     method: "POST",
     path: "/ops/maintenance/tool-call-holdback/run",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-proxy-ops-token": "tok_ops" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-proxy-ops-token": "tok_ops" },
     body: { dryRun: false, limit: 1000 }
   });
   assert.equal(maintenanceReplay.statusCode, 200, maintenanceReplay.body);
@@ -393,7 +393,7 @@ test("API e2e: tool-call dispute payer-win verdict refunds held escrow; admin ov
   const lock = await request(api, {
     method: "POST",
     path: "/ops/tool-calls/holds/lock",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_hold_2" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_hold_2" },
     body: {
       agreementHash,
       receiptHash,
@@ -414,7 +414,7 @@ test("API e2e: tool-call dispute payer-win verdict refunds held escrow; admin ov
   const openTooLate = await request(api, {
     method: "POST",
     path: "/tool-calls/arbitration/open",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_open_2_late" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_open_2_late" },
     body: {
       agreementHash,
       receiptHash,
@@ -441,7 +441,7 @@ test("API e2e: tool-call dispute payer-win verdict refunds held escrow; admin ov
   const open = await request(api, {
     method: "POST",
     path: "/tool-calls/arbitration/open",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_open_2_override" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_open_2_override" },
     body: {
       agreementHash,
       receiptHash,
@@ -478,7 +478,7 @@ test("API e2e: tool-call dispute payer-win verdict refunds held escrow; admin ov
   const verdict = await request(api, {
     method: "POST",
     path: "/tool-calls/arbitration/verdict",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_verdict_2" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_verdict_2" },
     body: { caseId: arbitrationCase.caseId, arbitrationVerdict: signedVerdict }
   });
   assert.equal(verdict.statusCode, 200, verdict.body);
@@ -521,7 +521,7 @@ test("API e2e: tool-call holdback auto-release emits reputation facts when no di
   const lock = await request(api, {
     method: "POST",
     path: "/ops/tool-calls/holds/lock",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_hold_auto_1" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_hold_auto_1" },
     body: {
       agreementHash,
       receiptHash,
@@ -540,7 +540,7 @@ test("API e2e: tool-call holdback auto-release emits reputation facts when no di
   const maintenance = await request(api, {
     method: "POST",
     path: "/ops/maintenance/tool-call-holdback/run",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-proxy-ops-token": "tok_ops" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-proxy-ops-token": "tok_ops" },
     body: { dryRun: false, limit: 1000 }
   });
   assert.equal(maintenance.statusCode, 200, maintenance.body);
@@ -579,7 +579,7 @@ test("API e2e: tool-call arbitration routes fail closed when payer/arbiter lifec
   const lock = await request(api, {
     method: "POST",
     path: "/ops/tool-calls/holds/lock",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_hold_1" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_hold_1" },
     body: {
       agreementHash,
       receiptHash,
@@ -610,7 +610,7 @@ test("API e2e: tool-call arbitration routes fail closed when payer/arbiter lifec
   const blockedOpen = await request(api, {
     method: "POST",
     path: "/tool-calls/arbitration/open",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_open_block_1" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_open_block_1" },
     body: {
       agreementHash,
       receiptHash,
@@ -649,7 +649,7 @@ test("API e2e: tool-call arbitration routes fail closed when payer/arbiter lifec
   const open = await request(api, {
     method: "POST",
     path: "/tool-calls/arbitration/open",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_open_ok_1" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_open_ok_1" },
     body: {
       agreementHash,
       receiptHash,
@@ -702,7 +702,7 @@ test("API e2e: tool-call arbitration routes fail closed when payer/arbiter lifec
   const blockedVerdict = await request(api, {
     method: "POST",
     path: "/tool-calls/arbitration/verdict",
-    headers: { "x-proxy-tenant-id": tenantId, "x-settld-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_verdict_block_1" },
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_lifecycle_verdict_block_1" },
     body: {
       caseId: arbitrationCase.caseId,
       arbitrationVerdict: signedVerdict

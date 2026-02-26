@@ -60,9 +60,9 @@ They bind:
 
 ## MCP surface
 
-- `settld.capability_attest`
-- `settld.capability_attestation_list`
-- `settld.capability_attestation_revoke`
+- `nooterra.capability_attest`
+- `nooterra.capability_attestation_list`
+- `nooterra.capability_attestation_revoke`
 
 ## Implementation references
 

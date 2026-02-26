@@ -4,7 +4,7 @@ Use this folder as your GitBook project directory.
 
 ## Recommended
 
-- Repository: `aidenlippert/settld`
+- Repository: `nooterra/nooterra`
 - Project directory: `docs/gitbook`
 - Initial sync: import from GitHub
 
@@ -14,7 +14,7 @@ You can keep it. Root `docs/README.md` and `docs/SUMMARY.md` route to this curat
 
 ## Domain
 
-- custom domain: `docs.settld.work`
+- custom domain: `docs.nooterra.work`
 - DNS record: `CNAME docs -> 47701540b1-hosting.gitbook.io`
 
 ## Update workflow

@@ -172,7 +172,7 @@ test("API e2e: pinned providerPublicKeyPem prevents key swap attacks (signature 
   const signedAt = "2026-02-15T00:00:00.000Z";
 
   // Attacker signs with their own key and even supplies their own public key in the verify request.
-  // Settld must ignore that and verify against the provider key pinned on the gate record.
+  // Nooterra must ignore that and verify against the provider key pinned on the gate record.
   const signature = signToolProviderSignatureV1({
     responseHash,
     nonce,

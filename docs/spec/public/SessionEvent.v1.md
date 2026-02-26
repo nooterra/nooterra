@@ -61,9 +61,9 @@ Server-side append computes provenance with chain-aware taint propagation and de
 
 ## MCP surface
 
-- `settld.session_events_list`
-- `settld.session_event_append`
-- `settld.session_events_stream`
+- `nooterra.session_events_list`
+- `nooterra.session_event_append`
+- `nooterra.session_events_stream`
 
 ## Implementation references
 

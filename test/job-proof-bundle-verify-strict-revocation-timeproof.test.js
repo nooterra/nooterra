@@ -102,15 +102,15 @@ async function buildStrictJobBundleDir({
     generatedAt
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-job-proof-revocation-timeproof-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-job-proof-revocation-timeproof-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 
   return {
     dir,
     trustedEnv: {
-      SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }),
-      SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify({ [timeAuthorityKeyId]: timeAuthority.publicKeyPem })
+      NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem }),
+      NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify({ [timeAuthorityKeyId]: timeAuthority.publicKeyPem })
     }
   };
 }
@@ -211,14 +211,14 @@ async function buildStrictJobBundleDirWithRotation({
     generatedAt: bundleGeneratedAt
   });
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-job-proof-rotation-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-job-proof-rotation-"));
   const dir = path.join(tmp, "bundle");
   await writeFilesToDir({ files, outDir: dir });
 
   return {
     dir,
     trustedEnv: {
-      SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem })
+      NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [govRootKeyId]: govRoot.publicKeyPem })
     }
   };
 }

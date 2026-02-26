@@ -90,7 +90,11 @@ async function resolveK6Runner({ cwd, allowDockerFallback = true } = {}) {
   if (!(await ensureDocker())) {
     throw new Error("k6 is required on PATH or docker must be installed for fallback");
   }
-  const networkMode = process.env.K6_DOCKER_NETWORK_MODE && process.env.K6_DOCKER_NETWORK_MODE.trim() !== "" ? process.env.K6_DOCKER_NETWORK_MODE.trim() : "host";
+  const defaultNetworkMode = process.platform === "linux" ? "host" : "bridge";
+  const networkMode =
+    process.env.K6_DOCKER_NETWORK_MODE && process.env.K6_DOCKER_NETWORK_MODE.trim() !== ""
+      ? process.env.K6_DOCKER_NETWORK_MODE.trim()
+      : defaultNetworkMode;
   const image = process.env.K6_DOCKER_IMAGE && process.env.K6_DOCKER_IMAGE.trim() !== "" ? process.env.K6_DOCKER_IMAGE.trim() : "grafana/k6:0.48.0";
   return {
     kind: "docker_k6",
@@ -98,6 +102,21 @@ async function resolveK6Runner({ cwd, allowDockerFallback = true } = {}) {
     baseArgs: ["run", "--rm", "--network", networkMode, "-v", `${cwd}:/workspace`, "-w", "/workspace", image],
     toRunnerPath: (value) => toWorkspacePath(value, cwd)
   };
+}
+
+function rewriteLoopbackBaseUrlForDocker(baseUrl) {
+  let url;
+  try {
+    url = new URL(String(baseUrl ?? ""));
+  } catch {
+    return baseUrl;
+  }
+  const host = String(url.hostname ?? "").trim().toLowerCase();
+  if (!["127.0.0.1", "localhost", "::1"].includes(host)) {
+    return String(baseUrl ?? "").replace(/\/+$/, "");
+  }
+  url.hostname = "host.docker.internal";
+  return url.toString().replace(/\/+$/, "");
 }
 
 function readMetric(summary, metricName, key) {
@@ -151,7 +170,8 @@ async function main() {
     { min: 1 }
   );
   const tenants = parseIntEnv("TENANTS", 3, { min: 1 });
-  const robotsPerTenant = parseIntEnv("ROBOTS_PER_TENANT", 3, { min: 1 });
+  const defaultRobotsPerTenant = Math.max(3, Math.ceil(jobsPerMinPerTenant / 10));
+  const robotsPerTenant = parseIntEnv("ROBOTS_PER_TENANT", defaultRobotsPerTenant, { min: 1 });
   const duration = process.env.DURATION && process.env.DURATION.trim() !== "" ? process.env.DURATION.trim() : "120s";
   const targetP95Ms = parseFloatEnv("TARGET_P95_MS", 5000, { min: 1 });
   const maxFailureRate = parseFloatEnv("MAX_FAILURE_RATE", 0.05, { min: 0, max: 1 });
@@ -201,11 +221,14 @@ async function main() {
     cwd: process.cwd(),
     allowDockerFallback
   });
+  const runnerBaseUrl =
+    k6Runner.kind === "docker_k6" ? rewriteLoopbackBaseUrlForDocker(runConfig.baseUrl) : runConfig.baseUrl;
   runConfig.runner = k6Runner.kind;
+  runConfig.runnerBaseUrl = runnerBaseUrl;
 
   const k6Env = {
     ...process.env,
-    BASE_URL: runConfig.baseUrl,
+    BASE_URL: runnerBaseUrl,
     OPS_TOKEN: process.env.OPS_TOKEN || "",
     TENANTS: String(tenants),
     ROBOTS_PER_TENANT: String(robotsPerTenant),
@@ -220,7 +243,16 @@ async function main() {
   const summaryPathForRunner = k6Runner.kind === "docker_k6" ? k6Runner.toRunnerPath(summaryPath) : summaryPath;
   const runnerEnvArgs =
     k6Runner.kind === "docker_k6"
-      ? Object.entries(k6Env).flatMap(([name, value]) => ["-e", `${name}=${String(value)}`])
+      ? [
+          `BASE_URL=${k6Env.BASE_URL}`,
+          `OPS_TOKEN=${k6Env.OPS_TOKEN}`,
+          `TENANTS=${k6Env.TENANTS}`,
+          `ROBOTS_PER_TENANT=${k6Env.ROBOTS_PER_TENANT}`,
+          `JOBS_PER_MIN_PER_TENANT=${k6Env.JOBS_PER_MIN_PER_TENANT}`,
+          `DURATION=${k6Env.DURATION}`,
+          `TARGET_P95_MS=${k6Env.TARGET_P95_MS}`,
+          `MAX_FAILURE_RATE=${k6Env.MAX_FAILURE_RATE}`
+        ].flatMap((entry) => ["-e", entry])
       : [];
 
   const startedAt = Date.now();

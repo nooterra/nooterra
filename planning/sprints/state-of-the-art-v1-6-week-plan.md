@@ -1,8 +1,8 @@
-# Settld Trust OS v1: 6-Week State-of-the-Art Execution Plan
+# Nooterra Trust OS: 6-Week State-of-the-Art Execution Plan
 
 ## Mission
 
-Ship a public-ready v1 where autonomous agents can spend with deterministic policy controls, verifiable receipts, and operational recourse.
+Ship a public-ready launch baseline where autonomous agents can spend with deterministic policy controls, verifiable receipts, and operational recourse.
 
 ## Strategic Priorities
 

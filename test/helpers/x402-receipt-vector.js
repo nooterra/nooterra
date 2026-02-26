@@ -85,7 +85,7 @@ export function buildX402ReceiptVerifierVector() {
   const bindings = {
     authorizationRef: "auth_x402gate_vector_1",
     token: {
-      kid: "key_settld_vector_1",
+      kid: "key_nooterra_vector_1",
       sha256: "b".repeat(64),
       expiresAt: "2026-02-18T00:05:00.000Z"
     },
@@ -161,7 +161,7 @@ export function buildX402ReceiptVerifierVector() {
       verificationMethodHash: "e".repeat(64)
     },
     verifierRef: {
-      verifierId: "settld.x402",
+      verifierId: "nooterra.x402",
       verifierVersion: "v1",
       verifierHash: null,
       modality: "attested"

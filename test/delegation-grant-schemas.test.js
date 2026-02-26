@@ -82,7 +82,7 @@ test("delegation grant schema validates constructed fixture", async () => {
     }
   }
 
-  const validate = ajv.getSchema("https://settld.local/schemas/DelegationGrant.v1.schema.json");
+  const validate = ajv.getSchema("https://nooterra.local/schemas/DelegationGrant.v1.schema.json");
   assert.ok(validate);
 
   const grant = buildFixtureGrant();

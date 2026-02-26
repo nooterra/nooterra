@@ -1748,7 +1748,7 @@ test("API e2e: deterministic verifier plugin sets settlement decision verifierRe
   assert.ok(decisionRecord);
   assert.equal(decisionRecord?.schemaVersion, "SettlementDecisionRecord.v2");
   assert.equal(decisionRecord?.verifierRef?.modality, "deterministic");
-  assert.equal(decisionRecord?.verifierRef?.verifierId, "settld.deterministic.latency-threshold");
+  assert.equal(decisionRecord?.verifierRef?.verifierId, "nooterra.deterministic.latency-threshold");
   assert.match(String(decisionRecord?.verifierRef?.verifierHash ?? ""), /^[0-9a-f]{64}$/);
 
   const replayEvaluate = await request(api, {
@@ -1761,7 +1761,7 @@ test("API e2e: deterministic verifier plugin sets settlement decision verifierRe
   assert.equal(replayEvaluate.json?.comparisons?.decisionRecordReplayCriticalMatchesStored, true);
   assert.equal(replayEvaluate.json?.comparisons?.verifierRefMatchesStored, true);
   assert.equal(replayEvaluate.json?.verifierRef?.modality, "deterministic");
-  assert.equal(replayEvaluate.json?.verifierRef?.verifierId, "settld.deterministic.latency-threshold");
+  assert.equal(replayEvaluate.json?.verifierRef?.verifierId, "nooterra.deterministic.latency-threshold");
   assert.match(String(replayEvaluate.json?.verifierRef?.verifierHash ?? ""), /^[0-9a-f]{64}$/);
   assert.equal(replayEvaluate.json?.verifierExecution?.pluginMatched, true);
 });
@@ -1857,7 +1857,7 @@ test("API e2e: deterministic schema-check verifier plugin can force refunded aut
   assert.ok(decisionRecord);
   assert.equal(decisionRecord?.schemaVersion, "SettlementDecisionRecord.v2");
   assert.equal(decisionRecord?.verifierRef?.modality, "deterministic");
-  assert.equal(decisionRecord?.verifierRef?.verifierId, "settld.deterministic.schema-check");
+  assert.equal(decisionRecord?.verifierRef?.verifierId, "nooterra.deterministic.schema-check");
   assert.match(String(decisionRecord?.verifierRef?.verifierHash ?? ""), /^[0-9a-f]{64}$/);
 
   const replayEvaluate = await request(api, {
@@ -1870,7 +1870,7 @@ test("API e2e: deterministic schema-check verifier plugin can force refunded aut
   assert.equal(replayEvaluate.json?.comparisons?.decisionRecordReplayCriticalMatchesStored, true);
   assert.equal(replayEvaluate.json?.comparisons?.verifierRefMatchesStored, true);
   assert.equal(replayEvaluate.json?.verifierRef?.modality, "deterministic");
-  assert.equal(replayEvaluate.json?.verifierRef?.verifierId, "settld.deterministic.schema-check");
+  assert.equal(replayEvaluate.json?.verifierRef?.verifierId, "nooterra.deterministic.schema-check");
   assert.match(String(replayEvaluate.json?.verifierRef?.verifierHash ?? ""), /^[0-9a-f]{64}$/);
   assert.equal(replayEvaluate.json?.verifierExecution?.pluginMatched, true);
   assert.deepEqual(replayEvaluate.json?.verifierExecution?.reasonCodes ?? [], ["verifier_plugin_schema_check_failed"]);
@@ -2245,7 +2245,7 @@ test("API e2e: tenant settlement policy registry powers bid/accept policyRef flo
       policyVersion: 3,
       verificationMethod: {
         mode: "deterministic",
-        source: "verifier://settld-verify"
+        source: "verifier://nooterra-verify"
       },
       policy: {
         mode: "automatic",

@@ -182,9 +182,9 @@ test("demo:openclaw-substrate settles with evidence binding and receipt hash", a
     const { exit, stdout, stderr } = await runDemo({
       outPath,
       env: {
-        SETTLD_BASE_URL: baseUrl,
-        SETTLD_TENANT_ID: tenantId,
-        SETTLD_API_KEY: apiKey
+        NOOTERRA_BASE_URL: baseUrl,
+        NOOTERRA_TENANT_ID: tenantId,
+        NOOTERRA_API_KEY: apiKey
       }
     });
 
@@ -199,22 +199,22 @@ test("demo:openclaw-substrate settles with evidence binding and receipt hash", a
     assert.equal(report.ok, true, `demo report failed: ${reportRaw}`);
     assert.equal(report.summary?.settlementStatus, "released");
 
-    const completeStep = report.transcript?.find((row) => row?.step === "settld.work_order_complete");
+    const completeStep = report.transcript?.find((row) => row?.step === "nooterra.work_order_complete");
     assert.equal(Boolean(completeStep?.ok), true);
 
-    const quoteStep = report.transcript?.find((row) => row?.step === "settld.task_quote_issue");
+    const quoteStep = report.transcript?.find((row) => row?.step === "nooterra.task_quote_issue");
     assert.equal(Boolean(quoteStep?.ok), true);
     assert.match(String(quoteStep?.result?.result?.taskQuote?.quoteHash ?? ""), /^[a-f0-9]{64}$/);
 
-    const offerStep = report.transcript?.find((row) => row?.step === "settld.task_offer_issue");
+    const offerStep = report.transcript?.find((row) => row?.step === "nooterra.task_offer_issue");
     assert.equal(Boolean(offerStep?.ok), true);
     assert.match(String(offerStep?.result?.result?.taskOffer?.offerHash ?? ""), /^[a-f0-9]{64}$/);
 
-    const acceptanceStep = report.transcript?.find((row) => row?.step === "settld.task_acceptance_issue");
+    const acceptanceStep = report.transcript?.find((row) => row?.step === "nooterra.task_acceptance_issue");
     assert.equal(Boolean(acceptanceStep?.ok), true);
     assert.match(String(acceptanceStep?.result?.result?.taskAcceptance?.acceptanceHash ?? ""), /^[a-f0-9]{64}$/);
 
-    const createStep = report.transcript?.find((row) => row?.step === "settld.work_order_create");
+    const createStep = report.transcript?.find((row) => row?.step === "nooterra.work_order_create");
     assert.equal(Boolean(createStep?.ok), true);
     assert.equal(createStep?.result?.result?.workOrder?.x402ToolId, "openclaw_substrate_demo");
     assert.equal(createStep?.result?.result?.workOrder?.x402ProviderId, report?.ids?.workerAgentId);
@@ -228,11 +228,11 @@ test("demo:openclaw-substrate settles with evidence binding and receipt hash", a
     assert.ok(completionReceipt.evidenceRefs.some((ref) => String(ref).startsWith("sha256:")));
     assert.ok(completionReceipt.evidenceRefs.some((ref) => String(ref).startsWith("verification://")));
 
-    const settleStep = report.transcript?.find((row) => row?.step === "settld.work_order_settle");
+    const settleStep = report.transcript?.find((row) => row?.step === "nooterra.work_order_settle");
     assert.equal(Boolean(settleStep?.ok), true);
     assert.equal(settleStep?.result?.result?.workOrder?.settlement?.status, "released");
 
-    const lineageStep = report.transcript?.find((row) => row?.step === "settld.audit_lineage_list");
+    const lineageStep = report.transcript?.find((row) => row?.step === "nooterra.audit_lineage_list");
     assert.equal(Boolean(lineageStep?.ok), true);
     const lineage = lineageStep?.result?.result?.lineage;
     assert.equal(lineage?.schemaVersion, "AuditLineage.v1");
@@ -249,14 +249,14 @@ test("demo:openclaw-substrate settles with evidence binding and receipt hash", a
     assert.equal(lineageVerifyStep?.result?.lineageHash, lineage?.lineageHash);
     assert.equal(report?.summary?.auditLineageVerificationOk, true);
 
-    const replayPackStep = report.transcript?.find((row) => row?.step === "settld.session_replay_pack_get");
+    const replayPackStep = report.transcript?.find((row) => row?.step === "nooterra.session_replay_pack_get");
     assert.equal(Boolean(replayPackStep?.ok), true);
     const replayPack = replayPackStep?.result?.result?.replayPack;
     assert.equal(replayPack?.schemaVersion, "SessionReplayPack.v1");
     assert.equal(replayPack?.sessionId, report?.ids?.sessionId);
     assert.match(String(replayPack?.packHash ?? ""), /^[a-f0-9]{64}$/);
 
-    const sessionTranscriptStep = report.transcript?.find((row) => row?.step === "settld.session_transcript_get");
+    const sessionTranscriptStep = report.transcript?.find((row) => row?.step === "nooterra.session_transcript_get");
     assert.equal(Boolean(sessionTranscriptStep?.ok), true);
     const sessionTranscript = sessionTranscriptStep?.result?.result?.transcript;
     assert.equal(sessionTranscript?.schemaVersion, "SessionTranscript.v1");

@@ -1,6 +1,6 @@
-# Quickstart: Verify a Settld Release (Authenticity)
+# Quickstart: Verify a Nooterra Release (Authenticity)
 
-This verifies Settld **distribution artifacts** (npm tarballs, conformance pack, audit packet) using a signed `ReleaseIndex.v1` rooted in a release trust file.
+This verifies Nooterra **distribution artifacts** (npm tarballs, conformance pack, audit packet) using a signed `ReleaseIndex.v1` rooted in a release trust file.
 
 ## Offline verification (recommended)
 
@@ -13,7 +13,7 @@ This verifies Settld **distribution artifacts** (npm tarballs, conformance pack,
 2) Verify using the pinned release trust roots:
 
 ```sh
-settld-release verify --dir ./release --trust-file trust/release-trust.json --format json --explain
+nooterra-release verify --dir ./release --trust-file trust/release-trust.json --format json --explain
 ```
 
 - Exit code `0` means verified.
@@ -25,7 +25,7 @@ settld-release verify --dir ./release --trust-file trust/release-trust.json --fo
 If your org mirrors release assets under a single base URL:
 
 ```sh
-settld-release verify --base-url https://example.com/settld/releases/v1.0.0-rc.1/ --trust-file trust/release-trust.json --format json --explain
+nooterra-release verify --base-url https://example.com/nooterra/releases/v1.0.0-rc.1/ --trust-file trust/release-trust.json --format json --explain
 ```
 
 This downloads `release_index_v1.json`, `release_index_v1.sig`, then downloads every artifact referenced by the index (relative to the base URL) into a temp directory before verifying.
@@ -35,5 +35,5 @@ This downloads `release_index_v1.json`, `release_index_v1.sig`, then downloads e
 Release authenticity trust roots are **separate** from bundle verification trust roots.
 
 - Release trust: `trust/release-trust.json`
-- Bundle verification trust: `SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON` / `trust.json` (see `docs/spec/TRUST_ANCHORS.md`)
+- Bundle verification trust: `NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON` / `trust.json` (see `docs/spec/TRUST_ANCHORS.md`)
 

@@ -7,7 +7,7 @@ import path from "node:path";
 import { verifyJobProofBundleDir } from "../packages/artifact-verify/src/index.js";
 
 async function withTempDir(fn) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-adversarial-"));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-adversarial-"));
   try {
     return await fn(dir);
   } finally {

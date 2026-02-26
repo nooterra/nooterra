@@ -28,7 +28,7 @@ test("trust file validator accepts fixture trust.json", async () => {
 
 test("trust file validator rejects invalid JSON", async () => {
   const script = path.resolve(process.cwd(), "scripts", "trust", "validate-trust-file.mjs");
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-trust-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-trust-"));
   await test.after(() => fs.rm(tmp, { recursive: true, force: true }));
   const fp = path.join(tmp, "trust.json");
   await fs.writeFile(fp, "{ not json", "utf8");
@@ -40,7 +40,7 @@ test("trust file validator rejects invalid JSON", async () => {
 
 test("trust file validator rejects wrong shapes", async () => {
   const script = path.resolve(process.cwd(), "scripts", "trust", "validate-trust-file.mjs");
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-trust-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-trust-"));
   await test.after(() => fs.rm(tmp, { recursive: true, force: true }));
   const fp = path.join(tmp, "trust.json");
   await fs.writeFile(fp, JSON.stringify({ governanceRoots: ["nope"] }), "utf8");

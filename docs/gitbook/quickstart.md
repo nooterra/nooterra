@@ -5,15 +5,15 @@ Get from zero to a verified paid agent action in minutes.
 ## Prerequisites
 
 - Node.js 20.x (`nvm use` in repo root). Install is fail-fast if you use a different major.
-- Public flow: no API key required up front (`settld setup` handles login/session bootstrap)
-- Advanced flow: optional explicit `--base-url`, `--tenant-id`, and `--settld-api-key`
+- Public flow: no API key required up front (`nooterra setup` handles login/session bootstrap)
+- Advanced flow: optional explicit `--base-url`, `--tenant-id`, and `--nooterra-api-key`
 
 ## 0) One-command setup
 
 Run guided setup:
 
 ```bash
-settld setup
+nooterra setup
 ```
 
 Recommended interactive choices:
@@ -28,16 +28,16 @@ Recommended interactive choices:
 Non-interactive example:
 
 ```bash
-settld setup --non-interactive \
-  --host codex \
+nooterra setup --non-interactive \
+  --host nooterra \
   --base-url http://127.0.0.1:3000 \
   --tenant-id tenant_default \
-  --settld-api-key sk_live_xxx.yyy \
+  --nooterra-api-key sk_live_xxx.yyy \
   --wallet-mode managed \
   --wallet-bootstrap remote \
   --profile-id engineering-spend \
   --smoke \
-  --out-env ./.tmp/settld.env
+  --out-env ./.tmp/nooterra.env
 ```
 
 What this does:
@@ -52,27 +52,27 @@ What this does:
 If you wrote an env file, load it:
 
 ```bash
-source ./.tmp/settld.env
+source ./.tmp/nooterra.env
 ```
 
-Then restart your host app (Codex/Claude/Cursor/OpenClaw) so it reloads MCP config.
+Then restart your host app (Nooterra/Claude/Cursor/OpenClaw) so it reloads MCP config.
 
 ## 2) Check wallet and fund it
 
 ```bash
-settld login
-settld wallet status
-settld wallet fund --method transfer
-settld wallet balance --watch --min-usdc 1
+nooterra login
+nooterra wallet status
+nooterra wallet fund --method transfer
+nooterra wallet balance --watch --min-usdc 1
 ```
 
 Optional methods:
 
 ```bash
-settld wallet fund --open
-settld wallet fund --method card --open
-settld wallet fund --method bank --open
-settld wallet fund --method faucet
+nooterra wallet fund --open
+nooterra wallet fund --method card --open
+nooterra wallet fund --method bank --open
+nooterra wallet fund --method faucet
 ```
 
 For card/bank, configure one hosted provider URL strategy on the control-plane backend.
@@ -99,13 +99,13 @@ export MAGIC_LINK_WALLET_FUND_BANK_URL='https://pay.example.com/topup?tenant={te
 ## 3) Verify MCP connectivity
 
 ```bash
-npm run mcp:probe -- --call settld.about '{}'
+npm run mcp:probe -- --call nooterra.about '{}'
 ```
 
 Expected outcome:
 
-- `settld.about` succeeds
-- host can discover `settld.*` tools
+- `nooterra.about` succeeds
+- host can discover `nooterra.*` tools
 
 ## 4) Run first paid call
 
@@ -123,29 +123,29 @@ Expected output includes:
 ## 5) Verify first receipt (proof packet)
 
 ```bash
-jq -c 'first' <artifactDir>/x402-receipts.export.jsonl > /tmp/settld-first-receipt.json
-settld x402 receipt verify /tmp/settld-first-receipt.json --format json --json-out /tmp/settld-first-receipt.verify.json
+jq -c 'first' <artifactDir>/x402-receipts.export.jsonl > /tmp/nooterra-first-receipt.json
+nooterra x402 receipt verify /tmp/nooterra-first-receipt.json --format json --json-out /tmp/nooterra-first-receipt.verify.json
 ```
 
-`/tmp/settld-first-receipt.verify.json` is your deterministic verification artifact for audit/compliance.
+`/tmp/nooterra-first-receipt.verify.json` is your deterministic verification artifact for audit/compliance.
 
 ## 6) Optional: policy profile workflows
 
 ```bash
-settld profile list
-settld profile init engineering-spend --out ./profiles/engineering-spend.profile.json
-settld profile validate ./profiles/engineering-spend.profile.json --format json
-settld profile simulate ./profiles/engineering-spend.profile.json --format json
+nooterra profile list
+nooterra profile init engineering-spend --out ./profiles/engineering-spend.profile.json
+nooterra profile validate ./profiles/engineering-spend.profile.json --format json
+nooterra profile simulate ./profiles/engineering-spend.profile.json --format json
 ```
 
 ## Troubleshooting
 
-- `SETTLD_API_KEY must be a non-empty string`
+- `NOOTERRA_API_KEY must be a non-empty string`
   - ensure key is present in setup flags or shell env.
 - `BYO wallet mode missing required env keys`
   - provide all required Circle keys in `docs/QUICKSTART_MCP_HOSTS.md`.
-- `auth required: pass --cookie/--magic-link-api-key or run settld login first`
-  - run `settld login`, then retry wallet commands.
+- `auth required: pass --cookie/--magic-link-api-key or run nooterra login first`
+  - run `nooterra login`, then retry wallet commands.
 - `no hosted funding URL configured for card/bank`
   - set backend Coinbase env (`MAGIC_LINK_WALLET_FUND_PROVIDER=coinbase`, `MAGIC_LINK_COINBASE_API_KEY_VALUE`, `MAGIC_LINK_COINBASE_API_SECRET_KEY`) or set explicit `MAGIC_LINK_WALLET_FUND_CARD_URL` / `MAGIC_LINK_WALLET_FUND_BANK_URL`.
   - pass `--hosted-url` for an ad-hoc override.

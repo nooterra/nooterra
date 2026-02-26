@@ -35,7 +35,7 @@ test("vendor-contract-test strict-pass ClosePack", async () => {
   const fixtureDir = path.resolve("test/fixtures/bundles/v1/closepack/strict-pass");
   const trustPath = path.resolve("test/fixtures/bundles/v1/trust.json");
 
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-vendor-contract-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-vendor-contract-"));
   const zipPath = path.join(tmp, "ClosePack.v1.zip");
 
   const abs = path.resolve(fixtureDir);

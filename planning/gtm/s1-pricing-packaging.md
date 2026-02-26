@@ -43,7 +43,7 @@ Owner: PM
 - At least 2 pilots accept paid pilot structure.
 - No pricing blocker from procurement on metering language.
 
-## Self-serve ICP v1 decision (February 7, 2026)
+## self-serve ICP decision (February 7, 2026)
 
 - First self-serve ICP: AI tool providers.
 - Primary positioning: contract + proof + settlement + dispute for tool invocations.

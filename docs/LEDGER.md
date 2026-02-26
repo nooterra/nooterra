@@ -1,6 +1,6 @@
 # Ledger (v0.4)
 
-Settld treats settlement as a double-entry ledger: every journal entry must balance to zero.
+Nooterra treats settlement as a double-entry ledger: every journal entry must balance to zero.
 
 ## Posting sign convention
 

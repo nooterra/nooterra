@@ -11,7 +11,7 @@ This guide gets you from zero to a first verified receipt with the fewest steps.
 ## 2) Guided setup (recommended)
 
 ```bash
-npx settld setup
+npx nooterra setup
 ```
 
 The wizard writes host config, wires MCP env, applies starter profile `engineering-spend` (unless skipped), and runs smoke by default.
@@ -26,18 +26,18 @@ Choose `quick` mode for minimal prompts:
 ## 3) Non-interactive setup (CI / scripted)
 
 ```bash
-npx settld setup \
+npx nooterra setup \
   --non-interactive \
   --host openclaw \
   --wallet-mode managed \
   --base-url http://127.0.0.1:3000 \
   --tenant-id tenant_default \
-  --settld-api-key sk_live_xxx.yyy \
+  --nooterra-api-key sk_live_xxx.yyy \
   --profile-id engineering-spend \
   --smoke
 ```
 
-`--host` values: `codex`, `claude`, `cursor`, `openclaw`
+`--host` values: `nooterra`, `claude`, `cursor`, `openclaw`
 
 Useful flags:
 
@@ -50,15 +50,15 @@ Useful flags:
 ## 4) Verify runtime + first paid path
 
 ```bash
-settld login
-npm run mcp:probe -- --call settld.about '{}'
+nooterra login
+npm run mcp:probe -- --call nooterra.about '{}'
 npm run demo:mcp-paid-exa
-settld x402 receipt verify /tmp/settld-first-receipt.json --format json
+nooterra x402 receipt verify /tmp/nooterra-first-receipt.json --format json
 ```
 
 ## 5) Expected outcome
 
-- Host can call `settld.about`
+- Host can call `nooterra.about`
 - Starter profile is applied (or intentionally skipped)
 - First paid run returns deterministic IDs such as `gateId`, `decisionId`, `settlementReceiptId`
 - Receipt verification succeeds
@@ -78,7 +78,7 @@ curl -sS -X POST \
   -H "x-api-key: <admin_api_key>" \
   -H "content-type: application/json" \
   http://127.0.0.1:3090/v1/tenants/<tenant_id>/onboarding/runtime-bootstrap/smoke-test \
-  -d '{"env":{"SETTLD_BASE_URL":"http://127.0.0.1:3000","SETTLD_TENANT_ID":"<tenant_id>","SETTLD_API_KEY":"<runtime_key>"}}'
+  -d '{"env":{"NOOTERRA_BASE_URL":"http://127.0.0.1:3000","NOOTERRA_TENANT_ID":"<tenant_id>","NOOTERRA_API_KEY":"<runtime_key>"}}'
 
 # 3) First paid call
 curl -sS -X POST \
@@ -93,5 +93,5 @@ curl -sS -X POST \
   -H "x-idempotency-key: matrix_quickstart_1" \
   -H "content-type: application/json" \
   http://127.0.0.1:3090/v1/tenants/<tenant_id>/onboarding/conformance-matrix \
-  -d '{"targets":["codex","claude","cursor","openclaw"]}'
+  -d '{"targets":["nooterra","claude","cursor","openclaw"]}'
 ```

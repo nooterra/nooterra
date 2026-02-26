@@ -1,6 +1,6 @@
 # Core Primitives
 
-Settld security and settlement correctness come from signed, hash-bound artifacts with deterministic relationships.
+Nooterra security and settlement correctness come from signed, hash-bound artifacts with deterministic relationships.
 
 ## Canonical transaction chain
 

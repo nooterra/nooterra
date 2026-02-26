@@ -1,21 +1,21 @@
-# SettldPay Key Rotation Runbook
+# NooterraPay Key Rotation Runbook
 
-This runbook covers rotation for the SettldPay Ed25519 signing key used by:
+This runbook covers rotation for the NooterraPay Ed25519 signing key used by:
 
 - `POST /x402/gate/authorize-payment` token minting
-- `GET /.well-known/settld-keys.json` public key discovery
+- `GET /.well-known/nooterra-keys.json` public key discovery
 
 ## Current model
 
 - Tokens include `kid` and are signed with the active server signer key.
-- Verifiers resolve keys via `/.well-known/settld-keys.json`.
+- Verifiers resolve keys via `/.well-known/nooterra-keys.json`.
 - For file-backed deployments (`STORE=memory` with `PROXY_DATA_DIR`), key material is persisted in:
   - `${PROXY_DATA_DIR}/server-signer.json` (active signer compatibility file)
-  - `${PROXY_DATA_DIR}/settld-pay-keyset-store.json` (active + previous key history)
+  - `${PROXY_DATA_DIR}/nooterra-pay-keyset-store.json` (active + previous key history)
 - API supports published fallback keys via:
-  - `SETTLD_PAY_FALLBACK_KEYS` (JSON array of `{ keyId?, publicKeyPem }`)
-  - `SETTLD_PAY_FALLBACK_PUBLIC_KEY_PEM`
-  - `SETTLD_PAY_FALLBACK_KEY_ID`
+  - `NOOTERRA_PAY_FALLBACK_KEYS` (JSON array of `{ keyId?, publicKeyPem }`)
+  - `NOOTERRA_PAY_FALLBACK_PUBLIC_KEY_PEM`
+  - `NOOTERRA_PAY_FALLBACK_KEY_ID`
 
 ## Automated rotation command
 
@@ -63,14 +63,14 @@ What it does:
 Before/after rotation, run:
 
 ```bash
-node --test test/settld-pay-token.test.js
+node --test test/nooterra-pay-token.test.js
 node --test test/api-e2e-x402-authorize-payment.test.js
 ```
 
 And manually confirm:
 
 ```bash
-curl -fsS http://127.0.0.1:3000/.well-known/settld-keys.json
+curl -fsS http://127.0.0.1:3000/.well-known/nooterra-keys.json
 ```
 
 Response should include:

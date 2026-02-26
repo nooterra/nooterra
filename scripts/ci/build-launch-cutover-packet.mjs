@@ -12,12 +12,12 @@ const GO_LIVE_GATE_SCHEMA_VERSION = "GoLiveGateReport.v1";
 const THROUGHPUT_REPORT_SCHEMA_VERSION = "ThroughputDrill10xReport.v1";
 const INCIDENT_REHEARSAL_REPORT_SCHEMA_VERSION = "ThroughputIncidentRehearsalReport.v1";
 const LIGHTHOUSE_TRACKER_SCHEMA_VERSION = "LighthouseProductionTracker.v1";
-const SETTLD_VERIFIED_GATE_SCHEMA_VERSION = "SettldVerifiedGateReport.v1";
-const DEFAULT_SETTLD_VERIFIED_COLLAB_REPORT_PATH = "artifacts/gates/settld-verified-collaboration-gate.json";
+const NOOTERRA_VERIFIED_GATE_SCHEMA_VERSION = "NooterraVerifiedGateReport.v1";
+const DEFAULT_NOOTERRA_VERIFIED_COLLAB_REPORT_PATH = "artifacts/gates/nooterra-verified-collaboration-gate.json";
 const REQUIRED_CUTOVER_CHECKS_SUMMARY_SCHEMA_VERSION = "ProductionCutoverRequiredChecksSummary.v1";
 const REQUIRED_CUTOVER_CHECK_SPECS = Object.freeze([
   {
-    requiredCheckId: "settld_verified_collaboration",
+    requiredCheckId: "nooterra_verified_collaboration",
     sourceCheckId: null
   },
   {
@@ -29,12 +29,24 @@ const REQUIRED_CUTOVER_CHECK_SPECS = Object.freeze([
     sourceCheckId: "openclaw_substrate_demo_transcript_verified"
   },
   {
+    requiredCheckId: "checkpoint_grant_binding_verified",
+    sourceCheckId: "ops_agent_substrate_fast_loop_checkpoint_grant_binding"
+  },
+  {
+    requiredCheckId: "work_order_metering_durability_verified",
+    sourceCheckId: "pg_work_order_metering_durability"
+  },
+  {
     requiredCheckId: "sdk_acs_smoke_js_verified",
     sourceCheckId: "e2e_js_sdk_acs_substrate_smoke"
   },
   {
     requiredCheckId: "sdk_acs_smoke_py_verified",
     sourceCheckId: "e2e_python_sdk_acs_substrate_smoke"
+  },
+  {
+    requiredCheckId: "sdk_python_contract_freeze_verified",
+    sourceCheckId: "e2e_python_sdk_contract_freeze"
   }
 ]);
 
@@ -121,10 +133,10 @@ function checkOk(row) {
   return row?.ok === true || row?.status === "passed";
 }
 
-function buildRequiredCutoverChecksSummary({ settldVerifiedCollabRead, sourceReportPath }) {
-  const sourceReportSchemaVersion = settldVerifiedCollabRead.ok ? settldVerifiedCollabRead.value?.schemaVersion ?? null : null;
-  const sourceReportOk = settldVerifiedCollabRead.ok ? settldVerifiedCollabRead.value?.ok === true : false;
-  const sourceChecks = Array.isArray(settldVerifiedCollabRead?.value?.checks) ? settldVerifiedCollabRead.value.checks : [];
+function buildRequiredCutoverChecksSummary({ nooterraVerifiedCollabRead, sourceReportPath }) {
+  const sourceReportSchemaVersion = nooterraVerifiedCollabRead.ok ? nooterraVerifiedCollabRead.value?.schemaVersion ?? null : null;
+  const sourceReportOk = nooterraVerifiedCollabRead.ok ? nooterraVerifiedCollabRead.value?.ok === true : false;
+  const sourceChecks = Array.isArray(nooterraVerifiedCollabRead?.value?.checks) ? nooterraVerifiedCollabRead.value.checks : [];
   const checksById = new Map(
     sourceChecks
       .map((row) => {
@@ -147,7 +159,7 @@ function buildRequiredCutoverChecksSummary({ settldVerifiedCollabRead, sourceRep
           reportSchemaVersion: sourceReportSchemaVersion,
           sourceCheckId: null
         },
-        failureCode: ok ? null : settldVerifiedCollabRead.ok ? "source_report_verdict_not_ok" : "source_report_missing"
+        failureCode: ok ? null : nooterraVerifiedCollabRead.ok ? "source_report_verdict_not_ok" : "source_report_missing"
       };
     }
     const sourceRow = checksById.get(spec.sourceCheckId) ?? null;
@@ -220,13 +232,13 @@ async function main() {
     process.cwd(),
     process.env.LIGHTHOUSE_TRACKER_PATH || "planning/launch/lighthouse-production-tracker.json"
   );
-  const settldVerifiedCollabReportPathRef = process.env.SETTLD_VERIFIED_COLLAB_REPORT_PATH || DEFAULT_SETTLD_VERIFIED_COLLAB_REPORT_PATH;
+  const nooterraVerifiedCollabReportPathRef = process.env.NOOTERRA_VERIFIED_COLLAB_REPORT_PATH || DEFAULT_NOOTERRA_VERIFIED_COLLAB_REPORT_PATH;
   const artifactsRoot =
     deriveArtifactsRootFromPath(gateReportPath) ?? deriveArtifactsRootFromPath(packetPath) ?? process.cwd();
-  const settldVerifiedCollabReportPathFromArtifactsRoot = resolve(artifactsRoot, settldVerifiedCollabReportPathRef);
-  const settldVerifiedCollabReportPathFromCwd = resolve(process.cwd(), settldVerifiedCollabReportPathRef);
-  const preferArtifactsRoot = typeof settldVerifiedCollabReportPathRef === "string" && settldVerifiedCollabReportPathRef.startsWith("artifacts/");
-  const settldVerifiedCollabReportPath = preferArtifactsRoot ? settldVerifiedCollabReportPathFromArtifactsRoot : settldVerifiedCollabReportPathFromCwd;
+  const nooterraVerifiedCollabReportPathFromArtifactsRoot = resolve(artifactsRoot, nooterraVerifiedCollabReportPathRef);
+  const nooterraVerifiedCollabReportPathFromCwd = resolve(process.cwd(), nooterraVerifiedCollabReportPathRef);
+  const preferArtifactsRoot = typeof nooterraVerifiedCollabReportPathRef === "string" && nooterraVerifiedCollabReportPathRef.startsWith("artifacts/");
+  const nooterraVerifiedCollabReportPath = preferArtifactsRoot ? nooterraVerifiedCollabReportPathFromArtifactsRoot : nooterraVerifiedCollabReportPathFromCwd;
   const signingConfig = resolveSigningConfig(process.env);
   const generatedAtIso = resolveGeneratedAtIso(process.env);
   await mkdir(dirname(packetPath), { recursive: true });
@@ -235,19 +247,19 @@ async function main() {
   const throughputRead = await readJson(throughputReportPath);
   const incidentRehearsalRead = await readJson(incidentRehearsalReportPath);
   const lighthouseRead = await readJson(lighthouseTrackerPath);
-  let settldVerifiedCollabRead = await readJson(settldVerifiedCollabReportPath);
-  if (!settldVerifiedCollabRead.ok && settldVerifiedCollabReportPathFromArtifactsRoot !== settldVerifiedCollabReportPath) {
-    settldVerifiedCollabRead = await readJson(settldVerifiedCollabReportPathFromArtifactsRoot);
+  let nooterraVerifiedCollabRead = await readJson(nooterraVerifiedCollabReportPath);
+  if (!nooterraVerifiedCollabRead.ok && nooterraVerifiedCollabReportPathFromArtifactsRoot !== nooterraVerifiedCollabReportPath) {
+    nooterraVerifiedCollabRead = await readJson(nooterraVerifiedCollabReportPathFromArtifactsRoot);
   }
-  if (!settldVerifiedCollabRead.ok && settldVerifiedCollabReportPathFromCwd !== settldVerifiedCollabReportPath) {
-    settldVerifiedCollabRead = await readJson(settldVerifiedCollabReportPathFromCwd);
+  if (!nooterraVerifiedCollabRead.ok && nooterraVerifiedCollabReportPathFromCwd !== nooterraVerifiedCollabReportPath) {
+    nooterraVerifiedCollabRead = await readJson(nooterraVerifiedCollabReportPathFromCwd);
   }
   const lighthouse = lighthouseRead.ok ? evaluateLighthouseTracker(lighthouseRead.value) : null;
 
   const gateCheckRefs = gateRead.ok ? checkFromGoLiveGate(gateRead.value) : null;
   const requiredCutoverChecks = buildRequiredCutoverChecksSummary({
-    settldVerifiedCollabRead,
-    sourceReportPath: settldVerifiedCollabReportPathRef
+    nooterraVerifiedCollabRead,
+    sourceReportPath: nooterraVerifiedCollabReportPathRef
   });
   const checks = [
     {
@@ -325,38 +337,38 @@ async function main() {
         : null
     },
     {
-      id: "settld_verified_collaboration_report_present",
-      ok: settldVerifiedCollabRead.ok,
-      path: settldVerifiedCollabReportPathRef,
-      details: settldVerifiedCollabRead.ok ? null : { code: settldVerifiedCollabRead.errorCode, message: settldVerifiedCollabRead.error }
+      id: "nooterra_verified_collaboration_report_present",
+      ok: nooterraVerifiedCollabRead.ok,
+      path: nooterraVerifiedCollabReportPathRef,
+      details: nooterraVerifiedCollabRead.ok ? null : { code: nooterraVerifiedCollabRead.errorCode, message: nooterraVerifiedCollabRead.error }
     },
     {
-      id: "settld_verified_collaboration_schema_valid",
-      ok: settldVerifiedCollabRead.ok ? settldVerifiedCollabRead.value?.schemaVersion === SETTLD_VERIFIED_GATE_SCHEMA_VERSION : false,
-      path: settldVerifiedCollabReportPathRef,
-      details: settldVerifiedCollabRead.ok
+      id: "nooterra_verified_collaboration_schema_valid",
+      ok: nooterraVerifiedCollabRead.ok ? nooterraVerifiedCollabRead.value?.schemaVersion === NOOTERRA_VERIFIED_GATE_SCHEMA_VERSION : false,
+      path: nooterraVerifiedCollabReportPathRef,
+      details: nooterraVerifiedCollabRead.ok
         ? {
-            expected: SETTLD_VERIFIED_GATE_SCHEMA_VERSION,
-            observed: settldVerifiedCollabRead.value?.schemaVersion ?? null
+            expected: NOOTERRA_VERIFIED_GATE_SCHEMA_VERSION,
+            observed: nooterraVerifiedCollabRead.value?.schemaVersion ?? null
           }
         : null
     },
     {
-      id: "settld_verified_collaboration_verdict_ok",
-      ok: settldVerifiedCollabRead.ok ? settldVerifiedCollabRead.value?.ok === true : false,
-      path: settldVerifiedCollabReportPathRef,
-      details: settldVerifiedCollabRead.ok
+      id: "nooterra_verified_collaboration_verdict_ok",
+      ok: nooterraVerifiedCollabRead.ok ? nooterraVerifiedCollabRead.value?.ok === true : false,
+      path: nooterraVerifiedCollabReportPathRef,
+      details: nooterraVerifiedCollabRead.ok
         ? {
-            level: settldVerifiedCollabRead.value?.level ?? null,
-            totalChecks: settldVerifiedCollabRead.value?.summary?.totalChecks ?? null,
-            passedChecks: settldVerifiedCollabRead.value?.summary?.passedChecks ?? null
+            level: nooterraVerifiedCollabRead.value?.level ?? null,
+            totalChecks: nooterraVerifiedCollabRead.value?.summary?.totalChecks ?? null,
+            passedChecks: nooterraVerifiedCollabRead.value?.summary?.passedChecks ?? null
           }
         : null
     },
     ...requiredCutoverChecks.checks.map((row) => ({
       id: `required_cutover_check_${row.id}_passed`,
       ok: row.ok === true,
-      path: settldVerifiedCollabReportPathRef,
+      path: nooterraVerifiedCollabReportPathRef,
       details: {
         requiredCheckId: row.id,
         status: row.status,
@@ -371,7 +383,7 @@ async function main() {
       ok:
         requiredCutoverChecks.summary.requiredChecks === REQUIRED_CUTOVER_CHECK_SPECS.length &&
         requiredCutoverChecks.summary.requiredChecks === requiredCutoverChecks.summary.passedChecks + requiredCutoverChecks.summary.failedChecks,
-      path: settldVerifiedCollabReportPathRef,
+      path: nooterraVerifiedCollabReportPathRef,
       details: {
         requiredChecks: requiredCutoverChecks.summary.requiredChecks,
         passedChecks: requiredCutoverChecks.summary.passedChecks,
@@ -442,8 +454,8 @@ async function main() {
       throughputReportPath,
       incidentRehearsalReportPath,
       lighthouseTrackerPath,
-      settldVerifiedCollaborationGateReportPath: settldVerifiedCollabReportPathRef,
-      settldVerifiedCollaborationGateReportSha256: settldVerifiedCollabRead.sourceSha256
+      nooterraVerifiedCollaborationGateReportPath: nooterraVerifiedCollabReportPathRef,
+      nooterraVerifiedCollaborationGateReportSha256: nooterraVerifiedCollabRead.sourceSha256
     },
     checks,
     gateReference: gateCheckRefs,

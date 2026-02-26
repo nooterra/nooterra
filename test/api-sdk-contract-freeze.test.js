@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-import { SettldClient } from "../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../packages/api-sdk/src/index.js";
 
 function readFile(relativePath) {
   return fs.readFileSync(path.resolve(process.cwd(), relativePath), "utf8");
 }
 
 test("api-sdk contract freeze: manual-review + dispute lifecycle methods and types remain published", () => {
-  const client = new SettldClient({
-    baseUrl: "https://api.settld.local",
+  const client = new NooterraClient({
+    baseUrl: "https://api.nooterra.local",
     tenantId: "tenant_sdk_freeze",
     fetch: async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } })
   });
@@ -44,6 +44,7 @@ test("api-sdk contract freeze: manual-review + dispute lifecycle methods and typ
   assert.equal(typeof client.acceptWorkOrder, "function");
   assert.equal(typeof client.progressWorkOrder, "function");
   assert.equal(typeof client.topUpWorkOrder, "function");
+  assert.equal(typeof client.getWorkOrderMetering, "function");
   assert.equal(typeof client.completeWorkOrder, "function");
   assert.equal(typeof client.settleWorkOrder, "function");
   assert.equal(typeof client.listWorkOrderReceipts, "function");
@@ -89,6 +90,7 @@ test("api-sdk contract freeze: manual-review + dispute lifecycle methods and typ
   assert.match(dts, /acceptWorkOrder\(/);
   assert.match(dts, /progressWorkOrder\(/);
   assert.match(dts, /topUpWorkOrder\(/);
+  assert.match(dts, /getWorkOrderMetering\(/);
   assert.match(dts, /completeWorkOrder\(/);
   assert.match(dts, /settleWorkOrder\(/);
   assert.match(dts, /listWorkOrderReceipts\(/);

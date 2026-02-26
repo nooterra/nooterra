@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { SettldClient } from "../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../packages/api-sdk/src/index.js";
 
 function makeJsonResponse(body, { status = 200, requestId = "req_test_task_neg_1" } = {}) {
   return new Response(JSON.stringify(body), {
@@ -48,8 +48,8 @@ test("api-sdk: task negotiation methods call expected endpoints", async () => {
     return makeJsonResponse({}, { status: 404 });
   };
 
-  const client = new SettldClient({
-    baseUrl: "https://api.settld.local",
+  const client = new NooterraClient({
+    baseUrl: "https://api.nooterra.local",
     tenantId: "tenant_sdk",
     fetch: fetchStub
   });
@@ -61,7 +61,7 @@ test("api-sdk: task negotiation methods call expected endpoints", async () => {
     requiredCapability: "analysis.generic",
     pricing: { amountCents: 500, currency: "USD" }
   });
-  assert.equal(calls[0].url, "https://api.settld.local/task-quotes");
+  assert.equal(calls[0].url, "https://api.nooterra.local/task-quotes");
   assert.equal(calls[0].init?.method, "POST");
 
   await client.listTaskQuotes({
@@ -70,11 +70,11 @@ test("api-sdk: task negotiation methods call expected endpoints", async () => {
     limit: 20,
     offset: 0
   });
-  assert.equal(calls[1].url, "https://api.settld.local/task-quotes?buyerAgentId=agt_buyer_sdk&status=open&limit=20&offset=0");
+  assert.equal(calls[1].url, "https://api.nooterra.local/task-quotes?buyerAgentId=agt_buyer_sdk&status=open&limit=20&offset=0");
   assert.equal(calls[1].init?.method, "GET");
 
   await client.getTaskQuote("tquote_sdk_1");
-  assert.equal(calls[2].url, "https://api.settld.local/task-quotes/tquote_sdk_1");
+  assert.equal(calls[2].url, "https://api.nooterra.local/task-quotes/tquote_sdk_1");
   assert.equal(calls[2].init?.method, "GET");
 
   await client.createTaskOffer({
@@ -87,7 +87,7 @@ test("api-sdk: task negotiation methods call expected endpoints", async () => {
     },
     pricing: { amountCents: 500, currency: "USD" }
   });
-  assert.equal(calls[3].url, "https://api.settld.local/task-offers");
+  assert.equal(calls[3].url, "https://api.nooterra.local/task-offers");
   assert.equal(calls[3].init?.method, "POST");
 
   await client.listTaskOffers({
@@ -96,11 +96,11 @@ test("api-sdk: task negotiation methods call expected endpoints", async () => {
     limit: 20,
     offset: 0
   });
-  assert.equal(calls[4].url, "https://api.settld.local/task-offers?quoteId=tquote_sdk_1&status=open&limit=20&offset=0");
+  assert.equal(calls[4].url, "https://api.nooterra.local/task-offers?quoteId=tquote_sdk_1&status=open&limit=20&offset=0");
   assert.equal(calls[4].init?.method, "GET");
 
   await client.getTaskOffer("toffer_sdk_1");
-  assert.equal(calls[5].url, "https://api.settld.local/task-offers/toffer_sdk_1");
+  assert.equal(calls[5].url, "https://api.nooterra.local/task-offers/toffer_sdk_1");
   assert.equal(calls[5].init?.method, "GET");
 
   await client.createTaskAcceptance({
@@ -109,7 +109,7 @@ test("api-sdk: task negotiation methods call expected endpoints", async () => {
     offerId: "toffer_sdk_1",
     acceptedByAgentId: "agt_buyer_sdk"
   });
-  assert.equal(calls[6].url, "https://api.settld.local/task-acceptances");
+  assert.equal(calls[6].url, "https://api.nooterra.local/task-acceptances");
   assert.equal(calls[6].init?.method, "POST");
 
   await client.listTaskAcceptances({
@@ -118,10 +118,10 @@ test("api-sdk: task negotiation methods call expected endpoints", async () => {
     limit: 20,
     offset: 0
   });
-  assert.equal(calls[7].url, "https://api.settld.local/task-acceptances?quoteId=tquote_sdk_1&status=accepted&limit=20&offset=0");
+  assert.equal(calls[7].url, "https://api.nooterra.local/task-acceptances?quoteId=tquote_sdk_1&status=accepted&limit=20&offset=0");
   assert.equal(calls[7].init?.method, "GET");
 
   await client.getTaskAcceptance("taccept_sdk_1");
-  assert.equal(calls[8].url, "https://api.settld.local/task-acceptances/taccept_sdk_1");
+  assert.equal(calls[8].url, "https://api.nooterra.local/task-acceptances/taccept_sdk_1");
   assert.equal(calls[8].init?.method, "GET");
 });

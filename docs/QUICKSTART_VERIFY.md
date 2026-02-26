@@ -1,6 +1,6 @@
 # Quickstart: Verify a bundle
 
-Goal: verify a Settld bundle directory and produce a stable machine-readable receipt (`VerifyCliOutput.v1`) suitable for CI gating and audit retention.
+Goal: verify a Nooterra bundle directory and produce a stable machine-readable receipt (`VerifyCliOutput.v1`) suitable for CI gating and audit retention.
 
 ## From source (this repo)
 
@@ -13,14 +13,14 @@ npm ci
 Verify a bundle fixture (strict):
 
 ```sh
-export SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON="$(node -e "import fs from 'node:fs'; const t=JSON.parse(fs.readFileSync('test/fixtures/bundles/v1/trust.json','utf8')); process.stdout.write(JSON.stringify(t.governanceRoots||{}))")"
-node packages/artifact-verify/bin/settld-verify.js --format json --strict --job-proof test/fixtures/bundles/v1/jobproof/strict-pass > settld-verify-output.json
+export NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON="$(node -e "import fs from 'node:fs'; const t=JSON.parse(fs.readFileSync('test/fixtures/bundles/v1/trust.json','utf8')); process.stdout.write(JSON.stringify(t.governanceRoots||{}))")"
+node packages/artifact-verify/bin/nooterra-verify.js --format json --strict --job-proof test/fixtures/bundles/v1/jobproof/strict-pass > nooterra-verify-output.json
 ```
 
 Optional: emit SARIF for GitHub annotations:
 
 ```sh
-node packages/artifact-verify/bin/settld-verify.js --format sarif --strict --job-proof test/fixtures/bundles/v1/jobproof/strict-pass > settld-verify.sarif
+node packages/artifact-verify/bin/nooterra-verify.js --format sarif --strict --job-proof test/fixtures/bundles/v1/jobproof/strict-pass > nooterra-verify.sarif
 ```
 
 ## Strict vs non-strict
@@ -37,14 +37,14 @@ node packages/artifact-verify/bin/settld-verify.js --format sarif --strict --job
 
 Strict verification needs trusted governance root keys. Provide them via:
 
-- `SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON`
-- `SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON` (only if you want to verify timestamp proofs)
+- `NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON`
+- `NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON` (only if you want to verify timestamp proofs)
 
 See `docs/spec/TRUST_ANCHORS.md`.
 
 ## Output + provenance
 
-`settld-verify --format json` emits `VerifyCliOutput.v1`:
+`nooterra-verify --format json` emits `VerifyCliOutput.v1`:
 
 - `ok`: overall CLI verdict (includes `--fail-on-warnings`)
 - `verificationOk`: underlying verification verdict

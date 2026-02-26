@@ -57,9 +57,9 @@ test("api-sdk-python: first_verified_run executes a full verified+settled run", 
         env: {
           ...process.env,
           PYTHONDONTWRITEBYTECODE: "1",
-          SETTLD_BASE_URL: `http://127.0.0.1:${port}`,
-          SETTLD_TENANT_ID: tenantId,
-          SETTLD_API_KEY: `${keyId}.${secret}`
+          NOOTERRA_BASE_URL: `http://127.0.0.1:${port}`,
+          NOOTERRA_TENANT_ID: tenantId,
+          NOOTERRA_API_KEY: `${keyId}.${secret}`
         }
       });
       let stdout = "";

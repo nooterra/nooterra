@@ -18,6 +18,7 @@ test("store: listAgentCardsPublic applies tool descriptor filters", async () => 
     agentId: "agt_read_1",
     status: "active",
     visibility: "public",
+    executionCoordinatorDid: "did:nooterra:coord_alpha",
     capabilities: ["travel.booking"],
     host: { runtime: "openclaw" },
     tools: [
@@ -37,6 +38,7 @@ test("store: listAgentCardsPublic applies tool descriptor filters", async () => 
     agentId: "agt_action_1",
     status: "active",
     visibility: "public",
+    executionCoordinatorDid: "did:nooterra:coord_bravo",
     capabilities: ["travel.booking"],
     host: { runtime: "openclaw" },
     tools: [
@@ -55,6 +57,7 @@ test("store: listAgentCardsPublic applies tool descriptor filters", async () => 
     status: "active",
     visibility: "public",
     capability: "travel.booking",
+    executionCoordinatorDid: "did:nooterra:coord_alpha",
     runtime: "openclaw",
     toolMcpName: "TRAVEL_SEARCH_FLIGHTS",
     toolRiskClass: "read",
@@ -75,6 +78,7 @@ test("store: listAgentCards applies tenant-scoped tool descriptor filters", asyn
     agentId: "agt_action_ok",
     status: "active",
     visibility: "public",
+    executionCoordinatorDid: "did:nooterra:coord_alpha",
     capabilities: ["travel.booking"],
     host: { runtime: "openclaw" },
     tools: [
@@ -94,6 +98,7 @@ test("store: listAgentCards applies tenant-scoped tool descriptor filters", asyn
     agentId: "agt_action_expensive",
     status: "active",
     visibility: "public",
+    executionCoordinatorDid: "did:nooterra:coord_alpha",
     capabilities: ["travel.booking"],
     host: { runtime: "openclaw" },
     tools: [
@@ -113,6 +118,7 @@ test("store: listAgentCards applies tenant-scoped tool descriptor filters", asyn
     agentId: "agt_other_tenant",
     status: "active",
     visibility: "public",
+    executionCoordinatorDid: "did:nooterra:coord_bravo",
     capabilities: ["travel.booking"],
     host: { runtime: "openclaw" },
     tools: [
@@ -132,6 +138,7 @@ test("store: listAgentCards applies tenant-scoped tool descriptor filters", asyn
     status: "active",
     visibility: "public",
     capability: "travel.booking",
+    executionCoordinatorDid: "did:nooterra:coord_alpha",
     runtime: "openclaw",
     toolId: "travel.book_flight",
     toolRiskClass: "action",

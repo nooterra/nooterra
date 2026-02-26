@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { SETTLD_PROTOCOL_CURRENT } from "../core/protocol.js";
+import { NOOTERRA_PROTOCOL_CURRENT } from "../core/protocol.js";
 
 function readRepoVersion() {
   try {
-    const p = path.resolve(process.cwd(), "SETTLD_VERSION");
+    const p = path.resolve(process.cwd(), "NOOTERRA_VERSION");
     const raw = fs.readFileSync(p, "utf8");
     const v = String(raw).trim();
     return v || "0.0.0";
@@ -26,10 +26,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
   };
 
   const ProtocolHeader = {
-    name: "x-settld-protocol",
+    name: "x-nooterra-protocol",
     in: "header",
     required: true,
-    schema: { type: "string", example: SETTLD_PROTOCOL_CURRENT },
+    schema: { type: "string", example: NOOTERRA_PROTOCOL_CURRENT },
     description: "Client protocol version (major.minor). Required in production."
   };
 
@@ -47,6 +47,12 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     required: false,
     schema: { type: "string" },
     description: "Optional idempotency key. If reused, request body must match."
+  };
+
+  const RequiredIdempotencyHeader = {
+    ...IdempotencyHeader,
+    required: true,
+    description: "Required idempotency key. If reused, request body must match."
   };
 
   const ExpectedPrevChainHashHeader = {
@@ -921,6 +927,83 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
       traceId: { type: "string", nullable: true },
       authorityGrantRef: { type: "string" },
       settledAt: { type: "string", format: "date-time" }
+    }
+  };
+
+  const MeterV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "meterId",
+      "workOrderId",
+      "meterType",
+      "sourceType",
+      "quantity",
+      "amountCents",
+      "occurredAt",
+      "recordedAt",
+      "meterHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["Meter.v1"] },
+      meterId: { type: "string" },
+      workOrderId: { type: "string" },
+      meterType: { type: "string", enum: ["topup", "usage"] },
+      sourceType: { type: "string", enum: ["work_order_meter_topup", "work_order_meter_usage"] },
+      eventType: { type: "string", nullable: true },
+      sourceEventId: { type: "string", nullable: true },
+      quantity: { type: "integer", minimum: 0 },
+      amountCents: { type: "integer", minimum: 0 },
+      currency: { type: "string", nullable: true },
+      occurredAt: { type: "string", format: "date-time" },
+      recordedAt: { type: "string", format: "date-time" },
+      period: { type: "string", nullable: true },
+      eventHash: { type: "string", pattern: "^[0-9a-f]{64}$", nullable: true },
+      metadata: { type: "object", additionalProperties: true, nullable: true },
+      meterHash: { type: "string", pattern: "^[0-9a-f]{64}$" }
+    }
+  };
+
+  const WorkOrderMeteringSnapshotV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "meterSchemaVersion", "workOrderId", "summary", "meterCount", "meterDigest", "meters"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["WorkOrderMeteringSnapshot.v1"] },
+      meterSchemaVersion: { type: "string", enum: ["Meter.v1"] },
+      workOrderId: { type: "string" },
+      policy: { type: "object", additionalProperties: true, nullable: true },
+      summary: {
+        type: "object",
+        additionalProperties: false,
+        required: ["baseAmountCents", "topUpTotalCents", "usageTotalCents", "coveredAmountCents", "maxCostCents", "remainingCents"],
+        properties: {
+          baseAmountCents: { type: "integer", minimum: 0 },
+          topUpTotalCents: { type: "integer", minimum: 0 },
+          usageTotalCents: { type: "integer", minimum: 0 },
+          coveredAmountCents: { type: "integer", minimum: 0 },
+          maxCostCents: { type: "integer", minimum: 0, nullable: true },
+          remainingCents: { type: "integer", minimum: 0, nullable: true }
+        }
+      },
+      meterCount: { type: "integer", minimum: 0 },
+      meterDigest: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      meters: { type: "array", items: MeterV1 }
+    }
+  };
+
+  const SubAgentWorkOrderTopUpRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["topUpId", "amountCents"],
+    properties: {
+      topUpId: { type: "string" },
+      amountCents: { type: "integer", minimum: 1 },
+      quantity: { type: "integer", minimum: 1, nullable: true },
+      currency: { type: "string", nullable: true },
+      eventKey: { type: "string", nullable: true },
+      occurredAt: { type: "string", format: "date-time", nullable: true }
     }
   };
 
@@ -4596,10 +4679,10 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
   const spec = {
     openapi: "3.0.3",
     info: {
-      title: "Settld API",
+      title: "Nooterra API",
       version,
-      description: "Settld system-of-record API (protocol-gated).",
-      "x-settld-protocol": SETTLD_PROTOCOL_CURRENT
+      description: "Nooterra system-of-record API (protocol-gated).",
+      "x-nooterra-protocol": NOOTERRA_PROTOCOL_CURRENT
     },
     servers: baseUrl ? [{ url: baseUrl }] : undefined,
     components: {
@@ -6723,7 +6806,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             TenantHeader,
             ProtocolHeader,
             RequestIdHeader,
-            IdempotencyHeader,
+            RequiredIdempotencyHeader,
             ExpectedPrevChainHashHeader,
             { name: "sessionId", in: "path", required: true, schema: { type: "string" } }
           ],
@@ -7049,6 +7132,99 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                 }
               }
             },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/work-orders/{workOrderId}/topup": {
+        post: {
+          summary: "Append a metering top-up event for SubAgentWorkOrder.v1",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            IdempotencyHeader,
+            { name: "workOrderId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: { required: true, content: { "application/json": { schema: SubAgentWorkOrderTopUpRequest } } },
+          responses: {
+            200: {
+              description: "Existing event reused",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      appended: { type: "boolean" },
+                      event: { type: "object", additionalProperties: true },
+                      metering: { type: "object", additionalProperties: true }
+                    }
+                  }
+                }
+              }
+            },
+            201: {
+              description: "Top-up event appended",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      appended: { type: "boolean" },
+                      event: { type: "object", additionalProperties: true },
+                      metering: { type: "object", additionalProperties: true }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/work-orders/{workOrderId}/metering": {
+        get: {
+          summary: "Get WorkOrderMeteringSnapshot.v1 with Meter.v1 events",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "workOrderId", in: "path", required: true, schema: { type: "string" } },
+            { name: "includeMeters", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 1000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      workOrderId: { type: "string" },
+                      metering: WorkOrderMeteringSnapshotV1,
+                      totalMeters: { type: "integer", minimum: 0 },
+                      count: { type: "integer", minimum: 0 },
+                      limit: { type: "integer", minimum: 1 },
+                      offset: { type: "integer", minimum: 0 }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
             409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
           }
@@ -7997,7 +8173,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "artifactId", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read", "audit_read", "finance_read"],
+          "x-nooterra-scopes": ["ops_read", "audit_read", "finance_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
@@ -8224,7 +8400,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Ops status summary",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         }
       },
@@ -8246,7 +8422,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Ops: lock a tool-call funding hold (holdback escrow)",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: {
             required: true,
             content: {
@@ -8291,7 +8467,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -8329,7 +8505,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "agreementHash", in: "query", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -8361,7 +8537,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "includeEvents", in: "query", required: false, schema: { type: "string", enum: ["1"] } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -8382,7 +8558,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Ops: get tool-call funding hold",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, { name: "holdHash", in: "path", required: true, schema: { type: "string" } }],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -8408,7 +8584,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Ops: run tool-call holdback maintenance tick",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: {
             required: false,
             content: {
@@ -8446,7 +8622,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "offset", in: "query", required: false, schema: { type: "integer" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read", "audit_read"],
+          "x-nooterra-scopes": ["ops_read", "audit_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsJobsListResponse } } }
           }
@@ -8468,7 +8644,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: DelegationTraceListResponse } } },
             403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } }
@@ -8485,7 +8661,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "chainHash", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -8514,7 +8690,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Emergency revoke delegated marketplace authority",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: true, content: { "application/json": { schema: DelegationEmergencyRevokeRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: DelegationEmergencyRevokeResponse } } },
@@ -8529,7 +8705,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Emergency pause an agent for paid execution paths",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyPauseRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
@@ -8545,7 +8721,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Emergency quarantine an agent for paid execution paths",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyQuarantineRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
@@ -8561,7 +8737,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Emergency revoke delegated authority for paid execution paths",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyRevokeRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
@@ -8577,7 +8753,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Set emergency kill-switch state for high-risk execution",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyKillSwitchRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
@@ -8593,7 +8769,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Resume previously paused or quarantined emergency controls",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_write"],
+          "x-nooterra-scopes": ["ops_write"],
           requestBody: { required: false, content: { "application/json": { schema: OpsEmergencyResumeRequest } } },
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsEmergencyControlResponse } } },
@@ -8623,7 +8799,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "kernelVerificationErrorThreshold", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsNetworkCommandCenterResponse } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
@@ -8640,7 +8816,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "vertical", in: "query", required: false, schema: { type: "string", enum: ["delivery", "security"] } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
@@ -8665,7 +8841,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0, default: 0 } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read", "finance_write", "ops_read"],
+          "x-nooterra-scopes": ["finance_read", "finance_write", "ops_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsArbitrationQueueResponse } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
@@ -8679,7 +8855,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Ops: get settlement adjustment record",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, { name: "adjustmentId", in: "path", required: true, schema: { type: "string" } }],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: {
             200: {
               description: "OK",
@@ -8711,7 +8887,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "slaHours", in: "query", required: false, schema: { type: "number", minimum: 1, maximum: 8760, default: 24 } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read", "finance_write", "ops_read"],
+          "x-nooterra-scopes": ["finance_read", "finance_write", "ops_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsArbitrationWorkspaceResponse } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
@@ -8809,7 +8985,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Request month close",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: { required: true, content: { "application/json": { schema: MonthCloseRequest } } },
           responses: { 202: { description: "Accepted", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         },
@@ -8817,7 +8993,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Get month close state",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read"],
+          "x-nooterra-scopes": ["finance_read"],
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         }
       },
@@ -8833,7 +9009,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "status", in: "query", required: false, schema: { type: "string", example: "CLOSED" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read"],
+          "x-nooterra-scopes": ["finance_read"],
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         }
       },
@@ -8848,7 +9024,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "period", in: "path", required: true, schema: { type: "string", example: "2026-02" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read"],
+          "x-nooterra-scopes": ["finance_read"],
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         }
       },
@@ -8864,7 +9040,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "period", in: "path", required: true, schema: { type: "string", example: "2026-02" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: false,
             content: {
@@ -8898,7 +9074,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "operationId", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read"],
+          "x-nooterra-scopes": ["finance_read"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             404: { description: "Not found", content: { "application/json": { schema: ErrorResponse } } }
@@ -8917,7 +9093,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "operationId", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: false,
             content: {
@@ -8953,7 +9129,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "providerId", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: true,
             content: {
@@ -8996,7 +9172,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "operationId", in: "path", required: true, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: false,
             content: {
@@ -9029,7 +9205,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "providerId", in: "query", required: false, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: false,
             content: {
@@ -9061,14 +9237,14 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Get finance account map",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["ops_read"],
+          "x-nooterra-scopes": ["ops_read"],
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         },
         put: {
           summary: "Upsert finance account map (audited)",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: { required: true, content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
           responses: { 200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } } }
         }
@@ -9083,7 +9259,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "period", in: "query", required: true, schema: { type: "string", example: "2026-02" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             404: { description: "Not found", content: { "application/json": { schema: ErrorResponse } } }
@@ -9100,7 +9276,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "period", in: "query", required: true, schema: { type: "string", example: "2026-02" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           responses: {
             200: { description: "OK", content: { "text/csv": { schema: { type: "string" } } } },
             409: { description: "Not ready", content: { "application/json": { schema: ErrorResponse } } }
@@ -9118,7 +9294,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "persist", in: "query", required: false, schema: { type: "boolean", default: false } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read", "finance_write"],
+          "x-nooterra-scopes": ["finance_read", "finance_write"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: OpsFinanceReconcileResponse } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
@@ -9137,7 +9313,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "providerId", in: "query", required: false, schema: { type: "string" } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read", "finance_write"],
+          "x-nooterra-scopes": ["finance_read", "finance_write"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
@@ -9157,7 +9333,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             { name: "persist", in: "query", required: false, schema: { type: "boolean", default: false } }
           ],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_read", "finance_write"],
+          "x-nooterra-scopes": ["finance_read", "finance_write"],
           responses: {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
@@ -9171,7 +9347,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           summary: "Execute escrow net-close when deterministic preconditions pass",
           parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
           security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
-          "x-settld-scopes": ["finance_write"],
+          "x-nooterra-scopes": ["finance_write"],
           requestBody: {
             required: true,
             content: {
@@ -9234,7 +9410,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             400: {
               description: "Bad Request",
-              "x-settld-known-error-codes": [...X402AuthorizePaymentBadRequestKnownErrorCodes],
+              "x-nooterra-known-error-codes": [...X402AuthorizePaymentBadRequestKnownErrorCodes],
               content: {
                 "application/json": {
                   schema: errorResponseWithKnownCodes(X402AuthorizePaymentBadRequestKnownErrorCodes)
@@ -9244,7 +9420,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
             409: {
               description: "Conflict",
-              "x-settld-known-error-codes": [...X402AuthorizePaymentConflictKnownErrorCodes],
+              "x-nooterra-known-error-codes": [...X402AuthorizePaymentConflictKnownErrorCodes],
               content: {
                 "application/json": {
                   schema: errorResponseWithKnownCodes(X402AuthorizePaymentConflictKnownErrorCodes)
@@ -9271,7 +9447,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             200: { description: "OK", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
             400: {
               description: "Bad Request",
-              "x-settld-known-error-codes": [...X402GateVerifyBadRequestKnownErrorCodes],
+              "x-nooterra-known-error-codes": [...X402GateVerifyBadRequestKnownErrorCodes],
               content: {
                 "application/json": {
                   schema: errorResponseWithKnownCodes(X402GateVerifyBadRequestKnownErrorCodes)
@@ -9281,7 +9457,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
             409: {
               description: "Conflict",
-              "x-settld-known-error-codes": [...X402GateVerifyConflictKnownErrorCodes],
+              "x-nooterra-known-error-codes": [...X402GateVerifyConflictKnownErrorCodes],
               content: {
                 "application/json": {
                   schema: errorResponseWithKnownCodes(X402GateVerifyConflictKnownErrorCodes)
@@ -9366,7 +9542,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                   additionalProperties: false,
                   required: ["url", "events"],
                   properties: {
-                    url: { type: "string", format: "uri", example: "https://principal.example.com/webhooks/settld" },
+                    url: { type: "string", format: "uri", example: "https://principal.example.com/webhooks/nooterra" },
                     events: {
                       type: "array",
                       minItems: 1,

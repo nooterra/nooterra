@@ -78,7 +78,7 @@ async function loadHandler({ dataDir, publicSignupEnabled, apiKey }) {
 }
 
 test("magic-link auth mode endpoint: returns enterprise_preprovisioned when signup is disabled", async () => {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-magic-link-auth-mode-"));
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-magic-link-auth-mode-"));
   let restoreEnv = null;
   try {
     const loaded = await loadHandler({ dataDir, publicSignupEnabled: false, apiKey: "test_key" });
@@ -96,7 +96,7 @@ test("magic-link auth mode endpoint: returns enterprise_preprovisioned when sign
 });
 
 test("magic-link auth mode endpoint: returns hybrid when signup is enabled and admin API key is configured", async () => {
-  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-magic-link-auth-mode-"));
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-magic-link-auth-mode-"));
   let restoreEnv = null;
   try {
     const loaded = await loadHandler({ dataDir, publicSignupEnabled: true, apiKey: "test_key" });

@@ -32,12 +32,12 @@ async function readFixture(rel) {
   return fs.readFile(fp, "utf8");
 }
 
-test("settld-verify --explain output matches snapshots (deterministic + safe)", async () => {
+test("nooterra-verify --explain output matches snapshots (deterministic + safe)", async () => {
   const trustPath = path.resolve(process.cwd(), "test", "fixtures", "bundles", "v1", "trust.json");
   const trust = JSON.parse(await fs.readFile(trustPath, "utf8"));
-  const env = { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}) };
+  const env = { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}) };
 
-  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "settld-verify.js");
+  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "nooterra-verify.js");
   const repoRoot = process.cwd().replaceAll("\\", "/");
 
   {
@@ -65,14 +65,14 @@ test("settld-verify --explain output matches snapshots (deterministic + safe)", 
   }
 });
 
-test("settld-produce --explain output matches snapshot (deterministic + no secrets)", async () => {
+test("nooterra-produce --explain output matches snapshot (deterministic + no secrets)", async () => {
   const repoRoot = process.cwd();
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "settld-produce-explain-snap-"));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-produce-explain-snap-"));
   await test.after(async () => fs.rm(tmp, { recursive: true, force: true }));
 
   const headerSecret = "SENTINEL_HEADER_DO_NOT_LEAK_EXPLAIN_SNAPSHOT";
 
-  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "settld-produce.js");
+  const produceCli = path.resolve(repoRoot, "packages", "artifact-produce", "bin", "nooterra-produce.js");
   const outDir = path.join(tmp, "jobproof");
   const res = await runCli({
     cmd: process.execPath,
@@ -88,7 +88,7 @@ test("settld-produce --explain output matches snapshot (deterministic + no secre
       "--signer-auth",
       "bearer",
       "--signer-token-env",
-      "SETTLD_SIGNER_TOKEN",
+      "NOOTERRA_SIGNER_TOKEN",
       "--signer-header",
       `X-Secret: ${headerSecret}`,
       "--gov-key-id",

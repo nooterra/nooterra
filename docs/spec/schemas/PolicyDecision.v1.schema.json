@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/PolicyDecision.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/PolicyDecision.v1.schema.json",
   "title": "PolicyDecision.v1",
   "type": "object",
   "additionalProperties": false,

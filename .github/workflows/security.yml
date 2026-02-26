@@ -37,11 +37,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build image
-        run: docker build -t settld:ci --build-arg GIT_SHA=${{ github.sha }} --build-arg SETTLD_VERSION=ci .
+        run: docker build -t nooterra:ci --build-arg GIT_SHA=${{ github.sha }} --build-arg NOOTERRA_VERSION=ci .
       - name: Trivy image scan (fail on critical)
         uses: aquasecurity/trivy-action@0.20.0
         with:
-          image-ref: settld:ci
+          image-ref: nooterra:ci
           ignore-unfixed: true
           severity: CRITICAL
           exit-code: "1"

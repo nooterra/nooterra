@@ -181,6 +181,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.subAgentWorkOrders.clear();
     if (!(store.subAgentCompletionReceipts instanceof Map)) store.subAgentCompletionReceipts = new Map();
     store.subAgentCompletionReceipts.clear();
+    if (!(store.stateCheckpoints instanceof Map)) store.stateCheckpoints = new Map();
+    store.stateCheckpoints.clear();
     if (!(store.x402Gates instanceof Map)) store.x402Gates = new Map();
     store.x402Gates.clear();
     if (!(store.x402AgentLifecycles instanceof Map)) store.x402AgentLifecycles = new Map();
@@ -321,6 +323,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           ...snap,
           tenantId: snap?.tenantId ?? tenantId,
           receiptId: snap?.receiptId ?? String(id)
+        });
+      }
+      if (type === "state_checkpoint") {
+        store.stateCheckpoints.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          checkpointId: snap?.checkpointId ?? String(id)
         });
       }
       if (type === "x402_gate") {
@@ -1646,6 +1655,24 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     });
   }
 
+  async function persistStateCheckpoint(client, { tenantId, checkpointId, stateCheckpoint }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!stateCheckpoint || typeof stateCheckpoint !== "object" || Array.isArray(stateCheckpoint)) {
+      throw new TypeError("stateCheckpoint is required");
+    }
+    const normalizedCheckpointId =
+      checkpointId ? String(checkpointId) : stateCheckpoint.checkpointId ? String(stateCheckpoint.checkpointId) : null;
+    if (!normalizedCheckpointId) throw new TypeError("checkpointId is required");
+    const normalizedStateCheckpoint = { ...stateCheckpoint, tenantId, checkpointId: normalizedCheckpointId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "state_checkpoint",
+      aggregateId: normalizedCheckpointId,
+      snapshot: normalizedStateCheckpoint,
+      updatedAt: normalizedStateCheckpoint.updatedAt ?? normalizedStateCheckpoint.createdAt ?? null
+    });
+  }
+
   async function persistX402Gate(client, { tenantId, gateId, gate }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     if (!gate || typeof gate !== "object" || Array.isArray(gate)) {
@@ -2624,6 +2651,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "CAPABILITY_ATTESTATION_UPSERT",
       "SUB_AGENT_WORK_ORDER_UPSERT",
       "SUB_AGENT_COMPLETION_RECEIPT_UPSERT",
+      "STATE_CHECKPOINT_UPSERT",
       "X402_GATE_UPSERT",
       "X402_AGENT_LIFECYCLE_UPSERT",
       "X402_RECEIPT_PUT",
@@ -3522,6 +3550,14 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
             completionReceipt: op.completionReceipt
           });
         }
+        if (op.kind === "STATE_CHECKPOINT_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.stateCheckpoint?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistStateCheckpoint(client, {
+            tenantId,
+            checkpointId: op.checkpointId,
+            stateCheckpoint: op.stateCheckpoint
+          });
+        }
         if (op.kind === "X402_GATE_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.gate?.tenantId ?? DEFAULT_TENANT_ID);
           await persistX402Gate(client, { tenantId, gateId: op.gateId, gate: op.gate });
@@ -4233,6 +4269,24 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     };
   }
 
+  function stateCheckpointSnapshotRowToRecord(row) {
+    const stateCheckpoint = row?.snapshot_json ?? null;
+    if (!stateCheckpoint || typeof stateCheckpoint !== "object" || Array.isArray(stateCheckpoint)) return null;
+    const tenantId = normalizeTenantId(row?.tenant_id ?? stateCheckpoint?.tenantId ?? DEFAULT_TENANT_ID);
+    const checkpointId =
+      row?.aggregate_id && String(row.aggregate_id).trim() !== ""
+        ? String(row.aggregate_id).trim()
+        : typeof stateCheckpoint?.checkpointId === "string" && stateCheckpoint.checkpointId.trim() !== ""
+          ? stateCheckpoint.checkpointId.trim()
+          : null;
+    if (!checkpointId) return null;
+    return {
+      ...stateCheckpoint,
+      tenantId,
+      checkpointId
+    };
+  }
+
   store.getAgentCard = async function getAgentCard({ tenantId = DEFAULT_TENANT_ID, agentId } = {}) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     assertNonEmptyString(agentId, "agentId");
@@ -4370,6 +4424,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     status = null,
     visibility = null,
     capability = null,
+    executionCoordinatorDid = null,
     toolId = null,
     toolMcpName = null,
     toolRiskClass = null,
@@ -4390,6 +4445,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     const visibilityFilter =
       visibility === null || visibility === undefined || String(visibility).trim() === "" ? null : String(visibility).trim().toLowerCase();
     const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+    const executionCoordinatorDidFilter =
+      executionCoordinatorDid === null || executionCoordinatorDid === undefined || String(executionCoordinatorDid).trim() === ""
+        ? null
+        : String(executionCoordinatorDid).trim();
     const toolIdFilter = toolId === null || toolId === undefined || String(toolId).trim() === "" ? null : String(toolId).trim();
     const toolMcpNameFilter =
       toolMcpName === null || toolMcpName === undefined || String(toolMcpName).trim() === "" ? null : String(toolMcpName).trim().toLowerCase();
@@ -4482,6 +4541,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
         if (agentIdFilter && String(row.agentId ?? "") !== agentIdFilter) continue;
         if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
         if (visibilityFilter && String(row.visibility ?? "").toLowerCase() !== visibilityFilter) continue;
+        if (executionCoordinatorDidFilter && String(row.executionCoordinatorDid ?? "") !== executionCoordinatorDidFilter) continue;
         if (capabilityFilter) {
           const capabilities = Array.isArray(row.capabilities) ? row.capabilities : [];
           if (!capabilities.includes(capabilityFilter)) continue;
@@ -4526,6 +4586,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
             WHERE capability.value = $${params.length}
           )`
         );
+      }
+      if (executionCoordinatorDidFilter !== null) {
+        params.push(executionCoordinatorDidFilter);
+        where.push(`btrim(coalesce(snapshot_json->>'executionCoordinatorDid', '')) = $${params.length}`);
       }
       if (runtimeFilter !== null) {
         params.push(runtimeFilter);
@@ -4699,6 +4763,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     status = null,
     visibility = "public",
     capability = null,
+    executionCoordinatorDid = null,
     toolId = null,
     toolMcpName = null,
     toolRiskClass = null,
@@ -4718,6 +4783,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       visibility === null || visibility === undefined || String(visibility).trim() === "" ? "public" : String(visibility).trim().toLowerCase();
     if (visibilityFilter !== "public") throw new TypeError("visibility must be public");
     const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+    const executionCoordinatorDidFilter =
+      executionCoordinatorDid === null || executionCoordinatorDid === undefined || String(executionCoordinatorDid).trim() === ""
+        ? null
+        : String(executionCoordinatorDid).trim();
     const toolIdFilter = toolId === null || toolId === undefined || String(toolId).trim() === "" ? null : String(toolId).trim();
     const toolMcpNameFilter =
       toolMcpName === null || toolMcpName === undefined || String(toolMcpName).trim() === "" ? null : String(toolMcpName).trim().toLowerCase();
@@ -4808,6 +4877,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
         if (!row || typeof row !== "object" || Array.isArray(row)) continue;
         if (String(row.visibility ?? "").toLowerCase() !== "public") continue;
         if (statusFilter && String(row.status ?? "").toLowerCase() !== statusFilter) continue;
+        if (executionCoordinatorDidFilter && String(row.executionCoordinatorDid ?? "") !== executionCoordinatorDidFilter) continue;
         if (capabilityFilter) {
           const capabilities = Array.isArray(row.capabilities) ? row.capabilities : [];
           if (!capabilities.includes(capabilityFilter)) continue;
@@ -4850,6 +4920,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
             WHERE capability.value = $${params.length}
           )`
         );
+      }
+      if (executionCoordinatorDidFilter !== null) {
+        params.push(executionCoordinatorDidFilter);
+        where.push(`btrim(coalesce(snapshot_json->>'executionCoordinatorDid', '')) = $${params.length}`);
       }
       if (runtimeFilter !== null) {
         params.push(runtimeFilter);
@@ -5561,6 +5635,87 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return applyFilters(Array.from(store.subAgentCompletionReceipts.values()));
+    }
+  };
+
+  store.getStateCheckpoint = async function getStateCheckpoint({ tenantId = DEFAULT_TENANT_ID, checkpointId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(checkpointId, "checkpointId");
+    const normalizedCheckpointId = String(checkpointId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'state_checkpoint' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedCheckpointId]
+      );
+      return res.rows.length ? stateCheckpointSnapshotRowToRecord(res.rows[0]) : null;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.stateCheckpoints.get(makeScopedKey({ tenantId, id: normalizedCheckpointId })) ?? null;
+    }
+  };
+
+  store.listStateCheckpoints = async function listStateCheckpoints({
+    tenantId = DEFAULT_TENANT_ID,
+    checkpointId = null,
+    projectId = null,
+    sessionId = null,
+    ownerAgentId = null,
+    traceId = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const checkpointFilter =
+      checkpointId === null || checkpointId === undefined || String(checkpointId).trim() === "" ? null : String(checkpointId).trim();
+    const projectFilter =
+      projectId === null || projectId === undefined || String(projectId).trim() === "" ? null : String(projectId).trim();
+    const sessionFilter =
+      sessionId === null || sessionId === undefined || String(sessionId).trim() === "" ? null : String(sessionId).trim();
+    const ownerFilter =
+      ownerAgentId === null || ownerAgentId === undefined || String(ownerAgentId).trim() === ""
+        ? null
+        : String(ownerAgentId).trim();
+    const traceFilter = traceId === null || traceId === undefined || String(traceId).trim() === "" ? null : String(traceId).trim();
+
+    const applyFilters = (rows) => {
+      const out = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (checkpointFilter && String(row.checkpointId ?? "") !== checkpointFilter) continue;
+        if (projectFilter && String(row.projectId ?? "") !== projectFilter) continue;
+        if (sessionFilter && String(row.sessionId ?? "") !== sessionFilter) continue;
+        if (ownerFilter && String(row.ownerAgentId ?? "") !== ownerFilter) continue;
+        if (traceFilter && String(row.traceId ?? "") !== traceFilter) continue;
+        out.push(row);
+      }
+      out.sort((left, right) => String(left.checkpointId ?? "").localeCompare(String(right.checkpointId ?? "")));
+      return out.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'state_checkpoint'
+          ORDER BY aggregate_id ASC
+        `,
+        [tenantId]
+      );
+      return applyFilters(res.rows.map(stateCheckpointSnapshotRowToRecord).filter(Boolean));
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.stateCheckpoints.values()));
     }
   };
 

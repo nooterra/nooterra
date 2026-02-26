@@ -121,7 +121,7 @@
       "failOnWarnings": false,
       "hashConcurrency": 8,
       "envOverrides": {
-        "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": ""
+        "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": ""
       },
       "invariantIds": ["INV-009"],
       "expectedFile": "expected/financepack_strict_fail_trust_roots_missing.json"
@@ -135,7 +135,7 @@
       "failOnWarnings": false,
       "hashConcurrency": 8,
       "envOverrides": {
-        "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": "{\"key_fake\":\"x\"}"
+        "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": "{\"key_fake\":\"x\"}"
       },
       "invariantIds": ["INV-009"],
       "expectedFile": "expected/financepack_strict_fail_trust_roots_wrong.json"

@@ -1,4 +1,4 @@
-name: verify bundles (settld)
+name: verify bundles (nooterra)
 
 on:
   workflow_dispatch:
@@ -14,18 +14,18 @@ jobs:
       - name: Verify bundle (strict)
         id: verify
         # For external adoption:
-        # uses: settld/settld/.github/actions/settld-verify@vX.Y.Z
-        uses: ./.github/actions/settld-verify
+        # uses: nooterra/nooterra/.github/actions/nooterra-verify@vX.Y.Z
+        uses: ./.github/actions/nooterra-verify
         with:
           bundle_path: test/fixtures/bundles/v1/jobproof/strict-pass
           strict: "true"
           fail_on_warnings: "false"
           hash_concurrency: "8"
           trust_file: test/fixtures/bundles/v1/trust.json
-          output_json_path: settld-verify-output.json
+          output_json_path: nooterra-verify-output.json
 
       - name: Upload verification output JSON
         uses: actions/upload-artifact@v4
         with:
-          name: settld-verify-output
-          path: settld-verify-output.json
+          name: nooterra-verify-output
+          path: nooterra-verify-output.json

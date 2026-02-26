@@ -58,24 +58,214 @@
       }
     ]
   },
+  "toolManifest": {
+    "schemaVersion": "ToolManifest.v1",
+    "toolId": "tool_vectors_echo",
+    "toolVersion": "0.0.0-vectors",
+    "manifestHash": "86594975c5cda0d27ec26d3816578d97d6d5e3ed5b8d40eb95aa2e59210b1a4d",
+    "signatureKeyId": "key_282c80df2381d6831a92e89b",
+    "canonicalJson": "{\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"endpoints\":[{\"baseUrl\":\"https://example.nooterra.local\",\"callPath\":\"/call\",\"kind\":\"http\",\"manifestPath\":\"/manifest.json\"}],\"inputSchemaHash\":\"5c6f8cb91692432b1bfa3f7a4176a05649dd497c37d2f51a0b7ec0e27f1a0018\",\"outputSchemaHash\":\"57ed5360b3e8ed220673da2ca4ec87cd9aba115108ffc5a0a586afba3d1674ff\",\"schemaVersion\":\"ToolManifest.v1\",\"signature\":{\"algorithm\":\"ed25519\",\"manifestHash\":\"86594975c5cda0d27ec26d3816578d97d6d5e3ed5b8d40eb95aa2e59210b1a4d\",\"signature\":\"bAhwZnjCdDinTc8cP6aQJeA3lsnrYZYPraPaQv35a6CYu9dPiIoLCeUzB0gfEJ060Q1pmiKoBqTsixcTI7SoAg==\",\"signerKeyId\":\"key_282c80df2381d6831a92e89b\",\"signerPublicKeyPem\":\"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAhmTc0vvEd3k+JFIr58rahGv7ryY7lZW3unw7rhYyBm8=\\n-----END PUBLIC KEY-----\\n\"},\"toolId\":\"tool_vectors_echo\",\"toolVersion\":\"0.0.0-vectors\",\"verifierHints\":{\"mode\":\"deterministic\"}}",
+    "sha256": "bb9e6e656deb9bb51c13b88cbd64161c8222575229575898cc7eb51e4da4d74b",
+    "coreCanonicalJson": "{\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"endpoints\":[{\"baseUrl\":\"https://example.nooterra.local\",\"callPath\":\"/call\",\"kind\":\"http\",\"manifestPath\":\"/manifest.json\"}],\"inputSchemaHash\":\"5c6f8cb91692432b1bfa3f7a4176a05649dd497c37d2f51a0b7ec0e27f1a0018\",\"outputSchemaHash\":\"57ed5360b3e8ed220673da2ca4ec87cd9aba115108ffc5a0a586afba3d1674ff\",\"schemaVersion\":\"ToolManifest.v1\",\"toolId\":\"tool_vectors_echo\",\"toolVersion\":\"0.0.0-vectors\",\"verifierHints\":{\"mode\":\"deterministic\"}}",
+    "coreSha256": "86594975c5cda0d27ec26d3816578d97d6d5e3ed5b8d40eb95aa2e59210b1a4d",
+    "inputSchemaCanonicalJson": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"text\":{\"maxLength\":2000,\"minLength\":0,\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}",
+    "inputSchemaSha256": "5c6f8cb91692432b1bfa3f7a4176a05649dd497c37d2f51a0b7ec0e27f1a0018",
+    "outputSchemaCanonicalJson": "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"additionalProperties\":false,\"properties\":{\"length\":{\"minimum\":0,\"type\":\"integer\"},\"upper\":{\"type\":\"string\"}},\"required\":[\"upper\",\"length\"],\"type\":\"object\"}",
+    "outputSchemaSha256": "57ed5360b3e8ed220673da2ca4ec87cd9aba115108ffc5a0a586afba3d1674ff"
+  },
+  "toolCallAgreement": {
+    "schemaVersion": "ToolCallAgreement.v1",
+    "agreementHash": "89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b",
+    "inputHash": "cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176",
+    "canonicalJson": "{\"acceptanceCriteria\":null,\"agreementHash\":\"89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b\",\"callId\":\"call_vectors_0001\",\"createdAt\":\"2026-02-01T00:00:10.000Z\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"manifestHash\":\"86594975c5cda0d27ec26d3816578d97d6d5e3ed5b8d40eb95aa2e59210b1a4d\",\"payeeAgentId\":\"agt_vectors_0001\",\"payerAgentId\":\"agt_vectors_payer_0001\",\"schemaVersion\":\"ToolCallAgreement.v1\",\"settlementTerms\":{\"amountCents\":10000,\"currency\":\"USD\"},\"toolId\":\"cap_vectors_demo\"}",
+    "sha256": "283311ed5d13baf8cee25a58e2fba56b175e88934709ffd5ef7c8413a42dd1d9",
+    "coreCanonicalJson": "{\"acceptanceCriteria\":null,\"callId\":\"call_vectors_0001\",\"createdAt\":\"2026-02-01T00:00:10.000Z\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"manifestHash\":\"86594975c5cda0d27ec26d3816578d97d6d5e3ed5b8d40eb95aa2e59210b1a4d\",\"payeeAgentId\":\"agt_vectors_0001\",\"payerAgentId\":\"agt_vectors_payer_0001\",\"schemaVersion\":\"ToolCallAgreement.v1\",\"settlementTerms\":{\"amountCents\":10000,\"currency\":\"USD\"},\"toolId\":\"cap_vectors_demo\"}",
+    "coreSha256": "89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b",
+    "inputCanonicalJson": "{\"text\":\"hello\"}",
+    "inputSha256": "cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176"
+  },
+  "toolCallEvidence": {
+    "schemaVersion": "ToolCallEvidence.v1",
+    "agreementHash": "89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b",
+    "evidenceHash": "245e9381c5577c3ad8aa6516984a6220f2fae5e79c8fc998a5243721016c990c",
+    "outputHash": "55e1c2dcce68ce2e5a8162bd206d33ae5f1601bd3f9ad63dc505742e71e31047",
+    "canonicalJson": "{\"agreementHash\":\"89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b\",\"callId\":\"call_vectors_0001\",\"completedAt\":\"2026-02-01T00:00:12.000Z\",\"createdAt\":\"2026-02-01T00:00:12.000Z\",\"evidenceHash\":\"245e9381c5577c3ad8aa6516984a6220f2fae5e79c8fc998a5243721016c990c\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"metrics\":{\"latencyMs\":123},\"outputHash\":\"55e1c2dcce68ce2e5a8162bd206d33ae5f1601bd3f9ad63dc505742e71e31047\",\"outputRef\":\"evidence://tool_call_vectors_0001/output.json\",\"schemaVersion\":\"ToolCallEvidence.v1\",\"signature\":{\"algorithm\":\"ed25519\",\"evidenceHash\":\"245e9381c5577c3ad8aa6516984a6220f2fae5e79c8fc998a5243721016c990c\",\"signature\":\"Z5R79VNaWyFDt4q3wIV/drb/eAiO1gGH079jaAQ8lXOf9d8+Ywr37ZWxEakojq3YRsvWgOarehS4u6eHo1tDDA==\",\"signerKeyId\":\"key_282c80df2381d6831a92e89b\"},\"startedAt\":\"2026-02-01T00:00:11.000Z\"}",
+    "sha256": "f9af0ea9182c26f170dd953c3c2cff808ca90a2d482aae67eb24f8ee78801d02",
+    "coreCanonicalJson": "{\"agreementHash\":\"89a00d4a829ca73f4035bf9f392e492d7d67067b3ed6372ff012a66841d1b16b\",\"callId\":\"call_vectors_0001\",\"completedAt\":\"2026-02-01T00:00:12.000Z\",\"createdAt\":\"2026-02-01T00:00:12.000Z\",\"inputHash\":\"cbbbdcd27692344de5dbab3abcaba413fb0f45307267de7081401576df1cb176\",\"metrics\":{\"latencyMs\":123},\"outputHash\":\"55e1c2dcce68ce2e5a8162bd206d33ae5f1601bd3f9ad63dc505742e71e31047\",\"outputRef\":\"evidence://tool_call_vectors_0001/output.json\",\"schemaVersion\":\"ToolCallEvidence.v1\",\"startedAt\":\"2026-02-01T00:00:11.000Z\"}",
+    "coreSha256": "245e9381c5577c3ad8aa6516984a6220f2fae5e79c8fc998a5243721016c990c",
+    "outputCanonicalJson": "{\"length\":5,\"upper\":\"HELLO\"}",
+    "outputSha256": "55e1c2dcce68ce2e5a8162bd206d33ae5f1601bd3f9ad63dc505742e71e31047",
+    "signatureKeyId": "key_282c80df2381d6831a92e89b",
+    "signature": "Z5R79VNaWyFDt4q3wIV/drb/eAiO1gGH079jaAQ8lXOf9d8+Ywr37ZWxEakojq3YRsvWgOarehS4u6eHo1tDDA=="
+  },
   "jobProof": {
     "manifestHash": "14e8197d32fc7eeb95c7e49c0b23443776b410617ae30e3f1f05539fad520b25",
     "headAttestationHash": "53e67250dbe0611c26beac8142bf0c18deab49f790719f4f6876f39d7abc5e34",
-    "verificationReportHash": "93122fb5c4848d4a785217faede173bf3ce7f0d8340de4da5e339b4da5481944"
+    "verificationReportHash": "9c4a01d8459858d6ffe896c8ac3ca0542c2a5b3c6f7a9b977211286e3638da0a"
   },
   "monthProof": {
     "manifestHash": "40850cbc9e3b797dd660a525e7c53902af36abad61c88ea4b1b0a5e05176282f",
     "headAttestationHash": "25f6dba998fd0ee1b0fd41ed987583235778fb4e5fdbcd6eed4df8b8acd1a61d",
-    "verificationReportHash": "430d54209b9cf8e750edb921ba8f7113fc2641b41f2e2482497c8a1c15a28da2"
+    "verificationReportHash": "a429df5f5d34f867adc489955fd218ef522fc4e6053ee41a5b3ee8f543978ce2"
   },
   "financePack": {
-    "manifestHash": "769a0df040516d84c55d30f8cf355aac31a4e75c1dad196752c64fc9072b91eb",
-    "headAttestationHash": "61eb103ae05d44052de21f9ac603e1144468edc316f4ced6bf6f423dfe77b064",
-    "verificationReportHash": "99e42c89b16180f34530b717390189efaace3471fb4cbcbacd712a4dc2c76733"
+    "manifestHash": "0e6019adde7e535b82287cff22f3a8dc1010fd353be0097ca7a7676d89515df0",
+    "headAttestationHash": "0b6d014d667f347232d39a7c0bf15fbb26405f5e99e68c700b5b4a9307d7a4f8",
+    "verificationReportHash": "dfb49b635390f4a74c4a60466c4c0c9ae825abdb3c1496e96436f1ddcad025bc"
   },
   "invoice": {
-    "manifestHash": "cca61c49c3cb3109c2cfc949ccffb10ed319ad0aee8816dbc27c0e7eb100e1cd",
-    "headAttestationHash": "c115bcc24d151695a497bd8c44f95f428d2d7bcd543739ef83a64fbef67c5c77",
-    "verificationReportHash": "36077ee12971728d23b4792c23a654ee97504474c1397b31f45f8cdf46ac8c9e"
+    "manifestHash": "d94bfc975bf19ac734e0b08e46d6644561bb04de960c117bded20e5f9436ddb7",
+    "headAttestationHash": "48fdb8beae6e42b0b7b41335193b753d2cbc8fc8bfa0a2db8fc2f6fdfe284248",
+    "verificationReportHash": "ffedc5f800ae2e1b73d6da14a39b58584764ffe5050ac5870ae6226fcdddd2b0"
+  },
+  "agentIdentity": {
+    "schemaVersion": "AgentIdentity.v1",
+    "keyId": "key_282c80df2381d6831a92e89b",
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"capabilities\":[\"dispatch_job\",\"verify_bundle\"],\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"displayName\":\"Vector Agent\",\"keys\":{\"algorithm\":\"ed25519\",\"keyId\":\"key_282c80df2381d6831a92e89b\",\"publicKeyPem\":\"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAhmTc0vvEd3k+JFIr58rahGv7ryY7lZW3unw7rhYyBm8=\\n-----END PUBLIC KEY-----\\n\"},\"metadata\":{\"stage\":\"vectors\"},\"owner\":{\"ownerId\":\"acme_vectors\",\"ownerType\":\"business\"},\"schemaVersion\":\"AgentIdentity.v1\",\"status\":\"active\",\"tenantId\":\"tenant_vectors\",\"updatedAt\":\"2026-02-01T00:00:00.000Z\",\"walletPolicy\":{\"maxDailyCents\":50000,\"maxPerTransactionCents\":5000,\"requireApprovalAboveCents\":25000}}",
+    "sha256": "cf38cc83e7353c54da0716af8730d71f6c2bae83ef7e897c2ba3d6ba8ec85f7e"
+  },
+  "agentRun": {
+    "schemaVersion": "AgentRun.v1",
+    "runId": "run_vectors_0001",
+    "status": "completed",
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"completedAt\":\"2026-02-01T00:02:00.000Z\",\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"evidenceRefs\":[\"evidence://run_vectors_0001/output.json\"],\"failedAt\":null,\"failure\":null,\"inputRef\":\"urn:task:vectors:translation\",\"lastChainHash\":\"ch_run_vectors_0003\",\"lastEventId\":\"ev_run_vectors_0003\",\"metrics\":{\"latencyMs\":1200,\"tokensProcessed\":512},\"revision\":3,\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"AgentRun.v1\",\"startedAt\":\"2026-02-01T00:01:00.000Z\",\"status\":\"completed\",\"taskType\":\"translation\",\"tenantId\":\"tenant_vectors\",\"updatedAt\":\"2026-02-01T00:02:00.000Z\"}",
+    "sha256": "b44bec50ff7de7e44956cd9c7b202b60a8c5ea1e9e96eee1ebbbce4f1ee70ab7"
+  },
+  "agentEvent": {
+    "schemaVersion": "AgentEvent.v1",
+    "type": "RUN_COMPLETED",
+    "keyId": "key_282c80df2381d6831a92e89b",
+    "canonicalJson": "{\"actor\":{\"id\":\"agt_vectors_0001\",\"type\":\"agent\"},\"at\":\"2026-02-01T00:02:00.000Z\",\"chainHash\":\"ch_run_vectors_0003\",\"id\":\"ev_run_vectors_0003\",\"payload\":{\"metrics\":{\"latencyMs\":1200,\"tokensProcessed\":512},\"outputRef\":\"evidence://run_vectors_0001/output.json\",\"runId\":\"run_vectors_0001\"},\"payloadHash\":\"ph_run_vectors_0003\",\"prevChainHash\":\"ch_run_vectors_0002\",\"schemaVersion\":\"AgentEvent.v1\",\"signature\":\"sig_run_vectors_0003\",\"signerKeyId\":\"key_282c80df2381d6831a92e89b\",\"streamId\":\"run_vectors_0001\",\"type\":\"RUN_COMPLETED\",\"v\":1}",
+    "sha256": "4e471eb3cd42e1808a18bdbbc29ff7a9ed7278c168b54662c7c010c64b34f6ad"
+  },
+  "agentWallet": {
+    "schemaVersion": "AgentWallet.v1",
+    "walletId": "wallet_agt_vectors_0001",
+    "currency": "USD",
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"availableCents\":2750,\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"currency\":\"USD\",\"escrowLockedCents\":1250,\"revision\":7,\"schemaVersion\":\"AgentWallet.v1\",\"tenantId\":\"tenant_vectors\",\"totalCreditedCents\":4900,\"totalDebitedCents\":900,\"updatedAt\":\"2026-02-01T00:03:00.000Z\",\"walletId\":\"wallet_agt_vectors_0001\"}",
+    "sha256": "03508b38b49176ce1473f8c7043c8599f14d1c4606b1f5fbcd1390ede61bced9"
+  },
+  "agentRunSettlement": {
+    "schemaVersion": "AgentRunSettlement.v1",
+    "settlementId": "setl_run_vectors_0001",
+    "status": "locked",
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"amountCents\":1250,\"createdAt\":\"2026-02-01T00:00:30.000Z\",\"currency\":\"USD\",\"lockedAt\":\"2026-02-01T00:00:30.000Z\",\"payerAgentId\":\"agt_vectors_payer_0001\",\"resolutionEventId\":null,\"resolvedAt\":null,\"revision\":0,\"runId\":\"run_vectors_0001\",\"runStatus\":null,\"schemaVersion\":\"AgentRunSettlement.v1\",\"settlementId\":\"setl_run_vectors_0001\",\"status\":\"locked\",\"tenantId\":\"tenant_vectors\",\"updatedAt\":\"2026-02-01T00:00:30.000Z\"}",
+    "sha256": "61fc9b56362a00b61b68f5e7c861e833130bed336fa38fc788829de78b49f04c"
+  },
+  "settlementDecisionRecord": {
+    "schemaVersion": "SettlementDecisionRecord.v1",
+    "decisionId": "dec_run_vectors_0001_auto",
+    "decisionStatus": "auto_resolved",
+    "canonicalJson": "{\"agreementId\":\"agr_vectors_0001\",\"decidedAt\":\"2026-02-01T00:02:00.000Z\",\"decisionHash\":\"1d27e84bc8af75d7785d534bfc18db64221f8a3c592054cbb9f0f71315922fe0\",\"decisionId\":\"dec_run_vectors_0001_auto\",\"decisionMode\":\"automatic\",\"decisionReason\":null,\"decisionStatus\":\"auto_resolved\",\"policyRef\":{\"policyHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"verificationMethodHash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"SettlementDecisionRecord.v1\",\"settlementId\":\"setl_run_vectors_0001\",\"tenantId\":\"tenant_vectors\",\"verificationStatus\":\"green\",\"verifierRef\":{\"modality\":\"deterministic\",\"verifierHash\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"verifierId\":\"nooterra.policy-engine\",\"verifierVersion\":\"v1\"},\"workRef\":{\"resolutionEventId\":\"ev_run_vectors_0003\",\"runLastChainHash\":\"ch_run_vectors_0003\",\"runLastEventId\":\"ev_run_vectors_0003\",\"runStatus\":\"completed\"}}",
+    "sha256": "3e7525b44b6c847dfbc4e93a0aec89674cb4a580707883013098482fb2908ae2"
+  },
+  "settlementDecisionRecordV2": {
+    "schemaVersion": "SettlementDecisionRecord.v2",
+    "decisionId": "dec_run_vectors_0001_auto_v2",
+    "decisionStatus": "auto_resolved",
+    "canonicalJson": "{\"agreementId\":\"agr_vectors_0001\",\"decidedAt\":\"2026-02-01T00:02:00.000Z\",\"decisionHash\":\"23f23c977e6e5712bb6986d67c20cb514a054deee128f5d993e83a7067b3507d\",\"decisionId\":\"dec_run_vectors_0001_auto_v2\",\"decisionMode\":\"automatic\",\"decisionReason\":null,\"decisionStatus\":\"auto_resolved\",\"policyHashUsed\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"policyNormalizationVersion\":\"v1\",\"policyRef\":{\"policyHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"verificationMethodHash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"profileHashUsed\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"SettlementDecisionRecord.v2\",\"settlementId\":\"setl_run_vectors_0001\",\"tenantId\":\"tenant_vectors\",\"verificationMethodHashUsed\":\"4444444444444444444444444444444444444444444444444444444444444444\",\"verificationStatus\":\"green\",\"verifierRef\":{\"modality\":\"deterministic\",\"verifierHash\":\"5555555555555555555555555555555555555555555555555555555555555555\",\"verifierId\":\"nooterra.policy-engine\",\"verifierVersion\":\"v1\"},\"workRef\":{\"resolutionEventId\":\"ev_run_vectors_0003\",\"runLastChainHash\":\"ch_run_vectors_0003\",\"runLastEventId\":\"ev_run_vectors_0003\",\"runStatus\":\"completed\"}}",
+    "sha256": "08b236fd5e58a1d65cfa58f40f8fab10d5236b62c23cf2b9eb94ebf07de2d193"
+  },
+  "policyDecision": {
+    "schemaVersion": "PolicyDecision.v1",
+    "decisionId": "pdec_run_vectors_0001_auto",
+    "policyDecisionHash": "6f734e505005b4151ace2ed6b9c3d011f8240194c03caca26bf273d054546f15",
+    "evaluationHash": "e057ab6b034f630222bcf82a6465c0bc7bdb10ae721a7224523eec0b894f2f5d",
+    "canonicalJson": "{\"createdAt\":\"2026-02-01T00:02:00.000Z\",\"decisionId\":\"pdec_run_vectors_0001_auto\",\"decisionMode\":\"automatic\",\"evaluationHash\":\"e057ab6b034f630222bcf82a6465c0bc7bdb10ae721a7224523eec0b894f2f5d\",\"gateId\":\"gate_vectors_0001\",\"policyDecisionHash\":\"6f734e505005b4151ace2ed6b9c3d011f8240194c03caca26bf273d054546f15\",\"policyRef\":{\"policyHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"policyId\":\"policy_vectors_0001\",\"policyVersion\":1,\"verificationMethodHash\":\"4444444444444444444444444444444444444444444444444444444444444444\"},\"reasonCodes\":[],\"refundAmountCents\":0,\"releaseAmountCents\":1250,\"releaseRatePct\":100,\"runId\":\"run_vectors_0001\",\"runStatus\":\"completed\",\"schemaVersion\":\"PolicyDecision.v1\",\"settlementId\":\"setl_run_vectors_0001\",\"settlementStatus\":\"released\",\"shouldAutoResolve\":true,\"signature\":{\"algorithm\":\"ed25519\",\"policyDecisionHash\":\"6f734e505005b4151ace2ed6b9c3d011f8240194c03caca26bf273d054546f15\",\"signature\":\"WeC7hBGy91sj4332T8idDGzfbnfbHFM1jx/ZSnmXLV7iUCV5uq6E9JTOkMkdV4t+m3C0Ow23hordUeQN3V00AA==\",\"signerKeyId\":\"key_282c80df2381d6831a92e89b\"},\"tenantId\":\"tenant_vectors\",\"verificationStatus\":\"green\"}",
+    "sha256": "bdfd1a4285b936cb3e69f6abdccc641311f74c7464b0f5e5aca0703178d36f01",
+    "signatureKeyId": "key_282c80df2381d6831a92e89b",
+    "signature": "WeC7hBGy91sj4332T8idDGzfbnfbHFM1jx/ZSnmXLV7iUCV5uq6E9JTOkMkdV4t+m3C0Ow23hordUeQN3V00AA=="
+  },
+  "operatorAction": {
+    "schemaVersion": "OperatorAction.v1",
+    "actionId": "opact_vectors_0001",
+    "actionHash": "83760fd9240840f2a84dcd1fd68a30eb97d1f27da523cdcda4fc93600cc3efcb",
+    "canonicalJson": "{\"actedAt\":\"2026-02-01T00:02:10.000Z\",\"action\":\"OVERRIDE_ALLOW\",\"actionId\":\"opact_vectors_0001\",\"actor\":{\"metadata\":{\"source\":\"ops-console\",\"ticketId\":\"INC-VECTORS-1\"},\"operatorId\":\"op_vectors_0001\",\"role\":\"incident_commander\",\"sessionId\":\"ops_session_vectors_01\",\"tenantId\":\"tenant_vectors\"},\"caseRef\":{\"caseId\":\"dsp_run_vectors_0001\",\"kind\":\"dispute\"},\"justification\":\"vector override approved\",\"justificationCode\":\"OPS_OVERRIDE_APPROVED\",\"metadata\":{\"checklist\":[\"evidence-reviewed\",\"lead-approved\"],\"severity\":\"critical\"},\"schemaVersion\":\"OperatorAction.v1\",\"signature\":{\"actionHash\":\"83760fd9240840f2a84dcd1fd68a30eb97d1f27da523cdcda4fc93600cc3efcb\",\"algorithm\":\"ed25519\",\"keyId\":\"key_282c80df2381d6831a92e89b\",\"schemaVersion\":\"OperatorActionSignature.v1\",\"signatureBase64\":\"wwJb+5gca6zIuSs97qJaIAmz8LZ5FMBoSzCxaVUbtHKBd2wAXLQmzsF94AnQjfUScPjOBPoL6rVv+8Lbl2N7Dw==\",\"signedAt\":\"2026-02-01T00:02:11.000Z\"}}",
+    "sha256": "d66079059d4510126758ca0699a2affd6d362d685ebeaf45e28807099fc6f24e",
+    "coreCanonicalJson": "{\"actedAt\":\"2026-02-01T00:02:10.000Z\",\"action\":\"OVERRIDE_ALLOW\",\"actionId\":\"opact_vectors_0001\",\"actor\":{\"metadata\":{\"source\":\"ops-console\",\"ticketId\":\"INC-VECTORS-1\"},\"operatorId\":\"op_vectors_0001\",\"role\":\"incident_commander\",\"sessionId\":\"ops_session_vectors_01\",\"tenantId\":\"tenant_vectors\"},\"caseRef\":{\"caseId\":\"dsp_run_vectors_0001\",\"kind\":\"dispute\"},\"justification\":\"vector override approved\",\"justificationCode\":\"OPS_OVERRIDE_APPROVED\",\"metadata\":{\"checklist\":[\"evidence-reviewed\",\"lead-approved\"],\"severity\":\"critical\"},\"schemaVersion\":\"OperatorAction.v1\"}",
+    "coreSha256": "83760fd9240840f2a84dcd1fd68a30eb97d1f27da523cdcda4fc93600cc3efcb",
+    "signatureKeyId": "key_282c80df2381d6831a92e89b",
+    "signature": "wwJb+5gca6zIuSs97qJaIAmz8LZ5FMBoSzCxaVUbtHKBd2wAXLQmzsF94AnQjfUScPjOBPoL6rVv+8Lbl2N7Dw=="
+  },
+  "settlementReceipt": {
+    "schemaVersion": "SettlementReceipt.v1",
+    "receiptId": "rcpt_run_vectors_0001_auto",
+    "status": "released",
+    "finalityProvider": "internal_ledger",
+    "finalityState": "final",
+    "canonicalJson": "{\"amountCents\":1250,\"createdAt\":\"2026-02-01T00:02:00.000Z\",\"currency\":\"USD\",\"decisionRef\":{\"decisionHash\":\"1d27e84bc8af75d7785d534bfc18db64221f8a3c592054cbb9f0f71315922fe0\",\"decisionId\":\"dec_run_vectors_0001_auto\"},\"finalityProvider\":\"internal_ledger\",\"finalityState\":\"final\",\"receiptHash\":\"2a40a4fe210643e8ab026206689df9f1fdc35362fddb01216a7ed1ff92418411\",\"receiptId\":\"rcpt_run_vectors_0001_auto\",\"refundedAmountCents\":0,\"releaseRatePct\":100,\"releasedAmountCents\":1250,\"resolutionEventId\":\"ev_run_vectors_0003\",\"runId\":\"run_vectors_0001\",\"runStatus\":\"completed\",\"schemaVersion\":\"SettlementReceipt.v1\",\"settledAt\":\"2026-02-01T00:02:00.000Z\",\"settlementId\":\"setl_run_vectors_0001\",\"status\":\"released\",\"tenantId\":\"tenant_vectors\"}",
+    "sha256": "c65cb2757f4e58f69a85dff2237e9cfacfdaa1b122905117c6c76ab0411da074"
+  },
+  "marketplaceOffer": {
+    "schemaVersion": "MarketplaceOffer.v2",
+    "offerId": "ofr_rfq_vectors_0001_bid_vectors_0001_ofr_bid_vectors_0001_2",
+    "proposalId": "ofr_bid_vectors_0001_2",
+    "revision": 2,
+    "canonicalJson": "{\"amountCents\":1250,\"bidId\":\"bid_vectors_0001\",\"createdAt\":\"2026-02-01T00:02:00.000Z\",\"currency\":\"USD\",\"etaSeconds\":900,\"metadata\":{\"stage\":\"vectors\"},\"note\":\"vector offer\",\"offerChainHash\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"offerHash\":\"4a8cd54515b58db4608b17a24543a5dc316d9e74db7ba14c7e77a20736d61e1a\",\"offerId\":\"ofr_rfq_vectors_0001_bid_vectors_0001_ofr_bid_vectors_0001_2\",\"policy\":{\"mode\":\"automatic\",\"policyHash\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"policyVersion\":1,\"rules\":{\"autoReleaseOnAmber\":false,\"autoReleaseOnGreen\":true,\"autoReleaseOnRed\":false,\"requireDeterministicVerification\":true},\"schemaVersion\":\"SettlementPolicy.v1\"},\"policyRef\":{\"policyHash\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"policyId\":null,\"policyVersion\":1,\"schemaVersion\":\"MarketplaceSettlementPolicyRef.v1\",\"source\":\"inline\",\"verificationMethodHash\":\"7777777777777777777777777777777777777777777777777777777777777777\"},\"policyRefHash\":\"8888888888888888888888888888888888888888888888888888888888888888\",\"prevProposalHash\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"proposalCount\":2,\"proposalHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"proposalId\":\"ofr_bid_vectors_0001_2\",\"proposedAt\":\"2026-02-01T00:01:30.000Z\",\"proposerAgentId\":\"agt_vectors_0001\",\"revision\":2,\"rfqId\":\"rfq_vectors_0001\",\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"MarketplaceOffer.v2\",\"tenantId\":\"tenant_vectors\",\"verificationMethod\":{\"mode\":\"deterministic\",\"schemaVersion\":\"VerificationMethod.v1\"}}",
+    "sha256": "1be3df103136b83d5ab35fe9a2fbf3e1cae242775bd2786d6066e83cfe054209"
+  },
+  "marketplaceAcceptance": {
+    "schemaVersion": "MarketplaceAcceptance.v2",
+    "acceptanceId": "acc_agr_rfq_vectors_0001_bid_vectors_0001",
+    "acceptedProposalId": "ofr_bid_vectors_0001_2",
+    "acceptedRevision": 2,
+    "canonicalJson": "{\"acceptanceHash\":\"7c73e3f58c0e818e3a07bbb2a46af970b2f466748aa5f0b47e2bdb31e7ac1e26\",\"acceptanceId\":\"acc_agr_rfq_vectors_0001_bid_vectors_0001\",\"acceptedAt\":\"2026-02-01T00:02:00.000Z\",\"acceptedByAgentId\":\"agt_vectors_operator_0001\",\"acceptedProposalHash\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"acceptedProposalId\":\"ofr_bid_vectors_0001_2\",\"acceptedRevision\":2,\"agreementId\":\"agr_rfq_vectors_0001_bid_vectors_0001\",\"bidId\":\"bid_vectors_0001\",\"createdAt\":\"2026-02-01T00:02:00.000Z\",\"offerChainHash\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"offerRef\":{\"offerHash\":\"4a8cd54515b58db4608b17a24543a5dc316d9e74db7ba14c7e77a20736d61e1a\",\"offerId\":\"ofr_rfq_vectors_0001_bid_vectors_0001_ofr_bid_vectors_0001_2\"},\"proposalCount\":2,\"rfqId\":\"rfq_vectors_0001\",\"runId\":\"run_vectors_0001\",\"schemaVersion\":\"MarketplaceAcceptance.v2\",\"tenantId\":\"tenant_vectors\"}",
+    "sha256": "45db5dcfdfae87f03d62af3e0d8fda2c85a2ce3f7c42d4f80bdadd8aa29a8a82"
+  },
+  "agentReputation": {
+    "schemaVersion": "AgentReputation.v1",
+    "trustScore": 48,
+    "riskTier": "high",
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"avgRunDurationMs\":60000,\"completedRuns\":1,\"computedAt\":\"2026-02-01T00:06:00.000Z\",\"createdRuns\":0,\"evidenceCoverageRatePct\":50,\"failedRuns\":1,\"lockedSettlements\":0,\"refundedSettlements\":1,\"releasedSettlements\":1,\"riskTier\":\"high\",\"runCompletionRatePct\":50,\"runningRuns\":0,\"runsWithEvidence\":1,\"schemaVersion\":\"AgentReputation.v1\",\"scoreBreakdown\":{\"activityScore\":4,\"evidenceQuality\":50,\"runQuality\":50,\"settlementQuality\":50},\"settlementReleaseRatePct\":50,\"tenantId\":\"tenant_vectors\",\"terminalRuns\":2,\"totalRuns\":2,\"totalSettlements\":2,\"trustScore\":48}",
+    "sha256": "1194219dea42ef0de87c22bdc8383e23d27ca23bea3b4cf27cb3828f0b4d6192"
+  },
+  "agentReputationV2": {
+    "schemaVersion": "AgentReputation.v2",
+    "primaryWindow": "30d",
+    "trustScore": 48,
+    "riskTier": "high",
+    "windowTrustScores": {
+      "7d": 48,
+      "30d": 48,
+      "allTime": 48
+    },
+    "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"computedAt\":\"2026-02-01T00:06:00.000Z\",\"primaryWindow\":\"30d\",\"riskTier\":\"high\",\"schemaVersion\":\"AgentReputation.v2\",\"tenantId\":\"tenant_vectors\",\"trustScore\":48,\"windows\":{\"30d\":{\"avgRunDurationMs\":60000,\"completedRuns\":1,\"computedAt\":\"2026-02-01T00:06:00.000Z\",\"createdRuns\":0,\"evidenceCoverageRatePct\":50,\"failedRuns\":1,\"lockedSettlements\":0,\"refundedSettlements\":1,\"releasedSettlements\":1,\"riskTier\":\"high\",\"runCompletionRatePct\":50,\"runningRuns\":0,\"runsWithEvidence\":1,\"scoreBreakdown\":{\"activityScore\":4,\"evidenceQuality\":50,\"runQuality\":50,\"settlementQuality\":50},\"settlementReleaseRatePct\":50,\"terminalRuns\":2,\"totalRuns\":2,\"totalSettlements\":2,\"trustScore\":48},\"7d\":{\"avgRunDurationMs\":60000,\"completedRuns\":1,\"computedAt\":\"2026-02-01T00:06:00.000Z\",\"createdRuns\":0,\"evidenceCoverageRatePct\":50,\"failedRuns\":1,\"lockedSettlements\":0,\"refundedSettlements\":1,\"releasedSettlements\":1,\"riskTier\":\"high\",\"runCompletionRatePct\":50,\"runningRuns\":0,\"runsWithEvidence\":1,\"scoreBreakdown\":{\"activityScore\":4,\"evidenceQuality\":50,\"runQuality\":50,\"settlementQuality\":50},\"settlementReleaseRatePct\":50,\"terminalRuns\":2,\"totalRuns\":2,\"totalSettlements\":2,\"trustScore\":48},\"allTime\":{\"avgRunDurationMs\":60000,\"completedRuns\":1,\"computedAt\":\"2026-02-01T00:06:00.000Z\",\"createdRuns\":0,\"evidenceCoverageRatePct\":50,\"failedRuns\":1,\"lockedSettlements\":0,\"refundedSettlements\":1,\"releasedSettlements\":1,\"riskTier\":\"high\",\"runCompletionRatePct\":50,\"runningRuns\":0,\"runsWithEvidence\":1,\"scoreBreakdown\":{\"activityScore\":4,\"evidenceQuality\":50,\"runQuality\":50,\"settlementQuality\":50},\"settlementReleaseRatePct\":50,\"terminalRuns\":2,\"totalRuns\":2,\"totalSettlements\":2,\"trustScore\":48}}}",
+    "sha256": "4b6c4a2f157619478c61dff685524a324b8900561b87777590391420536764d8"
+  },
+  "interactionDirectionMatrix": {
+    "schemaVersion": "InteractionDirectionMatrix.v1",
+    "directionalCount": 16,
+    "entityTypes": [
+      "agent",
+      "human",
+      "robot",
+      "machine"
+    ],
+    "canonicalJson": "{\"directionalCount\":16,\"directions\":{\"agent\":{\"agent\":true,\"human\":true,\"machine\":true,\"robot\":true},\"human\":{\"agent\":true,\"human\":true,\"machine\":true,\"robot\":true},\"machine\":{\"agent\":true,\"human\":true,\"machine\":true,\"robot\":true},\"robot\":{\"agent\":true,\"human\":true,\"machine\":true,\"robot\":true}},\"entityTypes\":[\"agent\",\"human\",\"robot\",\"machine\"],\"schemaVersion\":\"InteractionDirectionMatrix.v1\"}",
+    "sha256": "eb6726525b858f8a0ea293c498783a704816d50d39f205425b0bcba66fa5c24a"
+  },
+  "reputationEvent": {
+    "schemaVersion": "ReputationEvent.v1",
+    "eventKind": "decision_approved",
+    "eventId": "rep_dec_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "canonicalJson": "{\"artifactId\":\"rep_dec_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"artifactType\":\"ReputationEvent.v1\",\"eventHash\":\"f50bda80aed53e8ba6772cbb6ddcb0cbccd0b2644ee73d5f6e683d4172fbfbc4\",\"eventId\":\"rep_dec_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"eventKind\":\"decision_approved\",\"facts\":{\"amountSettledCents\":1250,\"decisionStatus\":\"approved\",\"latencyMs\":1200,\"releaseRatePct\":100},\"occurredAt\":\"2026-02-01T00:02:00.000Z\",\"schemaVersion\":\"ReputationEvent.v1\",\"sourceRef\":{\"decisionHash\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"kind\":\"settlement_decision\",\"runId\":\"run_vectors_0001\",\"settlementId\":\"setl_run_vectors_0001\"},\"subject\":{\"agentId\":\"agt_vectors_0001\",\"counterpartyAgentId\":\"agt_vectors_payer_0001\",\"role\":\"payee\",\"toolId\":\"tool_call\"},\"tenantId\":\"tenant_vectors\"}",
+    "sha256": "417497c089d5d21ecfef955330ccb096205bb75f8312796559bdff36dca8d716"
+  },
+  "disputeOpenEnvelope": {
+    "schemaVersion": "DisputeOpenEnvelope.v1",
+    "envelopeId": "dopen_tc_1111111111111111111111111111111111111111111111111111111111111111",
+    "caseId": "arb_case_tc_1111111111111111111111111111111111111111111111111111111111111111",
+    "canonicalJson": "{\"agreementHash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"artifactId\":\"dopen_tc_1111111111111111111111111111111111111111111111111111111111111111\",\"artifactType\":\"DisputeOpenEnvelope.v1\",\"caseId\":\"arb_case_tc_1111111111111111111111111111111111111111111111111111111111111111\",\"envelopeHash\":\"a98223d0bd88e2ed4c3e261eddda1883f5cb354e74ca4e98a870d16226969e32\",\"envelopeId\":\"dopen_tc_1111111111111111111111111111111111111111111111111111111111111111\",\"holdHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"nonce\":\"nonce_vectors_000001\",\"openedAt\":\"2026-02-01T00:03:00.000Z\",\"openedByAgentId\":\"agt_vectors_payee_0001\",\"reasonCode\":\"TOOL_CALL_DISPUTE\",\"receiptHash\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"schemaVersion\":\"DisputeOpenEnvelope.v1\",\"signature\":\"sig_vectors_demo_0001\",\"signerKeyId\":\"key_vectors_payee_0001\",\"tenantId\":\"tenant_vectors\"}",
+    "sha256": "060746e937ce07ccbe1dd83faf49cbf0bc1aa88d18a8c71e0442d3ccb8ea7580"
+  },
+  "agreementDelegation": {
+    "schemaVersion": "AgreementDelegation.v1",
+    "delegationId": "dlg_det_00000001",
+    "parentAgreementHash": "a492f2471e80f6e61cad6cb760398acb6c21949e319e0f69f55def0c31ea0fa2",
+    "childAgreementHash": "104b3f76b823c89acfa756082dbe250aea07967a6cc29afb8d0a6c09e761b987",
+    "delegationDepth": 1,
+    "maxDelegationDepth": 3,
+    "canonicalJson": "{\"ancestorChain\":[\"a492f2471e80f6e61cad6cb760398acb6c21949e319e0f69f55def0c31ea0fa2\"],\"budgetCapCents\":2500,\"childAgreementHash\":\"104b3f76b823c89acfa756082dbe250aea07967a6cc29afb8d0a6c09e761b987\",\"createdAt\":\"2026-02-01T00:00:00.000Z\",\"currency\":\"USD\",\"delegateeAgentId\":\"agt_delegatee_det\",\"delegationDepth\":1,\"delegationHash\":\"7b1024329be1a2b8cf107a1ec140b138bc62cf37cc154ecb4853c16c1a2db136\",\"delegationId\":\"dlg_det_00000001\",\"delegatorAgentId\":\"agt_delegator_det\",\"maxDelegationDepth\":3,\"parentAgreementHash\":\"a492f2471e80f6e61cad6cb760398acb6c21949e319e0f69f55def0c31ea0fa2\",\"revision\":0,\"schemaVersion\":\"AgreementDelegation.v1\",\"status\":\"active\",\"tenantId\":\"tenant_vectors\",\"updatedAt\":\"2026-02-01T00:00:00.000Z\"}",
+    "sha256": "a5363e0139a47f5444177f405e96502fea477fd615d8ce015c272bdf981798e1"
   }
 }

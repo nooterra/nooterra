@@ -3,11 +3,11 @@
 - Status: Accepted
 - Date: 2026-02-21
 - Owners: Architecture, Backend, Security
-- Decision Scope: Trust OS v1 runtime and protocol boundary
+- Decision Scope: Trust OS runtime and protocol boundary
 
 ## Context
 
-Settld must enforce policy, evidence, and settlement guarantees across multiple hosts and payment rails.
+Nooterra must enforce policy, evidence, and settlement guarantees across multiple hosts and payment rails.
 
 If enforcement logic is duplicated in each host integration or rail adapter, behavior drifts and breaks the core promise:
 

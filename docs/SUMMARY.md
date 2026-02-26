@@ -1,6 +1,6 @@
 # Summary
 
-- [Settld Documentation](README.md)
+- [Nooterra Documentation](README.md)
 - [Docs Home](gitbook/README.md)
 - [Quickstart](gitbook/quickstart.md)
 - [Quickstart: Profiles CLI](QUICKSTART_PROFILES.md)

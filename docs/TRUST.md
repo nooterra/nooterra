@@ -1,6 +1,6 @@
 # Trust (v0.4)
 
-Settld’s trust layer is a “privacy-respecting black box”: an append-only, tamper-evident event log with signer policy, plus minimal evidence references and a deterministic claims workflow.
+Nooterra’s trust layer is a “privacy-respecting black box”: an append-only, tamper-evident event log with signer policy, plus minimal evidence references and a deterministic claims workflow.
 
 ## Core guarantees
 

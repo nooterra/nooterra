@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 const REPO_ROOT = process.cwd();
 
 test("throughput drill script writes deterministic failure report on preflight error", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-throughput-drill-fail-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-throughput-drill-fail-"));
   const reportPath = path.join(tmpDir, "10x-drill-summary.json");
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
@@ -33,7 +33,7 @@ test("throughput drill script writes deterministic failure report on preflight e
 });
 
 test("throughput incident rehearsal script writes deterministic failure report when OPS token is missing", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-throughput-rehearsal-fail-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-throughput-rehearsal-fail-"));
   const reportPath = path.join(tmpDir, "10x-incident-rehearsal-summary.json");
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });

@@ -1,7 +1,7 @@
 # Data Risk Sub-Agent Charter
 
 ## Purpose
-Own data risk control for Settld's autonomous economy transaction rails so data handling decisions preserve deterministic protocol guarantees, auditability, and release safety.
+Own data risk control for Nooterra's autonomous economy transaction rails so data handling decisions preserve deterministic protocol guarantees, auditability, and release safety.
 
 ## Accountabilities
 - Maintain a living data risk register across ingest, transformation, storage, replay, and verification flows.

@@ -25,7 +25,7 @@ function readJsonIfExistsSync(fp) {
 }
 
 function readBundleType(dir) {
-  const fp = path.join(dir, "settld.json");
+  const fp = path.join(dir, "nooterra.json");
   try {
     const raw = fsSync.readFileSync(fp, "utf8");
     const j = JSON.parse(raw);

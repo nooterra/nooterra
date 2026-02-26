@@ -1,6 +1,6 @@
 # Execution Liveness (v0.6)
 
-Settld treats “job liveness” as an event-sourced contract:
+Nooterra treats “job liveness” as an event-sourced contract:
 
 - Robots emit signed heartbeats into the job stream.
 - The server detects missing heartbeats and appends a signed `JOB_EXECUTION_STALLED` event (validated at append-time).

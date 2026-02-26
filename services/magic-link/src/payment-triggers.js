@@ -224,14 +224,14 @@ function buildWebhookHeaders({ body, idempotencyKey, webhookSecret }) {
   const headers = {
     "content-type": "application/json; charset=utf-8",
     "content-length": String(Buffer.byteLength(body, "utf8")),
-    "x-settld-event": "payment.approval_ready",
-    "x-settld-idempotency-key": idempotencyKey
+    "x-nooterra-event": "payment.approval_ready",
+    "x-nooterra-idempotency-key": idempotencyKey
   };
   if (webhookSecret) {
     const ts = nowIso();
     const sig = hmacSha256Hex(webhookSecret, `${ts}.${body}`);
-    headers["x-settld-timestamp"] = ts;
-    headers["x-settld-signature"] = `v1=${sig}`;
+    headers["x-nooterra-timestamp"] = ts;
+    headers["x-nooterra-signature"] = `v1=${sig}`;
   }
   return headers;
 }

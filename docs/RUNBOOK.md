@@ -1,4 +1,4 @@
-# Settld Operations Runbook
+# Nooterra Operations Runbook
 
 ## Quick reference
 
@@ -8,7 +8,7 @@
 | `delivery_dlq_pending_total_gauge` > 0 | repeated delivery failures | inspect DLQ; fix destination; requeue (audited) |
 | `ingest_rejected_total` spike | integration bug or hostile input | check `/ops/status` top reject codes; identify client from logs |
 | stripe billing rejects/replayable dead-letter rising | dropped/invalid webhook windows or apply failures | follow `docs/ops/BILLING_WEBHOOK_REPLAY.md` |
-| go-live gate blocked | one or more S13 checks failed | run `node scripts/ci/run-go-live-gate.mjs` + `npm run -s test:ops:settld-verified-gate -- --level collaboration --include-pg --out artifacts/gates/settld-verified-collaboration-gate.json` + `node scripts/ci/build-launch-cutover-packet.mjs`, inspect `artifacts/gates/s13-go-live-gate.json` + `artifacts/gates/settld-verified-collaboration-gate.json` + `artifacts/gates/s13-launch-cutover-packet.json` |
+| go-live gate blocked | one or more S13 checks failed | run `node scripts/ci/run-go-live-gate.mjs` + `npm run -s test:ops:nooterra-verified-gate -- --level collaboration --include-pg --out artifacts/gates/nooterra-verified-collaboration-gate.json` (or add `--bootstrap-local` for local Docker PG bootstrap) + `node scripts/ci/build-launch-cutover-packet.mjs`, inspect `artifacts/gates/s13-go-live-gate.json` + `artifacts/gates/nooterra-verified-collaboration-gate.json` + `artifacts/gates/s13-launch-cutover-packet.json` |
 | `/healthz` dbOk=false | Postgres down/unreachable | fix DB connectivity; do not restart-loop workers |
 | `ARTIFACT_HASH_MISMATCH` | non-determinism or duplicate IDs | **stop ingestion**, preserve state, investigate |
 
@@ -80,8 +80,9 @@ Do not resume ingestion until:
 - deterministic critical suites pass,
 - 10x throughput drill pass,
 - lighthouse tracker indicates >=3 paid production settlements.
-- Settld Verified collaboration binding source passes:
-  `npm run -s test:ops:settld-verified-gate -- --level collaboration --include-pg --out artifacts/gates/settld-verified-collaboration-gate.json`
+- Nooterra Verified collaboration binding source passes:
+  `npm run -s test:ops:nooterra-verified-gate -- --level collaboration --include-pg --out artifacts/gates/nooterra-verified-collaboration-gate.json`
+  (local alternative: append `--bootstrap-local` to auto-start loopback API + Docker Postgres)
 
 ### Release promotion input materialization (NOO-65)
 

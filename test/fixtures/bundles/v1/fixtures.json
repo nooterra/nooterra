@@ -255,7 +255,7 @@
       "kind": "invoice-bundle",
       "path": "invoicebundle/strict-pass",
       "strict": false,
-      "envOverrides": { "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": "" },
+      "envOverrides": { "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": "" },
       "expected": {
         "exitCode": 0,
         "ok": true,
@@ -342,7 +342,7 @@
       "kind": "job-proof",
       "path": "jobproof/strict-pass",
       "strict": true,
-      "envOverrides": { "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": "" },
+      "envOverrides": { "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": "" },
       "expected": { "exitCode": 1, "ok": false, "verificationOk": false, "errorCodes": ["strict requires trusted governance root keys"], "warningCodes": [] }
     },
     {
@@ -350,7 +350,7 @@
       "kind": "job-proof",
       "path": "jobproof/strict-pass",
       "strict": true,
-      "envOverrides": { "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": "{\"key_fake\":\"x\"}" },
+      "envOverrides": { "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON": "{\"key_fake\":\"x\"}" },
       "expected": { "exitCode": 1, "ok": false, "verificationOk": false, "errorCodes": ["governance policy signerKeyId not trusted"], "warningCodes": [] }
     }
   ]

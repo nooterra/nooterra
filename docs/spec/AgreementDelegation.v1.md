@@ -84,7 +84,7 @@ When those checks fail, implementations SHOULD return a stable `code` that is su
 
 ## Deterministic execution plans (idempotent)
 
-Settld exposes deterministic traversal plans for execution:
+Nooterra exposes deterministic traversal plans for execution:
 
 - `cascadeSettlementCheck(fromChildHash)` returns a bottom-up parent chain.
 - `refundUnwindCheck(fromParentHash)` returns a top-down child chain.

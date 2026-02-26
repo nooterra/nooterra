@@ -71,7 +71,7 @@ jobs:
           path: |
             artifacts/gates/production-cutover-gate-prod.json
             artifacts/gates/production-cutover-required-checks-prod.json
-            artifacts/gates/settld-verified-collaboration-gate.json
+            artifacts/gates/nooterra-verified-collaboration-gate.json
             artifacts/ops/mcp-host-cert-matrix.json
             artifacts/ops/x402-hitl-smoke.json
           if-no-files-found: warn

@@ -1,21 +1,21 @@
 {
   "schemaVersion": "ProtocolV1Freeze.v1",
   "files": {
-    "docs/spec/schemas/AgreementDelegation.v1.schema.json": "55c2bd349a4393dd3bf54de948653c519a85d57e6366471f4dcd144594b6dd9e",
-    "docs/spec/schemas/BundleHeadAttestation.v1.schema.json": "101345071099e8bc0daebe4d39f09e68c1c439f20d5f9d5ef817b1e8ef32555d",
-    "docs/spec/schemas/FinancePackBundleManifest.v1.schema.json": "05ec300543ae87b231462906b9df8253b1cbdec9170df4e962451b5d0580aeea",
-    "docs/spec/schemas/GovernancePolicy.v1.schema.json": "457769d80327ec6ea77cce1335d182f2f3e27619f4665eab12f13aa584aebd8f",
-    "docs/spec/schemas/ProofBundleManifest.v1.schema.json": "3714da0fdebd30a0ccad532af5629b65bcaec80e13fc6dd565c38dc8673ba044",
-    "docs/spec/schemas/PublicKeys.v1.schema.json": "9407919238468fcc2fdce9078b421b6353778a31c4d76d677bc3b8eb9b32b940",
-    "docs/spec/schemas/RevocationList.v1.schema.json": "d73756a538f210b3883c2e7427432145ae9e21e884780ee49c5ed485b80dd667",
-    "docs/spec/schemas/TimestampProof.v1.schema.json": "8eeefd57e961d85b0e8157e1c43bea6f71c6005582beed035fa12bd88cbbc75a",
-    "docs/spec/schemas/ToolCallAgreement.v1.schema.json": "ad72962b63e237b9f1722ff0887b53e7a4b9787ec1d189b667de7b7b7a122eac",
-    "docs/spec/schemas/ToolCallEvidence.v1.schema.json": "73958b75580f2edf297fddc445b4ab15e7486d38c010a4023e1ff8d174c5886d",
-    "docs/spec/schemas/ToolManifest.v1.schema.json": "2f7afeb1a9e6b2839758158800c234b0d71663aa1030252353f71a013f87b11e",
-    "docs/spec/schemas/VerificationReport.v1.schema.json": "b6f83cadf1c1c2001da201143e27f9a2abef0d410360cb91c7c02dd23b177aa6",
-    "docs/spec/schemas/VerifyAboutOutput.v1.schema.json": "198bdc2a795cf1416068649ff506f06f8f0c5292359dc100d95ad83623509e79",
-    "docs/spec/schemas/VerifyCliOutput.v1.schema.json": "81674c1874c5458828091dcc1c9a6ce0b77b65789a63b397640e39b69e01911b",
-    "docs/spec/schemas/ProduceCliOutput.v1.schema.json": "667352d95de61c6f5444609edbb087c9522c1d2e3d0896a89c2a6d44297c3292",
-    "test/fixtures/protocol-vectors/v1.json": "ef9bb60862137b74f626e34816627e9663a8d33a1bc6c13d1664008b40058a17"
+    "docs/spec/schemas/AgreementDelegation.v1.schema.json": "657314611c0c93bbfc638e370b805db510c4731bab30e24d7f009436e28b6567",
+    "docs/spec/schemas/BundleHeadAttestation.v1.schema.json": "773a7dc87eb75ca29035c7b04850db6d152b8231c76065b316adf7e451e072e3",
+    "docs/spec/schemas/FinancePackBundleManifest.v1.schema.json": "9f5829401e5d9bf2a58599371b84e9411237b4953b9cf7a08281f163eedf331c",
+    "docs/spec/schemas/GovernancePolicy.v1.schema.json": "21e6315f64d9acff71364912ec9e92b2a4f5a622180a32bb81b34f31375d6b81",
+    "docs/spec/schemas/ProofBundleManifest.v1.schema.json": "8f94b74671922c49eabbe6d6b92926b23c76588f2ef7c133288dd5a2d8e97cef",
+    "docs/spec/schemas/PublicKeys.v1.schema.json": "647ee4a2b70e2b9b67ef6add0ff5d2b30f8d264e9343670b4395135328fb2a82",
+    "docs/spec/schemas/RevocationList.v1.schema.json": "13dcd6743450997c781f1442ec3e8eb0462469999a6137945b5fb0544591facb",
+    "docs/spec/schemas/TimestampProof.v1.schema.json": "2cce52bd3a8a8b1bfba0593570a8dcf0db16be25a923c1809e80e3c8faf39c00",
+    "docs/spec/schemas/ToolCallAgreement.v1.schema.json": "83ee5ebc639a82b8a981d924c8f2fd76ae4b9c2cd0ed35be4dc0a63418e8c40f",
+    "docs/spec/schemas/ToolCallEvidence.v1.schema.json": "640c56069529fe6cee2f52e40ad6ec68b55cf485cae8c14a1c7d1ef56e305434",
+    "docs/spec/schemas/ToolManifest.v1.schema.json": "9b8e30aa047a1b6b42cb74d0167ef86aa791e6721094ec283bdd4fcfeb37206f",
+    "docs/spec/schemas/VerificationReport.v1.schema.json": "ac93d5dee90e426554e6416df7a74be206ce09119807d48b9aec881a787c367d",
+    "docs/spec/schemas/VerifyAboutOutput.v1.schema.json": "0b31c6f666b343a855a17650ba1721bfba9930a823d2ab4c7d540900c3d2c5ca",
+    "docs/spec/schemas/VerifyCliOutput.v1.schema.json": "633bfae42bb3eda998f6fbef95907a941a4f4f8caedaf5d5c74bb635d995b20d",
+    "docs/spec/schemas/ProduceCliOutput.v1.schema.json": "e913a6a9cc9027137df1cd89455f0bb544ac5be8959db290271024dd0d548a85",
+    "test/fixtures/protocol-vectors/v1.json": "c658173e55a7b5d535bd4d268705d979688ec0aa9086e3234f2c4e3f8cb1122e"
   }
 }

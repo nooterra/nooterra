@@ -147,7 +147,7 @@ async function setX402AgentLifecycle(
     path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       status,

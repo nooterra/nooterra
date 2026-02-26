@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { createEd25519Keypair, keyIdFromPublicKeyPem } from "../../src/core/crypto.js";
-import { buildSettldPayKeysetV1 } from "../../src/core/settld-keys.js";
+import { buildNooterraPayKeysetV1 } from "../../src/core/nooterra-keys.js";
 import { computeProviderRefFromPublishProofJwk } from "../../src/core/provider-publish-proof.js";
 
 function usage() {
@@ -64,7 +64,7 @@ function main() {
 
   const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
   const keyId = keyIdFromPublicKeyPem(publicKeyPem);
-  const jwks = buildSettldPayKeysetV1({
+  const jwks = buildNooterraPayKeysetV1({
     activeKey: {
       keyId,
       publicKeyPem

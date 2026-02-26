@@ -53,19 +53,19 @@ async function main() {
   await waitFor(async () => {
     const r = await httpJson({ method: "GET", path: "/capabilities" }).catch(() => null);
     if (!r || r.status !== 200) return false;
-    if (r.headers.get("x-settld-protocol") !== PROTOCOL) return false;
+    if (r.headers.get("x-nooterra-protocol") !== PROTOCOL) return false;
     return true;
   });
 
   const createKey = await httpJson({
     method: "POST",
     path: "/ops/api-keys",
-    headers: { "x-proxy-tenant-id": TENANT_ID, "x-proxy-ops-token": OPS_TOKEN, "x-settld-protocol": PROTOCOL },
+    headers: { "x-proxy-tenant-id": TENANT_ID, "x-proxy-ops-token": OPS_TOKEN, "x-nooterra-protocol": PROTOCOL },
     body: { scopes: ["ops_read", "ops_write", "finance_read", "finance_write", "audit_read"] }
   });
   assert.equal(createKey.status, 201, createKey.text);
   const bearer = `Bearer ${createKey.json.keyId}.${createKey.json.secret}`;
-  const headersBase = { "x-proxy-tenant-id": TENANT_ID, authorization: bearer, "x-settld-protocol": PROTOCOL };
+  const headersBase = { "x-proxy-tenant-id": TENANT_ID, authorization: bearer, "x-nooterra-protocol": PROTOCOL };
 
   // Robot registration + availability.
   const { publicKeyPem: robotPublicKeyPem, privateKeyPem: robotPrivateKeyPem } = createEd25519Keypair();
@@ -193,7 +193,7 @@ async function main() {
   // Sanity: protocol headers present.
   const status = await httpJson({ method: "GET", path: "/ops/status", headers: headersBase });
   assert.equal(status.status, 200, status.text);
-  assert.equal(status.headers.get("x-settld-protocol"), PROTOCOL);
+  assert.equal(status.headers.get("x-nooterra-protocol"), PROTOCOL);
 
   // Extra assertion: booking pinned policy hash is deterministic (exercise policy functions quickly).
   const sla = computeSlaPolicy({ environmentTier: "ENV_MANAGED_BUILDING" });

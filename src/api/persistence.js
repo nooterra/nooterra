@@ -803,6 +803,20 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "STATE_CHECKPOINT_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const stateCheckpoint = op.stateCheckpoint ?? null;
+      if (!stateCheckpoint || typeof stateCheckpoint !== "object" || Array.isArray(stateCheckpoint)) {
+        throw new TypeError("STATE_CHECKPOINT_UPSERT requires stateCheckpoint");
+      }
+      const checkpointId = stateCheckpoint.checkpointId ?? op.checkpointId ?? null;
+      if (!checkpointId) throw new TypeError("STATE_CHECKPOINT_UPSERT requires stateCheckpoint.checkpointId");
+      if (!(store.stateCheckpoints instanceof Map)) store.stateCheckpoints = new Map();
+      const key = makeScopedKey({ tenantId, id: String(checkpointId) });
+      store.stateCheckpoints.set(key, { ...stateCheckpoint, tenantId, checkpointId: String(checkpointId) });
+      continue;
+    }
+
     if (kind === "X402_GATE_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
       const gate = op.gate ?? null;

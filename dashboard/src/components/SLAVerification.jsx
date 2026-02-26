@@ -1,14 +1,14 @@
 export default function SLAVerification({ sla, phase }) {
   const getStatusDisplay = () => {
-    if (phase === "sla") return { text: "VERIFYING", color: "text-settld-accent" };
-    if (sla.breached) return { text: "SLA BREACHED", color: "text-settld-warning" };
-    return { text: "SLA MET", color: "text-settld-success" };
+    if (phase === "sla") return { text: "VERIFYING", color: "text-nooterra-accent" };
+    if (sla.breached) return { text: "SLA BREACHED", color: "text-nooterra-warning" };
+    return { text: "SLA MET", color: "text-nooterra-success" };
   };
 
   const status = getStatusDisplay();
 
   return (
-    <div className="bg-settld-card border border-settld-border rounded-xl p-6">
+    <div className="bg-nooterra-card border border-nooterra-border rounded-xl p-6">
       <div className="flex items-center gap-3 mb-6">
         <span className="text-2xl">SLA</span>
         <h2 className="text-xl font-semibold">Verification</h2>
@@ -22,11 +22,11 @@ export default function SLAVerification({ sla, phase }) {
         </div>
         <div>
           <p className="text-gray-400 text-sm">Rule</p>
-          <p className="text-settld-accent italic">"{sla.clause}"</p>
+          <p className="text-nooterra-accent italic">"{sla.clause}"</p>
         </div>
         {sla.breached && (
-          <div className="mt-4 p-4 bg-settld-warning/10 border border-settld-warning/30 rounded-lg">
-            <p className="text-settld-warning font-medium">Late by {sla.breachAmount}</p>
+          <div className="mt-4 p-4 bg-nooterra-warning/10 border border-nooterra-warning/30 rounded-lg">
+            <p className="text-nooterra-warning font-medium">Late by {sla.breachAmount}</p>
           </div>
         )}
       </div>

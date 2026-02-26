@@ -1,6 +1,6 @@
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 
-import { SettldClient } from "../../packages/api-sdk/src/index.js";
+import { NooterraClient } from "../../packages/api-sdk/src/index.js";
 
 function uniqueSuffix() {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
@@ -13,6 +13,10 @@ function futureIso(hours) {
 function generatePublicKeyPem() {
   const { publicKey } = generateKeyPairSync("ed25519");
   return publicKey.export({ format: "pem", type: "spki" }).toString("utf8");
+}
+
+function sha256HexFromString(value) {
+  return createHash("sha256").update(String(value), "utf8").digest("hex");
 }
 
 function requireBody(response, label) {
@@ -34,11 +38,11 @@ function requireString(value, label) {
 }
 
 async function main() {
-  const baseUrl = process.env.SETTLD_BASE_URL ?? "http://127.0.0.1:3000";
-  const tenantId = process.env.SETTLD_TENANT_ID ?? "tenant_default";
-  const apiKey = process.env.SETTLD_API_KEY ?? "";
+  const baseUrl = process.env.NOOTERRA_BASE_URL ?? "http://127.0.0.1:3000";
+  const tenantId = process.env.NOOTERRA_TENANT_ID ?? "tenant_default";
+  const apiKey = process.env.NOOTERRA_API_KEY ?? "";
 
-  const client = new SettldClient({
+  const client = new NooterraClient({
     baseUrl,
     tenantId,
     apiKey: apiKey || undefined
@@ -89,7 +93,7 @@ async function main() {
       description: "specialized travel worker",
       capabilities: [capabilityId],
       visibility: "public",
-      host: { runtime: "codex", endpoint: "https://example.invalid/worker" },
+      host: { runtime: "nooterra", endpoint: "https://example.invalid/worker" },
       priceHint: { amountCents: 180, currency: "USD" }
     }),
     "upsert worker card"
@@ -164,6 +168,29 @@ async function main() {
   requireBody(await client.getAuthorityGrant(authorityGrantId), "get authority grant");
   requireBody(await client.listAuthorityGrants({ grantId: authorityGrantId }), "list authority grants");
 
+  const checkpointDelegationGrant = requireObject(
+    requireBody(
+      await client.issueDelegationGrant({
+        delegatorAgentId: workerAgentId,
+        delegateeAgentId: principalAgentId,
+        scope: {
+          allowedRiskClasses: ["financial"],
+          sideEffectingAllowed: true
+        },
+        spendLimit: {
+          currency: "USD",
+          maxPerCallCents: 1000,
+          maxTotalCents: 10000
+        },
+        chainBinding: { depth: 0, maxDelegationDepth: 0 },
+        validity: { expiresAt: futureIso(48) }
+      }),
+      "issue checkpoint delegation grant"
+    ).delegationGrant,
+    "checkpointDelegationGrant"
+  );
+  const checkpointDelegationGrantId = requireString(checkpointDelegationGrant.grantId, "checkpointDelegationGrant.grantId");
+
   const taskQuote = requireObject(
     requireBody(
       await client.createTaskQuote({
@@ -216,6 +243,13 @@ async function main() {
         subAgentId: workerAgentId,
         requiredCapability: capabilityId,
         pricing: { amountCents: 1500, currency: "USD" },
+        metering: {
+          mode: "metered",
+          requireFinalMeterEvidence: true,
+          enforceFinalReconcile: true,
+          maxTopUpCents: 1000,
+          unit: "usd_cents"
+        },
         acceptanceRef: { acceptanceId, acceptanceHash },
         delegationGrantRef: delegationGrantId,
         authorityGrantRef: authorityGrantId,
@@ -235,6 +269,18 @@ async function main() {
       percentComplete: 50
     }),
     "progress work order"
+  );
+  requireBody(
+    await client.topUpWorkOrder(workOrderId, {
+      topUpId: `topup_${suffix}`,
+      amountCents: 250,
+      quantity: 1
+    }),
+    "work order topup"
+  );
+  const workOrderMeteringBody = requireBody(
+    await client.getWorkOrderMetering(workOrderId, { includeMeters: true, limit: 10, offset: 0 }),
+    "work order metering"
   );
   const completeBody = requireBody(
     await client.completeWorkOrder(workOrderId, {
@@ -280,6 +326,65 @@ async function main() {
   requireBody(await client.getSessionReplayPack(sessionId), "get session replay pack");
   requireBody(await client.getSessionTranscript(sessionId), "get session transcript");
 
+  const checkpointTraceId = `trace_checkpoint_${suffix}`;
+  const stateSnapshot = JSON.stringify({ itineraryOptions: 3, preferredClass: "economy", budgetCents: 150000 });
+  const diffA = JSON.stringify({ field: "itineraryOptions", previous: 0, next: 3 });
+  const diffB = JSON.stringify({ field: "budgetCents", previous: 0, next: 150000 });
+  const stateCheckpointBody = requireBody(
+    await client.createStateCheckpoint({
+      ownerAgentId: principalAgentId,
+      projectId: `proj_${suffix}`,
+      sessionId,
+      traceId: checkpointTraceId,
+      delegationGrantRef: checkpointDelegationGrantId,
+      authorityGrantRef: authorityGrantId,
+      stateRef: {
+        artifactId: `art_state_${suffix}`,
+        artifactHash: sha256HexFromString(stateSnapshot),
+        contentType: "application/json",
+        uri: `memory://state/${suffix}`
+      },
+      diffRefs: [
+        {
+          artifactId: `art_diff_a_${suffix}`,
+          artifactHash: sha256HexFromString(diffA),
+          contentType: "application/json",
+          uri: `memory://diff/a/${suffix}`
+        },
+        {
+          artifactId: `art_diff_b_${suffix}`,
+          artifactHash: sha256HexFromString(diffB),
+          contentType: "application/json",
+          uri: `memory://diff/b/${suffix}`
+        }
+      ],
+      metadata: { source: "sdk-acs-substrate-smoke-js" }
+    }),
+    "create state checkpoint"
+  );
+  const stateCheckpoint = requireObject(stateCheckpointBody.stateCheckpoint, "stateCheckpoint");
+  const checkpointId = requireString(stateCheckpoint.checkpointId, "stateCheckpoint.checkpointId");
+  const checkpointHash = requireString(stateCheckpoint.checkpointHash, "stateCheckpoint.checkpointHash");
+  const listedStateCheckpoints = requireBody(
+    await client.listStateCheckpoints({
+      ownerAgentId: principalAgentId,
+      traceId: checkpointTraceId,
+      limit: 10,
+      offset: 0
+    }),
+    "list state checkpoints"
+  );
+  const fetchedStateCheckpointBody = requireBody(await client.getStateCheckpoint(checkpointId), "get state checkpoint");
+  const fetchedStateCheckpoint = requireObject(fetchedStateCheckpointBody.stateCheckpoint, "fetchedStateCheckpoint");
+  const checkpointDelegationGrantRef = requireString(
+    fetchedStateCheckpoint.delegationGrantRef,
+    "fetchedStateCheckpoint.delegationGrantRef"
+  );
+  const checkpointAuthorityGrantRef = requireString(
+    fetchedStateCheckpoint.authorityGrantRef,
+    "fetchedStateCheckpoint.authorityGrantRef"
+  );
+
   const attestationBody = requireBody(
     await client.createCapabilityAttestation({
       subjectAgentId: workerAgentId,
@@ -302,9 +407,65 @@ async function main() {
     "revoke capability attestation"
   );
 
+  let publicReputationSummary = {
+    agentId: workerAgentId,
+    relationships: []
+  };
+  try {
+    const publicReputationSummaryBody = requireBody(
+      await client.getPublicAgentReputationSummary(workerAgentId, {
+        reputationVersion: "v2",
+        reputationWindow: "30d",
+        asOf: new Date().toISOString(),
+        includeRelationships: true,
+        relationshipLimit: 5
+      }),
+      "get public reputation summary"
+    );
+    publicReputationSummary = requireObject(publicReputationSummaryBody.summary, "publicReputationSummary");
+  } catch (err) {
+    const code = err?.nooterra?.code ?? err?.code ?? null;
+    if (code !== "PUBLIC_REPUTATION_SUMMARY_DISABLED") throw err;
+  }
+
+  const interactionGraphPackBody = requireBody(
+    await client.getAgentInteractionGraphPack(workerAgentId, {
+      reputationVersion: "v2",
+      reputationWindow: "30d",
+      asOf: new Date().toISOString(),
+      counterpartyAgentId: principalAgentId,
+      visibility: "all",
+      limit: 10,
+      offset: 0
+    }),
+    "get interaction graph pack"
+  );
+  const interactionGraphPack = requireObject(interactionGraphPackBody.graphPack, "interactionGraphPack");
+  const interactionGraphRelationships = Array.isArray(interactionGraphPack.relationships)
+    ? interactionGraphPack.relationships
+    : [];
+
+  const relationshipsResult = requireBody(
+    await client.listRelationships({
+      agentId: workerAgentId,
+      counterpartyAgentId: principalAgentId,
+      reputationWindow: "30d",
+      asOf: new Date().toISOString(),
+      visibility: "all",
+      limit: 10,
+      offset: 0
+    }),
+    "list relationships"
+  );
+  const relationships = Array.isArray(relationshipsResult.relationships) ? relationshipsResult.relationships : [];
+
   const revokedDelegation = requireBody(
     await client.revokeDelegationGrant(delegationGrantId, { reasonCode: "REVOKED_BY_PRINCIPAL" }),
     "revoke delegation grant"
+  );
+  requireBody(
+    await client.revokeDelegationGrant(checkpointDelegationGrantId, { reasonCode: "REVOKED_BY_PRINCIPAL" }),
+    "revoke checkpoint delegation grant"
   );
   const revokedAuthority = requireBody(
     await client.revokeAuthorityGrant(authorityGrantId, { reasonCode: "REVOKED_BY_PRINCIPAL" }),
@@ -323,11 +484,28 @@ async function main() {
     completionReceiptId,
     completionStatus: completionReceipt.status ?? null,
     workOrderReceiptCount: Array.isArray(receiptsBody.receipts) ? receiptsBody.receipts.length : 0,
+    workOrderMeterCount:
+      Number.isSafeInteger(Number(workOrderMeteringBody?.metering?.meterCount ?? Number.NaN))
+        ? Number(workOrderMeteringBody.metering.meterCount)
+        : 0,
+    workOrderMeterDigest:
+      typeof workOrderMeteringBody?.metering?.meterDigest === "string" ? workOrderMeteringBody.metering.meterDigest : null,
     sessionId,
     sessionEventCount: Array.isArray(sessionEventsAfter.events) ? sessionEventsAfter.events.length : 0,
+    checkpointId,
+    checkpointHash,
+    checkpointListCount: Array.isArray(listedStateCheckpoints.stateCheckpoints) ? listedStateCheckpoints.stateCheckpoints.length : 0,
+    checkpointDelegationGrantRef,
+    checkpointAuthorityGrantRef,
     attestationId: capabilityAttestationId,
     attestationRuntimeStatus: getAttestation.runtime?.status ?? null,
     attestationListCount: Array.isArray(listAttestations.attestations) ? listAttestations.attestations.length : 0,
+    publicReputationSummaryAgentId: requireString(publicReputationSummary.agentId, "publicReputationSummary.agentId"),
+    publicReputationRelationshipCount: Array.isArray(publicReputationSummary.relationships)
+      ? publicReputationSummary.relationships.length
+      : 0,
+    interactionGraphRelationshipCount: interactionGraphRelationships.length,
+    relationshipsCount: relationships.length,
     delegationRevokedAt: revokedDelegation.delegationGrant?.revocation?.revokedAt ?? null,
     authorityRevokedAt: revokedAuthority.authorityGrant?.revocation?.revokedAt ?? null
   };

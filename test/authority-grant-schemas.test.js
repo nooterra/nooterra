@@ -90,7 +90,7 @@ test("authority grant schema validates constructed fixture", async () => {
     }
   }
 
-  const validate = ajv.getSchema("https://settld.local/schemas/AuthorityGrant.v1.schema.json");
+  const validate = ajv.getSchema("https://nooterra.local/schemas/AuthorityGrant.v1.schema.json");
   assert.ok(validate);
 
   const grant = buildFixtureGrant();

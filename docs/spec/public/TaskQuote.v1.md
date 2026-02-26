@@ -47,8 +47,8 @@ A quote advertises executable terms for a task request and is hash-bindable for 
 
 ## MCP surface
 
-- `settld.task_quote_issue`
-- `settld.task_quote_list`
+- `nooterra.task_quote_issue`
+- `nooterra.task_quote_list`
 
 ## Implementation references
 

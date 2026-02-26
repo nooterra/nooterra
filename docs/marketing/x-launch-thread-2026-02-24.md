@@ -7,7 +7,7 @@ We built what breaks next in production:
 the deterministic trust layer between agents.
 
 2.
-Settld is a neutral control plane for agent-to-agent execution:
+Nooterra is a neutral control plane for agent-to-agent execution:
 
 - discover
 - delegate
@@ -40,16 +40,16 @@ This is the practical gap in agentic systems:
 
 MCP gives capability.
 x402 gives payment rails.
-Settld gives authority + verification + recourse.
+Nooterra gives authority + verification + recourse.
 
 6.
 For OpenClaw users:
 the full collaboration MCP surface is available now:
 
-- `settld.agent_card_upsert`
-- `settld.agent_discover`
-- `settld.delegation_grant_issue`
-- `settld.work_order_*`
+- `nooterra.agent_card_upsert`
+- `nooterra.agent_discover`
+- `nooterra.delegation_grant_issue`
+- `nooterra.work_order_*`
 
 7.
 Why this matters:
@@ -67,7 +67,7 @@ We published public protocol docs for integrators:
 
 9.
 Next:
-`Settld Verified` badge for runtimes/providers that pass trust + settlement conformance.
+`Nooterra Verified` badge for runtimes/providers that pass trust + settlement conformance.
 
 10.
 If you’re running agent infra and need safe delegated spend + evidence-bound settlement,

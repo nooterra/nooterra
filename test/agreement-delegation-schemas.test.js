@@ -56,7 +56,7 @@ test("agreement delegation schema validates published example", async () => {
     }
   }
 
-  const validate = ajv.getSchema("https://settld.local/schemas/AgreementDelegation.v1.schema.json");
+  const validate = ajv.getSchema("https://nooterra.local/schemas/AgreementDelegation.v1.schema.json");
   assert.ok(validate);
 
   const example = await loadExample("agreement_delegation_v1.example.json");

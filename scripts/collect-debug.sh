@@ -6,7 +6,7 @@ WORKDIR=""
 
 usage() {
   cat <<'EOH' >&2
-Collect a Settld debug bundle for quickstart / Docker issues.
+Collect a Nooterra debug bundle for quickstart / Docker issues.
 
 This script captures basic host + repo + Docker/Compose info and (optionally) compose logs,
 then packages everything into a single archive you can attach to a GitHub issue.
@@ -15,7 +15,7 @@ Usage:
   scripts/collect-debug.sh [--out <path>] [--project-dir <dir>] [--tail <N>] [--no-logs] [--zip] [--dry-run]
 
 Options:
-  --out <path>         Output archive path. Default: ./settld-debug-<ts>.tar.gz
+  --out <path>         Output archive path. Default: ./nooterra-debug-<ts>.tar.gz
   --project-dir <dir>  Directory to run docker compose from. Default: repo root.
   --tail <N>           Number of log lines to collect per service. Default: 2000
   --no-logs            Skip collecting compose logs.
@@ -141,7 +141,7 @@ main() {
 
   local ts bundle_name
   ts="$(date -u +%Y%m%dT%H%M%SZ)"
-  bundle_name="settld-debug-${ts}"
+  bundle_name="nooterra-debug-${ts}"
 
   if [[ -z "$out_path" ]]; then
     if [[ "$want_zip" == "1" ]]; then

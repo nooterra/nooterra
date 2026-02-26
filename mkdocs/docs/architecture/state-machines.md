@@ -1,6 +1,6 @@
 # State Machines
 
-Settld relies on deterministic state transitions and idempotent retries.
+Nooterra relies on deterministic state transitions and idempotent retries.
 
 ## 1) Paid execution flow
 

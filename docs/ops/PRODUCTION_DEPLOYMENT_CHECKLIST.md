@@ -1,6 +1,6 @@
 # Production Deployment Checklist
 
-Use this checklist to launch and verify a real hosted Settld environment.
+Use this checklist to launch and verify a real hosted Nooterra environment.
 
 ## Phase 0: Preflight
 
@@ -29,23 +29,23 @@ Use this checklist to launch and verify a real hosted Settld environment.
 2. Set `STORE=pg`, `NODE_ENV=production`, `PROXY_MIGRATE_ON_STARTUP=1`.
 3. Set scoped `PROXY_OPS_TOKENS`.
 4. Configure rate limits and quotas from `docs/CONFIG.md`.
-5. Configure gateway secrets: `SETTLD_API_URL`, `SETTLD_API_KEY`, `UPSTREAM_URL`.
+5. Configure gateway secrets: `NOOTERRA_API_URL`, `NOOTERRA_API_KEY`, `UPSTREAM_URL`.
 6. Configure onboarding routing:
-   - `PROXY_ONBOARDING_BASE_URL=https://<magic-link-host>` on `settld-api`
-   - `MAGIC_LINK_PUBLIC_SIGNUP_ENABLED=1` and OTP delivery (`smtp`) on `settld-magic-link`
+   - `PROXY_ONBOARDING_BASE_URL=https://<magic-link-host>` on `nooterra-api`
+   - `MAGIC_LINK_PUBLIC_SIGNUP_ENABLED=1` and OTP delivery (`smtp`) on `nooterra-magic-link`
 
 ## Phase 2: Deploy services
 
-1. Deploy `settld-api`.
-2. Deploy `settld-magic-link`.
-3. Deploy `settld-maintenance`.
+1. Deploy `nooterra-api`.
+2. Deploy `nooterra-magic-link`.
+3. Deploy `nooterra-maintenance`.
 4. Deploy `x402-gateway`.
 4. Verify service health:
 
 ```bash
-curl -fsS https://api.settld.work/healthz
-curl -fsS https://gateway.settld.work/healthz
-npm run test:ops:public-onboarding-gate -- --base-url https://api.settld.work --tenant-id tenant_default
+curl -fsS https://api.nooterra.work/healthz
+curl -fsS https://gateway.nooterra.work/healthz
+npm run test:ops:public-onboarding-gate -- --base-url https://api.nooterra.work --tenant-id tenant_default
 ```
 
 ## Phase 3: Baseline ops verification
@@ -54,9 +54,9 @@ npm run test:ops:public-onboarding-gate -- --base-url https://api.settld.work --
 
 ```bash
 npm run ops:hosted-baseline:evidence -- \
-  --base-url https://api.settld.work \
+  --base-url https://api.nooterra.work \
   --tenant-id tenant_default \
-  --ops-token "$SETTLD_OPS_TOKEN" \
+  --ops-token "$NOOTERRA_OPS_TOKEN" \
   --environment production \
   --out ./artifacts/ops/hosted-baseline-evidence-production.json
 ```
@@ -89,7 +89,7 @@ This emits a machine-readable report at:
 `artifacts/ops/mcp-host-smoke.json`
 
 3. Run host quickstart validation from `docs/QUICKSTART_MCP_HOSTS.md` for:
-   Claude, Cursor, Codex, and OpenClaw.
+   Claude, Cursor, Nooterra, and OpenClaw.
 
 4. Update `docs/ops/MCP_COMPATIBILITY_MATRIX.md` with pass/fail + date.
 
@@ -97,9 +97,9 @@ This emits a machine-readable report at:
 
 ```bash
 npm run test:ops:onboarding-host-success-gate -- \
-  --base-url https://api.settld.work \
+  --base-url https://api.nooterra.work \
   --tenant-id tenant_default \
-  --api-key "$SETTLD_API_KEY" \
+  --api-key "$NOOTERRA_API_KEY" \
   --attempts 3 \
   --min-success-rate-pct 90 \
   --report artifacts/gates/onboarding-host-success-gate.json \
@@ -129,7 +129,7 @@ Ship only when all are true:
 5. Go-live gate and launch cutover packet reports are present:
    - `artifacts/gates/s13-go-live-gate.json`
    - `artifacts/gates/s13-launch-cutover-packet.json`
-   - `artifacts/gates/settld-verified-collaboration-gate.json`
+   - `artifacts/gates/nooterra-verified-collaboration-gate.json`
    - generated from a successful `go-live-gate` workflow run for the release commit
 6. NOO-65 promotion guard passes with required artifact binding (`artifacts/gates/release-promotion-guard.json`).
 7. MCP compatibility matrix is green for supported hosts.
@@ -140,11 +140,11 @@ Run the live environment cutover gate before opening traffic:
 
 `Actions -> production-cutover-gate -> Run workflow`
 
-Note: the production cutover gate includes `settld_verified_collaboration`,
+Note: the production cutover gate includes `nooterra_verified_collaboration`,
 `openclaw_substrate_demo_lineage_verified`, `openclaw_substrate_demo_transcript_verified`,
-`sdk_acs_smoke_js_verified`, and `sdk_acs_smoke_py_verified` as required checks
+`checkpoint_grant_binding_verified`, `sdk_acs_smoke_js_verified`, `sdk_acs_smoke_py_verified`, and `sdk_python_contract_freeze_verified` as required checks
 (`ProductionCutoverGateReport.v1`), and the launch packet must bind
-`sources.settldVerifiedCollaborationGateReportSha256` to the collaboration gate artifact hash.
+`sources.nooterraVerifiedCollaborationGateReportSha256` to the collaboration gate artifact hash.
 
 ## Phase 7: Post-release
 

@@ -8,7 +8,7 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { canonicalJsonStringify } from "../../src/core/canonical-json.js";
 import { sha256Hex } from "../../src/core/crypto.js";
-import { verifySettldPayTokenV1 } from "../../src/core/settld-pay-token.js";
+import { verifyNooterraPayTokenV1 } from "../../src/core/nooterra-pay-token.js";
 import { computeToolProviderSignaturePayloadHashV1, verifyToolProviderSignatureV1 } from "../../src/core/tool-provider-signature.js";
 import { verifyX402ReceiptRecord } from "../../src/core/x402-receipt-verifier.js";
 
@@ -21,10 +21,10 @@ function usage() {
     "  node scripts/demo/mcp-paid-exa.mjs --workload=llm",
     "",
     "Environment overrides:",
-    "  SETTLD_DEMO_CIRCLE_MODE=stub|sandbox|production",
-    "  SETTLD_DEMO_WORKLOAD=exa|weather|llm",
-    "  SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1",
-    "  SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID=<circle wallet id>"
+    "  NOOTERRA_DEMO_CIRCLE_MODE=stub|sandbox|production",
+    "  NOOTERRA_DEMO_WORKLOAD=exa|weather|llm",
+    "  NOOTERRA_DEMO_RUN_BATCH_SETTLEMENT=1",
+    "  NOOTERRA_DEMO_BATCH_PROVIDER_WALLET_ID=<circle wallet id>"
   ].join("\n");
 }
 
@@ -177,11 +177,11 @@ function buildWorkloadUpstreamUrl({ upstreamBaseUrl, workload, toolArgs }) {
   return url;
 }
 
-function pickSettldHeaders(headers) {
+function pickNooterraHeaders(headers) {
   const out = {};
   if (!headers || typeof headers.entries !== "function") return out;
   for (const [key, value] of headers.entries()) {
-    if (String(key).toLowerCase().startsWith("x-settld-")) out[key] = value;
+    if (String(key).toLowerCase().startsWith("x-nooterra-")) out[key] = value;
   }
   return out;
 }
@@ -355,14 +355,14 @@ async function runMcpToolCall({
   toolArgs,
   timeoutMs = 20_000
 }) {
-  const child = spawn(process.execPath, ["scripts/mcp/settld-mcp-server.mjs"], {
+  const child = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-server.mjs"], {
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: tenantId,
-      SETTLD_API_KEY: apiKey,
-      SETTLD_PROTOCOL: "1.0",
-      SETTLD_PAID_TOOLS_BASE_URL: paidToolsBaseUrl
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: tenantId,
+      NOOTERRA_API_KEY: apiKey,
+      NOOTERRA_PROTOCOL: "1.0",
+      NOOTERRA_PAID_TOOLS_BASE_URL: paidToolsBaseUrl
     },
     stdio: ["pipe", "pipe", "pipe"]
   });
@@ -417,7 +417,7 @@ async function runMcpToolCall({
   try {
     const initialize = await rpc("initialize", {
       protocolVersion: "2024-11-05",
-      clientInfo: { name: "settld-demo-mcp-paid-exa", version: "s1" },
+      clientInfo: { name: "nooterra-demo-mcp-paid-exa", version: "s1" },
       capabilities: {}
     });
     const called = await rpc("tools/call", {
@@ -487,7 +487,7 @@ async function exportAndVerifyReceiptSample({
     headers: {
       authorization: `Bearer ${apiKey}`,
       "x-proxy-tenant-id": tenantId,
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       accept: "application/json"
     }
   });
@@ -564,9 +564,9 @@ async function runBatchSettlementDemo({
     };
   }
 
-  const providerWalletId = readEnvString("SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID", readEnvString("CIRCLE_WALLET_ID_ESCROW", null));
+  const providerWalletId = readEnvString("NOOTERRA_DEMO_BATCH_PROVIDER_WALLET_ID", readEnvString("CIRCLE_WALLET_ID_ESCROW", null));
   if (circleMode !== "stub" && !providerWalletId) {
-    throw new Error("batch settlement demo requires SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID or CIRCLE_WALLET_ID_ESCROW");
+    throw new Error("batch settlement demo requires NOOTERRA_DEMO_BATCH_PROVIDER_WALLET_ID or CIRCLE_WALLET_ID_ESCROW");
   }
 
   const registryPath = path.join(artifactDir, "batch-payout-registry.json");
@@ -606,7 +606,7 @@ async function runBatchSettlementDemo({
   const run = await runCommand({
     cmd: "node",
     args,
-    timeoutMs: readIntEnv("SETTLD_DEMO_BATCH_SETTLEMENT_TIMEOUT_MS", 90_000)
+    timeoutMs: readIntEnv("NOOTERRA_DEMO_BATCH_SETTLEMENT_TIMEOUT_MS", 90_000)
   });
   if (run.timeout) throw new Error("batch settlement command timed out");
   if (run.code !== 0) {
@@ -649,46 +649,46 @@ async function main() {
     return;
   }
 
-  const apiPort = readIntEnv("SETTLD_DEMO_API_PORT", 3000);
-  const upstreamPort = readIntEnv("SETTLD_DEMO_UPSTREAM_PORT", 9402);
-  const gatewayPort = readIntEnv("SETTLD_DEMO_GATEWAY_PORT", 8402);
-  const keepAlive = readBoolEnv("SETTLD_DEMO_KEEP_ALIVE", false);
-  const runBatchSettlement = readBoolEnv("SETTLD_DEMO_RUN_BATCH_SETTLEMENT", false);
-  const circleMode = normalizeCircleMode(cli.circleMode ?? readEnvString("SETTLD_DEMO_CIRCLE_MODE", "stub"));
-  const workload = normalizeWorkload(cli.workload ?? readEnvString("SETTLD_DEMO_WORKLOAD", "exa"));
+  const apiPort = readIntEnv("NOOTERRA_DEMO_API_PORT", 3000);
+  const upstreamPort = readIntEnv("NOOTERRA_DEMO_UPSTREAM_PORT", 9402);
+  const gatewayPort = readIntEnv("NOOTERRA_DEMO_GATEWAY_PORT", 8402);
+  const keepAlive = readBoolEnv("NOOTERRA_DEMO_KEEP_ALIVE", false);
+  const runBatchSettlement = readBoolEnv("NOOTERRA_DEMO_RUN_BATCH_SETTLEMENT", false);
+  const circleMode = normalizeCircleMode(cli.circleMode ?? readEnvString("NOOTERRA_DEMO_CIRCLE_MODE", "stub"));
+  const workload = normalizeWorkload(cli.workload ?? readEnvString("NOOTERRA_DEMO_WORKLOAD", "exa"));
   const externalReserveRequired = circleMode !== "stub";
   assertCircleModeInputs({ mode: circleMode });
   const inheritedOpsTokenList = readEnvString("PROXY_OPS_TOKENS", null);
   const derivedOpsToken = readFirstOpsTokenFromScopedList(inheritedOpsTokenList);
-  const opsToken = String(process.env.SETTLD_DEMO_OPS_TOKEN ?? derivedOpsToken ?? "tok_ops").trim() || "tok_ops";
+  const opsToken = String(process.env.NOOTERRA_DEMO_OPS_TOKEN ?? derivedOpsToken ?? "tok_ops").trim() || "tok_ops";
   const scopedOpsToken = `${opsToken}:ops_read,ops_write,finance_read,finance_write,audit_read`;
-  const tenantId = String(process.env.SETTLD_TENANT_ID ?? "tenant_default").trim() || "tenant_default";
+  const tenantId = String(process.env.NOOTERRA_TENANT_ID ?? "tenant_default").trim() || "tenant_default";
 
   const workloadConfig = (() => {
     if (workload === "weather") {
-      const city = String(process.env.SETTLD_DEMO_CITY ?? "Chicago").trim() || "Chicago";
-      const unitRaw = String(process.env.SETTLD_DEMO_UNIT ?? "f").trim().toLowerCase();
+      const city = String(process.env.NOOTERRA_DEMO_CITY ?? "Chicago").trim() || "Chicago";
+      const unitRaw = String(process.env.NOOTERRA_DEMO_UNIT ?? "f").trim().toLowerCase();
       const unit = unitRaw === "c" ? "c" : "f";
       return {
-        toolName: "settld.weather_current_paid",
+        toolName: "nooterra.weather_current_paid",
         toolArgs: { city, unit },
         description: `weather city=${city} unit=${unit}`
       };
     }
     if (workload === "llm") {
-      const prompt = String(process.env.SETTLD_DEMO_PROMPT ?? "Summarize why deferred settlement matters for paid API calls.").trim();
-      const model = String(process.env.SETTLD_DEMO_MODEL ?? "gpt-4o-mini").trim() || "gpt-4o-mini";
-      const maxTokens = readIntEnv("SETTLD_DEMO_MAX_TOKENS", 128);
+      const prompt = String(process.env.NOOTERRA_DEMO_PROMPT ?? "Summarize why deferred settlement matters for paid API calls.").trim();
+      const model = String(process.env.NOOTERRA_DEMO_MODEL ?? "gpt-4o-mini").trim() || "gpt-4o-mini";
+      const maxTokens = readIntEnv("NOOTERRA_DEMO_MAX_TOKENS", 128);
       return {
-        toolName: "settld.llm_completion_paid",
+        toolName: "nooterra.llm_completion_paid",
         toolArgs: { prompt, model, maxTokens },
         description: `llm model=${model} maxTokens=${maxTokens}`
       };
     }
-    const query = String(process.env.SETTLD_DEMO_QUERY ?? "dentist near me chicago").trim() || "dentist near me chicago";
-    const numResults = readIntEnv("SETTLD_DEMO_NUM_RESULTS", 3);
+    const query = String(process.env.NOOTERRA_DEMO_QUERY ?? "dentist near me chicago").trim() || "dentist near me chicago";
+    const numResults = readIntEnv("NOOTERRA_DEMO_NUM_RESULTS", 3);
     return {
-      toolName: "settld.exa_search_paid",
+      toolName: "nooterra.exa_search_paid",
       toolArgs: { query, numResults },
       description: `exa query=${query} numResults=${numResults}`
     };
@@ -697,8 +697,8 @@ async function main() {
   const now = new Date();
   const runId = now.toISOString().replaceAll(":", "").replaceAll(".", "");
   const artifactDir =
-    process.env.SETTLD_DEMO_ARTIFACT_DIR && String(process.env.SETTLD_DEMO_ARTIFACT_DIR).trim() !== ""
-      ? String(process.env.SETTLD_DEMO_ARTIFACT_DIR).trim()
+    process.env.NOOTERRA_DEMO_ARTIFACT_DIR && String(process.env.NOOTERRA_DEMO_ARTIFACT_DIR).trim() !== ""
+      ? String(process.env.NOOTERRA_DEMO_ARTIFACT_DIR).trim()
       : path.join("artifacts", `mcp-paid-${workload}`, runId);
 
   const apiUrl = new URL(`http://127.0.0.1:${apiPort}`);
@@ -761,7 +761,7 @@ async function main() {
     await waitForHealth(new URL("/healthz", apiUrl).toString(), { name: "api /healthz", proc: api });
 
     const apiKey = await mintApiKey({ apiUrl, opsToken, tenantId });
-    log("demo", "SETTLD_API_KEY minted");
+    log("demo", "NOOTERRA_API_KEY minted");
 
     const upstream = spawnProc({
       name: "upstream",
@@ -770,14 +770,14 @@ async function main() {
       env: {
         BIND_HOST: "127.0.0.1",
         PORT: String(upstreamPort),
-        SETTLD_PROVIDER_ID: providerId,
-        SETTLD_PAY_KEYSET_URL: new URL("/.well-known/settld-keys.json", apiUrl).toString()
+        NOOTERRA_PROVIDER_ID: providerId,
+        NOOTERRA_PAY_KEYSET_URL: new URL("/.well-known/nooterra-keys.json", apiUrl).toString()
       }
     });
     procs.push(upstream);
     await waitForHealth(new URL("/healthz", upstreamUrl).toString(), { name: "upstream /healthz", proc: upstream });
 
-    const providerKeyRes = await fetch(new URL("/settld/provider-key", upstreamUrl));
+    const providerKeyRes = await fetch(new URL("/nooterra/provider-key", upstreamUrl));
     if (!providerKeyRes.ok) throw new Error(`provider key fetch failed: HTTP ${providerKeyRes.status}`);
     const providerKey = await providerKeyRes.json();
     const providerPublicKeyPem = typeof providerKey?.publicKeyPem === "string" ? providerKey.publicKeyPem : null;
@@ -789,8 +789,8 @@ async function main() {
       args: ["services/x402-gateway/src/server.js"],
       env: {
         BIND_HOST: "127.0.0.1",
-        SETTLD_API_URL: apiUrl.toString(),
-        SETTLD_API_KEY: apiKey,
+        NOOTERRA_API_URL: apiUrl.toString(),
+        NOOTERRA_API_KEY: apiKey,
         UPSTREAM_URL: upstreamUrl.toString(),
         X402_AUTOFUND: "1",
         X402_PROVIDER_PUBLIC_KEY_PEM: providerPublicKeyPem,
@@ -821,8 +821,8 @@ async function main() {
     const result = mcp.parsed.result;
     const responseBody = result.response ?? null;
     const headers = result.headers ?? {};
-    const gateId = typeof headers["x-settld-gate-id"] === "string" ? headers["x-settld-gate-id"] : "";
-    if (!gateId) throw new Error("missing x-settld-gate-id from paid response headers");
+    const gateId = typeof headers["x-nooterra-gate-id"] === "string" ? headers["x-nooterra-gate-id"] : "";
+    if (!gateId) throw new Error("missing x-nooterra-gate-id from paid response headers");
     await writeArtifactJson(artifactDir, "response-body.json", responseBody ?? {});
 
     const gateStateRes = await fetch(new URL(`/x402/gate/${encodeURIComponent(gateId)}`, apiUrl), {
@@ -830,7 +830,7 @@ async function main() {
       headers: {
         authorization: `Bearer ${apiKey}`,
         "x-proxy-tenant-id": tenantId,
-        "x-settld-protocol": "1.0"
+        "x-nooterra-protocol": "1.0"
       }
     });
     const gateStateText = await gateStateRes.text();
@@ -904,16 +904,16 @@ async function main() {
       const signature = {
         schemaVersion: "ToolProviderSignature.v1",
         algorithm: "ed25519",
-        keyId: String(headers["x-settld-provider-key-id"] ?? ""),
-        signedAt: String(headers["x-settld-provider-signed-at"] ?? ""),
-        nonce: String(headers["x-settld-provider-nonce"] ?? ""),
+        keyId: String(headers["x-nooterra-provider-key-id"] ?? ""),
+        signedAt: String(headers["x-nooterra-provider-signed-at"] ?? ""),
+        nonce: String(headers["x-nooterra-provider-nonce"] ?? ""),
         responseHash,
         payloadHash: computeToolProviderSignaturePayloadHashV1({
           responseHash,
-          nonce: String(headers["x-settld-provider-nonce"] ?? ""),
-          signedAt: String(headers["x-settld-provider-signed-at"] ?? "")
+          nonce: String(headers["x-nooterra-provider-nonce"] ?? ""),
+          signedAt: String(headers["x-nooterra-provider-signed-at"] ?? "")
         }),
-        signatureBase64: String(headers["x-settld-provider-signature"] ?? "")
+        signatureBase64: String(headers["x-nooterra-provider-signature"] ?? "")
       };
       let ok = false;
       let error = null;
@@ -927,7 +927,7 @@ async function main() {
         ok,
         error,
         responseHashExpected: responseHash,
-        responseHashHeader: String(headers["x-settld-provider-response-sha256"] ?? ""),
+        responseHashHeader: String(headers["x-nooterra-provider-response-sha256"] ?? ""),
         signature
       };
     })();
@@ -936,7 +936,7 @@ async function main() {
     const tokenVerification = await (async () => {
       const token = gateState?.gate?.authorization?.token?.value;
       if (typeof token !== "string" || token.trim() === "") return { ok: false, skipped: true, reason: "token_missing" };
-      const keysetRes = await fetch(new URL("/.well-known/settld-keys.json", apiUrl));
+      const keysetRes = await fetch(new URL("/.well-known/nooterra-keys.json", apiUrl));
       const keysetText = await keysetRes.text();
       let keyset = null;
       try {
@@ -947,7 +947,7 @@ async function main() {
       if (!keysetRes.ok || !keyset) return { ok: false, skipped: true, reason: "keyset_unavailable", status: keysetRes.status };
       let verified = null;
       try {
-        verified = verifySettldPayTokenV1({
+        verified = verifyNooterraPayTokenV1({
           token,
           keyset,
           expectedAudience: String(gateState?.gate?.payeeAgentId ?? ""),
@@ -958,7 +958,7 @@ async function main() {
       }
       return { ok: Boolean(verified?.ok), verification: verified };
     })();
-    await writeArtifactJson(artifactDir, "settld-pay-token-verification.json", tokenVerification);
+    await writeArtifactJson(artifactDir, "nooterra-pay-token-verification.json", tokenVerification);
 
     const replayProbe = await (async () => {
       const token = gateState?.gate?.authorization?.token?.value;
@@ -977,7 +977,7 @@ async function main() {
       const res = await fetch(probeUrl, {
         method: "GET",
         headers: {
-          authorization: `SettldPay ${token}`,
+          authorization: `NooterraPay ${token}`,
           "x-proxy-tenant-id": tenantId
         }
       });
@@ -988,8 +988,8 @@ async function main() {
       } catch {
         json = null;
       }
-      const headers = pickSettldHeaders(res.headers);
-      const duplicate = String(headers["x-settld-provider-replay"] ?? "").toLowerCase() === "duplicate";
+      const headers = pickNooterraHeaders(res.headers);
+      const duplicate = String(headers["x-nooterra-provider-replay"] ?? "").toLowerCase() === "duplicate";
       return {
         attempted: true,
         skipped: false,
@@ -1026,8 +1026,8 @@ async function main() {
     });
 
     const passChecks = {
-      settlementStatus: String(headers["x-settld-settlement-status"] ?? "") === "released",
-      verificationStatus: String(headers["x-settld-verification-status"] ?? "") === "green",
+      settlementStatus: String(headers["x-nooterra-settlement-status"] ?? "") === "released",
+      verificationStatus: String(headers["x-nooterra-verification-status"] ?? "") === "green",
       providerSignature: providerSignatureVerification.ok === true,
       tokenVerified: tokenVerification.ok === true,
       batchSettlement: batchSettlement.ok === true,
@@ -1063,7 +1063,7 @@ async function main() {
         "gate-state.json",
         "reserve-state.json",
         "provider-signature-verification.json",
-        "settld-pay-token-verification.json",
+        "nooterra-pay-token-verification.json",
         "provider-replay-probe.json",
         "x402-receipts.export.jsonl",
         "x402-receipts.sample-verification.json",

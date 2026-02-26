@@ -124,7 +124,7 @@ function buildVerificationReportV1({
     schemaVersion: "VerificationReport.v1",
     profile: "strict",
     tool: {
-      name: "settld",
+      name: "nooterra",
       version: tool.version,
       commit: tool.commit
     },
@@ -503,7 +503,7 @@ export function buildInvoiceBundleV1({
     invoiceClaimHash: sha256Hex(files.get("invoice/invoice_claim.json"))
   };
 
-  // settld.json header
+  // nooterra.json header
   const header = {
     type: INVOICE_BUNDLE_SCHEMA_VERSION_V1,
     tenantId,
@@ -512,7 +512,7 @@ export function buildInvoiceBundleV1({
     protocol,
     inputs
   };
-  files.set("settld.json", encoder.encode(`${canonicalJsonStringify(header)}\n`));
+  files.set("nooterra.json", encoder.encode(`${canonicalJsonStringify(header)}\n`));
 
   const { manifest, manifestHash } = computeInvoiceBundleManifestV1({ files, tenantId, invoiceId, createdAt, protocol });
   files.set("manifest.json", encoder.encode(`${canonicalJsonStringify({ ...manifest, manifestHash })}\n`));

@@ -1,7 +1,7 @@
-# Settld ACS Master Build Program (Long-Horizon, Chunked)
+# Nooterra ACS Master Build Program (Long-Horizon, Chunked)
 
 ## 1) Mission and Product Boundary
-Settld ACS is a host-agnostic trust and collaboration substrate for autonomous agents.
+Nooterra ACS is a host-agnostic trust and collaboration substrate for autonomous agents.
 
 What ACS must provide, end to end:
 1. Discoverable agents and capabilities.
@@ -40,9 +40,9 @@ Already implemented and tested:
 
 ## 2.1) Execution Status Snapshot (2026-02-25)
 Machine status anchors:
-1. `artifacts/gates/settld-verified-gate.json`: collaboration gate passing (`totalChecks=22`).
-2. `artifacts/gates/settld-verified-gate.json` with `--include-pg`: collaboration + PG durability gate passing (`totalChecks=23`).
-3. `artifacts/gates/settld-verified-guardrails-gate.json`: guardrails gate passing (`totalChecks=11`).
+1. `artifacts/gates/nooterra-verified-gate.json`: collaboration gate passing (`totalChecks=22`).
+2. `artifacts/gates/nooterra-verified-gate.json` with `--include-pg`: collaboration + PG durability gate passing (`totalChecks=23`).
+3. `artifacts/gates/nooterra-verified-guardrails-gate.json`: guardrails gate passing (`totalChecks=11`).
 
 Chunk status:
 1. Chunk A (Public Discovery Plane + Durable Registry): **substantially complete**.
@@ -136,7 +136,7 @@ Chunk status:
   - Deterministic `AuditLineage.v1` payload with stable pagination and `lineageHash`.
   - Cross-family coverage in one query surface: sessions/events, task negotiation objects, work orders/receipts, runs/settlements, arbitration cases, agreement delegations.
 - Added MCP audit-lineage primitive and demo-path proof:
-  - `settld.audit_lineage_list` in MCP server.
+  - `nooterra.audit_lineage_list` in MCP server.
   - OpenClaw substrate demo now binds a shared `traceId` across session/negotiation/work-order/settlement and exports lineage in-report.
   - Demo now runs `scripts/ops/verify-audit-lineage.mjs` against exported lineage and fails closed on verification error.
 - Added offline verification tooling:
@@ -476,7 +476,7 @@ Operators can inspect, trace, and export complete transaction/collaboration evid
 
 ## Chunk I: Distribution and Serving (Host-Agnostic First)
 ### Outcome
-ACS is easy to adopt across OpenClaw, Codex, Claude Desktop, Cursor, and custom runtimes.
+ACS is easy to adopt across OpenClaw, Nooterra, Claude Desktop, Cursor, and custom runtimes.
 
 ### Build items
 1. MCP surface completeness
@@ -489,7 +489,7 @@ ACS is easy to adopt across OpenClaw, Codex, Claude Desktop, Cursor, and custom 
 
 3. Host onboarding packs
 - OpenClaw skill quickstart (already strong; keep as first-class).
-- Codex/Claude/Cursor examples and config templates.
+- Nooterra/Claude/Cursor examples and config templates.
 
 4. Product docs
 - "Publish agent"
@@ -502,7 +502,7 @@ ACS is easy to adopt across OpenClaw, Codex, Claude Desktop, Cursor, and custom 
 - Multi-host same-flow determinism checks.
 
 ### Files likely touched
-- `scripts/mcp/settld-mcp-server.mjs`
+- `scripts/mcp/nooterra-mcp-server.mjs`
 - `packages/api-sdk/src/*`
 - `docs/integrations/*`
 - `test/mcp-stdio-spike.test.js`
@@ -536,7 +536,7 @@ Every chunk must add or update all of the following:
 2. API e2e tests for success and fail-closed behavior.
 3. PG durability tests where object persistence is involved.
 4. OpenAPI generation and drift check.
-5. Settld Verified gate wiring for new critical checks.
+5. Nooterra Verified gate wiring for new critical checks.
 
 ## 5) Immediate Next Execution Queue (Large-Batch)
 Run this next, as one sustained implementation program:
@@ -742,7 +742,7 @@ These checks apply to every ACS object and endpoint. A chunk is not complete if 
 4. Complete JS/TS SDK method parity for all ACS routes.
 5. Add SDK contract tests for request/response shape stability.
 6. Add Python SDK MVP for registry/session/task/settlement.
-7. Add host integration docs for OpenClaw/Codex/Claude/Cursor.
+7. Add host integration docs for OpenClaw/Nooterra/Claude/Cursor.
 8. Add quickstart flows that include policy-safe defaults.
 9. Expand host cert matrix with cross-host same-flow tests.
 10. Add collaboration gate checks for host-agnostic path success.

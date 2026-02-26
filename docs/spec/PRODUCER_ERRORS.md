@@ -1,6 +1,6 @@
 # Producer error codes (tooling contract)
 
-These error codes are emitted by producer tooling such as `settld-produce` and `settld-trust` when generating bundles or initializing trust material.
+These error codes are emitted by producer tooling such as `nooterra-produce` and `nooterra-trust` when generating bundles or initializing trust material.
 
 These codes are a tooling/API surface (not protocol v1 bundle objects). Meanings are stable within major versions.
 
@@ -8,7 +8,7 @@ Canonical list: `docs/spec/producer-error-codes.v1.txt`.
 
 ## Safe details (`causeKind` / `causeCode`)
 
-Producer machine output (`settld-produce --format json`) may include:
+Producer machine output (`nooterra-produce --format json`) may include:
 
 - `causeKind`: coarse category (`signer` | `plugin` | `verify` | `input` | `io` | `internal`)
 - `causeCode`: stable internal failure class code (never raw exception text)

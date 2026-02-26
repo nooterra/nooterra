@@ -1,6 +1,6 @@
 # Conformance packs
 
-Conformance packs are **language-agnostic test oracles** for Settld verification.
+Conformance packs are **language-agnostic test oracles** for Nooterra verification.
 
 They are intended for:
 

@@ -106,7 +106,7 @@ function runScript(args, { cwd } = {}) {
 
 test("dispute finance reconciliation packet script: emits deterministic packet with signatures", async () => {
   const { server, baseUrl } = await startStubServer();
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-dispute-finance-packet-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-dispute-finance-packet-"));
   const packetPath1 = path.join(tmpDir, "packet-1.json");
   const packetPath2 = path.join(tmpDir, "packet-2.json");
   const keypair = createEd25519Keypair();

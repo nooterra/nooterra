@@ -11,11 +11,11 @@ async function readJson(fp) {
   return JSON.parse(await fs.readFile(fp, "utf8"));
 }
 
-test("CLI: settld init capability writes a signed ToolManifest.v1 starter", async () => {
-  const tmpRoot = path.join("/tmp", `settld_init_cap_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`);
+test("CLI: nooterra init capability writes a signed ToolManifest.v1 starter", async () => {
+  const tmpRoot = path.join("/tmp", `nooterra_init_cap_${Date.now().toString(36)}_${Math.random().toString(16).slice(2, 8)}`);
   const outDir = path.join(tmpRoot, "capability-demo");
 
-  const res = spawnSync(process.execPath, ["bin/settld.js", "init", "capability", "demo-cap", "--out", outDir], {
+  const res = spawnSync(process.execPath, ["bin/nooterra.js", "init", "capability", "demo-cap", "--out", outDir], {
     cwd: path.resolve(process.cwd()),
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -62,7 +62,7 @@ test("CLI: settld init capability writes a signed ToolManifest.v1 starter", asyn
     "manifest signature should verify"
   );
 
-  assert.match(kernelProveSource, /new SettldClient/);
+  assert.match(kernelProveSource, /new NooterraClient/);
   assert.match(kernelProveSource, /createAgreement\(/);
   assert.match(kernelProveSource, /signEvidence\(/);
   assert.match(kernelProveSource, /settle\(/);

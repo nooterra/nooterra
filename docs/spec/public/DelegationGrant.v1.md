@@ -71,10 +71,10 @@ Revocation is explicit and terminal for authorization enforcement.
 
 ## MCP surface
 
-- `settld.delegation_grant_issue`
-- `settld.delegation_grant_get`
-- `settld.delegation_grant_list`
-- `settld.delegation_grant_revoke`
+- `nooterra.delegation_grant_issue`
+- `nooterra.delegation_grant_get`
+- `nooterra.delegation_grant_list`
+- `nooterra.delegation_grant_revoke`
 
 ## Implementation references
 

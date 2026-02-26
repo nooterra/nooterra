@@ -1,6 +1,6 @@
 # Pilot Package + Success Scorecard (x402 Wedge)
 
-This defines the default pilot offer and measurable success gates for Settld x402 deployments.
+This defines the default pilot offer and measurable success gates for Nooterra x402 deployments.
 
 ## 1. Pilot Package
 
@@ -18,7 +18,7 @@ This defines the default pilot offer and measurable success gates for Settld x40
 
 ## 3. Scorecard (Baseline + Target)
 
-| Metric | Baseline (before Settld) | Target (pilot) | Measurement |
+| Metric | Baseline (before Nooterra) | Target (pilot) | Measurement |
 |---|---:|---:|---|
 | Integration time to first paid call | > 2 days | < 1 afternoon | Start-to-first successful settled paid call |
 | Auto-resolve rate (%) | < 40% | >= 80% | `released / total verified` for in-scope runs |

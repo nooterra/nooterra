@@ -10,13 +10,13 @@
  *  - a payout enqueue that returns a money-rail operationId (stub_default)
  *
  * Required env:
- *  - SETTLD_OPS_TOKEN
+ *  - NOOTERRA_OPS_TOKEN
  *
  * Optional env:
- *  - SETTLD_BASE_URL (default: https://api.settld.work)
- *  - SETTLD_TENANT_ID (default: tenant_default)
- *  - SETTLD_PROTOCOL (default: 1.0)
- *  - SETTLD_PERIOD (default: current UTC YYYY-MM)
+ *  - NOOTERRA_BASE_URL (default: https://api.nooterra.work)
+ *  - NOOTERRA_TENANT_ID (default: tenant_default)
+ *  - NOOTERRA_PROTOCOL (default: 1.0)
+ *  - NOOTERRA_PERIOD (default: current UTC YYYY-MM)
  */
 
 import { computeSlaPolicy } from "../../src/core/sla.js";
@@ -62,7 +62,7 @@ async function requestJson({ baseUrl, tenantId, opsToken, protocol, method, path
   const reqHeaders = {
     "x-proxy-tenant-id": tenantId,
     "x-proxy-ops-token": opsToken,
-    ...(isWrite ? { "x-settld-protocol": protocol } : null),
+    ...(isWrite ? { "x-nooterra-protocol": protocol } : null),
     ...(body !== undefined ? { "content-type": "application/json" } : null),
     ...headers
   };
@@ -201,12 +201,12 @@ async function pollMonthCloseClosed({ baseUrl, tenantId, opsToken, protocol, mon
 }
 
 async function main() {
-  const baseUrl = env("SETTLD_BASE_URL", "https://api.settld.work");
-  const tenantId = env("SETTLD_TENANT_ID", "tenant_default");
-  const protocol = env("SETTLD_PROTOCOL", "1.0");
-  const opsToken = mustEnv("SETTLD_OPS_TOKEN");
-  const period = env("SETTLD_PERIOD", utcPeriodFromNow());
-  if (!/^\d{4}-\d{2}$/.test(period)) throw new Error("SETTLD_PERIOD must match YYYY-MM");
+  const baseUrl = env("NOOTERRA_BASE_URL", "https://api.nooterra.work");
+  const tenantId = env("NOOTERRA_TENANT_ID", "tenant_default");
+  const protocol = env("NOOTERRA_PROTOCOL", "1.0");
+  const opsToken = mustEnv("NOOTERRA_OPS_TOKEN");
+  const period = env("NOOTERRA_PERIOD", utcPeriodFromNow());
+  if (!/^\d{4}-\d{2}$/.test(period)) throw new Error("NOOTERRA_PERIOD must match YYYY-MM");
 
   const { publicKeyPem, privateKeyPem } = createEd25519Keypair();
   const robotKeyId = keyIdFromPublicKeyPem(publicKeyPem);

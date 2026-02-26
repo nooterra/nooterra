@@ -1,7 +1,7 @@
 # SDK DevEx Sub-Agent Charter
 
 ## Purpose
-Own SDK developer experience for Settld so integrators can implement autonomous economy transaction rails correctly with deterministic protocol guarantees.
+Own SDK developer experience for Nooterra so integrators can implement autonomous economy transaction rails correctly with deterministic protocol guarantees.
 
 ## Accountabilities
 - Design and maintain SDK interfaces that make protocol-safe behavior the default path.

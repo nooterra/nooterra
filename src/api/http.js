@@ -115,8 +115,8 @@ export function sendText(res, statusCode, body, { contentType = "text/plain; cha
 export function sendError(res, statusCode, message, details, { code = null } = {}) {
   const reasonCode = code ?? inferReasonCode({ statusCode, message, details });
   try {
-    res.__settldErrorCode = reasonCode;
-    res.__settldErrorMessage = message;
+    res.__nooterraErrorCode = reasonCode;
+    res.__nooterraErrorMessage = message;
   } catch {
     // ignore
   }

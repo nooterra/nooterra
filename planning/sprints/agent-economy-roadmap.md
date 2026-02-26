@@ -1,4 +1,4 @@
-# Settld Agent Economy Roadmap (Vision + Workstreams)
+# Nooterra Agent Economy Roadmap (Vision + Workstreams)
 
 Baseline: 2026-02-16 (Mon)
 
@@ -19,8 +19,8 @@ From verify-before-release payments to a fully autonomous agent economy where pe
 Already exists in this repo (at least in prototype form):
 
 - x402 gateway demo and API surface (`docs/QUICKSTART_X402_GATEWAY.md`, `services/x402-gateway/`, `POST /x402/gate/create`, `POST /x402/gate/verify`)
-- Agent wallet primitives (`AgentWallet.v1`, `GET /agents/:agentId/wallet`, `POST /agents/:agentId/wallet/credit`)
-- Agent identity + wallet policy (`AgentIdentity.v1`, `walletPolicy` constraints enforced on hold/settlement creation paths)
+- Agent wallet primitives (`AgentWallet`, `GET /agents/:agentId/wallet`, `POST /agents/:agentId/wallet/credit`)
+- Agent identity + wallet policy (`AgentIdentity`, `walletPolicy` constraints enforced on hold/settlement creation paths)
 - Receiver and finance sink reference services (`services/receiver/`, `services/finance-sink/`)
 - Money rails abstraction (currently stubbed; has ops flows + durable operation tracking)
 
@@ -28,7 +28,7 @@ Notably missing for "real money x402":
 
 - A real funding/reserve path (today the demo uses `X402_AUTOFUND=1`)
 - A provider onboarding surface (provider keys, payout destinations, trust levels)
-- A provider-verifiable payment proof token signed by Settld (trust anchor)
+- A provider-verifiable payment proof token signed by Nooterra (trust anchor)
 
 ---
 
@@ -36,7 +36,7 @@ Notably missing for "real money x402":
 
 **Agent Wallet/Gateway**: let AI agents access paid x402-style APIs programmatically without humans managing cards or wallet popups.
 
-The fastest path is: **Circle partner-custody + x402 gateway + Settld-signed payment authorization token + provider-signed responses**.
+The fastest path is: **Circle partner-custody + x402 gateway + Nooterra-signed payment authorization token + provider-signed responses**.
 
 ---
 
@@ -45,28 +45,28 @@ The fastest path is: **Circle partner-custody + x402 gateway + Settld-signed pay
 These were explicitly decided while drafting this roadmap:
 
 - Custody model: **Partner-custody** (Circle first).
-- Circle credential ownership: **BYO Circle per tenant in Phase 1**; Settld-managed Circle later.
+- Circle credential ownership: **BYO Circle per tenant in Phase 1**; Nooterra-managed Circle later.
 - Upstream scope: **x402-only in Phase 1**; generic proxy later.
-- Payment proof to upstream: **Settld-signed payment authorization token** (provider verifies offline; no chain wait, no Circle API call).
-- Trust anchor: **Settld Cloud signs tokens**; providers pin Settld's public key(s).
+- Payment proof to upstream: **Nooterra-signed payment authorization token** (provider verifies offline; no chain wait, no Circle API call).
+- Trust anchor: **Nooterra Cloud signs tokens**; providers pin Nooterra's public key(s).
 - Key discovery/rotation: **well-known keyset** with a pinned fallback key for safe rotation.
 - Token format: **canonical JSON payload + Ed25519 signature**, TTL **5 minutes**.
-- Token delivery header: `Authorization: SettldPay <token>`.
+- Token delivery header: `Authorization: NooterraPay <token>`.
 - Provider payee address: **ignore** `x-payment-required address=...`; require **preconfigured provider payout destination**.
 - Provider payout destination support: **Circle wallet and onchain address** (per-provider configuration).
 - Provider onboarding: **manual allowlist/config** in Phase 1; self-serve later.
-- Provider response verification: **required** for real-money release; keep the existing `x-settld-provider-*` signature headers and `ToolProviderSignature.v1` semantics.
+- Provider response verification: **required** for real-money release; keep the existing `x-nooterra-provider-*` signature headers and `ToolProviderSignature` semantics.
 - x402 client UX: **support both**:
   - Transparent autopay (default): client sees `200` on the first request.
   - Explicit handshake (flag): client sees `402` and retries.
 - Token binding: **gate-only** in Phase 1; request-binding later.
 - Guarantee before token issuance: **hard guarantee** (funds reserved/segregated in Circle before token is minted).
 - Reserve implementation: start with **transfer into an escrow wallet**, migrate to Circle hold primitives later.
-- Circle wallet model: **one Circle wallet per tenant**; Settld maintains per-agent balances as an internal subledger.
+- Circle wallet model: **one Circle wallet per tenant**; Nooterra maintains per-agent balances as an internal subledger.
 - Units: **cents** in Phase 1; token base units (USDC 6 decimals) later.
 - Provider settlement cadence: **batch net settle by default**, instant for trusted providers.
 - Refund behavior: **auto-void + refund on verification red**.
-- Settld revenue model: **per-call fee on top** of provider price.
+- Nooterra revenue model: **per-call fee on top** of provider price.
 - Upstream pricing header: do **not** override provider price; rely on tenant wallet policy + per-provider caps.
 
 ---
@@ -75,26 +75,26 @@ These were explicitly decided while drafting this roadmap:
 
 ### Trust surfaces
 
-- Provider trusts **Settld Cloud** as the payment token signer (via well-known keyset discovery + pinning).
-- Settld trusts provider as the response signer (provider public key pinned in provider config).
+- Provider trusts **Nooterra Cloud** as the payment token signer (via well-known keyset discovery + pinning).
+- Nooterra trusts provider as the response signer (provider public key pinned in provider config).
 
 ### Provider integration contract (minimum)
 
 Provider implements two things:
 
-1. Verify a Settld payment authorization token (`Authorization: SettldPay ...`) offline.
-2. Sign the returned response with the existing `x-settld-provider-*` header suite (Ed25519 over `responseHash` payload).
+1. Verify a Nooterra payment authorization token (`Authorization: NooterraPay ...`) offline.
+2. Sign the returned response with the existing `x-nooterra-provider-*` header suite (Ed25519 over `responseHash` payload).
 
 ### Autopay happy path (transparent mode)
 
 1. Client calls gateway `GET /resource`.
 2. Upstream returns `402` with `x-payment-required` (price only; address ignored).
-3. Gateway calls Settld `POST /x402/gate/create` (creates gate + internal escrow lock).
-4. Gateway calls Settld `POST /x402/gate/authorize-payment` (new): Settld reserves funds in Circle escrow and returns a signed payment token.
-5. Gateway retries upstream with `Authorization: SettldPay <token>` + `x-settld-gate-id`.
-6. Upstream verifies token, returns `200` with `x-settld-provider-*` signature headers.
-7. Gateway verifies provider signature and calls Settld `POST /x402/gate/verify`.
-8. Settld resolves internal escrow (release/refund) and schedules provider payout per trust tier.
+3. Gateway calls Nooterra `POST /x402/gate/create` (creates gate + internal escrow lock).
+4. Gateway calls Nooterra `POST /x402/gate/authorize-payment` (new): Nooterra reserves funds in Circle escrow and returns a signed payment token.
+5. Gateway retries upstream with `Authorization: NooterraPay <token>` + `x-nooterra-gate-id`.
+6. Upstream verifies token, returns `200` with `x-nooterra-provider-*` signature headers.
+7. Gateway verifies provider signature and calls Nooterra `POST /x402/gate/verify`.
+8. Nooterra resolves internal escrow (release/refund) and schedules provider payout per trust tier.
 
 ### Explicit handshake (debug/audit mode)
 
@@ -133,19 +133,19 @@ Acceptance criteria:
 - Depositing USDC results in an internal balance increase visible via `GET /agents/:id/wallet`.
 - A reserve operation exists: for a given gate, funds are segregated in Circle escrow before any payment token is minted.
 
-### Milestone 2: x402 Autopay + SettldPay Token
+### Milestone 2: x402 Autopay + NooterraPay Token
 
 North Star: developers give their agents one gateway endpoint; x402 payments happen automatically and safely.
 
 Deliverables:
 
-- Settld-signed payment authorization token (canonical JSON + Ed25519, 5m TTL)
+- Nooterra-signed payment authorization token (canonical JSON + Ed25519, 5m TTL)
 - Gateway transparent autopay mode (default) + explicit handshake mode (flag)
 - Provider allowlist/config (manual in Phase 1: payee destination + provider pubkey + trust tier)
 
 Acceptance criteria:
 
-- In transparent mode: one client request returns `200` and includes a deterministic receipt trail (`x-settld-*` headers).
+- In transparent mode: one client request returns `200` and includes a deterministic receipt trail (`x-nooterra-*` headers).
 - Token is only minted after Circle reserve succeeds.
 - Upstream provider can verify token offline and can dedupe by `gateId`.
 
@@ -161,7 +161,7 @@ Deliverables:
 
 Acceptance criteria:
 
-- A new developer completes a real-money x402 call using Circle-backed reserve + SettldPay token + provider signature verification.
+- A new developer completes a real-money x402 call using Circle-backed reserve + NooterraPay token + provider signature verification.
 - The quickstart has an objective success check and a single failure-inbound path.
 
 ### Milestone 4: Production Hardening + First Revenue
@@ -172,7 +172,7 @@ Deliverables:
 
 - Rate limiting and wallet policy enforcement hardened for gateway path
 - Payout scheduling (batch default; instant for trusted providers)
-- Billing metering for Settld fees (per-call fee on top)
+- Billing metering for Nooterra fees (per-call fee on top)
 
 Acceptance criteria:
 
@@ -186,7 +186,7 @@ Acceptance criteria:
 
 Goal: agents have persistent identity; humans can delegate authority to agents with limits.
 
-Note: much of the scaffolding exists already (`AgentIdentity.v1`, `walletPolicy`, delegation concepts). The milestones here focus on turning "proto" into "product-grade" and binding it to the wallet/gateway wedge.
+Note: much of the scaffolding exists already (`AgentIdentity`, `walletPolicy`, delegation concepts). The milestones here focus on turning "proto" into "product-grade" and binding it to the wallet/gateway wedge.
 
 ### Milestone 5: Agent Identity System
 
@@ -244,7 +244,7 @@ Success metric: a new agent can query reputation of a potential hire and use it 
 
 ## Phase 3: Marketplace + Economy (Milestones 9-14)
 
-Goal: full agent-to-agent marketplace; Settld becomes economic infrastructure.
+Goal: full agent-to-agent marketplace; Nooterra becomes economic infrastructure.
 
 ### Milestone 9: Service Discovery
 

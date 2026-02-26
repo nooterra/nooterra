@@ -8,7 +8,7 @@
     "includedSchemas": ["VerifyCliOutput.v1", "ProduceCliOutput.v1", "ReleaseIndex.v1"]
   },
   "artifacts": [
-    { "path": "settld-artifact-verify-1.0.0.tgz", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "sizeBytes": 0, "kind": "npm-tgz" },
+    { "path": "nooterra-artifact-verify-1.0.0.tgz", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "sizeBytes": 0, "kind": "npm-tgz" },
     { "path": "conformance-v1.tar.gz", "sha256": "0000000000000000000000000000000000000000000000000000000000000000", "sizeBytes": 0, "kind": "conformance" }
   ]
 }

@@ -66,7 +66,7 @@ async function requestJson({ baseUrl, tenantId, protocol, opsToken, method, path
   const headers = {
     "content-type": "application/json",
     "x-proxy-tenant-id": String(tenantId),
-    "x-settld-protocol": String(protocol),
+    "x-nooterra-protocol": String(protocol),
     "x-proxy-ops-token": String(opsToken)
   };
   const res = await fetch(url.toString(), {
@@ -149,9 +149,9 @@ async function main() {
     explorerUrl,
     replayUrl,
     env: {
-      SETTLD_BASE_URL: args.baseUrl,
-      SETTLD_TENANT_ID: args.tenantId,
-      SETTLD_API_KEY: token
+      NOOTERRA_BASE_URL: args.baseUrl,
+      NOOTERRA_TENANT_ID: args.tenantId,
+      NOOTERRA_API_KEY: token
     }
   }, null, 2));
 

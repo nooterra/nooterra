@@ -1,7 +1,7 @@
 export default function PhaseCallout({ phase, telemetry, money, scenarioId }) {
   if (!phase || phase === "idle") return null;
 
-  const base = "bg-black/20 border border-settld-border rounded-xl p-4";
+  const base = "bg-black/20 border border-nooterra-border rounded-xl p-4";
 
   if (phase === "before") {
     if (scenarioId === "finance") {
@@ -31,8 +31,8 @@ export default function PhaseCallout({ phase, telemetry, money, scenarioId }) {
 
   if (phase === "breach") {
     return (
-      <div className="bg-settld-warning/10 border border-settld-warning/30 rounded-xl p-4">
-        <div className="text-settld-warning font-semibold">SLA breach detected</div>
+      <div className="bg-nooterra-warning/10 border border-nooterra-warning/30 rounded-xl p-4">
+        <div className="text-nooterra-warning font-semibold">SLA breach detected</div>
         <div className="text-gray-300 text-sm mt-1">Late by {telemetry.breachAmount}. Policy-triggered credit is now deterministic.</div>
       </div>
     );
@@ -41,7 +41,7 @@ export default function PhaseCallout({ phase, telemetry, money, scenarioId }) {
   if (phase === "sla") {
     const creditUsd = Number.isSafeInteger(money.creditCents) ? (money.creditCents / 100).toFixed(2) : "—";
     return (
-      <div className="bg-settld-accent/10 border border-settld-border rounded-xl p-4">
+      <div className="bg-nooterra-accent/10 border border-nooterra-border rounded-xl p-4">
         <div className="text-gray-200 font-semibold">Resolution</div>
         <div className="text-gray-400 text-sm mt-1">Credit computed: ${creditUsd}. Settlement artifacts are generated next.</div>
       </div>
@@ -68,14 +68,14 @@ export default function PhaseCallout({ phase, telemetry, money, scenarioId }) {
   if (phase === "complete") {
     if (scenarioId === "finance") {
       return (
-        <div className="bg-settld-success/10 border border-settld-border rounded-xl p-4">
+        <div className="bg-nooterra-success/10 border border-nooterra-border rounded-xl p-4">
           <div className="text-gray-200 font-semibold">Close package ready</div>
           <div className="text-gray-400 text-sm mt-1">Download one bundle, verify offline, import the journal CSV, archive for audit.</div>
         </div>
       );
     }
     return (
-      <div className="bg-settld-success/10 border border-settld-border rounded-xl p-4">
+      <div className="bg-nooterra-success/10 border border-nooterra-border rounded-xl p-4">
         <div className="text-gray-200 font-semibold">Settlement complete</div>
         <div className="text-gray-400 text-sm mt-1">No emails. No dispute loop. Finance-grade outputs ready.</div>
       </div>

@@ -1,6 +1,6 @@
 # Quickstart: Profiles CLI
 
-Goal: scaffold, validate, and simulate a policy profile with the Settld CLI.
+Goal: scaffold, validate, and simulate a policy profile with the Nooterra CLI.
 
 ## Prerequisites
 
@@ -12,16 +12,16 @@ Goal: scaffold, validate, and simulate a policy profile with the Settld CLI.
 Non-interactive setup (manual mode):
 
 ```bash
-./bin/settld.js setup --yes --mode manual --host codex --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_runtime_apply --profile-id engineering-spend
+./bin/nooterra.js setup --yes --mode manual --host nooterra --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_runtime_apply --profile-id engineering-spend
 ```
 
-`settld setup` now also emits `SETTLD_PAID_TOOLS_AGENT_PASSPORT` automatically, so paid MCP tools run with policy-bound passport context without manual JSON editing.
+`nooterra setup` now also emits `NOOTERRA_PAID_TOOLS_AGENT_PASSPORT` automatically, so paid MCP tools run with policy-bound passport context without manual JSON editing.
 Add `--smoke` if you want setup to run an immediate MCP probe before moving on.
 
 Bootstrap mode (same flow, runtime key minted by onboarding endpoint):
 
 ```bash
-./bin/settld.js setup --yes --mode bootstrap --host codex --base-url https://api.settld.work --tenant-id tenant_default --bootstrap-api-key mlk_admin_xxx --bootstrap-key-id sk_runtime --bootstrap-scopes runs:read,runs:write --idempotency-key profile_setup_bootstrap_1
+./bin/nooterra.js setup --yes --mode bootstrap --host nooterra --base-url https://api.nooterra.work --tenant-id tenant_default --bootstrap-api-key mlk_admin_xxx --bootstrap-key-id sk_runtime --bootstrap-scopes runs:read,runs:write --idempotency-key profile_setup_bootstrap_1
 ```
 
 If you only want runtime env + host wiring (without applying a profile), add:
@@ -34,8 +34,8 @@ To validate payment evidence early, run a paid demo after setup and verify the f
 
 ```bash
 npm run demo:mcp-paid-exa
-jq -c 'first' artifacts/mcp-paid-exa/*/x402-receipts.export.jsonl > /tmp/settld-first-receipt.json
-settld x402 receipt verify /tmp/settld-first-receipt.json --format json --json-out /tmp/settld-first-receipt.verify.json
+jq -c 'first' artifacts/mcp-paid-exa/*/x402-receipts.export.jsonl > /tmp/nooterra-first-receipt.json
+nooterra x402 receipt verify /tmp/nooterra-first-receipt.json --format json --json-out /tmp/nooterra-first-receipt.verify.json
 ```
 
 To verify MCP wiring immediately during setup, add:
@@ -47,7 +47,7 @@ To verify MCP wiring immediately during setup, add:
 Single command that loads setup exports and applies a profile:
 
 ```bash
-eval "$(./bin/settld.js setup --yes --mode manual --host codex --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_runtime_apply | grep '^export ')" && ./bin/settld.js profile apply ./profiles/engineering-spend.profile.json --format json
+eval "$(./bin/nooterra.js setup --yes --mode manual --host nooterra --base-url http://127.0.0.1:3000 --tenant-id tenant_default --api-key sk_runtime_apply | grep '^export ')" && ./bin/nooterra.js profile apply ./profiles/engineering-spend.profile.json --format json
 ```
 
 ## 1) List available starter profiles
@@ -55,13 +55,13 @@ eval "$(./bin/settld.js setup --yes --mode manual --host codex --base-url http:/
 Installed CLI:
 
 ```bash
-npx settld profile list
+npx nooterra profile list
 ```
 
 Repo checkout:
 
 ```bash
-./bin/settld.js profile list
+./bin/nooterra.js profile list
 ```
 
 Example output:
@@ -80,13 +80,13 @@ growth-marketing	marketing	Growth Marketing	<profile_fingerprint_sha256>
 Installed CLI:
 
 ```bash
-npx settld profile init engineering-spend --out ./profiles/engineering-spend.profile.json
+npx nooterra profile init engineering-spend --out ./profiles/engineering-spend.profile.json
 ```
 
 Repo checkout:
 
 ```bash
-./bin/settld.js profile init engineering-spend --out ./profiles/engineering-spend.profile.json
+./bin/nooterra.js profile init engineering-spend --out ./profiles/engineering-spend.profile.json
 ```
 
 Example output:
@@ -100,23 +100,23 @@ ok	engineering-spend	/home/you/repo/profiles/engineering-spend
 Installed CLI:
 
 ```bash
-npx settld profile validate ./profiles/engineering-spend.profile.json --format json
+npx nooterra profile validate ./profiles/engineering-spend.profile.json --format json
 ```
 
 Repo checkout:
 
 ```bash
-./bin/settld.js profile validate ./profiles/engineering-spend.profile.json --format json
+./bin/nooterra.js profile validate ./profiles/engineering-spend.profile.json --format json
 ```
 
 Example output:
 
 ```json
 {
-  "schemaVersion": "SettldProfileValidationReport.v1",
+  "schemaVersion": "NooterraProfileValidationReport.v1",
   "ok": true,
   "profileId": "engineering-spend",
-  "profileFingerprintVersion": "SettldProfileFingerprint.v1",
+  "profileFingerprintVersion": "NooterraProfileFingerprint.v1",
   "profileFingerprint": "<sha256>",
   "errors": [],
   "warnings": []
@@ -128,20 +128,20 @@ Example output:
 Installed CLI:
 
 ```bash
-npx settld profile simulate ./profiles/engineering-spend.profile.json --format json
+npx nooterra profile simulate ./profiles/engineering-spend.profile.json --format json
 ```
 
 Repo checkout:
 
 ```bash
-./bin/settld.js profile simulate ./profiles/engineering-spend.profile.json --format json
+./bin/nooterra.js profile simulate ./profiles/engineering-spend.profile.json --format json
 ```
 
 Example output:
 
 ```json
 {
-  "schemaVersion": "SettldProfileSimulationReport.v1",
+  "schemaVersion": "NooterraProfileSimulationReport.v1",
   "ok": true,
   "profileId": "engineering-spend",
   "decision": "allow",
@@ -151,8 +151,8 @@ Example output:
   "reasons": [],
   "reasonCodes": [],
   "reasonDetails": [],
-  "reasonRegistryVersion": "SettldProfileSimulationReasonRegistry.v1",
-  "profileFingerprintVersion": "SettldProfileFingerprint.v1",
+  "reasonRegistryVersion": "NooterraProfileSimulationReasonRegistry.v1",
+  "profileFingerprintVersion": "NooterraProfileFingerprint.v1",
   "profileFingerprint": "<sha256>"
 }
 ```
@@ -160,7 +160,7 @@ Example output:
 To simulate with explicit scenario data:
 
 ```bash
-./bin/settld.js profile simulate ./profiles/engineering-spend.profile.json --scenario ./test/fixtures/profile/scenario-allow.json --format json
+./bin/nooterra.js profile simulate ./profiles/engineering-spend.profile.json --scenario ./test/fixtures/profile/scenario-allow.json --format json
 ```
 
 ## 5) Apply profile to runtime
@@ -168,31 +168,31 @@ To simulate with explicit scenario data:
 Set runtime connection/auth values:
 
 ```bash
-export SETTLD_BASE_URL=http://127.0.0.1:3000
-export SETTLD_TENANT_ID=tenant_default
-export SETTLD_API_KEY=sk_runtime_apply
+export NOOTERRA_BASE_URL=http://127.0.0.1:3000
+export NOOTERRA_TENANT_ID=tenant_default
+export NOOTERRA_API_KEY=sk_runtime_apply
 # optional override:
-export SETTLD_SPONSOR_WALLET_REF=wallet_ops_default
+export NOOTERRA_SPONSOR_WALLET_REF=wallet_ops_default
 ```
 
 Dry-run first (no live writes):
 
 ```bash
-./bin/settld.js profile apply ./profiles/engineering-spend.profile.json --dry-run --format json
+./bin/nooterra.js profile apply ./profiles/engineering-spend.profile.json --dry-run --format json
 ```
 
 Then execute live apply:
 
 ```bash
-./bin/settld.js profile apply ./profiles/engineering-spend.profile.json --format json
+./bin/nooterra.js profile apply ./profiles/engineering-spend.profile.json --format json
 ```
 
 `profile apply` also accepts runtime-prefixed aliases:
-`SETTLD_RUNTIME_BASE_URL`, `SETTLD_RUNTIME_TENANT_ID`, `SETTLD_RUNTIME_BEARER_TOKEN`.
+`NOOTERRA_RUNTIME_BASE_URL`, `NOOTERRA_RUNTIME_TENANT_ID`, `NOOTERRA_RUNTIME_BEARER_TOKEN`.
 
 ## Common troubleshooting
 
-- `unknown profile`: run `settld profile list` and use one of the listed IDs.
+- `unknown profile`: run `nooterra profile list` and use one of the listed IDs.
 - `validation failed`: fix reported schema/semantic errors, then rerun `profile validate`.
 - `scenario file not found`: pass an existing JSON scenario path to `profile simulate`.
 - `profile apply missing runtime config`: set runtime base URL, tenant ID, bearer token, and wallet ref before running live apply.

@@ -238,7 +238,7 @@ async function main() {
     endpoints: [
       {
         kind: "http",
-        baseUrl: "https://example.settld.local",
+        baseUrl: "https://example.nooterra.local",
         callPath: "/call",
         manifestPath: "/manifest.json"
       }
@@ -477,7 +477,7 @@ async function main() {
       verificationMethodHash: "4".repeat(64)
     },
     verifierRef: {
-      verifierId: "settld.policy-engine",
+      verifierId: "nooterra.policy-engine",
       verifierVersion: "v1",
       verifierHash: "5".repeat(64),
       modality: "deterministic"
@@ -508,7 +508,7 @@ async function main() {
       verificationMethodHash: "4".repeat(64)
     },
     verifierRef: {
-      verifierId: "settld.policy-engine",
+      verifierId: "nooterra.policy-engine",
       verifierVersion: "v1",
       verifierHash: "5".repeat(64),
       modality: "deterministic"

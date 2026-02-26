@@ -55,7 +55,7 @@ function spawnCapture(args) {
   });
 }
 
-test("CLI: settld closepack export/verify roundtrip for tool-call dispute chain", async (t) => {
+test("CLI: nooterra closepack export/verify roundtrip for tool-call dispute chain", async (t) => {
   const tenantId = `tenant_cli_closepack_${uniqueSuffix()}`;
   const opsToken = "tok_ops";
   const api = createApi({ opsTokens: `${opsToken}:ops_read,ops_write,finance_read,finance_write,audit_read` });
@@ -74,7 +74,7 @@ test("CLI: settld closepack export/verify roundtrip for tool-call dispute chain"
   }
 
   try {
-    const tmp = path.join("/tmp", `settld_cli_closepack_${uniqueSuffix()}`);
+    const tmp = path.join("/tmp", `nooterra_cli_closepack_${uniqueSuffix()}`);
     await fs.mkdir(tmp, { recursive: true });
     const conformanceJson = path.join(tmp, "kernel-conformance.json");
 
@@ -108,7 +108,7 @@ test("CLI: settld closepack export/verify roundtrip for tool-call dispute chain"
 
     const closepackZipPath = path.join(tmp, `${agreementHash}_cli.zip`);
     const exportRes = await spawnCapture([
-      path.join(REPO_ROOT, "bin", "settld.js"),
+      path.join(REPO_ROOT, "bin", "nooterra.js"),
       "closepack",
       "export",
       "--base-url",
@@ -133,7 +133,7 @@ test("CLI: settld closepack export/verify roundtrip for tool-call dispute chain"
 
     const verifyJsonPath = path.join(tmp, `${agreementHash}_verify.json`);
     const verifyRes = await spawnCapture([
-      path.join(REPO_ROOT, "bin", "settld.js"),
+      path.join(REPO_ROOT, "bin", "nooterra.js"),
       "closepack",
       "verify",
       closepackZipPath,

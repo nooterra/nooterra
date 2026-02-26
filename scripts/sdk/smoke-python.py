@@ -7,11 +7,11 @@ import sys
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "packages" / "api-sdk-python"))
 
-from settld_api_sdk import SettldClient  # noqa: E402
+from nooterra_api_sdk import NooterraClient  # noqa: E402
 
 
 def main() -> int:
-    client = SettldClient(base_url="http://127.0.0.1:0", tenant_id="tenant_default")
+    client = NooterraClient(base_url="http://127.0.0.1:0", tenant_id="tenant_default")
     required = (
         "first_verified_run",
         "get_tenant_analytics",

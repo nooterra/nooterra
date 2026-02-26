@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/ClosePackManifest.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/ClosePackManifest.v1.schema.json",
   "title": "ClosePackManifest.v1",
   "type": "object",
   "required": ["schemaVersion", "type", "tenantId", "invoiceId", "createdAt", "protocol", "hashing", "files"],

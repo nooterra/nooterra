@@ -1,10 +1,10 @@
-# AI Skill Inventory (Settld)
+# AI Skill Inventory (Nooterra)
 
 ## Purpose
 
-Track the minimum skill set required to run Settld's multi-role AI workforce and coding pipeline.
+Track the minimum skill set required to run Nooterra's multi-role AI workforce and coding pipeline.
 
-## Settld local role skills (project)
+## Nooterra local role skills (project)
 
 - `ai-workforce-orchestrator`
 - `ai-pm-sprint-planner`

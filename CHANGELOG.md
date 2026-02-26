@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Settld should be documented here.
+All notable changes to Nooterra should be documented here.
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and aims for [Semantic Versioning](https://semver.org/).
 
@@ -8,9 +8,9 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ### Added
 - ACS collaboration substrate primitives for host-agnostic inter-agent coordination: `Session.v1` + `SessionEvent.v1` (hash-chained timelines with deterministic provenance/taint propagation), `SessionReplayPack.v1` + `SessionTranscript.v1` exports (fail-closed on tamper/mismatch), `AuthorityGrant.v1` enforcement roots for paid/high-risk actions, task negotiation objects (`TaskQuote|TaskOffer|TaskAcceptance`), and signed interaction graph exports (`VerifiedInteractionGraphPack.v1`).
-- `settld doctor` command (`scripts/doctor/mcp-host.mjs`) for one-command MCP host compatibility validation with clear `PASS|FAIL` output and report path.
-- MCP host config certification matrix smoke (`scripts/ci/run-mcp-host-cert-matrix.mjs`, `npm run test:ci:mcp-host-cert-matrix`) covering Codex, Claude, Cursor, and OpenClaw write/idempotency behavior.
-- Policy packs v1 CLI: `settld policy init|simulate|publish` with deterministic JSON/text outputs and local publication artifacts.
+- `nooterra doctor` command (`scripts/doctor/mcp-host.mjs`) for one-command MCP host compatibility validation with clear `PASS|FAIL` output and report path.
+- MCP host config certification matrix smoke (`scripts/ci/run-mcp-host-cert-matrix.mjs`, `npm run test:ci:mcp-host-cert-matrix`) covering Nooterra, Claude, Cursor, and OpenClaw write/idempotency behavior.
+- Policy packs v1 CLI: `nooterra policy init|simulate|publish` with deterministic JSON/text outputs and local publication artifacts.
 - Five starter policy packs for immediate rollout: `engineering-spend`, `procurement-enterprise`, `data-api-buyer`, `support-automation`, `finance-controls`.
 - Policy pack quickstart doc: `docs/QUICKSTART_POLICY_PACKS.md`.
 - Ops HITL x402 escalation smoke runner: `scripts/ops/run-x402-hitl-smoke.mjs` executes `blocked -> escalation -> approve|deny -> receipt` using live `/x402/gate/*` and `/x402/receipts/*` endpoints and writes `artifacts/ops/x402-hitl-smoke.json`.
@@ -18,23 +18,23 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - Agent passport lifecycle API for registered agents: `GET|POST /agents/{agentId}/passport` and `POST /agents/{agentId}/passport/revoke`, with idempotent writes and store support in memory + Postgres.
 - Public MCP distribution path:
   - npm-published MCP runtime assets (`scripts/mcp/*`, `docs/QUICKSTART_MCP*.md`) are now included in package files.
-  - New CLI entrypoint `settld-mcp` (`bin/settld-mcp`) for direct host MCP registration.
-  - ESM subpath export `settld/mcp` for programmatic MCP server consumption.
-- Host onboarding quickstarts for Claude, Cursor, Codex, and OpenClaw:
+  - New CLI entrypoint `nooterra-mcp` (`bin/nooterra-mcp`) for direct host MCP registration.
+  - ESM subpath export `nooterra/mcp` for programmatic MCP server consumption.
+- Host onboarding quickstarts for Claude, Cursor, Nooterra, and OpenClaw:
   - `docs/QUICKSTART_MCP_HOSTS.md`
   - `docs/QUICKSTART_MCP.md` linked host setup guidance.
 - OpenClaw launch artifacts:
-  - publishable skill payload at `docs/integrations/openclaw/settld-mcp-skill/`
+  - publishable skill payload at `docs/integrations/openclaw/nooterra-mcp-skill/`
   - ClawHub publish/rollback checklist at `docs/integrations/openclaw/CLAWHUB_PUBLISH_CHECKLIST.md`
 - Agreement delegation primitive: `AgreementDelegation.v1` protocol spec + schema + vectors, and core builder/validator to support parent->child agreement linking in multi-hop agent chains.
-- A2A discovery surface: `GET /.well-known/agent.json` publishes a Settld settlement Agent Card for A2A-compatible agent discovery.
+- A2A discovery surface: `GET /.well-known/agent.json` publishes a Nooterra settlement Agent Card for A2A-compatible agent discovery.
 - x402 verify-before-release wedge: `/x402/gate/*` API endpoints plus the in-repo thin proxy service `services/x402-gateway/` for converting upstream `HTTP 402` into `hold -> verify -> release/refund` settlement flows.
-- GitHub Actions publish workflow for the x402 gateway image (`ghcr.io/aidenlippert/settld/x402-gateway:latest`).
+- GitHub Actions publish workflow for the x402 gateway image (`ghcr.io/nooterra/nooterra/x402-gateway:latest`).
 - Self-serve onboarding email sequence automation for Magic Link tenants (`welcome`, `sample_verified_nudge`, `first_settlement_completed`) with idempotent state + outbox/smtp delivery modes (`services/magic-link/src/onboarding-email-sequence.js`).
 - Self-serve referral instrumentation and benchmark reporting: onboarding events now accept `referral_link_shared` / `referral_signup`, onboarding metrics expose referral conversion fields, and CI can build `artifacts/launch/self-serve-benchmark-report.json` via `scripts/ci/build-self-serve-benchmark-report.mjs`.
-- Producer bootstrap tooling: `settld-trust` (trust/key init) and `settld-produce` (jobproof/monthproof/financepack bundle generation) in `packages/artifact-produce/`.
-- `ProduceCliOutput.v1` spec + schema for `settld-produce --format json`.
-- Delegated signing (no private keys on disk): `settld-produce --signer remote` and RemoteSigner tooling contract (`docs/spec/REMOTE_SIGNER.md`).
+- Producer bootstrap tooling: `nooterra-trust` (trust/key init) and `nooterra-produce` (jobproof/monthproof/financepack bundle generation) in `packages/artifact-produce/`.
+- `ProduceCliOutput.v1` spec + schema for `nooterra-produce --format json`.
+- Delegated signing (no private keys on disk): `nooterra-produce --signer remote` and RemoteSigner tooling contract (`docs/spec/REMOTE_SIGNER.md`).
 - Backup/restore verification drill scripts (`scripts/backup-restore-test.sh`, `scripts/backup-restore/*`)
 - Tenant isolation fuzz-style regression test (`test/tenant-isolation-fuzz.test.js`)
 - Ops runbook (`docs/RUNBOOK.md`)

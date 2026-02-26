@@ -40,11 +40,11 @@ async function main() {
   const verifyPkgDir = path.resolve(repoRoot, "packages", "artifact-verify");
   const producePkgDir = path.resolve(repoRoot, "packages", "artifact-produce");
   const providerKitPkgDir = path.resolve(repoRoot, "packages", "provider-kit");
-  const paidToolScaffoldPkgDir = path.resolve(repoRoot, "packages", "create-settld-paid-tool");
+  const paidToolScaffoldPkgDir = path.resolve(repoRoot, "packages", "create-nooterra-paid-tool");
 
-  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-pack-"));
-  const installDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-install-"));
-  const npmCacheDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-npm-cache-"));
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-pack-"));
+  const installDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-install-"));
+  const npmCacheDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-npm-cache-"));
 
   try {
     // Force npm cache/log writes into /tmp so CI-like sandboxes don't block ~/.npm.
@@ -61,14 +61,14 @@ async function main() {
     sh("npm", ["pack", "--pack-destination", outDir], { cwd: paidToolScaffoldPkgDir, env: npmEnv });
     const packed = (await fs.readdir(outDir)).filter((n) => n.endsWith(".tgz"));
     if (!packed.length) throw new Error("npm pack did not produce a .tgz in pack destination");
-    const verifyCandidates = packed.filter((n) => n.startsWith("settld-artifact-verify-"));
-    const produceCandidates = packed.filter((n) => n.startsWith("settld-artifact-produce-"));
-    const providerKitCandidates = packed.filter((n) => n.startsWith("settld-provider-kit-"));
-    const paidToolScaffoldCandidates = packed.filter((n) => n.startsWith("create-settld-paid-tool-"));
-    if (!verifyCandidates.length) throw new Error("expected settld-artifact-verify-*.tgz in pack destination");
-    if (!produceCandidates.length) throw new Error("expected settld-artifact-produce-*.tgz in pack destination");
-    if (!providerKitCandidates.length) throw new Error("expected settld-provider-kit-*.tgz in pack destination");
-    if (!paidToolScaffoldCandidates.length) throw new Error("expected create-settld-paid-tool-*.tgz in pack destination");
+    const verifyCandidates = packed.filter((n) => n.startsWith("nooterra-artifact-verify-"));
+    const produceCandidates = packed.filter((n) => n.startsWith("nooterra-artifact-produce-"));
+    const providerKitCandidates = packed.filter((n) => n.startsWith("nooterra-provider-kit-"));
+    const paidToolScaffoldCandidates = packed.filter((n) => n.startsWith("create-nooterra-paid-tool-"));
+    if (!verifyCandidates.length) throw new Error("expected nooterra-artifact-verify-*.tgz in pack destination");
+    if (!produceCandidates.length) throw new Error("expected nooterra-artifact-produce-*.tgz in pack destination");
+    if (!providerKitCandidates.length) throw new Error("expected nooterra-provider-kit-*.tgz in pack destination");
+    if (!paidToolScaffoldCandidates.length) throw new Error("expected create-nooterra-paid-tool-*.tgz in pack destination");
     const verifyTarball = path.join(outDir, verifyCandidates[0]);
     const produceTarball = path.join(outDir, produceCandidates[0]);
     const providerKitTarball = path.join(outDir, providerKitCandidates[0]);
@@ -80,9 +80,9 @@ async function main() {
       env: npmEnv
     });
 
-    const verifyCliJs = path.join(installDir, "node_modules", "settld-artifact-verify", "bin", "settld-verify.js");
-    const produceCliJs = path.join(installDir, "node_modules", "settld-artifact-produce", "bin", "settld-produce.js");
-    const trustCliJs = path.join(installDir, "node_modules", "settld-artifact-produce", "bin", "settld-trust.js");
+    const verifyCliJs = path.join(installDir, "node_modules", "nooterra-artifact-verify", "bin", "nooterra-verify.js");
+    const produceCliJs = path.join(installDir, "node_modules", "nooterra-artifact-produce", "bin", "nooterra-produce.js");
+    const trustCliJs = path.join(installDir, "node_modules", "nooterra-artifact-produce", "bin", "nooterra-trust.js");
 
     const ver = nodeCli({ cliJs: verifyCliJs, cwd: installDir, env: npmEnv, args: ["--version"] }).trim();
     if (!/^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-.]+)?$/.test(ver)) {
@@ -90,22 +90,22 @@ async function main() {
     }
     const prodVer = nodeCli({ cliJs: produceCliJs, cwd: installDir, env: npmEnv, args: ["--version"] }).trim();
     if (!/^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-.]+)?$/.test(prodVer)) {
-      throw new Error(`unexpected settld-produce --version output: ${JSON.stringify(prodVer)}`);
+      throw new Error(`unexpected nooterra-produce --version output: ${JSON.stringify(prodVer)}`);
     }
     const trustVer = nodeCli({ cliJs: trustCliJs, cwd: installDir, env: npmEnv, args: ["--version"] }).trim();
     if (!/^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-.]+)?$/.test(trustVer)) {
-      throw new Error(`unexpected settld-trust --version output: ${JSON.stringify(trustVer)}`);
+      throw new Error(`unexpected nooterra-trust --version output: ${JSON.stringify(trustVer)}`);
     }
     nodeEvalModule({
       cwd: installDir,
       env: npmEnv,
       source: [
-        "import * as kit from '@settld/provider-kit';",
+        "import * as kit from '@nooterra/provider-kit';",
         "const exportsToCheck = [",
-        "  'createSettldPaidNodeHttpHandler',",
-        "  'createSettldPayKeysetResolver',",
+        "  'createNooterraPaidNodeHttpHandler',",
+        "  'createNooterraPayKeysetResolver',",
         "  'createInMemoryReplayStore',",
-        "  'parseSettldPayAuthorizationHeader',",
+        "  'parseNooterraPayAuthorizationHeader',",
         "  'buildPaymentRequiredHeaderValue'",
         "];",
         "for (const name of exportsToCheck) {",
@@ -115,19 +115,19 @@ async function main() {
     });
 
     const scaffoldOutDir = path.join(installDir, "scaffold-smoke");
-    sh("npm", ["exec", "--yes", "--", "create-settld-paid-tool", scaffoldOutDir, "--provider-id", "prov_smoke_pack"], {
+    sh("npm", ["exec", "--yes", "--", "create-nooterra-paid-tool", scaffoldOutDir, "--provider-id", "prov_smoke_pack"], {
       cwd: installDir,
       env: npmEnv
     });
     const scaffoldPackageJson = JSON.parse(await fs.readFile(path.join(scaffoldOutDir, "package.json"), "utf8"));
-    if (scaffoldPackageJson?.dependencies?.["@settld/provider-kit"] !== "latest") {
-      throw new Error("scaffolded package.json missing @settld/provider-kit dependency");
+    if (scaffoldPackageJson?.dependencies?.["@nooterra/provider-kit"] !== "latest") {
+      throw new Error("scaffolded package.json missing @nooterra/provider-kit dependency");
     }
     await fs.access(path.join(scaffoldOutDir, "server.mjs"));
     await fs.access(path.join(scaffoldOutDir, ".env.example"));
 
     // Producer bootstrap: init trust + produce bundles + strict verify them using the installed packages.
-    const trustOutDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-trust-init-"));
+    const trustOutDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-trust-init-"));
     const trustInitRaw = nodeCli({
       cliJs: trustCliJs,
       cwd: installDir,
@@ -135,15 +135,15 @@ async function main() {
       args: ["init", "--format", "json", "--out", trustOutDir, "--force"]
     });
     const trustInit = JSON.parse(trustInitRaw);
-    if (trustInit?.schemaVersion !== "TrustInitOutput.v1") throw new Error("settld-trust init returned unexpected JSON");
+    if (trustInit?.schemaVersion !== "TrustInitOutput.v1") throw new Error("nooterra-trust init returned unexpected JSON");
     const trust = JSON.parse(await fs.readFile(trustInit.trustPath, "utf8"));
     const producedEnv = {
       ...npmEnv,
-      SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
-      SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust.timeAuthorities ?? {})
+      NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust.governanceRoots ?? {}),
+      NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust.timeAuthorities ?? {})
     };
 
-    const tmpOut = await fs.mkdtemp(path.join(os.tmpdir(), "settld-produce-"));
+    const tmpOut = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-produce-"));
     const jobBundle = path.join(tmpOut, "jobproof");
     const monthBundle = path.join(tmpOut, "monthproof");
     const financeBundle = path.join(tmpOut, "financepack");
@@ -155,8 +155,8 @@ async function main() {
       args: ["jobproof", "--format", "json", "--deterministic", "--force", "--out", jobBundle, "--keys", trustInit.keypairsPath]
     });
     const prodJobJson = JSON.parse(prodJob);
-    if (prodJobJson?.schemaVersion !== "ProduceCliOutput.v1") throw new Error("settld-produce jobproof did not return ProduceCliOutput.v1");
-    if (prodJobJson?.ok !== true) throw new Error(`settld-produce jobproof failed: ${JSON.stringify(prodJobJson)}`);
+    if (prodJobJson?.schemaVersion !== "ProduceCliOutput.v1") throw new Error("nooterra-produce jobproof did not return ProduceCliOutput.v1");
+    if (prodJobJson?.ok !== true) throw new Error(`nooterra-produce jobproof failed: ${JSON.stringify(prodJobJson)}`);
 
     const verifyJob = nodeCli({
       cliJs: verifyCliJs,
@@ -165,7 +165,7 @@ async function main() {
       args: ["--format", "json", "--strict", "--hash-concurrency", "4", "--job-proof", jobBundle]
     });
     const verifyJobJson = JSON.parse(verifyJob);
-    if (verifyJobJson?.ok !== true) throw new Error("installed settld-verify failed produced jobproof bundle verification");
+    if (verifyJobJson?.ok !== true) throw new Error("installed nooterra-verify failed produced jobproof bundle verification");
 
     // Delegated signing smoke: run a dev remote signer (holds private keys in a separate process),
     // init trust in remote-only mode, and produce a jobproof bundle using --signer remote.
@@ -174,11 +174,11 @@ async function main() {
     const serverKeyId = String(kp?.serverA?.keyId ?? "");
     if (!govKeyId || !serverKeyId) throw new Error("missing govRoot/serverA key ids in keypairs.json");
 
-    const signerDevJs = path.join(installDir, "node_modules", "settld-artifact-produce", "bin", "settld-signer-dev.js");
+    const signerDevJs = path.join(installDir, "node_modules", "nooterra-artifact-produce", "bin", "nooterra-signer-dev.js");
     const signerCommand = process.execPath;
     const signerArgsJson = JSON.stringify([signerDevJs, "--stdio", "--keys", trustInit.keypairsPath]);
 
-    const remoteTrustDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-trust-remote-"));
+    const remoteTrustDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-trust-remote-"));
     const remoteTrustRaw = nodeCli({
       cliJs: trustCliJs,
       cwd: installDir,
@@ -204,8 +204,8 @@ async function main() {
     const trustRemote = JSON.parse(await fs.readFile(remoteTrust.trustPath, "utf8"));
     const remoteEnv = {
       ...npmEnv,
-      SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trustRemote.governanceRoots ?? {}),
-      SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trustRemote.timeAuthorities ?? {})
+      NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trustRemote.governanceRoots ?? {}),
+      NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trustRemote.timeAuthorities ?? {})
     };
 
     const jobBundleRemote = path.join(tmpOut, "jobproof-remote");
@@ -234,7 +234,7 @@ async function main() {
       ]
     });
     const prodJobRemoteJson = JSON.parse(prodJobRemote);
-    if (prodJobRemoteJson?.ok !== true) throw new Error("settld-produce jobproof remote signer failed");
+    if (prodJobRemoteJson?.ok !== true) throw new Error("nooterra-produce jobproof remote signer failed");
 
     const verifyJobRemote = nodeCli({
       cliJs: verifyCliJs,
@@ -243,10 +243,10 @@ async function main() {
       args: ["--format", "json", "--strict", "--hash-concurrency", "4", "--job-proof", jobBundleRemote]
     });
     const verifyJobRemoteJson = JSON.parse(verifyJobRemote);
-    if (verifyJobRemoteJson?.ok !== true) throw new Error("installed settld-verify failed remote-signed jobproof verification");
+    if (verifyJobRemoteJson?.ok !== true) throw new Error("installed nooterra-verify failed remote-signed jobproof verification");
 
-    // Plugin signer smoke: load a signer provider via a local plugin file (no private keys in Settld core).
-    const pluginCfgDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-plugin-cfg-"));
+    // Plugin signer smoke: load a signer provider via a local plugin file (no private keys in Nooterra core).
+    const pluginCfgDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-plugin-cfg-"));
     const pluginCfgPath = path.join(pluginCfgDir, "config.json");
     await fs.writeFile(pluginCfgPath, JSON.stringify({ keypairsPath: trustInit.keypairsPath }, null, 2) + "\n", "utf8");
     const pluginPath = path.join(pluginCfgDir, "plugin.mjs");
@@ -311,7 +311,7 @@ async function main() {
       ]
     });
     const prodJobPluginJson = JSON.parse(prodJobPlugin);
-    if (prodJobPluginJson?.ok !== true) throw new Error("settld-produce jobproof plugin signer failed");
+    if (prodJobPluginJson?.ok !== true) throw new Error("nooterra-produce jobproof plugin signer failed");
 
     const verifyJobPlugin = nodeCli({
       cliJs: verifyCliJs,
@@ -320,7 +320,7 @@ async function main() {
       args: ["--format", "json", "--strict", "--hash-concurrency", "4", "--job-proof", jobBundlePlugin]
     });
     const verifyJobPluginJson = JSON.parse(verifyJobPlugin);
-    if (verifyJobPluginJson?.ok !== true) throw new Error("installed settld-verify failed plugin-signed jobproof verification");
+    if (verifyJobPluginJson?.ok !== true) throw new Error("installed nooterra-verify failed plugin-signed jobproof verification");
 
     const prodMonth = nodeCli({
       cliJs: produceCliJs,
@@ -345,7 +345,7 @@ async function main() {
       ]
     });
     const prodMonthJson = JSON.parse(prodMonth);
-    if (prodMonthJson?.ok !== true) throw new Error("settld-produce monthproof failed");
+    if (prodMonthJson?.ok !== true) throw new Error("nooterra-produce monthproof failed");
 
     const verifyMonth = nodeCli({
       cliJs: verifyCliJs,
@@ -354,7 +354,7 @@ async function main() {
       args: ["--format", "json", "--strict", "--hash-concurrency", "4", "--month-proof", monthBundle]
     });
     const verifyMonthJson = JSON.parse(verifyMonth);
-    if (verifyMonthJson?.ok !== true) throw new Error("installed settld-verify failed produced monthproof bundle verification");
+    if (verifyMonthJson?.ok !== true) throw new Error("installed nooterra-verify failed produced monthproof bundle verification");
 
     const prodFin = nodeCli({
       cliJs: produceCliJs,
@@ -381,7 +381,7 @@ async function main() {
       ]
     });
     const prodFinJson = JSON.parse(prodFin);
-    if (prodFinJson?.ok !== true) throw new Error("settld-produce financepack failed");
+    if (prodFinJson?.ok !== true) throw new Error("nooterra-produce financepack failed");
 
     const verifyFin = nodeCli({
       cliJs: verifyCliJs,
@@ -390,16 +390,16 @@ async function main() {
       args: ["--format", "json", "--strict", "--hash-concurrency", "4", "--finance-pack", financeBundle]
     });
     const verifyFinJson = JSON.parse(verifyFin);
-    if (verifyFinJson?.ok !== true) throw new Error("installed settld-verify failed produced financepack bundle verification");
+    if (verifyFinJson?.ok !== true) throw new Error("installed nooterra-verify failed produced financepack bundle verification");
 
     // Fixture/conformance trust roots (these bundles are signed by fixture keys, not the bootstrap keys).
     const fixtureTrustPath = path.resolve(repoRoot, "test", "fixtures", "bundles", "v1", "trust.json");
     const fixtureTrust = JSON.parse(await fs.readFile(fixtureTrustPath, "utf8"));
     const fixtureEnv = {
       ...npmEnv,
-      SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(fixtureTrust.governanceRoots ?? {}),
-      SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(fixtureTrust.pricingSigners ?? {}),
-      SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(fixtureTrust.timeAuthorities ?? {})
+      NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(fixtureTrust.governanceRoots ?? {}),
+      NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(fixtureTrust.pricingSigners ?? {}),
+      NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(fixtureTrust.timeAuthorities ?? {})
     };
 
     const fixtureDir = path.resolve(repoRoot, "test", "fixtures", "bundles", "v1", "jobproof", "strict-pass");
@@ -411,10 +411,10 @@ async function main() {
     });
     const parsed = JSON.parse(verifyOut);
     if (!parsed || typeof parsed !== "object") throw new Error("verify output was not JSON object");
-    if (parsed.ok !== true) throw new Error(`installed settld-verify failed fixture verification: ${JSON.stringify(parsed)}`);
+    if (parsed.ok !== true) throw new Error(`installed nooterra-verify failed fixture verification: ${JSON.stringify(parsed)}`);
 
     // Conformance must run against the installed package bits (not repo-relative JS entrypoint).
-    const installedCliJs = path.join(installDir, "node_modules", "settld-artifact-verify", "bin", "settld-verify.js");
+    const installedCliJs = path.join(installDir, "node_modules", "nooterra-artifact-verify", "bin", "nooterra-verify.js");
     const conf = spawnSync(process.execPath, [path.resolve(repoRoot, "conformance", "v1", "run.mjs"), "--node-bin", installedCliJs], {
       cwd: repoRoot,
       env: fixtureEnv,
@@ -425,7 +425,7 @@ async function main() {
     }
 
     // Producer conformance must also run against installed package bits.
-    const installedProduceJs = path.join(installDir, "node_modules", "settld-artifact-produce", "bin", "settld-produce.js");
+    const installedProduceJs = path.join(installDir, "node_modules", "nooterra-artifact-produce", "bin", "nooterra-produce.js");
     const confProduce = spawnSync(
       process.execPath,
       [

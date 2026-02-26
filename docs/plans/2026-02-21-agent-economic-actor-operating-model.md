@@ -1,4 +1,4 @@
-# Agent Economic Actor Operating Model (v1)
+# Agent Economic Actor Operating Model
 
 Date: 2026-02-21  
 Owner: Product + Platform + Risk
@@ -7,7 +7,7 @@ Owner: Product + Platform + Risk
 
 Goal: let agents spend and act with much more autonomy while keeping actions bounded, auditable, and reversible.
 
-Settld does this by treating autonomy as a controlled envelope:
+Nooterra does this by treating autonomy as a controlled envelope:
 
 1. identity + delegation,
 2. policy-bound authorization,
@@ -26,15 +26,15 @@ Primary user groups:
 ## Deployment modes
 
 ### Mode A: Hosted control plane + managed wallet (default)
-- `settld setup --wallet-mode managed --wallet-bootstrap remote`
+- `nooterra setup --wallet-mode managed --wallet-bootstrap remote`
 - Fastest time-to-first-paid-call, least wallet ops burden.
 
 ### Mode B: Hosted control plane + BYO wallet
-- `settld setup --wallet-mode byo`
-- Customer controls custody while Settld enforces trust contract.
+- `nooterra setup --wallet-mode byo`
+- Customer controls custody while Nooterra enforces trust contract.
 
 ### Mode C: Hosted/self-hosted control plane + no wallet rails
-- `settld setup --wallet-mode none`
+- `nooterra setup --wallet-mode none`
 - Non-paid trust control path (proof/audit/dispute readiness before spend).
 
 Reference flows:
@@ -42,12 +42,12 @@ Reference flows:
 - `scripts/setup/onboard.mjs`
 - `services/magic-link/src/server.js`
 
-## Should Settld manage agent wallets?
+## Should Nooterra manage agent wallets?
 
 Answer: optional and policy-dependent.
 
-1. Managed mode: Settld control plane bootstraps wallet provider config and returns runtime env.
-2. BYO mode: customer supplies wallet env/refs; Settld still enforces policy and receipts.
+1. Managed mode: Nooterra control plane bootstraps wallet provider config and returns runtime env.
+2. BYO mode: customer supplies wallet env/refs; Nooterra still enforces policy and receipts.
 3. No-wallet mode: only trust/evidence control path is active.
 
 Wallet bootstrap and runtime bootstrap endpoints:
@@ -108,15 +108,15 @@ Current code anchors:
 1. Tenant bootstrap (runtime key material and tenant setup).
 2. Wallet bootstrap (`managed` local/remote or `byo` env resolution).
 3. Runtime bootstrap (MCP env + host config).
-4. Profile apply (`settld profile ...`) and passport generation.
+4. Profile apply (`nooterra profile ...`) and passport generation.
 5. Host smoke test and first paid call run.
 6. Conformance matrix + release gate checks.
 
 Command anchors:
-- `settld setup`
-- `settld profile init|validate|simulate|apply`
+- `nooterra setup`
+- `nooterra profile init|validate|simulate|apply`
 - `npm run mcp:probe`
-- `settld doctor`
+- `nooterra doctor`
 
 ## What this enables agents to do
 
@@ -166,4 +166,3 @@ Execution artifacts:
 - Privy docs: [https://docs.privy.io/](https://docs.privy.io/)
 - SPIFFE overview: [https://spiffe.io/docs/latest/spiffe-about/overview/](https://spiffe.io/docs/latest/spiffe-about/overview/)
 - EIP-4337: [https://eips.ethereum.org/EIPS/eip-4337](https://eips.ethereum.org/EIPS/eip-4337)
-

@@ -444,14 +444,14 @@ export async function verifyFinancePackBundleDir({ dir, strict = false, hashConc
 
   const warnings = [];
   if (!strict) {
-    const rawTrusted = String(process.env.SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "").trim();
-    if (!rawTrusted) warnings.push({ code: VERIFICATION_WARNING_CODE.TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT, detail: { env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON" } });
+    const rawTrusted = String(process.env.NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON ?? "").trim();
+    if (!rawTrusted) warnings.push({ code: VERIFICATION_WARNING_CODE.TRUSTED_GOVERNANCE_ROOT_KEYS_MISSING_LENIENT, detail: { env: "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON" } });
   }
 
-  const settldPath = path.join(dir, "settld.json");
+  const nooterraPath = path.join(dir, "nooterra.json");
   const manifestPath = path.join(dir, "manifest.json");
 
-  const header = await readJson(settldPath);
+  const header = await readJson(nooterraPath);
   if (header?.type !== FINANCE_PACK_BUNDLE_TYPE_V1) {
     return { ok: false, error: "unsupported bundle type", type: header?.type ?? null, warnings };
   }
@@ -483,7 +483,7 @@ export async function verifyFinancePackBundleDir({ dir, strict = false, hashConc
       present.add(name);
     }
 	    const required = [
-	      "settld.json",
+	      "nooterra.json",
 	      "governance/policy.json",
 	      "governance/revocations.json",
 	      "month/manifest.json",
@@ -545,7 +545,7 @@ export async function verifyFinancePackBundleDir({ dir, strict = false, hashConc
 	    }
 	    trustedGovernanceRoots = trustedGovernanceRootKeysFromEnv();
 	    if (trustedGovernanceRoots.size === 0) {
-	      return { ok: false, error: "strict requires trusted governance root keys", env: "SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
+	      return { ok: false, error: "strict requires trusted governance root keys", env: "NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON", warnings };
 	    }
 	    const sigOk = verifyGovernancePolicyV2Signature({ policy: governancePolicy, trustedGovernanceRootPublicKeyByKeyId: trustedGovernanceRoots });
 	    if (!sigOk.ok) return { ok: false, error: "governance policy signature invalid", detail: sigOk, warnings };

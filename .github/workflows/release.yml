@@ -151,7 +151,7 @@ jobs:
       - name: Secret hygiene guard
         run: npm run -s test:ci:secret-hygiene
 
-      - name: Start Settld API (pg mode)
+      - name: Start Nooterra API (pg mode)
         run: |
           set -euo pipefail
           STORE=pg \
@@ -164,7 +164,7 @@ jobs:
           PROXY_MONEY_RAIL_RECONCILE_ENABLED=1 \
           PORT=3000 \
           node src/api/server.js &
-          echo $! > /tmp/settld_pid
+          echo $! > /tmp/nooterra_pid
 
       - name: Wait for readiness
         run: |
@@ -209,7 +209,7 @@ jobs:
         run: |
           set -euo pipefail
           npm run -s openapi:write
-          git diff --exit-code -- openapi/settld.openapi.json
+          git diff --exit-code -- openapi/nooterra.openapi.json
 
       - name: Run SDK smoke tests (Node + Python)
         run: |
@@ -222,21 +222,21 @@ jobs:
 
       - name: Run billing smoke gate (staging)
         env:
-          SETTLD_BASE_URL: ${{ secrets.SETTLD_STAGING_BASE_URL }}
-          PROXY_OPS_TOKEN: ${{ secrets.SETTLD_STAGING_OPS_TOKEN }}
-          SETTLD_TENANT_ID: tenant_release_${{ github.run_id }}
+          NOOTERRA_BASE_URL: ${{ secrets.NOOTERRA_STAGING_BASE_URL }}
+          PROXY_OPS_TOKEN: ${{ secrets.NOOTERRA_STAGING_OPS_TOKEN }}
+          NOOTERRA_TENANT_ID: tenant_release_${{ github.run_id }}
         run: |
           set -euo pipefail
           if npm run -s dev:billing:smoke:prod | tee billing-smoke-prod.log; then
             jq -n \
               --arg checkedAt "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-              --arg tenant "${SETTLD_TENANT_ID:-}" \
+              --arg tenant "${NOOTERRA_TENANT_ID:-}" \
               '{ok:true, checkedAt:$checkedAt, tenant:$tenant}' > billing-smoke-status.json
           else
             status=$?
             jq -n \
               --arg checkedAt "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
-              --arg tenant "${SETTLD_TENANT_ID:-}" \
+              --arg tenant "${NOOTERRA_TENANT_ID:-}" \
               --argjson exitCode "$status" \
               '{ok:false, checkedAt:$checkedAt, tenant:$tenant, exitCode:$exitCode}' > billing-smoke-status.json
             exit "$status"
@@ -265,7 +265,7 @@ jobs:
         if: always()
         run: |
           set -euo pipefail
-          if [[ -f /tmp/settld_pid ]]; then kill "$(cat /tmp/settld_pid)" || true; fi
+          if [[ -f /tmp/nooterra_pid ]]; then kill "$(cat /tmp/nooterra_pid)" || true; fi
 
   release_promotion_guard:
     needs: [require_tests_release_gates, release_gate]
@@ -366,7 +366,7 @@ jobs:
             --baseline-evidence artifacts/ops/hosted-baseline-release-gate.json \
             --promotion-ref "${{ github.sha }}"
 
-      - name: Assert production cutover required checks (collaboration + lineage + transcript + SDK JS/PY smoke)
+      - name: Assert production cutover required checks (collaboration + lineage + transcript + checkpoint grant binding + SDK JS/PY smoke)
         run: |
           set -euo pipefail
           node scripts/ci/assert-production-cutover-required-checks.mjs \
@@ -398,7 +398,7 @@ jobs:
             artifacts/gates/onboarding-host-success-gate.json
             artifacts/gates/s13-go-live-gate.json
             artifacts/gates/s13-launch-cutover-packet.json
-            artifacts/gates/settld-verified-collaboration-gate.json
+            artifacts/gates/nooterra-verified-collaboration-gate.json
             artifacts/ops/hosted-baseline-release-gate.json
           if-no-files-found: error
 
@@ -446,7 +446,7 @@ jobs:
             ${{ env.IMAGE_REPOSITORY }}:${{ steps.v.outputs.version }}
             ${{ env.IMAGE_REPOSITORY }}:sha-${{ github.sha }}
           build-args: |
-            SETTLD_VERSION=${{ steps.v.outputs.version }}
+            NOOTERRA_VERSION=${{ steps.v.outputs.version }}
             GIT_SHA=${{ github.sha }}
 
       - name: Generate SBOM (SPDX JSON)
@@ -503,9 +503,9 @@ jobs:
         id: package_chart
         run: |
           set -euo pipefail
-          helm package deploy/helm/settld --version "${{ steps.v.outputs.version }}" --app-version "${{ steps.v.outputs.version }}" --destination /tmp
-          CHART_TGZ="/tmp/settld-helm-chart-${{ steps.v.outputs.version }}.tgz"
-          mv "/tmp/settld-${{ steps.v.outputs.version }}.tgz" "$CHART_TGZ"
+          helm package deploy/helm/nooterra --version "${{ steps.v.outputs.version }}" --app-version "${{ steps.v.outputs.version }}" --destination /tmp
+          CHART_TGZ="/tmp/nooterra-helm-chart-${{ steps.v.outputs.version }}.tgz"
+          mv "/tmp/nooterra-${{ steps.v.outputs.version }}.tgz" "$CHART_TGZ"
           echo "chart_tgz=$CHART_TGZ" >> "$GITHUB_OUTPUT"
           ls -la "$CHART_TGZ"
 
@@ -527,7 +527,7 @@ jobs:
       - name: Sign chart (keyless)
         id: sign_chart
         continue-on-error: ${{ github.event_name == 'workflow_dispatch' }}
-        run: cosign sign --yes "${{ env.CHART_REGISTRY }}/settld:${{ steps.v.outputs.version }}"
+        run: cosign sign --yes "${{ env.CHART_REGISTRY }}/nooterra:${{ steps.v.outputs.version }}"
 
       - name: Enforce chart signing on tag releases
         if: ${{ steps.sign_chart.outcome == 'failure' && github.event_name != 'workflow_dispatch' }}
@@ -575,8 +575,8 @@ jobs:
           npm pkg set version="$VERSION" --silent
           npm pkg set version="$VERSION" --prefix packages/api-sdk --silent
           npm pkg set version="$VERSION" --prefix packages/provider-kit --silent
-          npm pkg set version="$VERSION" --prefix packages/create-settld-paid-tool --silent
-          printf '%s\n' "$VERSION" > SETTLD_VERSION
+          npm pkg set version="$VERSION" --prefix packages/create-nooterra-paid-tool --silent
+          printf '%s\n' "$VERSION" > NOOTERRA_VERSION
 
       - name: Pack npm artifacts (no publish)
         run: |
@@ -598,7 +598,7 @@ jobs:
           (cd packages/magic-link-cli && npm pack --silent --pack-destination "$OUT")
           (cd packages/metering-adapter-sdk && npm pack --silent --pack-destination "$OUT")
           (cd packages/provider-kit && npm pack --silent --pack-destination "$OUT")
-          (cd packages/create-settld-paid-tool && npm pack --silent --pack-destination "$OUT")
+          (cd packages/create-nooterra-paid-tool && npm pack --silent --pack-destination "$OUT")
           (cd . && npm pack --silent --pack-destination "$OUT")
 
           (cd "$OUT" && ls -la && sha256sum *.tgz | tee npm-SHA256SUMS)
@@ -659,14 +659,14 @@ jobs:
         if: ${{ steps.npm_publish_guard.outputs.skip != 'true' }}
         id: npm_scope_mode
         env:
-          NPM_SCOPE_SETTLD_PUBLISH: ${{ secrets.NPM_SCOPE_SETTLD_PUBLISH }}
+          NPM_SCOPE_NOOTERRA_PUBLISH: ${{ secrets.NPM_SCOPE_NOOTERRA_PUBLISH }}
         run: |
-          if [[ "${NPM_SCOPE_SETTLD_PUBLISH}" == "true" ]]; then
+          if [[ "${NPM_SCOPE_NOOTERRA_PUBLISH}" == "true" ]]; then
             echo "provider_kit=true" >> "$GITHUB_OUTPUT"
-            echo "Scoped npm publish enabled for @settld/provider-kit."
+            echo "Scoped npm publish enabled for @nooterra/provider-kit."
           else
             echo "provider_kit=false" >> "$GITHUB_OUTPUT"
-            echo "Scoped npm publish disabled; @settld/provider-kit will be skipped."
+            echo "Scoped npm publish disabled; @nooterra/provider-kit will be skipped."
           fi
 
       - name: Stamp npm package versions for publish
@@ -677,8 +677,8 @@ jobs:
           npm pkg set version="$VERSION" --silent
           npm pkg set version="$VERSION" --prefix packages/api-sdk --silent
           npm pkg set version="$VERSION" --prefix packages/provider-kit --silent
-          npm pkg set version="$VERSION" --prefix packages/create-settld-paid-tool --silent
-          printf '%s\n' "$VERSION" > SETTLD_VERSION
+          npm pkg set version="$VERSION" --prefix packages/create-nooterra-paid-tool --silent
+          printf '%s\n' "$VERSION" > NOOTERRA_VERSION
 
       - name: Publish npm packages (CLI + JS SDK)
         if: ${{ steps.npm_publish_guard.outputs.skip != 'true' }}
@@ -703,9 +703,9 @@ jobs:
           if [[ "${{ steps.npm_scope_mode.outputs.provider_kit }}" == "true" ]]; then
             publish_if_missing "packages/provider-kit"
           else
-            echo "Skipping scoped publish for @settld/provider-kit (NPM_SCOPE_SETTLD_PUBLISH != true)."
+            echo "Skipping scoped publish for @nooterra/provider-kit (NPM_SCOPE_NOOTERRA_PUBLISH != true)."
           fi
-          publish_if_missing "packages/create-settld-paid-tool"
+          publish_if_missing "packages/create-nooterra-paid-tool"
 
       - name: Smoke npm registry install (npx, no-clone)
         if: ${{ steps.npm_publish_guard.outputs.skip != 'true' }}
@@ -730,67 +730,67 @@ jobs:
             done
           }
 
-          wait_for_cmd "npm view settld@${VERSION} version > /tmp/settld-npm-view-version.txt"
-          test "$(tr -d '\r\n' < /tmp/settld-npm-view-version.txt)" = "${VERSION}"
+          wait_for_cmd "npm view nooterra@${VERSION} version > /tmp/nooterra-npm-view-version.txt"
+          test "$(tr -d '\r\n' < /tmp/nooterra-npm-view-version.txt)" = "${VERSION}"
 
           if [[ "${PROVIDER_KIT_EXPECTED}" == "true" ]]; then
-            wait_for_cmd "npm view @settld/provider-kit@${VERSION} version > /tmp/provider-kit-npm-view-version.txt"
+            wait_for_cmd "npm view @nooterra/provider-kit@${VERSION} version > /tmp/provider-kit-npm-view-version.txt"
             test "$(tr -d '\r\n' < /tmp/provider-kit-npm-view-version.txt)" = "${VERSION}"
           else
             echo "Skipping provider-kit npm view smoke (scoped publish disabled)."
           fi
 
-          wait_for_cmd "npm view create-settld-paid-tool@${VERSION} version > /tmp/create-settld-paid-tool-npm-view-version.txt"
-          test "$(tr -d '\r\n' < /tmp/create-settld-paid-tool-npm-view-version.txt)" = "${VERSION}"
+          wait_for_cmd "npm view create-nooterra-paid-tool@${VERSION} version > /tmp/create-nooterra-paid-tool-npm-view-version.txt"
+          test "$(tr -d '\r\n' < /tmp/create-nooterra-paid-tool-npm-view-version.txt)" = "${VERSION}"
 
-          wait_for_cmd "npm exec --yes --package settld@${VERSION} -- settld --version > /tmp/settld-npx-version.txt"
-          test "$(tr -d '\r\n' < /tmp/settld-npx-version.txt)" = "${VERSION}"
+          wait_for_cmd "npm exec --yes --package nooterra@${VERSION} -- nooterra --version > /tmp/nooterra-npx-version.txt"
+          test "$(tr -d '\r\n' < /tmp/nooterra-npx-version.txt)" = "${VERSION}"
 
-          wait_for_cmd "npm exec --yes --package settld@${VERSION} -- settld conformance kernel:list > /tmp/settld-kernel-cases.txt"
-          test -s /tmp/settld-kernel-cases.txt
+          wait_for_cmd "npm exec --yes --package nooterra@${VERSION} -- nooterra conformance kernel:list > /tmp/nooterra-kernel-cases.txt"
+          test -s /tmp/nooterra-kernel-cases.txt
 
-          (cd "$SMOKE_DIR" && npm exec --yes --package settld@${VERSION} -- settld --help >/tmp/settld-help.txt 2>&1)
-          grep -q "settld closepack verify" /tmp/settld-help.txt
+          (cd "$SMOKE_DIR" && npm exec --yes --package nooterra@${VERSION} -- nooterra --help >/tmp/nooterra-help.txt 2>&1)
+          grep -q "nooterra closepack verify" /tmp/nooterra-help.txt
 
-          STARTER_DIR="/tmp/settld-registry-starter"
+          STARTER_DIR="/tmp/nooterra-registry-starter"
           rm -rf "$STARTER_DIR"
-          (cd "$SMOKE_DIR" && npm exec --yes --package settld@${VERSION} -- settld init capability smoke-cap --out "$STARTER_DIR")
+          (cd "$SMOKE_DIR" && npm exec --yes --package nooterra@${VERSION} -- nooterra init capability smoke-cap --out "$STARTER_DIR")
           test -f "$STARTER_DIR/manifest.json"
           test -f "$STARTER_DIR/manifest.sig.json"
           test -f "$STARTER_DIR/scripts/kernel-prove.mjs"
-          grep -q 'settld-api-sdk' "$STARTER_DIR/package.json"
+          grep -q 'nooterra-api-sdk' "$STARTER_DIR/package.json"
 
-          wait_for_cmd "npm exec --yes --package create-settld-paid-tool@${VERSION} -- create-settld-paid-tool --help > /tmp/create-settld-paid-tool-help.txt"
-          grep -q 'create-settld-paid-tool \[directory\]' /tmp/create-settld-paid-tool-help.txt
+          wait_for_cmd "npm exec --yes --package create-nooterra-paid-tool@${VERSION} -- create-nooterra-paid-tool --help > /tmp/create-nooterra-paid-tool-help.txt"
+          grep -q 'create-nooterra-paid-tool \[directory\]' /tmp/create-nooterra-paid-tool-help.txt
 
-          PAID_TOOL_DIR="/tmp/settld-registry-paid-tool"
+          PAID_TOOL_DIR="/tmp/nooterra-registry-paid-tool"
           rm -rf "$PAID_TOOL_DIR"
-          wait_for_cmd "cd \"$SMOKE_DIR\" && npm exec --yes --package create-settld-paid-tool@${VERSION} -- create-settld-paid-tool \"$PAID_TOOL_DIR\""
+          wait_for_cmd "cd \"$SMOKE_DIR\" && npm exec --yes --package create-nooterra-paid-tool@${VERSION} -- create-nooterra-paid-tool \"$PAID_TOOL_DIR\""
           test -f "$PAID_TOOL_DIR/package.json"
           test -f "$PAID_TOOL_DIR/server.mjs"
-          grep -q '@settld/provider-kit' "$PAID_TOOL_DIR/package.json"
+          grep -q '@nooterra/provider-kit' "$PAID_TOOL_DIR/package.json"
 
           node -e '
             const fs = require("node:fs");
             const providerKitExpected = process.env.PROVIDER_KIT_EXPECTED === "true";
             const commands = [
-              { cmd: "npm view settld@<version> version", ok: true }
+              { cmd: "npm view nooterra@<version> version", ok: true }
             ];
             if (providerKitExpected) {
-              commands.push({ cmd: "npm view @settld/provider-kit@<version> version", ok: true });
+              commands.push({ cmd: "npm view @nooterra/provider-kit@<version> version", ok: true });
             }
             commands.push(
-              { cmd: "npm view create-settld-paid-tool@<version> version", ok: true },
-              { cmd: "npm exec --yes --package settld@<version> -- settld --version", ok: true },
-              { cmd: "npm exec --yes --package settld@<version> -- settld conformance kernel:list", ok: true },
-              { cmd: "npm exec --yes --package settld@<version> -- settld --help (contains closepack verify)", ok: true },
-              { cmd: "npm exec --yes --package settld@<version> -- settld init capability smoke-cap --out /tmp/settld-registry-starter", ok: true },
-              { cmd: "npm exec --yes --package create-settld-paid-tool@<version> -- create-settld-paid-tool --help", ok: true },
-              { cmd: "npm exec --yes --package create-settld-paid-tool@<version> -- create-settld-paid-tool /tmp/settld-registry-paid-tool", ok: true }
+              { cmd: "npm view create-nooterra-paid-tool@<version> version", ok: true },
+              { cmd: "npm exec --yes --package nooterra@<version> -- nooterra --version", ok: true },
+              { cmd: "npm exec --yes --package nooterra@<version> -- nooterra conformance kernel:list", ok: true },
+              { cmd: "npm exec --yes --package nooterra@<version> -- nooterra --help (contains closepack verify)", ok: true },
+              { cmd: "npm exec --yes --package nooterra@<version> -- nooterra init capability smoke-cap --out /tmp/nooterra-registry-starter", ok: true },
+              { cmd: "npm exec --yes --package create-nooterra-paid-tool@<version> -- create-nooterra-paid-tool --help", ok: true },
+              { cmd: "npm exec --yes --package create-nooterra-paid-tool@<version> -- create-nooterra-paid-tool /tmp/nooterra-registry-paid-tool", ok: true }
             );
             const payload = {
               schemaVersion: "NpmPostpublishSmoke.v1",
-              package: "settld",
+              package: "nooterra",
               version: process.env.VERSION || null,
               checkedAt: new Date().toISOString(),
               commands
@@ -807,13 +807,13 @@ jobs:
         with:
           name: npm-postpublish-smoke-${{ steps.v.outputs.version }}
           path: |
-            /tmp/settld-npm-view-version.txt
+            /tmp/nooterra-npm-view-version.txt
             /tmp/provider-kit-npm-view-version.txt
-            /tmp/create-settld-paid-tool-npm-view-version.txt
-            /tmp/settld-npx-version.txt
-            /tmp/settld-kernel-cases.txt
-            /tmp/settld-help.txt
-            /tmp/create-settld-paid-tool-help.txt
+            /tmp/create-nooterra-paid-tool-npm-view-version.txt
+            /tmp/nooterra-npx-version.txt
+            /tmp/nooterra-kernel-cases.txt
+            /tmp/nooterra-help.txt
+            /tmp/create-nooterra-paid-tool-help.txt
             /tmp/npm-postpublish-smoke.json
           if-no-files-found: warn
 
@@ -861,11 +861,11 @@ jobs:
           export PYTHONDONTWRITEBYTECODE=1
           python3 -m build packages/api-sdk-python --sdist --wheel --outdir "$OUT"
 
-          ls "$OUT"/settld_api_sdk_python-*.whl >/dev/null
-          ls "$OUT"/settld_api_sdk_python-*.tar.gz >/dev/null
-          ls "$OUT"/settld_api_sdk_python-${{ steps.v.outputs.version }}.tar.gz >/dev/null
-          ls "$OUT"/settld_api_sdk_python-${{ steps.v.outputs.version }}-*.whl >/dev/null
-          (cd "$OUT" && sha256sum settld_api_sdk_python-*.whl settld_api_sdk_python-*.tar.gz | tee python-SHA256SUMS)
+          ls "$OUT"/nooterra_api_sdk_python-*.whl >/dev/null
+          ls "$OUT"/nooterra_api_sdk_python-*.tar.gz >/dev/null
+          ls "$OUT"/nooterra_api_sdk_python-${{ steps.v.outputs.version }}.tar.gz >/dev/null
+          ls "$OUT"/nooterra_api_sdk_python-${{ steps.v.outputs.version }}-*.whl >/dev/null
+          (cd "$OUT" && sha256sum nooterra_api_sdk_python-*.whl nooterra_api_sdk_python-*.tar.gz | tee python-SHA256SUMS)
 
       - name: Upload Python artifacts
         uses: actions/upload-artifact@v4
@@ -879,7 +879,7 @@ jobs:
     needs: [python_package]
     environment:
       name: pypi
-      url: https://pypi.org/project/settld-api-sdk-python/
+      url: https://pypi.org/project/nooterra-api-sdk-python/
     permissions:
       id-token: write
     steps:
@@ -907,8 +907,8 @@ jobs:
           set -euo pipefail
           VERSION="${{ steps.v.outputs.version }}"
           ls -la .artifacts/python
-          ls .artifacts/python/settld_api_sdk_python-${VERSION}.tar.gz >/dev/null
-          ls .artifacts/python/settld_api_sdk_python-${VERSION}-*.whl >/dev/null
+          ls .artifacts/python/nooterra_api_sdk_python-${VERSION}.tar.gz >/dev/null
+          ls .artifacts/python/nooterra_api_sdk_python-${VERSION}-*.whl >/dev/null
           test -f .artifacts/python/python-SHA256SUMS
 
       - name: Prepare publish-only dist directory
@@ -931,18 +931,18 @@ jobs:
           VERSION="${{ steps.v.outputs.version }}"
           python3 -m pip install --disable-pip-version-check --no-input --upgrade pip
           for i in $(seq 1 18); do
-            if python3 -m pip install --disable-pip-version-check --no-input --no-deps "settld-api-sdk-python==${VERSION}"; then
+            if python3 -m pip install --disable-pip-version-check --no-input --no-deps "nooterra-api-sdk-python==${VERSION}"; then
               break
             fi
             if [ "$i" -eq 18 ]; then
-              echo "PyPI smoke install failed for settld-api-sdk-python==${VERSION}" >&2
+              echo "PyPI smoke install failed for nooterra-api-sdk-python==${VERSION}" >&2
               exit 1
             fi
             sleep 10
           done
           python3 - <<'PY'
-          from settld_api_sdk.client import SettldClient
-          print(SettldClient.__name__)
+          from nooterra_api_sdk.client import NooterraClient
+          print(NooterraClient.__name__)
           PY
 
   conformance_pack:
@@ -1020,7 +1020,7 @@ jobs:
           mkdir -p "$OUT"
 
           node scripts/audit/build-audit-packet.mjs --out "$OUT" --packet-version v1
-          (cd "$OUT" && sha256sum settld-audit-packet-v1.zip | tee settld-audit-packet-v1.zip.sha256)
+          (cd "$OUT" && sha256sum nooterra-audit-packet-v1.zip | tee nooterra-audit-packet-v1.zip.sha256)
 
       - name: Upload audit packet
         uses: actions/upload-artifact@v4
@@ -1108,23 +1108,23 @@ jobs:
           ls -la /tmp/release-assets
           test -f /tmp/release-assets/conformance-v1.tar.gz
           test -f /tmp/release-assets/conformance-v1-SHA256SUMS
-          test -f /tmp/release-assets/settld-audit-packet-v1.zip
-          test -f /tmp/release-assets/settld-audit-packet-v1.zip.sha256
+          test -f /tmp/release-assets/nooterra-audit-packet-v1.zip
+          test -f /tmp/release-assets/nooterra-audit-packet-v1.zip.sha256
           test -f /tmp/release-assets/release-promotion-guard.json
           test -f /tmp/release-assets/production-cutover-required-checks.json
           test -f /tmp/release-assets/release-cutover-audit-view.json
           # npm tgz artifacts + checksums
-          ls /tmp/release-assets/settld-api-sdk-*.tgz >/dev/null
-          ls /tmp/release-assets/settld-artifact-produce-*.tgz >/dev/null
-          ls /tmp/release-assets/settld-executor-sdk-*.tgz >/dev/null
-          ls /tmp/release-assets/settld-artifact-verify-*.tgz >/dev/null
-          ls /tmp/release-assets/settld-magic-link-cli-*.tgz >/dev/null
-          ls /tmp/release-assets/settld-metering-adapter-sdk-*.tgz >/dev/null
-          ls /tmp/release-assets/settld-*.tgz >/dev/null
+          ls /tmp/release-assets/nooterra-api-sdk-*.tgz >/dev/null
+          ls /tmp/release-assets/nooterra-artifact-produce-*.tgz >/dev/null
+          ls /tmp/release-assets/nooterra-executor-sdk-*.tgz >/dev/null
+          ls /tmp/release-assets/nooterra-artifact-verify-*.tgz >/dev/null
+          ls /tmp/release-assets/nooterra-magic-link-cli-*.tgz >/dev/null
+          ls /tmp/release-assets/nooterra-metering-adapter-sdk-*.tgz >/dev/null
+          ls /tmp/release-assets/nooterra-*.tgz >/dev/null
           test -f /tmp/release-assets/npm-SHA256SUMS
           # python distribution artifacts + checksums
-          ls /tmp/release-assets/settld_api_sdk_python-*.whl >/dev/null
-          ls /tmp/release-assets/settld_api_sdk_python-*.tar.gz >/dev/null
+          ls /tmp/release-assets/nooterra_api_sdk_python-*.whl >/dev/null
+          ls /tmp/release-assets/nooterra_api_sdk_python-*.tar.gz >/dev/null
           test -f /tmp/release-assets/python-SHA256SUMS
 
       - name: Build release notes (gate summary)
@@ -1141,17 +1141,17 @@ jobs:
       - name: Gate ReleaseIndex signing key
         id: release_signing_guard
         env:
-          SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM }}
+          NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM }}
         run: |
           set -euo pipefail
-          if [[ -n "${SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM}" ]]; then
+          if [[ -n "${NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM}" ]]; then
             echo "has_key=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "has_key=false" >> "$GITHUB_OUTPUT"
           if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
-            echo "SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM is required for tag releases." >&2
+            echo "NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM is required for tag releases." >&2
             exit 1
           fi
           echo "workflow_dispatch without release signing key; skipping ReleaseIndex signature steps."
@@ -1165,10 +1165,10 @@ jobs:
       - name: Sign ReleaseIndex.v1
         if: ${{ steps.release_signing_guard.outputs.has_key == 'true' }}
         env:
-          SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM }}
+          NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM: ${{ secrets.NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM }}
         run: |
           set -euo pipefail
-          node scripts/release/sign-release-index.mjs --index /tmp/release-assets/release_index_v1.json --out /tmp/release-assets/release_index_v1.sig --private-key-env SETTLD_RELEASE_SIGNING_PRIVATE_KEY_PEM
+          node scripts/release/sign-release-index.mjs --index /tmp/release-assets/release_index_v1.json --out /tmp/release-assets/release_index_v1.sig --private-key-env NOOTERRA_RELEASE_SIGNING_PRIVATE_KEY_PEM
 
       - name: Validate release assets (checksums + contents + ReleaseIndex signature)
         if: ${{ steps.release_signing_guard.outputs.has_key == 'true' }}

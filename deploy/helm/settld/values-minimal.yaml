@@ -1,5 +1,0 @@
-# Smallest required config for pg mode.
-store:
-  databaseUrlSecret:
-    name: settld-db
-

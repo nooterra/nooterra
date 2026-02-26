@@ -58,7 +58,7 @@ function normalizeVerification(verification) {
         schemaVersion: INTERACTION_GRAPH_VERIFICATION_SCHEMA_VERSION,
         deterministicOrdering: true,
         antiGamingSignalsPresent: true,
-        generatedBy: "settld.api"
+        generatedBy: "nooterra.api"
       },
       { path: "$.verification" }
     );
@@ -72,7 +72,7 @@ function normalizeVerification(verification) {
       generatedBy:
         typeof verification.generatedBy === "string" && verification.generatedBy.trim() !== ""
           ? verification.generatedBy.trim()
-          : "settld.api"
+          : "nooterra.api"
     },
     { path: "$.verification" }
   );

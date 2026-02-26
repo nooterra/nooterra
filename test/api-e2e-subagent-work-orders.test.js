@@ -61,7 +61,7 @@ async function setX402AgentLifecycle(
     path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       status,
@@ -448,6 +448,98 @@ test("API e2e: work-order routes fail closed when principal or sub-agent lifecyc
   assert.equal(settleBlockedPrincipal.json?.code, "X402_AGENT_THROTTLED");
   assert.equal(settleBlockedPrincipal.json?.details?.role, "principal");
   assert.equal(settleBlockedPrincipal.json?.details?.operation, "work_order.settle");
+});
+
+test("API e2e: work-order metering snapshot returns Meter.v1 events with deterministic coverage", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const principalAgentId = "agt_workord_meter_principal_1";
+  const subAgentId = "agt_workord_meter_worker_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+  await registerAgent(api, { agentId: subAgentId, capabilities: ["code.generation"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_meter_create_1" },
+    body: {
+      workOrderId: "workord_meter_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      pricing: {
+        amountCents: 300,
+        currency: "USD"
+      },
+      constraints: {
+        maxCostCents: 500
+      },
+      metering: {
+        mode: "metered",
+        requireFinalMeterEvidence: true,
+        enforceFinalReconcile: true,
+        maxTopUpCents: 300,
+        unit: "usd_cents"
+      }
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const toppedUp = await request(api, {
+    method: "POST",
+    path: "/work-orders/workord_meter_1/topup",
+    headers: {
+      "x-idempotency-key": "work_order_meter_topup_1",
+      "x-nooterra-protocol": "1.0"
+    },
+    body: {
+      topUpId: "topup_meter_1",
+      amountCents: 120,
+      quantity: 1,
+      currency: "USD",
+      eventKey: "work_order_topup:workord_meter_1:topup_meter_1",
+      occurredAt: "2026-02-26T00:00:00.000Z"
+    }
+  });
+  assert.equal(toppedUp.statusCode, 201, toppedUp.body);
+
+  const metering = await request(api, {
+    method: "GET",
+    path: "/work-orders/workord_meter_1/metering?includeMeters=true&limit=10&offset=0"
+  });
+  assert.equal(metering.statusCode, 200, metering.body);
+  assert.equal(metering.json?.ok, true);
+  assert.equal(metering.json?.workOrderId, "workord_meter_1");
+  assert.equal(metering.json?.metering?.schemaVersion, "WorkOrderMeteringSnapshot.v1");
+  assert.equal(metering.json?.metering?.meterSchemaVersion, "Meter.v1");
+  assert.equal(Array.isArray(metering.json?.metering?.meters), true);
+  assert.equal(metering.json?.metering?.meters?.length, 1);
+  assert.equal(metering.json?.metering?.meters?.[0]?.schemaVersion, "Meter.v1");
+  assert.equal(metering.json?.metering?.meters?.[0]?.meterType, "topup");
+  assert.equal(metering.json?.metering?.meters?.[0]?.workOrderId, "workord_meter_1");
+  assert.match(String(metering.json?.metering?.meters?.[0]?.meterHash ?? ""), /^[0-9a-f]{64}$/);
+  assert.equal(metering.json?.metering?.summary?.baseAmountCents, 300);
+  assert.equal(metering.json?.metering?.summary?.topUpTotalCents, 120);
+  assert.equal(metering.json?.metering?.summary?.coveredAmountCents, 420);
+  assert.equal(metering.json?.metering?.summary?.remainingCents, 80);
+  assert.equal(metering.json?.totalMeters, 1);
+  assert.equal(metering.json?.count, 1);
+
+  const meteringNoEvents = await request(api, {
+    method: "GET",
+    path: "/work-orders/workord_meter_1/metering?includeMeters=false"
+  });
+  assert.equal(meteringNoEvents.statusCode, 200, meteringNoEvents.body);
+  assert.equal(meteringNoEvents.json?.metering?.meterCount, 0);
+  assert.equal(meteringNoEvents.json?.count, 0);
+  assert.equal(meteringNoEvents.json?.totalMeters, 1);
+
+  const invalidQuery = await request(api, {
+    method: "GET",
+    path: "/work-orders/workord_meter_1/metering?includeMeters=maybe"
+  });
+  assert.equal(invalidQuery.statusCode, 400, invalidQuery.body);
+  assert.equal(invalidQuery.json?.code, "SCHEMA_INVALID");
 });
 
 test("API e2e: work-order attestation requirement is enforced on create and accept", async () => {

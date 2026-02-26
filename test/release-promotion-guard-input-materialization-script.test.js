@@ -35,7 +35,7 @@ async function seedUpstreamArtifacts(root) {
   await writeJson(path.join(testsRoot, "b", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
     checks: [
-      { id: "settld_verified_collaboration", status: "passed", reportPath: "artifacts/gates/settld-verified-collaboration-gate.json" },
+      { id: "nooterra_verified_collaboration", status: "passed", reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json" },
       { id: "openclaw_substrate_demo_lineage_verified", status: "passed" },
       { id: "openclaw_substrate_demo_transcript_verified", status: "passed" }
     ],
@@ -57,12 +57,12 @@ async function seedUpstreamArtifacts(root) {
   await writeJson(path.join(goLiveRoot, "a", "s13-launch-cutover-packet.json"), {
     schemaVersion: "LaunchCutoverPacket.v1",
     sources: {
-      settldVerifiedCollaborationGateReportPath: "artifacts/gates/settld-verified-collaboration-gate.json"
+      nooterraVerifiedCollaborationGateReportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json"
     },
     verdict: { ok: true }
   });
-  await writeJson(path.join(goLiveRoot, "a", "settld-verified-collaboration-gate.json"), {
-    schemaVersion: "SettldVerifiedGateReport.v1",
+  await writeJson(path.join(goLiveRoot, "a", "nooterra-verified-collaboration-gate.json"), {
+    schemaVersion: "NooterraVerifiedGateReport.v1",
     level: "collaboration",
     ok: true,
     summary: { totalChecks: 1, passedChecks: 1, failedChecks: 0 }
@@ -79,7 +79,7 @@ async function seedUpstreamArtifacts(root) {
 }
 
 test("release promotion input materialization: copies required artifacts and emits pass report", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-materialize-pass-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-materialize-pass-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
@@ -116,13 +116,13 @@ test("release promotion input materialization: copies required artifacts and emi
 });
 
 test("release promotion input materialization: fails closed when required artifact is missing", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-materialize-missing-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-materialize-missing-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
   const roots = await seedUpstreamArtifacts(path.join(tmpDir, "upstream"));
-  await fs.rm(path.join(roots.goLiveRoot, "a", "settld-verified-collaboration-gate.json"), { force: true });
+  await fs.rm(path.join(roots.goLiveRoot, "a", "nooterra-verified-collaboration-gate.json"), { force: true });
 
   const reportPath = path.join(tmpDir, "artifacts", "gates", "release-promotion-guard-input-materialization.json");
   const result = runMaterialize([
@@ -139,14 +139,14 @@ test("release promotion input materialization: fails closed when required artifa
   assert.equal(result.status, 1, `expected fail-closed\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
   const report = JSON.parse(await fs.readFile(reportPath, "utf8"));
   assert.equal(report.verdict.ok, false);
-  const missing = report.files.find((row) => row.id === "settld_verified_collaboration_gate");
+  const missing = report.files.find((row) => row.id === "nooterra_verified_collaboration_gate");
   assert.ok(missing);
   assert.equal(missing.status, "failed");
   assert.equal(missing.failureCodes.includes("artifact_missing"), true);
 });
 
 test("release promotion input materialization: fails closed when required artifact is ambiguous", async (t) => {
-  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-materialize-ambiguous-"));
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-materialize-ambiguous-"));
   t.after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "VerifyCliOutput.v1",
-  "tool": { "name": "settld-verify", "version": "0.0.0", "commit": "0123456789abcdef0123456789abcdef01234567" },
+  "tool": { "name": "nooterra-verify", "version": "0.0.0", "commit": "0123456789abcdef0123456789abcdef01234567" },
   "mode": { "strict": false, "failOnWarnings": false },
   "target": { "kind": "job-proof", "input": "/path/to/bundle", "resolved": "/path/to/bundle", "dir": "/path/to/bundle" },
   "ok": true,

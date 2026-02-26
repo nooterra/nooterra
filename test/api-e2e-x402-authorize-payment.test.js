@@ -7,7 +7,7 @@ import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
 import { createCircleReserveAdapter } from "../src/core/circle-reserve-adapter.js";
 import { hmacSignArtifact } from "../src/core/artifacts.js";
-import { computeSettldPayTokenSha256, parseSettldPayTokenV1, verifySettldPayTokenV1 } from "../src/core/settld-pay-token.js";
+import { computeNooterraPayTokenSha256, parseNooterraPayTokenV1, verifyNooterraPayTokenV1 } from "../src/core/nooterra-pay-token.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId }) {
@@ -44,7 +44,7 @@ async function upsertX402WalletPolicy(api, { policy, idempotencyKey }) {
     path: "/ops/x402/wallet-policies",
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { policy }
   });
@@ -57,7 +57,7 @@ async function putX402ZkVerificationKey(api, { verificationKey, idempotencyKey }
     path: "/x402/zk/verification-keys",
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { verificationKey }
   });
@@ -100,7 +100,7 @@ async function windDownX402Agent(api, { agentId, reasonCode = "X402_AGENT_WIND_D
     path: `/x402/gate/agents/${encodeURIComponent(agentId)}/wind-down`,
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { reasonCode }
   });
@@ -116,7 +116,7 @@ async function setX402AgentLifecycle(
     path: `/x402/gate/agents/${encodeURIComponent(agentId)}/lifecycle`,
     headers: {
       "x-idempotency-key": idempotencyKey,
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       status,
@@ -304,7 +304,7 @@ test("API e2e: wallet assignment resolver auto-populates missing passport metada
     path: `/agents/${encodeURIComponent(agentId)}/passport`,
     headers: {
       "x-idempotency-key": "x402_wallet_assignment_issue_passport_1",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: {
       agentPassport: buildProtocolAgentPassport({
@@ -325,7 +325,7 @@ test("API e2e: wallet assignment resolver auto-populates missing passport metada
   const resolveAssignment = await request(api, {
     method: "POST",
     path: "/x402/wallet-assignment/resolve",
-    headers: { "x-settld-protocol": "1.0" },
+    headers: { "x-nooterra-protocol": "1.0" },
     body: {
       profileRef: sponsorRef,
       riskClass: "financial",
@@ -652,7 +652,7 @@ test("API e2e: high-risk x402 routes fail closed when protocol context header is
     path: "/x402/gate/authorize-payment",
     headers: {
       "x-idempotency-key": "x402_proto_ctx_present_authz_1",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { gateId: "gate_proto_ctx_missing_1" }
   });
@@ -673,7 +673,7 @@ test("API e2e: high-risk x402 routes fail closed when protocol context header is
     path: "/x402/gate/escalations/esc_proto_ctx_missing_1/resolve",
     headers: {
       "x-idempotency-key": "x402_proto_ctx_present_escalation_1",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { action: "approve" }
   });
@@ -694,7 +694,7 @@ test("API e2e: high-risk x402 routes fail closed when protocol context header is
     path: "/x402/gate/agents/agt_proto_ctx_missing_1/wind-down",
     headers: {
       "x-idempotency-key": "x402_proto_ctx_present_winddown_1",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { reasonCode: "X402_AGENT_WIND_DOWN_MANUAL" }
   });
@@ -738,7 +738,7 @@ test("API e2e: high-risk x402 financial routes require finance_write scope", asy
     headers: {
       "x-proxy-ops-token": "tok_ops_only",
       "x-idempotency-key": "x402_scope_guard_escalation_ops_only_1",
-      "x-settld-protocol": "1.0"
+      "x-nooterra-protocol": "1.0"
     },
     body: { action: "approve" }
   });
@@ -794,11 +794,11 @@ test("API e2e: x402 authorize-payment is idempotent and token verifies via keyse
 
   const keysetRes = await request(api, {
     method: "GET",
-    path: "/.well-known/settld-keys.json",
+    path: "/.well-known/nooterra-keys.json",
     auth: "none"
   });
   assert.equal(keysetRes.statusCode, 200, keysetRes.body);
-  const verified = verifySettldPayTokenV1({
+  const verified = verifyNooterraPayTokenV1({
     token: auth1.json?.token,
     keyset: keysetRes.json,
     expectedAudience: payeeAgentId,
@@ -1729,7 +1729,7 @@ test("API e2e: strict request binding mints request-bound token and reuses reser
     body: { gateId, requestBindingMode: "strict", requestBindingSha256: requestBindingShaA }
   });
   assert.equal(authA.statusCode, 200, authA.body);
-  const payloadA = parseSettldPayTokenV1(authA.json?.token).payload;
+  const payloadA = parseNooterraPayTokenV1(authA.json?.token).payload;
   assert.equal(payloadA.requestBindingMode, "strict");
   assert.equal(payloadA.requestBindingSha256, requestBindingShaA);
 
@@ -1753,7 +1753,7 @@ test("API e2e: strict request binding mints request-bound token and reuses reser
   assert.equal(authB.statusCode, 200, authB.body);
   assert.notEqual(authB.json?.token, authA.json?.token);
   assert.equal(authB.json?.reserve?.reserveId, authA.json?.reserve?.reserveId);
-  const payloadB = parseSettldPayTokenV1(authB.json?.token).payload;
+  const payloadB = parseNooterraPayTokenV1(authB.json?.token).payload;
   assert.equal(payloadB.requestBindingMode, "strict");
   assert.equal(payloadB.requestBindingSha256, requestBindingShaB);
 });
@@ -1858,7 +1858,7 @@ test("API e2e: quote-bound authorization carries spend claims into settlement bi
     }
   });
   assert.equal(authorizedWithDecision.statusCode, 200, authorizedWithDecision.body);
-  const payload = parseSettldPayTokenV1(authorizedWithDecision.json?.token).payload;
+  const payload = parseNooterraPayTokenV1(authorizedWithDecision.json?.token).payload;
   assert.equal(payload.requestBindingMode, "strict");
   assert.equal(payload.requestBindingSha256, requestBindingSha256);
   assert.equal(payload.quoteId, quoteId);
@@ -2224,7 +2224,7 @@ test("API e2e: ops x402 wallet policy CRUD and authorize-payment policy enforcem
     }
   });
   assert.equal(authAWithDecision.statusCode, 200, authAWithDecision.body);
-  const tokenPayloadA = parseSettldPayTokenV1(authAWithDecision.json?.token).payload;
+  const tokenPayloadA = parseNooterraPayTokenV1(authAWithDecision.json?.token).payload;
   assert.equal(tokenPayloadA.policyVersion, walletPolicy.policyVersion);
   assert.equal(tokenPayloadA.policyFingerprint, createdPolicy.json?.policy?.policyFingerprint);
 
@@ -2381,7 +2381,7 @@ test("API e2e: verify rejects spend authorization policy fingerprint mismatch", 
 
   const storedGate = await api.store.getX402Gate({ tenantId: "tenant_default", gateId });
   assert.ok(storedGate?.authorization?.token?.value);
-  const parsedToken = parseSettldPayTokenV1(storedGate.authorization.token.value);
+  const parsedToken = parseNooterraPayTokenV1(storedGate.authorization.token.value);
   const tamperedEnvelope = {
     ...parsedToken.envelope,
     payload: {
@@ -2397,7 +2397,7 @@ test("API e2e: verify rejects spend authorization policy fingerprint mismatch", 
       token: {
         ...storedGate.authorization.token,
         value: tamperedToken,
-        sha256: computeSettldPayTokenSha256(tamperedToken)
+        sha256: computeNooterraPayTokenSha256(tamperedToken)
       }
     }
   };
@@ -2432,7 +2432,7 @@ test("API e2e: authorize-payment emits escalation and resumes with approved over
     method: "POST",
     path: "/x402/webhooks/endpoints",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_webhook_create_1"
     },
     body: {
@@ -2617,12 +2617,12 @@ test("API e2e: authorize-payment emits escalation and resumes with approved over
   const firstHeaders = firstWebhook?.init?.headers ?? {};
   const firstProxyTs = firstHeaders["x-proxy-timestamp"] ?? firstHeaders["X-Proxy-Timestamp"];
   const firstProxySig = firstHeaders["x-proxy-signature"] ?? firstHeaders["X-Proxy-Signature"];
-  const firstSettldTs = firstHeaders["x-settld-timestamp"] ?? firstHeaders["X-Settld-Timestamp"];
-  const firstSettldSig = firstHeaders["x-settld-signature"] ?? firstHeaders["X-Settld-Signature"];
+  const firstNooterraTs = firstHeaders["x-nooterra-timestamp"] ?? firstHeaders["X-Nooterra-Timestamp"];
+  const firstNooterraSig = firstHeaders["x-nooterra-signature"] ?? firstHeaders["X-Nooterra-Signature"];
   assert.ok(firstProxyTs);
   assert.ok(firstProxySig);
-  assert.equal(firstSettldTs, firstProxyTs);
-  assert.equal(firstSettldSig, firstProxySig);
+  assert.equal(firstNooterraTs, firstProxyTs);
+  assert.equal(firstNooterraSig, firstProxySig);
   const firstBody = JSON.parse(String(firstWebhook?.init?.body ?? "{}"));
   assert.equal(firstBody?.artifactType, "X402EscalationLifecycle.v1");
   assert.equal(firstBody?.eventType, "created");
@@ -2678,7 +2678,7 @@ test("API e2e: x402 webhook endpoint auto-disables after repeated failures", asy
     method: "POST",
     path: "/x402/webhooks/endpoints",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_webhook_create_fail_1"
     },
     body: {
@@ -2828,7 +2828,7 @@ test("API e2e: x402 webhook endpoint secret rotation supports dual-signature gra
     method: "POST",
     path: "/x402/webhooks/endpoints",
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_webhook_rotate_create_1"
     },
     body: {
@@ -2847,7 +2847,7 @@ test("API e2e: x402 webhook endpoint secret rotation supports dual-signature gra
     method: "POST",
     path: `/x402/webhooks/endpoints/${encodeURIComponent(endpointId)}/rotate-secret`,
     headers: {
-      "x-settld-protocol": "1.0",
+      "x-nooterra-protocol": "1.0",
       "x-idempotency-key": "x402_webhook_rotate_secret_1"
     },
     body: {
@@ -2997,16 +2997,16 @@ test("API e2e: x402 webhook endpoint secret rotation supports dual-signature gra
 });
 
 test("API e2e: production-like defaults fail closed when external reserve is unavailable", async (t) => {
-  const prevSettldEnv = process.env.SETTLD_ENV;
+  const prevNooterraEnv = process.env.NOOTERRA_ENV;
   const prevRequireReserve = process.env.X402_REQUIRE_EXTERNAL_RESERVE;
   const prevReserveMode = process.env.X402_CIRCLE_RESERVE_MODE;
 
-  process.env.SETTLD_ENV = "production";
+  process.env.NOOTERRA_ENV = "production";
   delete process.env.X402_REQUIRE_EXTERNAL_RESERVE;
   delete process.env.X402_CIRCLE_RESERVE_MODE;
   t.after(() => {
-    if (prevSettldEnv === undefined) delete process.env.SETTLD_ENV;
-    else process.env.SETTLD_ENV = prevSettldEnv;
+    if (prevNooterraEnv === undefined) delete process.env.NOOTERRA_ENV;
+    else process.env.NOOTERRA_ENV = prevNooterraEnv;
     if (prevRequireReserve === undefined) delete process.env.X402_REQUIRE_EXTERNAL_RESERVE;
     else process.env.X402_REQUIRE_EXTERNAL_RESERVE = prevRequireReserve;
     if (prevReserveMode === undefined) delete process.env.X402_CIRCLE_RESERVE_MODE;
@@ -3414,7 +3414,7 @@ test("API e2e: AgentPassport.v1 lineage resolver enforces revoked/expired/depth 
     }
   });
   assert.equal(validAuthorize.statusCode, 200, validAuthorize.body);
-  const validTokenPayload = parseSettldPayTokenV1(validAuthorize.json?.token ?? "").payload;
+  const validTokenPayload = parseNooterraPayTokenV1(validAuthorize.json?.token ?? "").payload;
   assert.equal(validTokenPayload.delegationRef, "dlg_lineage_leaf_1");
   assert.equal(validTokenPayload.rootDelegationRef, "dlg_lineage_root_1");
   assert.equal(validTokenPayload.rootDelegationHash, rootDelegation.delegationHash);

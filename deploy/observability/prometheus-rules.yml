@@ -1,92 +1,92 @@
 groups:
-  - name: settld.rules
+  - name: nooterra.rules
     rules:
-      - alert: SettldOutboxBacklogHigh
+      - alert: NooterraOutboxBacklogHigh
         expr: sum(outbox_pending_gauge) > 2000
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Settld outbox backlog is high"
+          summary: "Nooterra outbox backlog is high"
           description: "sum(outbox_pending_gauge) has been > 2000 for 10m (workers may be stuck or PG slow)."
 
-      - alert: SettldDeliveriesPendingHigh
+      - alert: NooterraDeliveriesPendingHigh
         expr: deliveries_pending_gauge{state="pending"} > 1000
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Settld deliveries pending is high"
+          summary: "Nooterra deliveries pending is high"
           description: "deliveries_pending_gauge{state=\"pending\"} has been > 1000 for 10m."
 
-      - alert: SettldDeliveryDLQNonZero
+      - alert: NooterraDeliveryDLQNonZero
         expr: delivery_dlq_pending_total_gauge > 0
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "Settld delivery DLQ is non-zero"
+          summary: "Nooterra delivery DLQ is non-zero"
           description: "delivery_dlq_pending_total_gauge has been > 0 for 5m. Inspect /ops/dlq and /ops/deliveries."
 
-      - alert: SettldIngestRejectedNonZero
+      - alert: NooterraIngestRejectedNonZero
         expr: ingest_rejected_gauge > 0
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Settld ingest rejected backlog non-zero"
+          summary: "Nooterra ingest rejected backlog non-zero"
           description: "ingest_rejected_gauge has been > 0 for 10m."
 
-      - alert: SettldRetentionCleanupStale
+      - alert: NooterraRetentionCleanupStale
         expr: time() - maintenance_last_success_unixtime{kind="retention_cleanup"} > 3600
         for: 15m
         labels:
           severity: warning
         annotations:
-          summary: "Settld retention cleanup has not succeeded recently"
+          summary: "Nooterra retention cleanup has not succeeded recently"
           description: "No successful retention cleanup recorded in the last hour (check maintenance runner / ops audit)."
 
-      - alert: SettldReplayMismatchDetected
+      - alert: NooterraReplayMismatchDetected
         expr: replay_mismatch_gauge > 0
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "Settld replay mismatches detected"
+          summary: "Nooterra replay mismatches detected"
           description: "replay_mismatch_gauge has been > 0 for 5m (decision replay must be deterministic)."
 
-      - alert: SettldDisputesOverSla
+      - alert: NooterraDisputesOverSla
         expr: disputes_over_sla_gauge > 0
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Settld disputes over SLA"
+          summary: "Nooterra disputes over SLA"
           description: "disputes_over_sla_gauge has been > 0 for 10m."
 
-      - alert: SettldArbitrationCasesOverSla
+      - alert: NooterraArbitrationCasesOverSla
         expr: arbitration_over_sla_gauge > 0
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Settld arbitration cases over SLA"
+          summary: "Nooterra arbitration cases over SLA"
           description: "arbitration_over_sla_gauge has been > 0 for 10m."
 
-      - alert: SettldHoldsStuckOver24h
+      - alert: NooterraHoldsStuckOver24h
         expr: settlement_holds_over_24h_gauge > 0
         for: 15m
         labels:
           severity: warning
         annotations:
-          summary: "Settld settlement holds stuck over 24h"
+          summary: "Nooterra settlement holds stuck over 24h"
           description: "settlement_holds_over_24h_gauge has been > 0 for 15m."
 
-      - alert: SettldWorkerDeliveryLagHigh
+      - alert: NooterraWorkerDeliveryLagHigh
         expr: worker_deliveries_pending_total_gauge > 1000
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "Settld worker delivery lag high"
+          summary: "Nooterra worker delivery lag high"
           description: "worker_deliveries_pending_total_gauge has been > 1000 for 10m."

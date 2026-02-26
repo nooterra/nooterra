@@ -1,6 +1,6 @@
 # Verifier Errors (v1)
 
-This document defines the **stable error-code contract** for `settld-verify`.
+This document defines the **stable error-code contract** for `nooterra-verify`.
 
 - **Warnings** are documented separately in `WARNINGS.md`.
 - In machine output (`VerifyCliOutput.v1`), errors appear in `errors[]` as `{ code, path?, message?, detail? }`.
@@ -28,7 +28,7 @@ These codes are relied on by fixtures, conformance packs, and CI consumers.
 - `verification report subject.manifestHash mismatch` — Receipt binds to a different manifest than the bundle. Remediation: do not mix receipts across bundles; re-verify/generate receipt for this bundle.
 - `verification report bundleHeadAttestation.attestationHash mismatch` — Receipt binds to a different head attestation than the bundle. Remediation: do not mix attestations across bundles; re-verify/generate receipt for this bundle.
 
-- `strict requires trusted governance root keys` — Strict verification requires trust roots but they were not provided. Remediation: provide `SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON` (see `TRUST_ANCHORS.md`). Evidence: conformance trust cases.
+- `strict requires trusted governance root keys` — Strict verification requires trust roots but they were not provided. Remediation: provide `NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON` (see `TRUST_ANCHORS.md`). Evidence: conformance trust cases.
 - `governance policy signerKeyId not trusted` — Governance policy signature cannot be validated under provided trust roots. Remediation: correct/pin trust roots; verify policy provenance.
 
 - `attestation signer not authorized` — Bundle head attestation signer is not allowed by policy. Remediation: update governance policy or use an authorized signer; regenerate bundle.
@@ -55,7 +55,7 @@ These codes are relied on by fixtures, conformance packs, and CI consumers.
 
 When filing an issue or investigating a pilot failure, capture:
 
-1. `settld-verify --about --format json`
+1. `nooterra-verify --about --format json`
 2. The full `VerifyCliOutput.v1` JSON (`--format json`)
 3. How trust roots were provided (env vars / trust file) and which root keys were intended
 4. Installation mode: npm install vs npm tarball vs from source

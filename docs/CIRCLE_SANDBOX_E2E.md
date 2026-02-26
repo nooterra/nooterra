@@ -14,7 +14,7 @@ Prove the reserve contract used by `POST /x402/gate/authorize-payment`:
 
 The API is configured to fail closed in production-like environments:
 
-- `X402_REQUIRE_EXTERNAL_RESERVE` defaults to `true` when `SETTLD_ENV=production|prod`, `NODE_ENV=production`, or `RAILWAY_ENVIRONMENT_NAME=production|prod`.
+- `X402_REQUIRE_EXTERNAL_RESERVE` defaults to `true` when `NOOTERRA_ENV=production|prod`, `NODE_ENV=production`, or `RAILWAY_ENVIRONMENT_NAME=production|prod`.
 - `X402_CIRCLE_RESERVE_MODE` defaults to `production` in production-like environments.
 - In local/test environments, defaults remain:
   - `X402_REQUIRE_EXTERNAL_RESERVE=false`
@@ -37,7 +37,7 @@ Set these for sandbox runs:
 Fastest way to generate these from your Circle account:
 
 ```bash
-settld setup circle --api-key 'TEST_API_KEY:...' --mode auto --out-env ./.tmp/circle.env
+nooterra setup circle --api-key 'TEST_API_KEY:...' --mode auto --out-env ./.tmp/circle.env
 ```
 
 Then load them:
@@ -71,7 +71,7 @@ CIRCLE_E2E=1 node --test test/circle-sandbox-reserve-e2e.test.js
 The demo now supports explicit reserve rail mode:
 
 ```bash
-SETTLD_DEMO_CIRCLE_MODE=sandbox \
+NOOTERRA_DEMO_CIRCLE_MODE=sandbox \
 X402_REQUIRE_EXTERNAL_RESERVE=1 \
 node scripts/demo/mcp-paid-exa.mjs --circle=sandbox
 ```
@@ -86,9 +86,9 @@ Artifacts include:
 This runs the same demo flow and then executes the batch payout worker against the generated artifact root:
 
 ```bash
-SETTLD_DEMO_CIRCLE_MODE=sandbox \
-SETTLD_DEMO_RUN_BATCH_SETTLEMENT=1 \
-SETTLD_DEMO_BATCH_PROVIDER_WALLET_ID="$CIRCLE_WALLET_ID_ESCROW" \
+NOOTERRA_DEMO_CIRCLE_MODE=sandbox \
+NOOTERRA_DEMO_RUN_BATCH_SETTLEMENT=1 \
+NOOTERRA_DEMO_BATCH_PROVIDER_WALLET_ID="$CIRCLE_WALLET_ID_ESCROW" \
 X402_REQUIRE_EXTERNAL_RESERVE=1 \
 node scripts/demo/mcp-paid-exa.mjs --circle=sandbox
 ```

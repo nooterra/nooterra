@@ -9,7 +9,7 @@ import { applyMutations } from "./lib/mutations.mjs";
 
 function parseArgs(argv) {
   const out = {
-    bin: "settld-verify",
+    bin: "nooterra-verify",
     nodeBin: null,
     caseId: null,
     list: false,
@@ -51,7 +51,7 @@ function parseArgs(argv) {
 function usage() {
   // eslint-disable-next-line no-console
   console.error("usage:");
-  console.error("  node conformance/v1/run.mjs [--bin settld-verify] [--node-bin <path/to/settld-verify.js>] [--case <id>] [--list] [--keep-temp]");
+  console.error("  node conformance/v1/run.mjs [--bin nooterra-verify] [--node-bin <path/to/nooterra-verify.js>] [--case <id>] [--list] [--keep-temp]");
 }
 
 async function runVerify({ cli, env, kind, strict, failOnWarnings, hashConcurrency, bundleDir }) {
@@ -98,9 +98,9 @@ async function main() {
   const trustFp = path.join(packDir, String(casesDoc.trustFile ?? "trust.json"));
   const trust = await readJsonFile(trustFp);
   const baseTrustEnv = {
-    SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust?.governanceRoots ?? {}),
-    SETTLD_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust?.pricingSigners ?? {}),
-    SETTLD_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust?.timeAuthorities ?? {})
+    NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify(trust?.governanceRoots ?? {}),
+    NOOTERRA_TRUSTED_PRICING_SIGNER_KEYS_JSON: JSON.stringify(trust?.pricingSigners ?? {}),
+    NOOTERRA_TRUSTED_TIME_AUTHORITY_KEYS_JSON: JSON.stringify(trust?.timeAuthorities ?? {})
   };
 
   const cli = opts.nodeBin
@@ -118,7 +118,7 @@ async function main() {
     const expected = await readJsonFile(expectedFp);
     if (expected?.schemaVersion !== "ConformanceExpected.v1") throw new Error(`case ${id}: unsupported expected schemaVersion: ${expected?.schemaVersion ?? "null"}`);
 
-    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), `settld-conformance-v1-${id}-`));
+    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), `nooterra-conformance-v1-${id}-`));
     const bundleDir = path.join(tmpRoot, "bundle");
     try {
       const srcBundle = path.join(packDir, String(c?.bundlePath ?? ""));

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/Meter.v1.schema.json",
+  "title": "Meter.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "meterId",
+    "workOrderId",
+    "meterType",
+    "sourceType",
+    "quantity",
+    "amountCents",
+    "occurredAt",
+    "recordedAt",
+    "meterHash"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "Meter.v1" },
+    "meterId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "workOrderId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "meterType": { "type": "string", "enum": ["topup", "usage"] },
+    "sourceType": {
+      "type": "string",
+      "enum": ["work_order_meter_topup", "work_order_meter_usage"]
+    },
+    "eventType": { "type": ["string", "null"], "maxLength": 80 },
+    "sourceEventId": { "type": ["string", "null"], "maxLength": 200 },
+    "quantity": { "type": "integer", "minimum": 0 },
+    "amountCents": { "type": "integer", "minimum": 0 },
+    "currency": { "type": ["string", "null"], "minLength": 1, "maxLength": 12 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "recordedAt": { "type": "string", "format": "date-time" },
+    "period": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}$" },
+    "eventHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "metadata": { "type": ["object", "null"], "additionalProperties": true },
+    "meterHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

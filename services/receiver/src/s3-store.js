@@ -30,7 +30,7 @@ export class S3Store {
     this.endpoint = endpoint ?? null;
     this.region = region ?? null;
     this.bucket = bucket ?? null;
-    this.prefix = typeof prefix === "string" && prefix.trim() ? (prefix.endsWith("/") ? prefix : `${prefix}/`) : "settld/";
+    this.prefix = typeof prefix === "string" && prefix.trim() ? (prefix.endsWith("/") ? prefix : `${prefix}/`) : "nooterra/";
     this.accessKeyId = accessKeyId ?? null;
     this.secretAccessKey = secretAccessKey ?? null;
     this.forcePathStyle = forcePathStyle !== false;

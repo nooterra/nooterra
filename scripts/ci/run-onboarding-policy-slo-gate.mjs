@@ -11,7 +11,7 @@ const DEFAULT_REPORT_PATH = "artifacts/gates/onboarding-policy-slo-gate.json";
 const DEFAULT_HOST_MATRIX_PATH = "artifacts/ops/mcp-host-cert-matrix.json";
 const DEFAULT_METRICS_DIR = "artifacts/ops/onboarding-policy-slo";
 const DEFAULT_METRICS_EXT = ".prom";
-const MATRIX_SCHEMA_VERSION = "SettldMcpHostCertMatrix.v1";
+const MATRIX_SCHEMA_VERSION = "NooterraMcpHostCertMatrix.v1";
 const REPORT_ARTIFACT_HASH_SCOPE = "OnboardingPolicySloGateDeterministicCore.v1";
 
 function usage() {

@@ -5,7 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 async function runCli(args, { env } = {}) {
-  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "settld-verify.js");
+  const bin = path.resolve(process.cwd(), "packages", "artifact-verify", "bin", "nooterra-verify.js");
   const proc = spawn(process.execPath, [bin, ...args], {
     env: { ...process.env, ...(env ?? {}) },
     stdio: ["ignore", "pipe", "pipe"]
@@ -35,7 +35,7 @@ test("trust rotation drill: overlap trust roots is safe; removing old root break
 
   // Overlap trust: include the real root and an additional future root key.
   {
-    const env = { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ ...gov, [extraKeyId]: extraPem }) };
+    const env = { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ ...gov, [extraKeyId]: extraPem }) };
     const res = await runCli(["--format", "json", "--strict", "--job-proof", target], { env });
     assert.equal(res.code, 0, res.stderr || res.stdout);
     const out = JSON.parse(res.stdout);
@@ -44,7 +44,7 @@ test("trust rotation drill: overlap trust roots is safe; removing old root break
 
   // Wrong trust: remove the real root and keep only an unrelated key.
   {
-    const env = { SETTLD_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [extraKeyId]: extraPem }) };
+    const env = { NOOTERRA_TRUSTED_GOVERNANCE_ROOT_KEYS_JSON: JSON.stringify({ [extraKeyId]: extraPem }) };
     const res = await runCli(["--format", "json", "--strict", "--job-proof", target], { env });
     assert.equal(res.code, 1);
     const out = JSON.parse(res.stdout);

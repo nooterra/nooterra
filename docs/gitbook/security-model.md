@@ -1,6 +1,6 @@
 # Security Model
 
-Settld minimizes trust assumptions in settlement outcomes by making critical claims signed, bound, and independently verifiable.
+Nooterra minimizes trust assumptions in settlement outcomes by making critical claims signed, bound, and independently verifiable.
 
 ## Threats this design addresses
 
@@ -35,7 +35,7 @@ Non-admin dispute open requires signer-bound envelope proof.
 
 Stored outcomes can be recomputed and verified offline.
 
-## Boundaries (what Settld does not solve alone)
+## Boundaries (what Nooterra does not solve alone)
 
 - correctness beyond configured policy/verifier semantics
 - private key compromise

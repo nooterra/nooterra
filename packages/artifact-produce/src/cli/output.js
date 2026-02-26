@@ -29,7 +29,7 @@ function normalizeIssueList(list) {
 export function buildProduceCliOutputV1({ tool, target, mode, ok, produceOk, verifyAfter, result, warnings, errors } = {}) {
   const base = {
     schemaVersion: "ProduceCliOutput.v1",
-    tool: tool ?? { name: "settld", version: null, commit: null },
+    tool: tool ?? { name: "nooterra", version: null, commit: null },
     mode: mode ?? { deterministic: false, now: null },
     target: target ?? { kind: null, out: null },
     ok: Boolean(ok),

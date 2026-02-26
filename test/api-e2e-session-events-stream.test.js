@@ -175,6 +175,16 @@ test("API e2e: /sessions/:id/events/stream fails closed on invalid cursor", asyn
   const auth = api.__testAuthByTenant?.get?.("tenant_default") ?? null;
   assert.ok(auth?.authorization, "test auth authorization is required");
 
+  const malformed = await fetch(`http://127.0.0.1:${port}/sessions/sess_stream_2/events/stream?sinceEventId=evt bad cursor`, {
+    headers: {
+      authorization: auth.authorization,
+      "x-proxy-tenant-id": "tenant_default"
+    }
+  });
+  const malformedBody = await malformed.json();
+  assert.equal(malformed.status, 400);
+  assert.equal(malformedBody.code, "SCHEMA_INVALID");
+
   const res = await fetch(`http://127.0.0.1:${port}/sessions/sess_stream_2/events/stream?sinceEventId=evt_missing_cursor`, {
     headers: {
       authorization: auth.authorization,

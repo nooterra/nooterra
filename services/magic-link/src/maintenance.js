@@ -12,7 +12,7 @@ function nowIso() {
 }
 
 const dataDirRaw = process.env.MAGIC_LINK_DATA_DIR ? String(process.env.MAGIC_LINK_DATA_DIR).trim() : "";
-const dataDir = dataDirRaw ? path.resolve(dataDirRaw) : path.join(os.tmpdir(), "settld-magic-link");
+const dataDir = dataDirRaw ? path.resolve(dataDirRaw) : path.join(os.tmpdir(), "nooterra-magic-link");
 const dataDirLikelyEphemeral =
   dataDir === "/tmp" ||
   dataDir.startsWith("/tmp/") ||

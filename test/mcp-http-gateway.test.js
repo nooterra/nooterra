@@ -80,7 +80,7 @@ test("mcp http gateway: initialize -> tools/list -> tools/call (submit_evidence)
       }
       if (req.method === "POST" && req.url === "/agents/agt_1/runs/run_1/events") {
         assert.equal(req.headers["x-proxy-expected-prev-chain-hash"], "ch_1");
-        assert.equal(req.headers["x-settld-protocol"], "1.0");
+        assert.equal(req.headers["x-nooterra-protocol"], "1.0");
         res.writeHead(201, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, event: { id: "evt_1" } }));
         return;
@@ -93,15 +93,15 @@ test("mcp http gateway: initialize -> tools/list -> tools/call (submit_evidence)
   const apiAddr = await listen(api);
   const baseUrl = `http://${apiAddr.address}:${apiAddr.port}`;
 
-  const gateway = spawn(process.execPath, ["scripts/mcp/settld-mcp-http-gateway.mjs"], {
+  const gateway = spawn(process.execPath, ["scripts/mcp/nooterra-mcp-http-gateway.mjs"], {
     cwd: process.cwd(),
     stdio: ["ignore", "ignore", "pipe"],
     env: {
       ...process.env,
-      SETTLD_BASE_URL: baseUrl,
-      SETTLD_TENANT_ID: "tenant_default",
-      SETTLD_API_KEY: "sk_test_1.secret",
-      SETTLD_PROTOCOL: "1.0",
+      NOOTERRA_BASE_URL: baseUrl,
+      NOOTERRA_TENANT_ID: "tenant_default",
+      NOOTERRA_API_KEY: "sk_test_1.secret",
+      NOOTERRA_PROTOCOL: "1.0",
       MCP_HTTP_PORT: "0"
     }
   });
@@ -126,12 +126,12 @@ test("mcp http gateway: initialize -> tools/list -> tools/call (submit_evidence)
     }
   });
   assert.equal(init.statusCode, 200);
-  assert.equal(init.body?.result?.serverInfo?.name, "settld-mcp-spike");
+  assert.equal(init.body?.result?.serverInfo?.name, "nooterra-mcp-spike");
 
   const list = await httpJson({ method: "POST", url: rpcUrl, body: { jsonrpc: "2.0", id: "2", method: "tools/list", params: {} } });
   assert.equal(list.statusCode, 200);
   const names = (list.body?.result?.tools || []).map((t) => t.name);
-  assert.ok(names.includes("settld.submit_evidence"));
+  assert.ok(names.includes("nooterra.submit_evidence"));
 
   const called = await httpJson({
     method: "POST",
@@ -140,14 +140,14 @@ test("mcp http gateway: initialize -> tools/list -> tools/call (submit_evidence)
       jsonrpc: "2.0",
       id: "3",
       method: "tools/call",
-      params: { name: "settld.submit_evidence", arguments: { agentId: "agt_1", runId: "run_1", evidenceRef: "evidence://demo/1" } }
+      params: { name: "nooterra.submit_evidence", arguments: { agentId: "agt_1", runId: "run_1", evidenceRef: "evidence://demo/1" } }
     }
   });
   assert.equal(called.statusCode, 200);
   assert.equal(called.body?.result?.isError, false);
   const text = called.body?.result?.content?.[0]?.text || "";
   const parsed = JSON.parse(text);
-  assert.equal(parsed.tool, "settld.submit_evidence");
+  assert.equal(parsed.tool, "nooterra.submit_evidence");
   assert.equal(parsed.result?.ok, true);
 
   gateway.kill("SIGTERM");

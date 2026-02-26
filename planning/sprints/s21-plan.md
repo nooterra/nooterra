@@ -8,13 +8,13 @@ Integrate tool-call disputes into the holdback challenge window so that:
 
 - payer/payee can open a dispute during the challenge window (ops can override),
 - open arbitration cases freeze holdback auto-release,
-- verdict issuance deterministically creates exactly one `SettlementAdjustment.v1` per `agreementHash`,
+- verdict issuance deterministically creates exactly one `SettlementAdjustment` per `agreementHash`,
 - adjustments operate on held funds only (no negative balances, no clawbacks),
 - handlers are idempotent and race-safe.
 
 ## Modeling
 
-ArbitrationCase.v1 metadata convention for tool-call cases:
+ArbitrationCase metadata convention for tool-call cases:
 
 ```json
 {
@@ -53,8 +53,8 @@ Deterministic adjustment ID:
 
 ## Storage Work Items
 
-- Persist `FundingHold.v1` (mutable hold lifecycle snapshot).
-- Persist `SettlementAdjustment.v1` as immutable snapshot with DB uniqueness (idempotency by deterministic `adjustmentId`).
+- Persist `FundingHold` (mutable hold lifecycle snapshot).
+- Persist `SettlementAdjustment` as immutable snapshot with DB uniqueness (idempotency by deterministic `adjustmentId`).
 - Extend store implementations:
   - in-memory (`src/api/store.js` + `src/api/persistence.js`)
   - pg (`src/db/store-pg.js`)

@@ -189,7 +189,7 @@ function headersToRecord(headers) {
   return out;
 }
 
-export class SettldClient {
+export class NooterraClient {
   constructor(opts) {
     assertNonEmptyString(opts?.baseUrl, "baseUrl");
     assertNonEmptyString(opts?.tenantId, "tenantId");
@@ -210,7 +210,7 @@ export class SettldClient {
     const headers = {
       "content-type": "application/json",
       "x-proxy-tenant-id": this.tenantId,
-      "x-settld-protocol": this.protocol,
+      "x-nooterra-protocol": this.protocol,
       "x-request-id": rid
     };
     if (this.userAgent) headers["user-agent"] = this.userAgent;
@@ -240,7 +240,7 @@ export class SettldClient {
         requestId: responseRequestId
       };
       const thrown = new Error(e.message);
-      thrown.settld = e;
+      thrown.nooterra = e;
       throw thrown;
     }
 
@@ -322,6 +322,7 @@ export class SettldClient {
     if (params.status) qs.set("status", String(params.status));
     if (params.visibility) qs.set("visibility", String(params.visibility));
     if (params.capability) qs.set("capability", String(params.capability));
+    if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
     if (params.runtime) qs.set("runtime", String(params.runtime));
     if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
     if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
@@ -335,6 +336,7 @@ export class SettldClient {
     if (params.status) qs.set("status", String(params.status));
     if (params.visibility) qs.set("visibility", String(params.visibility));
     if (params.capability) qs.set("capability", String(params.capability));
+    if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
     if (params.runtime) qs.set("runtime", String(params.runtime));
     if (params.requireCapabilityAttestation !== undefined && params.requireCapabilityAttestation !== null) {
       qs.set("requireCapabilityAttestation", String(Boolean(params.requireCapabilityAttestation)));
@@ -368,6 +370,7 @@ export class SettldClient {
     if (params.status) qs.set("status", String(params.status));
     if (params.visibility) qs.set("visibility", String(params.visibility));
     if (params.capability) qs.set("capability", String(params.capability));
+    if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
     if (params.runtime) qs.set("runtime", String(params.runtime));
     if (params.requireCapabilityAttestation !== undefined && params.requireCapabilityAttestation !== null) {
       qs.set("requireCapabilityAttestation", String(Boolean(params.requireCapabilityAttestation)));
@@ -399,6 +402,7 @@ export class SettldClient {
   async *streamPublicAgentCards(params = {}, opts = {}) {
     const qs = new URLSearchParams();
     if (params.capability) qs.set("capability", String(params.capability));
+    if (params.executionCoordinatorDid) qs.set("executionCoordinatorDid", String(params.executionCoordinatorDid));
     if (params.toolId) qs.set("toolId", String(params.toolId));
     if (params.toolMcpName) qs.set("toolMcpName", String(params.toolMcpName));
     if (params.toolRiskClass) qs.set("toolRiskClass", String(params.toolRiskClass));
@@ -418,7 +422,7 @@ export class SettldClient {
     const headers = {
       accept: "text/event-stream",
       "x-proxy-tenant-id": this.tenantId,
-      "x-settld-protocol": this.protocol,
+      "x-nooterra-protocol": this.protocol,
       "x-request-id": rid
     };
     if (this.userAgent) headers["user-agent"] = this.userAgent;
@@ -442,7 +446,7 @@ export class SettldClient {
         requestId: responseRequestId
       };
       const thrown = new Error(e.message);
-      thrown.settld = e;
+      thrown.nooterra = e;
       throw thrown;
     }
 
@@ -712,6 +716,16 @@ export class SettldClient {
     return this.request("POST", `/work-orders/${encodeURIComponent(workOrderId)}/topup`, { ...opts, body });
   }
 
+  getWorkOrderMetering(workOrderId, params = {}, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    const qs = new URLSearchParams();
+    if (params.includeMeters !== undefined && params.includeMeters !== null) qs.set("includeMeters", String(Boolean(params.includeMeters)));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/work-orders/${encodeURIComponent(workOrderId)}/metering${suffix}`, opts);
+  }
+
   completeWorkOrder(workOrderId, body, opts) {
     assertNonEmptyString(workOrderId, "workOrderId");
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body is required");
@@ -740,6 +754,52 @@ export class SettldClient {
   getWorkOrderReceipt(receiptId, opts) {
     assertNonEmptyString(receiptId, "receiptId");
     return this.request("GET", `/work-orders/receipts/${encodeURIComponent(receiptId)}`, opts);
+  }
+
+  createStateCheckpoint(body, opts) {
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body is required");
+    assertNonEmptyString(body?.ownerAgentId, "body.ownerAgentId");
+    if (!body.stateRef || typeof body.stateRef !== "object" || Array.isArray(body.stateRef)) {
+      throw new TypeError("body.stateRef is required");
+    }
+    assertNonEmptyString(body.stateRef?.artifactId, "body.stateRef.artifactId");
+    assertNonEmptyString(body.stateRef?.artifactHash, "body.stateRef.artifactHash");
+    if (!/^[0-9a-f]{64}$/i.test(String(body.stateRef.artifactHash))) {
+      throw new TypeError("body.stateRef.artifactHash must be a sha256 hex string");
+    }
+    if (body.diffRefs !== null && body.diffRefs !== undefined) {
+      if (!Array.isArray(body.diffRefs)) throw new TypeError("body.diffRefs must be an array");
+      for (let index = 0; index < body.diffRefs.length; index += 1) {
+        const ref = body.diffRefs[index];
+        if (!ref || typeof ref !== "object" || Array.isArray(ref)) {
+          throw new TypeError(`body.diffRefs[${index}] must be an object`);
+        }
+        assertNonEmptyString(ref.artifactId, `body.diffRefs[${index}].artifactId`);
+        assertNonEmptyString(ref.artifactHash, `body.diffRefs[${index}].artifactHash`);
+        if (!/^[0-9a-f]{64}$/i.test(String(ref.artifactHash))) {
+          throw new TypeError(`body.diffRefs[${index}].artifactHash must be a sha256 hex string`);
+        }
+      }
+    }
+    return this.request("POST", "/state-checkpoints", { ...opts, body });
+  }
+
+  listStateCheckpoints(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.checkpointId) qs.set("checkpointId", String(params.checkpointId));
+    if (params.projectId) qs.set("projectId", String(params.projectId));
+    if (params.sessionId) qs.set("sessionId", String(params.sessionId));
+    if (params.ownerAgentId) qs.set("ownerAgentId", String(params.ownerAgentId));
+    if (params.traceId) qs.set("traceId", String(params.traceId));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/state-checkpoints${suffix}`, opts);
+  }
+
+  getStateCheckpoint(checkpointId, opts) {
+    assertNonEmptyString(checkpointId, "checkpointId");
+    return this.request("GET", `/state-checkpoints/${encodeURIComponent(checkpointId)}`, opts);
   }
 
   createSession(body, opts) {
@@ -836,7 +896,7 @@ export class SettldClient {
     const headers = {
       accept: "text/event-stream",
       "x-proxy-tenant-id": this.tenantId,
-      "x-settld-protocol": this.protocol,
+      "x-nooterra-protocol": this.protocol,
       "x-request-id": rid
     };
     if (this.userAgent) headers["user-agent"] = this.userAgent;
@@ -860,7 +920,7 @@ export class SettldClient {
         requestId: responseRequestId
       };
       const thrown = new Error(e.message);
-      thrown.settld = e;
+      thrown.nooterra = e;
       throw thrown;
     }
 

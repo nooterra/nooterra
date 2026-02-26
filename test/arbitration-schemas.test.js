@@ -46,8 +46,8 @@ test("arbitration schemas validate published examples", async () => {
     }
   }
 
-  const validateCase = ajv.getSchema("https://settld.local/schemas/ArbitrationCase.v1.schema.json");
-  const validateVerdict = ajv.getSchema("https://settld.local/schemas/ArbitrationVerdict.v1.schema.json");
+  const validateCase = ajv.getSchema("https://nooterra.local/schemas/ArbitrationCase.v1.schema.json");
+  const validateVerdict = ajv.getSchema("https://nooterra.local/schemas/ArbitrationVerdict.v1.schema.json");
   assert.ok(validateCase);
   assert.ok(validateVerdict);
 

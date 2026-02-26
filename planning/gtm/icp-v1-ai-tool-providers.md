@@ -1,4 +1,4 @@
-# ICP v1: Self-Serve AI Tool Providers
+# ICP: Self-Serve AI Tool Providers
 
 Date baseline: February 7, 2026
 Owner: GTM + PM

@@ -3,10 +3,10 @@
     {
       "Epic Key": "STLD-E13",
       "Summary": "Paid Tool Commerce Substrate: Provider Growth + Settlement Reliability",
-      "Description": "Convert the existing x402 + SettldPay foundation into a self-serve provider loop with certification, discovery, policy-bound receipts, and payout-grade reliability controls.",
+      "Description": "Convert the existing x402 + NooterraPay foundation into a self-serve provider loop with certification, discovery, policy-bound receipts, and payout-grade reliability controls.",
       "Owner": "PM + Backend + DevEx + Ops",
       "Priority": "Highest",
-      "Labels": "x402,settldpay,provider,settlement,reliability,marketplace"
+      "Labels": "x402,nooterrapay,provider,settlement,reliability,marketplace"
     }
   ],
   "tickets": [
@@ -157,7 +157,7 @@
       "Epic Key": "STLD-E13",
       "PR": "PR 11",
       "Summary": "Implement side-effect-safe request-bound token mode",
-      "Description": "Add optional strict mode that binds SettldPay authorization to canonical request fingerprint for non-idempotent tools, preventing body/path mutation replay abuse.",
+      "Description": "Add optional strict mode that binds NooterraPay authorization to canonical request fingerprint for non-idempotent tools, preventing body/path mutation replay abuse.",
       "Owner": "Backend + Provider Kit",
       "Estimate": "4d",
       "Priority": "High",
@@ -165,11 +165,11 @@
       "Dependencies": "STLD-T204",
       "Labels": "security,provider-kit,x402,replay",
       "File Touchpoints": [
-        "src/core/settld-pay-token.js",
+        "src/core/nooterra-pay-token.js",
         "packages/provider-kit/src/index.js",
         "src/core/provider-publish-conformance.js",
         "docs/QUICKSTART_X402_GATEWAY.md",
-        "test/settld-pay-token.test.js",
+        "test/nooterra-pay-token.test.js",
         "test/api-e2e-x402-provider-signature.test.js"
       ],
       "Acceptance Criteria": [
@@ -178,7 +178,7 @@
         "Conformance report includes explicit check for strict-mode request binding when manifest marks tool as side-effecting."
       ],
       "Test Commands": [
-        "node --test test/settld-pay-token.test.js",
+        "node --test test/nooterra-pay-token.test.js",
         "node --test test/api-e2e-x402-provider-signature.test.js"
       ]
     },
@@ -195,9 +195,9 @@
       "Dependencies": "STLD-T205",
       "Labels": "keys,rotation,ops,reliability",
       "File Touchpoints": [
-        "scripts/trust-config/rotate-settld-pay.mjs",
+        "scripts/trust-config/rotate-nooterra-pay.mjs",
         "docs/KEY_ROTATION.md",
-        "test/keys-rotate-settld-pay.test.js",
+        "test/keys-rotate-nooterra-pay.test.js",
         ".github/workflows/x402-circle-sandbox-smoke.yml"
       ],
       "Acceptance Criteria": [
@@ -206,7 +206,7 @@
         "CI runs rotation compatibility check without breaking conformance/demo path."
       ],
       "Test Commands": [
-        "node --test test/keys-rotate-settld-pay.test.js"
+        "node --test test/keys-rotate-nooterra-pay.test.js"
       ]
     },
     {

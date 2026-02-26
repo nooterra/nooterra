@@ -8,9 +8,9 @@ function usage() {
     "  node scripts/provider/conformance-run.mjs --manifest <file> --base-url <providerBaseUrl> [options]",
     "",
     "Options:",
-    "  --api-url <url>              Settld API base URL (default: SETTLD_API_URL or http://127.0.0.1:3000)",
-    "  --api-key <token>            Settld API key (default: SETTLD_API_KEY)",
-    "  --tenant-id <id>             Tenant id header (default: SETTLD_TENANT_ID or tenant_default)",
+    "  --api-url <url>              Nooterra API base URL (default: NOOTERRA_API_URL or http://127.0.0.1:3000)",
+    "  --api-key <token>            Nooterra API key (default: NOOTERRA_API_KEY)",
+    "  --tenant-id <id>             Tenant id header (default: NOOTERRA_TENANT_ID or tenant_default)",
     "  --tool-id <toolId>           Run conformance against a specific tool id",
     "  --provider-id <providerId>   Override provider id (must match manifest.providerId)",
     "  --provider-key-file <path>   Provider signing public key PEM file",
@@ -23,9 +23,9 @@ function usage() {
 
 function parseArgs(argv) {
   const out = {
-    apiUrl: process.env.SETTLD_API_URL || "http://127.0.0.1:3000",
-    apiKey: process.env.SETTLD_API_KEY || null,
-    tenantId: process.env.SETTLD_TENANT_ID || "tenant_default",
+    apiUrl: process.env.NOOTERRA_API_URL || "http://127.0.0.1:3000",
+    apiKey: process.env.NOOTERRA_API_KEY || null,
+    tenantId: process.env.NOOTERRA_TENANT_ID || "tenant_default",
     manifestPath: null,
     baseUrl: null,
     toolId: null,
@@ -91,7 +91,7 @@ async function main() {
     process.stdout.write(`${usage()}\n`);
     return;
   }
-  if (!args.apiKey) throw makeCliError("PROVIDER_CONFORMANCE_MISSING_API_KEY", "SETTLD_API_KEY or --api-key is required");
+  if (!args.apiKey) throw makeCliError("PROVIDER_CONFORMANCE_MISSING_API_KEY", "NOOTERRA_API_KEY or --api-key is required");
 
   const manifest = readJson(args.manifestPath);
   const providerSigningPublicKeyPem = resolveProviderKeyPem({ inlinePem: args.providerKeyPem, filePath: args.providerKeyFile });

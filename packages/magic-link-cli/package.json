@@ -1,5 +1,5 @@
 {
-  "name": "settld-magic-link-cli",
+  "name": "nooterra-magic-link-cli",
   "version": "0.2.0",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     "node": ">=20"
   },
   "bin": {
-    "settld-magic-link": "./bin/settld-magic-link.js"
+    "nooterra-magic-link": "./bin/nooterra-magic-link.js"
   },
   "files": [
     "bin"

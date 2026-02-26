@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildAgentCardV1, buildSettldAgentCard, validateAgentCardV1 } from "../src/core/agent-card.js";
+import { buildAgentCardV1, buildNooterraAgentCard, validateAgentCardV1 } from "../src/core/agent-card.js";
 
 test("agent card builder emits stable, minimal discovery payload", () => {
-  const card = buildSettldAgentCard({ baseUrl: "https://api.settld.example", version: "0.0.0-test" });
-  assert.equal(card.url, "https://api.settld.example");
+  const card = buildNooterraAgentCard({ baseUrl: "https://api.nooterra.example", version: "0.0.0-test" });
+  assert.equal(card.url, "https://api.nooterra.example");
   assert.equal(card.version, "0.0.0-test");
   assert.equal(typeof card.name, "string");
   assert.ok(Array.isArray(card.skills));
@@ -31,6 +31,7 @@ test("AgentCard.v1 builder emits deterministic card bound to identity capabiliti
       displayName: "Travel Booker",
       capabilities: ["travel.booking"],
       visibility: "public",
+      executionCoordinatorDid: "did:nooterra:coord_alpha",
       host: {
         runtime: "openclaw",
         endpoint: "https://example.test/agents/1",
@@ -61,6 +62,7 @@ test("AgentCard.v1 builder emits deterministic card bound to identity capabiliti
   assert.equal(card.agentId, "agt_card_1");
   assert.equal(card.status, "active");
   assert.equal(card.visibility, "public");
+  assert.equal(card.executionCoordinatorDid, "did:nooterra:coord_alpha");
   assert.deepEqual(card.capabilities, ["travel.booking"]);
   assert.equal(card.createdAt, nowAt);
   assert.equal(card.updatedAt, nowAt);
@@ -113,5 +115,28 @@ test("AgentCard.v1 rejects invalid tool descriptors", () => {
         }
       }),
     /riskClass must be read\|compute\|action\|financial/
+  );
+});
+
+test("AgentCard.v1 rejects invalid executionCoordinatorDid format", () => {
+  assert.throws(
+    () =>
+      buildAgentCardV1({
+        tenantId: "tenant_default",
+        agentIdentity: {
+          schemaVersion: "AgentIdentity.v1",
+          agentId: "agt_card_4",
+          tenantId: "tenant_default",
+          displayName: "Agent Four",
+          status: "active",
+          capabilities: ["travel.booking"],
+          keys: { keyId: "key_4" }
+        },
+        cardInput: {
+          capabilities: ["travel.booking"],
+          executionCoordinatorDid: "coord_alpha"
+        }
+      }),
+    /executionCoordinatorDid must be a DID-like identifier/
   );
 });

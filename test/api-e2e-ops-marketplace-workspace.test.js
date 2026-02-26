@@ -35,7 +35,7 @@ test("API e2e: ops marketplace workspace page renders listing/RFQ/bid controls",
   assert.match(workspace.body, /\/marketplace\/rfqs/);
   assert.match(workspace.body, /\/marketplace\/rfqs\/\$\{encodeURIComponent\(rfqId\)\}\/bids/);
   assert.match(workspace.body, /\/marketplace\/rfqs\/\$\{encodeURIComponent\(rfqId\)\}\/accept/);
-  assert.match(workspace.body, /x-settld-protocol/);
+  assert.match(workspace.body, /x-nooterra-protocol/);
 
   const workspaceWithQueryAuth = await request(api, {
     method: "GET",

@@ -1,6 +1,6 @@
 # ProduceCliOutput.v1
 
-`ProduceCliOutput.v1` is the machine-readable output emitted by `settld-produce --format json`.
+`ProduceCliOutput.v1` is the machine-readable output emitted by `nooterra-produce --format json`.
 
 This is a public contract intended for CI/pipelines:
 
@@ -33,7 +33,7 @@ Producer tooling MUST NOT embed arbitrary exception strings in stdout JSON outpu
 
 ## `--explain` (deterministic stderr)
 
-`settld-produce --explain` prints a deterministic, non-secret diagnostic summary to **stderr**.
+`nooterra-produce --explain` prints a deterministic, non-secret diagnostic summary to **stderr**.
 
 Contract:
 

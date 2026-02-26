@@ -53,8 +53,8 @@ When a work order is created with `acceptanceRef`, settlement is fail-closed unl
 
 ## MCP surface
 
-- `settld.task_acceptance_issue`
-- `settld.task_acceptance_list`
+- `nooterra.task_acceptance_issue`
+- `nooterra.task_acceptance_list`
 
 ## Implementation references
 

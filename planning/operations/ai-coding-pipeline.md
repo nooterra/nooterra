@@ -1,4 +1,4 @@
-# Settld Coding Pipeline (Execution to Revenue)
+# Nooterra Coding Pipeline (Execution to Revenue)
 
 ## Objective
 

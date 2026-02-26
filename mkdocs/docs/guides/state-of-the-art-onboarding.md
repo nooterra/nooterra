@@ -1,6 +1,6 @@
 # State-of-the-Art Onboarding Blueprint
 
-This guide defines the target onboarding standard for Settld v1.
+This guide defines the target onboarding standard for Nooterra.
 
 ## Product Goal
 
@@ -8,7 +8,7 @@ From first command to first verified receipt in under 10 minutes with no dead-en
 
 ## Principles
 
-1. One command starts everything: `npx settld setup`.
+1. One command starts everything: `npx nooterra setup`.
 2. Quick mode asks the minimum decisions required for a safe run.
 3. Every failure branch provides a next valid path.
 4. Trust guarantees are never relaxed for convenience.
@@ -18,7 +18,7 @@ From first command to first verified receipt in under 10 minutes with no dead-en
 Required decisions (target <= 6):
 
 1. Setup mode (`quick`/`advanced`).
-2. Host selection (`openclaw|codex|claude|cursor`).
+2. Host selection (`openclaw|nooterra|claude|cursor`).
 3. Wallet mode (`managed|byo|none`).
 4. API-key acquisition path (`login|bootstrap|manual|session`).
 5. Funding path (card/bank or transfer) when wallet mode is managed.
@@ -34,7 +34,7 @@ Required decisions (target <= 6):
 
 ## OTP Behavior
 
-Settld user OTP is email-based (not authenticator-app TOTP).
+Nooterra user OTP is email-based (not authenticator-app TOTP).
 
 Service delivery modes:
 
@@ -58,7 +58,7 @@ Fallback behavior:
 
 After setup, the workflow should run:
 
-1. host probe (`settld.about`)
+1. host probe (`nooterra.about`)
 2. first paid call
 3. receipt verification summary
 
@@ -97,4 +97,4 @@ Capture at minimum:
 - [Onboarding State Machine](onboarding-state-machine.md)
 - [Onboarding Failure Taxonomy](onboarding-failure-taxonomy.md)
 - [Launch Readiness Scorecard](launch-readiness-scorecard.md)
-- [V1 Execution Plan](v1-execution-plan.md)
+- [Execution Plan](execution-plan.md)

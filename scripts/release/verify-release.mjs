@@ -236,7 +236,7 @@ async function main() {
   };
 
   const textLines = [];
-  textLines.push("settld-verify-release");
+  textLines.push("nooterra-verify-release");
   textLines.push(`ok=${ok ? "true" : "false"}`);
   textLines.push(`release.tag=${tag}`);
   textLines.push(`release.version=${version}`);

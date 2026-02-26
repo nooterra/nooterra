@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://settld.local/schemas/InvoiceClaim.v1.schema.json",
+  "$id": "https://nooterra.local/schemas/InvoiceClaim.v1.schema.json",
   "title": "InvoiceClaim.v1",
   "type": "object",
   "required": ["schemaVersion", "tenantId", "invoiceId", "createdAt", "currency", "jobProof", "totalCents"],

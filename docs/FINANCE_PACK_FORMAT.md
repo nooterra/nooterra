@@ -1,11 +1,11 @@
-# FinancePackBundle.v1 Format (Finance-Grade)
+# FinancePackBundle Format (Finance-Grade)
 
 This document defines the on-disk format for `FinancePackBundle.v1` and its strict-verification invariants.
 
 ## Directory Layout
 
 ```
-settld.json
+nooterra.json
 manifest.json
 attestation/bundle_head_attestation.json
 month/...
@@ -18,20 +18,20 @@ Notes:
 - `attestation/bundle_head_attestation.json` is a signed `BundleHeadAttestation.v1` committing to the FinancePack manifestHash and MonthProof anchor.
 - `verify/verification_report.json` is a signed, machine-ingestible `VerificationReport.v1`.
 
-## `manifest.json` (FinancePackBundleManifest.v1)
+## `manifest.json` (FinancePackBundleManifest)
 
 `manifest.json` includes:
 - `files[]`: sha256 hashes for the **non-verify** bundle files
 - `manifestHash`: sha256 over canonical JSON of the manifest object **excluding** `manifestHash`
 
-### Hashing Contract (`hashing.schemaVersion = FinancePackBundleManifestHash.v1`)
+### Hashing Contract (`hashing.schemaVersion = FinancePackBundleManifestHash`)
 
 - `fileOrder = path_asc`
 - `excludes = ["verify/**"]` (all `verify/*` derived outputs are intentionally excluded)
 
 Rationale: `VerificationReport.v1` needs to refer to `manifestHash`, so including `verify/*` in the manifest would create circular hashing.
 
-## `verify/verification_report.json` (VerificationReport.v1)
+## `verify/verification_report.json` (VerificationReport)
 
 `VerificationReport.v1` is canonical JSON with:
 - `tool`: identifies the generator/verifier version for auditability
@@ -46,7 +46,7 @@ If the tool version cannot be determined, the report will include a warning code
 
 ## Strict Verification Invariants
 
-In strict mode (`settld-verify --strict --finance-pack ...`):
+In strict mode (`nooterra-verify --strict --finance-pack ...`):
 - The embedded `MonthProofBundle.v1` must strictly verify.
 - `attestation/bundle_head_attestation.json` must exist and have a valid signature.
 - `verify/verification_report.json` must exist, have a valid `reportHash`, and have a valid signature.
