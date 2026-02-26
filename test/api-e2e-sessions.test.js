@@ -133,6 +133,15 @@ test("API e2e: Session.v1 create/list/get and SessionEvent.v1 append/list", asyn
   });
   assert.equal(mismatch.statusCode, 409, mismatch.body);
   assert.equal(mismatch.json?.message ?? mismatch.json?.error, "event append conflict");
+  assert.equal(mismatch.json?.code, "SESSION_EVENT_APPEND_CONFLICT");
+  assert.equal(mismatch.json?.details?.reasonCode, "SESSION_EVENT_APPEND_CONFLICT");
+  assert.equal(mismatch.json?.details?.phase, "stale_precondition");
+  assert.equal(mismatch.json?.details?.expectedPrevChainHash, listedEvents.json?.currentPrevChainHash ?? null);
+  assert.equal(mismatch.json?.details?.gotExpectedPrevChainHash ?? null, null);
+  assert.equal(mismatch.json?.details?.gotPrevChainHash ?? null, null);
+  assert.equal(mismatch.json?.details?.eventCount, 1);
+  assert.equal(mismatch.json?.details?.firstEventId, appended.json?.event?.id);
+  assert.equal(mismatch.json?.details?.lastEventId, appended.json?.event?.id);
 
   const missingIdempotency = await request(api, {
     method: "POST",

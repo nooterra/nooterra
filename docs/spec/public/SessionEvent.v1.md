@@ -52,6 +52,7 @@ Server-side append computes provenance with chain-aware taint propagation and de
 - append is optimistic-concurrency checked against current stream head.
 - append is idempotent when idempotency keys are reused with identical request hash.
 - idempotency replay must survive multi-writer retries; stale head retries with matching idempotency key return the original response.
+- append conflicts fail closed with deterministic details: `reasonCode=SESSION_EVENT_APPEND_CONFLICT`, `phase`, `expectedPrevChainHash`, `gotExpectedPrevChainHash`/`gotPrevChainHash`, and stream range metadata (`eventCount`, `firstEventId`, `lastEventId`).
 - list cursor (`sinceEventId`) must resolve to an existing event id, else fail closed.
 - stream cursor (`sinceEventId` or `Last-Event-ID`) must resolve to an existing event id, else fail closed.
 - stream cursor source must be unambiguous: when both `sinceEventId` and `Last-Event-ID` are provided, they must match.

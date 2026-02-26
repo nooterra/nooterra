@@ -8467,6 +8467,36 @@ export function createApi({
     );
   }
 
+  function normalizeSessionEventAppendConflictHash(value) {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    return normalized !== "" ? normalized : null;
+  }
+
+  function buildSessionEventAppendConflictDetails({
+    sessionId,
+    expectedPrevChainHash,
+    gotExpectedPrevChainHash = null,
+    gotPrevChainHash = null,
+    events,
+    phase = "unknown"
+  } = {}) {
+    const normalizedSessionId = typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId.trim() : null;
+    return normalizeForCanonicalJson(
+      {
+        sessionId: normalizedSessionId,
+        phase,
+        reasonCode: "SESSION_EVENT_APPEND_CONFLICT",
+        reason: "append precondition does not match current session event head",
+        expectedPrevChainHash: normalizeSessionEventAppendConflictHash(expectedPrevChainHash),
+        gotExpectedPrevChainHash: normalizeSessionEventAppendConflictHash(gotExpectedPrevChainHash),
+        gotPrevChainHash: normalizeSessionEventAppendConflictHash(gotPrevChainHash),
+        ...summarizeSessionEventCursorRange(events)
+      },
+      { path: "$.details" }
+    );
+  }
+
   function parseAuditLineageFilter(rawValue, { name, max = 256, allowNull = true } = {}) {
     if (rawValue === null || rawValue === undefined) {
       if (allowNull) return null;
@@ -48917,10 +48947,19 @@ export function createApi({
           const currentPrevChainHash = getCurrentPrevChainHash(Array.isArray(existingEvents) ? existingEvents : []);
           if (expectedHeader.expectedPrevChainHash !== currentPrevChainHash) {
             if (await trySessionEventIdempotencyReplay()) return;
-            return sendError(res, 409, "event append conflict", {
-              expectedPrevChainHash: currentPrevChainHash,
-              gotExpectedPrevChainHash: expectedHeader.expectedPrevChainHash
-            });
+            return sendError(
+              res,
+              409,
+              "event append conflict",
+              buildSessionEventAppendConflictDetails({
+                sessionId,
+                expectedPrevChainHash: currentPrevChainHash,
+                gotExpectedPrevChainHash: expectedHeader.expectedPrevChainHash,
+                events: existingEvents,
+                phase: "stale_precondition"
+              }),
+              { code: "SESSION_EVENT_APPEND_CONFLICT" }
+            );
           }
 
           let eventType = null;
@@ -49022,10 +49061,26 @@ export function createApi({
           } catch (err) {
             if (err?.code === "PREV_CHAIN_HASH_MISMATCH") {
               if (await trySessionEventIdempotencyReplay()) return;
-              return sendError(res, 409, "event append conflict", {
-                expectedPrevChainHash: err.expectedPrevChainHash ?? null,
-                gotPrevChainHash: err.gotPrevChainHash ?? null
-              });
+              let latestEvents = Array.isArray(existingEvents) ? existingEvents : [];
+              try {
+                const reloaded = await getSessionEventRecords({ tenantId, sessionId });
+                if (Array.isArray(reloaded)) latestEvents = reloaded;
+              } catch {
+                // best-effort only; conflict details still fail closed.
+              }
+              return sendError(
+                res,
+                409,
+                "event append conflict",
+                buildSessionEventAppendConflictDetails({
+                  sessionId,
+                  expectedPrevChainHash: err.expectedPrevChainHash ?? null,
+                  gotPrevChainHash: err.gotPrevChainHash ?? null,
+                  events: latestEvents,
+                  phase: "commit_race"
+                }),
+                { code: "SESSION_EVENT_APPEND_CONFLICT" }
+              );
             }
             throw err;
           }

@@ -153,3 +153,125 @@ async function registerAgent(api, { agentId, capabilities = [] }) {
     }
   }
 );
+
+(databaseUrl ? test : test.skip)(
+  "pg e2e: terminal session append burst retries across writers preserve single completion event",
+  async () => {
+    const schema = `t_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const storeA = await createPgStore({ databaseUrl, schema, dropSchemaOnClose: true });
+    const storeB = await createPgStore({ databaseUrl, schema, dropSchemaOnClose: false });
+
+    try {
+      const apiA = createApi({ store: storeA });
+      const apiB = createApi({ store: storeB });
+
+      const agentId = "agt_pg_session_race_3";
+      const sessionId = "sess_pg_session_race_3";
+      await registerAgent(apiA, { agentId, capabilities: ["orchestration"] });
+
+      const created = await request(apiA, {
+        method: "POST",
+        path: "/sessions",
+        headers: { "x-idempotency-key": "pg_session_race_create_3" },
+        body: {
+          sessionId,
+          visibility: "tenant",
+          participants: [agentId]
+        }
+      });
+      assert.equal(created.statusCode, 201, created.body);
+
+      const seeded = await request(apiA, {
+        method: "POST",
+        path: `/sessions/${sessionId}/events`,
+        headers: {
+          "x-idempotency-key": "pg_session_race_append_seed_3",
+          "x-proxy-expected-prev-chain-hash": "null"
+        },
+        body: {
+          eventType: "TASK_REQUESTED",
+          at: "2030-01-01T00:02:00.000Z",
+          payload: { taskId: "task_pg_session_race_3" }
+        }
+      });
+      assert.equal(seeded.statusCode, 201, seeded.body);
+      const seededChainHash = seeded.json?.event?.chainHash ?? null;
+      assert.equal(typeof seededChainHash, "string");
+
+      const terminalHeaders = {
+        "x-idempotency-key": "pg_session_race_terminal_idem_3",
+        "x-proxy-expected-prev-chain-hash": seededChainHash
+      };
+      const terminalBody = {
+        eventType: "TASK_COMPLETED",
+        at: "2030-01-01T00:02:30.000Z",
+        payload: {
+          taskId: "task_pg_session_race_3",
+          outputRef: "artifact://pg/session-race/3"
+        }
+      };
+
+      const burstResponses = await Promise.all(
+        Array.from({ length: 20 }, (_, index) =>
+          request(index % 2 === 0 ? apiA : apiB, {
+            method: "POST",
+            path: `/sessions/${sessionId}/events`,
+            headers: terminalHeaders,
+            body: terminalBody
+          })
+        )
+      );
+      for (const response of burstResponses) {
+        assert.equal(response.statusCode, 201, response.body);
+      }
+      const completionIds = new Set(burstResponses.map((response) => String(response.json?.event?.id ?? "")));
+      assert.equal(completionIds.size, 1);
+      const revisions = new Set(burstResponses.map((response) => Number(response.json?.session?.revision ?? NaN)));
+      assert.equal(revisions.size, 1);
+      assert.equal([...revisions][0], 2);
+
+      const completionList = await request(apiA, {
+        method: "GET",
+        path: `/sessions/${sessionId}/events?eventType=TASK_COMPLETED`
+      });
+      assert.equal(completionList.statusCode, 200, completionList.body);
+      assert.equal(Array.isArray(completionList.json?.events), true);
+      assert.equal(completionList.json?.events?.length, 1);
+      assert.equal(completionList.json?.events?.[0]?.id, [...completionIds][0]);
+
+      const staleConflict = await request(apiB, {
+        method: "POST",
+        path: `/sessions/${sessionId}/events`,
+        headers: {
+          "x-idempotency-key": "pg_session_race_terminal_conflict_3",
+          "x-proxy-expected-prev-chain-hash": seededChainHash
+        },
+        body: {
+          eventType: "TASK_COMPLETED",
+          at: "2030-01-01T00:02:31.000Z",
+          payload: {
+            taskId: "task_pg_session_race_3",
+            outputRef: "artifact://pg/session-race/3-stale"
+          }
+        }
+      });
+      assert.equal(staleConflict.statusCode, 409, staleConflict.body);
+      assert.equal(staleConflict.json?.code, "SESSION_EVENT_APPEND_CONFLICT");
+      assert.equal(staleConflict.json?.details?.reasonCode, "SESSION_EVENT_APPEND_CONFLICT");
+      assert.equal(staleConflict.json?.details?.phase, "stale_precondition");
+      assert.equal(staleConflict.json?.details?.expectedPrevChainHash, completionList.json?.currentPrevChainHash ?? null);
+      assert.equal(staleConflict.json?.details?.gotExpectedPrevChainHash, seededChainHash);
+      assert.equal(staleConflict.json?.details?.eventCount, 2);
+
+      const listed = await request(apiA, { method: "GET", path: `/sessions/${sessionId}/events` });
+      assert.equal(listed.statusCode, 200, listed.body);
+      assert.equal(Array.isArray(listed.json?.events), true);
+      assert.equal(listed.json?.events?.length, 2);
+      assert.equal(listed.json?.events?.filter((event) => event?.type === "TASK_COMPLETED").length, 1);
+      assert.equal(listed.json?.events?.[1]?.id, [...completionIds][0]);
+    } finally {
+      await storeB.close();
+      await storeA.close();
+    }
+  }
+);
