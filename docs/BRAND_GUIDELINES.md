@@ -18,7 +18,7 @@ Use this short descriptor when space is tight:
 
 ## Naming Hygiene
 
-- Do not use deprecated naming in public copy: `Settld`, `Codex`, `Nooverse`, `Agentverse`, `Nooterra Mesh`.
+- Do not use retired product/host/network aliases in public copy.
 - Use **Agent Network** terminology for the cross-runtime layer.
 
 ## Version Language Policy
