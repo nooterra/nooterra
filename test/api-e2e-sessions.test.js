@@ -334,15 +334,37 @@ test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cur
     path: `/sessions/sess_cursor_1/events?sinceEventId=${encodeURIComponent(String(first.json?.event?.id ?? ""))}`
   });
   assert.equal(resumed.statusCode, 200, resumed.body);
+  assert.equal(resumed.headers?.get("x-session-events-ordering"), "SESSION_SEQ_ASC");
+  assert.equal(resumed.headers?.get("x-session-events-delivery-mode"), "resume_then_tail");
+  assert.equal(resumed.headers?.get("x-session-events-head-event-count"), "3");
+  assert.equal(resumed.headers?.get("x-session-events-head-first-event-id"), first.json?.event?.id);
+  assert.equal(resumed.headers?.get("x-session-events-head-last-event-id"), third.json?.event?.id);
+  assert.equal(resumed.headers?.get("x-session-events-since-event-id"), first.json?.event?.id);
+  assert.equal(resumed.headers?.get("x-session-events-next-since-event-id"), third.json?.event?.id);
   assert.equal(resumed.json?.events?.length, 2);
   assert.equal(resumed.json?.events?.[0]?.id, second.json?.event?.id);
   assert.equal(resumed.json?.events?.[1]?.id, third.json?.event?.id);
+  const resumedRepeat = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_cursor_1/events?sinceEventId=${encodeURIComponent(String(first.json?.event?.id ?? ""))}`
+  });
+  assert.equal(resumedRepeat.statusCode, 200, resumedRepeat.body);
+  assert.equal(resumedRepeat.headers?.get("x-session-events-ordering"), resumed.headers?.get("x-session-events-ordering"));
+  assert.equal(resumedRepeat.headers?.get("x-session-events-head-event-count"), resumed.headers?.get("x-session-events-head-event-count"));
+  assert.equal(resumedRepeat.headers?.get("x-session-events-head-last-event-id"), resumed.headers?.get("x-session-events-head-last-event-id"));
+  assert.equal(resumedRepeat.headers?.get("x-session-events-next-since-event-id"), resumed.headers?.get("x-session-events-next-since-event-id"));
+  assert.equal(resumedRepeat.json?.events?.length, resumed.json?.events?.length);
+  assert.equal(resumedRepeat.json?.events?.[0]?.id, resumed.json?.events?.[0]?.id);
+  assert.equal(resumedRepeat.json?.events?.[1]?.id, resumed.json?.events?.[1]?.id);
 
   const resumedOffset = await request(api, {
     method: "GET",
     path: `/sessions/sess_cursor_1/events?sinceEventId=${encodeURIComponent(String(first.json?.event?.id ?? ""))}&limit=1&offset=1`
   });
   assert.equal(resumedOffset.statusCode, 200, resumedOffset.body);
+  assert.equal(resumedOffset.headers?.get("x-session-events-ordering"), "SESSION_SEQ_ASC");
+  assert.equal(resumedOffset.headers?.get("x-session-events-head-event-count"), "3");
+  assert.equal(resumedOffset.headers?.get("x-session-events-next-since-event-id"), third.json?.event?.id);
   assert.equal(resumedOffset.json?.events?.length, 1);
   assert.equal(resumedOffset.json?.events?.[0]?.id, third.json?.event?.id);
 
@@ -351,6 +373,9 @@ test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cur
     path: `/sessions/sess_cursor_1/events?eventType=task_completed&sinceEventId=${encodeURIComponent(String(first.json?.event?.id ?? ""))}`
   });
   assert.equal(resumedFiltered.statusCode, 200, resumedFiltered.body);
+  assert.equal(resumedFiltered.headers?.get("x-session-events-ordering"), "SESSION_SEQ_ASC");
+  assert.equal(resumedFiltered.headers?.get("x-session-events-head-event-count"), "3");
+  assert.equal(resumedFiltered.headers?.get("x-session-events-next-since-event-id"), third.json?.event?.id);
   assert.equal(resumedFiltered.json?.events?.length, 1);
   assert.equal(resumedFiltered.json?.events?.[0]?.id, third.json?.event?.id);
 

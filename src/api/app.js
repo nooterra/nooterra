@@ -8467,6 +8467,41 @@ export function createApi({
     );
   }
 
+  function normalizeSessionInboxEventId(value) {
+    if (value === null || value === undefined) return null;
+    const normalized = String(value).trim();
+    return normalized !== "" ? normalized : null;
+  }
+
+  function buildSessionEventInboxWatermark({ events, sinceEventId = null, nextSinceEventId = null } = {}) {
+    const range = summarizeSessionEventCursorRange(events);
+    return normalizeForCanonicalJson(
+      {
+        ordering: "SESSION_SEQ_ASC",
+        deliveryMode: "resume_then_tail",
+        sinceEventId: normalizeSessionInboxEventId(sinceEventId),
+        nextSinceEventId: normalizeSessionInboxEventId(nextSinceEventId),
+        headEventCount: Number(range.eventCount ?? 0),
+        headFirstEventId: range.firstEventId ?? null,
+        headLastEventId: range.lastEventId ?? null
+      },
+      { path: "$.inbox" }
+    );
+  }
+
+  function writeSessionEventInboxHeaders(res, watermark) {
+    if (!res || typeof res.setHeader !== "function") return;
+    const inbox = watermark && typeof watermark === "object" && !Array.isArray(watermark) ? watermark : {};
+    const headEventCount = Number(inbox.headEventCount ?? 0);
+    res.setHeader("x-session-events-ordering", String(inbox.ordering ?? "SESSION_SEQ_ASC"));
+    res.setHeader("x-session-events-delivery-mode", String(inbox.deliveryMode ?? "resume_then_tail"));
+    res.setHeader("x-session-events-head-event-count", Number.isFinite(headEventCount) && headEventCount >= 0 ? String(Math.floor(headEventCount)) : "0");
+    res.setHeader("x-session-events-head-first-event-id", String(inbox.headFirstEventId ?? ""));
+    res.setHeader("x-session-events-head-last-event-id", String(inbox.headLastEventId ?? ""));
+    res.setHeader("x-session-events-since-event-id", String(inbox.sinceEventId ?? ""));
+    res.setHeader("x-session-events-next-since-event-id", String(inbox.nextSinceEventId ?? ""));
+  }
+
   function normalizeSessionEventAppendConflictHash(value) {
     if (value === null || value === undefined) return null;
     const normalized = String(value).trim();
@@ -48693,6 +48728,11 @@ export function createApi({
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
           let currentEvents = await getSessionEventRecords({ tenantId, sessionId });
           if (!Array.isArray(currentEvents)) currentEvents = [];
+          const readyInbox = buildSessionEventInboxWatermark({
+            events: currentEvents,
+            sinceEventId,
+            nextSinceEventId: sinceEventId
+          });
           let cursorIndex = -1;
           if (sinceEventId) {
             cursorIndex = currentEvents.findIndex((row) => String(row?.id ?? "") === sinceEventId);
@@ -48712,6 +48752,7 @@ export function createApi({
             }
           }
 
+          writeSessionEventInboxHeaders(res, readyInbox);
           res.writeHead(200, {
             "content-type": "text/event-stream; charset=utf-8",
             "cache-control": "no-cache, no-transform",
@@ -48742,7 +48783,8 @@ export function createApi({
               sessionId,
               eventType: eventType ?? null,
               sinceEventId,
-              eventCount: currentEvents.length
+              eventCount: currentEvents.length,
+              inbox: readyInbox
             }
           });
 
@@ -48862,10 +48904,11 @@ export function createApi({
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
           let events = await getSessionEventRecords({ tenantId, sessionId });
           if (!Array.isArray(events)) events = [];
-          const currentPrevChainHash = getCurrentPrevChainHash(events);
+          const allEvents = events;
+          const currentPrevChainHash = getCurrentPrevChainHash(allEvents);
           let cursorIndex = -1;
           if (sinceEventId) {
-            cursorIndex = events.findIndex((row) => String(row?.id ?? "") === sinceEventId);
+            cursorIndex = allEvents.findIndex((row) => String(row?.id ?? "") === sinceEventId);
             if (cursorIndex < 0) {
               return sendError(
                 res,
@@ -48880,12 +48923,22 @@ export function createApi({
                 { code: "SESSION_EVENT_CURSOR_INVALID" }
               );
             }
-            events = events.slice(cursorIndex + 1);
+            events = allEvents.slice(cursorIndex + 1);
           }
           if (eventType) {
             events = events.filter((row) => String(row?.type ?? "").toUpperCase() === eventType);
           }
           const paged = events.slice(offset, offset + limit);
+          const nextSinceEventId =
+            paged.length > 0
+              ? normalizeSessionInboxEventId(paged[paged.length - 1]?.id ?? null)
+              : normalizeSessionInboxEventId(sinceEventId);
+          const listInbox = buildSessionEventInboxWatermark({
+            events: allEvents,
+            sinceEventId,
+            nextSinceEventId
+          });
+          writeSessionEventInboxHeaders(res, listInbox);
           return sendJson(res, 200, {
             ok: true,
             sessionId,

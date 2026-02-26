@@ -53,10 +53,24 @@ Server-side append computes provenance with chain-aware taint propagation and de
 - append is idempotent when idempotency keys are reused with identical request hash.
 - idempotency replay must survive multi-writer retries; stale head retries with matching idempotency key return the original response.
 - append conflicts fail closed with deterministic details: `reasonCode=SESSION_EVENT_APPEND_CONFLICT`, `phase`, `expectedPrevChainHash`, `gotExpectedPrevChainHash`/`gotPrevChainHash`, and stream range metadata (`eventCount`, `firstEventId`, `lastEventId`).
+- inbox ordering is deterministic (`SESSION_SEQ_ASC`) across list and stream surfaces.
+- inbox resume watermarks are explicit for offline clients (`headEventCount`, `headFirstEventId`, `headLastEventId`, `sinceEventId`, `nextSinceEventId`).
 - list cursor (`sinceEventId`) must resolve to an existing event id, else fail closed.
 - stream cursor (`sinceEventId` or `Last-Event-ID`) must resolve to an existing event id, else fail closed.
 - stream cursor source must be unambiguous: when both `sinceEventId` and `Last-Event-ID` are provided, they must match.
 - cursor failures expose deterministic gap metadata in `details`: `reasonCode=SESSION_EVENT_CURSOR_NOT_FOUND`, `eventCount`, `firstEventId`, `lastEventId`, and `phase`.
+
+## Inbox watermark headers
+
+- `x-session-events-ordering`
+- `x-session-events-delivery-mode`
+- `x-session-events-head-event-count`
+- `x-session-events-head-first-event-id`
+- `x-session-events-head-last-event-id`
+- `x-session-events-since-event-id`
+- `x-session-events-next-since-event-id`
+
+`GET /sessions/:sessionId/events/stream` also includes the same watermark fields in the `session.ready` payload under `inbox`.
 
 ## API surface
 

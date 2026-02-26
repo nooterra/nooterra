@@ -114,6 +114,13 @@ test("API e2e: /sessions/:id/events/stream supports ready + Last-Event-ID resume
   });
   assert.equal(streamResponse.status, 200);
   assert.match(String(streamResponse.headers.get("content-type") ?? ""), /text\/event-stream/i);
+  assert.equal(streamResponse.headers.get("x-session-events-ordering"), "SESSION_SEQ_ASC");
+  assert.equal(streamResponse.headers.get("x-session-events-delivery-mode"), "resume_then_tail");
+  assert.equal(streamResponse.headers.get("x-session-events-head-event-count"), "1");
+  assert.equal(streamResponse.headers.get("x-session-events-head-first-event-id"), firstAppend.json?.event?.id);
+  assert.equal(streamResponse.headers.get("x-session-events-head-last-event-id"), firstAppend.json?.event?.id);
+  assert.equal(streamResponse.headers.get("x-session-events-since-event-id"), firstAppend.json?.event?.id);
+  assert.equal(streamResponse.headers.get("x-session-events-next-since-event-id"), firstAppend.json?.event?.id);
   assert.ok(streamResponse.body);
 
   const reader = streamResponse.body.getReader();
@@ -125,6 +132,13 @@ test("API e2e: /sessions/:id/events/stream supports ready + Last-Event-ID resume
   assert.equal(readyPayload.ok, true);
   assert.equal(readyPayload.sessionId, "sess_stream_1");
   assert.equal(readyPayload.sinceEventId, firstAppend.json?.event?.id);
+  assert.equal(readyPayload.inbox?.ordering, "SESSION_SEQ_ASC");
+  assert.equal(readyPayload.inbox?.deliveryMode, "resume_then_tail");
+  assert.equal(readyPayload.inbox?.headEventCount, 1);
+  assert.equal(readyPayload.inbox?.headFirstEventId, firstAppend.json?.event?.id);
+  assert.equal(readyPayload.inbox?.headLastEventId, firstAppend.json?.event?.id);
+  assert.equal(readyPayload.inbox?.sinceEventId, firstAppend.json?.event?.id);
+  assert.equal(readyPayload.inbox?.nextSinceEventId, firstAppend.json?.event?.id);
 
   const secondAppend = await request(api, {
     method: "POST",
