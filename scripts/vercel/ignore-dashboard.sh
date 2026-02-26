@@ -5,7 +5,8 @@ set -euo pipefail
 # - exit 0 => skip deployment
 # - exit 1 => continue with deployment
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 cd "$REPO_ROOT"
 
 if ! git rev-parse --verify HEAD^ >/dev/null 2>&1; then

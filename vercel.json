@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "installCommand": "bash scripts/vercel/install-mkdocs.sh",
-  "buildCommand": "bash scripts/vercel/build-mkdocs.sh",
-  "ignoreCommand": "bash scripts/vercel/ignore-mkdocs.sh",
+  "installCommand": "bash \"$(git rev-parse --show-toplevel)/scripts/vercel/install-mkdocs.sh\"",
+  "buildCommand": "bash \"$(git rev-parse --show-toplevel)/scripts/vercel/build-mkdocs.sh\"",
+  "ignoreCommand": "bash \"$(git rev-parse --show-toplevel)/scripts/vercel/ignore-mkdocs.sh\"",
   "outputDirectory": "mkdocs/site"
 }
