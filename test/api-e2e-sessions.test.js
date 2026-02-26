@@ -351,6 +351,11 @@ test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cur
   });
   assert.equal(missingCursor.statusCode, 409, missingCursor.body);
   assert.equal(missingCursor.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(missingCursor.json?.details?.reasonCode, "SESSION_EVENT_CURSOR_NOT_FOUND");
+  assert.equal(missingCursor.json?.details?.phase, "list");
+  assert.equal(missingCursor.json?.details?.eventCount, 3);
+  assert.equal(missingCursor.json?.details?.firstEventId, first.json?.event?.id);
+  assert.equal(missingCursor.json?.details?.lastEventId, third.json?.event?.id);
 
   const invalidCursor = await request(api, {
     method: "GET",

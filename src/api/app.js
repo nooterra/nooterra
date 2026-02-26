@@ -8435,6 +8435,38 @@ export function createApi({
     return value;
   }
 
+  function summarizeSessionEventCursorRange(events) {
+    const rows = Array.isArray(events) ? events : [];
+    const firstEventId =
+      rows.length > 0 && typeof rows[0]?.id === "string" && rows[0].id.trim() !== "" ? rows[0].id.trim() : null;
+    const lastEventId =
+      rows.length > 0 && typeof rows[rows.length - 1]?.id === "string" && rows[rows.length - 1].id.trim() !== ""
+        ? rows[rows.length - 1].id.trim()
+        : null;
+    return {
+      eventCount: rows.length,
+      firstEventId,
+      lastEventId
+    };
+  }
+
+  function buildSessionEventCursorNotFoundDetails({ sessionId, sinceEventId, events, phase = "unknown" } = {}) {
+    const normalizedSessionId = typeof sessionId === "string" && sessionId.trim() !== "" ? sessionId.trim() : null;
+    const normalizedSinceEventId =
+      typeof sinceEventId === "string" && sinceEventId.trim() !== "" ? sinceEventId.trim() : null;
+    return normalizeForCanonicalJson(
+      {
+        sessionId: normalizedSessionId,
+        sinceEventId: normalizedSinceEventId,
+        phase,
+        reasonCode: "SESSION_EVENT_CURSOR_NOT_FOUND",
+        reason: "cursor was not found in current session event timeline",
+        ...summarizeSessionEventCursorRange(events)
+      },
+      { path: "$.details" }
+    );
+  }
+
   function parseAuditLineageFilter(rawValue, { name, max = 256, allowNull = true } = {}) {
     if (rawValue === null || rawValue === undefined) {
       if (allowNull) return null;
@@ -48639,7 +48671,12 @@ export function createApi({
                 res,
                 409,
                 "invalid session event cursor",
-                { sessionId, sinceEventId },
+                buildSessionEventCursorNotFoundDetails({
+                  sessionId,
+                  sinceEventId,
+                  events: currentEvents,
+                  phase: "stream_init"
+                }),
                 { code: "SESSION_EVENT_CURSOR_INVALID" }
               );
             }
@@ -48725,12 +48762,20 @@ export function createApi({
             if (sinceEventId && lastResolvedCursor < 0) {
               lastResolvedCursor = events.findIndex((row) => String(row?.id ?? "") === sinceEventId);
               if (lastResolvedCursor < 0) {
+                const details = buildSessionEventCursorNotFoundDetails({
+                  sessionId,
+                  sinceEventId,
+                  events,
+                  phase: "stream_poll"
+                });
                 writeSseEvent({
                   eventName: "session.error",
                   data: {
                     ok: false,
                     code: "SESSION_EVENT_CURSOR_INVALID",
-                    message: "session event cursor not found"
+                    message: "session event cursor not found",
+                    reasonCode: details.reasonCode,
+                    details
                   }
                 });
                 return closeStream();
@@ -48796,7 +48841,12 @@ export function createApi({
                 res,
                 409,
                 "invalid session event cursor",
-                { sessionId, sinceEventId },
+                buildSessionEventCursorNotFoundDetails({
+                  sessionId,
+                  sinceEventId,
+                  events,
+                  phase: "list"
+                }),
                 { code: "SESSION_EVENT_CURSOR_INVALID" }
               );
             }

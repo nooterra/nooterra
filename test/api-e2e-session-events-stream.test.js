@@ -194,6 +194,11 @@ test("API e2e: /sessions/:id/events/stream fails closed on invalid cursor", asyn
   const body = await res.json();
   assert.equal(res.status, 409);
   assert.equal(body.code, "SESSION_EVENT_CURSOR_INVALID");
+  assert.equal(body.details?.reasonCode, "SESSION_EVENT_CURSOR_NOT_FOUND");
+  assert.equal(body.details?.phase, "stream_init");
+  assert.equal(body.details?.eventCount, 0);
+  assert.equal(body.details?.firstEventId, null);
+  assert.equal(body.details?.lastEventId, null);
 });
 
 test("API e2e: /sessions/:id/events/stream fails closed on conflicting cursor sources", async (t) => {

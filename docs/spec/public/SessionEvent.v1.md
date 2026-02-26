@@ -54,6 +54,7 @@ Server-side append computes provenance with chain-aware taint propagation and de
 - list cursor (`sinceEventId`) must resolve to an existing event id, else fail closed.
 - stream cursor (`sinceEventId` or `Last-Event-ID`) must resolve to an existing event id, else fail closed.
 - stream cursor source must be unambiguous: when both `sinceEventId` and `Last-Event-ID` are provided, they must match.
+- cursor failures expose deterministic gap metadata in `details`: `reasonCode=SESSION_EVENT_CURSOR_NOT_FOUND`, `eventCount`, `firstEventId`, `lastEventId`, and `phase`.
 
 ## API surface
 
