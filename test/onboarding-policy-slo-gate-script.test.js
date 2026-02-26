@@ -12,7 +12,7 @@ import {
   resolveThresholds,
   runOnboardingPolicySloGate
 } from "../scripts/ci/run-onboarding-policy-slo-gate.mjs";
-import { collectOperationalSloSummary, parsePrometheusText } from "../scripts/slo/check.mjs";
+import { buildMetricsRequestHeaders, collectOperationalSloSummary, parsePrometheusText } from "../scripts/slo/check.mjs";
 
 test("onboarding policy slo gate parser: uses env defaults and supports overrides", () => {
   const cwd = "/tmp/nooterra";
@@ -97,6 +97,25 @@ test("operational slo collector: sums multi-series DLQ and delivery states fail-
   assert.equal(summary.deliveryDlq, 5);
   assert.equal(summary.deliveriesPending, 9);
   assert.equal(summary.deliveriesFailed, 13);
+});
+
+test("operational slo check: metrics auth headers are explicit and trimmed", () => {
+  const headers = buildMetricsRequestHeaders({
+    SLO_METRICS_OPS_TOKEN: " dev ",
+    SLO_METRICS_TENANT_ID: " tenant_default ",
+    SLO_METRICS_PROTOCOL: " 1.0 "
+  });
+  assert.deepEqual(headers, {
+    "x-proxy-ops-token": "dev",
+    "x-proxy-tenant-id": "tenant_default",
+    "x-nooterra-protocol": "1.0"
+  });
+  const noHeaders = buildMetricsRequestHeaders({
+    SLO_METRICS_OPS_TOKEN: "   ",
+    SLO_METRICS_TENANT_ID: "",
+    SLO_METRICS_PROTOCOL: null
+  });
+  assert.deepEqual(noHeaders, {});
 });
 
 test("onboarding policy slo gate runner: emits per-host rows and fails closed on missing host metrics", async (t) => {

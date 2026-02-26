@@ -240,7 +240,8 @@ jobs:
           trap 'kill ${PF_PID} || true' EXIT
           SMOKE_API_BASE_URL="http://127.0.0.1:${PORT}" SMOKE_TENANT_ID="tenant_default" SMOKE_OPS_TOKEN="dev" SMOKE_PROTOCOL="1.0" \
             node scripts/smoke/k8s-smoke.mjs
-          SLO_API_BASE_URL="http://127.0.0.1:${PORT}" node scripts/slo/check.mjs
+          SLO_API_BASE_URL="http://127.0.0.1:${PORT}" SLO_METRICS_OPS_TOKEN="dev" SLO_METRICS_TENANT_ID="tenant_default" SLO_METRICS_PROTOCOL="1.0" \
+            node scripts/slo/check.mjs
           kill "${PF_PID}" || true
           trap - EXIT
 
