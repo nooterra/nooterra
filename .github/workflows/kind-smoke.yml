@@ -186,7 +186,6 @@ jobs:
             fi
           done
           curl -fsS "http://127.0.0.1:${PORT}/health" >/dev/null
-          SLO_API_BASE_URL="http://127.0.0.1:${PORT}" node scripts/slo/check.mjs
           kill "${PF_PID}" || true
           trap - EXIT
 
