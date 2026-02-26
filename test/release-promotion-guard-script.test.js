@@ -76,6 +76,46 @@ async function writeRequiredArtifacts(
     productionChecks.push({ id: "mcp_host_runtime_smoke", status: "passed" });
   }
 
+  const requiredCutoverCheckIds = [
+    "settld_verified_collaboration",
+    "openclaw_substrate_demo_lineage_verified",
+    "openclaw_substrate_demo_transcript_verified",
+    "sdk_acs_smoke_js_verified",
+    "sdk_acs_smoke_py_verified"
+  ];
+  const productionStatusById = new Map(
+    productionChecks
+      .map((row) => {
+        const id = typeof row?.id === "string" ? row.id.trim() : "";
+        const status = typeof row?.status === "string" ? row.status.trim() : "";
+        return id && status ? [id, status] : null;
+      })
+      .filter(Boolean)
+  );
+  const requiredCutoverChecks = requiredCutoverCheckIds.map((id) => {
+    const status = productionStatusById.get(id) === "passed" ? "passed" : "failed";
+    return {
+      id,
+      status,
+      ok: status === "passed",
+      source: {
+        type: id === "settld_verified_collaboration" ? "report_verdict" : "collaboration_check",
+        reportPath: collabReportRelPath,
+        reportSchemaVersion: "SettldVerifiedGateReport.v1",
+        sourceCheckId:
+          id === "openclaw_substrate_demo_lineage_verified"
+            ? "openclaw_substrate_demo_lineage_verified"
+            : id === "openclaw_substrate_demo_transcript_verified"
+              ? "openclaw_substrate_demo_transcript_verified"
+              : id === "sdk_acs_smoke_js_verified"
+                ? "e2e_js_sdk_acs_substrate_smoke"
+                : id === "sdk_acs_smoke_py_verified"
+                  ? "e2e_python_sdk_acs_substrate_smoke"
+                  : null
+      }
+    };
+  });
+
   await writeJson(root, "artifacts/gates/production-cutover-gate.json", {
     schemaVersion: "ProductionCutoverGateReport.v1",
     verdict: {
@@ -102,6 +142,18 @@ async function writeRequiredArtifacts(
     sources: {
       settldVerifiedCollaborationGateReportPath: collabReportRelPath,
       settldVerifiedCollaborationGateReportSha256: collabReportSha256
+    },
+    requiredCutoverChecks: {
+      schemaVersion: "ProductionCutoverRequiredChecksSummary.v1",
+      sourceReportPath: collabReportRelPath,
+      sourceReportSchemaVersion: "SettldVerifiedGateReport.v1",
+      sourceReportOk: true,
+      checks: requiredCutoverChecks,
+      summary: {
+        requiredChecks: requiredCutoverChecks.length,
+        passedChecks: requiredCutoverChecks.filter((row) => row.ok === true).length,
+        failedChecks: requiredCutoverChecks.filter((row) => row.ok !== true).length
+      }
     },
     verdict: { ok: true, requiredChecks: 1, passedChecks: 1 }
   });
@@ -392,6 +444,39 @@ test("release promotion guard: fails closed when launch packet collaboration has
     : null;
   assert.ok(bindingCheck);
   assert.equal(bindingCheck.ok, false);
+});
+
+test("release promotion guard: fails closed when launch packet required cutover summary drifts from production gate", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-guard-required-summary-mismatch-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  await writeRequiredArtifacts(tmpRoot, { productionGateOk: true, includeProductionRequiredCheck: true });
+  const launchPacketPath = path.join(tmpRoot, "artifacts/gates/s13-launch-cutover-packet.json");
+  const launchPacket = JSON.parse(await fs.readFile(launchPacketPath, "utf8"));
+  launchPacket.requiredCutoverChecks.checks = launchPacket.requiredCutoverChecks.checks.map((row) =>
+    row.id === "sdk_acs_smoke_js_verified"
+      ? { ...row, status: "failed", ok: false }
+      : row
+  );
+  launchPacket.requiredCutoverChecks.summary = {
+    requiredChecks: 5,
+    passedChecks: 4,
+    failedChecks: 1
+  };
+  await fs.writeFile(launchPacketPath, JSON.stringify(launchPacket, null, 2) + "\n", "utf8");
+
+  const env = {
+    RELEASE_PROMOTION_GUARD_NOW: "2026-02-21T18:00:00.000Z"
+  };
+  const { report } = await runReleasePromotionGuard(parseArgs([], env, tmpRoot), env, tmpRoot);
+  assert.equal(report.verdict.ok, false);
+  assert.equal(report.verdict.status, "fail");
+  const launchPacketArtifact = report.artifacts.find((row) => row.id === "launch_cutover_packet");
+  assert.ok(launchPacketArtifact);
+  assert.equal(launchPacketArtifact.status, "failed");
+  assert.equal(launchPacketArtifact.failureCodes.includes("launch_packet_required_cutover_check_status_mismatch"), true);
 });
 
 test("release promotion guard: accepts valid Ed25519 signed override for blocking artifacts", async (t) => {

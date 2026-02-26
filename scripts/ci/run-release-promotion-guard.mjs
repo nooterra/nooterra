@@ -21,6 +21,7 @@ const PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID = "openclaw_substrate_demo_lineage_ve
 const PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID = "openclaw_substrate_demo_transcript_verified";
 const PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID = "sdk_acs_smoke_js_verified";
 const PRODUCTION_SDK_ACS_SMOKE_PY_CHECK_ID = "sdk_acs_smoke_py_verified";
+const LAUNCH_REQUIRED_CUTOVER_CHECKS_SUMMARY_SCHEMA_VERSION = "ProductionCutoverRequiredChecksSummary.v1";
 const REQUIRED_PRODUCTION_CUTOVER_CHECK_IDS = Object.freeze([
   PRODUCTION_COLLAB_CHECK_ID,
   PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID,
@@ -131,6 +132,13 @@ function normalizeSha256Hex(raw) {
   const value = raw.trim().toLowerCase();
   if (!/^[a-f0-9]{64}$/.test(value)) return null;
   return value;
+}
+
+function normalizeCheckStatus(raw) {
+  const value = normalizeOptionalString(raw);
+  if (!value) return null;
+  if (value === "passed" || value === "failed") return value;
+  return null;
 }
 
 function cmpString(a, b) {
@@ -479,6 +487,8 @@ async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })
     return result;
   }
   const launchJson = launchLoaded.json;
+  const launchRequiredCutover = launchJson?.requiredCutoverChecks;
+  let launchRequiredStatusById = null;
   const boundPathRaw = normalizeOptionalString(launchJson?.sources?.settldVerifiedCollaborationGateReportPath);
   const boundSha256 = normalizeSha256Hex(launchJson?.sources?.settldVerifiedCollaborationGateReportSha256);
   const boundPath = boundPathRaw ? path.resolve(cwd, boundPathRaw) : null;
@@ -492,6 +502,107 @@ async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })
   if (!boundSha256) {
     markArtifactFailed(launchArtifact, "binding_source_sha_missing", "launch packet missing Settld Verified collaboration binding hash");
     result.failureCodes.push("binding_source_sha_missing");
+  }
+
+  if (!launchRequiredCutover || typeof launchRequiredCutover !== "object") {
+    markArtifactFailed(
+      launchArtifact,
+      "launch_packet_required_cutover_checks_missing",
+      "launch packet missing requiredCutoverChecks summary"
+    );
+    result.failureCodes.push("launch_packet_required_cutover_checks_missing");
+  } else {
+    const summarySchemaVersion = normalizeOptionalString(launchRequiredCutover?.schemaVersion);
+    if (summarySchemaVersion !== LAUNCH_REQUIRED_CUTOVER_CHECKS_SUMMARY_SCHEMA_VERSION) {
+      markArtifactFailed(
+        launchArtifact,
+        "launch_packet_required_cutover_checks_schema_mismatch",
+        "launch packet requiredCutoverChecks schema mismatch"
+      );
+      result.failureCodes.push("launch_packet_required_cutover_checks_schema_mismatch");
+    }
+
+    const summarySourcePathRaw = normalizeOptionalString(launchRequiredCutover?.sourceReportPath);
+    if (!summarySourcePathRaw) {
+      markArtifactFailed(
+        launchArtifact,
+        "launch_packet_required_cutover_checks_source_path_missing",
+        "launch packet requiredCutoverChecks sourceReportPath missing"
+      );
+      result.failureCodes.push("launch_packet_required_cutover_checks_source_path_missing");
+    } else if (boundPathRaw && summarySourcePathRaw !== boundPathRaw) {
+      markArtifactFailed(
+        launchArtifact,
+        "launch_packet_required_cutover_checks_source_path_mismatch",
+        "launch packet requiredCutoverChecks sourceReportPath does not match launch binding source path"
+      );
+      result.failureCodes.push("launch_packet_required_cutover_checks_source_path_mismatch");
+    }
+
+    const summaryRows = Array.isArray(launchRequiredCutover?.checks) ? launchRequiredCutover.checks : null;
+    if (!summaryRows) {
+      markArtifactFailed(
+        launchArtifact,
+        "launch_packet_required_cutover_checks_rows_missing",
+        "launch packet requiredCutoverChecks.checks must be an array"
+      );
+      result.failureCodes.push("launch_packet_required_cutover_checks_rows_missing");
+    } else {
+      launchRequiredStatusById = new Map();
+      for (const row of summaryRows) {
+        const id = normalizeOptionalString(row?.id);
+        const status = normalizeCheckStatus(row?.status);
+        if (!id || !status) {
+          markArtifactFailed(
+            launchArtifact,
+            "launch_packet_required_cutover_checks_row_invalid",
+            "launch packet requiredCutoverChecks row is missing id/status"
+          );
+          result.failureCodes.push("launch_packet_required_cutover_checks_row_invalid");
+          continue;
+        }
+        if (launchRequiredStatusById.has(id)) {
+          markArtifactFailed(
+            launchArtifact,
+            "launch_packet_required_cutover_checks_row_duplicate",
+            "launch packet requiredCutoverChecks contains duplicate check ids"
+          );
+          result.failureCodes.push("launch_packet_required_cutover_checks_row_duplicate");
+          continue;
+        }
+        launchRequiredStatusById.set(id, status);
+      }
+
+      for (const requiredId of REQUIRED_PRODUCTION_CUTOVER_CHECK_IDS) {
+        if (!launchRequiredStatusById.has(requiredId)) {
+          markArtifactFailed(
+            launchArtifact,
+            "launch_packet_required_cutover_check_missing",
+            `launch packet requiredCutoverChecks missing required check id: ${requiredId}`
+          );
+          result.failureCodes.push("launch_packet_required_cutover_check_missing");
+        }
+      }
+
+      const summary = launchRequiredCutover?.summary ?? {};
+      const requiredChecks = Number.isInteger(summary?.requiredChecks) ? summary.requiredChecks : null;
+      const passedChecks = Number.isInteger(summary?.passedChecks) ? summary.passedChecks : null;
+      const failedChecks = Number.isInteger(summary?.failedChecks) ? summary.failedChecks : null;
+      const expectedRequiredChecks = REQUIRED_PRODUCTION_CUTOVER_CHECK_IDS.length;
+      const summaryCountsOk =
+        requiredChecks === expectedRequiredChecks &&
+        passedChecks !== null &&
+        failedChecks !== null &&
+        requiredChecks === passedChecks + failedChecks;
+      if (!summaryCountsOk) {
+        markArtifactFailed(
+          launchArtifact,
+          "launch_packet_required_cutover_summary_inconsistent",
+          "launch packet requiredCutoverChecks summary counters are inconsistent"
+        );
+        result.failureCodes.push("launch_packet_required_cutover_summary_inconsistent");
+      }
+    }
   }
 
   let collabLoaded = null;
@@ -611,6 +722,32 @@ async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })
           "production cutover gate SDK Python ACS smoke verification check is not passed"
         );
         result.failureCodes.push("production_gate_sdk_py_smoke_check_not_passed");
+      }
+
+      if (launchRequiredStatusById instanceof Map) {
+        const statusMismatches = [];
+        for (const requiredId of REQUIRED_PRODUCTION_CUTOVER_CHECK_IDS) {
+          const launchStatus = normalizeCheckStatus(launchRequiredStatusById.get(requiredId));
+          const productionRow = checks.find((row) => normalizeOptionalString(row?.id) === requiredId) ?? null;
+          const productionStatus = normalizeCheckStatus(productionRow?.status);
+          if (!launchStatus || !productionStatus) continue;
+          if (launchStatus !== productionStatus) {
+            statusMismatches.push({
+              id: requiredId,
+              launchStatus,
+              productionStatus
+            });
+          }
+        }
+        if (statusMismatches.length > 0) {
+          markArtifactFailed(
+            launchArtifact,
+            "launch_packet_required_cutover_check_status_mismatch",
+            "launch packet requiredCutoverChecks statuses do not match production cutover gate statuses"
+          );
+          result.failureCodes.push("launch_packet_required_cutover_check_status_mismatch");
+          result.details.requiredCutoverStatusMismatches = statusMismatches.sort((a, b) => cmpString(a.id, b.id));
+        }
       }
     }
   }

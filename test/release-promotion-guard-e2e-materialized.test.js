@@ -72,6 +72,63 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
       }
     ]
   });
+  const requiredCutoverChecks = [
+    {
+      id: "settld_verified_collaboration",
+      status: "passed",
+      ok: true,
+      source: {
+        type: "report_verdict",
+        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
+        reportSchemaVersion: "SettldVerifiedGateReport.v1",
+        sourceCheckId: null
+      }
+    },
+    {
+      id: "openclaw_substrate_demo_lineage_verified",
+      status: "passed",
+      ok: true,
+      source: {
+        type: "collaboration_check",
+        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
+        reportSchemaVersion: "SettldVerifiedGateReport.v1",
+        sourceCheckId: "openclaw_substrate_demo_lineage_verified"
+      }
+    },
+    {
+      id: "openclaw_substrate_demo_transcript_verified",
+      status: "passed",
+      ok: true,
+      source: {
+        type: "collaboration_check",
+        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
+        reportSchemaVersion: "SettldVerifiedGateReport.v1",
+        sourceCheckId: "openclaw_substrate_demo_transcript_verified"
+      }
+    },
+    {
+      id: "sdk_acs_smoke_js_verified",
+      status: "passed",
+      ok: true,
+      source: {
+        type: "collaboration_check",
+        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
+        reportSchemaVersion: "SettldVerifiedGateReport.v1",
+        sourceCheckId: "e2e_js_sdk_acs_substrate_smoke"
+      }
+    },
+    {
+      id: "sdk_acs_smoke_py_verified",
+      status: "passed",
+      ok: true,
+      source: {
+        type: "collaboration_check",
+        reportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
+        reportSchemaVersion: "SettldVerifiedGateReport.v1",
+        sourceCheckId: "e2e_python_sdk_acs_substrate_smoke"
+      }
+    }
+  ];
 
   await writeJson(path.join(testsRoot, "parity", "offline-verification-parity-gate.json"), {
     schemaVersion: "OfflineVerificationParityGateReport.v1",
@@ -104,6 +161,18 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
     sources: {
       settldVerifiedCollaborationGateReportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
       settldVerifiedCollaborationGateReportSha256: collabGateSha256
+    },
+    requiredCutoverChecks: {
+      schemaVersion: "ProductionCutoverRequiredChecksSummary.v1",
+      sourceReportPath: "artifacts/gates/settld-verified-collaboration-gate.json",
+      sourceReportSchemaVersion: "SettldVerifiedGateReport.v1",
+      sourceReportOk: true,
+      checks: requiredCutoverChecks,
+      summary: {
+        requiredChecks: requiredCutoverChecks.length,
+        passedChecks: requiredCutoverChecks.length,
+        failedChecks: 0
+      }
     },
     verdict: { ok: true, requiredChecks: 1, passedChecks: 1 }
   });

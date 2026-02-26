@@ -176,6 +176,7 @@ Promotion guard order (fail-closed):
 3. Launch cutover packet must bind `sources.settldVerifiedCollaborationGateReportSha256` to the exact hash of
    `sources.settldVerifiedCollaborationGateReportPath`.
    - Packet must include `requiredCutoverChecks` (`ProductionCutoverRequiredChecksSummary.v1`) with pass/fail status for the 5 required production cutover checks.
+   - NOO-65 promotion guard must verify `requiredCutoverChecks` status parity against `production-cutover-gate` required check statuses and fail-closed on mismatch.
 4. NOO-65 promotion guard validates the launch-packet-to-collaboration binding and fail-closes on mismatch.
 5. Release workflow binds all required gate artifacts (kernel, production cutover, NOO-50 parity, onboarding host success, S13 go-live, S13 launch packet, hosted baseline evidence) into NOO-65.
    - Production cutover must include `settld_verified_collaboration`, `openclaw_substrate_demo_lineage_verified`, `openclaw_substrate_demo_transcript_verified`, `sdk_acs_smoke_js_verified`, and `sdk_acs_smoke_py_verified` as passed checks.
