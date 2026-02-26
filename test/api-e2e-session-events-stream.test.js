@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import http from "node:http";
 
 import { createApi } from "../src/api/app.js";
+import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
+import { verifySessionReplayPackV1 } from "../src/core/session-replay-pack.js";
+import { verifySessionTranscriptV1 } from "../src/core/session-transcript.js";
 import { request } from "./api-test-harness.js";
 import { listenOnEphemeralLoopback } from "./lib/listen.js";
 
@@ -480,6 +483,212 @@ test("API e2e: /sessions/:id/events/stream reconnect chaos keeps resume cursor m
   assert.equal(listFromSeed.headers?.get("x-session-events-next-since-event-id"), resumeCursor);
   const listedCompletedIds = (listFromSeed.json?.events ?? []).map((row) => String(row?.id ?? ""));
   assert.deepEqual(listedCompletedIds, expectedDeliveredCompletedIds);
+});
+
+test("API e2e: stream reconnect churn preserves deterministic replay and transcript artifacts", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_stream_principal_6";
+  const sessionId = "sess_stream_6";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "stream_session_create_6" },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const firstAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_session_6_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "stream_task_6" }
+    }
+  });
+  assert.equal(firstAppend.statusCode, 201, firstAppend.body);
+
+  const replaySeed = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/replay-pack`
+  });
+  assert.equal(replaySeed.statusCode, 200, replaySeed.body);
+  const replaySeedHash = String(replaySeed.json?.replayPack?.packHash ?? "");
+  assert.match(replaySeedHash, /^[0-9a-f]{64}$/);
+
+  const transcriptSeed = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/transcript`
+  });
+  assert.equal(transcriptSeed.statusCode, 200, transcriptSeed.body);
+  const transcriptSeedHash = String(transcriptSeed.json?.transcript?.transcriptHash ?? "");
+  assert.match(transcriptSeedHash, /^[0-9a-f]{64}$/);
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const auth = api.__testAuthByTenant?.get?.("tenant_default") ?? null;
+  assert.ok(auth?.authorization, "test auth authorization is required");
+
+  const controllerA = new AbortController();
+  t.after(() => controllerA.abort());
+  const streamA = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/events/stream?eventType=task_completed`, {
+    signal: controllerA.signal,
+    headers: {
+      authorization: auth.authorization,
+      "x-proxy-tenant-id": "tenant_default",
+      "last-event-id": String(firstAppend.json?.event?.id ?? "")
+    }
+  });
+  assert.equal(streamA.status, 200);
+  assert.ok(streamA.body);
+  const readerA = createSseFrameReader(streamA.body);
+
+  const readyA = await readSseFrame(readerA, { timeoutMs: 8_000 });
+  assert.equal(readyA.event, "session.ready");
+
+  const secondAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_session_6_append_2",
+      "x-proxy-expected-prev-chain-hash": String(firstAppend.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      payload: { progressPct: 50 }
+    }
+  });
+  assert.equal(secondAppend.statusCode, 201, secondAppend.body);
+
+  const watermarkA = await readSseFrame(readerA, { timeoutMs: 8_000 });
+  assert.equal(watermarkA.event, "session.watermark");
+  assert.equal(watermarkA.id, secondAppend.json?.event?.id);
+  await closeSseStream(readerA, controllerA);
+
+  const controllerB = new AbortController();
+  t.after(() => controllerB.abort());
+  const streamB = await fetch(`http://127.0.0.1:${port}/sessions/${sessionId}/events/stream?eventType=task_completed`, {
+    signal: controllerB.signal,
+    headers: {
+      authorization: auth.authorization,
+      "x-proxy-tenant-id": "tenant_default",
+      "last-event-id": String(secondAppend.json?.event?.id ?? "")
+    }
+  });
+  assert.equal(streamB.status, 200);
+  assert.ok(streamB.body);
+  const readerB = createSseFrameReader(streamB.body);
+
+  const readyB = await readSseFrame(readerB, { timeoutMs: 8_000 });
+  assert.equal(readyB.event, "session.ready");
+
+  const thirdAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_session_6_append_3",
+      "x-proxy-expected-prev-chain-hash": String(secondAppend.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_COMPLETED",
+      payload: { outputRef: "artifact://stream/6" }
+    }
+  });
+  assert.equal(thirdAppend.statusCode, 201, thirdAppend.body);
+
+  const eventB = await readSseFrame(readerB, { timeoutMs: 8_000 });
+  assert.equal(eventB.event, "session.event");
+  assert.equal(eventB.id, thirdAppend.json?.event?.id);
+  await closeSseStream(readerB, controllerB);
+
+  const replayFinalA = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/replay-pack`
+  });
+  assert.equal(replayFinalA.statusCode, 200, replayFinalA.body);
+  const replayFinalB = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/replay-pack`
+  });
+  assert.equal(replayFinalB.statusCode, 200, replayFinalB.body);
+  assert.equal(replayFinalA.json?.replayPack?.eventCount, 3);
+  assert.equal(replayFinalA.json?.replayPack?.packHash, replayFinalB.json?.replayPack?.packHash);
+  assert.notEqual(replayFinalA.json?.replayPack?.packHash, replaySeedHash);
+  assert.equal(canonicalJsonStringify(replayFinalA.json?.replayPack), canonicalJsonStringify(replayFinalB.json?.replayPack));
+  const replayFinalIds = (replayFinalA.json?.replayPack?.events ?? []).map((row) => String(row?.id ?? ""));
+  assert.deepEqual(replayFinalIds, [
+    String(firstAppend.json?.event?.id ?? ""),
+    String(secondAppend.json?.event?.id ?? ""),
+    String(thirdAppend.json?.event?.id ?? "")
+  ]);
+
+  const replaySignedA = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/replay-pack?sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(replaySignedA.statusCode, 200, replaySignedA.body);
+  const replaySignedB = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/replay-pack?sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(replaySignedB.statusCode, 200, replaySignedB.body);
+  assert.equal(
+    replaySignedA.json?.replayPack?.signature?.signatureBase64,
+    replaySignedB.json?.replayPack?.signature?.signatureBase64
+  );
+  const replayVerify = verifySessionReplayPackV1({
+    replayPack: replaySignedA.json?.replayPack,
+    publicKeyPem: api.store.serverSigner.publicKeyPem
+  });
+  assert.equal(replayVerify.ok, true, replayVerify.error ?? replayVerify.code ?? "replay signature verify failed");
+
+  const transcriptFinalA = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/transcript`
+  });
+  assert.equal(transcriptFinalA.statusCode, 200, transcriptFinalA.body);
+  const transcriptFinalB = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/transcript`
+  });
+  assert.equal(transcriptFinalB.statusCode, 200, transcriptFinalB.body);
+  assert.equal(transcriptFinalA.json?.transcript?.eventCount, 3);
+  assert.equal(transcriptFinalA.json?.transcript?.transcriptHash, transcriptFinalB.json?.transcript?.transcriptHash);
+  assert.notEqual(transcriptFinalA.json?.transcript?.transcriptHash, transcriptSeedHash);
+  assert.equal(canonicalJsonStringify(transcriptFinalA.json?.transcript), canonicalJsonStringify(transcriptFinalB.json?.transcript));
+
+  const transcriptSignedA = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/transcript?sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(transcriptSignedA.statusCode, 200, transcriptSignedA.body);
+  const transcriptSignedB = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/transcript?sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(transcriptSignedB.statusCode, 200, transcriptSignedB.body);
+  assert.equal(
+    transcriptSignedA.json?.transcript?.signature?.signatureBase64,
+    transcriptSignedB.json?.transcript?.signature?.signatureBase64
+  );
+  const transcriptVerify = verifySessionTranscriptV1({
+    transcript: transcriptSignedA.json?.transcript,
+    publicKeyPem: api.store.serverSigner.publicKeyPem
+  });
+  assert.equal(transcriptVerify.ok, true, transcriptVerify.error ?? transcriptVerify.code ?? "transcript signature verify failed");
 });
 
 test("API e2e: /sessions/:id/events/stream fails closed on invalid cursor", async (t) => {
