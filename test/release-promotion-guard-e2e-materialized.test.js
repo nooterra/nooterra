@@ -47,7 +47,7 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
 
   await writeJson(path.join(testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 3, passedChecks: 3 },
+    verdict: { ok: true, requiredChecks: 5, passedChecks: 5 },
     checks: [
       {
         id: "settld_verified_collaboration",
@@ -60,6 +60,14 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
       },
       {
         id: "openclaw_substrate_demo_transcript_verified",
+        status: "passed"
+      },
+      {
+        id: "sdk_acs_smoke_js_verified",
+        status: "passed"
+      },
+      {
+        id: "sdk_acs_smoke_py_verified",
         status: "passed"
       }
     ]
@@ -304,7 +312,7 @@ test("release promotion guard e2e: production gate collaboration report path mis
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 3, passedChecks: 3 },
+    verdict: { ok: true, requiredChecks: 5, passedChecks: 5 },
     checks: [
       {
         id: "settld_verified_collaboration",
@@ -317,6 +325,14 @@ test("release promotion guard e2e: production gate collaboration report path mis
       },
       {
         id: "openclaw_substrate_demo_transcript_verified",
+        status: "passed"
+      },
+      {
+        id: "sdk_acs_smoke_js_verified",
+        status: "passed"
+      },
+      {
+        id: "sdk_acs_smoke_py_verified",
         status: "passed"
       }
     ]
@@ -418,7 +434,7 @@ test("release promotion guard e2e: production gate collaboration check not passe
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 3, passedChecks: 2 },
+    verdict: { ok: true, requiredChecks: 5, passedChecks: 4 },
     checks: [
       {
         id: "settld_verified_collaboration",
@@ -431,6 +447,14 @@ test("release promotion guard e2e: production gate collaboration check not passe
       },
       {
         id: "openclaw_substrate_demo_transcript_verified",
+        status: "passed"
+      },
+      {
+        id: "sdk_acs_smoke_js_verified",
+        status: "passed"
+      },
+      {
+        id: "sdk_acs_smoke_py_verified",
         status: "passed"
       }
     ]
@@ -532,7 +556,7 @@ test("release promotion guard e2e: production gate collaboration check missing f
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 3, passedChecks: 2 },
+    verdict: { ok: true, requiredChecks: 5, passedChecks: 4 },
     checks: [
       {
         id: "mcp_host_runtime_smoke",
@@ -544,6 +568,14 @@ test("release promotion guard e2e: production gate collaboration check missing f
       },
       {
         id: "openclaw_substrate_demo_transcript_verified",
+        status: "passed"
+      },
+      {
+        id: "sdk_acs_smoke_js_verified",
+        status: "passed"
+      },
+      {
+        id: "sdk_acs_smoke_py_verified",
         status: "passed"
       }
     ]

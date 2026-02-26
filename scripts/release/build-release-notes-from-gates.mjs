@@ -7,7 +7,9 @@ const SCHEMA_VERSION = "ReleaseNotesFromGates.v1";
 const REQUIRED_PRODUCTION_CHECK_IDS = Object.freeze([
   "settld_verified_collaboration",
   "openclaw_substrate_demo_lineage_verified",
-  "openclaw_substrate_demo_transcript_verified"
+  "openclaw_substrate_demo_transcript_verified",
+  "sdk_acs_smoke_js_verified",
+  "sdk_acs_smoke_py_verified"
 ]);
 
 function normalizeOptionalString(value) {
@@ -96,7 +98,7 @@ function pickRequiredCheck(requiredChecks, id) {
   return rows.find((row) => normalizeOptionalString(row?.id) === id) ?? null;
 }
 
-function buildMarkdown({ tag, version, promotionGuard, requiredChecks, collabCheck, lineageCheck, transcriptCheck }) {
+function buildMarkdown({ tag, version, promotionGuard, requiredChecks, collabCheck, lineageCheck, transcriptCheck, sdkJsCheck, sdkPyCheck }) {
   const lines = [
     "# Settld Release",
     "",
@@ -111,6 +113,8 @@ function buildMarkdown({ tag, version, promotionGuard, requiredChecks, collabChe
     `- settld_verified_collaboration: **${collabCheck?.ok === true ? "pass" : "fail"}**`,
     `- openclaw_substrate_demo_lineage_verified: **${lineageCheck?.ok === true ? "pass" : "fail"}**`,
     `- openclaw_substrate_demo_transcript_verified: **${transcriptCheck?.ok === true ? "pass" : "fail"}**`,
+    `- sdk_acs_smoke_js_verified: **${sdkJsCheck?.ok === true ? "pass" : "fail"}**`,
+    `- sdk_acs_smoke_py_verified: **${sdkPyCheck?.ok === true ? "pass" : "fail"}**`,
     "",
     "## Artifacts",
     "- `release-promotion-guard.json`",
@@ -130,6 +134,8 @@ export async function buildReleaseNotesFromGates(args) {
   const collabCheck = pickRequiredCheck(requiredChecks, "settld_verified_collaboration");
   const lineageCheck = pickRequiredCheck(requiredChecks, "openclaw_substrate_demo_lineage_verified");
   const transcriptCheck = pickRequiredCheck(requiredChecks, "openclaw_substrate_demo_transcript_verified");
+  const sdkJsCheck = pickRequiredCheck(requiredChecks, "sdk_acs_smoke_js_verified");
+  const sdkPyCheck = pickRequiredCheck(requiredChecks, "sdk_acs_smoke_py_verified");
   const markdown = buildMarkdown({
     tag: args.tag,
     version: args.version,
@@ -137,7 +143,9 @@ export async function buildReleaseNotesFromGates(args) {
     requiredChecks,
     collabCheck,
     lineageCheck,
-    transcriptCheck
+    transcriptCheck,
+    sdkJsCheck,
+    sdkPyCheck
   });
 
   await mkdir(path.dirname(args.outPath), { recursive: true });
@@ -161,6 +169,8 @@ export async function buildReleaseNotesFromGates(args) {
       collaborationCheckOk: collabCheck?.ok === true,
       lineageCheckOk: lineageCheck?.ok === true,
       transcriptCheckOk: transcriptCheck?.ok === true,
+      sdkJsSmokeCheckOk: sdkJsCheck?.ok === true,
+      sdkPySmokeCheckOk: sdkPyCheck?.ok === true,
       requiredCheckIds: [...REQUIRED_PRODUCTION_CHECK_IDS]
     }
   };

@@ -19,10 +19,14 @@ const DEFAULT_HOSTED_BASELINE_EVIDENCE_PATH = "artifacts/ops/hosted-baseline-evi
 const PRODUCTION_COLLAB_CHECK_ID = "settld_verified_collaboration";
 const PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID = "openclaw_substrate_demo_lineage_verified";
 const PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID = "openclaw_substrate_demo_transcript_verified";
+const PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID = "sdk_acs_smoke_js_verified";
+const PRODUCTION_SDK_ACS_SMOKE_PY_CHECK_ID = "sdk_acs_smoke_py_verified";
 const REQUIRED_PRODUCTION_CUTOVER_CHECK_IDS = Object.freeze([
   PRODUCTION_COLLAB_CHECK_ID,
   PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID,
-  PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID
+  PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID,
+  PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID,
+  PRODUCTION_SDK_ACS_SMOKE_PY_CHECK_ID
 ]);
 
 const REQUIRED_ARTIFACT_SPECS = [
@@ -573,6 +577,40 @@ async function enforceLaunchPacketCollaborationBinding({ artifacts, args, cwd })
           "production cutover gate transcript verification check is not passed"
         );
         result.failureCodes.push("production_gate_transcript_check_not_passed");
+      }
+
+      const sdkJsCheck = checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_SDK_ACS_SMOKE_JS_CHECK_ID) ?? null;
+      if (!sdkJsCheck) {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_sdk_js_smoke_check_missing",
+          "production cutover gate missing SDK JS ACS smoke verification check"
+        );
+        result.failureCodes.push("production_gate_sdk_js_smoke_check_missing");
+      } else if (normalizeOptionalString(sdkJsCheck?.status) !== "passed") {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_sdk_js_smoke_check_not_passed",
+          "production cutover gate SDK JS ACS smoke verification check is not passed"
+        );
+        result.failureCodes.push("production_gate_sdk_js_smoke_check_not_passed");
+      }
+
+      const sdkPyCheck = checks.find((row) => normalizeOptionalString(row?.id) === PRODUCTION_SDK_ACS_SMOKE_PY_CHECK_ID) ?? null;
+      if (!sdkPyCheck) {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_sdk_py_smoke_check_missing",
+          "production cutover gate missing SDK Python ACS smoke verification check"
+        );
+        result.failureCodes.push("production_gate_sdk_py_smoke_check_missing");
+      } else if (normalizeOptionalString(sdkPyCheck?.status) !== "passed") {
+        markArtifactFailed(
+          launchArtifact,
+          "production_gate_sdk_py_smoke_check_not_passed",
+          "production cutover gate SDK Python ACS smoke verification check is not passed"
+        );
+        result.failureCodes.push("production_gate_sdk_py_smoke_check_not_passed");
       }
     }
   }

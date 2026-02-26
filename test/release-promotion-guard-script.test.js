@@ -20,7 +20,9 @@ async function writeRequiredArtifacts(
     productionGateOk = true,
     includeProductionRequiredCheck = true,
     includeProductionLineageCheck = true,
-    includeProductionTranscriptCheck = true
+    includeProductionTranscriptCheck = true,
+    includeProductionSdkJsSmokeCheck = true,
+    includeProductionSdkPySmokeCheck = true
   } = {}
 ) {
   await writeJson(root, "artifacts/gates/settld-verified-collaboration-gate.json", {
@@ -55,6 +57,18 @@ async function writeRequiredArtifacts(
   if (includeProductionTranscriptCheck) {
     productionChecks.push({
       id: "openclaw_substrate_demo_transcript_verified",
+      status: productionGateOk ? "passed" : "failed"
+    });
+  }
+  if (includeProductionSdkJsSmokeCheck) {
+    productionChecks.push({
+      id: "sdk_acs_smoke_js_verified",
+      status: productionGateOk ? "passed" : "failed"
+    });
+  }
+  if (includeProductionSdkPySmokeCheck) {
+    productionChecks.push({
+      id: "sdk_acs_smoke_py_verified",
       status: productionGateOk ? "passed" : "failed"
     });
   }
@@ -285,6 +299,66 @@ test("release promotion guard: fails closed when production cutover report misse
   assert.ok(launchPacketArtifact);
   assert.equal(launchPacketArtifact.status, "failed");
   assert.equal(launchPacketArtifact.failureCodes.includes("production_gate_transcript_check_missing"), true);
+});
+
+test("release promotion guard: fails closed when production cutover report misses required sdk js smoke check", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-guard-prodsdkjs-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  await writeRequiredArtifacts(tmpRoot, {
+    productionGateOk: true,
+    includeProductionRequiredCheck: true,
+    includeProductionLineageCheck: true,
+    includeProductionTranscriptCheck: true,
+    includeProductionSdkJsSmokeCheck: false,
+    includeProductionSdkPySmokeCheck: true
+  });
+  const env = {
+    RELEASE_PROMOTION_GUARD_NOW: "2026-02-21T18:00:00.000Z"
+  };
+  const { report } = await runReleasePromotionGuard(parseArgs([], env, tmpRoot), env, tmpRoot);
+  assert.equal(report.verdict.ok, false);
+  assert.equal(report.verdict.status, "fail");
+  const productionArtifact = report.artifacts.find((row) => row.id === "production_cutover_gate");
+  assert.ok(productionArtifact);
+  assert.equal(productionArtifact.status, "failed");
+  assert.equal(productionArtifact.failureCodes.includes("required_check_missing"), true);
+  const launchPacketArtifact = report.artifacts.find((row) => row.id === "launch_cutover_packet");
+  assert.ok(launchPacketArtifact);
+  assert.equal(launchPacketArtifact.status, "failed");
+  assert.equal(launchPacketArtifact.failureCodes.includes("production_gate_sdk_js_smoke_check_missing"), true);
+});
+
+test("release promotion guard: fails closed when production cutover report misses required sdk py smoke check", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "settld-release-promotion-guard-prodsdkpy-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  await writeRequiredArtifacts(tmpRoot, {
+    productionGateOk: true,
+    includeProductionRequiredCheck: true,
+    includeProductionLineageCheck: true,
+    includeProductionTranscriptCheck: true,
+    includeProductionSdkJsSmokeCheck: true,
+    includeProductionSdkPySmokeCheck: false
+  });
+  const env = {
+    RELEASE_PROMOTION_GUARD_NOW: "2026-02-21T18:00:00.000Z"
+  };
+  const { report } = await runReleasePromotionGuard(parseArgs([], env, tmpRoot), env, tmpRoot);
+  assert.equal(report.verdict.ok, false);
+  assert.equal(report.verdict.status, "fail");
+  const productionArtifact = report.artifacts.find((row) => row.id === "production_cutover_gate");
+  assert.ok(productionArtifact);
+  assert.equal(productionArtifact.status, "failed");
+  assert.equal(productionArtifact.failureCodes.includes("required_check_missing"), true);
+  const launchPacketArtifact = report.artifacts.find((row) => row.id === "launch_cutover_packet");
+  assert.ok(launchPacketArtifact);
+  assert.equal(launchPacketArtifact.status, "failed");
+  assert.equal(launchPacketArtifact.failureCodes.includes("production_gate_sdk_py_smoke_check_missing"), true);
 });
 
 test("release promotion guard: fails closed when launch packet collaboration hash binding mismatches source", async (t) => {
