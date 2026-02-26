@@ -157,8 +157,18 @@ jobs:
           kubectl -n smoke port-forward "svc/${API_SERVICE}" "${PORT}:3000" >/tmp/pf.base.log 2>&1 &
           PF_PID=$!
           trap 'kill ${PF_PID} || true' EXIT
-          SMOKE_API_BASE_URL="http://127.0.0.1:${PORT}" SMOKE_TENANT_ID="tenant_default" SMOKE_OPS_TOKEN="dev" SMOKE_PROTOCOL="1.0" \
-            node scripts/smoke/k8s-smoke.mjs
+          for i in $(seq 1 60); do
+            if curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null; then
+              break
+            fi
+            sleep 1
+            if [[ "${i}" == "60" ]]; then
+              echo "::error::Timed out waiting for base API /healthz readiness"
+              cat /tmp/pf.base.log || true
+              exit 1
+            fi
+          done
+          curl -fsS "http://127.0.0.1:${PORT}/health" >/dev/null
           SLO_API_BASE_URL="http://127.0.0.1:${PORT}" node scripts/slo/check.mjs
           kill "${PF_PID}" || true
           trap - EXIT
