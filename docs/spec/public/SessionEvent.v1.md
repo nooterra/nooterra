@@ -46,11 +46,12 @@ Server-side append computes provenance with chain-aware taint propagation and de
 - `session_provenance_inherited_taint`
 - `session_provenance_explicit_taint`
 
-## Append and stream invariants
+## Append, list, and stream invariants
 
 - append is fail-closed without `x-proxy-expected-prev-chain-hash`.
 - append is optimistic-concurrency checked against current stream head.
 - append is idempotent when idempotency keys are reused with identical request hash.
+- list cursor (`sinceEventId`) must resolve to an existing event id, else fail closed.
 - stream cursor (`sinceEventId` or `Last-Event-ID`) must resolve to an existing event id, else fail closed.
 - stream cursor source must be unambiguous: when both `sinceEventId` and `Last-Event-ID` are provided, they must match.
 

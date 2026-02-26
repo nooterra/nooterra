@@ -804,7 +804,7 @@ class NooterraClient:
 
     def list_session_events(self, session_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
         _assert_non_empty_string(session_id, "session_id")
-        suffix = self._query_suffix(query, allowed_keys=["eventType", "limit", "offset"])
+        suffix = self._query_suffix(query, allowed_keys=["eventType", "limit", "offset", "sinceEventId"])
         return self._request("GET", f"/sessions/{parse.quote(session_id, safe='')}/events{suffix}", **opts)
 
     def stream_session_events(

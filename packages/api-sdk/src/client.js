@@ -828,6 +828,7 @@ export class NooterraClient {
     assertNonEmptyString(sessionId, "sessionId");
     const qs = new URLSearchParams();
     if (params.eventType) qs.set("eventType", String(params.eventType));
+    if (params.sinceEventId) qs.set("sinceEventId", String(params.sinceEventId));
     if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
     if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";

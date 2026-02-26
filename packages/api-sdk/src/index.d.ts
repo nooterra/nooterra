@@ -1718,7 +1718,7 @@ export class NooterraClient {
   getSession(sessionId: string, opts?: RequestOptions): Promise<NooterraResponse<{ session: Record<string, unknown> }>>;
   listSessionEvents(
     sessionId: string,
-    params?: { eventType?: string; limit?: number; offset?: number },
+    params?: { eventType?: string; sinceEventId?: string; limit?: number; offset?: number },
     opts?: RequestOptions
   ): Promise<NooterraResponse<{ sessionId: string; events: Array<Record<string, unknown>>; limit: number; offset: number }>>;
   appendSessionEvent(

@@ -6772,6 +6772,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                 ]
               }
             },
+            { name: "sinceEventId", in: "query", required: false, schema: { type: "string" } },
             { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 2000 } },
             { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
           ],

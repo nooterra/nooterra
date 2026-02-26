@@ -48763,6 +48763,7 @@ export function createApi({
         if (parts[0] === "sessions" && parts[1] && parts[2] === "events" && parts.length === 3 && req.method === "GET") {
           const sessionId = decodePathPart(parts[1]);
           const eventTypeRaw = url.searchParams.get("eventType");
+          const sinceEventIdRaw = url.searchParams.get("sinceEventId");
           const limitRaw = url.searchParams.get("limit");
           const offsetRaw = url.searchParams.get("offset");
           const limit = limitRaw === null || limitRaw === "" ? 200 : Number(limitRaw);
@@ -48775,8 +48776,10 @@ export function createApi({
           }
 
           let eventType = null;
+          let sinceEventId = null;
           try {
             eventType = typeof eventTypeRaw === "string" && eventTypeRaw.trim() !== "" ? parseSessionEventType(eventTypeRaw) : null;
+            sinceEventId = parseSessionEventCursor(sinceEventIdRaw, { allowNull: true });
           } catch (err) {
             return sendError(res, 400, "invalid session event query", { message: err?.message }, { code: "SCHEMA_INVALID" });
           }
@@ -48785,6 +48788,20 @@ export function createApi({
           let events = await getSessionEventRecords({ tenantId, sessionId });
           if (!Array.isArray(events)) events = [];
           const currentPrevChainHash = getCurrentPrevChainHash(events);
+          let cursorIndex = -1;
+          if (sinceEventId) {
+            cursorIndex = events.findIndex((row) => String(row?.id ?? "") === sinceEventId);
+            if (cursorIndex < 0) {
+              return sendError(
+                res,
+                409,
+                "invalid session event cursor",
+                { sessionId, sinceEventId },
+                { code: "SESSION_EVENT_CURSOR_INVALID" }
+              );
+            }
+            events = events.slice(cursorIndex + 1);
+          }
           if (eventType) {
             events = events.filter((row) => String(row?.type ?? "").toUpperCase() === eventType);
           }

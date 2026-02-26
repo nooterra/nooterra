@@ -101,10 +101,14 @@ test("api-sdk: session methods call expected endpoints", async () => {
 
   await client.listSessionEvents("sess_sdk_1", {
     eventType: "TASK_REQUESTED",
+    sinceEventId: "evt_prev_1",
     limit: 20,
     offset: 0
   });
-  assert.equal(calls[3].url, "https://api.nooterra.local/sessions/sess_sdk_1/events?eventType=TASK_REQUESTED&limit=20&offset=0");
+  assert.equal(
+    calls[3].url,
+    "https://api.nooterra.local/sessions/sess_sdk_1/events?eventType=TASK_REQUESTED&sinceEventId=evt_prev_1&limit=20&offset=0"
+  );
   assert.equal(calls[3].init?.method, "GET");
 
   await client.appendSessionEvent(

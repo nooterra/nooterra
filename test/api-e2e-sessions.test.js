@@ -260,6 +260,106 @@ test("API e2e: Session.v1 create/list/get and SessionEvent.v1 append/list", asyn
   assert.equal(transcriptInvalidSignerQuery.json?.code, "SCHEMA_INVALID");
 });
 
+test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cursor", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_cursor_principal_1";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_cursor_create_1" },
+    body: {
+      sessionId: "sess_cursor_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const first = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_cursor_1/events",
+    headers: {
+      "x-idempotency-key": "session_cursor_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_cursor_1" }
+    }
+  });
+  assert.equal(first.statusCode, 201, first.body);
+
+  const second = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_cursor_1/events",
+    headers: {
+      "x-idempotency-key": "session_cursor_append_2",
+      "x-proxy-expected-prev-chain-hash": String(first.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      payload: { progressPct: 50 }
+    }
+  });
+  assert.equal(second.statusCode, 201, second.body);
+
+  const third = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_cursor_1/events",
+    headers: {
+      "x-idempotency-key": "session_cursor_append_3",
+      "x-proxy-expected-prev-chain-hash": String(second.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_COMPLETED",
+      payload: { outputRef: "artifact://cursor/1" }
+    }
+  });
+  assert.equal(third.statusCode, 201, third.body);
+
+  const resumed = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_cursor_1/events?sinceEventId=${encodeURIComponent(String(first.json?.event?.id ?? ""))}`
+  });
+  assert.equal(resumed.statusCode, 200, resumed.body);
+  assert.equal(resumed.json?.events?.length, 2);
+  assert.equal(resumed.json?.events?.[0]?.id, second.json?.event?.id);
+  assert.equal(resumed.json?.events?.[1]?.id, third.json?.event?.id);
+
+  const resumedOffset = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_cursor_1/events?sinceEventId=${encodeURIComponent(String(first.json?.event?.id ?? ""))}&limit=1&offset=1`
+  });
+  assert.equal(resumedOffset.statusCode, 200, resumedOffset.body);
+  assert.equal(resumedOffset.json?.events?.length, 1);
+  assert.equal(resumedOffset.json?.events?.[0]?.id, third.json?.event?.id);
+
+  const resumedFiltered = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_cursor_1/events?eventType=task_completed&sinceEventId=${encodeURIComponent(String(first.json?.event?.id ?? ""))}`
+  });
+  assert.equal(resumedFiltered.statusCode, 200, resumedFiltered.body);
+  assert.equal(resumedFiltered.json?.events?.length, 1);
+  assert.equal(resumedFiltered.json?.events?.[0]?.id, third.json?.event?.id);
+
+  const missingCursor = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_cursor_1/events?sinceEventId=evt_missing_cursor"
+  });
+  assert.equal(missingCursor.statusCode, 409, missingCursor.body);
+  assert.equal(missingCursor.json?.code, "SESSION_EVENT_CURSOR_INVALID");
+
+  const invalidCursor = await request(api, {
+    method: "GET",
+    path: "/sessions/sess_cursor_1/events?sinceEventId=evt bad cursor"
+  });
+  assert.equal(invalidCursor.statusCode, 400, invalidCursor.body);
+  assert.equal(invalidCursor.json?.code, "SCHEMA_INVALID");
+});
+
 test("API e2e: Session signer lifecycle gates append and replay materialization", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const principalAgentId = "agt_session_signer_lifecycle_1";

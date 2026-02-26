@@ -42769,6 +42769,14 @@
             }
           },
           {
+            "name": "sinceEventId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
