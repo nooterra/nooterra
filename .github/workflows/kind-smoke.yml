@@ -122,7 +122,17 @@ jobs:
               PROXY_AUTOTICK_INTERVAL_MS: "100"
               PROXY_AUTOTICK_MAX_MESSAGES: "200"
           YAML
-          helm upgrade --install nooterra "${BASE_CHART_PATH}" -n smoke -f /tmp/values.base.yaml --wait --timeout 10m
+          helm upgrade --install nooterra "${BASE_CHART_PATH}" -n smoke -f /tmp/values.base.yaml --wait=false --timeout 10m
+          BASE_API_DEPLOY="$(kubectl -n smoke get deploy -l app.kubernetes.io/instance=nooterra -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep -E -- '-api$' | head -n1 || true)"
+          BASE_MAINTENANCE_DEPLOY="$(kubectl -n smoke get deploy -l app.kubernetes.io/instance=nooterra -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep -E -- '-maintenance$' | head -n1 || true)"
+          if [[ -z "${BASE_API_DEPLOY}" || -z "${BASE_MAINTENANCE_DEPLOY}" ]]; then
+            echo "::error::Could not resolve expected base API/maintenance deployments for release nooterra"
+            kubectl -n smoke get deploy
+            exit 1
+          fi
+          echo "waiting for base deployments: ${BASE_API_DEPLOY}, ${BASE_MAINTENANCE_DEPLOY}"
+          kubectl -n smoke rollout status "deploy/${BASE_API_DEPLOY}" --timeout=10m
+          kubectl -n smoke rollout status "deploy/${BASE_MAINTENANCE_DEPLOY}" --timeout=10m
 
       - name: Smoke lifecycle (base)
         run: |
@@ -167,7 +177,17 @@ jobs:
               PROXY_AUTOTICK_INTERVAL_MS: "100"
               PROXY_AUTOTICK_MAX_MESSAGES: "200"
           YAML
-          helm upgrade nooterra deploy/helm/nooterra -n smoke -f /tmp/values.current.yaml --wait --timeout 10m
+          helm upgrade nooterra deploy/helm/nooterra -n smoke -f /tmp/values.current.yaml --wait=false --timeout 10m
+          CURRENT_API_DEPLOY="$(kubectl -n smoke get deploy -l app.kubernetes.io/instance=nooterra -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep -E -- '-api$' | head -n1 || true)"
+          CURRENT_MAINTENANCE_DEPLOY="$(kubectl -n smoke get deploy -l app.kubernetes.io/instance=nooterra -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep -E -- '-maintenance$' | head -n1 || true)"
+          if [[ -z "${CURRENT_API_DEPLOY}" || -z "${CURRENT_MAINTENANCE_DEPLOY}" ]]; then
+            echo "::error::Could not resolve expected current API/maintenance deployments for release nooterra"
+            kubectl -n smoke get deploy
+            exit 1
+          fi
+          echo "waiting for current deployments: ${CURRENT_API_DEPLOY}, ${CURRENT_MAINTENANCE_DEPLOY}"
+          kubectl -n smoke rollout status "deploy/${CURRENT_API_DEPLOY}" --timeout=10m
+          kubectl -n smoke rollout status "deploy/${CURRENT_MAINTENANCE_DEPLOY}" --timeout=10m
 
       - name: Smoke lifecycle (current)
         run: |
