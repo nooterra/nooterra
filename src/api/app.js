@@ -9395,6 +9395,34 @@ export function createApi({
     return value;
   }
 
+  async function assertArtifactSigningLifecycle({
+    tenantId,
+    signerKeyId,
+    at = null,
+    errorCode = "ARTIFACT_SIGNER_KEY_INVALID",
+    artifactLabel = "artifact"
+  } = {}) {
+    const lifecycle = await evaluateSessionSignerKeyLifecycle({
+      tenantId,
+      signerKeyId,
+      at: typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso(),
+      requireRegistered: false
+    });
+    if (lifecycle.ok) return;
+    const err = new TypeError(`${artifactLabel} signer key blocked: ${lifecycle.reasonCode ?? "SIGNER_KEY_INVALID"}`);
+    err.code = errorCode;
+    err.details = {
+      signerKeyId,
+      reasonCode: lifecycle.reasonCode ?? "SIGNER_KEY_INVALID",
+      reason: lifecycle.message ?? "signer key lifecycle verification failed",
+      signerStatus: lifecycle.signerStatus ?? null,
+      validFrom: lifecycle.validFrom ?? null,
+      validTo: lifecycle.validTo ?? null,
+      revokedAt: lifecycle.revokedAt ?? null
+    };
+    throw err;
+  }
+
   async function resolveSessionArtifactSigningCandidate({ tenantId, signerKeyId = null, at = null } = {}) {
     const normalizedSignerKeyId = parseSessionArtifactSignerKeyId(signerKeyId, { allowNull: true });
     const serverPublicKeyPem = typeof store?.serverSigner?.publicKeyPem === "string" ? store.serverSigner.publicKeyPem : "";
@@ -9442,49 +9470,23 @@ export function createApi({
     if (normalizedSignerKeyId) {
       const selected = byKeyId.get(normalizedSignerKeyId) ?? null;
       if (!selected) throw new TypeError("session artifact signerKeyId is not available");
-      const lifecycle = await evaluateSessionSignerKeyLifecycle({
+      await assertArtifactSigningLifecycle({
         tenantId,
         signerKeyId: selected.keyId,
         at: typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso(),
-        requireRegistered: false
+        errorCode: "SESSION_ARTIFACT_SIGNER_KEY_INVALID",
+        artifactLabel: "session artifact"
       });
-      if (!lifecycle.ok) {
-        const err = new TypeError(`session artifact signer key blocked: ${lifecycle.reasonCode ?? "SIGNER_KEY_INVALID"}`);
-        err.code = "SESSION_ARTIFACT_SIGNER_KEY_INVALID";
-        err.details = {
-          signerKeyId: selected.keyId,
-          reasonCode: lifecycle.reasonCode ?? "SIGNER_KEY_INVALID",
-          reason: lifecycle.message ?? "signer key lifecycle verification failed",
-          signerStatus: lifecycle.signerStatus ?? null,
-          validFrom: lifecycle.validFrom ?? null,
-          validTo: lifecycle.validTo ?? null,
-          revokedAt: lifecycle.revokedAt ?? null
-        };
-        throw err;
-      }
       return selected;
     }
     const selected = overrideSigner ?? normalizedServer;
-    const lifecycle = await evaluateSessionSignerKeyLifecycle({
+    await assertArtifactSigningLifecycle({
       tenantId,
       signerKeyId: selected.keyId,
       at: typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso(),
-      requireRegistered: false
+      errorCode: "SESSION_ARTIFACT_SIGNER_KEY_INVALID",
+      artifactLabel: "session artifact"
     });
-    if (!lifecycle.ok) {
-      const err = new TypeError(`session artifact signer key blocked: ${lifecycle.reasonCode ?? "SIGNER_KEY_INVALID"}`);
-      err.code = "SESSION_ARTIFACT_SIGNER_KEY_INVALID";
-      err.details = {
-        signerKeyId: selected.keyId,
-        reasonCode: lifecycle.reasonCode ?? "SIGNER_KEY_INVALID",
-        reason: lifecycle.message ?? "signer key lifecycle verification failed",
-        signerStatus: lifecycle.signerStatus ?? null,
-        validFrom: lifecycle.validFrom ?? null,
-        validTo: lifecycle.validTo ?? null,
-        revokedAt: lifecycle.revokedAt ?? null
-      };
-      throw err;
-    }
     return selected;
   }
 
@@ -9499,7 +9501,7 @@ export function createApi({
     return value;
   }
 
-  function resolveInteractionGraphPackSigningCandidate({ signerKeyId = null } = {}) {
+  async function resolveInteractionGraphPackSigningCandidate({ tenantId, signerKeyId = null, at = null } = {}) {
     const normalizedSignerKeyId = parseInteractionGraphPackSignerKeyId(signerKeyId, { allowNull: true });
     const serverPublicKeyPem = typeof store?.serverSigner?.publicKeyPem === "string" ? store.serverSigner.publicKeyPem : "";
     const serverPrivateKeyPem = typeof store?.serverSigner?.privateKeyPem === "string" ? store.serverSigner.privateKeyPem : "";
@@ -9546,10 +9548,24 @@ export function createApi({
     if (normalizedSignerKeyId) {
       const selected = byKeyId.get(normalizedSignerKeyId) ?? null;
       if (!selected) throw new TypeError("interaction graph pack signerKeyId is not available");
+      await assertArtifactSigningLifecycle({
+        tenantId,
+        signerKeyId: selected.keyId,
+        at: typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso(),
+        errorCode: "INTERACTION_GRAPH_PACK_SIGNER_KEY_INVALID",
+        artifactLabel: "interaction graph pack"
+      });
       return selected;
     }
-
-    return overrideSigner ?? normalizedServer;
+    const selected = overrideSigner ?? normalizedServer;
+    await assertArtifactSigningLifecycle({
+      tenantId,
+      signerKeyId: selected.keyId,
+      at: typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso(),
+      errorCode: "INTERACTION_GRAPH_PACK_SIGNER_KEY_INVALID",
+      artifactLabel: "interaction graph pack"
+    });
+    return selected;
   }
 
   async function listCapabilityAttestations({
@@ -58474,7 +58490,7 @@ export function createApi({
               generatedAt: asOf
             });
             if (signPack) {
-              const signingCandidate = resolveInteractionGraphPackSigningCandidate({ signerKeyId });
+              const signingCandidate = await resolveInteractionGraphPackSigningCandidate({ tenantId, signerKeyId, at: asOf });
               graphPack = signVerifiedInteractionGraphPackV1({
                 graphPack,
                 signedAt: asOf,
@@ -58484,12 +58500,23 @@ export function createApi({
               });
             }
           } catch (err) {
+            const details =
+              err?.details && typeof err.details === "object" && !Array.isArray(err.details)
+                ? { agentId, reason: err?.message ?? "invalid interaction graph pack", ...err.details }
+                : { agentId, reason: err?.message ?? "invalid interaction graph pack" };
             return sendError(
               res,
               409,
               "interaction graph pack blocked",
-              { agentId, reason: err?.message ?? "invalid interaction graph pack" },
-              { code: signPack ? "INTERACTION_GRAPH_PACK_SIGNING_BLOCKED" : "INTERACTION_GRAPH_PACK_INVALID" }
+              details,
+              {
+                code:
+                  signPack && typeof err?.code === "string" && err.code.trim() !== ""
+                    ? err.code
+                    : signPack
+                      ? "INTERACTION_GRAPH_PACK_SIGNING_BLOCKED"
+                      : "INTERACTION_GRAPH_PACK_INVALID"
+              }
             );
           }
           return sendJson(res, 200, { ok: true, graphPack });

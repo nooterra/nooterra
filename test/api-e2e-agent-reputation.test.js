@@ -567,3 +567,71 @@ test("API e2e: interaction graph pack export supports optional signature and fai
     }
   );
 });
+
+test("API e2e: interaction graph pack signing fails closed on rotated signer lifecycle", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payerId = "agt_graph_signer_rotate_payer";
+  const workerId = "agt_graph_signer_rotate_worker";
+
+  await registerAgent(api, { agentId: payerId });
+  await registerAgent(api, { agentId: workerId, capabilities: ["travel.booking"] });
+
+  const funded = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(payerId)}/wallet/credit`,
+    headers: { "x-idempotency-key": "wallet_credit_graph_signer_rotate_1" },
+    body: { amountCents: 10000, currency: "USD" }
+  });
+  assert.equal(funded.statusCode, 201, funded.body);
+
+  await createTerminalRun({
+    api,
+    agentId: workerId,
+    runId: "run_graph_signer_rotate_1",
+    payerAgentId: payerId,
+    amountCents: 1250,
+    terminalType: "RUN_COMPLETED"
+  });
+
+  const signerRegistered = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId: api.store.serverSigner.keyId,
+      publicKeyPem: api.store.serverSigner.publicKeyPem,
+      purpose: "server",
+      status: "active",
+      description: "interaction graph signer rotate lifecycle test"
+    }
+  });
+  assert.equal(signerRegistered.statusCode, 201, signerRegistered.body);
+
+  const baseQuery =
+    `/agents/${encodeURIComponent(workerId)}/interaction-graph-pack` +
+    "?reputationVersion=v2&reputationWindow=allTime&asOf=2030-01-01T00:00:00.000Z&visibility=all&limit=10&offset=0";
+  const signedQuery = `${baseQuery}&sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`;
+
+  const signedBeforeRotate = await request(api, { method: "GET", path: signedQuery });
+  assert.equal(signedBeforeRotate.statusCode, 200, signedBeforeRotate.body);
+  assert.equal(signedBeforeRotate.json?.ok, true);
+
+  const rotated = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(api.store.serverSigner.keyId)}/rotate`,
+    body: {}
+  });
+  assert.equal(rotated.statusCode, 200, rotated.body);
+  assert.equal(rotated.json?.signerKey?.status, "rotated");
+
+  const blockedExplicit = await request(api, { method: "GET", path: signedQuery });
+  assert.equal(blockedExplicit.statusCode, 409, blockedExplicit.body);
+  assert.equal(blockedExplicit.json?.code, "INTERACTION_GRAPH_PACK_SIGNER_KEY_INVALID");
+  assert.equal(blockedExplicit.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blockedExplicit.json?.details?.signerStatus, "rotated");
+
+  const blockedDefault = await request(api, { method: "GET", path: `${baseQuery}&sign=true` });
+  assert.equal(blockedDefault.statusCode, 409, blockedDefault.body);
+  assert.equal(blockedDefault.json?.code, "INTERACTION_GRAPH_PACK_SIGNER_KEY_INVALID");
+  assert.equal(blockedDefault.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blockedDefault.json?.details?.signerStatus, "rotated");
+});
