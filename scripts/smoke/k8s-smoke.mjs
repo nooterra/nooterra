@@ -45,6 +45,12 @@ async function httpJson({ method, path, headers, body }) {
   return { status: res.status, json, text, headers: res.headers };
 }
 
+function readExpectedPrevChainHashFromConflict(response) {
+  if (!response || response.status !== 409) return null;
+  const expectedPrev = response?.json?.details?.expectedPrevChainHash;
+  return typeof expectedPrev === "string" && expectedPrev.length > 0 ? expectedPrev : null;
+}
+
 async function main() {
   await waitFor(async () => {
     const r = await httpJson({ method: "GET", path: "/healthz" }).catch(() => null);
@@ -134,24 +140,59 @@ async function main() {
   lastChainHash = book.json.job.lastChainHash;
 
   async function postServerEvent(type, payload, idempotencyKey) {
-    const r = await httpJson({
-      method: "POST",
-      path: `/jobs/${jobId}/events`,
-      headers: { ...headersBase, "x-idempotency-key": idempotencyKey, "x-proxy-expected-prev-chain-hash": lastChainHash },
-      body: { type, actor: { type: "system", id: "proxy" }, payload }
-    });
-    assert.equal(r.status, 201, r.text);
-    lastChainHash = r.json.job.lastChainHash;
-    return r.json.event;
+    const maxAttempts = 4;
+    let attempt = 0;
+    while (attempt < maxAttempts) {
+      const effectiveIdempotencyKey = attempt === 0 ? idempotencyKey : `${idempotencyKey}_retry${attempt}`;
+      const r = await httpJson({
+        method: "POST",
+        path: `/jobs/${jobId}/events`,
+        headers: {
+          ...headersBase,
+          "x-idempotency-key": effectiveIdempotencyKey,
+          "x-proxy-expected-prev-chain-hash": lastChainHash
+        },
+        body: { type, actor: { type: "system", id: "proxy" }, payload }
+      });
+      if (r.status === 201) {
+        lastChainHash = r.json.job.lastChainHash;
+        return r.json.event;
+      }
+      const expectedPrevChainHash = readExpectedPrevChainHashFromConflict(r);
+      if (expectedPrevChainHash && expectedPrevChainHash !== lastChainHash) {
+        lastChainHash = expectedPrevChainHash;
+        attempt += 1;
+        continue;
+      }
+      assert.equal(r.status, 201, r.text);
+    }
+    throw new Error(`failed to append server event after ${maxAttempts} attempts`);
   }
 
   async function postRobotEvent(type, payload) {
-    const draft = createChainedEvent({ streamId: jobId, type, actor: { type: "robot", id: robotId }, payload });
-    const finalized = finalizeChainedEvent({ event: draft, prevChainHash: lastChainHash, signer: { keyId: robotKeyId, privateKeyPem: robotPrivateKeyPem } });
-    const r = await httpJson({ method: "POST", path: `/jobs/${jobId}/events`, headers: { ...headersBase }, body: finalized });
-    assert.equal(r.status, 201, r.text);
-    lastChainHash = r.json.job.lastChainHash;
-    return r.json.event;
+    const maxAttempts = 4;
+    let attempt = 0;
+    while (attempt < maxAttempts) {
+      const draft = createChainedEvent({ streamId: jobId, type, actor: { type: "robot", id: robotId }, payload });
+      const finalized = finalizeChainedEvent({
+        event: draft,
+        prevChainHash: lastChainHash,
+        signer: { keyId: robotKeyId, privateKeyPem: robotPrivateKeyPem }
+      });
+      const r = await httpJson({ method: "POST", path: `/jobs/${jobId}/events`, headers: { ...headersBase }, body: finalized });
+      if (r.status === 201) {
+        lastChainHash = r.json.job.lastChainHash;
+        return r.json.event;
+      }
+      const expectedPrevChainHash = readExpectedPrevChainHashFromConflict(r);
+      if (expectedPrevChainHash && expectedPrevChainHash !== lastChainHash) {
+        lastChainHash = expectedPrevChainHash;
+        attempt += 1;
+        continue;
+      }
+      assert.equal(r.status, 201, r.text);
+    }
+    throw new Error(`failed to append robot event after ${maxAttempts} attempts`);
   }
 
   // Move the job through the state machine.
