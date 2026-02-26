@@ -152,7 +152,7 @@ jobs:
             kubectl -n smoke get svc
             exit 1
           fi
-          PORT="$(node -e \"require('net').createServer().listen(0,'127.0.0.1',function(){console.log(this.address().port); this.close();});\")"
+          PORT="$(node -e 'require("net").createServer().listen(0, "127.0.0.1", function(){ console.log(this.address().port); this.close(); });')"
           echo "using base API service: ${API_SERVICE}"
           kubectl -n smoke port-forward "svc/${API_SERVICE}" "${PORT}:3000" >/tmp/pf.base.log 2>&1 &
           PF_PID=$!
@@ -207,7 +207,7 @@ jobs:
             kubectl -n smoke get svc
             exit 1
           fi
-          PORT="$(node -e \"require('net').createServer().listen(0,'127.0.0.1',function(){console.log(this.address().port); this.close();});\")"
+          PORT="$(node -e 'require("net").createServer().listen(0, "127.0.0.1", function(){ console.log(this.address().port); this.close(); });')"
           echo "using current API service: ${API_SERVICE}"
           kubectl -n smoke port-forward "svc/${API_SERVICE}" "${PORT}:3000" >/tmp/pf.current.log 2>&1 &
           PF_PID=$!
