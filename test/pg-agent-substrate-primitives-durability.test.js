@@ -596,6 +596,33 @@ async function createTerminalRun({
     assert.equal(appendSessionEvent.statusCode, 201, appendSessionEvent.body);
     assert.equal(appendSessionEvent.json?.session?.revision, 1);
     assert.equal(appendSessionEvent.json?.event?.type, "TASK_REQUESTED");
+    const firstSessionEventId = String(appendSessionEvent.json?.event?.id ?? "");
+    const firstSessionEventChainHash = String(appendSessionEvent.json?.event?.chainHash ?? "");
+    assert.notEqual(firstSessionEventId, "");
+    assert.notEqual(firstSessionEventChainHash, "");
+
+    const appendSessionEventSecond = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "POST",
+      path: "/sessions/pg_sub_session_1/events",
+      headers: {
+        "x-idempotency-key": "pg_sub_session_event_append_2",
+        "x-proxy-expected-prev-chain-hash": firstSessionEventChainHash
+      },
+      body: {
+        eventType: "TASK_PROGRESS",
+        traceId: "trace_pg_sub_session_1",
+        payload: {
+          progressPct: 80,
+          checkpoint: "gathered carrier quotes"
+        }
+      }
+    });
+    assert.equal(appendSessionEventSecond.statusCode, 201, appendSessionEventSecond.body);
+    assert.equal(appendSessionEventSecond.json?.session?.revision, 2);
+    assert.equal(appendSessionEventSecond.json?.event?.type, "TASK_PROGRESS");
+    const secondSessionEventId = String(appendSessionEventSecond.json?.event?.id ?? "");
+    assert.notEqual(secondSessionEventId, "");
 
     const replayPackBeforeRestart = await tenantRequest(apiA, {
       tenantId: tenantA,
@@ -604,7 +631,7 @@ async function createTerminalRun({
     });
     assert.equal(replayPackBeforeRestart.statusCode, 200, replayPackBeforeRestart.body);
     assert.equal(replayPackBeforeRestart.json?.replayPack?.schemaVersion, "SessionReplayPack.v1");
-    assert.equal(replayPackBeforeRestart.json?.replayPack?.eventCount, 1);
+    assert.equal(replayPackBeforeRestart.json?.replayPack?.eventCount, 2);
     assert.equal(replayPackBeforeRestart.json?.replayPack?.verification?.chainOk, true);
     replayPackHashBeforeRestart = replayPackBeforeRestart.json?.replayPack?.packHash ?? null;
     assert.equal(typeof replayPackHashBeforeRestart, "string");
@@ -616,7 +643,7 @@ async function createTerminalRun({
     });
     assert.equal(transcriptBeforeRestart.statusCode, 200, transcriptBeforeRestart.body);
     assert.equal(transcriptBeforeRestart.json?.transcript?.schemaVersion, "SessionTranscript.v1");
-    assert.equal(transcriptBeforeRestart.json?.transcript?.eventCount, 1);
+    assert.equal(transcriptBeforeRestart.json?.transcript?.eventCount, 2);
     assert.equal(transcriptBeforeRestart.json?.transcript?.verification?.chainOk, true);
     transcriptHashBeforeRestart = transcriptBeforeRestart.json?.transcript?.transcriptHash ?? null;
     assert.equal(typeof transcriptHashBeforeRestart, "string");
@@ -779,7 +806,7 @@ async function createTerminalRun({
     });
     assert.equal(getSession.statusCode, 200, getSession.body);
     assert.equal(getSession.json?.session?.sessionId, "pg_sub_session_1");
-    assert.equal(getSession.json?.session?.revision, 1);
+    assert.equal(getSession.json?.session?.revision, 2);
 
     const listSessionEvents = await tenantRequest(apiB, {
       tenantId: tenantA,
@@ -789,6 +816,21 @@ async function createTerminalRun({
     assert.equal(listSessionEvents.statusCode, 200, listSessionEvents.body);
     assert.equal(listSessionEvents.json?.events?.length, 1);
     assert.equal(listSessionEvents.json?.events?.[0]?.type, "TASK_REQUESTED");
+
+    const resumeSessionEvents = await tenantRequest(apiB, {
+      tenantId: tenantA,
+      method: "GET",
+      path: `/sessions/pg_sub_session_1/events?sinceEventId=${encodeURIComponent(firstSessionEventId)}`
+    });
+    assert.equal(resumeSessionEvents.statusCode, 200, resumeSessionEvents.body);
+    assert.equal(resumeSessionEvents.headers?.get("x-session-events-ordering"), "SESSION_SEQ_ASC");
+    assert.equal(resumeSessionEvents.headers?.get("x-session-events-since-event-id"), firstSessionEventId);
+    assert.equal(resumeSessionEvents.headers?.get("x-session-events-next-since-event-id"), secondSessionEventId);
+    assert.equal(resumeSessionEvents.headers?.get("x-session-events-head-event-count"), "2");
+    assert.equal(resumeSessionEvents.headers?.get("x-session-events-head-last-event-id"), secondSessionEventId);
+    assert.equal(resumeSessionEvents.json?.events?.length, 1);
+    assert.equal(resumeSessionEvents.json?.events?.[0]?.id, secondSessionEventId);
+    assert.equal(resumeSessionEvents.json?.events?.[0]?.type, "TASK_PROGRESS");
 
     const replayPackAfterRestart = await tenantRequest(apiB, {
       tenantId: tenantA,
