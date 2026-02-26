@@ -143,7 +143,7 @@ test("settld verified gate runner: collaboration level includes openclaw substra
     { runCheckFn, bootstrapFn }
   );
   assert.equal(report.ok, true);
-  assert.equal(report.summary.totalChecks, 26);
+  assert.equal(report.summary.totalChecks, 27);
   assert.equal(seenIds.includes("e2e_agent_card_stream_lifecycle"), true);
   assert.equal(seenIds.includes("e2e_trace_id_propagation"), true);
   assert.equal(seenIds.includes("e2e_task_negotiation_lifecycle_enforcement"), true);
@@ -156,6 +156,7 @@ test("settld verified gate runner: collaboration level includes openclaw substra
   assert.equal(seenIds.includes("e2e_tool_call_arbitration_lifecycle_enforcement"), true);
   assert.equal(seenIds.includes("e2e_grant_issue_lifecycle_enforcement"), true);
   assert.equal(seenIds.includes("e2e_python_sdk_acs_substrate_smoke"), true);
+  assert.equal(seenIds.includes("e2e_js_sdk_acs_substrate_smoke"), true);
   assert.equal(seenIds.includes("sdk_js_acs_substrate_contract"), true);
   assert.equal(seenIds.includes("e2e_ops_audit_lineage"), true);
   assert.equal(seenIds.includes("e2e_ops_audit_lineage_verify_fail_closed"), true);

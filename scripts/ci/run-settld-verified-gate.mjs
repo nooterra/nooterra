@@ -373,6 +373,11 @@ function checksForLevel(level, { includePg = false } = {}) {
       args: ["--test", "test/api-python-sdk-acs-substrate-smoke.test.js"]
     },
     {
+      id: "e2e_js_sdk_acs_substrate_smoke",
+      command: "node",
+      args: ["--test", "test/api-sdk-acs-substrate-smoke.test.js"]
+    },
+    {
       id: "sdk_js_acs_substrate_contract",
       command: "node",
       args: ["--test", "test/api-sdk-acs-substrate.test.js", "test/api-sdk-contract-freeze.test.js"]
