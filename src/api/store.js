@@ -1286,6 +1286,11 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     return store.sessionEvents.get(makeScopedKey({ tenantId, id: String(sessionId) })) ?? [];
   };
 
+  store.getIdempotencyRecord = async function getIdempotencyRecord({ key } = {}) {
+    if (typeof key !== "string" || key.trim() === "") throw new TypeError("key is required");
+    return store.idempotency.get(String(key)) ?? null;
+  };
+
   store.getStateCheckpoint = async function getStateCheckpoint({ tenantId = DEFAULT_TENANT_ID, checkpointId } = {}) {
     tenantId = normalizeTenantId(tenantId);
     if (typeof checkpointId !== "string" || checkpointId.trim() === "") throw new TypeError("checkpointId is required");

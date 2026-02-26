@@ -48888,21 +48888,35 @@ export function createApi({
           if (!idemStoreKey) {
             return sendError(res, 400, "x-idempotency-key is required", null, { code: "SESSION_EVENT_IDEMPOTENCY_REQUIRED" });
           }
-          if (idemStoreKey) {
-            const existing = store.idempotency.get(idemStoreKey);
-            if (existing) {
-              if (existing.requestHash !== idemRequestHash) {
-                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+          const trySessionEventIdempotencyReplay = async () => {
+            if (!idemStoreKey) return false;
+            let existing = null;
+            if (typeof store.getIdempotencyRecord === "function") {
+              try {
+                existing = await store.getIdempotencyRecord({ key: idemStoreKey });
+              } catch {
+                existing = null;
               }
-              return sendJson(res, existing.statusCode, existing.body);
             }
-          }
+            if (!existing && store.idempotency instanceof Map) {
+              existing = store.idempotency.get(idemStoreKey) ?? null;
+            }
+            if (!existing) return false;
+            if (existing.requestHash !== idemRequestHash) {
+              sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              return true;
+            }
+            sendJson(res, existing.statusCode, existing.body);
+            return true;
+          };
+          if (await trySessionEventIdempotencyReplay()) return;
 
           const session = await getSessionRecord({ tenantId, sessionId });
           if (!session) return sendError(res, 404, "session not found", null, { code: "NOT_FOUND" });
           const existingEvents = await getSessionEventRecords({ tenantId, sessionId });
           const currentPrevChainHash = getCurrentPrevChainHash(Array.isArray(existingEvents) ? existingEvents : []);
           if (expectedHeader.expectedPrevChainHash !== currentPrevChainHash) {
+            if (await trySessionEventIdempotencyReplay()) return;
             return sendError(res, 409, "event append conflict", {
               expectedPrevChainHash: currentPrevChainHash,
               gotExpectedPrevChainHash: expectedHeader.expectedPrevChainHash
@@ -49007,6 +49021,7 @@ export function createApi({
             await commitTx(ops);
           } catch (err) {
             if (err?.code === "PREV_CHAIN_HASH_MISMATCH") {
+              if (await trySessionEventIdempotencyReplay()) return;
               return sendError(res, 409, "event append conflict", {
                 expectedPrevChainHash: err.expectedPrevChainHash ?? null,
                 gotPrevChainHash: err.gotPrevChainHash ?? null

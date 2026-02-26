@@ -4759,6 +4759,35 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     }
   };
 
+  store.getIdempotencyRecord = async function getIdempotencyRecord({ key } = {}) {
+    assertNonEmptyString(key, "key");
+    const normalizedKey = String(key).trim();
+    const { tenantId, principalId, endpoint, idempotencyKey } = parseIdempotencyStoreKey(normalizedKey);
+    try {
+      const res = await pool.query(
+        `
+          SELECT request_hash, status_code, response_json
+          FROM idempotency
+          WHERE tenant_id = $1 AND principal_id = $2 AND endpoint = $3 AND idem_key = $4
+          LIMIT 1
+        `,
+        [tenantId, principalId, endpoint, idempotencyKey]
+      );
+      if (!res.rows.length) return null;
+      const row = res.rows[0];
+      const record = {
+        requestHash: String(row.request_hash),
+        statusCode: Number(row.status_code),
+        body: row.response_json
+      };
+      if (store.idempotency instanceof Map) store.idempotency.set(normalizedKey, record);
+      return record;
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.idempotency.get(normalizedKey) ?? null;
+    }
+  };
+
   store.listAgentCardsPublic = async function listAgentCardsPublic({
     status = null,
     visibility = "public",
