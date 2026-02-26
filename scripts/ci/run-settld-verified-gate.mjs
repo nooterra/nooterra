@@ -372,6 +372,11 @@ function checksForLevel(level, { includePg = false } = {}) {
       command: "node",
       args: ["--test", "test/api-python-sdk-acs-substrate-smoke.test.js"]
     },
+    {
+      id: "sdk_js_acs_substrate_contract",
+      command: "node",
+      args: ["--test", "test/api-sdk-acs-substrate.test.js", "test/api-sdk-contract-freeze.test.js"]
+    },
     { id: "e2e_authority_grant_required", command: "node", args: ["--test", "test/api-e2e-authority-grant-required.test.js"] },
     {
       id: OPENCLAW_SUBSTRATE_DEMO_CHECK_ID,

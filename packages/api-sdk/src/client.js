@@ -672,6 +672,76 @@ export class SettldClient {
     return this.request("GET", `/task-acceptances/${encodeURIComponent(acceptanceId)}`, opts);
   }
 
+  createWorkOrder(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    return this.request("POST", "/work-orders", { ...opts, body });
+  }
+
+  listWorkOrders(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.workOrderId) qs.set("workOrderId", String(params.workOrderId));
+    if (params.principalAgentId) qs.set("principalAgentId", String(params.principalAgentId));
+    if (params.subAgentId) qs.set("subAgentId", String(params.subAgentId));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/work-orders${suffix}`, opts);
+  }
+
+  getWorkOrder(workOrderId, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    return this.request("GET", `/work-orders/${encodeURIComponent(workOrderId)}`, opts);
+  }
+
+  acceptWorkOrder(workOrderId, body = {}, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body must be an object");
+    return this.request("POST", `/work-orders/${encodeURIComponent(workOrderId)}/accept`, { ...opts, body });
+  }
+
+  progressWorkOrder(workOrderId, body, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body is required");
+    return this.request("POST", `/work-orders/${encodeURIComponent(workOrderId)}/progress`, { ...opts, body });
+  }
+
+  topUpWorkOrder(workOrderId, body, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body is required");
+    return this.request("POST", `/work-orders/${encodeURIComponent(workOrderId)}/topup`, { ...opts, body });
+  }
+
+  completeWorkOrder(workOrderId, body, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body is required");
+    return this.request("POST", `/work-orders/${encodeURIComponent(workOrderId)}/complete`, { ...opts, body });
+  }
+
+  settleWorkOrder(workOrderId, body = {}, opts) {
+    assertNonEmptyString(workOrderId, "workOrderId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body must be an object");
+    return this.request("POST", `/work-orders/${encodeURIComponent(workOrderId)}/settle`, { ...opts, body });
+  }
+
+  listWorkOrderReceipts(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.receiptId) qs.set("receiptId", String(params.receiptId));
+    if (params.workOrderId) qs.set("workOrderId", String(params.workOrderId));
+    if (params.principalAgentId) qs.set("principalAgentId", String(params.principalAgentId));
+    if (params.subAgentId) qs.set("subAgentId", String(params.subAgentId));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/work-orders/receipts${suffix}`, opts);
+  }
+
+  getWorkOrderReceipt(receiptId, opts) {
+    assertNonEmptyString(receiptId, "receiptId");
+    return this.request("GET", `/work-orders/receipts/${encodeURIComponent(receiptId)}`, opts);
+  }
+
   createSession(body, opts) {
     if (!body || typeof body !== "object") throw new TypeError("body is required");
     return this.request("POST", "/sessions", { ...opts, body });
@@ -769,6 +839,41 @@ export class SettldClient {
   getAgentWallet(agentId, opts) {
     assertNonEmptyString(agentId, "agentId");
     return this.request("GET", `/agents/${encodeURIComponent(agentId)}/wallet`, opts);
+  }
+
+  createDelegationGrant(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.delegatorAgentId, "body.delegatorAgentId");
+    assertNonEmptyString(body?.delegateeAgentId, "body.delegateeAgentId");
+    return this.request("POST", "/delegation-grants", { ...opts, body });
+  }
+
+  issueDelegationGrant(body, opts) {
+    return this.createDelegationGrant(body, opts);
+  }
+
+  listDelegationGrants(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.grantId) qs.set("grantId", String(params.grantId));
+    if (params.grantHash) qs.set("grantHash", String(params.grantHash).toLowerCase());
+    if (params.delegatorAgentId) qs.set("delegatorAgentId", String(params.delegatorAgentId));
+    if (params.delegateeAgentId) qs.set("delegateeAgentId", String(params.delegateeAgentId));
+    if (params.includeRevoked !== undefined && params.includeRevoked !== null) qs.set("includeRevoked", String(Boolean(params.includeRevoked)));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/delegation-grants${suffix}`, opts);
+  }
+
+  getDelegationGrant(grantId, opts) {
+    assertNonEmptyString(grantId, "grantId");
+    return this.request("GET", `/delegation-grants/${encodeURIComponent(grantId)}`, opts);
+  }
+
+  revokeDelegationGrant(grantId, body = {}, opts) {
+    assertNonEmptyString(grantId, "grantId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body must be an object");
+    return this.request("POST", `/delegation-grants/${encodeURIComponent(grantId)}/revoke`, { ...opts, body });
   }
 
   createAuthorityGrant(body, opts) {
@@ -960,6 +1065,39 @@ export class SettldClient {
   getArtifact(artifactId, opts) {
     assertNonEmptyString(artifactId, "artifactId");
     return this.request("GET", `/artifacts/${encodeURIComponent(artifactId)}`, opts);
+  }
+
+  createCapabilityAttestation(body, opts) {
+    if (!body || typeof body !== "object") throw new TypeError("body is required");
+    assertNonEmptyString(body?.subjectAgentId, "body.subjectAgentId");
+    assertNonEmptyString(body?.capability, "body.capability");
+    return this.request("POST", "/capability-attestations", { ...opts, body });
+  }
+
+  listCapabilityAttestations(params = {}, opts) {
+    const qs = new URLSearchParams();
+    if (params.attestationId) qs.set("attestationId", String(params.attestationId));
+    if (params.subjectAgentId) qs.set("subjectAgentId", String(params.subjectAgentId));
+    if (params.issuerAgentId) qs.set("issuerAgentId", String(params.issuerAgentId));
+    if (params.capability) qs.set("capability", String(params.capability));
+    if (params.status) qs.set("status", String(params.status));
+    if (params.includeInvalid !== undefined && params.includeInvalid !== null) qs.set("includeInvalid", String(Boolean(params.includeInvalid)));
+    if (params.at) qs.set("at", String(params.at));
+    if (params.limit !== undefined && params.limit !== null) qs.set("limit", String(params.limit));
+    if (params.offset !== undefined && params.offset !== null) qs.set("offset", String(params.offset));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/capability-attestations${suffix}`, opts);
+  }
+
+  getCapabilityAttestation(attestationId, opts) {
+    assertNonEmptyString(attestationId, "attestationId");
+    return this.request("GET", `/capability-attestations/${encodeURIComponent(attestationId)}`, opts);
+  }
+
+  revokeCapabilityAttestation(attestationId, body = {}, opts) {
+    assertNonEmptyString(attestationId, "attestationId");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new TypeError("body must be an object");
+    return this.request("POST", `/capability-attestations/${encodeURIComponent(attestationId)}/revoke`, { ...opts, body });
   }
 
   async getArtifacts(params = {}, opts) {

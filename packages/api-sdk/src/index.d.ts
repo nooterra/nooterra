@@ -1570,6 +1570,66 @@ export class SettldClient {
     acceptanceId: string,
     opts?: RequestOptions
   ): Promise<SettldResponse<{ taskAcceptance: Record<string, unknown> }>>;
+  createWorkOrder(
+    body: Record<string, unknown>,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ workOrder: Record<string, unknown> }>>;
+  listWorkOrders(
+    params?: {
+      workOrderId?: string;
+      principalAgentId?: string;
+      subAgentId?: string;
+      status?: "created" | "accepted" | "working" | "completed" | "failed" | "settled" | "cancelled" | "disputed";
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ workOrders: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  getWorkOrder(
+    workOrderId: string,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ workOrder: Record<string, unknown> }>>;
+  acceptWorkOrder(
+    workOrderId: string,
+    body?: Record<string, unknown>,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ workOrder: Record<string, unknown> }>>;
+  progressWorkOrder(
+    workOrderId: string,
+    body: Record<string, unknown>,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ workOrder: Record<string, unknown> }>>;
+  topUpWorkOrder(
+    workOrderId: string,
+    body: Record<string, unknown>,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<Record<string, unknown>>>;
+  completeWorkOrder(
+    workOrderId: string,
+    body: Record<string, unknown>,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ workOrder: Record<string, unknown>; completionReceipt: Record<string, unknown> }>>;
+  settleWorkOrder(
+    workOrderId: string,
+    body?: Record<string, unknown>,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ workOrder: Record<string, unknown>; completionReceipt: Record<string, unknown> }>>;
+  listWorkOrderReceipts(
+    params?: {
+      receiptId?: string;
+      workOrderId?: string;
+      principalAgentId?: string;
+      subAgentId?: string;
+      status?: "success" | "failed";
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ receipts: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  getWorkOrderReceipt(
+    receiptId: string,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ completionReceipt: Record<string, unknown> }>>;
   createSession(
     body: {
       sessionId?: string;
@@ -1611,12 +1671,42 @@ export class SettldClient {
     opts: RequestOptions
   ): Promise<SettldResponse<{ sessionId: string; event: Record<string, unknown>; currentPrevChainHash: string | null }>>;
   getSessionReplayPack(sessionId: string, opts?: RequestOptions): Promise<SettldResponse<{ replayPack: Record<string, unknown> }>>;
+  getSessionTranscript(
+    sessionId: string,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ transcript: Record<string, unknown> }>>;
   streamSessionEvents(
     sessionId: string,
     params?: { eventType?: string; sinceEventId?: string },
     opts?: Pick<RequestOptions, "requestId" | "signal"> & { lastEventId?: string }
   ): AsyncGenerator<SettldSseEvent, void, unknown>;
   getAgentWallet(agentId: string, opts?: RequestOptions): Promise<SettldResponse<{ wallet: AgentWalletV1 }>>;
+  createDelegationGrant(
+    body: Record<string, unknown> & { delegatorAgentId: string; delegateeAgentId: string },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ delegationGrant: Record<string, unknown> }>>;
+  issueDelegationGrant(
+    body: Record<string, unknown> & { delegatorAgentId: string; delegateeAgentId: string },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ delegationGrant: Record<string, unknown> }>>;
+  listDelegationGrants(
+    params?: {
+      grantId?: string;
+      grantHash?: string;
+      delegatorAgentId?: string;
+      delegateeAgentId?: string;
+      includeRevoked?: boolean;
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ grants: Array<Record<string, unknown>>; limit: number; offset: number }>>;
+  getDelegationGrant(grantId: string, opts?: RequestOptions): Promise<SettldResponse<{ delegationGrant: Record<string, unknown> }>>;
+  revokeDelegationGrant(
+    grantId: string,
+    body?: { revocationReasonCode?: string; reasonCode?: string } & Record<string, unknown>,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ delegationGrant: Record<string, unknown> }>>;
   createAuthorityGrant(
     body: {
       grantId?: string;
@@ -1878,6 +1968,40 @@ export class SettldClient {
   toolCallSubmitArbitrationVerdict(body: Record<string, unknown>, opts?: RequestOptions): Promise<SettldResponse<Record<string, unknown>>>;
   opsGetSettlementAdjustment(adjustmentId: string, opts?: RequestOptions): Promise<SettldResponse<{ ok: boolean; tenantId: string; adjustment: Record<string, unknown> }>>;
   getArtifact(artifactId: string, opts?: RequestOptions): Promise<SettldResponse<{ artifact: Record<string, unknown> }>>;
+  createCapabilityAttestation(
+    body: Record<string, unknown> & { subjectAgentId: string; capability: string },
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ capabilityAttestation: Record<string, unknown> }>>;
+  listCapabilityAttestations(
+    params?: {
+      attestationId?: string;
+      subjectAgentId?: string;
+      issuerAgentId?: string;
+      capability?: string;
+      status?: "active" | "expired" | "revoked" | "invalid" | "all";
+      includeInvalid?: boolean;
+      at?: string;
+      limit?: number;
+      offset?: number;
+    },
+    opts?: RequestOptions
+  ): Promise<
+    SettldResponse<{
+      attestations: Array<{ capabilityAttestation: Record<string, unknown>; runtime: Record<string, unknown> }>;
+      total: number;
+      limit: number;
+      offset: number;
+    }>
+  >;
+  getCapabilityAttestation(
+    attestationId: string,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ capabilityAttestation: Record<string, unknown>; runtime: Record<string, unknown> | null }>>;
+  revokeCapabilityAttestation(
+    attestationId: string,
+    body?: { revokedAt?: string; reasonCode?: string } & Record<string, unknown>,
+    opts?: RequestOptions
+  ): Promise<SettldResponse<{ capabilityAttestation: Record<string, unknown>; runtime: Record<string, unknown> | null }>>;
   getArtifacts(
     params: { artifactIds: string[] } | string[],
     opts?: RequestOptions
