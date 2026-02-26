@@ -89,6 +89,19 @@ jobs:
       - name: Install base chart (smoke)
         run: |
           set -euo pipefail
+          BASE_CHART_PATH=""
+          for CANDIDATE in /tmp/nooterra_base/deploy/helm/nooterra /tmp/nooterra_base/deploy/helm/settld; do
+            if [[ -d "${CANDIDATE}" ]]; then
+              BASE_CHART_PATH="${CANDIDATE}"
+              break
+            fi
+          done
+          if [[ -z "${BASE_CHART_PATH}" ]]; then
+            echo "::error::Could not find base Helm chart in /tmp/nooterra_base/deploy/helm/{nooterra,settld}"
+            ls -la /tmp/nooterra_base/deploy/helm || true
+            exit 1
+          fi
+          echo "using base chart path: ${BASE_CHART_PATH}"
           cat >/tmp/values.base.yaml <<'YAML'
           image:
             repository: nooterra
@@ -109,13 +122,20 @@ jobs:
               PROXY_AUTOTICK_INTERVAL_MS: "100"
               PROXY_AUTOTICK_MAX_MESSAGES: "200"
           YAML
-          helm upgrade --install nooterra /tmp/nooterra_base/deploy/helm/nooterra -n smoke -f /tmp/values.base.yaml --wait --timeout 5m
+          helm upgrade --install nooterra "${BASE_CHART_PATH}" -n smoke -f /tmp/values.base.yaml --wait --timeout 5m
 
       - name: Smoke lifecycle (base)
         run: |
           set -euo pipefail
+          API_SERVICE="$(kubectl -n smoke get svc -l app.kubernetes.io/instance=nooterra -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep -E -- '-api$' | head -n1 || true)"
+          if [[ -z "${API_SERVICE}" ]]; then
+            echo "::error::Could not resolve base API service for release nooterra"
+            kubectl -n smoke get svc
+            exit 1
+          fi
           PORT="$(node -e \"require('net').createServer().listen(0,'127.0.0.1',function(){console.log(this.address().port); this.close();});\")"
-          kubectl -n smoke port-forward svc/nooterra-nooterra-api "${PORT}:3000" >/tmp/pf.base.log 2>&1 &
+          echo "using base API service: ${API_SERVICE}"
+          kubectl -n smoke port-forward "svc/${API_SERVICE}" "${PORT}:3000" >/tmp/pf.base.log 2>&1 &
           PF_PID=$!
           trap 'kill ${PF_PID} || true' EXIT
           SMOKE_API_BASE_URL="http://127.0.0.1:${PORT}" SMOKE_TENANT_ID="tenant_default" SMOKE_OPS_TOKEN="dev" SMOKE_PROTOCOL="1.0" \
@@ -152,8 +172,15 @@ jobs:
       - name: Smoke lifecycle (current)
         run: |
           set -euo pipefail
+          API_SERVICE="$(kubectl -n smoke get svc -l app.kubernetes.io/instance=nooterra -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep -E -- '-api$' | head -n1 || true)"
+          if [[ -z "${API_SERVICE}" ]]; then
+            echo "::error::Could not resolve current API service for release nooterra"
+            kubectl -n smoke get svc
+            exit 1
+          fi
           PORT="$(node -e \"require('net').createServer().listen(0,'127.0.0.1',function(){console.log(this.address().port); this.close();});\")"
-          kubectl -n smoke port-forward svc/nooterra-nooterra-api "${PORT}:3000" >/tmp/pf.current.log 2>&1 &
+          echo "using current API service: ${API_SERVICE}"
+          kubectl -n smoke port-forward "svc/${API_SERVICE}" "${PORT}:3000" >/tmp/pf.current.log 2>&1 &
           PF_PID=$!
           trap 'kill ${PF_PID} || true' EXIT
           SMOKE_API_BASE_URL="http://127.0.0.1:${PORT}" SMOKE_TENANT_ID="tenant_default" SMOKE_OPS_TOKEN="dev" SMOKE_PROTOCOL="1.0" \
@@ -165,7 +192,14 @@ jobs:
       - name: Diagnostics on failure
         if: failure()
         run: |
+          set -euo pipefail
           kubectl -n smoke get all
-          kubectl -n smoke describe deploy/nooterra-nooterra-api || true
-          kubectl -n smoke logs deploy/nooterra-nooterra-api --tail=200 || true
-          kubectl -n smoke logs deploy/nooterra-nooterra-maintenance --tail=200 || true
+          API_DEPLOY="$(kubectl -n smoke get deploy -l app.kubernetes.io/instance=nooterra -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep -E -- '-api$' | head -n1 || true)"
+          MAINTENANCE_DEPLOY="$(kubectl -n smoke get deploy -l app.kubernetes.io/instance=nooterra -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' | grep -E -- '-maintenance$' | head -n1 || true)"
+          if [[ -n "${API_DEPLOY}" ]]; then
+            kubectl -n smoke describe "deploy/${API_DEPLOY}" || true
+            kubectl -n smoke logs "deploy/${API_DEPLOY}" --tail=200 || true
+          fi
+          if [[ -n "${MAINTENANCE_DEPLOY}" ]]; then
+            kubectl -n smoke logs "deploy/${MAINTENANCE_DEPLOY}" --tail=200 || true
+          fi
