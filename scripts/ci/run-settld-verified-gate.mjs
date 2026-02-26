@@ -377,7 +377,12 @@ function checksForLevel(level, { includePg = false } = {}) {
     }
   ];
   const guardrails = [
-    { id: "agent_substrate_adversarial_harness", command: "npm", args: ["run", "-s", "test:ops:agent-substrate-adversarial-harness"] }
+    { id: "agent_substrate_adversarial_harness", command: "npm", args: ["run", "-s", "test:ops:agent-substrate-adversarial-harness"] },
+    {
+      id: "agent_substrate_prompt_contagion_harness",
+      command: "npm",
+      args: ["run", "-s", "test:ops:agent-substrate-adversarial-harness:prompt-contagion"]
+    }
   ];
   const pg = includePg
     ? [{ id: "pg_substrate_primitives_durability", command: "node", args: ["--test", "test/pg-agent-substrate-primitives-durability.test.js"] }]

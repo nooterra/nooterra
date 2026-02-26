@@ -212,3 +212,51 @@ test("settld verified gate runner: include-pg appends PG durability check", asyn
   assert.equal(report.ok, true);
   assert.equal(seenIds.includes("pg_substrate_primitives_durability"), true);
 });
+
+test("settld verified gate runner: guardrails level includes prompt-contagion harness", async () => {
+  const seenIds = [];
+  const runCheckFn = (check) => {
+    seenIds.push(check.id);
+    const openclawDetails =
+      check.id === "e2e_openclaw_substrate_demo"
+        ? {
+            sessionLineageVerified: true,
+            sessionTranscriptVerified: true
+          }
+        : undefined;
+    return {
+      id: check.id,
+      command: check.command,
+      startedAt: "2026-01-01T00:00:00.000Z",
+      completedAt: "2026-01-01T00:00:00.001Z",
+      ok: true,
+      exitCode: 0,
+      signal: null,
+      stdoutPreview: "",
+      stderrPreview: "",
+      details: openclawDetails
+    };
+  };
+  const bootstrapFn = async () => ({
+    envPatch: {},
+    metadata: { enabled: false },
+    cleanup: async () => {}
+  });
+  const { report } = await runSettldVerifiedGate(
+    {
+      level: "guardrails",
+      out: "/tmp/settld-verified-gate-guardrails.json",
+      help: false,
+      bootstrapLocal: false,
+      bootstrapBaseUrl: "http://127.0.0.1:3000",
+      bootstrapTenantId: "tenant_default",
+      bootstrapOpsToken: "tok_ops",
+      includePg: false,
+      databaseUrl: ""
+    },
+    { runCheckFn, bootstrapFn }
+  );
+  assert.equal(report.ok, true);
+  assert.equal(seenIds.includes("agent_substrate_adversarial_harness"), true);
+  assert.equal(seenIds.includes("agent_substrate_prompt_contagion_harness"), true);
+});
