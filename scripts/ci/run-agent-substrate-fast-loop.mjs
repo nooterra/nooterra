@@ -137,6 +137,16 @@ export async function runAgentSubstrateFastLoop(args, options = {}) {
       id: "openclaw_substrate_demo_transcript_verified",
       command: process.execPath,
       args: ["--test", "test/openclaw-substrate-demo-script.test.js"]
+    },
+    {
+      id: "sdk_acs_smoke_js",
+      command: "npm",
+      args: ["run", "-s", "sdk:acs-smoke"]
+    },
+    {
+      id: "sdk_acs_smoke_py",
+      command: "npm",
+      args: ["run", "-s", "sdk:acs-smoke:py"]
     }
   ];
 
