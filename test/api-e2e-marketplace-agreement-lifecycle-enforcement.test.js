@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
-import { createEd25519Keypair } from "../src/core/crypto.js";
+import { createEd25519Keypair, keyIdFromPublicKeyPem } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = ["translate"] }) {
@@ -20,6 +20,7 @@ async function registerAgent(api, { agentId, capabilities = ["translate"] }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+  return { agentId, keyId: keyIdFromPublicKeyPem(publicKeyPem) };
 }
 
 async function creditWallet(api, { agentId, amountCents, idempotencyKey }) {
@@ -51,13 +52,23 @@ async function setX402AgentLifecycle(
   });
 }
 
+async function rotateSignerKey(api, { keyId }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(keyId)}/rotate`,
+    body: {}
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json?.signerKey?.status, "rotated");
+}
+
 async function createAcceptedMarketplaceRun(api, { prefix }) {
   const posterAgentId = `agt_${prefix}_poster`;
   const bidderAgentId = `agt_${prefix}_bidder`;
   const operatorAgentId = `agt_${prefix}_operator`;
   const rfqId = `rfq_${prefix}_1`;
   const bidId = `bid_${prefix}_1`;
-  await registerAgent(api, { agentId: posterAgentId });
+  const poster = await registerAgent(api, { agentId: posterAgentId });
   await registerAgent(api, { agentId: bidderAgentId });
   await registerAgent(api, { agentId: operatorAgentId });
   await creditWallet(api, {
@@ -116,7 +127,7 @@ async function createAcceptedMarketplaceRun(api, { prefix }) {
   assert.equal(accept.statusCode, 200, accept.body);
   const runId = String(accept.json?.run?.runId ?? "");
   assert.ok(runId.length > 0, accept.body);
-  return { runId, posterAgentId };
+  return { runId, posterAgentId, posterKeyId: poster.keyId };
 }
 
 test("API e2e: marketplace agreement change-order and cancel fail closed on non-active lifecycle", async () => {
@@ -162,4 +173,46 @@ test("API e2e: marketplace agreement change-order and cancel fail closed on non-
   assert.equal(blockedCancel.json?.code, "X402_AGENT_SUSPENDED");
   assert.equal(blockedCancel.json?.details?.role, "payer");
   assert.equal(blockedCancel.json?.details?.operation, "marketplace_agreement.cancel");
+});
+
+test("API e2e: marketplace agreement change-order and cancel fail closed when participant signer lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const { runId, posterAgentId, posterKeyId } = await createAcceptedMarketplaceRun(api, { prefix: "mk_agr_signer_lifecycle" });
+
+  await rotateSignerKey(api, { keyId: posterKeyId });
+
+  const blockedChangeOrder = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/agreement/change-order`,
+    headers: { "x-idempotency-key": "mk_agr_signer_lifecycle_change_order_block_1" },
+    body: {
+      changeOrderId: "chg_mk_agr_signer_lifecycle_1",
+      requestedByAgentId: posterAgentId,
+      reason: "scope update",
+      milestones: [{ milestoneId: "m1", label: "Initial", releaseRatePct: 100, statusGate: "green" }]
+    }
+  });
+  assert.equal(blockedChangeOrder.statusCode, 409, blockedChangeOrder.body);
+  assert.equal(blockedChangeOrder.json?.code, "X402_AGENT_SIGNER_KEY_INVALID");
+  assert.equal(blockedChangeOrder.json?.details?.role, "payer");
+  assert.equal(blockedChangeOrder.json?.details?.operation, "marketplace_agreement.change_order");
+  assert.equal(blockedChangeOrder.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blockedChangeOrder.json?.details?.signerStatus, "rotated");
+
+  const blockedCancel = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(runId)}/agreement/cancel`,
+    headers: { "x-idempotency-key": "mk_agr_signer_lifecycle_cancel_block_1" },
+    body: {
+      cancellationId: "cancel_mk_agr_signer_lifecycle_1",
+      cancelledByAgentId: posterAgentId,
+      reason: "cancel requested"
+    }
+  });
+  assert.equal(blockedCancel.statusCode, 409, blockedCancel.body);
+  assert.equal(blockedCancel.json?.code, "X402_AGENT_SIGNER_KEY_INVALID");
+  assert.equal(blockedCancel.json?.details?.role, "payer");
+  assert.equal(blockedCancel.json?.details?.operation, "marketplace_agreement.cancel");
+  assert.equal(blockedCancel.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blockedCancel.json?.details?.signerStatus, "rotated");
 });

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
-import { createEd25519Keypair } from "../src/core/crypto.js";
+import { createEd25519Keypair, keyIdFromPublicKeyPem } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId }) {
@@ -19,6 +19,7 @@ async function registerAgent(api, { agentId }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+  return { agentId, keyId: keyIdFromPublicKeyPem(publicKeyPem) };
 }
 
 async function creditWallet(api, { agentId, amountCents, key }) {
@@ -50,6 +51,16 @@ async function setX402AgentLifecycle(
   });
 }
 
+async function rotateSignerKey(api, { keyId }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(keyId)}/rotate`,
+    body: {}
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json?.signerKey?.status, "rotated");
+}
+
 async function setupLockedSettlementRun(api, { prefix, amountCents = 2200, disputeWindowDays = 2 } = {}) {
   const posterAgentId = `agt_${prefix}_poster`;
   const bidderAgentId = `agt_${prefix}_bidder`;
@@ -58,10 +69,10 @@ async function setupLockedSettlementRun(api, { prefix, amountCents = 2200, dispu
   const rfqId = `rfq_${prefix}_1`;
   const bidId = `bid_${prefix}_1`;
 
-  await registerAgent(api, { agentId: posterAgentId });
-  await registerAgent(api, { agentId: bidderAgentId });
-  await registerAgent(api, { agentId: operatorAgentId });
-  await registerAgent(api, { agentId: arbiterAgentId });
+  const poster = await registerAgent(api, { agentId: posterAgentId });
+  const bidder = await registerAgent(api, { agentId: bidderAgentId });
+  const operator = await registerAgent(api, { agentId: operatorAgentId });
+  const arbiter = await registerAgent(api, { agentId: arbiterAgentId });
   await creditWallet(api, {
     agentId: posterAgentId,
     amountCents: 5000,
@@ -154,7 +165,11 @@ async function setupLockedSettlementRun(api, { prefix, amountCents = 2200, dispu
     posterAgentId,
     bidderAgentId,
     operatorAgentId,
-    arbiterAgentId
+    arbiterAgentId,
+    posterKeyId: poster.keyId,
+    bidderKeyId: bidder.keyId,
+    operatorKeyId: operator.keyId,
+    arbiterKeyId: arbiter.keyId
   };
 }
 
@@ -311,6 +326,60 @@ test("API e2e: run settlement/dispute routes fail closed when participant lifecy
   assert.equal(blockedClose.json?.code, "X402_AGENT_SUSPENDED");
   assert.equal(blockedClose.json?.details?.role, "closed_by");
   assert.equal(blockedClose.json?.details?.operation, "run_dispute.close");
+});
+
+test("API e2e: run dispute close fails closed when close participant signer lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const run = await setupLockedSettlementRun(api, { prefix: "sdar_signer_lifecycle_1", amountCents: 2200, disputeWindowDays: 2 });
+
+  const resolve = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(run.runId)}/settlement/resolve`,
+    headers: { "x-idempotency-key": "sdar_signer_lifecycle_1_resolve_ok" },
+    body: {
+      status: "released",
+      releaseRatePct: 100,
+      resolvedByAgentId: run.operatorAgentId,
+      reason: "manual release"
+    }
+  });
+  assert.equal(resolve.statusCode, 200, resolve.body);
+
+  const open = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(run.runId)}/dispute/open`,
+    headers: { "x-idempotency-key": "sdar_signer_lifecycle_1_dispute_open_ok" },
+    body: {
+      disputeId: "dsp_sdar_signer_lifecycle_1",
+      disputeType: "quality",
+      disputePriority: "normal",
+      disputeChannel: "counterparty",
+      openedByAgentId: run.operatorAgentId,
+      reason: "open dispute"
+    }
+  });
+  assert.equal(open.statusCode, 200, open.body);
+  assert.equal(open.json?.settlement?.disputeStatus, "open");
+
+  await rotateSignerKey(api, { keyId: run.operatorKeyId });
+
+  const blockedClose = await request(api, {
+    method: "POST",
+    path: `/runs/${encodeURIComponent(run.runId)}/dispute/close`,
+    headers: { "x-idempotency-key": "sdar_signer_lifecycle_1_dispute_close_block" },
+    body: {
+      disputeId: "dsp_sdar_signer_lifecycle_1",
+      resolutionOutcome: "accepted",
+      closedByAgentId: run.operatorAgentId,
+      resolutionSummary: "close dispute"
+    }
+  });
+  assert.equal(blockedClose.statusCode, 409, blockedClose.body);
+  assert.equal(blockedClose.json?.code, "X402_AGENT_SIGNER_KEY_INVALID");
+  assert.equal(blockedClose.json?.details?.role, "closed_by");
+  assert.equal(blockedClose.json?.details?.operation, "run_dispute.close");
+  assert.equal(blockedClose.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blockedClose.json?.details?.signerStatus, "rotated");
 });
 
 test("API e2e: run arbitration routes fail closed when participant lifecycle is non-active", async () => {

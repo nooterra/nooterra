@@ -17567,8 +17567,18 @@ export function createApi({
   async function enforceMarketplaceParticipantLifecycleGuards({
     tenantId,
     participants = [],
-    operation = "marketplace_mutation"
+    operation = "marketplace_mutation",
+    at = null,
+    enforceSignerLifecycle = false,
+    signerErrorCode = "X402_AGENT_SIGNER_KEY_INVALID"
   } = {}) {
+    const shouldEnforceSignerLifecycle = enforceSignerLifecycle === true;
+    const atIso =
+      shouldEnforceSignerLifecycle && typeof at === "string" && at.trim() !== ""
+        ? at.trim()
+        : shouldEnforceSignerLifecycle
+          ? nowIso()
+          : null;
     const normalizedParticipants = Array.isArray(participants) ? participants : [];
     for (const participant of normalizedParticipants) {
       if (!participant || typeof participant !== "object" || Array.isArray(participant)) continue;
@@ -17595,6 +17605,29 @@ export function createApi({
             { path: "$.details" }
           )
         };
+      }
+      if (shouldEnforceSignerLifecycle) {
+        const signerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({
+          tenantId,
+          agentId,
+          at: atIso
+        });
+        if (!signerLifecycle.ok) {
+          return {
+            blocked: true,
+            httpStatus: 409,
+            code: signerErrorCode,
+            message: `${role} signer key lifecycle blocked for ${operation}`,
+            details: buildGrantParticipantSignerLifecycleDetails({
+              operation,
+              role,
+              agentId,
+              signerKeyId: signerLifecycle.signerKeyId ?? null,
+              at: atIso,
+              lifecycle: signerLifecycle.lifecycle ?? null
+            })
+          };
+        }
       }
     }
     return { blocked: false };
@@ -41708,7 +41741,8 @@ export function createApi({
               { role: "bidder", agentId: selectedBid?.bidderAgentId ?? null },
               { role: "proposer", agentId: proposerAgentId }
             ],
-            operation: "marketplace_bid.counter_offer"
+            operation: "marketplace_bid.counter_offer",
+            enforceSignerLifecycle: true
           });
           if (counterOfferLifecycleGuard?.blocked) {
             return sendError(
@@ -42190,9 +42224,15 @@ export function createApi({
             participants: [
               { role: "payer", agentId: settlementRequest.payerAgentId },
               { role: "payee", agentId: payeeAgentId },
-              { role: "accepted_by", agentId: acceptedByAgentId }
+              ...(
+                acceptedByAgentId && !acceptanceSignatureInput
+                  ? [{ role: "accepted_by", agentId: acceptedByAgentId }]
+                  : []
+              )
             ],
-            operation: "marketplace_bid.accept"
+            operation: "marketplace_bid.accept",
+            at: acceptedAt,
+            enforceSignerLifecycle: true
           });
           if (acceptLifecycleGuard?.blocked) {
             return sendError(
@@ -55565,9 +55605,14 @@ export function createApi({
             { role: "payer", agentId: agreementPayerAgentId },
             { role: "payee", agentId: agreementPayeeAgentId },
             { role: "requested_by", agentId: requestedByAgentId },
-            { role: "accepted_by", agentId: acceptedByAgentId }
+            ...(
+              acceptedByAgentId && !acceptanceSignatureInput
+                ? [{ role: "accepted_by", agentId: acceptedByAgentId }]
+                : []
+            )
           ],
-          operation: "marketplace_agreement.change_order"
+          operation: "marketplace_agreement.change_order",
+          enforceSignerLifecycle: true
         });
         if (changeOrderLifecycleGuard?.blocked) {
           return sendError(
@@ -55862,9 +55907,14 @@ export function createApi({
             { role: "payer", agentId: agreementPayerAgentId },
             { role: "payee", agentId: agreementPayeeAgentId },
             { role: "cancelled_by", agentId: cancelledByAgentId },
-            { role: "accepted_by", agentId: acceptedByAgentId }
+            ...(
+              acceptedByAgentId && !acceptanceSignatureInput
+                ? [{ role: "accepted_by", agentId: acceptedByAgentId }]
+                : []
+            )
           ],
-          operation: "marketplace_agreement.cancel"
+          operation: "marketplace_agreement.cancel",
+          enforceSignerLifecycle: true
         });
         if (cancelLifecycleGuard?.blocked) {
           return sendError(
@@ -58431,7 +58481,9 @@ export function createApi({
                 { role: "payee", agentId: settlement?.agentId ?? null },
                 { role: "closed_by", agentId: resolutionInput?.closedByAgentId ?? null }
               ],
-              operation: "run_dispute.close"
+              operation: "run_dispute.close",
+              at: nowAt,
+              enforceSignerLifecycle: true
             });
             if (closeLifecycleGuard?.blocked) {
               return sendError(

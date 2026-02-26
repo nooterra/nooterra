@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
-import { createEd25519Keypair } from "../src/core/crypto.js";
+import { createEd25519Keypair, keyIdFromPublicKeyPem } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = ["translate"] }) {
@@ -20,6 +20,7 @@ async function registerAgent(api, { agentId, capabilities = ["translate"] }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+  return { agentId, keyId: keyIdFromPublicKeyPem(publicKeyPem) };
 }
 
 async function setX402AgentLifecycle(
@@ -39,6 +40,16 @@ async function setX402AgentLifecycle(
       ...(reasonMessage ? { reasonMessage } : {})
     }
   });
+}
+
+async function rotateSignerKey(api, { keyId }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(keyId)}/rotate`,
+    body: {}
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json?.signerKey?.status, "rotated");
 }
 
 test("API e2e: marketplace RFQ and bid issue routes fail closed on non-active lifecycle", async () => {
@@ -216,4 +227,76 @@ test("API e2e: marketplace counter-offer and accept routes fail closed on non-ac
   assert.equal(blockedAccept.json?.code, "X402_AGENT_THROTTLED");
   assert.equal(blockedAccept.json?.details?.role, "payee");
   assert.equal(blockedAccept.json?.details?.operation, "marketplace_bid.accept");
+});
+
+test("API e2e: marketplace counter-offer and accept routes fail closed when participant signer lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const posterAgentId = "agt_mk_signer_lifecycle_poster_1";
+  const bidderAgentId = "agt_mk_signer_lifecycle_bidder_1";
+  const operatorAgentId = "agt_mk_signer_lifecycle_operator_1";
+  await registerAgent(api, { agentId: posterAgentId });
+  const bidder = await registerAgent(api, { agentId: bidderAgentId });
+  await registerAgent(api, { agentId: operatorAgentId });
+
+  const createdRfq = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "mk_signer_lifecycle_rfq_1" },
+    body: {
+      rfqId: "rfq_mk_signer_lifecycle_1",
+      title: "Signer lifecycle negotiation rfq",
+      capability: "translate",
+      posterAgentId,
+      budgetCents: 1500,
+      currency: "USD"
+    }
+  });
+  assert.equal(createdRfq.statusCode, 201, createdRfq.body);
+
+  const createdBid = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_mk_signer_lifecycle_1/bids",
+    headers: { "x-idempotency-key": "mk_signer_lifecycle_bid_1" },
+    body: {
+      bidId: "bid_mk_signer_lifecycle_1",
+      bidderAgentId,
+      amountCents: 1200,
+      currency: "USD"
+    }
+  });
+  assert.equal(createdBid.statusCode, 201, createdBid.body);
+
+  await rotateSignerKey(api, { keyId: bidder.keyId });
+
+  const blockedCounterOffer = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_mk_signer_lifecycle_1/bids/bid_mk_signer_lifecycle_1/counter-offer",
+    headers: { "x-idempotency-key": "mk_signer_lifecycle_counter_offer_block_1" },
+    body: {
+      proposerAgentId: bidderAgentId,
+      amountCents: 1250
+    }
+  });
+  assert.equal(blockedCounterOffer.statusCode, 409, blockedCounterOffer.body);
+  assert.equal(blockedCounterOffer.json?.code, "X402_AGENT_SIGNER_KEY_INVALID");
+  assert.equal(blockedCounterOffer.json?.details?.role, "bidder");
+  assert.equal(blockedCounterOffer.json?.details?.operation, "marketplace_bid.counter_offer");
+  assert.equal(blockedCounterOffer.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blockedCounterOffer.json?.details?.signerStatus, "rotated");
+
+  const blockedAccept = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_mk_signer_lifecycle_1/accept",
+    headers: { "x-idempotency-key": "mk_signer_lifecycle_accept_block_1" },
+    body: {
+      bidId: "bid_mk_signer_lifecycle_1",
+      acceptedByAgentId: operatorAgentId
+    }
+  });
+  assert.equal(blockedAccept.statusCode, 409, blockedAccept.body);
+  assert.equal(blockedAccept.json?.code, "X402_AGENT_SIGNER_KEY_INVALID");
+  assert.equal(blockedAccept.json?.details?.role, "payee");
+  assert.equal(blockedAccept.json?.details?.operation, "marketplace_bid.accept");
+  assert.equal(blockedAccept.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blockedAccept.json?.details?.signerStatus, "rotated");
 });
