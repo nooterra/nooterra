@@ -181,6 +181,7 @@ Promotion guard order (fail-closed):
 5. Release workflow binds all required gate artifacts (kernel, production cutover, NOO-50 parity, onboarding host success, S13 go-live, S13 launch packet, hosted baseline evidence) into NOO-65.
    - Production cutover must include `settld_verified_collaboration`, `openclaw_substrate_demo_lineage_verified`, `openclaw_substrate_demo_transcript_verified`, `sdk_acs_smoke_js_verified`, and `sdk_acs_smoke_py_verified` as passed checks.
 6. Release workflow must emit `artifacts/gates/release-promotion-guard.json` with `verdict.ok=true` before artifact publish jobs execute.
+7. Release workflow must emit `artifacts/gates/release-cutover-audit-view.json` (`ReleaseCutoverAuditView.v1`) as the single merged verifier over production cutover gate, required-check assertion, and launch packet required-cutover summary.
 
 Manual parity with CI materialization:
 

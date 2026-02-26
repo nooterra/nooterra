@@ -20,6 +20,7 @@ test("release workflow contract: asserts production cutover required checks in r
 test("release workflow contract: release artifacts include production cutover required checks report", async () => {
   const text = await readWorkflow();
   assert.match(text, /artifacts\/gates\/production-cutover-required-checks\.json/);
+  assert.match(text, /artifacts\/gates\/release-cutover-audit-view\.json/);
 });
 
 test("release workflow contract: release body path and notes generator are pinned", async () => {
@@ -35,6 +36,16 @@ test("release workflow contract: release body path and notes generator are pinne
 test("release workflow contract: required release assets assert production cutover checks artifact", async () => {
   const text = await readWorkflow();
   assert.match(text, /test -f \/tmp\/release-assets\/production-cutover-required-checks\.json/);
+  assert.match(text, /test -f \/tmp\/release-assets\/release-cutover-audit-view\.json/);
+});
+
+test("release workflow contract: builds release cutover audit view from pinned artifacts", async () => {
+  const text = await readWorkflow();
+  assert.match(text, /node scripts\/release\/build-cutover-audit-view\.mjs/);
+  assert.match(text, /--production-gate artifacts\/gates\/production-cutover-gate\.json/);
+  assert.match(text, /--required-checks artifacts\/gates\/production-cutover-required-checks\.json/);
+  assert.match(text, /--launch-packet artifacts\/gates\/s13-launch-cutover-packet\.json/);
+  assert.match(text, /--out artifacts\/gates\/release-cutover-audit-view\.json/);
 });
 
 test("release workflow contract: upload release notes artifact step is present", async () => {

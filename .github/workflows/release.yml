@@ -373,6 +373,15 @@ jobs:
             --in artifacts/gates/production-cutover-gate.json \
             --json-out artifacts/gates/production-cutover-required-checks.json
 
+      - name: Build release cutover audit view (single-view verifier)
+        run: |
+          set -euo pipefail
+          node scripts/release/build-cutover-audit-view.mjs \
+            --production-gate artifacts/gates/production-cutover-gate.json \
+            --required-checks artifacts/gates/production-cutover-required-checks.json \
+            --launch-packet artifacts/gates/s13-launch-cutover-packet.json \
+            --out artifacts/gates/release-cutover-audit-view.json
+
       - name: Upload release promotion guard artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -384,6 +393,7 @@ jobs:
             artifacts/gates/kernel-v0-ship-gate.json
             artifacts/gates/production-cutover-gate.json
             artifacts/gates/production-cutover-required-checks.json
+            artifacts/gates/release-cutover-audit-view.json
             artifacts/gates/offline-verification-parity-gate.json
             artifacts/gates/onboarding-host-success-gate.json
             artifacts/gates/s13-go-live-gate.json
@@ -1102,6 +1112,7 @@ jobs:
           test -f /tmp/release-assets/settld-audit-packet-v1.zip.sha256
           test -f /tmp/release-assets/release-promotion-guard.json
           test -f /tmp/release-assets/production-cutover-required-checks.json
+          test -f /tmp/release-assets/release-cutover-audit-view.json
           # npm tgz artifacts + checksums
           ls /tmp/release-assets/settld-api-sdk-*.tgz >/dev/null
           ls /tmp/release-assets/settld-artifact-produce-*.tgz >/dev/null

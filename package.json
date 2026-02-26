@@ -159,6 +159,7 @@
     "ops:design-partner:run-packet": "node scripts/ops/design-partner-run-packet.mjs",
     "magic-link:migrate-runs-db": "node scripts/magic-link/migrate-run-records-to-db.mjs",
     "release:artifacts": "node scripts/release/build-artifacts.mjs",
+    "release:cutover:audit-view": "node scripts/release/build-cutover-audit-view.mjs",
     "audit:packet": "node scripts/audit/build-audit-packet.mjs"
   },
   "dependencies": {
