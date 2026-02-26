@@ -13005,6 +13005,13 @@ export function createApi({
     return err;
   }
 
+  function buildX402AuthorityDelegationConsistencyError(code, message, details = null) {
+    const err = new Error(message);
+    err.code = code;
+    if (details !== null && details !== undefined) err.details = details;
+    return err;
+  }
+
   function buildX402AgentPassportError(code, message, details = null) {
     const err = new Error(message);
     err.code = code;
@@ -14176,6 +14183,188 @@ export function createApi({
     }
 
     return { authorityGrant: grant, authorityGrantRef: normalizedGrantId };
+  }
+
+  function assertDelegationGrantWithinAuthorityGrant({
+    delegationGrant,
+    delegationGrantRef = null,
+    authorityGrant,
+    authorityGrantRef = null
+  } = {}) {
+    if (!delegationGrant || !authorityGrant) return;
+
+    const delegationRef =
+      typeof delegationGrantRef === "string" && delegationGrantRef.trim() !== ""
+        ? delegationGrantRef.trim()
+        : typeof delegationGrant?.grantId === "string" && delegationGrant.grantId.trim() !== ""
+          ? delegationGrant.grantId.trim()
+          : null;
+    const authorityRef =
+      typeof authorityGrantRef === "string" && authorityGrantRef.trim() !== ""
+        ? authorityGrantRef.trim()
+        : typeof authorityGrant?.grantId === "string" && authorityGrant.grantId.trim() !== ""
+          ? authorityGrant.grantId.trim()
+          : null;
+
+    const scopeError = ({ message, field, delegationValue = null, authorityValue = null } = {}) =>
+      buildX402AuthorityDelegationConsistencyError(
+        "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION",
+        message ?? "delegation grant scope exceeds authority grant scope",
+        {
+          field: field ?? null,
+          delegationGrantRef: delegationRef,
+          authorityGrantRef: authorityRef,
+          delegationValue,
+          authorityValue
+        }
+      );
+
+    const normalizeStringSet = (values) => {
+      const out = new Set();
+      if (!Array.isArray(values)) return out;
+      for (const value of values) {
+        if (typeof value !== "string" || value.trim() === "") continue;
+        out.add(value.trim());
+      }
+      return out;
+    };
+
+    const delegationScope =
+      delegationGrant?.scope && typeof delegationGrant.scope === "object" && !Array.isArray(delegationGrant.scope) ? delegationGrant.scope : {};
+    const authorityScope =
+      authorityGrant?.scope && typeof authorityGrant.scope === "object" && !Array.isArray(authorityGrant.scope) ? authorityGrant.scope : {};
+
+    if (delegationScope.sideEffectingAllowed === true && authorityScope.sideEffectingAllowed !== true) {
+      throw scopeError({
+        message: "delegation grant side-effecting scope exceeds authority grant scope",
+        field: "scope.sideEffectingAllowed",
+        delegationValue: true,
+        authorityValue: Boolean(authorityScope.sideEffectingAllowed === true)
+      });
+    }
+
+    const delegationRiskClasses = Array.from(normalizeStringSet(delegationScope.allowedRiskClasses).values());
+    const authorityRiskClasses = Array.from(normalizeStringSet(authorityScope.allowedRiskClasses).values());
+    const authorityRiskClassSet = new Set(authorityRiskClasses.map((row) => String(row).toLowerCase()));
+    for (const riskClass of delegationRiskClasses) {
+      const normalized = String(riskClass).toLowerCase();
+      if (!authorityRiskClassSet.has(normalized)) {
+        throw scopeError({
+          message: "delegation grant risk class exceeds authority grant scope",
+          field: "scope.allowedRiskClasses",
+          delegationValue: normalized,
+          authorityValue: authorityRiskClasses
+        });
+      }
+    }
+
+    const assertOptionalAllowlistSubset = ({ field, delegationValues, authorityValues }) => {
+      const delegationSet = normalizeStringSet(delegationValues);
+      const authoritySet = normalizeStringSet(authorityValues);
+      if (authoritySet.size === 0) return;
+      if (delegationSet.size === 0) {
+        throw scopeError({
+          message: `delegation grant ${field} is broader than authority grant`,
+          field,
+          delegationValue: [],
+          authorityValue: Array.from(authoritySet.values())
+        });
+      }
+      for (const value of delegationSet.values()) {
+        if (authoritySet.has(value)) continue;
+        throw scopeError({
+          message: `delegation grant ${field} is not a subset of authority grant`,
+          field,
+          delegationValue: value,
+          authorityValue: Array.from(authoritySet.values())
+        });
+      }
+    };
+
+    assertOptionalAllowlistSubset({
+      field: "scope.allowedProviderIds",
+      delegationValues: delegationScope.allowedProviderIds,
+      authorityValues: authorityScope.allowedProviderIds
+    });
+    assertOptionalAllowlistSubset({
+      field: "scope.allowedToolIds",
+      delegationValues: delegationScope.allowedToolIds,
+      authorityValues: authorityScope.allowedToolIds
+    });
+
+    const delegationSpend =
+      delegationGrant?.spendLimit && typeof delegationGrant.spendLimit === "object" && !Array.isArray(delegationGrant.spendLimit)
+        ? delegationGrant.spendLimit
+        : {};
+    const authoritySpend =
+      authorityGrant?.spendEnvelope && typeof authorityGrant.spendEnvelope === "object" && !Array.isArray(authorityGrant.spendEnvelope)
+        ? authorityGrant.spendEnvelope
+        : {};
+    const delegationCurrency = String(delegationSpend.currency ?? "").trim().toUpperCase();
+    const authorityCurrency = String(authoritySpend.currency ?? "").trim().toUpperCase();
+    if (delegationCurrency && authorityCurrency && delegationCurrency !== authorityCurrency) {
+      throw scopeError({
+        message: "delegation grant currency must match authority grant currency",
+        field: "spend.currency",
+        delegationValue: delegationCurrency,
+        authorityValue: authorityCurrency
+      });
+    }
+
+    const delegationPerCall = Number(delegationSpend.maxPerCallCents);
+    const authorityPerCall = Number(authoritySpend.maxPerCallCents);
+    if (Number.isSafeInteger(delegationPerCall) && Number.isSafeInteger(authorityPerCall) && delegationPerCall > authorityPerCall) {
+      throw scopeError({
+        message: "delegation grant per-call spend exceeds authority grant per-call spend",
+        field: "spend.maxPerCallCents",
+        delegationValue: delegationPerCall,
+        authorityValue: authorityPerCall
+      });
+    }
+
+    const normalizeTotalLimit = (value) => {
+      if (!Number.isSafeInteger(value) || value < 0) return Number.POSITIVE_INFINITY;
+      return value === 0 ? Number.POSITIVE_INFINITY : value;
+    };
+    const delegationTotal = normalizeTotalLimit(Number(delegationSpend.maxTotalCents));
+    const authorityTotal = normalizeTotalLimit(Number(authoritySpend.maxTotalCents));
+    if (delegationTotal > authorityTotal) {
+      throw scopeError({
+        message: "delegation grant total spend exceeds authority grant total spend",
+        field: "spend.maxTotalCents",
+        delegationValue: Number(delegationSpend.maxTotalCents),
+        authorityValue: Number(authoritySpend.maxTotalCents)
+      });
+    }
+
+    const delegationChain =
+      delegationGrant?.chainBinding && typeof delegationGrant.chainBinding === "object" && !Array.isArray(delegationGrant.chainBinding)
+        ? delegationGrant.chainBinding
+        : {};
+    const authorityChain =
+      authorityGrant?.chainBinding && typeof authorityGrant.chainBinding === "object" && !Array.isArray(authorityGrant.chainBinding)
+        ? authorityGrant.chainBinding
+        : {};
+    const delegationDepth = Number(delegationChain.depth);
+    const authorityDepth = Number(authorityChain.depth);
+    if (Number.isSafeInteger(delegationDepth) && Number.isSafeInteger(authorityDepth) && delegationDepth < authorityDepth) {
+      throw scopeError({
+        message: "delegation grant depth cannot be less than authority grant depth",
+        field: "chainBinding.depth",
+        delegationValue: delegationDepth,
+        authorityValue: authorityDepth
+      });
+    }
+    const delegationMaxDepth = Number(delegationChain.maxDelegationDepth);
+    const authorityMaxDepth = Number(authorityChain.maxDelegationDepth);
+    if (Number.isSafeInteger(delegationMaxDepth) && Number.isSafeInteger(authorityMaxDepth) && delegationMaxDepth > authorityMaxDepth) {
+      throw scopeError({
+        message: "delegation grant maxDelegationDepth exceeds authority grant maxDelegationDepth",
+        field: "chainBinding.maxDelegationDepth",
+        delegationValue: delegationMaxDepth,
+        authorityValue: authorityMaxDepth
+      });
+    }
   }
 
   function tenantSettlementPolicyStoreKey({ tenantId, policyId, policyVersion }) {
@@ -43624,6 +43813,22 @@ export function createApi({
               { code: "X402_AUTHORITY_GRANT_REQUIRED" }
             );
           }
+          let resolvedDelegationGrantForCreate = null;
+          if (delegationGrantRef) {
+            if (typeof store.getDelegationGrant !== "function") {
+              return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
+            }
+            const delegationGrant = await store.getDelegationGrant({ tenantId, grantId: delegationGrantRef });
+            if (!delegationGrant) return sendError(res, 404, "delegation grant not found", null, { code: "NOT_FOUND" });
+            try {
+              validateDelegationGrantV1(delegationGrant);
+            } catch (err) {
+              return sendError(res, 409, "x402 delegation grant blocked gate create", { message: err?.message ?? null }, {
+                code: "X402_DELEGATION_GRANT_INVALID"
+              });
+            }
+            resolvedDelegationGrantForCreate = delegationGrant;
+          }
 
           const existingGate = typeof store.getX402Gate === "function" ? await store.getX402Gate({ tenantId, gateId }) : null;
           if (existingGate && !idemStoreKey) return sendError(res, 409, "gate already exists", null, { code: "ALREADY_EXISTS" });
@@ -43638,9 +43843,10 @@ export function createApi({
 	          if (!Number.isSafeInteger(autoFundPayerCents) || autoFundPayerCents < 0) {
 	            return sendError(res, 400, "autoFundPayerCents must be a non-negative safe integer", null, { code: "SCHEMA_INVALID" });
 	          }
+          let resolvedAuthorityGrantForCreate = null;
           if (authorityGrantRefForValidation) {
             try {
-              await resolveX402AuthorityGrantForAuthorization({
+              const authorityResolution = await resolveX402AuthorityGrantForAuthorization({
                 tenantId,
                 gate: { payerAgentId, toolId },
                 authorityGrantRef: authorityGrantRefForValidation,
@@ -43649,6 +43855,7 @@ export function createApi({
                 currency,
                 payeeProviderId: payeeAgentId
               });
+              resolvedAuthorityGrantForCreate = authorityResolution?.authorityGrant ?? null;
             } catch (err) {
               return sendError(
                 res,
@@ -43656,6 +43863,24 @@ export function createApi({
                 "x402 authority grant blocked gate create",
                 { message: err?.message ?? null, code: err?.code ?? null, details: err?.details ?? null },
                 { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
+              );
+            }
+          }
+          if (resolvedDelegationGrantForCreate && resolvedAuthorityGrantForCreate) {
+            try {
+              assertDelegationGrantWithinAuthorityGrant({
+                delegationGrant: resolvedDelegationGrantForCreate,
+                delegationGrantRef,
+                authorityGrant: resolvedAuthorityGrantForCreate,
+                authorityGrantRef: authorityGrantRefForValidation
+              });
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "x402 authority-delegation consistency check failed",
+                { message: err?.message ?? null, code: err?.code ?? null, details: err?.details ?? null },
+                { code: err?.code ?? "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION" }
               );
             }
           }
@@ -44443,6 +44668,24 @@ export function createApi({
                 "x402 authority grant blocked authorization",
                 { message: err?.message ?? null, code: err?.code ?? null, details: err?.details ?? null },
                 { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
+              );
+            }
+          }
+          if (resolvedDelegationGrant && resolvedAuthorityGrant) {
+            try {
+              assertDelegationGrantWithinAuthorityGrant({
+                delegationGrant: resolvedDelegationGrant,
+                delegationGrantRef: effectiveDelegationGrantRef,
+                authorityGrant: resolvedAuthorityGrant,
+                authorityGrantRef: effectiveAuthorityGrantRefInput
+              });
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "x402 authority-delegation consistency check failed",
+                { message: err?.message ?? null, code: err?.code ?? null, details: err?.details ?? null },
+                { code: err?.code ?? "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION" }
               );
             }
           }
@@ -50320,12 +50563,28 @@ export function createApi({
 
         const delegationGrantRef =
           typeof body?.delegationGrantRef === "string" && body.delegationGrantRef.trim() !== "" ? body.delegationGrantRef.trim() : null;
+        let resolvedDelegationGrantForWorkOrder = null;
         if (delegationGrantRef) {
           if (typeof store.getDelegationGrant !== "function") {
             return sendError(res, 501, "delegation grants are not supported for this store", null, { code: "NOT_IMPLEMENTED" });
           }
           const delegationGrant = await store.getDelegationGrant({ tenantId, grantId: delegationGrantRef });
           if (!delegationGrant) return sendError(res, 404, "delegation grant not found", null, { code: "NOT_FOUND" });
+          try {
+            validateDelegationGrantV1(delegationGrant);
+          } catch (err) {
+            return sendError(
+              res,
+              409,
+              "work order delegation grant blocked",
+              {
+                reasonCode: "X402_DELEGATION_GRANT_INVALID",
+                message: err?.message ?? null
+              },
+              { code: "X402_DELEGATION_GRANT_INVALID" }
+            );
+          }
+          resolvedDelegationGrantForWorkOrder = delegationGrant;
         }
         const authorityGrantRef =
           typeof body?.authorityGrantRef === "string" && body.authorityGrantRef.trim() !== "" ? body.authorityGrantRef.trim() : null;
@@ -50339,8 +50598,9 @@ export function createApi({
           );
         }
         if (authorityGrantRef) {
+          let resolvedAuthorityGrantForWorkOrder = null;
           try {
-            await resolveX402AuthorityGrantForAuthorization({
+            const authorityResolution = await resolveX402AuthorityGrantForAuthorization({
               tenantId,
               gate: {
                 payerAgentId: principalAgentId,
@@ -50352,6 +50612,7 @@ export function createApi({
               currency,
               payeeProviderId: x402ProviderId
             });
+            resolvedAuthorityGrantForWorkOrder = authorityResolution?.authorityGrant ?? null;
           } catch (err) {
             return sendError(
               res,
@@ -50364,6 +50625,28 @@ export function createApi({
               },
               { code: err?.code ?? "X402_AUTHORITY_GRANT_INVALID" }
             );
+          }
+          if (resolvedDelegationGrantForWorkOrder && resolvedAuthorityGrantForWorkOrder) {
+            try {
+              assertDelegationGrantWithinAuthorityGrant({
+                delegationGrant: resolvedDelegationGrantForWorkOrder,
+                delegationGrantRef,
+                authorityGrant: resolvedAuthorityGrantForWorkOrder,
+                authorityGrantRef
+              });
+            } catch (err) {
+              return sendError(
+                res,
+                409,
+                "work order authority-delegation consistency check failed",
+                {
+                  reasonCode: err?.code ?? "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION",
+                  message: err?.message ?? null,
+                  ...(err?.details && typeof err.details === "object" ? err.details : {})
+                },
+                { code: err?.code ?? "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION" }
+              );
+            }
           }
         }
 

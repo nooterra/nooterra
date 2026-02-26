@@ -22,7 +22,31 @@ async function registerAgent(api, { agentId }) {
   assert.equal(response.statusCode, 201, response.body);
 }
 
-async function issueAuthorityGrant(api, { grantId, granteeAgentId, maxPerCallCents = 10_000, maxTotalCents = 100_000 }) {
+async function issueAuthorityGrant(
+  api,
+  {
+    grantId,
+    granteeAgentId,
+    maxPerCallCents = 10_000,
+    maxTotalCents = 100_000,
+    scope = null,
+    chainBinding = null
+  }
+) {
+  const resolvedScope =
+    scope && typeof scope === "object" && !Array.isArray(scope)
+      ? scope
+      : {
+          sideEffectingAllowed: true,
+          allowedRiskClasses: ["financial"]
+        };
+  const resolvedChainBinding =
+    chainBinding && typeof chainBinding === "object" && !Array.isArray(chainBinding)
+      ? chainBinding
+      : {
+          depth: 0,
+          maxDelegationDepth: 2
+        };
   const response = await request(api, {
     method: "POST",
     path: "/authority-grants",
@@ -34,19 +58,13 @@ async function issueAuthorityGrant(api, { grantId, granteeAgentId, maxPerCallCen
         principalId: "org_test"
       },
       granteeAgentId,
-      scope: {
-        sideEffectingAllowed: true,
-        allowedRiskClasses: ["financial"]
-      },
+      scope: resolvedScope,
       spendEnvelope: {
         currency: "USD",
         maxPerCallCents,
         maxTotalCents
       },
-      chainBinding: {
-        depth: 0,
-        maxDelegationDepth: 2
-      },
+      chainBinding: resolvedChainBinding,
       validity: {
         issuedAt: "2026-02-25T00:00:00.000Z",
         notBefore: "2026-02-25T00:00:00.000Z",
@@ -56,6 +74,68 @@ async function issueAuthorityGrant(api, { grantId, granteeAgentId, maxPerCallCen
   });
   assert.equal(response.statusCode, 201, response.body);
   return response.json?.authorityGrant ?? null;
+}
+
+async function issueDelegationGrant(
+  api,
+  {
+    grantId,
+    delegatorAgentId,
+    delegateeAgentId,
+    maxPerCallCents = 10_000,
+    maxTotalCents = 100_000,
+    scope = null,
+    chainBinding = null
+  }
+) {
+  const resolvedScope =
+    scope && typeof scope === "object" && !Array.isArray(scope)
+      ? scope
+      : {
+          sideEffectingAllowed: true,
+          allowedRiskClasses: ["financial"]
+        };
+  const resolvedChainBinding =
+    chainBinding && typeof chainBinding === "object" && !Array.isArray(chainBinding)
+      ? chainBinding
+      : {
+          depth: 0,
+          maxDelegationDepth: 1
+        };
+  const response = await request(api, {
+    method: "POST",
+    path: "/delegation-grants",
+    headers: { "x-idempotency-key": `delegation_grant_issue_${grantId}` },
+    body: {
+      grantId,
+      delegatorAgentId,
+      delegateeAgentId,
+      scope: resolvedScope,
+      spendLimit: {
+        currency: "USD",
+        maxPerCallCents,
+        maxTotalCents
+      },
+      chainBinding: resolvedChainBinding,
+      validity: {
+        issuedAt: "2026-02-25T00:00:00.000Z",
+        notBefore: "2026-02-25T00:00:00.000Z",
+        expiresAt: "2027-02-25T00:00:00.000Z"
+      }
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  return response.json?.delegationGrant ?? null;
+}
+
+async function creditWallet(api, { agentId, amountCents, idempotencyKey }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/agents/${encodeURIComponent(agentId)}/wallet/credit`,
+    headers: { "x-idempotency-key": idempotencyKey },
+    body: { amountCents, currency: "USD" }
+  });
+  assert.equal(response.statusCode, 201, response.body);
 }
 
 async function setX402AgentLifecycle(
@@ -281,6 +361,75 @@ test("API e2e: x402 authorize fails closed without authority grant when required
   assert.equal(allowed.json?.authorityGrantRef, grant.grantId);
 });
 
+test("API e2e: x402 authorize fails closed when delegation scope exceeds authority scope", async () => {
+  const store = createStore();
+  const setupApi = createApi({ store, x402RequireAuthorityGrant: false });
+  const policyApi = createApi({ store, x402RequireAuthorityGrant: true });
+  const payerAgentId = "agt_auth_scope_escalate_payer_1";
+  const payeeAgentId = "agt_auth_scope_escalate_payee_1";
+  await registerAgent(setupApi, { agentId: payerAgentId });
+  await registerAgent(setupApi, { agentId: payeeAgentId });
+  await creditWallet(setupApi, {
+    agentId: payerAgentId,
+    amountCents: 10_000,
+    idempotencyKey: "wallet_credit_auth_scope_escalate_1"
+  });
+
+  const delegationGrant = await issueDelegationGrant(setupApi, {
+    grantId: "dgrant_auth_scope_escalate_1",
+    delegatorAgentId: "agt_auth_scope_escalate_manager_1",
+    delegateeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"]
+    },
+    maxPerCallCents: 1_000,
+    maxTotalCents: 20_000
+  });
+
+  const created = await request(setupApi, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_auth_scope_escalate_create_1" },
+    body: {
+      gateId: "x402gate_auth_scope_escalate_1",
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 300,
+      currency: "USD",
+      toolId: "mock_weather",
+      delegationGrantRef: delegationGrant.grantId
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const authorityGrant = await issueAuthorityGrant(policyApi, {
+    grantId: "agrant_auth_scope_escalate_1",
+    granteeAgentId: payerAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [payeeAgentId],
+      allowedToolIds: ["mock_weather"]
+    },
+    maxPerCallCents: 800,
+    maxTotalCents: 10_000
+  });
+
+  const blocked = await request(policyApi, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_auth_scope_escalate_authorize_1" },
+    body: {
+      gateId: "x402gate_auth_scope_escalate_1",
+      authorityGrantRef: authorityGrant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION");
+  assert.equal(blocked.json?.details?.details?.field, "scope.allowedProviderIds");
+});
+
 test("API e2e: work order create fails closed without authority grant when required", async () => {
   const api = createApi({ x402RequireAuthorityGrant: true });
   const principalAgentId = "agt_auth_required_work_create_principal_1";
@@ -325,6 +474,59 @@ test("API e2e: work order create fails closed without authority grant when requi
   });
   assert.equal(allowed.statusCode, 201, allowed.body);
   assert.equal(allowed.json?.workOrder?.authorityGrantRef, grant.grantId);
+});
+
+test("API e2e: work order create fails closed when delegation scope exceeds authority scope", async () => {
+  const api = createApi({ x402RequireAuthorityGrant: true });
+  const principalAgentId = "agt_auth_scope_escalate_work_principal_1";
+  const subAgentId = "agt_auth_scope_escalate_work_sub_1";
+  await registerAgent(api, { agentId: principalAgentId });
+  await registerAgent(api, { agentId: subAgentId });
+
+  const delegationGrant = await issueDelegationGrant(api, {
+    grantId: "dgrant_auth_scope_escalate_work_1",
+    delegatorAgentId: "agt_auth_scope_escalate_work_manager_1",
+    delegateeAgentId: principalAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"]
+    },
+    maxPerCallCents: 1_000,
+    maxTotalCents: 20_000
+  });
+  const authorityGrant = await issueAuthorityGrant(api, {
+    grantId: "agrant_auth_scope_escalate_work_1",
+    granteeAgentId: principalAgentId,
+    scope: {
+      sideEffectingAllowed: true,
+      allowedRiskClasses: ["financial"],
+      allowedProviderIds: [subAgentId],
+      allowedToolIds: [subAgentId]
+    },
+    maxPerCallCents: 900,
+    maxTotalCents: 10_000
+  });
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/work-orders",
+    headers: { "x-idempotency-key": "work_order_auth_scope_escalate_create_1" },
+    body: {
+      workOrderId: "workord_auth_scope_escalate_create_1",
+      principalAgentId,
+      subAgentId,
+      requiredCapability: "code.generation",
+      x402ProviderId: subAgentId,
+      x402ToolId: subAgentId,
+      specification: { taskType: "codegen", prompt: "build parser" },
+      pricing: { amountCents: 300, currency: "USD" },
+      delegationGrantRef: delegationGrant.grantId,
+      authorityGrantRef: authorityGrant.grantId
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_DELEGATION_SCOPE_ESCALATION");
+  assert.equal(blocked.json?.details?.field, "scope.allowedProviderIds");
 });
 
 test("API e2e: work order settle fails closed without authority grant when required", async () => {
