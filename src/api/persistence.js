@@ -185,6 +185,20 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "AGENT_CARD_ABUSE_REPORT_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const report = op.report ?? null;
+      if (!report || typeof report !== "object" || Array.isArray(report)) {
+        throw new TypeError("AGENT_CARD_ABUSE_REPORT_UPSERT requires report");
+      }
+      const reportId = report.reportId ?? op.reportId ?? null;
+      if (!reportId) throw new TypeError("AGENT_CARD_ABUSE_REPORT_UPSERT requires report.reportId");
+      if (!(store.agentCardAbuseReports instanceof Map)) store.agentCardAbuseReports = new Map();
+      const key = makeScopedKey({ tenantId, id: String(reportId) });
+      store.agentCardAbuseReports.set(key, { ...report, tenantId, reportId: String(reportId) });
+      continue;
+    }
+
     if (kind === "SESSION_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
       const session = op.session ?? null;

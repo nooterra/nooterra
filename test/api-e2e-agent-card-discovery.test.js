@@ -528,6 +528,129 @@ test("API e2e: /public/agent-cards/discover excludes quarantined agents", async 
   assert.equal(agentIds.has(quarantinedAgentId), false);
 });
 
+test("API e2e: /agent-cards/:agentId/abuse-reports suppresses public discovery at threshold", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicAbuseSuppressionThreshold: 2
+  });
+
+  const subjectAgentId = "agt_card_abuse_subject_1";
+  const controlAgentId = "agt_card_abuse_control_1";
+  const reporterAgentId = "agt_card_abuse_reporter_1";
+  await registerAgent(api, { agentId: subjectAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: controlAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: reporterAgentId });
+
+  const upsertSubject = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_abuse_subject_upsert_1" },
+    body: {
+      agentId: subjectAgentId,
+      displayName: "Abuse Subject Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/abuse-subject", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertSubject.statusCode, 201, upsertSubject.body);
+
+  const upsertControl = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_abuse_control_upsert_1" },
+    body: {
+      agentId: controlAgentId,
+      displayName: "Abuse Control Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/abuse-control", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertControl.statusCode, 201, upsertControl.body);
+
+  const firstReport = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports`,
+    headers: { "x-idempotency-key": "agent_card_abuse_report_1" },
+    body: {
+      reportId: "acabr_test_1",
+      reporterAgentId,
+      reasonCode: "MALICIOUS_OUTPUT",
+      severity: 2,
+      notes: "deterministic abuse signal 1",
+      evidenceRefs: ["evidence://abuse/1"]
+    }
+  });
+  assert.equal(firstReport.statusCode, 201, firstReport.body);
+  assert.equal(firstReport.json?.report?.schemaVersion, "AgentCardAbuseReport.v1");
+  assert.equal(firstReport.json?.subjectStatus?.openReportCount, 1);
+  assert.equal(firstReport.json?.subjectStatus?.publicDiscoverySuppressed, false);
+
+  const discoveryBeforeSuppression = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(discoveryBeforeSuppression.statusCode, 200, discoveryBeforeSuppression.body);
+  const beforeIds = new Set((discoveryBeforeSuppression.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(beforeIds.has(subjectAgentId), true);
+  assert.equal(beforeIds.has(controlAgentId), true);
+
+  const secondReport = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports`,
+    headers: { "x-idempotency-key": "agent_card_abuse_report_2" },
+    body: {
+      reportId: "acabr_test_2",
+      reporterAgentId,
+      reasonCode: "POLICY_EVASION",
+      severity: 3,
+      notes: "deterministic abuse signal 2",
+      evidenceRefs: ["evidence://abuse/2"]
+    }
+  });
+  assert.equal(secondReport.statusCode, 201, secondReport.body);
+  assert.equal(secondReport.json?.subjectStatus?.openReportCount, 2);
+  assert.equal(secondReport.json?.subjectStatus?.publicDiscoverySuppressed, true);
+
+  const duplicateReport = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports`,
+    headers: { "x-idempotency-key": "agent_card_abuse_report_duplicate_1" },
+    body: {
+      reportId: "acabr_test_2",
+      reporterAgentId,
+      reasonCode: "SPAM",
+      severity: 1
+    }
+  });
+  assert.equal(duplicateReport.statusCode, 409, duplicateReport.body);
+  assert.equal(duplicateReport.json?.code, "CONFLICT");
+
+  const discoveryAfterSuppression = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(discoveryAfterSuppression.statusCode, 200, discoveryAfterSuppression.body);
+  const afterIds = new Set((discoveryAfterSuppression.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(afterIds.has(subjectAgentId), false);
+  assert.equal(afterIds.has(controlAgentId), true);
+
+  const reportList = await request(api, {
+    method: "GET",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports?status=open&limit=10&offset=0`
+  });
+  assert.equal(reportList.statusCode, 200, reportList.body);
+  assert.equal(reportList.json?.subjectAgentId, subjectAgentId);
+  assert.equal(reportList.json?.total, 2);
+  assert.equal(Array.isArray(reportList.json?.reports), true);
+  assert.equal(reportList.json?.reports?.length, 2);
+  assert.equal(reportList.json?.subjectStatus?.publicDiscoverySuppressed, true);
+  assert.equal(reportList.json?.reports?.every((row) => String(row?.status ?? "") === "open"), true);
+});
+
 test("API e2e: /public/agent-cards/discover excludes non-active x402 lifecycle agents", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 

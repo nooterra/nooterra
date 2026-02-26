@@ -157,6 +157,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.agentPassports.clear();
     if (!(store.agentCards instanceof Map)) store.agentCards = new Map();
     store.agentCards.clear();
+    if (!(store.agentCardAbuseReports instanceof Map)) store.agentCardAbuseReports = new Map();
+    store.agentCardAbuseReports.clear();
     if (!(store.sessions instanceof Map)) store.sessions = new Map();
     store.sessions.clear();
     if (!(store.arbitrationCases instanceof Map)) store.arbitrationCases = new Map();
@@ -235,6 +237,13 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           ...snap,
           tenantId: snap?.tenantId ?? tenantId,
           agentId: snap?.agentId ?? String(id)
+        });
+      }
+      if (type === "agent_card_abuse_report") {
+        store.agentCardAbuseReports.set(key, {
+          ...snap,
+          tenantId: snap?.tenantId ?? tenantId,
+          reportId: snap?.reportId ?? String(id)
         });
       }
       if (type === "session") {
@@ -1463,6 +1472,21 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     });
   }
 
+  async function persistAgentCardAbuseReport(client, { tenantId, reportId, report }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!report || typeof report !== "object" || Array.isArray(report)) throw new TypeError("report is required");
+    const normalizedReportId = reportId ? String(reportId) : report.reportId ? String(report.reportId) : null;
+    if (!normalizedReportId) throw new TypeError("reportId is required");
+    const normalizedReport = { ...report, tenantId, reportId: normalizedReportId };
+    await persistSnapshotAggregate(client, {
+      tenantId,
+      aggregateType: "agent_card_abuse_report",
+      aggregateId: normalizedReportId,
+      snapshot: normalizedReport,
+      updatedAt: normalizedReport.updatedAt ?? normalizedReport.createdAt ?? null
+    });
+  }
+
   async function persistSession(client, { tenantId, sessionId, session }) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
     if (!session || typeof session !== "object" || Array.isArray(session)) throw new TypeError("session is required");
@@ -2584,6 +2608,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "AGENT_IDENTITY_UPSERT",
       "AGENT_PASSPORT_UPSERT",
       "AGENT_CARD_UPSERT",
+      "AGENT_CARD_ABUSE_REPORT_UPSERT",
       "SESSION_UPSERT",
       "AGENT_WALLET_UPSERT",
       "AGENT_RUN_EVENTS_APPENDED",
@@ -3424,6 +3449,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           const tenantId = normalizeTenantId(op.tenantId ?? op.agentCard?.tenantId ?? DEFAULT_TENANT_ID);
           await persistAgentCard(client, { tenantId, agentId: op.agentId, agentCard: op.agentCard });
         }
+        if (op.kind === "AGENT_CARD_ABUSE_REPORT_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.report?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistAgentCardAbuseReport(client, { tenantId, reportId: op.reportId, report: op.report });
+        }
         if (op.kind === "SESSION_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.session?.tenantId ?? DEFAULT_TENANT_ID);
           await persistSession(client, { tenantId, sessionId: op.sessionId, session: op.session });
@@ -4222,6 +4251,116 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     } catch (err) {
       if (err?.code !== "42P01") throw err;
       return store.agentCards.get(makeScopedKey({ tenantId, id: normalizedAgentId })) ?? null;
+    }
+  };
+
+  store.putAgentCardAbuseReport = async function putAgentCardAbuseReport({ tenantId = DEFAULT_TENANT_ID, report, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!report || typeof report !== "object" || Array.isArray(report)) throw new TypeError("report is required");
+    const reportId = typeof report.reportId === "string" ? report.reportId.trim() : "";
+    if (!reportId) throw new TypeError("report.reportId is required");
+    const at = parseIsoOrNull(report.updatedAt) ?? parseIsoOrNull(report.createdAt) ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "AGENT_CARD_ABUSE_REPORT_UPSERT", tenantId, reportId, report: { ...report, tenantId, reportId } }],
+      audit
+    });
+    return store.getAgentCardAbuseReport({ tenantId, reportId });
+  };
+
+  store.getAgentCardAbuseReport = async function getAgentCardAbuseReport({ tenantId = DEFAULT_TENANT_ID, reportId } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    assertNonEmptyString(reportId, "reportId");
+    const normalizedReportId = String(reportId).trim();
+    try {
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE tenant_id = $1 AND aggregate_type = 'agent_card_abuse_report' AND aggregate_id = $2
+          LIMIT 1
+        `,
+        [tenantId, normalizedReportId]
+      );
+      if (!res.rows.length) return null;
+      const report = res.rows[0]?.snapshot_json ?? null;
+      if (!report || typeof report !== "object" || Array.isArray(report)) return null;
+      return { ...report, tenantId, reportId: normalizedReportId };
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return store.agentCardAbuseReports.get(makeScopedKey({ tenantId, id: normalizedReportId })) ?? null;
+    }
+  };
+
+  store.listAgentCardAbuseReports = async function listAgentCardAbuseReports({
+    tenantId = DEFAULT_TENANT_ID,
+    subjectAgentId = null,
+    reasonCode = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const subjectFilter =
+      subjectAgentId === null || subjectAgentId === undefined || String(subjectAgentId).trim() === "" ? null : String(subjectAgentId).trim();
+    const reasonFilter =
+      reasonCode === null || reasonCode === undefined || String(reasonCode).trim() === "" ? null : String(reasonCode).trim().toUpperCase();
+
+    const applyFilters = (rows) => {
+      const filtered = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+        if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+        if (subjectFilter && String(row.subjectAgentId ?? "") !== subjectFilter) continue;
+        if (reasonFilter && String(row.reasonCode ?? "").toUpperCase() !== reasonFilter) continue;
+        filtered.push(row);
+      }
+      filtered.sort((left, right) => {
+        const leftAt = Number.isFinite(Date.parse(String(left?.createdAt ?? ""))) ? Date.parse(String(left.createdAt)) : Number.NaN;
+        const rightAt = Number.isFinite(Date.parse(String(right?.createdAt ?? ""))) ? Date.parse(String(right.createdAt)) : Number.NaN;
+        if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+        return String(left?.reportId ?? "").localeCompare(String(right?.reportId ?? ""));
+      });
+      return filtered.slice(safeOffset, safeOffset + safeLimit);
+    };
+
+    try {
+      const params = [tenantId];
+      const where = ["tenant_id = $1", "aggregate_type = 'agent_card_abuse_report'"];
+      if (subjectFilter !== null) {
+        params.push(subjectFilter);
+        where.push(`snapshot_json->>'subjectAgentId' = $${params.length}`);
+      }
+      if (reasonFilter !== null) {
+        params.push(reasonFilter);
+        where.push(`upper(coalesce(snapshot_json->>'reasonCode', '')) = $${params.length}`);
+      }
+      const res = await pool.query(
+        `
+          SELECT tenant_id, aggregate_id, snapshot_json
+          FROM snapshots
+          WHERE ${where.join(" AND ")}
+          ORDER BY updated_at DESC, aggregate_id ASC
+        `,
+        params
+      );
+      return applyFilters(
+        res.rows
+          .map((row) => {
+            const report = row?.snapshot_json ?? null;
+            if (!report || typeof report !== "object" || Array.isArray(report)) return null;
+            const reportId = row?.aggregate_id ? String(row.aggregate_id).trim() : null;
+            if (!reportId) return null;
+            return { ...report, tenantId: normalizeTenantId(row?.tenant_id ?? tenantId), reportId };
+          })
+          .filter(Boolean)
+      );
+    } catch (err) {
+      if (err?.code !== "42P01") throw err;
+      return applyFilters(Array.from(store.agentCardAbuseReports.values()));
     }
   };
 

@@ -366,6 +366,7 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     operatorEvents: new Map(), // `${tenantId}\n${operatorId}` -> chained events
     agentIdentities: new Map(), // `${tenantId}\n${agentId}` -> AgentIdentity.v1 record
     agentCards: new Map(), // `${tenantId}\n${agentId}` -> AgentCard.v1 record
+    agentCardAbuseReports: new Map(), // `${tenantId}\n${reportId}` -> AgentCardAbuseReport.v1
     sessions: new Map(), // `${tenantId}\n${sessionId}` -> Session.v1 record
     sessionEvents: new Map(), // `${tenantId}\n${sessionId}` -> SessionEvent.v1[] (chained envelope records)
     agentPassports: new Map(), // `${tenantId}\n${agentId}` -> AgentPassport.v1 record
@@ -908,6 +909,64 @@ export function createStore({ persistenceDir = null, serverSignerKeypair = null 
     tenantId = normalizeTenantId(tenantId);
     if (typeof agentId !== "string" || agentId.trim() === "") throw new TypeError("agentId is required");
     return store.agentCards.get(makeScopedKey({ tenantId, id: String(agentId) })) ?? null;
+  };
+
+  store.putAgentCardAbuseReport = async function putAgentCardAbuseReport({ tenantId = DEFAULT_TENANT_ID, report, audit = null } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (!report || typeof report !== "object" || Array.isArray(report)) throw new TypeError("report is required");
+    const reportId = typeof report.reportId === "string" ? report.reportId.trim() : "";
+    if (!reportId) throw new TypeError("report.reportId is required");
+    const at = report.updatedAt ?? report.createdAt ?? new Date().toISOString();
+    await store.commitTx({
+      at,
+      ops: [{ kind: "AGENT_CARD_ABUSE_REPORT_UPSERT", tenantId, reportId, report: { ...report, tenantId, reportId } }],
+      audit
+    });
+    return store.agentCardAbuseReports.get(makeScopedKey({ tenantId, id: reportId })) ?? null;
+  };
+
+  store.getAgentCardAbuseReport = async function getAgentCardAbuseReport({ tenantId = DEFAULT_TENANT_ID, reportId } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (typeof reportId !== "string" || reportId.trim() === "") throw new TypeError("reportId is required");
+    return store.agentCardAbuseReports.get(makeScopedKey({ tenantId, id: String(reportId) })) ?? null;
+  };
+
+  store.listAgentCardAbuseReports = async function listAgentCardAbuseReports({
+    tenantId = DEFAULT_TENANT_ID,
+    subjectAgentId = null,
+    reasonCode = null,
+    limit = 200,
+    offset = 0
+  } = {}) {
+    tenantId = normalizeTenantId(tenantId);
+    if (subjectAgentId !== null && (typeof subjectAgentId !== "string" || subjectAgentId.trim() === "")) {
+      throw new TypeError("subjectAgentId must be null or a non-empty string");
+    }
+    if (reasonCode !== null && (typeof reasonCode !== "string" || reasonCode.trim() === "")) {
+      throw new TypeError("reasonCode must be null or a non-empty string");
+    }
+    if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
+    const safeLimit = Math.min(1000, limit);
+    const safeOffset = offset;
+    const subjectFilter = subjectAgentId ? subjectAgentId.trim() : null;
+    const reasonFilter = reasonCode ? reasonCode.trim().toUpperCase() : null;
+
+    const out = [];
+    for (const row of store.agentCardAbuseReports.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      if (normalizeTenantId(row.tenantId ?? DEFAULT_TENANT_ID) !== tenantId) continue;
+      if (subjectFilter && String(row.subjectAgentId ?? "") !== subjectFilter) continue;
+      if (reasonFilter && String(row.reasonCode ?? "").toUpperCase() !== reasonFilter) continue;
+      out.push(row);
+    }
+    out.sort((left, right) => {
+      const leftAt = Number.isFinite(Date.parse(String(left?.createdAt ?? ""))) ? Date.parse(String(left.createdAt)) : Number.NaN;
+      const rightAt = Number.isFinite(Date.parse(String(right?.createdAt ?? ""))) ? Date.parse(String(right.createdAt)) : Number.NaN;
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && leftAt !== rightAt) return rightAt - leftAt;
+      return String(left?.reportId ?? "").localeCompare(String(right?.reportId ?? ""));
+    });
+    return out.slice(safeOffset, safeOffset + safeLimit);
   };
 
   store.putAgentCard = async function putAgentCard({ tenantId = DEFAULT_TENANT_ID, agentCard, audit = null } = {}) {

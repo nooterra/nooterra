@@ -647,6 +647,23 @@ async function createTerminalRun({
     interactionGraphPackHashBeforeRestart = interactionGraphBeforeRestart.json?.graphPack?.packHash ?? null;
     assert.equal(typeof interactionGraphPackHashBeforeRestart, "string");
 
+    const abuseReportBeforeRestart = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "POST",
+      path: `/agent-cards/${encodeURIComponent(workerA)}/abuse-reports`,
+      headers: { "x-idempotency-key": "pg_sub_abuse_report_1" },
+      body: {
+        reportId: "pg_sub_abuse_report_1",
+        reporterAgentId: principalA,
+        reasonCode: "MALICIOUS_OUTPUT",
+        severity: 2,
+        notes: "pg durability abuse report test",
+        evidenceRefs: ["evidence://pg_sub/abuse/1"]
+      }
+    });
+    assert.equal(abuseReportBeforeRestart.statusCode, 201, abuseReportBeforeRestart.body);
+    assert.equal(abuseReportBeforeRestart.json?.report?.reportId, "pg_sub_abuse_report_1");
+
     await storeA.close();
     storeA = null;
 
@@ -774,6 +791,18 @@ async function createTerminalRun({
     assert.equal(interactionGraphAfterRestart.statusCode, 200, interactionGraphAfterRestart.body);
     assert.equal(interactionGraphAfterRestart.json?.graphPack?.schemaVersion, "VerifiedInteractionGraphPack.v1");
     assert.equal(interactionGraphAfterRestart.json?.graphPack?.packHash, interactionGraphPackHashBeforeRestart);
+
+    const abuseReportsAfterRestart = await tenantRequest(apiB, {
+      tenantId: tenantA,
+      method: "GET",
+      path: `/agent-cards/${encodeURIComponent(workerA)}/abuse-reports?status=open&limit=10&offset=0`
+    });
+    assert.equal(abuseReportsAfterRestart.statusCode, 200, abuseReportsAfterRestart.body);
+    assert.equal(
+      abuseReportsAfterRestart.json?.reports?.some((row) => String(row?.reportId ?? "") === "pg_sub_abuse_report_1"),
+      true
+    );
+    assert.equal(abuseReportsAfterRestart.json?.subjectStatus?.openReportCount, 1);
 
     const publicDiscover = await request(apiB, {
       method: "GET",
