@@ -1840,6 +1840,203 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const SessionV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "sessionId", "tenantId", "visibility", "participants", "createdAt", "updatedAt", "revision"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["Session.v1"] },
+      sessionId: { type: "string" },
+      tenantId: { type: "string" },
+      visibility: { type: "string", enum: ["public", "tenant", "private"] },
+      participants: { type: "array", items: { type: "string" } },
+      policyRef: { type: "string", nullable: true },
+      metadata: { type: "object", nullable: true, additionalProperties: true },
+      createdAt: { type: "string", format: "date-time" },
+      updatedAt: { type: "string", format: "date-time" },
+      revision: { type: "integer", minimum: 0 }
+    }
+  };
+
+  const SessionEventProvenanceV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "label", "derivedFromEventId", "isTainted", "taintDepth", "explicitTaint", "reasonCodes"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionEventProvenance.v1"] },
+      label: { type: "string", enum: ["trusted", "external", "tainted"] },
+      derivedFromEventId: { type: "string", nullable: true },
+      isTainted: { type: "boolean" },
+      taintDepth: { type: "integer", minimum: 0 },
+      explicitTaint: { type: "boolean" },
+      reasonCodes: { type: "array", items: { type: "string" } }
+    }
+  };
+
+  const SessionEventPayloadV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "sessionId", "eventType", "payload", "provenance", "traceId", "at"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionEvent.v1"] },
+      sessionId: { type: "string" },
+      eventType: {
+        type: "string",
+        enum: [
+          "MESSAGE",
+          "TASK_REQUESTED",
+          "QUOTE_ISSUED",
+          "TASK_ACCEPTED",
+          "TASK_PROGRESS",
+          "TASK_COMPLETED",
+          "SETTLEMENT_LOCKED",
+          "SETTLEMENT_RELEASED",
+          "SETTLEMENT_REFUNDED",
+          "POLICY_CHALLENGED",
+          "DISPUTE_OPENED"
+        ]
+      },
+      payload: { nullable: true },
+      provenance: { allOf: [SessionEventProvenanceV1], nullable: true },
+      traceId: { type: "string", nullable: true },
+      at: { type: "string", format: "date-time" }
+    }
+  };
+
+  const SessionEventEnvelopeV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["v", "id", "at", "streamId", "type", "actor", "payload", "payloadHash", "prevChainHash", "chainHash", "signature", "signerKeyId"],
+    properties: {
+      v: { type: "integer", enum: [1] },
+      id: { type: "string" },
+      at: { type: "string", format: "date-time" },
+      streamId: { type: "string" },
+      type: { type: "string" },
+      actor: { type: "object", nullable: true, additionalProperties: true },
+      payload: SessionEventPayloadV1,
+      payloadHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      prevChainHash: { type: "string", nullable: true },
+      chainHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signature: { type: "string", nullable: true },
+      signerKeyId: { type: "string", nullable: true }
+    }
+  };
+
+  const SessionReplayPackSignatureV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "algorithm", "keyId", "signedAt", "payloadHash", "signatureBase64"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionReplayPackSignature.v1"] },
+      algorithm: { type: "string", enum: ["ed25519"] },
+      keyId: { type: "string" },
+      signedAt: { type: "string", format: "date-time" },
+      payloadHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signatureBase64: { type: "string" }
+    }
+  };
+
+  const SessionReplayPackV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "sessionId",
+      "generatedAt",
+      "sessionHash",
+      "eventChainHash",
+      "eventCount",
+      "headChainHash",
+      "verification",
+      "session",
+      "events",
+      "packHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionReplayPack.v1"] },
+      tenantId: { type: "string" },
+      sessionId: { type: "string" },
+      generatedAt: { type: "string", format: "date-time" },
+      sessionHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      eventChainHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      eventCount: { type: "integer", minimum: 0 },
+      headChainHash: { type: "string", nullable: true },
+      verification: { type: "object", additionalProperties: true },
+      session: SessionV1,
+      events: { type: "array", items: SessionEventEnvelopeV1 },
+      packHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signature: { allOf: [SessionReplayPackSignatureV1], nullable: true }
+    }
+  };
+
+  const SessionTranscriptSignatureV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["schemaVersion", "algorithm", "keyId", "signedAt", "payloadHash", "signatureBase64"],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionTranscriptSignature.v1"] },
+      algorithm: { type: "string", enum: ["ed25519"] },
+      keyId: { type: "string" },
+      signedAt: { type: "string", format: "date-time" },
+      payloadHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signatureBase64: { type: "string" }
+    }
+  };
+
+  const SessionTranscriptDigestV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: ["eventId", "eventType", "at", "chainHash", "prevChainHash", "payloadHash", "signerKeyId", "actor", "traceId", "provenance"],
+    properties: {
+      eventId: { type: "string" },
+      eventType: { type: "string" },
+      at: { type: "string", format: "date-time" },
+      chainHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      prevChainHash: { type: "string", nullable: true },
+      payloadHash: { type: "string", nullable: true },
+      signerKeyId: { type: "string", nullable: true },
+      actor: { type: "object", nullable: true, additionalProperties: true },
+      traceId: { type: "string", nullable: true },
+      provenance: { type: "object", nullable: true, additionalProperties: true }
+    }
+  };
+
+  const SessionTranscriptV1 = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "schemaVersion",
+      "tenantId",
+      "sessionId",
+      "generatedAt",
+      "sessionHash",
+      "transcriptEventDigestHash",
+      "eventCount",
+      "headChainHash",
+      "verification",
+      "session",
+      "eventDigests",
+      "transcriptHash"
+    ],
+    properties: {
+      schemaVersion: { type: "string", enum: ["SessionTranscript.v1"] },
+      tenantId: { type: "string" },
+      sessionId: { type: "string" },
+      generatedAt: { type: "string", format: "date-time" },
+      sessionHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      transcriptEventDigestHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      eventCount: { type: "integer", minimum: 0 },
+      headChainHash: { type: "string", nullable: true },
+      verification: { type: "object", additionalProperties: true },
+      session: SessionV1,
+      eventDigests: { type: "array", items: SessionTranscriptDigestV1 },
+      transcriptHash: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      signature: { allOf: [SessionTranscriptSignatureV1], nullable: true }
+    }
+  };
+
   const InteractionDirectionEntityType = {
     type: "string",
     enum: ["agent", "human", "robot", "machine"]
@@ -6349,6 +6546,342 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
                 }
               }
             },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions": {
+        get: {
+          summary: "List Session.v1 records",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "query", required: false, schema: { type: "string" } },
+            { name: "participantAgentId", in: "query", required: false, schema: { type: "string" } },
+            { name: "visibility", in: "query", required: false, schema: { type: "string", enum: ["public", "tenant", "private"] } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 2000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      sessions: { type: "array", items: SessionV1 },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        post: {
+          summary: "Create Session.v1 record",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["sessionId", "participants"],
+                  properties: {
+                    sessionId: { type: "string" },
+                    visibility: { type: "string", enum: ["public", "tenant", "private"] },
+                    participants: { type: "array", items: { type: "string" } },
+                    policyRef: { type: "string", nullable: true },
+                    metadata: { type: "object", nullable: true, additionalProperties: true },
+                    createdAt: { type: "string", format: "date-time", nullable: true }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: "Created",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      session: SessionV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions/{sessionId}": {
+        get: {
+          summary: "Get Session.v1 by id",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      session: SessionV1
+                    }
+                  }
+                }
+              }
+            },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions/{sessionId}/events": {
+        get: {
+          summary: "List SessionEvent.v1 envelope records",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
+            {
+              name: "eventType",
+              in: "query",
+              required: false,
+              schema: {
+                type: "string",
+                enum: [
+                  "MESSAGE",
+                  "TASK_REQUESTED",
+                  "QUOTE_ISSUED",
+                  "TASK_ACCEPTED",
+                  "TASK_PROGRESS",
+                  "TASK_COMPLETED",
+                  "SETTLEMENT_LOCKED",
+                  "SETTLEMENT_RELEASED",
+                  "SETTLEMENT_REFUNDED",
+                  "POLICY_CHALLENGED",
+                  "DISPUTE_OPENED"
+                ]
+              }
+            },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 2000 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      sessionId: { type: "string" },
+                      events: { type: "array", items: SessionEventEnvelopeV1 },
+                      limit: { type: "integer" },
+                      offset: { type: "integer" },
+                      currentPrevChainHash: { type: "string" }
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        },
+        post: {
+          summary: "Append SessionEvent.v1 envelope record",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            IdempotencyHeader,
+            ExpectedPrevChainHashHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["eventType"],
+                  properties: {
+                    eventType: { type: "string" },
+                    payload: { nullable: true },
+                    provenance: { allOf: [SessionEventProvenanceV1], nullable: true },
+                    traceId: { type: "string", nullable: true },
+                    at: { type: "string", format: "date-time", nullable: true },
+                    actor: { type: "object", nullable: true, additionalProperties: true }
+                  }
+                }
+              }
+            }
+          },
+          responses: {
+            201: {
+              description: "Appended",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      session: SessionV1,
+                      event: SessionEventEnvelopeV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            428: { description: "Precondition Required", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions/{sessionId}/events/stream": {
+        get: {
+          summary: "Stream SessionEvent.v1 envelope records via SSE",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
+            {
+              name: "eventType",
+              in: "query",
+              required: false,
+              schema: {
+                type: "string",
+                enum: [
+                  "MESSAGE",
+                  "TASK_REQUESTED",
+                  "QUOTE_ISSUED",
+                  "TASK_ACCEPTED",
+                  "TASK_PROGRESS",
+                  "TASK_COMPLETED",
+                  "SETTLEMENT_LOCKED",
+                  "SETTLEMENT_RELEASED",
+                  "SETTLEMENT_REFUNDED",
+                  "POLICY_CHALLENGED",
+                  "DISPUTE_OPENED"
+                ]
+              }
+            },
+            { name: "sinceEventId", in: "query", required: false, schema: { type: "string" } },
+            {
+              name: "Last-Event-ID",
+              in: "header",
+              required: false,
+              schema: { type: "string" },
+              description: "SSE cursor resume id."
+            }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: { description: "text/event-stream response" },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions/{sessionId}/replay-pack": {
+        get: {
+          summary: "Get SessionReplayPack.v1 export",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
+            { name: "sign", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "signerKeyId", in: "query", required: false, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      replayPack: SessionReplayPackV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/sessions/{sessionId}/transcript": {
+        get: {
+          summary: "Get SessionTranscript.v1 digest export",
+          parameters: [
+            TenantHeader,
+            ProtocolHeader,
+            RequestIdHeader,
+            { name: "sessionId", in: "path", required: true, schema: { type: "string" } },
+            { name: "sign", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "signerKeyId", in: "query", required: false, schema: { type: "string" } }
+          ],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    additionalProperties: false,
+                    properties: {
+                      ok: { type: "boolean" },
+                      transcript: SessionTranscriptV1
+                    }
+                  }
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
             409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
           }
