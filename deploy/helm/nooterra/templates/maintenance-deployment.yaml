@@ -27,7 +27,7 @@ spec:
         - name: maintenance
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["src/api/maintenance.js"]
+          args: ["src/api/maintenance.js"]
           env:
             - name: NODE_ENV
               value: production
