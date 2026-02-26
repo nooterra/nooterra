@@ -89,9 +89,9 @@ test("settld verified gate runner: applies bootstrap env patch to checks and run
   );
 
   assert.equal(report.ok, true);
-  assert.equal(report.summary.totalChecks, 3);
+  assert.equal(report.summary.totalChecks, 4);
   assert.equal(cleanupCalled, true);
-  assert.equal(seenEnv.length, 3);
+  assert.equal(seenEnv.length, 4);
   for (const row of seenEnv) {
     assert.equal(row.SETTLD_BASE_URL, "http://127.0.0.1:3000");
     assert.equal(row.SETTLD_TENANT_ID, "tenant_default");
@@ -143,7 +143,7 @@ test("settld verified gate runner: collaboration level includes openclaw substra
     { runCheckFn, bootstrapFn }
   );
   assert.equal(report.ok, true);
-  assert.equal(report.summary.totalChecks, 27);
+  assert.equal(report.summary.totalChecks, 28);
   assert.equal(seenIds.includes("e2e_agent_card_stream_lifecycle"), true);
   assert.equal(seenIds.includes("e2e_trace_id_propagation"), true);
   assert.equal(seenIds.includes("e2e_task_negotiation_lifecycle_enforcement"), true);
@@ -158,6 +158,7 @@ test("settld verified gate runner: collaboration level includes openclaw substra
   assert.equal(seenIds.includes("e2e_python_sdk_acs_substrate_smoke"), true);
   assert.equal(seenIds.includes("e2e_js_sdk_acs_substrate_smoke"), true);
   assert.equal(seenIds.includes("sdk_js_acs_substrate_contract"), true);
+  assert.equal(seenIds.includes("sdk_quickstart_docs_contract"), true);
   assert.equal(seenIds.includes("e2e_ops_audit_lineage"), true);
   assert.equal(seenIds.includes("e2e_ops_audit_lineage_verify_fail_closed"), true);
   assert.equal(seenIds.includes("e2e_task_negotiation"), true);

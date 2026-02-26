@@ -258,7 +258,8 @@ function checksForLevel(level, { includePg = false } = {}) {
   const core = [
     { id: "mcp_host_cert_matrix", command: "npm", args: ["run", "-s", "test:ci:mcp-host-cert-matrix"] },
     { id: "mcp_probe_about", command: "npm", args: ["run", "-s", "mcp:probe", "--", "--call", "settld.about", "{}"] },
-    { id: "mcp_probe_x402_smoke", command: "npm", args: ["run", "-s", "mcp:probe", "--", "--x402-smoke"] }
+    { id: "mcp_probe_x402_smoke", command: "npm", args: ["run", "-s", "mcp:probe", "--", "--x402-smoke"] },
+    { id: "sdk_quickstart_docs_contract", command: "node", args: ["--test", "test/sdk-quickstart-contract.test.js"] }
   ];
   const collaboration = [
     { id: "e2e_subagent_work_orders", command: "node", args: ["--test", "test/api-e2e-subagent-work-orders.test.js"] },
