@@ -325,6 +325,163 @@ test("API e2e: /sessions/:id/events/stream watermark progression survives filter
   await closeSseStream(streamB, controllerB);
 });
 
+test("API e2e: /sessions/:id/events/stream reconnect chaos keeps resume cursor monotonic and delivery deduped", async (t) => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_stream_principal_5";
+  const sessionId = "sess_stream_5";
+  const filteredEventTypeQuery = "task_completed";
+  const expectedFilteredType = "TASK_COMPLETED";
+
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "stream_session_create_5" },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const firstAppend = await request(api, {
+    method: "POST",
+    path: `/sessions/${sessionId}/events`,
+    headers: {
+      "x-idempotency-key": "stream_session_5_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "stream_task_5" }
+    }
+  });
+  assert.equal(firstAppend.statusCode, 201, firstAppend.body);
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+  const auth = api.__testAuthByTenant?.get?.("tenant_default") ?? null;
+  assert.ok(auth?.authorization, "test auth authorization is required");
+
+  const appendPlan = [
+    { eventType: "TASK_PROGRESS", expectedStreamEvent: false, idempotencyKey: "stream_session_5_append_2" },
+    { eventType: "TASK_COMPLETED", expectedStreamEvent: true, idempotencyKey: "stream_session_5_append_3" },
+    { eventType: "TASK_PROGRESS", expectedStreamEvent: false, idempotencyKey: "stream_session_5_append_4" },
+    { eventType: "TASK_PROGRESS", expectedStreamEvent: false, idempotencyKey: "stream_session_5_append_5" },
+    { eventType: "TASK_COMPLETED", expectedStreamEvent: true, idempotencyKey: "stream_session_5_append_6" }
+  ];
+
+  let resumeCursor = String(firstAppend.json?.event?.id ?? "");
+  let prevChainHash = String(firstAppend.json?.event?.chainHash ?? "");
+  const expectedDeliveredCompletedIds = [];
+  const observedDeliveredCompletedIds = [];
+
+  for (let index = 0; index < appendPlan.length; index += 1) {
+    const step = appendPlan[index];
+    const expectedHeadCountBeforeAppend = String(1 + index);
+    const expectedHeadLastBeforeAppend = resumeCursor;
+
+    const controller = new AbortController();
+    t.after(() => controller.abort());
+    const streamResponse = await fetch(
+      `http://127.0.0.1:${port}/sessions/${sessionId}/events/stream?eventType=${encodeURIComponent(filteredEventTypeQuery)}`,
+      {
+        signal: controller.signal,
+        headers: {
+          authorization: auth.authorization,
+          "x-proxy-tenant-id": "tenant_default",
+          "last-event-id": resumeCursor
+        }
+      }
+    );
+    assert.equal(streamResponse.status, 200);
+    assert.equal(streamResponse.headers.get("x-session-events-ordering"), "SESSION_SEQ_ASC");
+    assert.equal(streamResponse.headers.get("x-session-events-delivery-mode"), "resume_then_tail");
+    assert.equal(streamResponse.headers.get("x-session-events-head-event-count"), expectedHeadCountBeforeAppend);
+    assert.equal(streamResponse.headers.get("x-session-events-head-last-event-id"), expectedHeadLastBeforeAppend);
+    assert.equal(streamResponse.headers.get("x-session-events-since-event-id"), resumeCursor);
+    assert.equal(streamResponse.headers.get("x-session-events-next-since-event-id"), expectedHeadLastBeforeAppend);
+    assert.ok(streamResponse.body);
+
+    const stream = createSseFrameReader(streamResponse.body);
+    const readyFrame = await readSseFrame(stream, { timeoutMs: 8_000 });
+    assert.equal(readyFrame.event, "session.ready");
+    const readyPayload = JSON.parse(readyFrame.dataLines.join("\n"));
+    assert.equal(readyPayload.sessionId, sessionId);
+    assert.equal(readyPayload.eventType, expectedFilteredType);
+    assert.equal(readyPayload.sinceEventId, resumeCursor);
+    assert.equal(readyPayload.inbox?.sinceEventId, resumeCursor);
+    assert.equal(readyPayload.inbox?.headEventCount, Number(expectedHeadCountBeforeAppend));
+    assert.equal(readyPayload.inbox?.headLastEventId, expectedHeadLastBeforeAppend);
+    assert.equal(readyPayload.inbox?.nextSinceEventId, expectedHeadLastBeforeAppend);
+
+    const append = await request(api, {
+      method: "POST",
+      path: `/sessions/${sessionId}/events`,
+      headers: {
+        "x-idempotency-key": step.idempotencyKey,
+        "x-proxy-expected-prev-chain-hash": prevChainHash
+      },
+      body: {
+        eventType: step.eventType,
+        payload: { seq: index + 2 }
+      }
+    });
+    assert.equal(append.statusCode, 201, append.body);
+    const appendedEventId = String(append.json?.event?.id ?? "");
+    const appendedChainHash = String(append.json?.event?.chainHash ?? "");
+    assert.ok(appendedEventId);
+    assert.ok(appendedChainHash);
+
+    const streamFrame = await readSseFrame(stream, { timeoutMs: 8_000 });
+    if (step.expectedStreamEvent) {
+      assert.equal(streamFrame.event, "session.event");
+      assert.equal(streamFrame.id, appendedEventId);
+      const eventPayload = JSON.parse(streamFrame.dataLines.join("\n"));
+      assert.equal(eventPayload.id, appendedEventId);
+      assert.equal(eventPayload.type, expectedFilteredType);
+      observedDeliveredCompletedIds.push(appendedEventId);
+      expectedDeliveredCompletedIds.push(appendedEventId);
+    } else {
+      assert.equal(streamFrame.event, "session.watermark");
+      assert.equal(streamFrame.id, appendedEventId);
+      const watermarkPayload = JSON.parse(streamFrame.dataLines.join("\n"));
+      assert.equal(watermarkPayload.ok, true);
+      assert.equal(watermarkPayload.sessionId, sessionId);
+      assert.equal(watermarkPayload.eventType, expectedFilteredType);
+      assert.equal(watermarkPayload.phase, "stream_poll");
+      assert.equal(watermarkPayload.lastDeliveredEventId, resumeCursor);
+      assert.equal(watermarkPayload.inbox?.sinceEventId, resumeCursor);
+      assert.equal(watermarkPayload.inbox?.nextSinceEventId, appendedEventId);
+      assert.equal(watermarkPayload.inbox?.headLastEventId, appendedEventId);
+      assert.equal(watermarkPayload.inbox?.headEventCount, 2 + index);
+    }
+
+    await closeSseStream(stream, controller);
+    resumeCursor = appendedEventId;
+    prevChainHash = appendedChainHash;
+  }
+
+  assert.deepEqual(observedDeliveredCompletedIds, expectedDeliveredCompletedIds);
+  assert.equal(new Set(observedDeliveredCompletedIds).size, observedDeliveredCompletedIds.length);
+
+  const listFromSeed = await request(api, {
+    method: "GET",
+    path: `/sessions/${sessionId}/events?eventType=${encodeURIComponent(filteredEventTypeQuery)}&sinceEventId=${encodeURIComponent(String(firstAppend.json?.event?.id ?? ""))}`
+  });
+  assert.equal(listFromSeed.statusCode, 200, listFromSeed.body);
+  assert.equal(listFromSeed.headers?.get("x-session-events-head-event-count"), String(1 + appendPlan.length));
+  assert.equal(listFromSeed.headers?.get("x-session-events-head-last-event-id"), resumeCursor);
+  assert.equal(listFromSeed.headers?.get("x-session-events-next-since-event-id"), resumeCursor);
+  const listedCompletedIds = (listFromSeed.json?.events ?? []).map((row) => String(row?.id ?? ""));
+  assert.deepEqual(listedCompletedIds, expectedDeliveredCompletedIds);
+});
+
 test("API e2e: /sessions/:id/events/stream fails closed on invalid cursor", async (t) => {
   const api = createApi({ opsToken: "tok_ops" });
   const principalAgentId = "agt_stream_principal_2";

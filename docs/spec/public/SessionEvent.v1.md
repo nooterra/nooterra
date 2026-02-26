@@ -60,6 +60,7 @@ Server-side append computes provenance with chain-aware taint propagation and de
 - stream cursor (`sinceEventId` or `Last-Event-ID`) must resolve to an existing event id, else fail closed.
 - stream cursor source must be unambiguous: when both `sinceEventId` and `Last-Event-ID` are provided, they must match.
 - stream emits deterministic `session.watermark` frames when head advances so filtered/offline consumers can progress resume cursors without relying on matched `session.event` payloads.
+- repeated reconnect/retry loops must keep resume cursor progression monotonic (`sinceEventId`/`nextSinceEventId`) and avoid duplicate terminal deliveries for identical timeline history.
 - cursor failures expose deterministic gap metadata in `details`: `reasonCode=SESSION_EVENT_CURSOR_NOT_FOUND`, `eventCount`, `firstEventId`, `lastEventId`, and `phase`.
 
 ## Inbox watermark headers
