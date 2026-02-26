@@ -81,9 +81,26 @@ jobs:
       - name: Create namespace + Postgres + DB secret
         run: |
           set -euo pipefail
+          for attempt in $(seq 1 5); do
+            if docker pull postgres:16; then
+              break
+            fi
+            if [[ "${attempt}" == "5" ]]; then
+              echo "::error::Failed to pull postgres:16 after 5 attempts"
+              exit 1
+            fi
+            sleep $((attempt * 5))
+          done
+          kind load docker-image postgres:16
           kubectl create namespace smoke
           kubectl apply -n smoke -f deploy/kind/postgres.yaml
-          kubectl rollout status -n smoke deploy/postgres --timeout=180s
+          if ! kubectl rollout status -n smoke deploy/postgres --timeout=420s; then
+            kubectl -n smoke get pods -o wide || true
+            kubectl -n smoke describe deploy/postgres || true
+            kubectl -n smoke describe pod -l app=postgres || true
+            kubectl -n smoke get events --sort-by=.metadata.creationTimestamp | tail -n 80 || true
+            exit 1
+          fi
           kubectl create secret generic nooterra-db -n smoke --from-literal=DATABASE_URL='postgres://proxy:proxy@postgres:5432/proxy'
 
       - name: Install base chart (smoke)
