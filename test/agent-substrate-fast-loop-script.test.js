@@ -34,6 +34,7 @@ test("agent substrate fast loop parser: rejects unknown args", () => {
 
 test("agent substrate fast loop runner: applies bootstrap env patch to checks and runs cleanup", async () => {
   const seenEnv = [];
+  const seenIds = [];
   let cleanupCalled = false;
   const bootstrapFn = async () => ({
     envPatch: {
@@ -47,6 +48,7 @@ test("agent substrate fast loop runner: applies bootstrap env patch to checks an
     }
   });
   const runCheckFn = (check) => {
+    seenIds.push(check.id);
     seenEnv.push(check.env ?? {});
     return {
       id: check.id,
@@ -75,6 +77,8 @@ test("agent substrate fast loop runner: applies bootstrap env patch to checks an
   assert.equal(report.summary.totalChecks, 8);
   assert.equal(cleanupCalled, true);
   assert.equal(seenEnv.length, 8);
+  assert.equal(seenIds.includes("sdk_acs_smoke_js"), true);
+  assert.equal(seenIds.includes("sdk_acs_smoke_py"), true);
   for (const row of seenEnv) {
     assert.equal(row.SETTLD_BASE_URL, "http://127.0.0.1:3000");
     assert.equal(row.SETTLD_TENANT_ID, "tenant_default");
