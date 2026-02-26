@@ -350,11 +350,20 @@ test("API e2e: /public/agent-cards/stream emits agent_card.removed when visibili
     "?capability=travel.booking&status=active&runtime=openclaw&toolId=travel.book_flight&toolSideEffecting=true";
 
   const controller = new AbortController();
-  t.after(() => controller.abort());
+  let reader = null;
+  t.after(() => {
+    if (reader) {
+      void reader.cancel().catch(() => {
+        // best effort cleanup
+      });
+    }
+    controller.abort();
+  });
   const stream = await fetch(streamUrl, { signal: controller.signal });
   assert.equal(stream.status, 200);
   assert.ok(stream.body);
-  const nextFrame = createSseFrameReader(stream.body.getReader(), new TextDecoder());
+  reader = stream.body.getReader();
+  const nextFrame = createSseFrameReader(reader, new TextDecoder());
 
   const ready = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
   assert.equal(ready.event, "agent_cards.ready");
@@ -549,6 +558,101 @@ test("API e2e: /public/agent-cards/stream emits removal when abuse suppression t
   assert.equal(removedPayload.agentId, workerId);
   assert.equal(removedPayload.reasonCode, "NO_LONGER_VISIBLE");
   controller.abort();
+});
+
+test("API e2e: /public/agent-cards/stream re-emits upsert when abuse suppression is resolved", async (t) => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicAbuseSuppressionThreshold: 1
+  });
+  const workerId = "agt_public_stream_worker_abuse_resolved_1";
+  const reporterId = "agt_public_stream_reporter_abuse_resolved_1";
+  const resolverId = "agt_public_stream_resolver_abuse_resolved_1";
+
+  await registerAgent(api, { agentId: workerId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: reporterId, capabilities: ["trust.reporting"] });
+  await registerAgent(api, { agentId: resolverId, capabilities: ["trust.moderation"] });
+  await upsertPublicAgentCard(api, { agentId: workerId, keySuffix: "abuse_resolved_v1", description: "stream abuse resolved v1" });
+
+  const server = http.createServer(api.handle);
+  const { port } = await listenOnEphemeralLoopback(server, { hosts: ["127.0.0.1"] });
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const streamUrl =
+    `http://127.0.0.1:${port}/public/agent-cards/stream` +
+    "?capability=travel.booking&status=active&runtime=openclaw&toolId=travel.book_flight&toolSideEffecting=true";
+
+  const controller = new AbortController();
+  let reader = null;
+  t.after(() => controller.abort());
+  try {
+    const stream = await fetch(streamUrl, { signal: controller.signal });
+    assert.equal(stream.status, 200);
+    assert.ok(stream.body);
+    reader = stream.body.getReader();
+    const nextFrame = createSseFrameReader(reader, new TextDecoder());
+
+    const ready = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+    assert.equal(ready.event, "agent_cards.ready");
+    const firstUpsert = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+    assert.equal(firstUpsert.event, "agent_card.upsert");
+
+    const reportResponse = await request(api, {
+      method: "POST",
+      path: `/agent-cards/${encodeURIComponent(workerId)}/abuse-reports`,
+      headers: {
+        "x-idempotency-key": "stream_abuse_resolved_report_1",
+        "x-settld-protocol": "1.0"
+      },
+      body: {
+        reportId: "acabr_stream_abuse_resolved_1",
+        reporterAgentId: reporterId,
+        reasonCode: "spam",
+        severity: 2
+      }
+    });
+    assert.equal(reportResponse.statusCode, 201, reportResponse.body);
+    assert.equal(reportResponse.json?.subjectStatus?.publicDiscoverySuppressed, true);
+
+    const removed = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+    assert.equal(removed.event, "agent_card.removed");
+    const removedPayload = JSON.parse(removed.dataLines.join("\n"));
+    assert.equal(removedPayload.agentId, workerId);
+
+    const resolveResponse = await request(api, {
+      method: "POST",
+      path: `/agent-cards/${encodeURIComponent(workerId)}/abuse-reports/acabr_stream_abuse_resolved_1/status`,
+      headers: {
+        "x-idempotency-key": "stream_abuse_resolved_status_1",
+        "x-settld-protocol": "1.0"
+      },
+      body: {
+        status: "resolved",
+        resolvedByAgentId: resolverId,
+        resolutionNotes: "stream reappearance test"
+      }
+    });
+    assert.equal(resolveResponse.statusCode, 200, resolveResponse.body);
+    assert.equal(resolveResponse.json?.subjectStatus?.publicDiscoverySuppressed, false);
+
+    const reUpsert = await nextSseFrameWithWatchdog(nextFrame, { timeoutMs: 8_000, onTimeout: () => controller.abort() });
+    assert.equal(reUpsert.event, "agent_card.upsert");
+    assert.ok(typeof reUpsert.id === "string" && reUpsert.id.length > 0);
+    assert.notEqual(reUpsert.id, removed.id);
+    const reUpsertPayload = JSON.parse(reUpsert.dataLines.join("\n"));
+    assert.equal(reUpsertPayload.schemaVersion, "AgentCardStreamEvent.v1");
+    assert.equal(reUpsertPayload.type, "AGENT_CARD_UPSERT");
+    assert.equal(reUpsertPayload.agentId, workerId);
+  } finally {
+    if (reader) {
+      await reader.cancel().catch(() => {
+        // best effort cleanup
+      });
+    }
+    controller.abort();
+  }
 });
 
 test("API e2e: /public/agent-cards/stream ordering is deterministic for equal timestamps (memory store)", async (t) => {

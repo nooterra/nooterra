@@ -48445,33 +48445,50 @@ export function createApi({
         req.on("close", closeStream);
         req.on("aborted", closeStream);
 
-        const emitRows = (rows) => {
+        const emitRows = (rows, { forceScopedKeys = null, at = null } = {}) => {
           if (!Array.isArray(rows) || rows.length === 0) return;
           for (const row of rows) {
-            if (lastCursor && compareAgentCardStreamCursor(row, lastCursor) <= 0) continue;
+            const tenantId =
+              typeof row?.tenantId === "string" && row.tenantId.trim() !== ""
+                ? row.tenantId.trim()
+                : normalizeTenantId(DEFAULT_TENANT_ID);
+            const agentId = typeof row?.agentId === "string" && row.agentId.trim() !== "" ? row.agentId.trim() : null;
+            if (!agentId) continue;
+            const scopedKey = makeScopedKey({ tenantId, id: agentId });
+            const forceUpsert = forceScopedKeys instanceof Set && forceScopedKeys.has(scopedKey);
+            let effectiveCursor = {
+              updatedAt: row.updatedAt,
+              tenantId,
+              agentId,
+              raw: row.cursor
+            };
+            if (lastCursor && compareAgentCardStreamCursor(effectiveCursor, lastCursor) <= 0) {
+              if (!forceUpsert) continue;
+              effectiveCursor = buildNextAgentCardStreamCursorAfter({
+                lastCursor,
+                tenantId,
+                agentId,
+                at
+              });
+            }
             writeSseEvent({
               eventName: "agent_card.upsert",
-              eventId: row.cursor,
+              eventId: effectiveCursor.raw,
               data: normalizeForCanonicalJson(
                 {
                   schemaVersion: AGENT_CARD_STREAM_EVENT_SCHEMA_VERSION,
                   type: "AGENT_CARD_UPSERT",
                   scope: "public",
-                  cursor: row.cursor,
+                  cursor: effectiveCursor.raw,
                   updatedAt: row.updatedAt,
-                  tenantId: row.tenantId,
-                  agentId: row.agentId,
+                  tenantId,
+                  agentId,
                   agentCard: row.agentCard
                 },
                 { path: "$.event" }
               )
             });
-            lastCursor = {
-              updatedAt: row.updatedAt,
-              tenantId: row.tenantId,
-              agentId: row.agentId,
-              raw: row.cursor
-            };
+            lastCursor = effectiveCursor;
           }
         };
 
@@ -48560,7 +48577,19 @@ export function createApi({
               agentId
             });
           }
-          emitRows(rows);
+          const forceUpsertScopedKeys = (() => {
+            if (!(visibleRowsByScopedKey instanceof Map)) return null;
+            const out = new Set();
+            for (const scopedKey of currentVisibleByScopedKey.keys()) {
+              if (visibleRowsByScopedKey.has(scopedKey)) continue;
+              out.add(scopedKey);
+            }
+            return out.size > 0 ? out : null;
+          })();
+          emitRows(rows, {
+            forceScopedKeys: forceUpsertScopedKeys,
+            at: pollAt
+          });
           if (visibleRowsByScopedKey instanceof Map) {
             emitRemovedRows({
               previousVisibleByScopedKey: visibleRowsByScopedKey,
