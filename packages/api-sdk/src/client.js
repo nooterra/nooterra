@@ -779,7 +779,10 @@ export class SettldClient {
     if (!opts?.expectedPrevChainHash) throw new TypeError("expectedPrevChainHash is required for appendSessionEvent");
     if (!body || typeof body !== "object") throw new TypeError("body is required");
     assertNonEmptyString(body?.type, "body.type");
-    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/events`, { ...opts, body });
+    const resolvedOpts = { ...opts };
+    // Session event append is fail-closed on idempotency: default one for compatibility.
+    if (!resolvedOpts.idempotencyKey) resolvedOpts.idempotencyKey = randomRequestId();
+    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/events`, { ...resolvedOpts, body });
   }
 
   getSessionReplayPack(sessionId, params = {}, opts = undefined) {
