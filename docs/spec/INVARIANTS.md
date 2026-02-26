@@ -177,7 +177,7 @@ Each invariant maps:
   - Verification report authorization (proof bundles): `packages/artifact-verify/src/job-proof-bundle.js:215`–`226`
   - Verification report authorization (FinancePack): `packages/artifact-verify/src/finance-pack-bundle.js:410`–`421`
 - **Evidence**:
-  - Conformance: `jobproof_strict_fail_unauthorized_signer`, `monthproof_strict_fail_unauthorized_signer`
+  - Conformance: `jobproof_strict_fail_unauthorized_signer`, `jobproof_strict_fail_revoked_at_or_after_with_timeproof`, `jobproof_strict_fail_revoked_before_without_timeproof`, `monthproof_strict_fail_unauthorized_signer`
 - **Failure codes**:
   - `attestation signer not authorized`
   - `verification report signer not authorized`
