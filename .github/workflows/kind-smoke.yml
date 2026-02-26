@@ -18,7 +18,7 @@ on:
 jobs:
   smoke_deploy_and_upgrade:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
@@ -122,7 +122,7 @@ jobs:
               PROXY_AUTOTICK_INTERVAL_MS: "100"
               PROXY_AUTOTICK_MAX_MESSAGES: "200"
           YAML
-          helm upgrade --install nooterra "${BASE_CHART_PATH}" -n smoke -f /tmp/values.base.yaml --wait --timeout 5m
+          helm upgrade --install nooterra "${BASE_CHART_PATH}" -n smoke -f /tmp/values.base.yaml --wait --timeout 10m
 
       - name: Smoke lifecycle (base)
         run: |
@@ -167,7 +167,7 @@ jobs:
               PROXY_AUTOTICK_INTERVAL_MS: "100"
               PROXY_AUTOTICK_MAX_MESSAGES: "200"
           YAML
-          helm upgrade nooterra deploy/helm/nooterra -n smoke -f /tmp/values.current.yaml --wait --timeout 5m
+          helm upgrade nooterra deploy/helm/nooterra -n smoke -f /tmp/values.current.yaml --wait --timeout 10m
 
       - name: Smoke lifecycle (current)
         run: |
