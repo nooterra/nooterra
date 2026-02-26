@@ -157,7 +157,10 @@ async function createTerminalRun({
   let storeB = null;
   try {
     storeA = await createPgStore({ databaseUrl, schema, dropSchemaOnClose: false });
-    const apiA = createApi({ store: storeA });
+    const apiA = createApi({
+      store: storeA,
+      agentCardPublicAbuseSuppressionThreshold: 1
+    });
 
     await registerAgent(apiA, { tenantId: tenantA, agentId: principalA, capabilities: ["orchestration"] });
     await registerAgent(apiA, { tenantId: tenantA, agentId: workerA, capabilities: ["travel.booking"] });
@@ -663,12 +666,36 @@ async function createTerminalRun({
     });
     assert.equal(abuseReportBeforeRestart.statusCode, 201, abuseReportBeforeRestart.body);
     assert.equal(abuseReportBeforeRestart.json?.report?.reportId, "pg_sub_abuse_report_1");
+    assert.equal(abuseReportBeforeRestart.json?.subjectStatus?.publicDiscoverySuppressed, true);
+
+    const resolvedBeforeRestart = await tenantRequest(apiA, {
+      tenantId: tenantA,
+      method: "POST",
+      path: `/agent-cards/${encodeURIComponent(workerA)}/abuse-reports/pg_sub_abuse_report_1/status`,
+      headers: {
+        "x-idempotency-key": "pg_sub_abuse_report_resolve_1",
+        "x-settld-protocol": "1.0"
+      },
+      body: {
+        status: "resolved",
+        resolvedByAgentId: principalA,
+        resolutionNotes: "pg durability status transition"
+      }
+    });
+    assert.equal(resolvedBeforeRestart.statusCode, 200, resolvedBeforeRestart.body);
+    assert.equal(resolvedBeforeRestart.json?.report?.status, "resolved");
+    assert.equal(resolvedBeforeRestart.json?.report?.resolvedByAgentId, principalA);
+    assert.equal(resolvedBeforeRestart.json?.subjectStatus?.openReportCount, 0);
+    assert.equal(resolvedBeforeRestart.json?.subjectStatus?.publicDiscoverySuppressed, false);
 
     await storeA.close();
     storeA = null;
 
     storeB = await createPgStore({ databaseUrl, schema, dropSchemaOnClose: true });
-    const apiB = createApi({ store: storeB });
+    const apiB = createApi({
+      store: storeB,
+      agentCardPublicAbuseSuppressionThreshold: 1
+    });
 
     const getCard = await tenantRequest(apiB, {
       tenantId: tenantA,
@@ -792,17 +819,27 @@ async function createTerminalRun({
     assert.equal(interactionGraphAfterRestart.json?.graphPack?.schemaVersion, "VerifiedInteractionGraphPack.v1");
     assert.equal(interactionGraphAfterRestart.json?.graphPack?.packHash, interactionGraphPackHashBeforeRestart);
 
-    const abuseReportsAfterRestart = await tenantRequest(apiB, {
+    const openAbuseReportsAfterRestart = await tenantRequest(apiB, {
       tenantId: tenantA,
       method: "GET",
       path: `/agent-cards/${encodeURIComponent(workerA)}/abuse-reports?status=open&limit=10&offset=0`
     });
-    assert.equal(abuseReportsAfterRestart.statusCode, 200, abuseReportsAfterRestart.body);
+    assert.equal(openAbuseReportsAfterRestart.statusCode, 200, openAbuseReportsAfterRestart.body);
+    assert.equal(openAbuseReportsAfterRestart.json?.total, 0);
+    assert.equal(openAbuseReportsAfterRestart.json?.subjectStatus?.openReportCount, 0);
+    assert.equal(openAbuseReportsAfterRestart.json?.subjectStatus?.publicDiscoverySuppressed, false);
+
+    const resolvedAbuseReportsAfterRestart = await tenantRequest(apiB, {
+      tenantId: tenantA,
+      method: "GET",
+      path: `/agent-cards/${encodeURIComponent(workerA)}/abuse-reports?status=resolved&limit=10&offset=0`
+    });
+    assert.equal(resolvedAbuseReportsAfterRestart.statusCode, 200, resolvedAbuseReportsAfterRestart.body);
     assert.equal(
-      abuseReportsAfterRestart.json?.reports?.some((row) => String(row?.reportId ?? "") === "pg_sub_abuse_report_1"),
+      resolvedAbuseReportsAfterRestart.json?.reports?.some((row) => String(row?.reportId ?? "") === "pg_sub_abuse_report_1"),
       true
     );
-    assert.equal(abuseReportsAfterRestart.json?.subjectStatus?.openReportCount, 1);
+    assert.equal(resolvedAbuseReportsAfterRestart.json?.subjectStatus?.openReportCount, 0);
 
     const publicDiscover = await request(apiB, {
       method: "GET",

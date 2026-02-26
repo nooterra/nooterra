@@ -651,6 +651,93 @@ test("API e2e: /agent-cards/:agentId/abuse-reports suppresses public discovery a
   assert.equal(reportList.json?.reports?.every((row) => String(row?.status ?? "") === "open"), true);
 });
 
+test("API e2e: abuse report resolution unsuppresses public discovery", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    agentCardPublicAbuseSuppressionThreshold: 1
+  });
+
+  const subjectAgentId = "agt_card_abuse_resolve_subject_1";
+  const reporterAgentId = "agt_card_abuse_resolve_reporter_1";
+  const resolverAgentId = "agt_card_abuse_resolve_resolver_1";
+  await registerAgent(api, { agentId: subjectAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: reporterAgentId });
+  await registerAgent(api, { agentId: resolverAgentId });
+
+  const upsertSubject = await request(api, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_abuse_resolve_subject_upsert_1" },
+    body: {
+      agentId: subjectAgentId,
+      displayName: "Abuse Resolve Subject Agent",
+      capabilities: ["travel.booking"],
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/public/abuse-resolve-subject", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertSubject.statusCode, 201, upsertSubject.body);
+
+  const firstReport = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports`,
+    headers: { "x-idempotency-key": "agent_card_abuse_resolve_report_1" },
+    body: {
+      reportId: "acabr_resolve_1",
+      reporterAgentId,
+      reasonCode: "MALICIOUS_OUTPUT",
+      severity: 2
+    }
+  });
+  assert.equal(firstReport.statusCode, 201, firstReport.body);
+  assert.equal(firstReport.json?.subjectStatus?.publicDiscoverySuppressed, true);
+
+  const blockedBeforeResolve = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(blockedBeforeResolve.statusCode, 200, blockedBeforeResolve.body);
+  const blockedIds = new Set((blockedBeforeResolve.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(blockedIds.has(subjectAgentId), false);
+
+  const missingResolver = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports/acabr_resolve_1/status`,
+    headers: { "x-idempotency-key": "agent_card_abuse_resolve_missing_resolver_1" },
+    body: {
+      status: "resolved"
+    }
+  });
+  assert.equal(missingResolver.statusCode, 400, missingResolver.body);
+  assert.equal(missingResolver.json?.code, "SCHEMA_INVALID");
+
+  const resolved = await request(api, {
+    method: "POST",
+    path: `/agent-cards/${encodeURIComponent(subjectAgentId)}/abuse-reports/acabr_resolve_1/status`,
+    headers: { "x-idempotency-key": "agent_card_abuse_resolve_status_1" },
+    body: {
+      status: "resolved",
+      resolvedByAgentId: resolverAgentId,
+      resolutionNotes: "review complete"
+    }
+  });
+  assert.equal(resolved.statusCode, 200, resolved.body);
+  assert.equal(resolved.json?.report?.status, "resolved");
+  assert.equal(resolved.json?.report?.resolvedByAgentId, resolverAgentId);
+  assert.equal(resolved.json?.subjectStatus?.openReportCount, 0);
+  assert.equal(resolved.json?.subjectStatus?.publicDiscoverySuppressed, false);
+
+  const allowedAfterResolve = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(allowedAfterResolve.statusCode, 200, allowedAfterResolve.body);
+  const allowedIds = new Set((allowedAfterResolve.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(allowedIds.has(subjectAgentId), true);
+});
+
 test("API e2e: /public/agent-cards/discover excludes non-active x402 lifecycle agents", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 

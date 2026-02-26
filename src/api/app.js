@@ -8140,6 +8140,14 @@ export function createApi({
     return value;
   }
 
+  function parseAgentCardAbuseOptionalText(rawValue, { fieldPath = "value", maxLength = 2_000 } = {}) {
+    if (rawValue === null || rawValue === undefined) return null;
+    const value = String(rawValue).trim();
+    if (!value) return null;
+    if (value.length > maxLength) throw new TypeError(`${fieldPath} must be <= ${maxLength} chars`);
+    return value;
+  }
+
   function isActiveAgentCardAbuseReport(row) {
     const status = String(row?.status ?? AGENT_CARD_ABUSE_REPORT_STATUS.OPEN).trim().toLowerCase();
     return status !== AGENT_CARD_ABUSE_REPORT_STATUS.RESOLVED && status !== AGENT_CARD_ABUSE_REPORT_STATUS.DISMISSED;
@@ -8182,6 +8190,57 @@ export function createApi({
         status: AGENT_CARD_ABUSE_REPORT_STATUS.OPEN,
         createdAt: String(createdAt).trim(),
         updatedAt: String(createdAt).trim()
+      },
+      { path: "$.report" }
+    );
+  }
+
+  function buildAgentCardAbuseReportStatusUpdateV1({
+    report,
+    status,
+    resolvedByAgentId = null,
+    resolutionNotes = null,
+    updatedAt
+  } = {}) {
+    if (!report || typeof report !== "object" || Array.isArray(report)) throw new TypeError("report is required");
+    if (!Number.isFinite(Date.parse(String(updatedAt ?? "")))) throw new TypeError("updatedAt must be an ISO date-time");
+    const nextStatus = parseAgentCardAbuseReportStatus(status, { fieldPath: "status", allowNull: false });
+    const previousStatus = parseAgentCardAbuseReportStatus(report.status, { fieldPath: "report.status", allowNull: false });
+    const normalizedResolutionNotes = parseAgentCardAbuseOptionalText(resolutionNotes, {
+      fieldPath: "resolutionNotes",
+      maxLength: 2_000
+    });
+    const normalizedResolvedByAgentId = (() => {
+      if (nextStatus === AGENT_CARD_ABUSE_REPORT_STATUS.OPEN) return null;
+      const candidate =
+        typeof resolvedByAgentId === "string" && resolvedByAgentId.trim() !== ""
+          ? resolvedByAgentId.trim()
+          : previousStatus === nextStatus && typeof report.resolvedByAgentId === "string" && report.resolvedByAgentId.trim() !== ""
+            ? report.resolvedByAgentId.trim()
+            : null;
+      if (!candidate) {
+        throw new TypeError("resolvedByAgentId is required when status is resolved|dismissed");
+      }
+      return candidate;
+    })();
+    const resolvedAt =
+      nextStatus === AGENT_CARD_ABUSE_REPORT_STATUS.OPEN
+        ? null
+        : previousStatus === nextStatus && Number.isFinite(Date.parse(String(report.resolvedAt ?? "")))
+          ? String(report.resolvedAt).trim()
+          : String(updatedAt).trim();
+    return normalizeForCanonicalJson(
+      {
+        ...report,
+        status: nextStatus,
+        updatedAt: String(updatedAt).trim(),
+        resolvedAt,
+        resolvedByAgentId: normalizedResolvedByAgentId,
+        resolutionNotes:
+          nextStatus === AGENT_CARD_ABUSE_REPORT_STATUS.OPEN
+            ? null
+            : normalizedResolutionNotes ??
+              (previousStatus === nextStatus ? parseAgentCardAbuseOptionalText(report.resolutionNotes ?? null, { fieldPath: "resolutionNotes" }) : null)
       },
       { path: "$.report" }
     );
@@ -26794,6 +26853,7 @@ export function createApi({
     if (/^\/sessions\/[^/]+\/events$/.test(p)) return "/sessions/:sessionId/events";
     if (/^\/sessions\/[^/]+\/replay-pack$/.test(p)) return "/sessions/:sessionId/replay-pack";
     if (/^\/sessions\/[^/]+\/transcript$/.test(p)) return "/sessions/:sessionId/transcript";
+    if (/^\/agent-cards\/[^/]+\/abuse-reports\/[^/]+\/status$/.test(p)) return "/agent-cards/:agentId/abuse-reports/:reportId/status";
     if (/^\/agent-cards\/[^/]+\/abuse-reports$/.test(p)) return "/agent-cards/:agentId/abuse-reports";
     if (/^\/public\/agents\/[^/]+\/reputation-summary$/.test(p)) return "/public/agents/:agentId/reputation-summary";
     if (/^\/agents\/[^/]+\/interaction-graph-pack$/.test(p)) return "/agents/:agentId/interaction-graph-pack";
@@ -49035,6 +49095,127 @@ export function createApi({
             offset,
             subjectStatus
           });
+        }
+
+        if (
+          parts[0] === "agent-cards" &&
+          parts[1] &&
+          parts[2] === "abuse-reports" &&
+          parts[3] &&
+          parts[4] === "status" &&
+          parts.length === 5 &&
+          req.method === "POST"
+        ) {
+          if (typeof store.getAgentCardAbuseReport !== "function" && !(store.agentCardAbuseReports instanceof Map)) {
+            return sendError(res, 501, "agent card abuse reports not supported for this store");
+          }
+          if (!requireProtocolHeaderForWrite(req, res)) return;
+          const targetAgentId = decodePathPart(parts[1]);
+          const reportId = decodePathPart(parts[3]);
+          const body = await readJsonBody(req);
+          let idemStoreKey = null;
+          let idemRequestHash = null;
+          try {
+            ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+          } catch (err) {
+            return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+          }
+          if (idemStoreKey) {
+            const existing = store.idempotency.get(idemStoreKey);
+            if (existing) {
+              if (existing.requestHash !== idemRequestHash) {
+                return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+              }
+              return sendJson(res, existing.statusCode, existing.body);
+            }
+          }
+          let subjectIdentity = null;
+          try {
+            subjectIdentity = await getAgentIdentityRecord({ tenantId, agentId: targetAgentId });
+          } catch (err) {
+            return sendError(res, 400, "invalid subject agent query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          if (!subjectIdentity) return sendError(res, 404, "subject agent identity not found", null, { code: "NOT_FOUND" });
+
+          let existingReport = null;
+          try {
+            existingReport = await getAgentCardAbuseReportRecord({ tenantId, reportId });
+          } catch (err) {
+            return sendError(
+              res,
+              /not supported/.test(String(err?.message ?? "")) ? 501 : 400,
+              "invalid abuse report query",
+              { message: err?.message },
+              { code: /not supported/.test(String(err?.message ?? "")) ? "NOT_IMPLEMENTED" : "SCHEMA_INVALID" }
+            );
+          }
+          if (!existingReport || String(existingReport?.subjectAgentId ?? "") !== targetAgentId) {
+            return sendError(res, 404, "abuse report not found", null, { code: "NOT_FOUND" });
+          }
+
+          let nextStatus = null;
+          try {
+            nextStatus = parseAgentCardAbuseReportStatus(body?.status, { fieldPath: "status", allowNull: false });
+          } catch (err) {
+            return sendError(res, 400, "invalid abuse report status", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          const resolvedByAgentId =
+            typeof body?.resolvedByAgentId === "string" && body.resolvedByAgentId.trim() !== "" ? body.resolvedByAgentId.trim() : null;
+          if (resolvedByAgentId) {
+            let resolverIdentity = null;
+            try {
+              resolverIdentity = await getAgentIdentityRecord({ tenantId, agentId: resolvedByAgentId });
+            } catch (err) {
+              return sendError(res, 400, "invalid resolver agent query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            if (!resolverIdentity) return sendError(res, 404, "resolver agent identity not found", null, { code: "NOT_FOUND" });
+          }
+
+          const updatedAt = nowIso();
+          let nextReport = null;
+          try {
+            nextReport = buildAgentCardAbuseReportStatusUpdateV1({
+              report: existingReport,
+              status: nextStatus,
+              resolvedByAgentId,
+              resolutionNotes: body?.resolutionNotes ?? body?.notes ?? null,
+              updatedAt
+            });
+          } catch (err) {
+            return sendError(res, 400, "invalid abuse report status", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const responseBody = { ok: true, report: nextReport, subjectStatus: null };
+          const ops = [{ kind: "AGENT_CARD_ABUSE_REPORT_UPSERT", tenantId, reportId, report: nextReport }];
+          if (idemStoreKey) {
+            ops.push({
+              kind: "IDEMPOTENCY_PUT",
+              key: idemStoreKey,
+              value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody }
+            });
+          }
+          await commitTx(ops, {
+            audit: makeOpsAudit({
+              action: "AGENT_CARD_ABUSE_REPORT_UPSERT",
+              targetType: "agent_card_abuse_report",
+              targetId: reportId,
+              details: {
+                subjectAgentId: targetAgentId,
+                status: nextStatus,
+                resolvedByAgentId: resolvedByAgentId ?? null
+              }
+            })
+          });
+          try {
+            responseBody.subjectStatus = await buildAgentCardAbuseSubjectStatus({
+              tenantId,
+              subjectAgentId: targetAgentId,
+              asOf: updatedAt
+            });
+          } catch (err) {
+            return sendError(res, 400, "abuse report subject status failed", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+          return sendJson(res, 200, responseBody);
         }
 
         if (parts[0] === "agent-cards" && parts[1] && parts.length === 2 && req.method === "GET") {
