@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
-import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
+import { createEd25519Keypair, keyIdFromPublicKeyPem, sha256Hex } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId }) {
@@ -20,6 +20,49 @@ async function registerAgent(api, { agentId }) {
   });
   assert.equal(created.statusCode, 201, created.body);
   return agentId;
+}
+
+async function registerAgentWithKey(api, { agentId }) {
+  const { publicKeyPem } = createEd25519Keypair();
+  const created = await request(api, {
+    method: "POST",
+    path: "/agents/register",
+    headers: { "x-idempotency-key": `agent_register_${agentId}` },
+    body: {
+      agentId,
+      displayName: `Agent ${agentId}`,
+      owner: { ownerType: "service", ownerId: "svc_test" },
+      publicKeyPem
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  return { agentId, keyId: keyIdFromPublicKeyPem(publicKeyPem), publicKeyPem };
+}
+
+async function registerSignerKey(api, { keyId, publicKeyPem, purpose = "robot", description = "test signer key" }) {
+  const response = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId,
+      publicKeyPem,
+      purpose,
+      status: "active",
+      description
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  assert.equal(response.json?.signerKey?.keyId, keyId);
+}
+
+async function rotateSignerKey(api, { keyId }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(keyId)}/rotate`,
+    body: {}
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json?.signerKey?.status, "rotated");
 }
 
 async function creditWallet(api, { agentId, amountCents, idempotencyKey }) {
@@ -376,6 +419,120 @@ test("API e2e: delegation grant issue fails closed when delegator or delegatee l
   assert.equal(blockedDelegatee.json?.code, "X402_AGENT_THROTTLED");
   assert.equal(blockedDelegatee.json?.details?.role, "delegatee");
   assert.equal(blockedDelegatee.json?.details?.operation, "delegation_grant.issue");
+});
+
+test("API e2e: delegation grant issue fails closed when participant signer lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const delegator = await registerAgentWithKey(api, { agentId: "agt_dgrant_signer_delegator_1" });
+  const delegatee = await registerAgentWithKey(api, { agentId: "agt_dgrant_signer_delegatee_1" });
+
+  await registerSignerKey(api, {
+    keyId: delegator.keyId,
+    publicKeyPem: delegator.publicKeyPem,
+    description: "delegator signer lifecycle test"
+  });
+  await rotateSignerKey(api, { keyId: delegator.keyId });
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/delegation-grants",
+    headers: { "x-idempotency-key": "delegation_grant_issue_signer_block_delegator_1" },
+    body: {
+      grantId: "dgrant_signer_block_delegator_1",
+      delegatorAgentId: delegator.agentId,
+      delegateeAgentId: delegatee.agentId,
+      scope: {
+        allowedRiskClasses: ["financial"],
+        sideEffectingAllowed: true
+      },
+      spendLimit: {
+        currency: "USD",
+        maxPerCallCents: 400,
+        maxTotalCents: 1_000
+      },
+      validity: {
+        issuedAt: "2026-02-26T00:00:00.000Z",
+        notBefore: "2026-02-26T00:00:00.000Z",
+        expiresAt: "2027-02-26T00:00:00.000Z"
+      }
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID");
+  assert.equal(blocked.json?.details?.operation, "delegation_grant.issue");
+  assert.equal(blocked.json?.details?.role, "delegator");
+  assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blocked.json?.details?.signerStatus, "rotated");
+});
+
+test("API e2e: x402 authorize fails closed when delegation grant participant signer lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const delegator = await registerAgentWithKey(api, { agentId: "agt_dgrant_signer_auth_delegator_1" });
+  const payer = await registerAgentWithKey(api, { agentId: "agt_dgrant_signer_auth_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_dgrant_signer_auth_payee_1" });
+  await creditWallet(api, {
+    agentId: payer.agentId,
+    amountCents: 5_000,
+    idempotencyKey: "wallet_credit_x402_dgrant_signer_auth_1"
+  });
+
+  const issued = await request(api, {
+    method: "POST",
+    path: "/delegation-grants",
+    headers: { "x-idempotency-key": "delegation_grant_issue_signer_auth_1" },
+    body: {
+      grantId: "dgrant_signer_auth_1",
+      delegatorAgentId: delegator.agentId,
+      delegateeAgentId: payer.agentId,
+      scope: {
+        allowedProviderIds: [payeeAgentId],
+        allowedToolIds: ["mock_weather"],
+        allowedRiskClasses: ["financial"],
+        sideEffectingAllowed: true
+      },
+      spendLimit: {
+        currency: "USD",
+        maxPerCallCents: 500,
+        maxTotalCents: 2_000
+      },
+      chainBinding: {
+        depth: 0,
+        maxDelegationDepth: 1
+      },
+      validity: {
+        issuedAt: "2026-02-26T00:00:00.000Z",
+        notBefore: "2026-02-26T00:00:00.000Z",
+        expiresAt: "2027-02-26T00:00:00.000Z"
+      }
+    }
+  });
+  assert.equal(issued.statusCode, 201, issued.body);
+
+  await registerSignerKey(api, {
+    keyId: payer.keyId,
+    publicKeyPem: payer.publicKeyPem,
+    description: "delegatee signer lifecycle authorize test"
+  });
+  await rotateSignerKey(api, { keyId: payer.keyId });
+
+  await createGate(api, {
+    gateId: "gate_x402_dgrant_signer_block_1",
+    payerAgentId: payer.agentId,
+    payeeAgentId,
+    amountCents: 200,
+    delegationGrantRef: "dgrant_signer_auth_1"
+  });
+
+  const blocked = await authorizeGate(api, {
+    gateId: "gate_x402_dgrant_signer_block_1",
+    idempotencyKey: "x402_gate_authorize_dgrant_signer_block_1"
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID");
+  assert.equal(blocked.json?.details?.details?.operation, "delegation_grant.authorize");
+  assert.equal(blocked.json?.details?.details?.role, "delegatee");
+  assert.equal(blocked.json?.details?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blocked.json?.details?.details?.signerStatus, "rotated");
 });
 
 test("API e2e: x402 prompt risk forced challenge blocks authorize unless override is recorded", async () => {

@@ -14151,6 +14151,29 @@ export function createApi({
         expiresAt
       });
     }
+    const signerLifecycleGuard = await enforceGrantParticipantSignerLifecycleGuards({
+      tenantId,
+      participants: [
+        { role: "delegator", agentId: grant?.delegatorAgentId ?? null },
+        { role: "delegatee", agentId: grant?.delegateeAgentId ?? null }
+      ],
+      at: atIso,
+      operation: "delegation_grant.authorize",
+      errorCode: "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID"
+    });
+    if (signerLifecycleGuard.blocked) {
+      throw buildX402DelegationGrantError(
+        signerLifecycleGuard.code ?? "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID",
+        "delegation grant signer lifecycle blocked authorization",
+        normalizeForCanonicalJson(
+          {
+            delegationGrantRef: normalizedGrantId,
+            ...(signerLifecycleGuard.details && typeof signerLifecycleGuard.details === "object" ? signerLifecycleGuard.details : {})
+          },
+          { path: "$" }
+        )
+      );
+    }
 
     const depth = Number(grant?.chainBinding?.depth);
     const maxDepth = Number(grant?.chainBinding?.maxDelegationDepth);
@@ -14368,6 +14391,26 @@ export function createApi({
         authorityGrantRef: normalizedGrantId,
         expiresAt
       });
+    }
+    const signerLifecycleGuard = await enforceGrantParticipantSignerLifecycleGuards({
+      tenantId,
+      participants: [{ role: "grantee", agentId: grant?.granteeAgentId ?? null }],
+      at: atIso,
+      operation: "authority_grant.authorize",
+      errorCode: "X402_AUTHORITY_GRANT_SIGNER_KEY_INVALID"
+    });
+    if (signerLifecycleGuard.blocked) {
+      throw buildX402AuthorityGrantError(
+        signerLifecycleGuard.code ?? "X402_AUTHORITY_GRANT_SIGNER_KEY_INVALID",
+        "authority grant signer lifecycle blocked authorization",
+        normalizeForCanonicalJson(
+          {
+            authorityGrantRef: normalizedGrantId,
+            ...(signerLifecycleGuard.details && typeof signerLifecycleGuard.details === "object" ? signerLifecycleGuard.details : {})
+          },
+          { path: "$" }
+        )
+      );
     }
 
     const depth = Number(grant?.chainBinding?.depth);
@@ -14768,6 +14811,29 @@ export function createApi({
         expiresAt
       });
     }
+    const signerLifecycleGuard = await enforceGrantParticipantSignerLifecycleGuards({
+      tenantId,
+      participants: [
+        { role: "delegator", agentId: grant?.delegatorAgentId ?? null },
+        { role: "delegatee", agentId: grant?.delegateeAgentId ?? null }
+      ],
+      at: atIso,
+      operation: "state_checkpoint.create",
+      errorCode: "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID"
+    });
+    if (signerLifecycleGuard.blocked) {
+      throw buildX402DelegationGrantError(
+        signerLifecycleGuard.code ?? "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID",
+        "delegation grant signer lifecycle blocked state checkpoint write",
+        normalizeForCanonicalJson(
+          {
+            delegationGrantRef: normalizedGrantId,
+            ...(signerLifecycleGuard.details && typeof signerLifecycleGuard.details === "object" ? signerLifecycleGuard.details : {})
+          },
+          { path: "$" }
+        )
+      );
+    }
     const depth = Number(grant?.chainBinding?.depth);
     const maxDepth = Number(grant?.chainBinding?.maxDelegationDepth);
     if (!Number.isSafeInteger(depth) || !Number.isSafeInteger(maxDepth) || depth < 0 || maxDepth < 0 || depth > maxDepth) {
@@ -14882,6 +14948,26 @@ export function createApi({
         authorityGrantRef: normalizedGrantId,
         expiresAt
       });
+    }
+    const signerLifecycleGuard = await enforceGrantParticipantSignerLifecycleGuards({
+      tenantId,
+      participants: [{ role: "grantee", agentId: grant?.granteeAgentId ?? null }],
+      at: atIso,
+      operation: "state_checkpoint.create",
+      errorCode: "X402_AUTHORITY_GRANT_SIGNER_KEY_INVALID"
+    });
+    if (signerLifecycleGuard.blocked) {
+      throw buildX402AuthorityGrantError(
+        signerLifecycleGuard.code ?? "X402_AUTHORITY_GRANT_SIGNER_KEY_INVALID",
+        "authority grant signer lifecycle blocked state checkpoint write",
+        normalizeForCanonicalJson(
+          {
+            authorityGrantRef: normalizedGrantId,
+            ...(signerLifecycleGuard.details && typeof signerLifecycleGuard.details === "object" ? signerLifecycleGuard.details : {})
+          },
+          { path: "$" }
+        )
+      );
     }
     const depth = Number(grant?.chainBinding?.depth);
     const maxDepth = Number(grant?.chainBinding?.maxDelegationDepth);
@@ -17332,6 +17418,108 @@ export function createApi({
           )
         };
       }
+    }
+    return { blocked: false };
+  }
+
+  async function evaluateGrantParticipantSignerLifecycleAt({ tenantId, agentId, at } = {}) {
+    const normalizedAgentId = typeof agentId === "string" ? agentId.trim() : "";
+    if (!normalizedAgentId) {
+      return { ok: true, checked: false, signerKeyId: null, lifecycle: null };
+    }
+    const identity = await getAgentIdentityRecord({ tenantId, agentId: normalizedAgentId });
+    if (!identity || typeof identity !== "object" || Array.isArray(identity)) {
+      return { ok: true, checked: false, signerKeyId: null, lifecycle: null };
+    }
+    const signerKeyId =
+      identity?.keys && typeof identity.keys === "object" && !Array.isArray(identity.keys)
+        ? String(identity.keys.keyId ?? "").trim()
+        : "";
+    if (!signerKeyId) {
+      return {
+        ok: false,
+        checked: true,
+        signerKeyId: null,
+        lifecycle: {
+          reasonCode: "SIGNER_KEY_ID_MISSING",
+          message: "agent identity signer keyId is missing",
+          signerStatus: null,
+          validFrom: null,
+          validTo: null,
+          revokedAt: null
+        }
+      };
+    }
+    const lifecycle = await evaluateSessionSignerKeyLifecycle({
+      tenantId,
+      signerKeyId,
+      at: typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso(),
+      requireRegistered: false
+    });
+    if (lifecycle.ok) return { ok: true, checked: true, signerKeyId, lifecycle };
+    return { ok: false, checked: true, signerKeyId, lifecycle };
+  }
+
+  function buildGrantParticipantSignerLifecycleDetails({
+    operation,
+    role,
+    agentId,
+    signerKeyId,
+    at,
+    lifecycle
+  } = {}) {
+    return normalizeForCanonicalJson(
+      {
+        operation: typeof operation === "string" && operation.trim() !== "" ? operation.trim() : null,
+        role: typeof role === "string" && role.trim() !== "" ? role.trim() : "agent",
+        agentId: typeof agentId === "string" && agentId.trim() !== "" ? agentId.trim() : null,
+        signerKeyId: typeof signerKeyId === "string" && signerKeyId.trim() !== "" ? signerKeyId.trim() : null,
+        at: typeof at === "string" && at.trim() !== "" ? at.trim() : null,
+        reasonCode: lifecycle?.reasonCode ?? "SIGNER_KEY_INVALID",
+        reason: lifecycle?.message ?? "signer key lifecycle verification failed",
+        signerStatus: lifecycle?.signerStatus ?? null,
+        validFrom: lifecycle?.validFrom ?? null,
+        validTo: lifecycle?.validTo ?? null,
+        revokedAt: lifecycle?.revokedAt ?? null
+      },
+      { path: "$.details" }
+    );
+  }
+
+  async function enforceGrantParticipantSignerLifecycleGuards({
+    tenantId,
+    participants = [],
+    at = null,
+    operation = "grant.issue",
+    errorCode = "X402_GRANT_SIGNER_KEY_INVALID"
+  } = {}) {
+    const atIso = typeof at === "string" && at.trim() !== "" ? at.trim() : nowIso();
+    const normalizedParticipants = Array.isArray(participants) ? participants : [];
+    for (const participant of normalizedParticipants) {
+      if (!participant || typeof participant !== "object" || Array.isArray(participant)) continue;
+      const role = typeof participant.role === "string" && participant.role.trim() !== "" ? participant.role.trim() : "agent";
+      const agentId = typeof participant.agentId === "string" ? participant.agentId.trim() : "";
+      if (!agentId) continue;
+      const signerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({
+        tenantId,
+        agentId,
+        at: atIso
+      });
+      if (signerLifecycle.ok) continue;
+      return {
+        blocked: true,
+        httpStatus: 409,
+        code: errorCode,
+        message: `${role} signer key lifecycle blocked for ${operation}`,
+        details: buildGrantParticipantSignerLifecycleDetails({
+          operation,
+          role,
+          agentId,
+          signerKeyId: signerLifecycle.signerKeyId ?? null,
+          at: atIso,
+          lifecycle: signerLifecycle.lifecycle ?? null
+        })
+      };
     }
     return { blocked: false };
   }
@@ -42545,6 +42733,25 @@ export function createApi({
                 { code: grantLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
               );
             }
+            const grantSignerLifecycleGuard = await enforceGrantParticipantSignerLifecycleGuards({
+              tenantId,
+              participants: [
+                { role: "delegator", agentId: delegatorAgentId },
+                { role: "delegatee", agentId: delegateeAgentId }
+              ],
+              at: nowAt,
+              operation: "delegation_grant.issue",
+              errorCode: "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID"
+            });
+            if (grantSignerLifecycleGuard.blocked) {
+              return sendError(
+                res,
+                grantSignerLifecycleGuard.httpStatus ?? 409,
+                grantSignerLifecycleGuard.message ?? "delegation grant signer key lifecycle blocked",
+                grantSignerLifecycleGuard.details ?? null,
+                { code: grantSignerLifecycleGuard.code ?? "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID" }
+              );
+            }
             const expiresAt =
               typeof body?.validity?.expiresAt === "string" && body.validity.expiresAt.trim() !== ""
                 ? body.validity.expiresAt.trim()
@@ -42741,6 +42948,22 @@ export function createApi({
                 grantLifecycleGuard.message ?? "authority grant lifecycle blocked",
                 grantLifecycleGuard.details ?? null,
                 { code: grantLifecycleGuard.code ?? "X402_AGENT_LIFECYCLE_INVALID" }
+              );
+            }
+            const grantSignerLifecycleGuard = await enforceGrantParticipantSignerLifecycleGuards({
+              tenantId,
+              participants: [{ role: "grantee", agentId: granteeAgentId }],
+              at: nowAt,
+              operation: "authority_grant.issue",
+              errorCode: "X402_AUTHORITY_GRANT_SIGNER_KEY_INVALID"
+            });
+            if (grantSignerLifecycleGuard.blocked) {
+              return sendError(
+                res,
+                grantSignerLifecycleGuard.httpStatus ?? 409,
+                grantSignerLifecycleGuard.message ?? "authority grant signer key lifecycle blocked",
+                grantSignerLifecycleGuard.details ?? null,
+                { code: grantSignerLifecycleGuard.code ?? "X402_AUTHORITY_GRANT_SIGNER_KEY_INVALID" }
               );
             }
             const expiresAt =

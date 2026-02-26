@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createApi } from "../src/api/app.js";
-import { createEd25519Keypair } from "../src/core/crypto.js";
+import { createEd25519Keypair, keyIdFromPublicKeyPem } from "../src/core/crypto.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
@@ -20,6 +20,60 @@ async function registerAgent(api, { agentId, capabilities = [] }) {
     }
   });
   assert.equal(response.statusCode, 201, response.body);
+}
+
+async function registerAgentWithKey(api, { agentId, capabilities = [] }) {
+  const { publicKeyPem } = createEd25519Keypair();
+  const response = await request(api, {
+    method: "POST",
+    path: "/agents/register",
+    headers: { "x-idempotency-key": `agent_register_${agentId}` },
+    body: {
+      agentId,
+      displayName: `Agent ${agentId}`,
+      owner: { ownerType: "service", ownerId: "svc_state_checkpoint" },
+      publicKeyPem,
+      capabilities
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  return { agentId, keyId: keyIdFromPublicKeyPem(publicKeyPem), publicKeyPem };
+}
+
+async function registerSignerKey(api, { keyId, publicKeyPem, purpose = "robot", description = "state checkpoint signer key" }) {
+  const response = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId,
+      publicKeyPem,
+      purpose,
+      status: "active",
+      description
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  assert.equal(response.json?.signerKey?.keyId, keyId);
+}
+
+async function rotateSignerKey(api, { keyId }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(keyId)}/rotate`,
+    body: {}
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json?.signerKey?.status, "rotated");
+}
+
+async function revokeSignerKey(api, { keyId }) {
+  const response = await request(api, {
+    method: "POST",
+    path: `/ops/signer-keys/${encodeURIComponent(keyId)}/revoke`,
+    body: {}
+  });
+  assert.equal(response.statusCode, 200, response.body);
+  assert.equal(response.json?.signerKey?.status, "revoked");
 }
 
 async function issueAuthorityGrant(
@@ -337,6 +391,95 @@ test("API e2e: state checkpoint create fails closed on grant actor mismatch and 
   });
   assert.equal(blockedRevoked.statusCode, 409, blockedRevoked.body);
   assert.equal(blockedRevoked.json?.code, "X402_DELEGATION_GRANT_REVOKED");
+});
+
+test("API e2e: state checkpoint create fails closed when delegation grant participant signer lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const owner = await registerAgentWithKey(api, {
+    agentId: "agt_state_owner_signer_delegation_1",
+    capabilities: ["state.manage"]
+  });
+  const delegatorAgentId = "agt_state_delegator_signer_delegation_1";
+  await registerAgent(api, { agentId: delegatorAgentId, capabilities: ["orchestrate"] });
+
+  const delegationGrant = await issueDelegationGrant(api, {
+    grantId: "dg_state_checkpoint_signer_delegation_1",
+    delegatorAgentId,
+    delegateeAgentId: owner.agentId
+  });
+
+  await registerSignerKey(api, {
+    keyId: owner.keyId,
+    publicKeyPem: owner.publicKeyPem,
+    description: "state checkpoint delegation signer lifecycle test"
+  });
+  await rotateSignerKey(api, { keyId: owner.keyId });
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints",
+    headers: { "x-idempotency-key": "state_checkpoint_signer_delegation_blocked_1" },
+    body: {
+      checkpointId: "chkpt_state_signer_delegation_blocked_1",
+      ownerAgentId: owner.agentId,
+      delegationGrantRef: delegationGrant.grantId,
+      stateRef: {
+        schemaVersion: "ArtifactRef.v1",
+        artifactId: "art_state_signer_delegation_blocked_1",
+        artifactHash: "9".repeat(64),
+        artifactType: "StateSnapshot.v1"
+      }
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_DELEGATION_GRANT_SIGNER_KEY_INVALID");
+  assert.equal(blocked.json?.details?.operation, "state_checkpoint.create");
+  assert.equal(blocked.json?.details?.role, "delegatee");
+  assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blocked.json?.details?.signerStatus, "rotated");
+});
+
+test("API e2e: state checkpoint create fails closed when authority grant grantee signer lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const owner = await registerAgentWithKey(api, {
+    agentId: "agt_state_owner_signer_authority_1",
+    capabilities: ["state.manage"]
+  });
+
+  const authorityGrant = await issueAuthorityGrant(api, {
+    grantId: "ag_state_checkpoint_signer_authority_1",
+    granteeAgentId: owner.agentId
+  });
+
+  await registerSignerKey(api, {
+    keyId: owner.keyId,
+    publicKeyPem: owner.publicKeyPem,
+    description: "state checkpoint authority signer lifecycle test"
+  });
+  await revokeSignerKey(api, { keyId: owner.keyId });
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/state-checkpoints",
+    headers: { "x-idempotency-key": "state_checkpoint_signer_authority_blocked_1" },
+    body: {
+      checkpointId: "chkpt_state_signer_authority_blocked_1",
+      ownerAgentId: owner.agentId,
+      authorityGrantRef: authorityGrant.grantId,
+      stateRef: {
+        schemaVersion: "ArtifactRef.v1",
+        artifactId: "art_state_signer_authority_blocked_1",
+        artifactHash: "a".repeat(64),
+        artifactType: "StateSnapshot.v1"
+      }
+    }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AUTHORITY_GRANT_SIGNER_KEY_INVALID");
+  assert.equal(blocked.json?.details?.operation, "state_checkpoint.create");
+  assert.equal(blocked.json?.details?.role, "grantee");
+  assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_REVOKED");
+  assert.equal(blocked.json?.details?.signerStatus, "revoked");
 });
 
 test("API e2e: state checkpoint create fails closed without authority grant when required", async () => {
