@@ -14,6 +14,29 @@ const INCIDENT_REHEARSAL_REPORT_SCHEMA_VERSION = "ThroughputIncidentRehearsalRep
 const LIGHTHOUSE_TRACKER_SCHEMA_VERSION = "LighthouseProductionTracker.v1";
 const SETTLD_VERIFIED_GATE_SCHEMA_VERSION = "SettldVerifiedGateReport.v1";
 const DEFAULT_SETTLD_VERIFIED_COLLAB_REPORT_PATH = "artifacts/gates/settld-verified-collaboration-gate.json";
+const REQUIRED_CUTOVER_CHECKS_SUMMARY_SCHEMA_VERSION = "ProductionCutoverRequiredChecksSummary.v1";
+const REQUIRED_CUTOVER_CHECK_SPECS = Object.freeze([
+  {
+    requiredCheckId: "settld_verified_collaboration",
+    sourceCheckId: null
+  },
+  {
+    requiredCheckId: "openclaw_substrate_demo_lineage_verified",
+    sourceCheckId: "openclaw_substrate_demo_lineage_verified"
+  },
+  {
+    requiredCheckId: "openclaw_substrate_demo_transcript_verified",
+    sourceCheckId: "openclaw_substrate_demo_transcript_verified"
+  },
+  {
+    requiredCheckId: "sdk_acs_smoke_js_verified",
+    sourceCheckId: "e2e_js_sdk_acs_substrate_smoke"
+  },
+  {
+    requiredCheckId: "sdk_acs_smoke_py_verified",
+    sourceCheckId: "e2e_python_sdk_acs_substrate_smoke"
+  }
+]);
 
 function normalizeOptionalString(value) {
   if (typeof value !== "string") return null;
@@ -90,7 +113,76 @@ function checkFromGoLiveGate(gateReport) {
   };
 }
 
-function buildPacketCore({ sources, checks, gateReference, blockingIssues, signing }) {
+function toCheckStatus(ok) {
+  return ok === true ? "passed" : "failed";
+}
+
+function checkOk(row) {
+  return row?.ok === true || row?.status === "passed";
+}
+
+function buildRequiredCutoverChecksSummary({ settldVerifiedCollabRead, sourceReportPath }) {
+  const sourceReportSchemaVersion = settldVerifiedCollabRead.ok ? settldVerifiedCollabRead.value?.schemaVersion ?? null : null;
+  const sourceReportOk = settldVerifiedCollabRead.ok ? settldVerifiedCollabRead.value?.ok === true : false;
+  const sourceChecks = Array.isArray(settldVerifiedCollabRead?.value?.checks) ? settldVerifiedCollabRead.value.checks : [];
+  const checksById = new Map(
+    sourceChecks
+      .map((row) => {
+        const id = normalizeOptionalString(row?.id);
+        return id ? [id, row] : null;
+      })
+      .filter(Boolean)
+  );
+
+  const checks = REQUIRED_CUTOVER_CHECK_SPECS.map((spec) => {
+    if (!spec.sourceCheckId) {
+      const ok = sourceReportOk;
+      return {
+        id: spec.requiredCheckId,
+        status: toCheckStatus(ok),
+        ok,
+        source: {
+          type: "report_verdict",
+          reportPath: sourceReportPath,
+          reportSchemaVersion: sourceReportSchemaVersion,
+          sourceCheckId: null
+        },
+        failureCode: ok ? null : settldVerifiedCollabRead.ok ? "source_report_verdict_not_ok" : "source_report_missing"
+      };
+    }
+    const sourceRow = checksById.get(spec.sourceCheckId) ?? null;
+    const ok = checkOk(sourceRow);
+    return {
+      id: spec.requiredCheckId,
+      status: toCheckStatus(ok),
+      ok,
+      source: {
+        type: "collaboration_check",
+        reportPath: sourceReportPath,
+        reportSchemaVersion: sourceReportSchemaVersion,
+        sourceCheckId: spec.sourceCheckId
+      },
+      sourceStatus: sourceRow?.status ?? null,
+      sourceOk: sourceRow?.ok ?? null,
+      failureCode: ok ? null : sourceRow ? "source_check_not_passed" : "source_check_missing"
+    };
+  });
+
+  return {
+    schemaVersion: REQUIRED_CUTOVER_CHECKS_SUMMARY_SCHEMA_VERSION,
+    sourceReportPath,
+    sourceReportSchemaVersion,
+    sourceReportOk,
+    checks,
+    summary: {
+      requiredChecks: checks.length,
+      passedChecks: checks.filter((row) => row.ok === true).length,
+      failedChecks: checks.filter((row) => row.ok !== true).length
+    }
+  };
+}
+
+function buildPacketCore({ sources, checks, gateReference, requiredCutoverChecks, blockingIssues, signing }) {
   const passedChecks = checks.filter((row) => row.ok === true).length;
   const checksOk = passedChecks === checks.length;
   return {
@@ -98,6 +190,7 @@ function buildPacketCore({ sources, checks, gateReference, blockingIssues, signi
     sources,
     checks,
     gateReference,
+    requiredCutoverChecks,
     blockingIssues,
     signing: {
       requested: signing.requested,
@@ -152,6 +245,10 @@ async function main() {
   const lighthouse = lighthouseRead.ok ? evaluateLighthouseTracker(lighthouseRead.value) : null;
 
   const gateCheckRefs = gateRead.ok ? checkFromGoLiveGate(gateRead.value) : null;
+  const requiredCutoverChecks = buildRequiredCutoverChecksSummary({
+    settldVerifiedCollabRead,
+    sourceReportPath: settldVerifiedCollabReportPathRef
+  });
   const checks = [
     {
       id: "go_live_gate_report_present",
@@ -256,6 +353,31 @@ async function main() {
           }
         : null
     },
+    ...requiredCutoverChecks.checks.map((row) => ({
+      id: `required_cutover_check_${row.id}_passed`,
+      ok: row.ok === true,
+      path: settldVerifiedCollabReportPathRef,
+      details: {
+        requiredCheckId: row.id,
+        status: row.status,
+        source: row.source,
+        sourceStatus: row.sourceStatus ?? null,
+        sourceOk: row.sourceOk ?? null,
+        failureCode: row.failureCode ?? null
+      }
+    })),
+    {
+      id: "required_cutover_check_summary_consistent",
+      ok:
+        requiredCutoverChecks.summary.requiredChecks === REQUIRED_CUTOVER_CHECK_SPECS.length &&
+        requiredCutoverChecks.summary.requiredChecks === requiredCutoverChecks.summary.passedChecks + requiredCutoverChecks.summary.failedChecks,
+      path: settldVerifiedCollabReportPathRef,
+      details: {
+        requiredChecks: requiredCutoverChecks.summary.requiredChecks,
+        passedChecks: requiredCutoverChecks.summary.passedChecks,
+        failedChecks: requiredCutoverChecks.summary.failedChecks
+      }
+    },
     {
       id: "lighthouse_tracker_present",
       ok: lighthouseRead.ok,
@@ -325,6 +447,7 @@ async function main() {
     },
     checks,
     gateReference: gateCheckRefs,
+    requiredCutoverChecks,
     blockingIssues,
     signing
   });
@@ -346,6 +469,7 @@ async function main() {
         sources: packetCore.sources,
         checks,
         gateReference: gateCheckRefs,
+        requiredCutoverChecks,
         blockingIssues,
         signing
       });

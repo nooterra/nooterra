@@ -56,7 +56,13 @@ async function seedPassingInputs(tmpDir) {
     schemaVersion: "SettldVerifiedGateReport.v1",
     level: "collaboration",
     ok: true,
-    summary: { totalChecks: 10, passedChecks: 10, failedChecks: 0 }
+    summary: { totalChecks: 10, passedChecks: 10, failedChecks: 0 },
+    checks: [
+      { id: "openclaw_substrate_demo_lineage_verified", ok: true, status: "passed" },
+      { id: "openclaw_substrate_demo_transcript_verified", ok: true, status: "passed" },
+      { id: "e2e_js_sdk_acs_substrate_smoke", ok: true, status: "passed" },
+      { id: "e2e_python_sdk_acs_substrate_smoke", ok: true, status: "passed" }
+    ]
   });
   await writeJson(lighthouseTrackerPath, {
     schemaVersion: "LighthouseProductionTracker.v1",
@@ -113,6 +119,7 @@ function launchCutoverPacketCore(packet) {
     sources: packet?.sources ?? null,
     checks: packet?.checks ?? null,
     gateReference: packet?.gateReference ?? null,
+    requiredCutoverChecks: packet?.requiredCutoverChecks ?? null,
     blockingIssues: packet?.blockingIssues ?? null,
     signing: packet?.signing ?? null,
     verdict: packet?.verdict ?? null
@@ -166,6 +173,39 @@ test("launch cutover packet: preserves relative collaboration report source path
   const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
   assert.equal(packet.verdict?.ok, true);
   assert.equal(packet.sources?.settldVerifiedCollaborationGateReportPath, "artifacts/gates/settld-verified-collaboration-gate.json");
+});
+
+test("launch cutover packet: includes required cutover check summary with deterministic mappings", async (t) => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "settld-launch-cutover-required-check-summary-"));
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const paths = await seedPassingInputs(tmpDir);
+  const packetPath = path.join(tmpDir, "artifacts", "gates", "s13-launch-cutover-packet.json");
+  const env = buildEnv(paths, packetPath, {
+    LAUNCH_CUTOVER_PACKET_NOW: "2026-02-21T18:00:00.000Z"
+  });
+
+  const result = runLaunchCutoverPacket(env);
+  assert.equal(result.status, 0, `expected success\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+  const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
+  const summary = packet.requiredCutoverChecks;
+  assert.equal(summary?.schemaVersion, "ProductionCutoverRequiredChecksSummary.v1");
+  assert.equal(summary?.sourceReportPath, paths.settldVerifiedCollabReportPath);
+  assert.equal(summary?.summary?.requiredChecks, 5);
+  assert.equal(summary?.summary?.passedChecks, 5);
+  assert.equal(summary?.summary?.failedChecks, 0);
+
+  const ids = (summary?.checks ?? []).map((row) => row?.id);
+  assert.deepEqual(ids, [
+    "settld_verified_collaboration",
+    "openclaw_substrate_demo_lineage_verified",
+    "openclaw_substrate_demo_transcript_verified",
+    "sdk_acs_smoke_js_verified",
+    "sdk_acs_smoke_py_verified"
+  ]);
+  assert.equal(summary.checks.every((row) => row?.ok === true && row?.status === "passed"), true);
 });
 
 test("launch cutover packet: optional signing emits verifiable signature", async (t) => {
