@@ -86,6 +86,30 @@ Expected output:
 }
 ```
 
+## 3b) Run ACS substrate smoke flow (JS SDK)
+
+This exercises discovery, delegation grants, authority grants, negotiation, work orders, session lineage, and capability attestations end-to-end.
+
+```sh
+npm run sdk:acs-smoke
+```
+
+Expected output:
+
+```json
+{
+  "principalAgentId": "agt_js_acs_principal_...",
+  "workerAgentId": "agt_js_acs_worker_...",
+  "delegationGrantId": "dgrant_...",
+  "authorityGrantId": "agrant_...",
+  "workOrderId": "workord_...",
+  "workOrderStatus": "completed",
+  "completionStatus": "success",
+  "sessionId": "sess_...",
+  "attestationId": "catt_..."
+}
+```
+
 ## 4) Use the helper directly in code
 
 ```js

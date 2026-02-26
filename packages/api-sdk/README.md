@@ -2,6 +2,20 @@
 
 Node/TypeScript SDK for Settld API + x402 helpers.
 
+Core ACS surface in `SettldClient` includes:
+- agent cards + discovery (`upsertAgentCard`, `discoverAgentCards`, `discoverPublicAgentCards`)
+- delegation + authority grants (`createDelegationGrant`, `createAuthorityGrant`)
+- task negotiation (`createTaskQuote`, `createTaskOffer`, `createTaskAcceptance`)
+- work-order lifecycle + completion receipts (`createWorkOrder`, `acceptWorkOrder`, `completeWorkOrder`, `settleWorkOrder`)
+- session lineage (`createSession`, `appendSessionEvent`, `getSessionReplayPack`, `getSessionTranscript`)
+- capability attestations (`createCapabilityAttestation`, `revokeCapabilityAttestation`)
+
+Quickstarts:
+- JS SDK: `docs/QUICKSTART_SDK.md`
+- Python SDK: `docs/QUICKSTART_SDK_PYTHON.md`
+- JS ACS smoke flow: `npm run sdk:acs-smoke`
+- Python ACS smoke flow: `npm run sdk:acs-smoke:py`
+
 ## Webhook Signature Verification
 
 Use `verifySettldWebhookSignature` to verify incoming `x-settld-signature` headers with:

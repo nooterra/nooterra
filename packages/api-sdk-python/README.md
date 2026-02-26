@@ -27,4 +27,11 @@ Python client for Settld API endpoints, including high-level helpers:
 - `list_tenant_trust_graph_snapshots` / `create_tenant_trust_graph_snapshot` / `diff_tenant_trust_graph`
 - auth headers: `api_key` (Bearer), optional `x_api_key` (Magic Link), and optional `ops_token` (`x-proxy-ops-token`)
 
-Quickstart docs live in `docs/QUICKSTART_SDK_PYTHON.md` at repo root.
+Quickstart docs:
+- `docs/QUICKSTART_SDK_PYTHON.md` (Python first verified run + ACS substrate flow)
+- `docs/QUICKSTART_SDK.md` (JS first verified run + ACS substrate flow)
+
+Example commands:
+- `npm run sdk:first-run:py`
+- `npm run sdk:first-rfq:py`
+- `npm run sdk:acs-smoke:py`
