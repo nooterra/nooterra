@@ -782,14 +782,44 @@ export class SettldClient {
     return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/events`, { ...opts, body });
   }
 
-  getSessionReplayPack(sessionId, opts) {
+  getSessionReplayPack(sessionId, params = {}, opts = undefined) {
     assertNonEmptyString(sessionId, "sessionId");
-    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/replay-pack`, opts);
+    let query = params;
+    let requestOpts = opts;
+    if (
+      opts === undefined &&
+      params &&
+      typeof params === "object" &&
+      (params.requestId !== undefined || params.signal !== undefined)
+    ) {
+      query = {};
+      requestOpts = params;
+    }
+    const qs = new URLSearchParams();
+    if (query?.sign !== undefined && query?.sign !== null) qs.set("sign", String(Boolean(query.sign)));
+    if (query?.signerKeyId) qs.set("signerKeyId", String(query.signerKeyId));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/replay-pack${suffix}`, requestOpts);
   }
 
-  getSessionTranscript(sessionId, opts) {
+  getSessionTranscript(sessionId, params = {}, opts = undefined) {
     assertNonEmptyString(sessionId, "sessionId");
-    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/transcript`, opts);
+    let query = params;
+    let requestOpts = opts;
+    if (
+      opts === undefined &&
+      params &&
+      typeof params === "object" &&
+      (params.requestId !== undefined || params.signal !== undefined)
+    ) {
+      query = {};
+      requestOpts = params;
+    }
+    const qs = new URLSearchParams();
+    if (query?.sign !== undefined && query?.sign !== null) qs.set("sign", String(Boolean(query.sign)));
+    if (query?.signerKeyId) qs.set("signerKeyId", String(query.signerKeyId));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/transcript${suffix}`, requestOpts);
   }
 
   async *streamSessionEvents(sessionId, params = {}, opts = {}) {

@@ -56,10 +56,10 @@ test("api-sdk: session methods call expected endpoints", async () => {
     if (String(url).endsWith("/sessions/sess_sdk_1/events") && String(init?.method) === "POST") {
       return makeJsonResponse({ sessionId: "sess_sdk_1", event: { id: "evt_sdk_2" }, currentPrevChainHash: "a".repeat(64) }, { status: 201 });
     }
-    if (String(url).endsWith("/sessions/sess_sdk_1/replay-pack") && String(init?.method) === "GET") {
+    if (String(url).includes("/sessions/sess_sdk_1/replay-pack") && String(init?.method) === "GET") {
       return makeJsonResponse({ replayPack: { sessionId: "sess_sdk_1", schemaVersion: "SessionReplayPack.v1" } });
     }
-    if (String(url).endsWith("/sessions/sess_sdk_1/transcript") && String(init?.method) === "GET") {
+    if (String(url).includes("/sessions/sess_sdk_1/transcript") && String(init?.method) === "GET") {
       return makeJsonResponse({ transcript: { sessionId: "sess_sdk_1", schemaVersion: "SessionTranscript.v1" } });
     }
     if (String(url).includes("/sessions/sess_sdk_1/events/stream?") && String(init?.method) === "GET") {
@@ -120,12 +120,18 @@ test("api-sdk: session methods call expected endpoints", async () => {
   assert.equal(calls[4].url, "https://api.settld.local/sessions/sess_sdk_1/events");
   assert.equal(calls[4].init?.method, "POST");
 
-  await client.getSessionReplayPack("sess_sdk_1");
-  assert.equal(calls[5].url, "https://api.settld.local/sessions/sess_sdk_1/replay-pack");
+  await client.getSessionReplayPack("sess_sdk_1", {
+    sign: true,
+    signerKeyId: "key_session_signer_1"
+  });
+  assert.equal(
+    calls[5].url,
+    "https://api.settld.local/sessions/sess_sdk_1/replay-pack?sign=true&signerKeyId=key_session_signer_1"
+  );
   assert.equal(calls[5].init?.method, "GET");
 
-  await client.getSessionTranscript("sess_sdk_1");
-  assert.equal(calls[6].url, "https://api.settld.local/sessions/sess_sdk_1/transcript");
+  await client.getSessionTranscript("sess_sdk_1", { sign: true });
+  assert.equal(calls[6].url, "https://api.settld.local/sessions/sess_sdk_1/transcript?sign=true");
   assert.equal(calls[6].init?.method, "GET");
 
   const streamEvents = [];

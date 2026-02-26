@@ -28,6 +28,7 @@ Use this when consumers need reliable lineage proof with lower payload volume th
 - `session`
 - `eventDigests`
 - `transcriptHash`
+- `signature` (optional `SessionTranscriptSignature.v1`)
 
 ## `eventDigests[]` shape
 
@@ -59,14 +60,17 @@ Transcript generation is blocked when:
 - `transcriptEventDigestHash` is canonical `sha256(eventDigests[])`.
 - `transcriptHash` is canonical `sha256(top-level object without transcriptHash)`.
 - repeated requests over unchanged session state yield identical `transcriptHash`.
+- optional signatures use deterministic Ed25519 over `transcriptHash`.
 
 ## API surface
 
 - `GET /sessions/:sessionId/transcript`
+  - optional query: `sign=true`
+  - optional query: `signerKeyId=<keyId>` (requires `sign=true`)
 
 ## MCP surface
 
-- `settld.session_transcript_get`
+- `settld.session_transcript_get` (`sign`, `signerKeyId` optional)
 
 ## Implementation references
 
@@ -74,4 +78,3 @@ Transcript generation is blocked when:
 - `src/core/session-collab.js`
 - `src/api/app.js`
 - `scripts/mcp/settld-mcp-server.mjs`
-

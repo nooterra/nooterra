@@ -170,8 +170,8 @@ import {
   validateSessionEventPayloadV1,
   validateSessionV1
 } from "../core/session-collab.js";
-import { buildSessionReplayPackV1 } from "../core/session-replay-pack.js";
-import { buildSessionTranscriptV1 } from "../core/session-transcript.js";
+import { buildSessionReplayPackV1, signSessionReplayPackV1 } from "../core/session-replay-pack.js";
+import { buildSessionTranscriptV1, signSessionTranscriptV1 } from "../core/session-transcript.js";
 import { buildVerifiedInteractionGraphPackV1, signVerifiedInteractionGraphPackV1 } from "../core/interaction-graph-pack.js";
 import {
   DISPUTE_OPEN_ENVELOPE_SCHEMA_VERSION,
@@ -9194,6 +9194,69 @@ export function createApi({
       },
       { path: "$.summary" }
     );
+  }
+
+  function parseSessionArtifactSignerKeyId(rawValue, { allowNull = true } = {}) {
+    if (rawValue === null || rawValue === undefined || String(rawValue).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError("signerKeyId is required");
+    }
+    const value = String(rawValue).trim();
+    if (value.length > 200) throw new TypeError("signerKeyId must be <= 200 characters");
+    if (!/^[A-Za-z0-9:_./-]+$/.test(value)) throw new TypeError("signerKeyId must match ^[A-Za-z0-9:_./-]+$");
+    return value;
+  }
+
+  function resolveSessionArtifactSigningCandidate({ signerKeyId = null } = {}) {
+    const normalizedSignerKeyId = parseSessionArtifactSignerKeyId(signerKeyId, { allowNull: true });
+    const serverPublicKeyPem = typeof store?.serverSigner?.publicKeyPem === "string" ? store.serverSigner.publicKeyPem : "";
+    const serverPrivateKeyPem = typeof store?.serverSigner?.privateKeyPem === "string" ? store.serverSigner.privateKeyPem : "";
+    const serverKeyId = typeof store?.serverSigner?.keyId === "string" ? store.serverSigner.keyId.trim() : "";
+    if (!serverPublicKeyPem.trim() || !serverPrivateKeyPem.trim() || !serverKeyId) {
+      throw new TypeError("session artifact server signer is not configured");
+    }
+
+    const overridePublicKeyPem = String(process.env.PROXY_SESSION_ARTIFACT_SIGNER_PUBLIC_KEY_PEM ?? "");
+    const overridePrivateKeyPem = String(process.env.PROXY_SESSION_ARTIFACT_SIGNER_PRIVATE_KEY_PEM ?? "");
+    const overrideKeyIdRaw = String(process.env.PROXY_SESSION_ARTIFACT_SIGNER_KEY_ID ?? "").trim();
+    const hasOverride = Boolean(overridePublicKeyPem.trim() || overridePrivateKeyPem.trim() || overrideKeyIdRaw);
+    if (hasOverride && (!overridePublicKeyPem.trim() || !overridePrivateKeyPem.trim())) {
+      throw new TypeError(
+        "session artifact signer override requires both PROXY_SESSION_ARTIFACT_SIGNER_PUBLIC_KEY_PEM and PROXY_SESSION_ARTIFACT_SIGNER_PRIVATE_KEY_PEM"
+      );
+    }
+
+    const derivedServerKeyId = keyIdFromPublicKeyPem(serverPublicKeyPem);
+    const normalizedServer = {
+      keyId: derivedServerKeyId,
+      publicKeyPem: serverPublicKeyPem,
+      privateKeyPem: serverPrivateKeyPem,
+      source: "server"
+    };
+    const byKeyId = new Map([[normalizedServer.keyId, normalizedServer]]);
+    if (serverKeyId) byKeyId.set(serverKeyId, normalizedServer);
+    let overrideSigner = null;
+
+    if (hasOverride) {
+      const derivedKeyId = keyIdFromPublicKeyPem(overridePublicKeyPem);
+      const overrideKeyId = overrideKeyIdRaw || derivedKeyId;
+      if (overrideKeyId !== derivedKeyId) throw new TypeError("session artifact signer override keyId does not match public key");
+      overrideSigner = {
+        keyId: derivedKeyId,
+        publicKeyPem: overridePublicKeyPem,
+        privateKeyPem: overridePrivateKeyPem,
+        source: "override"
+      };
+      byKeyId.set(overrideSigner.keyId, overrideSigner);
+      if (overrideKeyIdRaw) byKeyId.set(overrideKeyIdRaw, overrideSigner);
+    }
+
+    if (normalizedSignerKeyId) {
+      const selected = byKeyId.get(normalizedSignerKeyId) ?? null;
+      if (!selected) throw new TypeError("session artifact signerKeyId is not available");
+      return selected;
+    }
+    return overrideSigner ?? normalizedServer;
   }
 
   function parseInteractionGraphPackSignerKeyId(rawValue, { allowNull = true } = {}) {
@@ -47858,6 +47921,19 @@ export function createApi({
 
         if (parts[0] === "sessions" && parts[1] && parts[2] === "replay-pack" && parts.length === 3 && req.method === "GET") {
           const sessionId = decodePathPart(parts[1]);
+          const signRaw = url.searchParams.get("sign");
+          const signerKeyIdRaw = url.searchParams.get("signerKeyId");
+          let signReplayPack = false;
+          let signerKeyId = null;
+          try {
+            signReplayPack = parseBooleanQueryValue(signRaw, { defaultValue: false, name: "sign" });
+            signerKeyId = parseSessionArtifactSignerKeyId(signerKeyIdRaw, { allowNull: true });
+            if (!signReplayPack && signerKeyId !== null) {
+              throw new TypeError("signerKeyId requires sign=true");
+            }
+          } catch (err) {
+            return sendError(res, 400, "invalid session replay pack query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
           const verified = await resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel: "session replay pack" });
           if (!verified.ok) {
             return sendError(
@@ -47876,14 +47952,43 @@ export function createApi({
               events: verified.events,
               verification: verified.verification
             });
+            if (signReplayPack) {
+              const signingCandidate = resolveSessionArtifactSigningCandidate({ signerKeyId });
+              replayPack = signSessionReplayPackV1({
+                replayPack,
+                signedAt: replayPack.generatedAt,
+                publicKeyPem: signingCandidate.publicKeyPem,
+                privateKeyPem: signingCandidate.privateKeyPem,
+                keyId: signingCandidate.keyId
+              });
+            }
           } catch (err) {
-            return sendError(res, 409, "session replay pack blocked", { sessionId, reason: err?.message ?? "invalid replay pack" }, { code: "SESSION_REPLAY_PACK_INVALID" });
+            return sendError(
+              res,
+              409,
+              "session replay pack blocked",
+              { sessionId, reason: err?.message ?? "invalid replay pack" },
+              { code: signReplayPack ? "SESSION_REPLAY_PACK_SIGNING_BLOCKED" : "SESSION_REPLAY_PACK_INVALID" }
+            );
           }
           return sendJson(res, 200, { ok: true, replayPack });
         }
 
         if (parts[0] === "sessions" && parts[1] && parts[2] === "transcript" && parts.length === 3 && req.method === "GET") {
           const sessionId = decodePathPart(parts[1]);
+          const signRaw = url.searchParams.get("sign");
+          const signerKeyIdRaw = url.searchParams.get("signerKeyId");
+          let signTranscript = false;
+          let signerKeyId = null;
+          try {
+            signTranscript = parseBooleanQueryValue(signRaw, { defaultValue: false, name: "sign" });
+            signerKeyId = parseSessionArtifactSignerKeyId(signerKeyIdRaw, { allowNull: true });
+            if (!signTranscript && signerKeyId !== null) {
+              throw new TypeError("signerKeyId requires sign=true");
+            }
+          } catch (err) {
+            return sendError(res, 400, "invalid session transcript query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
           const verified = await resolveVerifiedSessionMaterial({ tenantId, sessionId, artifactLabel: "session transcript" });
           if (!verified.ok) {
             return sendError(
@@ -47902,8 +48007,24 @@ export function createApi({
               events: verified.events,
               verification: verified.verification
             });
+            if (signTranscript) {
+              const signingCandidate = resolveSessionArtifactSigningCandidate({ signerKeyId });
+              transcript = signSessionTranscriptV1({
+                transcript,
+                signedAt: transcript.generatedAt,
+                publicKeyPem: signingCandidate.publicKeyPem,
+                privateKeyPem: signingCandidate.privateKeyPem,
+                keyId: signingCandidate.keyId
+              });
+            }
           } catch (err) {
-            return sendError(res, 409, "session transcript blocked", { sessionId, reason: err?.message ?? "invalid session transcript" }, { code: "SESSION_TRANSCRIPT_INVALID" });
+            return sendError(
+              res,
+              409,
+              "session transcript blocked",
+              { sessionId, reason: err?.message ?? "invalid session transcript" },
+              { code: signTranscript ? "SESSION_TRANSCRIPT_SIGNING_BLOCKED" : "SESSION_TRANSCRIPT_INVALID" }
+            );
           }
           return sendJson(res, 200, { ok: true, transcript });
         }

@@ -1736,7 +1736,9 @@ function buildTools() {
         additionalProperties: false,
         required: ["sessionId"],
         properties: {
-          sessionId: { type: "string" }
+          sessionId: { type: "string" },
+          sign: { type: ["boolean", "null"], default: null },
+          signerKeyId: { type: ["string", "null"], default: null }
         }
       }
     },
@@ -1748,7 +1750,9 @@ function buildTools() {
         additionalProperties: false,
         required: ["sessionId"],
         properties: {
-          sessionId: { type: "string" }
+          sessionId: { type: "string" },
+          sign: { type: ["boolean", "null"], default: null },
+          signerKeyId: { type: ["string", "null"], default: null }
         }
       }
     },
@@ -3350,12 +3354,28 @@ async function main() {
           } else if (name === "settld.session_replay_pack_get") {
             const sessionId = String(args?.sessionId ?? "").trim();
             assertNonEmptyString(sessionId, "sessionId");
-            const out = await client.requestJson(`/sessions/${encodeURIComponent(sessionId)}/replay-pack`, { method: "GET" });
+            const sign = parseOptionalBooleanArg(args?.sign, "sign");
+            const signerKeyId = parseOptionalStringArg(args?.signerKeyId, "signerKeyId", { max: 200 });
+            const query = new URLSearchParams();
+            if (sign !== null) query.set("sign", String(sign));
+            if (signerKeyId) query.set("signerKeyId", signerKeyId);
+            const out = await client.requestJson(
+              `/sessions/${encodeURIComponent(sessionId)}/replay-pack${query.toString() ? `?${query.toString()}` : ""}`,
+              { method: "GET" }
+            );
             result = { ok: true, sessionId, ...redactSecrets(out) };
           } else if (name === "settld.session_transcript_get") {
             const sessionId = String(args?.sessionId ?? "").trim();
             assertNonEmptyString(sessionId, "sessionId");
-            const out = await client.requestJson(`/sessions/${encodeURIComponent(sessionId)}/transcript`, { method: "GET" });
+            const sign = parseOptionalBooleanArg(args?.sign, "sign");
+            const signerKeyId = parseOptionalStringArg(args?.signerKeyId, "signerKeyId", { max: 200 });
+            const query = new URLSearchParams();
+            if (sign !== null) query.set("sign", String(sign));
+            if (signerKeyId) query.set("signerKeyId", signerKeyId);
+            const out = await client.requestJson(
+              `/sessions/${encodeURIComponent(sessionId)}/transcript${query.toString() ? `?${query.toString()}` : ""}`,
+              { method: "GET" }
+            );
             result = { ok: true, sessionId, ...redactSecrets(out) };
           } else if (name === "settld.audit_lineage_list") {
             const query = new URLSearchParams();

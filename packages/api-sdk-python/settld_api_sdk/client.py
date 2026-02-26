@@ -551,13 +551,15 @@ class SettldClient:
         suffix = self._query_suffix(query, allowed_keys=["eventType", "limit", "offset"])
         return self._request("GET", f"/sessions/{parse.quote(session_id, safe='')}/events{suffix}", **opts)
 
-    def get_session_replay_pack(self, session_id: str, **opts: Any) -> Dict[str, Any]:
+    def get_session_replay_pack(self, session_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
         _assert_non_empty_string(session_id, "session_id")
-        return self._request("GET", f"/sessions/{parse.quote(session_id, safe='')}/replay-pack", **opts)
+        suffix = self._query_suffix(query, allowed_keys=["sign", "signerKeyId"])
+        return self._request("GET", f"/sessions/{parse.quote(session_id, safe='')}/replay-pack{suffix}", **opts)
 
-    def get_session_transcript(self, session_id: str, **opts: Any) -> Dict[str, Any]:
+    def get_session_transcript(self, session_id: str, query: Optional[Dict[str, Any]] = None, **opts: Any) -> Dict[str, Any]:
         _assert_non_empty_string(session_id, "session_id")
-        return self._request("GET", f"/sessions/{parse.quote(session_id, safe='')}/transcript", **opts)
+        suffix = self._query_suffix(query, allowed_keys=["sign", "signerKeyId"])
+        return self._request("GET", f"/sessions/{parse.quote(session_id, safe='')}/transcript{suffix}", **opts)
 
     def create_capability_attestation(self, body: Dict[str, Any], **opts: Any) -> Dict[str, Any]:
         if not isinstance(body, dict):

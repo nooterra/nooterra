@@ -26,6 +26,7 @@ Provide a portable, tamper-detectable bundle for audits, disputes, and host-agno
 - `session`
 - `events`
 - `packHash`
+- `signature` (optional `SessionReplayPackSignature.v1`)
 
 ## Verification semantics
 
@@ -37,6 +38,7 @@ Replay-pack generation is fail-closed when:
 - replay-pack normalization fails.
 
 `packHash` is canonical `sha256` over replay-pack content with `packHash` omitted.
+When present, `signature.payloadHash` must equal `packHash`.
 
 ## Determinism notes
 
@@ -44,14 +46,17 @@ Replay-pack generation is fail-closed when:
 - `eventChainHash` is canonical `sha256(events[])`.
 - `generatedAt` derives from the latest event timestamp when available, otherwise session timestamps.
 - verification summaries include chain and provenance counters for deterministic comparisons.
+- optional signatures use deterministic Ed25519 over `packHash`.
 
 ## API surface
 
 - `GET /sessions/:sessionId/replay-pack`
+  - optional query: `sign=true`
+  - optional query: `signerKeyId=<keyId>` (requires `sign=true`)
 
 ## MCP surface
 
-- `settld.session_replay_pack_get`
+- `settld.session_replay_pack_get` (`sign`, `signerKeyId` optional)
 
 ## Implementation references
 
@@ -59,4 +64,3 @@ Replay-pack generation is fail-closed when:
 - `src/core/session-collab.js`
 - `src/api/app.js`
 - `src/api/openapi.js`
-

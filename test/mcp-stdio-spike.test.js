@@ -433,7 +433,10 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
         return;
       }
 
-      if (req.method === "GET" && req.url === `/sessions/${sessionId}/replay-pack`) {
+      if (
+        req.method === "GET" &&
+        req.url === `/sessions/${sessionId}/replay-pack?sign=true&signerKeyId=key_session_signer_1`
+      ) {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -441,14 +444,22 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
             replayPack: {
               schemaVersion: "SessionReplayPack.v1",
               sessionId,
-              packHash: "a".repeat(64)
+              packHash: "a".repeat(64),
+              signature: {
+                schemaVersion: "SessionReplayPackSignature.v1",
+                algorithm: "ed25519",
+                keyId: "key_session_signer_1",
+                signedAt: "2026-02-25T00:00:00.000Z",
+                payloadHash: "a".repeat(64),
+                signatureBase64: "sig"
+              }
             }
           })
         );
         return;
       }
 
-      if (req.method === "GET" && req.url === `/sessions/${sessionId}/transcript`) {
+      if (req.method === "GET" && req.url === `/sessions/${sessionId}/transcript?sign=true`) {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -456,7 +467,15 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
             transcript: {
               schemaVersion: "SessionTranscript.v1",
               sessionId,
-              transcriptHash: "b".repeat(64)
+              transcriptHash: "b".repeat(64),
+              signature: {
+                schemaVersion: "SessionTranscriptSignature.v1",
+                algorithm: "ed25519",
+                keyId: "key_session_signer_1",
+                signedAt: "2026-02-25T00:00:00.000Z",
+                payloadHash: "b".repeat(64),
+                signatureBase64: "sig"
+              }
             }
           })
         );
@@ -589,21 +608,23 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
 
   const replayPack = await rpc("tools/call", {
     name: "settld.session_replay_pack_get",
-    arguments: { sessionId }
+    arguments: { sessionId, sign: true, signerKeyId: "key_session_signer_1" }
   });
   assert.equal(replayPack.result?.isError, false);
   const replayPackParsed = JSON.parse(replayPack.result?.content?.[0]?.text ?? "{}");
   assert.equal(replayPackParsed?.result?.replayPack?.schemaVersion, "SessionReplayPack.v1");
   assert.equal(replayPackParsed?.result?.replayPack?.sessionId, sessionId);
+  assert.equal(replayPackParsed?.result?.replayPack?.signature?.schemaVersion, "SessionReplayPackSignature.v1");
 
   const transcript = await rpc("tools/call", {
     name: "settld.session_transcript_get",
-    arguments: { sessionId }
+    arguments: { sessionId, sign: true }
   });
   assert.equal(transcript.result?.isError, false);
   const transcriptParsed = JSON.parse(transcript.result?.content?.[0]?.text ?? "{}");
   assert.equal(transcriptParsed?.result?.transcript?.schemaVersion, "SessionTranscript.v1");
   assert.equal(transcriptParsed?.result?.transcript?.sessionId, sessionId);
+  assert.equal(transcriptParsed?.result?.transcript?.signature?.schemaVersion, "SessionTranscriptSignature.v1");
 
   child.kill("SIGTERM");
   await Promise.race([onceEvent(child, "exit"), new Promise((r) => setTimeout(r, 100))]);
@@ -618,8 +639,8 @@ test("mcp spike: session tools map to Session.v1 + SessionEvent.v1 APIs", async 
     `GET /sessions/${sessionId}/events/stream?eventType=TASK_REQUESTED&sinceEventId=evt_prev_1`,
     `GET /sessions/${sessionId}/events?limit=1&offset=0`,
     `POST /sessions/${sessionId}/events`,
-    `GET /sessions/${sessionId}/replay-pack`,
-    `GET /sessions/${sessionId}/transcript`
+    `GET /sessions/${sessionId}/replay-pack?sign=true&signerKeyId=key_session_signer_1`,
+    `GET /sessions/${sessionId}/transcript?sign=true`
   ]);
 });
 

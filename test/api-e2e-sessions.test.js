@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { createApi } from "../src/api/app.js";
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
+import { verifySessionReplayPackV1 } from "../src/core/session-replay-pack.js";
+import { verifySessionTranscriptV1 } from "../src/core/session-transcript.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
@@ -166,6 +168,35 @@ test("API e2e: Session.v1 create/list/get and SessionEvent.v1 append/list", asyn
   assert.equal(replayPackB.statusCode, 200, replayPackB.body);
   assert.equal(replayPackB.json?.replayPack?.packHash, replayPackA.json?.replayPack?.packHash);
 
+  const replayPackSigned = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_e2e_1/replay-pack?sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(replayPackSigned.statusCode, 200, replayPackSigned.body);
+  assert.equal(replayPackSigned.json?.replayPack?.signature?.schemaVersion, "SessionReplayPackSignature.v1");
+  const replayPackSignatureVerify = verifySessionReplayPackV1({
+    replayPack: replayPackSigned.json?.replayPack,
+    publicKeyPem: api.store.serverSigner.publicKeyPem
+  });
+  assert.equal(replayPackSignatureVerify.ok, true, replayPackSignatureVerify.error ?? replayPackSignatureVerify.code ?? "signature verify failed");
+
+  const replayPackSignedAgain = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_e2e_1/replay-pack?sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(replayPackSignedAgain.statusCode, 200, replayPackSignedAgain.body);
+  assert.equal(
+    replayPackSignedAgain.json?.replayPack?.signature?.signatureBase64,
+    replayPackSigned.json?.replayPack?.signature?.signatureBase64
+  );
+
+  const replayPackInvalidSignerQuery = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_e2e_1/replay-pack?signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(replayPackInvalidSignerQuery.statusCode, 400, replayPackInvalidSignerQuery.body);
+  assert.equal(replayPackInvalidSignerQuery.json?.code, "SCHEMA_INVALID");
+
   const transcriptA = await request(api, {
     method: "GET",
     path: "/sessions/sess_e2e_1/transcript"
@@ -184,6 +215,35 @@ test("API e2e: Session.v1 create/list/get and SessionEvent.v1 append/list", asyn
   });
   assert.equal(transcriptB.statusCode, 200, transcriptB.body);
   assert.equal(transcriptB.json?.transcript?.transcriptHash, transcriptA.json?.transcript?.transcriptHash);
+
+  const transcriptSigned = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_e2e_1/transcript?sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(transcriptSigned.statusCode, 200, transcriptSigned.body);
+  assert.equal(transcriptSigned.json?.transcript?.signature?.schemaVersion, "SessionTranscriptSignature.v1");
+  const transcriptSignatureVerify = verifySessionTranscriptV1({
+    transcript: transcriptSigned.json?.transcript,
+    publicKeyPem: api.store.serverSigner.publicKeyPem
+  });
+  assert.equal(transcriptSignatureVerify.ok, true, transcriptSignatureVerify.error ?? transcriptSignatureVerify.code ?? "signature verify failed");
+
+  const transcriptSignedAgain = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_e2e_1/transcript?sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(transcriptSignedAgain.statusCode, 200, transcriptSignedAgain.body);
+  assert.equal(
+    transcriptSignedAgain.json?.transcript?.signature?.signatureBase64,
+    transcriptSigned.json?.transcript?.signature?.signatureBase64
+  );
+
+  const transcriptInvalidSignerQuery = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_e2e_1/transcript?signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(transcriptInvalidSignerQuery.statusCode, 400, transcriptInvalidSignerQuery.body);
+  assert.equal(transcriptInvalidSignerQuery.json?.code, "SCHEMA_INVALID");
 });
 
 test("API e2e: SessionReplayPack.v1 fails closed on tampered event chain", async () => {
