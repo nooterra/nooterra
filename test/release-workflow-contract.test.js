@@ -11,7 +11,7 @@ async function readWorkflow() {
 
 test("release workflow contract: asserts production cutover required checks in release_promotion_guard", async () => {
   const text = await readWorkflow();
-  assert.match(text, /Assert production cutover required checks \(collaboration \+ lineage \+ transcript\)/);
+  assert.match(text, /Assert production cutover required checks \(collaboration \+ lineage \+ transcript \+ SDK JS\/PY smoke\)/);
   assert.match(text, /node scripts\/ci\/assert-production-cutover-required-checks\.mjs/);
   assert.match(text, /--in artifacts\/gates\/production-cutover-gate\.json/);
   assert.match(text, /--json-out artifacts\/gates\/production-cutover-required-checks\.json/);

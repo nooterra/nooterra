@@ -140,8 +140,11 @@ Run the live environment cutover gate before opening traffic:
 
 `Actions -> production-cutover-gate -> Run workflow`
 
-Note: the production cutover gate includes both `settld_verified_collaboration` and
-`openclaw_substrate_demo_lineage_verified`, and `openclaw_substrate_demo_transcript_verified` as required checks (`ProductionCutoverGateReport.v1`), and the launch packet must bind `sources.settldVerifiedCollaborationGateReportSha256` to the collaboration gate artifact hash.
+Note: the production cutover gate includes `settld_verified_collaboration`,
+`openclaw_substrate_demo_lineage_verified`, `openclaw_substrate_demo_transcript_verified`,
+`sdk_acs_smoke_js_verified`, and `sdk_acs_smoke_py_verified` as required checks
+(`ProductionCutoverGateReport.v1`), and the launch packet must bind
+`sources.settldVerifiedCollaborationGateReportSha256` to the collaboration gate artifact hash.
 
 ## Phase 7: Post-release
 
