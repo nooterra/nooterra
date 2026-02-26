@@ -31,6 +31,22 @@ To run against a Node entrypoint instead (repo/dev usage):
 node conformance/v1/run.mjs --node-bin packages/artifact-verify/bin/nooterra-verify.js
 ```
 
+To emit machine-readable report artifacts:
+
+```sh
+node conformance/v1/run.mjs \
+  --node-bin packages/artifact-verify/bin/nooterra-verify.js \
+  --json-out /tmp/nooterra-conformance-report.json \
+  --cert-bundle-out /tmp/nooterra-conformance-cert.json
+```
+
+### Output artifacts
+
+- `ConformanceRunReport.v1`: run report envelope with `reportHash` and `reportCore`.
+- `ConformanceRunReportCore.v1`: deterministic core payload used for hash binding.
+- `ConformanceCertBundle.v1`: portable cert-bundle envelope with `certHash` and `certCore`.
+- `ConformanceCertBundleCore.v1`: deterministic cert core binding the run report hash and core.
+
 ## Producer conformance
 
 Producer conformance is a separate surface (tooling behavior + signer plumbing + strict verification of produced bundles):
