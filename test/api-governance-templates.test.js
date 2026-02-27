@@ -136,3 +136,123 @@ test("governance templates: create/list/get/apply success path", async () => {
   assert.equal(replayed.json?.alreadyExists, true);
   assert.equal(replayed.json?.event?.id, applied.json?.event?.id);
 });
+
+test("governance templates: revoke denies re-revoke with deterministic reason code", async () => {
+  const api = createApi({ opsTokens: "tok_finw:finance_write;tok_finr:finance_read" });
+  const tenantId = "tenant_gov_tpl_revoke_conflict";
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/ops/governance/templates",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "idem_gov_tpl_revoke_create_1"
+    },
+    body: {
+      templateId: "ops.revoke-safe",
+      templateVersion: 1,
+      name: "Ops Revoke Safe",
+      policy: {
+        finance: {
+          monthCloseHoldPolicy: "ALLOW_WITH_DISCLOSURE"
+        }
+      }
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const revoked = await request(api, {
+    method: "POST",
+    path: "/ops/governance/templates/ops.revoke-safe/revoke",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "idem_gov_tpl_revoke_1"
+    },
+    body: {
+      templateVersion: 1,
+      reasonCode: "POLICY_SUPERSEDED",
+      reason: "Superseded by newer controls"
+    }
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+  assert.equal(revoked.json?.template?.status, "revoked");
+  assert.equal(revoked.json?.template?.revokeReasonCode, "POLICY_SUPERSEDED");
+
+  const revokedAgain = await request(api, {
+    method: "POST",
+    path: "/ops/governance/templates/ops.revoke-safe/revoke",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "idem_gov_tpl_revoke_2"
+    },
+    body: {
+      templateVersion: 1,
+      reasonCode: "POLICY_SUPERSEDED"
+    }
+  });
+  assert.equal(revokedAgain.statusCode, 409, revokedAgain.body);
+  assert.equal(revokedAgain.json?.code, "GOVERNANCE_TEMPLATE_STATUS_CONFLICT");
+  assert.equal(revokedAgain.json?.details?.reasonCode, "TEMPLATE_ALREADY_REVOKED");
+});
+
+test("governance templates: apply fails closed for revoked template", async () => {
+  const api = createApi({ opsTokens: "tok_finw:finance_write;tok_finr:finance_read" });
+  const tenantId = "tenant_gov_tpl_apply_revoked";
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/ops/governance/templates",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "idem_gov_tpl_apply_revoked_create_1"
+    },
+    body: {
+      templateId: "ops.revoked-apply",
+      templateVersion: 1,
+      name: "Ops Revoked Apply",
+      policy: {
+        finance: {
+          monthCloseHoldPolicy: "ALLOW_WITH_DISCLOSURE"
+        }
+      }
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const revoked = await request(api, {
+    method: "POST",
+    path: "/ops/governance/templates/ops.revoked-apply/revoke",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-idempotency-key": "idem_gov_tpl_apply_revoked_revoke_1"
+    },
+    body: {
+      templateVersion: 1,
+      reasonCode: "SECURITY_INCIDENT"
+    }
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+
+  const applied = await request(api, {
+    method: "POST",
+    path: "/ops/governance/templates/ops.revoked-apply/apply",
+    headers: {
+      "x-proxy-tenant-id": tenantId,
+      "x-proxy-ops-token": "tok_finw",
+      "x-proxy-expected-prev-chain-hash": "null",
+      "x-idempotency-key": "idem_gov_tpl_apply_revoked_apply_1"
+    },
+    body: {
+      templateVersion: 1,
+      effectiveFrom: "2026-01-01T00:00:00.000Z"
+    }
+  });
+  assert.equal(applied.statusCode, 409, applied.body);
+  assert.equal(applied.json?.code, "GOVERNANCE_TEMPLATE_INACTIVE");
+  assert.equal(applied.json?.details?.reasonCode, "TEMPLATE_REVOKED");
+});

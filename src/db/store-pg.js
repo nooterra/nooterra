@@ -2662,6 +2662,29 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     if (!Number.isSafeInteger(templateVersion) || templateVersion <= 0) {
       throw new TypeError("template.templateVersion must be a positive safe integer");
     }
+    const status = typeof template.status === "string" ? template.status.trim().toLowerCase() : "active";
+    if (status !== "active" && status !== "revoked") {
+      throw new TypeError("template.status must be active|revoked");
+    }
+    const revokedAtRaw =
+      template.revokedAt === null || template.revokedAt === undefined || String(template.revokedAt).trim() === "" ? null : String(template.revokedAt);
+    const revokedByRaw =
+      template.revokedBy === null || template.revokedBy === undefined || String(template.revokedBy).trim() === ""
+        ? null
+        : String(template.revokedBy).trim();
+    const revokeReasonCodeRaw =
+      template.revokeReasonCode === null || template.revokeReasonCode === undefined || String(template.revokeReasonCode).trim() === ""
+        ? null
+        : String(template.revokeReasonCode).trim().toUpperCase();
+    if (status === "revoked") {
+      if (!revokedAtRaw || !Number.isFinite(Date.parse(revokedAtRaw))) {
+        throw new TypeError("template.revokedAt must be an ISO timestamp when template.status=revoked");
+      }
+      if (!revokedByRaw) throw new TypeError("template.revokedBy is required when template.status=revoked");
+      if (!revokeReasonCodeRaw || !/^[A-Z][A-Z0-9_]{2,63}$/.test(revokeReasonCodeRaw)) {
+        throw new TypeError("template.revokeReasonCode must match /^[A-Z][A-Z0-9_]{2,63}$/ when template.status=revoked");
+      }
+    }
 
     const createdAt = parseIsoOrNull(template.createdAt) ?? new Date().toISOString();
     const updatedAt = parseIsoOrNull(template.updatedAt) ?? createdAt;
@@ -2672,7 +2695,15 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       templateId,
       templateVersion,
       createdAt,
-      updatedAt
+      updatedAt,
+      status,
+      revokedAt: status === "revoked" ? new Date(revokedAtRaw).toISOString() : null,
+      revokedBy: status === "revoked" ? revokedByRaw : null,
+      revokeReasonCode: status === "revoked" ? revokeReasonCodeRaw : null,
+      revokeReason:
+        status === "revoked" && template.revokeReason !== null && template.revokeReason !== undefined && String(template.revokeReason).trim() !== ""
+          ? String(template.revokeReason).trim()
+          : null
     };
 
     await client.query(

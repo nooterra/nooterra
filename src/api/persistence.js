@@ -1232,13 +1232,46 @@ export function applyTxRecord(store, record) {
       if (!Number.isSafeInteger(templateVersion) || templateVersion <= 0) {
         throw new TypeError("GOVERNANCE_TEMPLATE_UPSERT requires template.templateVersion >= 1");
       }
+      const status = typeof template.status === "string" ? template.status.trim().toLowerCase() : "active";
+      if (status !== "active" && status !== "revoked") {
+        throw new TypeError("GOVERNANCE_TEMPLATE_UPSERT requires template.status active|revoked");
+      }
+      const revokedAtRaw =
+        template.revokedAt === null || template.revokedAt === undefined || String(template.revokedAt).trim() === "" ? null : String(template.revokedAt);
+      const revokedByRaw =
+        template.revokedBy === null || template.revokedBy === undefined || String(template.revokedBy).trim() === ""
+          ? null
+          : String(template.revokedBy).trim();
+      const revokeReasonCodeRaw =
+        template.revokeReasonCode === null || template.revokeReasonCode === undefined || String(template.revokeReasonCode).trim() === ""
+          ? null
+          : String(template.revokeReasonCode).trim().toUpperCase();
+      if (status === "revoked") {
+        if (!revokedAtRaw || !Number.isFinite(Date.parse(revokedAtRaw))) {
+          throw new TypeError("GOVERNANCE_TEMPLATE_UPSERT requires template.revokedAt when template.status=revoked");
+        }
+        if (!revokedByRaw) {
+          throw new TypeError("GOVERNANCE_TEMPLATE_UPSERT requires template.revokedBy when template.status=revoked");
+        }
+        if (!revokeReasonCodeRaw || !/^[A-Z][A-Z0-9_]{2,63}$/.test(revokeReasonCodeRaw)) {
+          throw new TypeError("GOVERNANCE_TEMPLATE_UPSERT requires template.revokeReasonCode when template.status=revoked");
+        }
+      }
       if (!(store.governanceTemplates instanceof Map)) store.governanceTemplates = new Map();
       const key = makeScopedKey({ tenantId, id: `${templateId}::${templateVersion}` });
       store.governanceTemplates.set(key, {
         ...template,
         tenantId,
         templateId,
-        templateVersion
+        templateVersion,
+        status,
+        revokedAt: status === "revoked" ? new Date(revokedAtRaw).toISOString() : null,
+        revokedBy: status === "revoked" ? revokedByRaw : null,
+        revokeReasonCode: status === "revoked" ? revokeReasonCodeRaw : null,
+        revokeReason:
+          status === "revoked" && template.revokeReason !== null && template.revokeReason !== undefined && String(template.revokeReason).trim() !== ""
+            ? String(template.revokeReason).trim()
+            : null
       });
       continue;
     }

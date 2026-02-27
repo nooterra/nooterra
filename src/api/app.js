@@ -15329,6 +15329,11 @@ export function createApi({
 
   const GOVERNANCE_TEMPLATE_SCHEMA_VERSION = "GovernanceTemplate.v1";
   const GOVERNANCE_TEMPLATE_ID_PATTERN = /^[a-z][a-z0-9._-]{2,63}$/;
+  const GOVERNANCE_TEMPLATE_REASON_CODE_PATTERN = /^[A-Z][A-Z0-9_]{2,63}$/;
+  const GOVERNANCE_TEMPLATE_STATUS = Object.freeze({
+    ACTIVE: "active",
+    REVOKED: "revoked"
+  });
 
   function parseGovernanceTemplateId(input, { fieldPath = "templateId" } = {}) {
     const value = typeof input === "string" ? input.trim().toLowerCase() : "";
@@ -15378,6 +15383,18 @@ export function createApi({
     return normalizeForCanonicalJson(input, { path: "$.metadata" });
   }
 
+  function parseGovernanceTemplateReasonCode(input, { fieldPath = "reasonCode", allowNull = false } = {}) {
+    if (input === null || input === undefined || String(input).trim() === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const value = String(input).trim().toUpperCase();
+    if (!GOVERNANCE_TEMPLATE_REASON_CODE_PATTERN.test(value)) {
+      throw new TypeError(`${fieldPath} must match /^[A-Z][A-Z0-9_]{2,63}$/`);
+    }
+    return value;
+  }
+
   function computeGovernanceTemplateHash({ templateId, templateVersion, name, description, policy, metadata }) {
     const canonical = canonicalJsonStringify(
       normalizeForCanonicalJson(
@@ -15419,6 +15436,28 @@ export function createApi({
     const updatedBy = typeof input.updatedBy === "string" && input.updatedBy.trim() !== "" ? input.updatedBy.trim() : null;
     if (!createdBy) throw new TypeError("template.createdBy is required");
     if (!updatedBy) throw new TypeError("template.updatedBy is required");
+    const rawStatus = typeof input.status === "string" ? input.status.trim().toLowerCase() : GOVERNANCE_TEMPLATE_STATUS.ACTIVE;
+    if (rawStatus !== GOVERNANCE_TEMPLATE_STATUS.ACTIVE && rawStatus !== GOVERNANCE_TEMPLATE_STATUS.REVOKED) {
+      throw new TypeError("template.status must be active|revoked");
+    }
+    const revokedAtRaw =
+      input.revokedAt === null || input.revokedAt === undefined || String(input.revokedAt).trim() === "" ? null : String(input.revokedAt);
+    const revokedByRaw =
+      input.revokedBy === null || input.revokedBy === undefined || String(input.revokedBy).trim() === "" ? null : String(input.revokedBy).trim();
+    const revokeReasonCode = parseGovernanceTemplateReasonCode(input.revokeReasonCode, {
+      fieldPath: "template.revokeReasonCode",
+      allowNull: true
+    });
+    const revokeReason = normalizeGovernanceTemplateDescription(input.revokeReason);
+    let revokedAt = null;
+    let revokedBy = null;
+    if (rawStatus === GOVERNANCE_TEMPLATE_STATUS.REVOKED) {
+      if (!revokedAtRaw || !Number.isFinite(Date.parse(revokedAtRaw))) throw new TypeError("template.revokedAt must be an ISO timestamp");
+      if (!revokedByRaw) throw new TypeError("template.revokedBy is required when template.status=revoked");
+      if (!revokeReasonCode) throw new TypeError("template.revokeReasonCode is required when template.status=revoked");
+      revokedAt = new Date(revokedAtRaw).toISOString();
+      revokedBy = revokedByRaw;
+    }
     return {
       schemaVersion,
       tenantId: normalizeTenant(input.tenantId ?? DEFAULT_TENANT_ID),
@@ -15432,7 +15471,12 @@ export function createApi({
       createdAt: new Date(createdAt).toISOString(),
       updatedAt: new Date(updatedAt).toISOString(),
       createdBy,
-      updatedBy
+      updatedBy,
+      status: rawStatus,
+      revokedAt,
+      revokedBy,
+      revokeReasonCode: rawStatus === GOVERNANCE_TEMPLATE_STATUS.REVOKED ? revokeReasonCode : null,
+      revokeReason: rawStatus === GOVERNANCE_TEMPLATE_STATUS.REVOKED ? revokeReason : null
     };
   }
 
@@ -40307,7 +40351,12 @@ export function createApi({
               createdAt: existing?.createdAt ?? nowAt,
               updatedAt: nowAt,
               createdBy: existing?.createdBy ?? principalId,
-              updatedBy: principalId
+              updatedBy: principalId,
+              status: existing?.status ?? GOVERNANCE_TEMPLATE_STATUS.ACTIVE,
+              revokedAt: existing?.revokedAt ?? null,
+              revokedBy: existing?.revokedBy ?? null,
+              revokeReasonCode: existing?.revokeReasonCode ?? null,
+              revokeReason: existing?.revokeReason ?? null
             };
             const statusCode = existing ? 200 : 201;
             const responseBody = { template, alreadyExists: Boolean(existing) };
@@ -40317,6 +40366,79 @@ export function createApi({
             }
             await commitTx(ops);
             return sendJson(res, statusCode, responseBody);
+          }
+
+          if (parts.length === 5 && parts[4] === "revoke" && req.method === "POST") {
+            const ok = requireScope(auth.scopes, OPS_SCOPES.GOVERNANCE_TENANT_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
+            if (!ok) return sendError(res, 403, "forbidden");
+            const body = (await readJsonBody(req)) ?? {};
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (!idemStoreKey) return sendError(res, 400, "x-idempotency-key is required");
+            {
+              const existingIdem = store.idempotency.get(idemStoreKey);
+              if (existingIdem) {
+                if (existingIdem.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existingIdem.statusCode, existingIdem.body);
+              }
+            }
+
+            let templateId = null;
+            let templateVersion = null;
+            let revokeReasonCode = null;
+            let revokeReason = null;
+            try {
+              templateId = parseGovernanceTemplateId(parts[3], { fieldPath: "templateId" });
+              templateVersion =
+                body?.templateVersion === undefined || body?.templateVersion === null || body?.templateVersion === ""
+                  ? null
+                  : parseGovernanceTemplateVersion(body?.templateVersion, { fieldPath: "templateVersion" });
+              revokeReasonCode = parseGovernanceTemplateReasonCode(body?.reasonCode, { fieldPath: "reasonCode" });
+              revokeReason = normalizeGovernanceTemplateDescription(body?.reason);
+            } catch (err) {
+              return sendError(res, 400, "invalid governance template revoke request", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+
+            const template = getGovernanceTemplateRecord({ tenantId, templateId, templateVersion });
+            if (!template) return sendError(res, 404, "governance template not found", null, { code: "NOT_FOUND" });
+            if (template.status === GOVERNANCE_TEMPLATE_STATUS.REVOKED) {
+              return sendError(
+                res,
+                409,
+                "governance template status conflict",
+                {
+                  templateId: template.templateId,
+                  templateVersion: template.templateVersion,
+                  reasonCode: "TEMPLATE_ALREADY_REVOKED"
+                },
+                { code: "GOVERNANCE_TEMPLATE_STATUS_CONFLICT" }
+              );
+            }
+
+            const nowAt = nowIso();
+            const revokedTemplate = {
+              ...template,
+              updatedAt: nowAt,
+              updatedBy: principalId,
+              status: GOVERNANCE_TEMPLATE_STATUS.REVOKED,
+              revokedAt: nowAt,
+              revokedBy: principalId,
+              revokeReasonCode,
+              revokeReason
+            };
+            const responseBody = { template: revokedTemplate };
+            await commitTx([
+              { kind: "GOVERNANCE_TEMPLATE_UPSERT", tenantId, template: revokedTemplate },
+              { kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }
+            ]);
+            return sendJson(res, 200, responseBody);
           }
 
           if (parts.length === 5 && parts[4] === "apply" && req.method === "POST") {
@@ -40370,6 +40492,20 @@ export function createApi({
             }
             const template = getGovernanceTemplateRecord({ tenantId, templateId, templateVersion });
             if (!template) return sendError(res, 404, "governance template not found", null, { code: "NOT_FOUND" });
+            if (template.status !== GOVERNANCE_TEMPLATE_STATUS.ACTIVE) {
+              return sendError(
+                res,
+                409,
+                "governance template is not active",
+                {
+                  templateId: template.templateId,
+                  templateVersion: template.templateVersion,
+                  status: template.status,
+                  reasonCode: template.status === GOVERNANCE_TEMPLATE_STATUS.REVOKED ? "TEMPLATE_REVOKED" : "TEMPLATE_NOT_ACTIVE"
+                },
+                { code: "GOVERNANCE_TEMPLATE_INACTIVE" }
+              );
+            }
 
             const effectiveFromRaw = body?.effectiveFrom;
             const effectiveFromAt = typeof effectiveFromRaw === "string" ? new Date(effectiveFromRaw) : null;

@@ -43,10 +43,26 @@ This API adds a tenant-scoped governance template registry and a template apply 
   - Fail-closed behavior:
     - Missing precondition returns `428`
     - Stream mismatch returns `409 event append conflict`
+    - Revoked template apply returns `409 GOVERNANCE_TEMPLATE_INACTIVE` with deterministic `details.reasonCode=TEMPLATE_REVOKED`
     - Effective-time semantic conflict returns `409 GOVERNANCE_EFFECTIVE_FROM_CONFLICT`
+
+- `POST /ops/governance/templates/:templateId/revoke`
+  - Scope: `governance_tenant_write` or `finance_write`
+  - Requires:
+    - `x-idempotency-key`
+  - Body:
+    - `templateVersion` optional (defaults to latest)
+    - `reasonCode` required (`^[A-Z][A-Z0-9_]{2,63}$`)
+    - `reason` optional nullable string
+  - Behavior:
+    - Marks the selected template version as `status=revoked` and records `revokedAt`, `revokedBy`, `revokeReasonCode`, `revokeReason`
+  - Fail-closed behavior:
+    - Missing/invalid reason code returns `400 SCHEMA_INVALID`
+    - Already revoked template returns `409 GOVERNANCE_TEMPLATE_STATUS_CONFLICT` with deterministic `details.reasonCode=TEMPLATE_ALREADY_REVOKED`
 
 ## Determinism
 
 - Template materialization is canonicalized and hash-bound (`sha256`) before persistence.
+- Lifecycle denial paths return stable machine-readable `code` and deterministic `details.reasonCode`.
 - List responses are sorted deterministically.
 - Apply idempotency is bound to request body and expected previous governance chain hash.
