@@ -15,9 +15,27 @@ export const SETTLEMENT_POLICY_MODE = Object.freeze({
   MANUAL_REVIEW: "manual-review"
 });
 
+export const SETTLEMENT_POLICY_REASON_CODE = Object.freeze({
+  POLICY_MODE_MANUAL_REVIEW: "policy_mode_manual_review",
+  VERIFICATION_METHOD_NOT_DETERMINISTIC: "verification_method_not_deterministic",
+  AMOUNT_EXCEEDS_AUTO_RELEASE_LIMIT: "amount_exceeds_auto_release_limit",
+  AUTO_RELEASE_DISABLED_FOR_GREEN: "auto_release_disabled_for_green",
+  AUTO_RELEASE_DISABLED_FOR_AMBER: "auto_release_disabled_for_amber",
+  AUTO_RELEASE_DISABLED_FOR_RED: "auto_release_disabled_for_red",
+  METERING_PRICING_POLICY_PRICING_MATRIX_HASH_MISSING: "metering_pricing_policy_pricing_matrix_hash_missing",
+  METERING_PRICING_POLICY_METERING_REPORT_HASH_MISSING: "metering_pricing_policy_metering_report_hash_missing",
+  METERING_PRICING_PRICING_MATRIX_HASH_MISSING: "metering_pricing_pricing_matrix_hash_missing",
+  METERING_PRICING_METERING_REPORT_HASH_MISSING: "metering_pricing_metering_report_hash_missing",
+  METERING_PRICING_INVOICE_CLAIM_HASH_MISSING: "metering_pricing_invoice_claim_hash_missing",
+  METERING_PRICING_PRICING_MATRIX_HASH_MISMATCH: "metering_pricing_pricing_matrix_hash_mismatch",
+  METERING_PRICING_METERING_REPORT_HASH_MISMATCH: "metering_pricing_metering_report_hash_mismatch",
+  METERING_PRICING_INVOICE_CLAIM_HASH_MISMATCH: "metering_pricing_invoice_claim_hash_mismatch"
+});
+
 const ALLOWED_METHOD_MODES = new Set(Object.values(VERIFICATION_METHOD_MODE));
 const ALLOWED_POLICY_MODES = new Set(Object.values(SETTLEMENT_POLICY_MODE));
 const ALLOWED_VERIFICATION_STATUSES = new Set(["green", "amber", "red"]);
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 
 function assertPlainObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
@@ -50,6 +68,35 @@ function normalizeReleaseRatePct(value, fallback) {
   return parsed;
 }
 
+function normalizeOptionalSha256(value, name) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string") throw new TypeError(`${name} must be a sha256 hex string`);
+  const normalized = value.trim().toLowerCase();
+  if (!SHA256_HEX_RE.test(normalized)) throw new TypeError(`${name} must be a sha256 hex string`);
+  return normalized;
+}
+
+function normalizeMeteringPricingEvidence(input, { fieldPath, includeRequired = false } = {}) {
+  assertPlainObject(input, fieldPath);
+  if (
+    Object.prototype.hasOwnProperty.call(input, "required") &&
+    input.required !== null &&
+    input.required !== undefined &&
+    typeof input.required !== "boolean"
+  ) {
+    throw new TypeError(`${fieldPath}.required must be boolean`);
+  }
+  return normalizeForCanonicalJson(
+    {
+      ...(includeRequired ? { required: input.required === true } : {}),
+      pricingMatrixHash: normalizeOptionalSha256(input.pricingMatrixHash, `${fieldPath}.pricingMatrixHash`),
+      meteringReportHash: normalizeOptionalSha256(input.meteringReportHash, `${fieldPath}.meteringReportHash`),
+      invoiceClaimHash: normalizeOptionalSha256(input.invoiceClaimHash, `${fieldPath}.invoiceClaimHash`)
+    },
+    { path: "$" }
+  );
+}
+
 export function normalizeVerificationMethod(input, { defaultMode = VERIFICATION_METHOD_MODE.DETERMINISTIC } = {}) {
   const raw = input && typeof input === "object" && !Array.isArray(input) ? input : {};
   const modeRaw = normalizeNullableString(raw.mode);
@@ -63,7 +110,18 @@ export function normalizeVerificationMethod(input, { defaultMode = VERIFICATION_
       mode,
       source: normalizeNullableString(raw.source),
       attestor: normalizeNullableString(raw.attestor),
-      notes: normalizeNullableString(raw.notes)
+      notes: normalizeNullableString(raw.notes),
+      ...(Object.prototype.hasOwnProperty.call(raw, "meteringPricingEvidence")
+        ? {
+            meteringPricingEvidence:
+              raw.meteringPricingEvidence === null
+                ? null
+                : normalizeMeteringPricingEvidence(raw.meteringPricingEvidence, {
+                    fieldPath: "verificationMethod.meteringPricingEvidence",
+                    includeRequired: false
+                  })
+          }
+        : {})
     },
     { path: "$" }
   );
@@ -83,6 +141,7 @@ export function normalizeSettlementPolicy(input) {
   if (policyVersion === null) throw new TypeError("policyVersion must be a positive safe integer");
 
   const rulesRaw = raw.rules && typeof raw.rules === "object" && !Array.isArray(raw.rules) ? raw.rules : {};
+  const hasMeteringPricingEvidence = Object.prototype.hasOwnProperty.call(rulesRaw, "meteringPricingEvidence");
   const policy = normalizeForCanonicalJson(
     {
       schemaVersion: SETTLEMENT_POLICY_SCHEMA_VERSION,
@@ -98,7 +157,18 @@ export function normalizeSettlementPolicy(input) {
         redReleaseRatePct: normalizeReleaseRatePct(rulesRaw.redReleaseRatePct, 0),
         maxAutoReleaseAmountCents: normalizeOptionalSafeInt(rulesRaw.maxAutoReleaseAmountCents, { min: 1 }),
         disputeWindowHours: normalizeOptionalSafeInt(rulesRaw.disputeWindowHours, { min: 1, max: 24 * 365 }),
-        manualReason: normalizeNullableString(rulesRaw.manualReason)
+        manualReason: normalizeNullableString(rulesRaw.manualReason),
+        ...(hasMeteringPricingEvidence
+          ? {
+              meteringPricingEvidence:
+                rulesRaw.meteringPricingEvidence === null
+                  ? null
+                  : normalizeMeteringPricingEvidence(rulesRaw.meteringPricingEvidence, {
+                      fieldPath: "policy.rules.meteringPricingEvidence",
+                      includeRequired: true
+                    })
+            }
+          : {})
       }
     },
     { path: "$" }
@@ -150,19 +220,81 @@ export function evaluateSettlementPolicy({ policy, verificationMethod, verificat
 
   const reasons = [];
   if (normalizedPolicy.mode === SETTLEMENT_POLICY_MODE.MANUAL_REVIEW) {
-    reasons.push("policy_mode_manual_review");
+    reasons.push(SETTLEMENT_POLICY_REASON_CODE.POLICY_MODE_MANUAL_REVIEW);
   }
   if (
     normalizedPolicy.rules.requireDeterministicVerification &&
     normalizedMethod.mode !== VERIFICATION_METHOD_MODE.DETERMINISTIC
   ) {
-    reasons.push("verification_method_not_deterministic");
+    reasons.push(SETTLEMENT_POLICY_REASON_CODE.VERIFICATION_METHOD_NOT_DETERMINISTIC);
   }
   if (
     normalizedPolicy.rules.maxAutoReleaseAmountCents !== null &&
     settlementAmountCents > normalizedPolicy.rules.maxAutoReleaseAmountCents
   ) {
-    reasons.push("amount_exceeds_auto_release_limit");
+    reasons.push(SETTLEMENT_POLICY_REASON_CODE.AMOUNT_EXCEEDS_AUTO_RELEASE_LIMIT);
+  }
+
+  const meteringPricingPolicy =
+    normalizedPolicy.rules && typeof normalizedPolicy.rules === "object" && !Array.isArray(normalizedPolicy.rules)
+      ? normalizedPolicy.rules.meteringPricingEvidence ?? null
+      : null;
+  const meteringPricingEvidence =
+    normalizedMethod && typeof normalizedMethod === "object" && !Array.isArray(normalizedMethod)
+      ? normalizedMethod.meteringPricingEvidence ?? null
+      : null;
+  if (meteringPricingPolicy && typeof meteringPricingPolicy === "object" && meteringPricingPolicy.required === true) {
+    if (!meteringPricingPolicy.pricingMatrixHash) {
+      reasons.push(SETTLEMENT_POLICY_REASON_CODE.METERING_PRICING_POLICY_PRICING_MATRIX_HASH_MISSING);
+    }
+    if (!meteringPricingPolicy.meteringReportHash) {
+      reasons.push(SETTLEMENT_POLICY_REASON_CODE.METERING_PRICING_POLICY_METERING_REPORT_HASH_MISSING);
+    }
+
+    const observedPricingMatrixHash =
+      meteringPricingEvidence && typeof meteringPricingEvidence === "object" && !Array.isArray(meteringPricingEvidence)
+        ? meteringPricingEvidence.pricingMatrixHash ?? null
+        : null;
+    const observedMeteringReportHash =
+      meteringPricingEvidence && typeof meteringPricingEvidence === "object" && !Array.isArray(meteringPricingEvidence)
+        ? meteringPricingEvidence.meteringReportHash ?? null
+        : null;
+    const observedInvoiceClaimHash =
+      meteringPricingEvidence && typeof meteringPricingEvidence === "object" && !Array.isArray(meteringPricingEvidence)
+        ? meteringPricingEvidence.invoiceClaimHash ?? null
+        : null;
+
+    if (!observedPricingMatrixHash) {
+      reasons.push(SETTLEMENT_POLICY_REASON_CODE.METERING_PRICING_PRICING_MATRIX_HASH_MISSING);
+    }
+    if (!observedMeteringReportHash) {
+      reasons.push(SETTLEMENT_POLICY_REASON_CODE.METERING_PRICING_METERING_REPORT_HASH_MISSING);
+    }
+    if (meteringPricingPolicy.invoiceClaimHash && !observedInvoiceClaimHash) {
+      reasons.push(SETTLEMENT_POLICY_REASON_CODE.METERING_PRICING_INVOICE_CLAIM_HASH_MISSING);
+    }
+
+    if (
+      meteringPricingPolicy.pricingMatrixHash &&
+      observedPricingMatrixHash &&
+      meteringPricingPolicy.pricingMatrixHash !== observedPricingMatrixHash
+    ) {
+      reasons.push(SETTLEMENT_POLICY_REASON_CODE.METERING_PRICING_PRICING_MATRIX_HASH_MISMATCH);
+    }
+    if (
+      meteringPricingPolicy.meteringReportHash &&
+      observedMeteringReportHash &&
+      meteringPricingPolicy.meteringReportHash !== observedMeteringReportHash
+    ) {
+      reasons.push(SETTLEMENT_POLICY_REASON_CODE.METERING_PRICING_METERING_REPORT_HASH_MISMATCH);
+    }
+    if (
+      meteringPricingPolicy.invoiceClaimHash &&
+      observedInvoiceClaimHash &&
+      meteringPricingPolicy.invoiceClaimHash !== observedInvoiceClaimHash
+    ) {
+      reasons.push(SETTLEMENT_POLICY_REASON_CODE.METERING_PRICING_INVOICE_CLAIM_HASH_MISMATCH);
+    }
   }
 
   let releaseRatePct;
@@ -177,7 +309,9 @@ export function evaluateSettlementPolicy({ policy, verificationMethod, verificat
         ? normalizedPolicy.rules.autoReleaseOnAmber
         : normalizedPolicy.rules.autoReleaseOnRed;
   if (!autoEnabled) {
-    reasons.push(`auto_release_disabled_for_${status}`);
+    if (status === "green") reasons.push(SETTLEMENT_POLICY_REASON_CODE.AUTO_RELEASE_DISABLED_FOR_GREEN);
+    else if (status === "amber") reasons.push(SETTLEMENT_POLICY_REASON_CODE.AUTO_RELEASE_DISABLED_FOR_AMBER);
+    else reasons.push(SETTLEMENT_POLICY_REASON_CODE.AUTO_RELEASE_DISABLED_FOR_RED);
   }
 
   if (normalizedRunStatus === "failed") {
@@ -195,7 +329,7 @@ export function evaluateSettlementPolicy({ policy, verificationMethod, verificat
     verificationMethod: normalizedMethod,
     decisionMode: shouldAutoResolve ? SETTLEMENT_POLICY_MODE.AUTOMATIC : SETTLEMENT_POLICY_MODE.MANUAL_REVIEW,
     shouldAutoResolve,
-    reasonCodes: reasons,
+    reasonCodes: Array.from(new Set(reasons)),
     releaseRatePct,
     releaseAmountCents,
     refundAmountCents,

@@ -10,6 +10,7 @@ import {
   extractSettlementKernelArtifacts,
   verifySettlementKernelArtifacts
 } from "../src/core/settlement-kernel.js";
+import { SETTLEMENT_POLICY_REASON_CODE, evaluateSettlementPolicy } from "../src/core/settlement-policy.js";
 
 test("Settlement kernel builds bound decision + receipt artifacts", () => {
   const decision = buildSettlementDecisionRecord({
@@ -464,4 +465,46 @@ test("Settlement kernel preserves x402 authorization/request/response bindings",
   assert.equal(receipt.bindings.spendAuthorization.rootDelegationHash, "4".repeat(64));
   assert.equal(receipt.bindings.spendAuthorization.effectiveDelegationHash, "5".repeat(64));
   assert.equal(receipt.bindings.policyDecisionFingerprint.policyVersion, 7);
+});
+
+test("Settlement policy metering/pricing evidence denial is deterministic across replays", () => {
+  const input = {
+    policy: {
+      mode: "automatic",
+      rules: {
+        autoReleaseOnGreen: true,
+        autoReleaseOnAmber: false,
+        autoReleaseOnRed: false,
+        meteringPricingEvidence: {
+          required: true,
+          pricingMatrixHash: "1".repeat(64),
+          meteringReportHash: "2".repeat(64),
+          invoiceClaimHash: "3".repeat(64)
+        }
+      }
+    },
+    verificationMethod: {
+      mode: "deterministic",
+      meteringPricingEvidence: {
+        pricingMatrixHash: "1".repeat(64),
+        meteringReportHash: "f".repeat(64)
+      }
+    },
+    verificationStatus: "green",
+    runStatus: "completed",
+    amountCents: 2000
+  };
+
+  const first = evaluateSettlementPolicy(input);
+  const second = evaluateSettlementPolicy(input);
+
+  assert.equal(first.shouldAutoResolve, false);
+  assert.deepEqual(first.reasonCodes, [
+    SETTLEMENT_POLICY_REASON_CODE.METERING_PRICING_INVOICE_CLAIM_HASH_MISSING,
+    SETTLEMENT_POLICY_REASON_CODE.METERING_PRICING_METERING_REPORT_HASH_MISMATCH
+  ]);
+  assert.deepEqual(second.reasonCodes, first.reasonCodes);
+  assert.equal(second.releaseRatePct, first.releaseRatePct);
+  assert.equal(second.releaseAmountCents, first.releaseAmountCents);
+  assert.equal(second.refundAmountCents, first.refundAmountCents);
 });

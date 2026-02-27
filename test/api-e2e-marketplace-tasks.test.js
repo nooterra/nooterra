@@ -1655,6 +1655,130 @@ test("API e2e: policy can require manual settlement review and resolve", async (
   assert.equal(closedTask?.settlementDecisionReason, "manual policy override");
 });
 
+test("API e2e: metering/pricing policy evidence mismatch fails closed with deterministic reason codes", async () => {
+  const api = createApi();
+  await registerAgent(api, "agt_market_mpe_poster");
+  await registerAgent(api, "agt_market_mpe_bidder");
+  await registerAgent(api, "agt_market_mpe_operator");
+  await creditWallet(api, {
+    agentId: "agt_market_mpe_poster",
+    amountCents: 9000,
+    idempotencyKey: "wallet_credit_market_mpe_poster_1"
+  });
+
+  const createTask = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_mpe_rfq_create_1" },
+    body: {
+      rfqId: "rfq_mpe_1",
+      title: "Metering/pricing evidence policy",
+      capability: "translate",
+      posterAgentId: "agt_market_mpe_poster",
+      budgetCents: 2600,
+      currency: "USD"
+    }
+  });
+  assert.equal(createTask.statusCode, 201);
+
+  const pricingMatrixHash = "1".repeat(64);
+  const meteringReportHash = "2".repeat(64);
+  const invoiceClaimHash = "3".repeat(64);
+
+  const bid = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_mpe_1/bids",
+    headers: { "x-idempotency-key": "market_mpe_bid_create_1" },
+    body: {
+      bidId: "bid_mpe_1",
+      bidderAgentId: "agt_market_mpe_bidder",
+      amountCents: 2100,
+      currency: "USD",
+      verificationMethod: {
+        mode: "deterministic",
+        meteringPricingEvidence: {
+          pricingMatrixHash,
+          meteringReportHash: "f".repeat(64)
+        }
+      },
+      policy: {
+        mode: "automatic",
+        rules: {
+          requireDeterministicVerification: true,
+          autoReleaseOnGreen: true,
+          autoReleaseOnAmber: false,
+          autoReleaseOnRed: false,
+          meteringPricingEvidence: {
+            required: true,
+            pricingMatrixHash,
+            meteringReportHash,
+            invoiceClaimHash
+          }
+        }
+      }
+    }
+  });
+  assert.equal(bid.statusCode, 201);
+
+  const accept = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_mpe_1/accept",
+    headers: { "x-idempotency-key": "market_mpe_accept_1" },
+    body: {
+      bidId: "bid_mpe_1",
+      acceptedByAgentId: "agt_market_mpe_operator"
+    }
+  });
+  assert.equal(accept.statusCode, 200);
+  const runId = accept.json?.run?.runId;
+  assert.ok(typeof runId === "string" && runId.length > 0);
+
+  const completed = await request(api, {
+    method: "POST",
+    path: `/agents/agt_market_mpe_bidder/runs/${encodeURIComponent(runId)}/events`,
+    headers: {
+      "x-proxy-expected-prev-chain-hash": accept.json?.run?.lastChainHash,
+      "x-idempotency-key": "market_mpe_complete_1"
+    },
+    body: {
+      type: "RUN_COMPLETED",
+      payload: {
+        outputRef: `evidence://${runId}/output.json`,
+        metrics: { settlementReleaseRatePct: 100 }
+      }
+    }
+  });
+  assert.equal(completed.statusCode, 201);
+  assert.equal(completed.json?.settlement?.status, "locked");
+  assert.equal(completed.json?.settlement?.decisionStatus, "manual_review_required");
+
+  const replayA = await request(api, {
+    method: "GET",
+    path: `/runs/${encodeURIComponent(runId)}/settlement/policy-replay`
+  });
+  assert.equal(replayA.statusCode, 200);
+  assert.deepEqual(replayA.json?.replay?.decision?.reasonCodes ?? [], [
+    "metering_pricing_invoice_claim_hash_missing",
+    "metering_pricing_metering_report_hash_mismatch"
+  ]);
+  assert.equal(replayA.json?.replay?.decision?.shouldAutoResolve, false);
+
+  const replayB = await request(api, {
+    method: "GET",
+    path: `/runs/${encodeURIComponent(runId)}/settlement/policy-replay`
+  });
+  assert.equal(replayB.statusCode, 200);
+  assert.deepEqual(replayB.json?.replay?.decision ?? null, replayA.json?.replay?.decision ?? null);
+
+  const replayEvaluate = await request(api, {
+    method: "GET",
+    path: `/runs/${encodeURIComponent(runId)}/settlement/replay-evaluate`
+  });
+  assert.equal(replayEvaluate.statusCode, 200);
+  assert.equal(replayEvaluate.json?.comparisons?.matchesStoredDecision, true);
+  assert.equal(replayEvaluate.json?.comparisons?.policyDecisionMatchesStored, true);
+});
+
 test("API e2e: deterministic verifier plugin sets settlement decision verifierRef and replay matches", async () => {
   const api = createApi();
   await registerAgent(api, "agt_market_det_plugin_poster");

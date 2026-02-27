@@ -33,6 +33,7 @@ function normalizePositiveSafeInt(value, name) {
 
 function parseKeyValueHeader(text) {
   const out = {};
+  const duplicates = new Set();
   for (const part of String(text ?? "")
     .split(";")
     .map((s) => s.trim())
@@ -42,9 +43,10 @@ function parseKeyValueHeader(text) {
     const k = part.slice(0, idx).trim();
     const v = part.slice(idx + 1).trim();
     if (!k) continue;
+    if (Object.prototype.hasOwnProperty.call(out, k)) duplicates.add(k);
     out[k] = v;
   }
-  return out;
+  return { fields: out, duplicateKeys: Array.from(duplicates.values()).sort((a, b) => a.localeCompare(b)) };
 }
 
 export function buildX402SettlementTerms({
@@ -77,7 +79,9 @@ export function buildX402SettlementTerms({
 // Best-effort parsing of upstream x402-style 402 metadata.
 // This does not attempt to be the x402 spec; it normalizes common "key=value; ..." or JSON payloads.
 export function parseX402PaymentRequired(response402Headers) {
-  if (response402Headers === null || response402Headers === undefined) return { ok: false, error: "missing headers" };
+  if (response402Headers === null || response402Headers === undefined) {
+    return { ok: false, error: "missing headers", reasonCode: "X402_PAYMENT_REQUIRED_HEADERS_MISSING" };
+  }
 
   const headerValue = (() => {
     if (typeof response402Headers === "string") return response402Headers;
@@ -94,21 +98,43 @@ export function parseX402PaymentRequired(response402Headers) {
   })();
 
   const text = String(headerValue ?? "").trim();
-  if (!text) return { ok: false, error: "missing x-payment-required" };
+  if (!text) return { ok: false, error: "missing x-payment-required", reasonCode: "X402_PAYMENT_REQUIRED_HEADER_MISSING" };
 
   // JSON payload case.
   if (text.startsWith("{") && text.endsWith("}")) {
     try {
       const parsed = JSON.parse(text);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { ok: false, error: "invalid json header" };
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return { ok: false, error: "invalid json header", reasonCode: "X402_PAYMENT_REQUIRED_JSON_INVALID" };
+      }
       return { ok: true, raw: text, fields: normalizeForCanonicalJson(parsed, { path: "$" }) };
     } catch (err) {
-      return { ok: false, error: "invalid json header", message: err?.message ?? String(err ?? "") };
+      return {
+        ok: false,
+        error: "invalid json header",
+        reasonCode: "X402_PAYMENT_REQUIRED_JSON_INVALID",
+        message: err?.message ?? String(err ?? "")
+      };
     }
   }
 
-  const fields = parseKeyValueHeader(text);
-  return { ok: true, raw: text, fields: normalizeForCanonicalJson(fields, { path: "$" }) };
+  const parsedHeader = parseKeyValueHeader(text);
+  if (parsedHeader.duplicateKeys.length > 0) {
+    return {
+      ok: false,
+      error: "ambiguous x-payment-required header",
+      reasonCode: "X402_PAYMENT_REQUIRED_AMBIGUOUS_FIELDS",
+      details: { duplicateKeys: parsedHeader.duplicateKeys }
+    };
+  }
+  if (Object.keys(parsedHeader.fields).length === 0) {
+    return {
+      ok: false,
+      error: "invalid x-payment-required header",
+      reasonCode: "X402_PAYMENT_REQUIRED_FIELDS_INVALID"
+    };
+  }
+  return { ok: true, raw: text, fields: normalizeForCanonicalJson(parsedHeader.fields, { path: "$" }) };
 }
 
 // Placeholder: the "gate" middleware wiring is environment-specific (proxy framework, upstream fetch, etc.).
