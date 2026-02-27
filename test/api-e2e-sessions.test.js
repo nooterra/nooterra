@@ -4,8 +4,18 @@ import assert from "node:assert/strict";
 import { createApi } from "../src/api/app.js";
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
-import { verifySessionReplayPackV1 } from "../src/core/session-replay-pack.js";
+import {
+  buildSessionMemoryExportV1,
+  SESSION_MEMORY_IMPORT_REASON_CODES,
+  verifySessionMemoryImportV1,
+  verifySessionReplayPackV1
+} from "../src/core/session-replay-pack.js";
 import { verifySessionTranscriptV1 } from "../src/core/session-transcript.js";
+import {
+  ARTIFACT_REF_PAYLOAD_BINDING_REASON_CODES,
+  buildArtifactRefFromPayloadV1,
+  verifyArtifactRefPayloadBindingV1
+} from "../src/core/artifact-ref.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId, capabilities = [] }) {
@@ -706,6 +716,61 @@ test("API e2e: SessionEvent.v1 provenance taint propagates deterministically and
   assert.equal(replayPack.json?.replayPack?.verification?.provenance?.taintedEventCount, 2);
 });
 
+test("API e2e: SessionEvent.v1 fails closed on ambiguous provenance trust declarations", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_provenance_ambiguous_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_create_provenance_ambiguous_1" },
+    body: {
+      sessionId: "sess_provenance_ambiguous_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const first = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_provenance_ambiguous_1/events",
+    headers: {
+      "x-idempotency-key": "session_provenance_ambiguous_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_provenance_ambiguous_1" }
+    }
+  });
+  assert.equal(first.statusCode, 201, first.body);
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_provenance_ambiguous_1/events",
+    headers: {
+      "x-idempotency-key": "session_provenance_ambiguous_append_2",
+      "x-proxy-expected-prev-chain-hash": String(first.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "MESSAGE",
+      payload: { text: "conflicting provenance declaration" },
+      provenance: {
+        label: "external",
+        isTainted: false
+      }
+    }
+  });
+  assert.equal(blocked.statusCode, 400, blocked.body);
+  assert.equal(blocked.json?.code, "SCHEMA_INVALID");
+  assert.match(
+    String(blocked.json?.details?.message ?? blocked.body ?? ""),
+    /SESSION_PROVENANCE_AMBIGUOUS_TRUST_STATE/
+  );
+});
+
 test("API e2e: SessionReplayPack.v1 fails closed on provenance mismatch even when chain hashes are re-computed", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const principalAgentId = "agt_session_provenance_tamper_1";
@@ -805,4 +870,150 @@ test("API e2e: SessionReplayPack.v1 fails closed on provenance mismatch even whe
   });
   assert.equal(transcript.statusCode, 409, transcript.body);
   assert.equal(transcript.json?.code, "SESSION_REPLAY_PROVENANCE_INVALID");
+});
+
+test("core: ArtifactRef.v1 payload binding is deterministic and fail-closed on tamper", () => {
+  const payload = {
+    schemaVersion: "SessionMemoryExport.v1",
+    tenantId: "tenant_default",
+    sessionId: "sess_memory_binding_1",
+    replayPackHash: "a".repeat(64)
+  };
+  const artifactRef = buildArtifactRefFromPayloadV1({
+    artifactId: "session_memory_binding_artifact_1",
+    artifactType: "SessionMemoryExport.v1",
+    tenantId: "tenant_default",
+    payload
+  });
+  const bindingOk = verifyArtifactRefPayloadBindingV1({
+    artifactRef,
+    payload
+  });
+  assert.equal(bindingOk.ok, true, bindingOk.error ?? bindingOk.code ?? "payload binding should verify");
+
+  const bindingTampered = verifyArtifactRefPayloadBindingV1({
+    artifactRef,
+    payload: {
+      ...payload,
+      replayPackHash: "b".repeat(64)
+    }
+  });
+  assert.equal(bindingTampered.ok, false);
+  assert.equal(bindingTampered.code, ARTIFACT_REF_PAYLOAD_BINDING_REASON_CODES.HASH_MISMATCH);
+});
+
+test("core: SessionMemoryExport.v1 is deterministic and import fails closed on tampered or partial packs", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_memory_principal_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_memory_create_1" },
+    body: {
+      sessionId: "sess_memory_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const first = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_memory_1/events",
+    headers: {
+      "x-idempotency-key": "session_memory_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_memory_1" }
+    }
+  });
+  assert.equal(first.statusCode, 201, first.body);
+
+  const second = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_memory_1/events",
+    headers: {
+      "x-idempotency-key": "session_memory_append_2",
+      "x-proxy-expected-prev-chain-hash": String(first.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      payload: { progressPct: 50 }
+    }
+  });
+  assert.equal(second.statusCode, 201, second.body);
+
+  const replayPackSigned = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_memory_1/replay-pack?sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(replayPackSigned.statusCode, 200, replayPackSigned.body);
+
+  const transcriptSigned = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_memory_1/transcript?sign=true&signerKeyId=${encodeURIComponent(api.store.serverSigner.keyId)}`
+  });
+  assert.equal(transcriptSigned.statusCode, 200, transcriptSigned.body);
+
+  const memoryExportA = buildSessionMemoryExportV1({
+    replayPack: replayPackSigned.json?.replayPack,
+    transcript: transcriptSigned.json?.transcript
+  });
+  const memoryExportB = buildSessionMemoryExportV1({
+    replayPack: replayPackSigned.json?.replayPack,
+    transcript: transcriptSigned.json?.transcript
+  });
+  assert.equal(canonicalJsonStringify(memoryExportA), canonicalJsonStringify(memoryExportB));
+
+  const imported = verifySessionMemoryImportV1({
+    memoryExport: memoryExportA,
+    replayPack: replayPackSigned.json?.replayPack,
+    transcript: transcriptSigned.json?.transcript,
+    expectedTenantId: "tenant_default",
+    expectedSessionId: "sess_memory_1",
+    replayPackPublicKeyPem: api.store.serverSigner.publicKeyPem,
+    transcriptPublicKeyPem: api.store.serverSigner.publicKeyPem,
+    requireReplayPackSignature: true,
+    requireTranscriptSignature: true
+  });
+  assert.equal(imported.ok, true, imported.error ?? imported.code ?? "memory import should succeed");
+
+  const tamperedReplayPack = {
+    ...replayPackSigned.json?.replayPack,
+    events: (replayPackSigned.json?.replayPack?.events ?? []).slice(0, 1),
+    signature: null
+  };
+  const tamperedImport = verifySessionMemoryImportV1({
+    memoryExport: memoryExportA,
+    replayPack: tamperedReplayPack,
+    transcript: transcriptSigned.json?.transcript
+  });
+  assert.equal(tamperedImport.ok, false);
+  assert.equal(tamperedImport.code, SESSION_MEMORY_IMPORT_REASON_CODES.REPLAY_PACK_HASH_MISMATCH);
+
+  const partialImport = verifySessionMemoryImportV1({
+    memoryExport: memoryExportA,
+    replayPack: replayPackSigned.json?.replayPack,
+    transcript: null
+  });
+  assert.equal(partialImport.ok, false);
+  assert.equal(partialImport.code, SESSION_MEMORY_IMPORT_REASON_CODES.TRANSCRIPT_REQUIRED);
+
+  const continuityMismatch = verifySessionMemoryImportV1({
+    memoryExport: {
+      ...memoryExportA,
+      continuity: {
+        ...memoryExportA.continuity,
+        previousHeadChainHash: String(second.json?.event?.chainHash ?? "")
+      }
+    },
+    replayPack: replayPackSigned.json?.replayPack,
+    transcript: transcriptSigned.json?.transcript
+  });
+  assert.equal(continuityMismatch.ok, false);
+  assert.equal(continuityMismatch.code, SESSION_MEMORY_IMPORT_REASON_CODES.CONTINUITY_HEAD_CHAIN_HASH_MISMATCH);
 });

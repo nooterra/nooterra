@@ -37,6 +37,12 @@ export const SESSION_EVENT_PROVENANCE_REASON_CODE = Object.freeze({
   EXPLICIT_TAINT: "session_provenance_explicit_taint"
 });
 
+export const SESSION_EVENT_PROVENANCE_VERIFICATION_REASON_CODE = Object.freeze({
+  INVALID: "SESSION_PROVENANCE_INVALID",
+  MISMATCH: "SESSION_PROVENANCE_MISMATCH",
+  AMBIGUOUS_TRUST_STATE: "SESSION_PROVENANCE_AMBIGUOUS_TRUST_STATE"
+});
+
 const SESSION_EVENT_PROVENANCE_LABELS = new Set(Object.values(SESSION_EVENT_PROVENANCE_LABEL));
 
 function assertPlainObject(value, name) {
@@ -203,8 +209,13 @@ export function normalizeSessionEventProvenanceInput(
 
 export function computeSessionEventProvenance({ events = [], eventType, provenance = null } = {}) {
   if (!Array.isArray(events)) throw new TypeError("events must be an array");
+  const provenanceInput = provenance && typeof provenance === "object" && !Array.isArray(provenance) ? provenance : {};
+  const hasDeclaredIsTainted =
+    Object.prototype.hasOwnProperty.call(provenanceInput, "isTainted") ||
+    Object.prototype.hasOwnProperty.call(provenanceInput, "tainted");
+  const declaredIsTainted = hasDeclaredIsTainted ? provenanceInput.isTainted === true || provenanceInput.tainted === true : null;
   const normalizedEventType = normalizeSessionEventType(eventType, "eventType");
-  const normalizedInput = normalizeSessionEventProvenanceInput(provenance ?? {}, {
+  const normalizedInput = normalizeSessionEventProvenanceInput(provenanceInput, {
     eventType: normalizedEventType,
     allowNull: false
   });
@@ -229,6 +240,11 @@ export function computeSessionEventProvenance({ events = [], eventType, provenan
     Array.isArray(normalizedInput.reasonCodes) &&
     normalizedInput.reasonCodes.includes(SESSION_EVENT_PROVENANCE_REASON_CODE.EXPLICIT_TAINT);
   const isTainted = declaredTainted || externalTainted || inheritedTaint || explicitTaint;
+  if (declaredIsTainted !== null && declaredIsTainted !== isTainted) {
+    throw new TypeError(
+      `provenance trust state is ambiguous (${SESSION_EVENT_PROVENANCE_VERIFICATION_REASON_CODE.AMBIGUOUS_TRUST_STATE})`
+    );
+  }
   const sourceDepth = sourceEvent ? getEventTaintDepth(sourceEvent) : 0;
   const taintDepth = isTainted ? (inheritedTaint ? sourceDepth + 1 : 1) : 0;
 
@@ -274,7 +290,10 @@ export function verifySessionEventProvenanceChain(events = []) {
     } catch (err) {
       return {
         ok: false,
+        reasonCode: SESSION_EVENT_PROVENANCE_VERIFICATION_REASON_CODE.INVALID,
         error: `provenance invalid at index ${index}: ${err?.message ?? String(err ?? "")}`,
+        index,
+        eventId: event?.id ?? null,
         verifiedEventCount,
         taintedEventCount
       };
@@ -282,7 +301,10 @@ export function verifySessionEventProvenanceChain(events = []) {
     if (canonicalJsonStringify(expected) !== canonicalJsonStringify(actual)) {
       return {
         ok: false,
+        reasonCode: SESSION_EVENT_PROVENANCE_VERIFICATION_REASON_CODE.MISMATCH,
         error: `provenance mismatch at index ${index}`,
+        index,
+        eventId: event?.id ?? null,
         verifiedEventCount,
         taintedEventCount
       };
@@ -292,6 +314,7 @@ export function verifySessionEventProvenanceChain(events = []) {
   }
   return {
     ok: true,
+    reasonCode: null,
     verifiedEventCount,
     taintedEventCount
   };

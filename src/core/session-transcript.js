@@ -3,6 +3,16 @@ import { keyIdFromPublicKeyPem, sha256Hex, signHashHexEd25519, verifyHashHexEd25
 
 export const SESSION_TRANSCRIPT_SCHEMA_VERSION = "SessionTranscript.v1";
 export const SESSION_TRANSCRIPT_SIGNATURE_SCHEMA_VERSION = "SessionTranscriptSignature.v1";
+export const SESSION_TRANSCRIPT_REPLAY_CONSISTENCY_REASON_CODES = Object.freeze({
+  SCHEMA_INVALID: "SESSION_TRANSCRIPT_REPLAY_SCHEMA_INVALID",
+  TENANT_MISMATCH: "SESSION_TRANSCRIPT_REPLAY_TENANT_MISMATCH",
+  SESSION_MISMATCH: "SESSION_TRANSCRIPT_REPLAY_SESSION_MISMATCH",
+  SESSION_HASH_MISMATCH: "SESSION_TRANSCRIPT_REPLAY_SESSION_HASH_MISMATCH",
+  EVENT_COUNT_MISMATCH: "SESSION_TRANSCRIPT_REPLAY_EVENT_COUNT_MISMATCH",
+  HEAD_CHAIN_HASH_MISMATCH: "SESSION_TRANSCRIPT_REPLAY_HEAD_CHAIN_HASH_MISMATCH",
+  EVENT_DIGEST_HASH_MISMATCH: "SESSION_TRANSCRIPT_REPLAY_EVENT_DIGEST_HASH_MISMATCH",
+  HASH_MISMATCH: "SESSION_TRANSCRIPT_REPLAY_HASH_MISMATCH"
+});
 
 function assertPlainObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
@@ -241,6 +251,111 @@ function buildUnsignedSessionTranscriptV1(transcript = {}) {
     verification: transcript?.verification ?? null,
     signature: null
   });
+}
+
+function normalizeReplayPackInputForTranscript(replayPack) {
+  assertPlainObject(replayPack, "replayPack");
+  return {
+    tenantId: replayPack?.tenantId,
+    session: replayPack?.session,
+    events: Array.isArray(replayPack?.events) ? replayPack.events : [],
+    verification: replayPack?.verification ?? null
+  };
+}
+
+export function buildSessionTranscriptFromReplayPackV1({
+  replayPack,
+  signature = null
+} = {}) {
+  const normalizedReplayPack = normalizeReplayPackInputForTranscript(replayPack);
+  return buildSessionTranscriptV1({
+    tenantId: normalizedReplayPack.tenantId,
+    session: normalizedReplayPack.session,
+    events: normalizedReplayPack.events,
+    verification: normalizedReplayPack.verification,
+    signature
+  });
+}
+
+export function verifySessionTranscriptReplayConsistencyV1({
+  transcript,
+  replayPack
+} = {}) {
+  try {
+    const normalizedTranscript = buildSessionTranscriptV1({
+      tenantId: transcript?.tenantId,
+      session: transcript?.session,
+      events: Array.isArray(transcript?.events)
+        ? transcript.events
+        : Array.isArray(transcript?.eventDigests)
+          ? transcript.eventDigests
+          : [],
+      verification: transcript?.verification ?? null,
+      signature: transcript?.signature ?? null
+    });
+    const expectedTranscript = buildSessionTranscriptFromReplayPackV1({ replayPack });
+    if (normalizedTranscript.tenantId !== expectedTranscript.tenantId) {
+      return {
+        ok: false,
+        code: SESSION_TRANSCRIPT_REPLAY_CONSISTENCY_REASON_CODES.TENANT_MISMATCH,
+        error: "tenantId mismatch"
+      };
+    }
+    if (normalizedTranscript.sessionId !== expectedTranscript.sessionId) {
+      return {
+        ok: false,
+        code: SESSION_TRANSCRIPT_REPLAY_CONSISTENCY_REASON_CODES.SESSION_MISMATCH,
+        error: "sessionId mismatch"
+      };
+    }
+    if (normalizedTranscript.sessionHash !== expectedTranscript.sessionHash) {
+      return {
+        ok: false,
+        code: SESSION_TRANSCRIPT_REPLAY_CONSISTENCY_REASON_CODES.SESSION_HASH_MISMATCH,
+        error: "sessionHash mismatch"
+      };
+    }
+    if (normalizedTranscript.eventCount !== expectedTranscript.eventCount) {
+      return {
+        ok: false,
+        code: SESSION_TRANSCRIPT_REPLAY_CONSISTENCY_REASON_CODES.EVENT_COUNT_MISMATCH,
+        error: "eventCount mismatch"
+      };
+    }
+    if ((normalizedTranscript.headChainHash ?? null) !== (expectedTranscript.headChainHash ?? null)) {
+      return {
+        ok: false,
+        code: SESSION_TRANSCRIPT_REPLAY_CONSISTENCY_REASON_CODES.HEAD_CHAIN_HASH_MISMATCH,
+        error: "headChainHash mismatch"
+      };
+    }
+    if (normalizedTranscript.transcriptEventDigestHash !== expectedTranscript.transcriptEventDigestHash) {
+      return {
+        ok: false,
+        code: SESSION_TRANSCRIPT_REPLAY_CONSISTENCY_REASON_CODES.EVENT_DIGEST_HASH_MISMATCH,
+        error: "transcriptEventDigestHash mismatch"
+      };
+    }
+    if (normalizedTranscript.transcriptHash !== expectedTranscript.transcriptHash) {
+      return {
+        ok: false,
+        code: SESSION_TRANSCRIPT_REPLAY_CONSISTENCY_REASON_CODES.HASH_MISMATCH,
+        error: "transcriptHash mismatch"
+      };
+    }
+    return {
+      ok: true,
+      code: null,
+      error: null,
+      transcriptHash: normalizedTranscript.transcriptHash
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      code: SESSION_TRANSCRIPT_REPLAY_CONSISTENCY_REASON_CODES.SCHEMA_INVALID,
+      error: err?.message ?? String(err ?? "")
+    };
+  }
 }
 
 export function signSessionTranscriptV1({

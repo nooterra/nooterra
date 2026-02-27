@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import { createApi } from "../src/api/app.js";
 import { createPgStore } from "../src/db/store-pg.js";
 import { createEd25519Keypair } from "../src/core/crypto.js";
+import { canonicalJsonStringify } from "../src/core/canonical-json.js";
+import { buildSessionMemoryExportV1, verifySessionMemoryImportV1 } from "../src/core/session-replay-pack.js";
 import { request } from "./api-test-harness.js";
 
 const databaseUrl = process.env.DATABASE_URL ?? null;
@@ -151,6 +153,7 @@ async function createTerminalRun({
   const acceptanceId = "pg_sub_acceptance_1";
   let replayPackHashBeforeRestart = null;
   let transcriptHashBeforeRestart = null;
+  let memoryExportBeforeRestart = null;
   let interactionGraphPackHashBeforeRestart = null;
 
   let storeA = null;
@@ -647,6 +650,18 @@ async function createTerminalRun({
     assert.equal(transcriptBeforeRestart.json?.transcript?.verification?.chainOk, true);
     transcriptHashBeforeRestart = transcriptBeforeRestart.json?.transcript?.transcriptHash ?? null;
     assert.equal(typeof transcriptHashBeforeRestart, "string");
+    memoryExportBeforeRestart = buildSessionMemoryExportV1({
+      replayPack: replayPackBeforeRestart.json?.replayPack,
+      transcript: transcriptBeforeRestart.json?.transcript
+    });
+    const memoryImportBeforeRestart = verifySessionMemoryImportV1({
+      memoryExport: memoryExportBeforeRestart,
+      replayPack: replayPackBeforeRestart.json?.replayPack,
+      transcript: transcriptBeforeRestart.json?.transcript,
+      expectedTenantId: tenantA,
+      expectedSessionId: "pg_sub_session_1"
+    });
+    assert.equal(memoryImportBeforeRestart.ok, true, memoryImportBeforeRestart.error ?? memoryImportBeforeRestart.code);
 
     await creditWallet(apiA, {
       tenantId: tenantA,
@@ -849,6 +864,19 @@ async function createTerminalRun({
     assert.equal(transcriptAfterRestart.statusCode, 200, transcriptAfterRestart.body);
     assert.equal(transcriptAfterRestart.json?.transcript?.schemaVersion, "SessionTranscript.v1");
     assert.equal(transcriptAfterRestart.json?.transcript?.transcriptHash, transcriptHashBeforeRestart);
+    const memoryExportAfterRestart = buildSessionMemoryExportV1({
+      replayPack: replayPackAfterRestart.json?.replayPack,
+      transcript: transcriptAfterRestart.json?.transcript
+    });
+    assert.equal(canonicalJsonStringify(memoryExportAfterRestart), canonicalJsonStringify(memoryExportBeforeRestart));
+    const memoryImportAfterRestart = verifySessionMemoryImportV1({
+      memoryExport: memoryExportBeforeRestart,
+      replayPack: replayPackAfterRestart.json?.replayPack,
+      transcript: transcriptAfterRestart.json?.transcript,
+      expectedTenantId: tenantA,
+      expectedSessionId: "pg_sub_session_1"
+    });
+    assert.equal(memoryImportAfterRestart.ok, true, memoryImportAfterRestart.error ?? memoryImportAfterRestart.code);
 
     const interactionGraphAfterRestart = await tenantRequest(apiB, {
       tenantId: tenantA,

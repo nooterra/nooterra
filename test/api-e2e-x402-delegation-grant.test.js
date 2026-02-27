@@ -327,6 +327,52 @@ test("API e2e: DelegationGrant.v1 routes + x402 authorization enforcement", asyn
   assert.equal(blockedRevoked.json?.code, "X402_DELEGATION_GRANT_REVOKED");
 });
 
+test("API e2e: delegation grant revoke writes deterministic reason metadata when reason is omitted", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const delegatorAgentId = "agt_dgrant_reason_default_delegator_1";
+  const delegateeAgentId = "agt_dgrant_reason_default_delegatee_1";
+  await registerAgent(api, { agentId: delegatorAgentId });
+  await registerAgent(api, { agentId: delegateeAgentId });
+
+  const issued = await request(api, {
+    method: "POST",
+    path: "/delegation-grants",
+    headers: { "x-idempotency-key": "delegation_grant_reason_default_issue_1" },
+    body: {
+      grantId: "dgrant_reason_default_1",
+      delegatorAgentId,
+      delegateeAgentId,
+      scope: {
+        allowedRiskClasses: ["financial"],
+        sideEffectingAllowed: true
+      },
+      spendLimit: {
+        currency: "USD",
+        maxPerCallCents: 500,
+        maxTotalCents: 1_000
+      },
+      validity: {
+        issuedAt: "2026-02-26T00:00:00.000Z",
+        notBefore: "2026-02-26T00:00:00.000Z",
+        expiresAt: "2027-02-26T00:00:00.000Z"
+      }
+    }
+  });
+  assert.equal(issued.statusCode, 201, issued.body);
+
+  const revoked = await request(api, {
+    method: "POST",
+    path: "/delegation-grants/dgrant_reason_default_1/revoke",
+    headers: { "x-idempotency-key": "delegation_grant_reason_default_revoke_1" },
+    body: {}
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+  assert.equal(
+    revoked.json?.delegationGrant?.revocation?.revocationReasonCode,
+    "DELEGATION_GRANT_REVOKED_UNSPECIFIED"
+  );
+});
+
 test("API e2e: delegation grant issue fails closed when delegator or delegatee lifecycle is non-active", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const delegatorAgentId = "agt_dgrant_lifecycle_delegator_1";

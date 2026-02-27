@@ -48,6 +48,33 @@ When present, `signature.payloadHash` must equal `packHash`.
 - verification summaries include chain and provenance counters for deterministic comparisons.
 - optional signatures use deterministic Ed25519 over `packHash`.
 
+## Portable Memory Export/Import (`SessionMemoryExport.v1`)
+
+Long-horizon session memory migration uses a deterministic companion contract:
+
+- `schemaVersion` (const: `SessionMemoryExport.v1`)
+- `tenantId`, `sessionId`, `exportedAt`
+- `replayPackHash`, `replayPackRef` (`ArtifactRef.v1`, `artifactHash == replayPackHash`)
+- `transcriptHash` + `transcriptRef` (both nullable, but must be set together)
+- `eventCount`, `firstEventId`, `lastEventId`, `firstPrevChainHash`, `headChainHash`
+- `continuity.previousHeadChainHash`, `continuity.previousPackHash`
+
+Import verification is fail-closed:
+
+- replay-pack hash/ref mismatch,
+- event window mismatch (`eventCount`, `firstPrevChainHash`, `headChainHash`),
+- chain continuity mismatch (`continuity.previousHeadChainHash`),
+- transcript missing when referenced,
+- transcript/replay semantic drift,
+- invalid or missing required signatures when signature verification is requested.
+
+Stable import reason codes are emitted from `SESSION_MEMORY_IMPORT_REASON_CODES` in `src/core/session-replay-pack.js`.
+
+Roundtrip determinism guarantee:
+
+- building `SessionMemoryExport.v1` from identical replay/transcript inputs yields identical canonical JSON,
+- verified imports can be re-exported without semantic or cryptographic drift.
+
 ## API surface
 
 - `GET /sessions/:sessionId/replay-pack`

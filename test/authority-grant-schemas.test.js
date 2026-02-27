@@ -9,7 +9,9 @@ import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { sha256Hex } from "../src/core/crypto.js";
 import {
   AUTHORITY_GRANT_RISK_CLASS,
+  AUTHORITY_GRANT_TRUST_REASON_CODE,
   buildAuthorityGrantV1,
+  evaluateAuthorityGrantTrustV1,
   revokeAuthorityGrantV1,
   validateAuthorityGrantV1
 } from "../src/core/authority-grant.js";
@@ -116,4 +118,67 @@ test("revokeAuthorityGrantV1 marks grant revoked and remains schema-valid", () =
   assert.equal(revoked.revocation?.revocationReasonCode, "POLICY_VIOLATION");
   assert.equal(revoked.grantHash === grant.grantHash, false);
   assert.equal(validateAuthorityGrantV1(revoked), true);
+});
+
+test("authority grant revocation requires explicit reason metadata", () => {
+  assert.throws(
+    () =>
+      buildAuthorityGrantV1({
+        ...buildFixtureGrant(),
+        revocation: {
+          revocable: true,
+          revokedAt: "2026-02-26T00:00:00.000Z",
+          revocationReasonCode: null
+        }
+      }),
+    /revocation\.revocationReasonCode is required/
+  );
+});
+
+test("revokeAuthorityGrantV1 defaults reason metadata when caller omits reason", () => {
+  const grant = buildFixtureGrant();
+  const revoked = revokeAuthorityGrantV1({
+    grant,
+    revokedAt: "2026-02-26T00:00:00.000Z"
+  });
+  assert.equal(revoked.revocation?.revocationReasonCode, "AUTHORITY_GRANT_REVOKED_UNSPECIFIED");
+  assert.equal(validateAuthorityGrantV1(revoked), true);
+});
+
+test("evaluateAuthorityGrantTrustV1 preserves historical reads but blocks unsafe writes", () => {
+  const grant = buildFixtureGrant();
+  const revoked = revokeAuthorityGrantV1({
+    grant,
+    revokedAt: "2026-02-26T00:00:00.000Z",
+    revocationReasonCode: "MANUAL_REVOKE"
+  });
+
+  const writeAfterRevoke = evaluateAuthorityGrantTrustV1({
+    grant: revoked,
+    at: "2026-02-26T00:00:01.000Z",
+    operation: "write"
+  });
+  assert.equal(writeAfterRevoke.allowed, false);
+  assert.equal(writeAfterRevoke.reasonCode, AUTHORITY_GRANT_TRUST_REASON_CODE.REVOKED);
+
+  const readHistorical = evaluateAuthorityGrantTrustV1({
+    grant: revoked,
+    at: "2026-02-26T00:00:01.000Z",
+    operation: "read",
+    evidenceAt: "2026-02-25T12:00:00.000Z"
+  });
+  assert.equal(readHistorical.allowed, true);
+  assert.equal(readHistorical.historicalVerificationOnly, true);
+  assert.equal(readHistorical.reasonCode, AUTHORITY_GRANT_TRUST_REASON_CODE.HISTORICAL_READ_ALLOWED);
+
+  const readWithoutEvidence = evaluateAuthorityGrantTrustV1({
+    grant: revoked,
+    at: "2026-02-26T00:00:01.000Z",
+    operation: "read"
+  });
+  assert.equal(readWithoutEvidence.allowed, false);
+  assert.equal(
+    readWithoutEvidence.reasonCode,
+    AUTHORITY_GRANT_TRUST_REASON_CODE.HISTORICAL_READ_EVIDENCE_REQUIRED
+  );
 });

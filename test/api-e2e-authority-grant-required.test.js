@@ -361,6 +361,29 @@ test("API e2e: authority grant issue fails closed when grantee lifecycle is non-
   assert.equal(blockedThrottled.json?.details?.operation, "authority_grant.issue");
 });
 
+test("API e2e: authority grant revoke writes deterministic reason metadata when reason is omitted", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const granteeAgentId = "agt_authority_reason_default_grantee_1";
+  await registerAgent(api, { agentId: granteeAgentId });
+
+  const authorityGrant = await issueAuthorityGrant(api, {
+    grantId: "agrant_reason_default_1",
+    granteeAgentId
+  });
+
+  const revoked = await request(api, {
+    method: "POST",
+    path: `/authority-grants/${encodeURIComponent(authorityGrant.grantId)}/revoke`,
+    headers: { "x-idempotency-key": "authority_grant_reason_default_revoke_1" },
+    body: {}
+  });
+  assert.equal(revoked.statusCode, 200, revoked.body);
+  assert.equal(
+    revoked.json?.authorityGrant?.revocation?.revocationReasonCode,
+    "AUTHORITY_GRANT_REVOKED_UNSPECIFIED"
+  );
+});
+
 test("API e2e: authority grant issue fails closed when grantee signer lifecycle is non-active", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const grantee = await registerAgentWithKey(api, { agentId: "agt_authority_signer_issue_grantee_1" });

@@ -19,6 +19,35 @@ export const AUTHORITY_GRANT_RISK_CLASS = Object.freeze({
 });
 
 const AUTHORITY_GRANT_RISK_CLASS_SET = new Set(Object.values(AUTHORITY_GRANT_RISK_CLASS));
+const AUTHORITY_GRANT_DEFAULT_REVOCATION_REASON_CODE = "AUTHORITY_GRANT_REVOKED_UNSPECIFIED";
+
+export const AUTHORITY_GRANT_TRUST_OPERATION = Object.freeze({
+  READ: "read",
+  WRITE: "write"
+});
+
+export const AUTHORITY_GRANT_TRUST_STATE = Object.freeze({
+  ACTIVE: "active",
+  REVOKED_PENDING: "revoked_pending",
+  REVOKED: "revoked",
+  NOT_YET_ACTIVE: "not_yet_active",
+  EXPIRED: "expired",
+  AMBIGUOUS: "ambiguous"
+});
+
+export const AUTHORITY_GRANT_TRUST_REASON_CODE = Object.freeze({
+  ACTIVE: "AUTHORITY_GRANT_ACTIVE",
+  REVOKED_PENDING: "AUTHORITY_GRANT_REVOKED_PENDING",
+  REVOKED: "AUTHORITY_GRANT_REVOKED",
+  NOT_YET_ACTIVE: "AUTHORITY_GRANT_NOT_YET_ACTIVE",
+  EXPIRED: "AUTHORITY_GRANT_EXPIRED",
+  HISTORICAL_READ_ALLOWED: "AUTHORITY_GRANT_HISTORICAL_READ_ALLOWED",
+  HISTORICAL_READ_EVIDENCE_REQUIRED: "AUTHORITY_GRANT_HISTORICAL_READ_EVIDENCE_REQUIRED",
+  HISTORICAL_READ_OUTSIDE_WINDOW: "AUTHORITY_GRANT_HISTORICAL_READ_OUTSIDE_WINDOW",
+  AMBIGUOUS_REVOCATION_REASON: "AUTHORITY_GRANT_REVOCATION_REASON_REQUIRED",
+  INVALID_OPERATION: "AUTHORITY_GRANT_OPERATION_INVALID",
+  INVALID_TIME: "AUTHORITY_GRANT_TIME_INVALID"
+});
 
 function assertPlainObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
@@ -225,6 +254,12 @@ function normalizeRevocation(input) {
   if (revokedAt !== null && revocable !== true) {
     throw new TypeError("revocation.revokedAt cannot be set when revocation.revocable=false");
   }
+  if (revokedAt === null && revocationReasonCode !== null) {
+    throw new TypeError("revocation.revocationReasonCode cannot be set when revocation.revokedAt is null");
+  }
+  if (revokedAt !== null && revocationReasonCode === null) {
+    throw new TypeError("revocation.revocationReasonCode is required when revocation.revokedAt is set");
+  }
   return normalizeForCanonicalJson(
     {
       revocable,
@@ -328,6 +363,133 @@ export function validateAuthorityGrantV1(grant) {
   return true;
 }
 
+function normalizeTrustOperation(value) {
+  const normalized =
+    value === null || value === undefined ? AUTHORITY_GRANT_TRUST_OPERATION.WRITE : String(value).trim().toLowerCase();
+  if (normalized !== AUTHORITY_GRANT_TRUST_OPERATION.READ && normalized !== AUTHORITY_GRANT_TRUST_OPERATION.WRITE) {
+    throw new TypeError(`operation must be one of ${Object.values(AUTHORITY_GRANT_TRUST_OPERATION).join("|")}`);
+  }
+  return normalized;
+}
+
+function parseOptionalIsoMs(value, name, { allowNull = true } = {}) {
+  if (allowNull && (value === null || value === undefined || String(value).trim() === "")) return null;
+  const iso = assertIsoDate(value, name);
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) throw new TypeError(`${name} must be an ISO timestamp`);
+  return { iso, ms };
+}
+
+function isEvidenceWithinTrustedWindow({ evidenceAtMs, nowMs, notBeforeMs, expiresAtMs, revokedAtMs }) {
+  if (!Number.isFinite(evidenceAtMs)) return false;
+  if (evidenceAtMs > nowMs) return false;
+  if (evidenceAtMs < notBeforeMs) return false;
+  if (evidenceAtMs >= expiresAtMs) return false;
+  if (Number.isFinite(revokedAtMs) && evidenceAtMs >= revokedAtMs) return false;
+  return true;
+}
+
+export function evaluateAuthorityGrantTrustV1({ grant, at = null, operation = "write", evidenceAt = null } = {}) {
+  validateAuthorityGrantV1(grant);
+  const normalizedOperation = normalizeTrustOperation(operation);
+  const atInput = parseOptionalIsoMs(at ?? new Date().toISOString(), "at", { allowNull: false });
+  const evidenceInput = parseOptionalIsoMs(evidenceAt, "evidenceAt", { allowNull: true });
+  const notBeforeInput = parseOptionalIsoMs(grant?.validity?.notBefore, "grant.validity.notBefore", { allowNull: false });
+  const expiresAtInput = parseOptionalIsoMs(grant?.validity?.expiresAt, "grant.validity.expiresAt", { allowNull: false });
+  const revokedAtInput = parseOptionalIsoMs(grant?.revocation?.revokedAt, "grant.revocation.revokedAt", { allowNull: true });
+  const revocationReasonCode =
+    typeof grant?.revocation?.revocationReasonCode === "string" && grant.revocation.revocationReasonCode.trim() !== ""
+      ? grant.revocation.revocationReasonCode.trim()
+      : null;
+  if (revokedAtInput && !revocationReasonCode) {
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: "AuthorityGrantTrustDecision.v1",
+        operation: normalizedOperation,
+        allowed: false,
+        readAllowed: false,
+        writeAllowed: false,
+        historicalVerificationOnly: false,
+        trustState: AUTHORITY_GRANT_TRUST_STATE.AMBIGUOUS,
+        reasonCode: AUTHORITY_GRANT_TRUST_REASON_CODE.AMBIGUOUS_REVOCATION_REASON,
+        at: atInput.iso,
+        evidenceAt: evidenceInput?.iso ?? null
+      },
+      { path: "$" }
+    );
+  }
+
+  const nowMs = atInput.ms;
+  const notBeforeMs = notBeforeInput.ms;
+  const expiresAtMs = expiresAtInput.ms;
+  const revokedAtMs = revokedAtInput?.ms ?? Number.NaN;
+  let trustState = AUTHORITY_GRANT_TRUST_STATE.ACTIVE;
+  let reasonCode = AUTHORITY_GRANT_TRUST_REASON_CODE.ACTIVE;
+  if (Number.isFinite(revokedAtMs) && nowMs >= revokedAtMs) {
+    trustState = AUTHORITY_GRANT_TRUST_STATE.REVOKED;
+    reasonCode = AUTHORITY_GRANT_TRUST_REASON_CODE.REVOKED;
+  } else if (nowMs < notBeforeMs) {
+    trustState = AUTHORITY_GRANT_TRUST_STATE.NOT_YET_ACTIVE;
+    reasonCode = AUTHORITY_GRANT_TRUST_REASON_CODE.NOT_YET_ACTIVE;
+  } else if (nowMs >= expiresAtMs) {
+    trustState = AUTHORITY_GRANT_TRUST_STATE.EXPIRED;
+    reasonCode = AUTHORITY_GRANT_TRUST_REASON_CODE.EXPIRED;
+  } else if (Number.isFinite(revokedAtMs)) {
+    trustState = AUTHORITY_GRANT_TRUST_STATE.REVOKED_PENDING;
+    reasonCode = AUTHORITY_GRANT_TRUST_REASON_CODE.REVOKED_PENDING;
+  }
+
+  const writeAllowed = trustState === AUTHORITY_GRANT_TRUST_STATE.ACTIVE || trustState === AUTHORITY_GRANT_TRUST_STATE.REVOKED_PENDING;
+  let readAllowed = writeAllowed;
+  let historicalVerificationOnly = false;
+  if (!writeAllowed && normalizedOperation === AUTHORITY_GRANT_TRUST_OPERATION.READ) {
+    if (!evidenceInput) {
+      readAllowed = false;
+      reasonCode = AUTHORITY_GRANT_TRUST_REASON_CODE.HISTORICAL_READ_EVIDENCE_REQUIRED;
+    } else if (
+      isEvidenceWithinTrustedWindow({
+        evidenceAtMs: evidenceInput.ms,
+        nowMs,
+        notBeforeMs,
+        expiresAtMs,
+        revokedAtMs
+      })
+    ) {
+      readAllowed = true;
+      historicalVerificationOnly = true;
+      reasonCode = AUTHORITY_GRANT_TRUST_REASON_CODE.HISTORICAL_READ_ALLOWED;
+    } else {
+      readAllowed = false;
+      reasonCode = AUTHORITY_GRANT_TRUST_REASON_CODE.HISTORICAL_READ_OUTSIDE_WINDOW;
+    }
+  }
+
+  const allowed = normalizedOperation === AUTHORITY_GRANT_TRUST_OPERATION.READ ? readAllowed : writeAllowed;
+  return normalizeForCanonicalJson(
+    {
+      schemaVersion: "AuthorityGrantTrustDecision.v1",
+      operation: normalizedOperation,
+      allowed,
+      readAllowed,
+      writeAllowed,
+      historicalVerificationOnly,
+      trustState,
+      reasonCode,
+      at: atInput.iso,
+      evidenceAt: evidenceInput?.iso ?? null,
+      validity: {
+        notBefore: notBeforeInput.iso,
+        expiresAt: expiresAtInput.iso
+      },
+      revocation: {
+        revokedAt: revokedAtInput?.iso ?? null,
+        revocationReasonCode
+      }
+    },
+    { path: "$" }
+  );
+}
+
 export function revokeAuthorityGrantV1({ grant, revokedAt = null, revocationReasonCode = null } = {}) {
   validateAuthorityGrantV1(grant);
   const revocation = grant.revocation && typeof grant.revocation === "object" && !Array.isArray(grant.revocation) ? grant.revocation : null;
@@ -340,7 +502,7 @@ export function revokeAuthorityGrantV1({ grant, revokedAt = null, revocationReas
   const at = assertIsoDate(revokedAt ?? new Date().toISOString(), "revokedAt");
   const reason =
     revocationReasonCode === null || revocationReasonCode === undefined || String(revocationReasonCode).trim() === ""
-      ? null
+      ? AUTHORITY_GRANT_DEFAULT_REVOCATION_REASON_CODE
       : normalizeId(revocationReasonCode, "revocationReasonCode", { min: 1, max: 120 });
   const next = normalizeForCanonicalJson(
     {

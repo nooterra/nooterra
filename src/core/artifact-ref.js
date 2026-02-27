@@ -1,6 +1,11 @@
-import { normalizeForCanonicalJson } from "./canonical-json.js";
+import { canonicalJsonStringify, normalizeForCanonicalJson } from "./canonical-json.js";
+import { sha256Hex } from "./crypto.js";
 
 export const ARTIFACT_REF_SCHEMA_VERSION = "ArtifactRef.v1";
+export const ARTIFACT_REF_PAYLOAD_BINDING_REASON_CODES = Object.freeze({
+  SCHEMA_INVALID: "ARTIFACT_REF_PAYLOAD_SCHEMA_INVALID",
+  HASH_MISMATCH: "ARTIFACT_REF_PAYLOAD_HASH_MISMATCH"
+});
 
 function assertPlainObject(value, name) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${name} must be an object`);
@@ -77,3 +82,55 @@ export function validateArtifactRefV1(value, { requireHash = true } = {}) {
   normalizeArtifactRefV1(value, { name: "artifactRef", requireHash });
 }
 
+export function hashArtifactPayloadV1(payload, { path = "$.artifactPayload" } = {}) {
+  const normalizedPayload = normalizeForCanonicalJson(payload ?? null, { path });
+  return sha256Hex(canonicalJsonStringify(normalizedPayload));
+}
+
+export function buildArtifactRefFromPayloadV1({
+  artifactId,
+  payload,
+  artifactType = null,
+  tenantId = null,
+  metadata = null
+} = {}) {
+  const artifactHash = hashArtifactPayloadV1(payload, { path: "$.artifactPayload" });
+  return buildArtifactRefV1({
+    artifactId,
+    artifactHash,
+    artifactType,
+    tenantId,
+    metadata
+  });
+}
+
+export function verifyArtifactRefPayloadBindingV1({
+  artifactRef,
+  payload
+} = {}) {
+  try {
+    const normalizedRef = normalizeArtifactRefV1(artifactRef, { name: "artifactRef", requireHash: true });
+    const payloadHash = hashArtifactPayloadV1(payload, { path: "$.artifactPayload" });
+    if (payloadHash !== normalizedRef.artifactHash) {
+      return {
+        ok: false,
+        code: ARTIFACT_REF_PAYLOAD_BINDING_REASON_CODES.HASH_MISMATCH,
+        error: "artifact payload hash mismatch",
+        expectedArtifactHash: normalizedRef.artifactHash,
+        gotArtifactHash: payloadHash
+      };
+    }
+    return {
+      ok: true,
+      code: null,
+      error: null,
+      artifactHash: payloadHash
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      code: ARTIFACT_REF_PAYLOAD_BINDING_REASON_CODES.SCHEMA_INVALID,
+      error: err?.message ?? String(err ?? "")
+    };
+  }
+}
