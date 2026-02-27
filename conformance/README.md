@@ -16,4 +16,5 @@ They are intended for:
 
 Publication tooling:
 
+- `scripts/conformance/publish-session-conformance-cert.mjs` — emits normalized hash-bound report/cert/publication artifacts for `session-v1`.
 - `scripts/conformance/publish-session-stream-conformance-cert.mjs` — emits normalized hash-bound report/cert/publication artifacts for `session-stream-v1`.

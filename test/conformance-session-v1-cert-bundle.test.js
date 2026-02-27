@@ -8,6 +8,20 @@ import { spawnSync } from "node:child_process";
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { sha256Hex } from "../src/core/crypto.js";
 
+function runConformance(args) {
+  return spawnSync(process.execPath, args, { encoding: "utf8" });
+}
+
+function baseRunnerArgs() {
+  return [
+    "conformance/session-v1/run.mjs",
+    "--adapter-node-bin",
+    "conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs",
+    "--case",
+    "session_artifacts_signed_deterministic"
+  ];
+}
+
 test("session artifact conformance pack emits hash-bound report and cert bundle", async (t) => {
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-session-conformance-cert-"));
   t.after(async () => {
@@ -17,21 +31,7 @@ test("session artifact conformance pack emits hash-bound report and cert bundle"
   const reportPath = path.join(tmpRoot, "session-conformance-report.json");
   const certPath = path.join(tmpRoot, "session-conformance-cert.json");
 
-  const res = spawnSync(
-    process.execPath,
-    [
-      "conformance/session-v1/run.mjs",
-      "--adapter-node-bin",
-      "conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs",
-      "--case",
-      "session_artifacts_signed_deterministic",
-      "--json-out",
-      reportPath,
-      "--cert-bundle-out",
-      certPath
-    ],
-    { encoding: "utf8" }
-  );
+  const res = runConformance([...baseRunnerArgs(), "--json-out", reportPath, "--cert-bundle-out", certPath, "--strict-artifacts"]);
 
   assert.equal(res.status, 0, `session conformance run failed\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
 
@@ -55,4 +55,38 @@ test("session artifact conformance pack emits hash-bound report and cert bundle"
   assert.equal(cert.certCore?.reportHash, report.reportHash);
   assert.deepEqual(cert.certCore?.reportCore, report.reportCore);
   assert.equal(cert.certHash, sha256Hex(canonicalJsonStringify(cert.certCore)));
+});
+
+test("session artifact conformance strict artifacts fail closed when required output path is missing", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-session-conformance-missing-artifact-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  const reportPath = path.join(tmpRoot, "report.json");
+  const res = runConformance([...baseRunnerArgs(), "--json-out", reportPath, "--strict-artifacts"]);
+
+  assert.equal(res.status, 2, `expected fail-closed strict artifact exit\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
+  assert.match(res.stderr, /CONFORMANCE_STRICT_ARTIFACTS_MISSING_OUTPUT_PATH/);
+  await assert.rejects(fs.access(reportPath));
+});
+
+test("session artifact conformance strict artifacts fail closed on report/cert path conflict", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-session-conformance-path-conflict-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  const artifactPath = path.join(tmpRoot, "artifact.json");
+  const res = runConformance([
+    ...baseRunnerArgs(),
+    "--json-out",
+    artifactPath,
+    "--cert-bundle-out",
+    artifactPath,
+    "--strict-artifacts"
+  ]);
+
+  assert.equal(res.status, 2, `expected fail-closed strict artifact path conflict exit\n\nstdout:\n${res.stdout}\n\nstderr:\n${res.stderr}`);
+  assert.match(res.stderr, /CONFORMANCE_STRICT_ARTIFACTS_PATH_CONFLICT/);
 });

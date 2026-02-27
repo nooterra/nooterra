@@ -14,7 +14,8 @@ function parseArgs(argv) {
     caseId: null,
     list: false,
     jsonOut: null,
-    certBundleOut: null
+    certBundleOut: null,
+    strictArtifacts: false
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -43,6 +44,10 @@ function parseArgs(argv) {
       i += 1;
       continue;
     }
+    if (a === "--strict-artifacts") {
+      out.strictArtifacts = true;
+      continue;
+    }
     if (a === "--list") {
       out.list = true;
       continue;
@@ -57,7 +62,7 @@ function usage() {
   // eslint-disable-next-line no-console
   console.error("usage:");
   console.error(
-    "  node conformance/session-stream-v1/run.mjs [--adapter-bin <cmd>] [--adapter-node-bin <path/to/adapter.js>] [--case <id>] [--json-out <path>] [--cert-bundle-out <path>] [--list]"
+    "  node conformance/session-stream-v1/run.mjs [--adapter-bin <cmd>] [--adapter-node-bin <path/to/adapter.js>] [--case <id>] [--json-out <path>] [--cert-bundle-out <path>] [--strict-artifacts] [--list]"
   );
 }
 
@@ -66,6 +71,112 @@ async function writeOutputJson(fp, json) {
   await fs.mkdir(path.dirname(outPath), { recursive: true });
   await fs.writeFile(outPath, JSON.stringify(json, null, 2) + "\n", "utf8");
   return outPath;
+}
+
+function isObjectRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function failClosedArtifactError(code, message, diagnostics = []) {
+  const lines = [`${code}: ${message}`];
+  for (const row of diagnostics) lines.push(`- ${row}`);
+  const err = new Error(lines.join("\n"));
+  err.code = code;
+  return err;
+}
+
+async function readArtifactJsonOrDiagnostic(filePath, label, diagnostics) {
+  let raw = null;
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch (err) {
+    diagnostics.push(`${label} missing or unreadable at ${filePath} (${err?.message ?? String(err ?? "")})`);
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    diagnostics.push(`${label} is not valid JSON at ${filePath} (${err?.message ?? String(err ?? "")})`);
+    return null;
+  }
+}
+
+async function validateStrictArtifactBindings({ reportPath, certPath }) {
+  const diagnostics = [];
+
+  const report = await readArtifactJsonOrDiagnostic(reportPath, "run report artifact", diagnostics);
+  const cert = await readArtifactJsonOrDiagnostic(certPath, "cert bundle artifact", diagnostics);
+
+  const reportCore = report?.reportCore;
+  const certCore = cert?.certCore;
+  const certReportCore = cert?.certCore?.reportCore;
+
+  if (report && report.schemaVersion !== "ConformanceRunReport.v1") {
+    diagnostics.push(`run report schemaVersion mismatch expected ConformanceRunReport.v1 got ${String(report.schemaVersion ?? "null")}`);
+  }
+  if (!isObjectRecord(reportCore)) {
+    diagnostics.push("run report missing reportCore object");
+  } else if (reportCore.pack !== "conformance/session-stream-v1") {
+    diagnostics.push(`run report pack mismatch expected conformance/session-stream-v1 got ${String(reportCore.pack ?? "null")}`);
+  }
+  if (cert && cert.schemaVersion !== "ConformanceCertBundle.v1") {
+    diagnostics.push(`cert bundle schemaVersion mismatch expected ConformanceCertBundle.v1 got ${String(cert.schemaVersion ?? "null")}`);
+  }
+  if (!isObjectRecord(certCore)) {
+    diagnostics.push("cert bundle missing certCore object");
+  } else {
+    if (certCore.schemaVersion !== "ConformanceCertBundleCore.v1") {
+      diagnostics.push(`cert core schemaVersion mismatch expected ConformanceCertBundleCore.v1 got ${String(certCore.schemaVersion ?? "null")}`);
+    }
+    if (certCore.pack !== "conformance/session-stream-v1") {
+      diagnostics.push(`cert core pack mismatch expected conformance/session-stream-v1 got ${String(certCore.pack ?? "null")}`);
+    }
+    if (String(certCore.reportSchemaVersion ?? "") !== String(report?.schemaVersion ?? "")) {
+      diagnostics.push(
+        `cert/report schema binding mismatch certCore.reportSchemaVersion=${String(certCore.reportSchemaVersion ?? "null")} report.schemaVersion=${String(report?.schemaVersion ?? "null")}`
+      );
+    }
+  }
+  if (!isObjectRecord(certReportCore)) {
+    diagnostics.push("cert bundle missing certCore.reportCore object");
+  }
+
+  if (isObjectRecord(reportCore)) {
+    const expectedReportHash = sha256Hex(canonicalJsonStringify(reportCore));
+    if (String(report?.reportHash ?? "") !== expectedReportHash) {
+      diagnostics.push(`run report hash mismatch expected=${expectedReportHash} actual=${String(report?.reportHash ?? "null")}`);
+    }
+  }
+
+  if (isObjectRecord(certCore)) {
+    const expectedCertHash = sha256Hex(canonicalJsonStringify(certCore));
+    if (String(cert?.certHash ?? "") !== expectedCertHash) {
+      diagnostics.push(`cert hash mismatch expected=${expectedCertHash} actual=${String(cert?.certHash ?? "null")}`);
+    }
+  }
+
+  if (isObjectRecord(reportCore) && isObjectRecord(certCore)) {
+    const reportHash = String(report?.reportHash ?? "");
+    if (String(certCore.reportHash ?? "") !== reportHash) {
+      diagnostics.push(`cert/report binding mismatch certCore.reportHash=${String(certCore.reportHash ?? "null")} report.reportHash=${reportHash || "null"}`);
+    }
+  }
+
+  if (isObjectRecord(reportCore) && isObjectRecord(certReportCore)) {
+    const canonicalReportCore = canonicalJsonStringify(reportCore);
+    const canonicalCertReportCore = canonicalJsonStringify(certReportCore);
+    if (canonicalCertReportCore !== canonicalReportCore) {
+      diagnostics.push("cert/report core mismatch certCore.reportCore does not match run reportCore");
+    }
+  }
+
+  if (diagnostics.length > 0) {
+    throw failClosedArtifactError(
+      "CONFORMANCE_STRICT_ARTIFACT_VALIDATION_FAILED",
+      "strict artifact validation failed",
+      diagnostics
+    );
+  }
 }
 
 function normalizeString(value) {
@@ -200,6 +311,24 @@ async function main() {
 
   const selectedCases = opts.caseId ? allCases.filter((row) => String(row?.id ?? "") === opts.caseId) : allCases;
   if (opts.caseId && selectedCases.length === 0) throw new Error(`case not found: ${opts.caseId}`);
+  if (opts.strictArtifacts) {
+    if (!opts.jsonOut || !opts.certBundleOut) {
+      throw failClosedArtifactError(
+        "CONFORMANCE_STRICT_ARTIFACTS_MISSING_OUTPUT_PATH",
+        "--strict-artifacts requires both --json-out and --cert-bundle-out",
+        [`jsonOut=${String(opts.jsonOut ?? "") || "<missing>"}`, `certBundleOut=${String(opts.certBundleOut ?? "") || "<missing>"}`]
+      );
+    }
+    const reportPath = path.resolve(process.cwd(), opts.jsonOut);
+    const certPath = path.resolve(process.cwd(), opts.certBundleOut);
+    if (reportPath === certPath) {
+      throw failClosedArtifactError(
+        "CONFORMANCE_STRICT_ARTIFACTS_PATH_CONFLICT",
+        "--json-out and --cert-bundle-out must point to different artifact files in strict mode",
+        [`conflictingPath=${reportPath}`]
+      );
+    }
+  }
 
   const cli = opts.adapterNodeBin
     ? { cmd: process.execPath, args: [path.resolve(opts.adapterNodeBin)], mode: "node" }
@@ -356,10 +485,12 @@ async function main() {
     { path: "$" }
   );
 
+  let reportOutPath = null;
+  let certOutPath = null;
   if (opts.jsonOut) {
-    const outPath = await writeOutputJson(opts.jsonOut, report);
+    reportOutPath = await writeOutputJson(opts.jsonOut, report);
     // eslint-disable-next-line no-console
-    console.log(`wrote ${outPath}`);
+    console.log(`wrote ${reportOutPath}`);
   }
 
   if (opts.certBundleOut) {
@@ -383,9 +514,15 @@ async function main() {
       },
       { path: "$" }
     );
-    const outPath = await writeOutputJson(opts.certBundleOut, certBundle);
+    certOutPath = await writeOutputJson(opts.certBundleOut, certBundle);
     // eslint-disable-next-line no-console
-    console.log(`wrote ${outPath}`);
+    console.log(`wrote ${certOutPath}`);
+  }
+
+  if (opts.strictArtifacts) {
+    await validateStrictArtifactBindings({ reportPath: reportOutPath, certPath: certOutPath });
+    // eslint-disable-next-line no-console
+    console.log(`validated strict artifacts report=${reportOutPath} cert=${certOutPath}`);
   }
 
   // eslint-disable-next-line no-console

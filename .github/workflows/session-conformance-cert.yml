@@ -1,0 +1,39 @@
+name: session_conformance_cert
+
+on:
+  workflow_dispatch:
+    inputs:
+      runtime_id:
+        description: Runtime identifier for publication artifacts
+        required: true
+        default: nooterra-reference-node
+
+jobs:
+  publish_session_conformance_cert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build session conformance publication artifacts
+        run: |
+          set -euo pipefail
+          node scripts/conformance/publish-session-conformance-cert.mjs \
+            --runtime-id "${{ inputs.runtime_id }}" \
+            --adapter-node-bin conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs \
+            --out-dir "artifacts/conformance/session-v1/${{ inputs.runtime_id }}"
+
+      - name: Upload session conformance publication artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: session-conformance-cert-${{ inputs.runtime_id }}-${{ github.run_id }}
+          path: artifacts/conformance/session-v1/${{ inputs.runtime_id }}
+          if-no-files-found: error
