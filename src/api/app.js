@@ -28700,7 +28700,8 @@ export function createApi({
       upstreamRes = await upstreamFetch(targetUrl, {
         method,
         headers: upstreamHeaders,
-        body
+        body,
+        redirect: "error"
       });
     } catch (err) {
       return sendError(

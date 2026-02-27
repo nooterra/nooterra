@@ -40,7 +40,8 @@ test("api onboarding proxy: forwards onboarding requests to configured upstream"
           url: String(url),
           method: init.method,
           headers: init.headers,
-          body: init.body
+          body: init.body,
+          redirect: init.redirect
         });
         return new Response(JSON.stringify({ ok: true, mode: "hybrid" }), {
           status: 200,
@@ -63,9 +64,9 @@ test("api onboarding proxy: forwards onboarding requests to configured upstream"
     assert.equal(calls[0].url, "https://onboarding.nooterra.test/v1/tenants/tenant_default/buyer/login/otp");
     assert.equal(calls[0].method, "POST");
     assert.equal(calls[0].body, JSON.stringify({ email: "aiden@nooterra.work" }));
+    assert.equal(calls[0].redirect, "error");
     assert.equal(calls[0].headers?.get?.("x-request-id"), "req_test_proxy_1");
   } finally {
     restore();
   }
 });
-
