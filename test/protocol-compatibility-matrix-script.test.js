@@ -334,3 +334,32 @@ test("protocol compatibility matrix script: deterministic sorted output and stab
   assert.equal(firstReport.artifactHash, secondReport.artifactHash);
   assert.deepEqual(firstReport.driftGate.blockingIssues, secondReport.driftGate.blockingIssues);
 });
+
+test("protocol compatibility matrix script: artifact hash is stable across different generation timestamps", async (t) => {
+  const fixture = await createFixture();
+  t.after(async () => {
+    await fs.rm(fixture.root, { recursive: true, force: true });
+  });
+
+  const first = runMatrix({
+    cwd: fixture.root,
+    policyPath: fixture.policyPath,
+    reportPath: fixture.reportPath,
+    nowIso: "2026-03-01T00:00:00.000Z"
+  });
+  assert.equal(first.status, 0, `stdout:\n${first.stdout}\n\nstderr:\n${first.stderr}`);
+  const firstReport = await readReport(fixture.reportPath);
+
+  const second = runMatrix({
+    cwd: fixture.root,
+    policyPath: fixture.policyPath,
+    reportPath: fixture.reportPath,
+    nowIso: "2026-03-04T00:00:00.000Z"
+  });
+  assert.equal(second.status, 0, `stdout:\n${second.stdout}\n\nstderr:\n${second.stderr}`);
+  const secondReport = await readReport(fixture.reportPath);
+
+  assert.notEqual(firstReport.generatedAt, secondReport.generatedAt);
+  assert.equal(firstReport.artifactHash, secondReport.artifactHash);
+  assert.deepEqual(firstReport.deterministicCore, secondReport.deterministicCore);
+});

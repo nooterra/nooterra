@@ -588,14 +588,21 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - name: Generate protocol compatibility matrix and enforce drift gate
+      - name: Generate protocol compatibility matrix artifact
         run: node scripts/ci/run-protocol-compatibility-matrix.mjs --report artifacts/gates/protocol-compatibility-matrix.json
+      - name: Enforce protocol compatibility drift gate
+        run: >
+          node scripts/ci/run-protocol-compatibility-drift-gate.mjs
+          --matrix-report artifacts/gates/protocol-compatibility-matrix.json
+          --report artifacts/gates/protocol-compatibility-drift-gate.json
       - name: Upload protocol compatibility matrix artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: protocol-compatibility-matrix-${{ github.run_id }}
-          path: artifacts/gates/protocol-compatibility-matrix.json
+          path: |
+            artifacts/gates/protocol-compatibility-matrix.json
+            artifacts/gates/protocol-compatibility-drift-gate.json
           if-no-files-found: error
 
   npm_pack_smoke:
