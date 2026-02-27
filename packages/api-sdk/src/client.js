@@ -189,6 +189,286 @@ function headersToRecord(headers) {
   return out;
 }
 
+const PARITY_DEFAULT_RETRY_STATUS_CODES = Object.freeze([408, 409, 425, 429, 500, 502, 503, 504]);
+const PARITY_REASON_CODE = Object.freeze({
+  OPERATION_INVALID: "PARITY_OPERATION_INVALID",
+  PAYLOAD_REQUIRED: "PARITY_PAYLOAD_REQUIRED",
+  REQUIRED_FIELD_MISSING: "PARITY_REQUIRED_FIELD_MISSING",
+  SHA256_FIELD_INVALID: "PARITY_SHA256_FIELD_INVALID",
+  IDEMPOTENCY_KEY_REQUIRED: "PARITY_IDEMPOTENCY_KEY_REQUIRED",
+  EXPECTED_PREV_CHAIN_HASH_REQUIRED: "PARITY_EXPECTED_PREV_CHAIN_HASH_REQUIRED",
+  MCP_CALL_REQUIRED: "PARITY_MCP_CALL_REQUIRED",
+  RESPONSE_INVALID: "PARITY_RESPONSE_INVALID",
+  TRANSPORT_ERROR: "PARITY_TRANSPORT_ERROR",
+  REQUEST_REJECTED: "PARITY_REQUEST_REJECTED"
+});
+
+function isPlainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function parseInteger(value, fallback, { min = 0 } = {}) {
+  if (value === undefined || value === null) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min) throw new TypeError("value must be an integer");
+  return parsed;
+}
+
+function normalizeRetryStatusCodes(value) {
+  if (value === undefined || value === null) return new Set(PARITY_DEFAULT_RETRY_STATUS_CODES);
+  if (!Array.isArray(value)) throw new TypeError("retryStatusCodes must be an array of status integers");
+  const out = new Set();
+  for (const raw of value) {
+    const status = Number(raw);
+    if (!Number.isInteger(status) || status < 100 || status > 599) {
+      throw new TypeError("retryStatusCodes must contain valid HTTP status integers");
+    }
+    out.add(status);
+  }
+  return out;
+}
+
+function normalizeRetryCodes(value) {
+  if (value === undefined || value === null) return new Set();
+  if (!Array.isArray(value)) throw new TypeError("retryCodes must be an array of non-empty strings");
+  const out = new Set();
+  for (const raw of value) {
+    const code = asNonEmptyStringOrNull(raw);
+    if (!code) throw new TypeError("retryCodes must contain non-empty strings");
+    out.add(code.toUpperCase());
+  }
+  return out;
+}
+
+function normalizeHeadersRecord(value) {
+  if (!value || typeof value !== "object") return {};
+  const out = {};
+  for (const [rawKey, rawValue] of Object.entries(value)) {
+    if (rawValue === undefined || rawValue === null) continue;
+    out[String(rawKey).toLowerCase()] = String(rawValue);
+  }
+  return out;
+}
+
+function getValueAtPath(target, fieldPath) {
+  const parts = String(fieldPath).split(".").filter(Boolean);
+  let cursor = target;
+  for (const part of parts) {
+    if (!cursor || typeof cursor !== "object" || !(part in cursor)) return undefined;
+    cursor = cursor[part];
+  }
+  return cursor;
+}
+
+function resolveRetryDelayMs(retryDelayMs, attempt) {
+  if (typeof retryDelayMs === "function") {
+    const computed = Number(retryDelayMs(attempt));
+    if (!Number.isFinite(computed) || computed < 0) throw new TypeError("retryDelayMs(attempt) must return a non-negative number");
+    return computed;
+  }
+  const raw = retryDelayMs === undefined || retryDelayMs === null ? 0 : Number(retryDelayMs);
+  if (!Number.isFinite(raw) || raw < 0) throw new TypeError("retryDelayMs must be a non-negative number");
+  return raw;
+}
+
+function sleepMs(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function createParityError({
+  status = 500,
+  code = PARITY_REASON_CODE.REQUEST_REJECTED,
+  message = "request failed",
+  details = null,
+  requestId = null,
+  retryable = false,
+  attempts = 1,
+  idempotencyKey = null,
+  transport = "http",
+  operationId = null
+}) {
+  const normalizedStatus = Number.isInteger(Number(status)) ? Number(status) : 500;
+  const normalizedCode = asNonEmptyStringOrNull(code) ?? PARITY_REASON_CODE.REQUEST_REJECTED;
+  const normalizedMessage = asNonEmptyStringOrNull(message) ?? `request failed (${normalizedStatus})`;
+  const error = new Error(normalizedMessage);
+  error.nooterra = {
+    status: normalizedStatus,
+    code: normalizedCode,
+    message: normalizedMessage,
+    details,
+    requestId: asNonEmptyStringOrNull(requestId),
+    retryable: Boolean(retryable),
+    attempts: Number.isInteger(attempts) && attempts > 0 ? attempts : 1,
+    idempotencyKey: asNonEmptyStringOrNull(idempotencyKey),
+    transport,
+    operationId: asNonEmptyStringOrNull(operationId)
+  };
+  return error;
+}
+
+function throwParityValidation({ code, message, details, transport, operationId, idempotencyKey }) {
+  throw createParityError({
+    status: 400,
+    code,
+    message,
+    details,
+    retryable: false,
+    attempts: 1,
+    transport,
+    operationId,
+    idempotencyKey
+  });
+}
+
+function resolveParityOperation(operation, { transport }) {
+  if (!isPlainObject(operation)) {
+    throw new TypeError("operation must be an object");
+  }
+  const operationId = asNonEmptyStringOrNull(operation.operationId);
+  if (!operationId) throw new TypeError("operation.operationId is required");
+  const requiredFields = Array.isArray(operation.requiredFields) ? operation.requiredFields.map((field) => String(field)) : [];
+  const sha256Fields = Array.isArray(operation.sha256Fields) ? operation.sha256Fields.map((field) => String(field)) : [];
+  const idempotencyRequired =
+    operation.idempotencyRequired === undefined || operation.idempotencyRequired === null
+      ? true
+      : Boolean(operation.idempotencyRequired);
+  const expectedPrevChainHashRequired = Boolean(operation.expectedPrevChainHashRequired);
+  if (transport === "http") {
+    const method = asNonEmptyStringOrNull(operation.method);
+    const path = asNonEmptyStringOrNull(operation.path);
+    if (!method) throw new TypeError("operation.method is required for http parity adapter");
+    if (!path || !path.startsWith("/")) throw new TypeError("operation.path is required for http parity adapter");
+    return {
+      transport,
+      operationId,
+      method: method.toUpperCase(),
+      path,
+      toolName: null,
+      requiredFields,
+      sha256Fields,
+      idempotencyRequired,
+      expectedPrevChainHashRequired
+    };
+  }
+  const toolName = asNonEmptyStringOrNull(operation.toolName);
+  if (!toolName) throw new TypeError("operation.toolName is required for mcp parity adapter");
+  return {
+    transport,
+    operationId,
+    method: null,
+    path: null,
+    toolName,
+    requiredFields,
+    sha256Fields,
+    idempotencyRequired,
+    expectedPrevChainHashRequired
+  };
+}
+
+function validateParityPayload(payload, operation, { transport, idempotencyKey, expectedPrevChainHash }) {
+  if (!isPlainObject(payload)) {
+    throwParityValidation({
+      code: PARITY_REASON_CODE.PAYLOAD_REQUIRED,
+      message: "payload must be an object",
+      transport,
+      operationId: operation.operationId,
+      idempotencyKey
+    });
+  }
+  for (const fieldPath of operation.requiredFields) {
+    if (!asNonEmptyStringOrNull(fieldPath)) continue;
+    const value = getValueAtPath(payload, fieldPath);
+    if (value === undefined || value === null || (typeof value === "string" && value.trim() === "")) {
+      throwParityValidation({
+        code: PARITY_REASON_CODE.REQUIRED_FIELD_MISSING,
+        message: `payload.${fieldPath} is required`,
+        details: { field: fieldPath },
+        transport,
+        operationId: operation.operationId,
+        idempotencyKey
+      });
+    }
+  }
+  for (const fieldPath of operation.sha256Fields) {
+    if (!asNonEmptyStringOrNull(fieldPath)) continue;
+    const value = getValueAtPath(payload, fieldPath);
+    try {
+      assertSha256Hex(value, `payload.${fieldPath}`);
+    } catch {
+      throwParityValidation({
+        code: PARITY_REASON_CODE.SHA256_FIELD_INVALID,
+        message: `payload.${fieldPath} must be sha256 hex`,
+        details: { field: fieldPath },
+        transport,
+        operationId: operation.operationId,
+        idempotencyKey
+      });
+    }
+  }
+  if (operation.idempotencyRequired && !asNonEmptyStringOrNull(idempotencyKey)) {
+    throwParityValidation({
+      code: PARITY_REASON_CODE.IDEMPOTENCY_KEY_REQUIRED,
+      message: "idempotencyKey is required",
+      transport,
+      operationId: operation.operationId
+    });
+  }
+  if (operation.expectedPrevChainHashRequired && !asNonEmptyStringOrNull(expectedPrevChainHash)) {
+    throwParityValidation({
+      code: PARITY_REASON_CODE.EXPECTED_PREV_CHAIN_HASH_REQUIRED,
+      message: "expectedPrevChainHash is required",
+      transport,
+      operationId: operation.operationId,
+      idempotencyKey
+    });
+  }
+  if (asNonEmptyStringOrNull(expectedPrevChainHash)) {
+    try {
+      assertSha256Hex(expectedPrevChainHash, "expectedPrevChainHash");
+    } catch {
+      throwParityValidation({
+        code: PARITY_REASON_CODE.EXPECTED_PREV_CHAIN_HASH_REQUIRED,
+        message: "expectedPrevChainHash must be sha256 hex",
+        transport,
+        operationId: operation.operationId,
+        idempotencyKey
+      });
+    }
+  }
+}
+
+function coerceParityError(err, context) {
+  if (err?.nooterra && typeof err.nooterra === "object") {
+    return createParityError({
+      status: err.nooterra.status,
+      code: err.nooterra.code ?? PARITY_REASON_CODE.REQUEST_REJECTED,
+      message: err.nooterra.message ?? err.message,
+      details: err.nooterra.details,
+      requestId: err.nooterra.requestId ?? context.requestId,
+      retryable: false,
+      attempts: context.attempt,
+      idempotencyKey: context.idempotencyKey,
+      transport: context.transport,
+      operationId: context.operationId
+    });
+  }
+  return createParityError({
+    status: 0,
+    code: PARITY_REASON_CODE.TRANSPORT_ERROR,
+    message: err?.message ?? "transport error",
+    details: { causeName: err?.name ?? null },
+    requestId: context.requestId,
+    retryable: false,
+    attempts: context.attempt,
+    idempotencyKey: context.idempotencyKey,
+    transport: context.transport,
+    operationId: context.operationId
+  });
+}
+
 export class NooterraClient {
   constructor(opts) {
     assertNonEmptyString(opts?.baseUrl, "baseUrl");
@@ -201,6 +481,14 @@ export class NooterraClient {
     this.opsToken = opts?.opsToken ? String(opts.opsToken) : null;
     this.fetchImpl = opts?.fetch ?? fetch;
     this.userAgent = opts?.userAgent ? String(opts.userAgent) : null;
+  }
+
+  createHttpParityAdapter(opts = {}) {
+    return new NooterraHttpParityAdapter(this, opts);
+  }
+
+  createMcpParityAdapter(opts = {}) {
+    return new NooterraMcpParityAdapter(this, opts);
   }
 
   async request(method, pathname, { body, requestId, idempotencyKey, expectedPrevChainHash, signal } = {}) {
@@ -1737,5 +2025,217 @@ export class NooterraClient {
     if (params.includeUnchanged !== undefined && params.includeUnchanged !== null) qs.set("includeUnchanged", String(Boolean(params.includeUnchanged)));
     const suffix = qs.toString() ? `?${qs.toString()}` : "";
     return this.request("GET", `/v1/tenants/${encodeURIComponent(tenantId)}/trust-graph/diff${suffix}`, opts);
+  }
+}
+
+class NooterraParityAdapterBase {
+  constructor(client, { transport, maxAttempts = 3, retryStatusCodes, retryCodes, retryDelayMs = 0 } = {}) {
+    if (!client || typeof client.request !== "function") throw new TypeError("client with request() is required");
+    if (transport !== "http" && transport !== "mcp") throw new TypeError("transport must be http or mcp");
+    this.client = client;
+    this.transport = transport;
+    this.maxAttempts = parseInteger(maxAttempts, 3, { min: 1 });
+    this.retryStatusCodes = normalizeRetryStatusCodes(retryStatusCodes);
+    this.retryCodes = normalizeRetryCodes(retryCodes);
+    this.retryDelayMs = retryDelayMs;
+  }
+
+  isRetryable(error) {
+    const status = Number(error?.nooterra?.status);
+    const code = asNonEmptyStringOrNull(error?.nooterra?.code);
+    if (!Number.isInteger(status) || status <= 0) return true;
+    if (this.retryStatusCodes.has(status)) return true;
+    if (code && this.retryCodes.has(code.toUpperCase())) return true;
+    return false;
+  }
+
+  async invoke(operation, payload, opts = {}) {
+    let resolvedOperation;
+    try {
+      resolvedOperation = resolveParityOperation(operation, { transport: this.transport });
+    } catch (err) {
+      throwParityValidation({
+        code: PARITY_REASON_CODE.OPERATION_INVALID,
+        message: err?.message ?? "operation is invalid",
+        transport: this.transport,
+        operationId: operation?.operationId
+      });
+    }
+    const requestId = asNonEmptyStringOrNull(opts?.requestId) ?? randomRequestId();
+    const idempotencyKey = asNonEmptyStringOrNull(opts?.idempotencyKey);
+    const expectedPrevChainHash = asNonEmptyStringOrNull(opts?.expectedPrevChainHash);
+    validateParityPayload(payload, resolvedOperation, {
+      transport: this.transport,
+      idempotencyKey,
+      expectedPrevChainHash
+    });
+
+    for (let attempt = 1; attempt <= this.maxAttempts; attempt += 1) {
+      try {
+        const rawResponse = await this.invokeOnce(resolvedOperation, payload, {
+          requestId,
+          idempotencyKey,
+          expectedPrevChainHash,
+          signal: opts?.signal
+        });
+        const responseHeaders = normalizeHeadersRecord(rawResponse?.headers);
+        const requestIdFromResponse = asNonEmptyStringOrNull(rawResponse?.requestId) ?? asNonEmptyStringOrNull(responseHeaders["x-request-id"]);
+        const status = Number(rawResponse?.status);
+        if (!Number.isInteger(status) || status < 100 || status > 599) {
+          throw createParityError({
+            status: 502,
+            code: PARITY_REASON_CODE.RESPONSE_INVALID,
+            message: "transport response missing valid status",
+            requestId: requestIdFromResponse ?? requestId,
+            idempotencyKey,
+            transport: this.transport,
+            operationId: resolvedOperation.operationId
+          });
+        }
+        if (rawResponse?.ok === false || status >= 400) {
+          throw createParityError({
+            status,
+            code: rawResponse?.code ?? PARITY_REASON_CODE.REQUEST_REJECTED,
+            message: rawResponse?.message ?? `request failed (${status})`,
+            details: rawResponse?.details,
+            requestId: requestIdFromResponse ?? requestId,
+            idempotencyKey,
+            transport: this.transport,
+            operationId: resolvedOperation.operationId
+          });
+        }
+        return {
+          ok: true,
+          status,
+          requestId: requestIdFromResponse ?? null,
+          body: rawResponse?.body ?? null,
+          headers: responseHeaders,
+          transport: this.transport,
+          operationId: resolvedOperation.operationId,
+          idempotencyKey,
+          attempts: attempt
+        };
+      } catch (err) {
+        const parityError = coerceParityError(err, {
+          attempt,
+          requestId,
+          idempotencyKey,
+          transport: this.transport,
+          operationId: resolvedOperation.operationId
+        });
+        const retryable = this.isRetryable(parityError);
+        parityError.nooterra.retryable = retryable;
+        parityError.nooterra.attempts = attempt;
+        if (!retryable || attempt >= this.maxAttempts) throw parityError;
+        await sleepMs(resolveRetryDelayMs(this.retryDelayMs, attempt));
+      }
+    }
+    throw createParityError({
+      status: 500,
+      code: PARITY_REASON_CODE.REQUEST_REJECTED,
+      message: "request failed",
+      idempotencyKey,
+      transport: this.transport,
+      operationId: resolvedOperation.operationId
+    });
+  }
+
+  // eslint-disable-next-line class-methods-use-this
+  async invokeOnce() {
+    throw new Error("invokeOnce() must be implemented");
+  }
+}
+
+export class NooterraHttpParityAdapter extends NooterraParityAdapterBase {
+  constructor(client, opts = {}) {
+    super(client, { ...opts, transport: "http" });
+  }
+
+  async invokeOnce(operation, payload, { requestId, idempotencyKey, expectedPrevChainHash, signal }) {
+    return this.client.request(operation.method, operation.path, {
+      body: payload,
+      requestId,
+      idempotencyKey,
+      expectedPrevChainHash,
+      signal
+    });
+  }
+}
+
+export class NooterraMcpParityAdapter extends NooterraParityAdapterBase {
+  constructor(client, opts = {}) {
+    super(client, { ...opts, transport: "mcp" });
+    this.callTool = opts?.callTool ?? null;
+  }
+
+  async invokeOnce(operation, payload, { requestId, idempotencyKey, expectedPrevChainHash, signal }) {
+    if (typeof this.callTool !== "function") {
+      throwParityValidation({
+        code: PARITY_REASON_CODE.MCP_CALL_REQUIRED,
+        message: "callTool function is required",
+        transport: this.transport,
+        operationId: operation.operationId,
+        idempotencyKey
+      });
+    }
+    const raw = await this.callTool(operation.toolName, {
+      operationId: operation.operationId,
+      payload,
+      requestId,
+      idempotencyKey,
+      expectedPrevChainHash,
+      signal,
+      headers: {
+        "x-request-id": requestId,
+        ...(idempotencyKey ? { "x-idempotency-key": idempotencyKey } : {}),
+        ...(expectedPrevChainHash ? { "x-proxy-expected-prev-chain-hash": expectedPrevChainHash } : {})
+      }
+    });
+    if (!isPlainObject(raw)) {
+      throw createParityError({
+        status: 502,
+        code: PARITY_REASON_CODE.RESPONSE_INVALID,
+        message: "mcp response must be an object",
+        requestId,
+        idempotencyKey,
+        transport: this.transport,
+        operationId: operation.operationId
+      });
+    }
+    const headers = normalizeHeadersRecord(raw.headers);
+    const responseRequestId = asNonEmptyStringOrNull(raw.requestId) ?? asNonEmptyStringOrNull(headers["x-request-id"]) ?? requestId;
+    const defaultStatus = raw.ok === false || raw.error !== undefined ? 500 : 200;
+    const rawStatus = raw.status === undefined || raw.status === null ? defaultStatus : Number(raw.status);
+    if (!Number.isInteger(rawStatus) || rawStatus < 100 || rawStatus > 599) {
+      throw createParityError({
+        status: 502,
+        code: PARITY_REASON_CODE.RESPONSE_INVALID,
+        message: "mcp response status must be a valid HTTP status integer",
+        requestId: responseRequestId,
+        idempotencyKey,
+        transport: this.transport,
+        operationId: operation.operationId
+      });
+    }
+    if (raw.ok === false || raw.error !== undefined || rawStatus >= 400) {
+      const errorBody = isPlainObject(raw.error) ? raw.error : {};
+      throw createParityError({
+        status: Number(errorBody.status) || rawStatus,
+        code: raw.code ?? errorBody.code ?? PARITY_REASON_CODE.REQUEST_REJECTED,
+        message: raw.message ?? errorBody.message ?? errorBody.error ?? `request failed (${rawStatus})`,
+        details: raw.details ?? errorBody.details,
+        requestId: responseRequestId,
+        idempotencyKey,
+        transport: this.transport,
+        operationId: operation.operationId
+      });
+    }
+    return {
+      ok: true,
+      status: rawStatus,
+      requestId: responseRequestId,
+      headers,
+      body: raw.body ?? raw.result ?? raw.data ?? null
+    };
   }
 }

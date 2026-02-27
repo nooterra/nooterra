@@ -6,7 +6,7 @@ import random
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Callable, Dict, Iterator, Optional
 from urllib import error, parse, request
 
 
@@ -131,6 +131,618 @@ class NooterraApiError(Exception):
         }
 
 
+_PARITY_DEFAULT_RETRY_STATUS_CODES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+_PARITY_REASON_CODE = {
+    "OPERATION_INVALID": "PARITY_OPERATION_INVALID",
+    "PAYLOAD_REQUIRED": "PARITY_PAYLOAD_REQUIRED",
+    "REQUIRED_FIELD_MISSING": "PARITY_REQUIRED_FIELD_MISSING",
+    "SHA256_FIELD_INVALID": "PARITY_SHA256_FIELD_INVALID",
+    "IDEMPOTENCY_KEY_REQUIRED": "PARITY_IDEMPOTENCY_KEY_REQUIRED",
+    "EXPECTED_PREV_CHAIN_HASH_REQUIRED": "PARITY_EXPECTED_PREV_CHAIN_HASH_REQUIRED",
+    "MCP_CALL_REQUIRED": "PARITY_MCP_CALL_REQUIRED",
+    "RESPONSE_INVALID": "PARITY_RESPONSE_INVALID",
+    "TRANSPORT_ERROR": "PARITY_TRANSPORT_ERROR",
+    "REQUEST_REJECTED": "PARITY_REQUEST_REJECTED",
+}
+
+
+def _normalize_headers_record(value: Any) -> Dict[str, str]:
+    if not isinstance(value, dict):
+        return {}
+    out: Dict[str, str] = {}
+    for raw_key, raw_value in value.items():
+        if raw_value is None:
+            continue
+        out[str(raw_key).lower()] = str(raw_value)
+    return out
+
+
+def _get_value_at_path(target: Any, field_path: str) -> Any:
+    parts = [part for part in str(field_path).split(".") if part]
+    cursor = target
+    for part in parts:
+        if not isinstance(cursor, dict) or part not in cursor:
+            return None
+        cursor = cursor.get(part)
+    return cursor
+
+
+def _normalize_retry_status_codes(value: Any) -> set[int]:
+    if value is None:
+        return set(_PARITY_DEFAULT_RETRY_STATUS_CODES)
+    if not isinstance(value, list):
+        raise ValueError("retry_status_codes must be a list of status integers")
+    out: set[int] = set()
+    for raw in value:
+        status = int(raw)
+        if status < 100 or status > 599:
+            raise ValueError("retry_status_codes must contain valid HTTP status integers")
+        out.add(status)
+    return out
+
+
+def _normalize_retry_codes(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    if not isinstance(value, list):
+        raise ValueError("retry_codes must be a list of non-empty strings")
+    out: set[str] = set()
+    for raw in value:
+        code = _as_non_empty_string_or_none(raw)
+        if code is None:
+            raise ValueError("retry_codes must contain non-empty strings")
+        out.add(code.upper())
+    return out
+
+
+def _resolve_retry_delay_seconds(retry_delay_seconds: Any, attempt: int) -> float:
+    if callable(retry_delay_seconds):
+        value = float(retry_delay_seconds(attempt))
+    elif retry_delay_seconds is None:
+        value = 0.0
+    else:
+        value = float(retry_delay_seconds)
+    if value < 0:
+        raise ValueError("retry_delay_seconds must be a non-negative number")
+    return value
+
+
+class NooterraParityError(NooterraApiError):
+    def __init__(
+        self,
+        *,
+        status: int,
+        message: str,
+        code: Optional[str] = None,
+        details: Any = None,
+        request_id: Optional[str] = None,
+        retryable: bool = False,
+        attempts: int = 1,
+        idempotency_key: Optional[str] = None,
+        transport: str = "http",
+        operation_id: Optional[str] = None,
+    ) -> None:
+        super().__init__(status=status, message=message, code=code, details=details, request_id=request_id)
+        self.retryable = bool(retryable)
+        self.attempts = int(attempts) if int(attempts) > 0 else 1
+        self.idempotency_key = idempotency_key
+        self.transport = transport
+        self.operation_id = operation_id
+
+    def to_dict(self) -> Dict[str, Any]:
+        out = super().to_dict()
+        out.update(
+            {
+                "retryable": self.retryable,
+                "attempts": self.attempts,
+                "idempotencyKey": self.idempotency_key,
+                "transport": self.transport,
+                "operationId": self.operation_id,
+            }
+        )
+        return out
+
+
+def _create_parity_error(
+    *,
+    status: int = 500,
+    code: str = _PARITY_REASON_CODE["REQUEST_REJECTED"],
+    message: str = "request failed",
+    details: Any = None,
+    request_id: Optional[str] = None,
+    retryable: bool = False,
+    attempts: int = 1,
+    idempotency_key: Optional[str] = None,
+    transport: str = "http",
+    operation_id: Optional[str] = None,
+) -> NooterraParityError:
+    normalized_message = _as_non_empty_string_or_none(message) or f"request failed ({status})"
+    normalized_code = _as_non_empty_string_or_none(code) or _PARITY_REASON_CODE["REQUEST_REJECTED"]
+    return NooterraParityError(
+        status=int(status),
+        code=normalized_code,
+        message=normalized_message,
+        details=details,
+        request_id=_as_non_empty_string_or_none(request_id),
+        retryable=retryable,
+        attempts=attempts,
+        idempotency_key=_as_non_empty_string_or_none(idempotency_key),
+        transport=transport,
+        operation_id=_as_non_empty_string_or_none(operation_id),
+    )
+
+
+def _raise_parity_validation_error(
+    *,
+    code: str,
+    message: str,
+    transport: str,
+    operation_id: Optional[str],
+    idempotency_key: Optional[str] = None,
+    details: Any = None,
+) -> None:
+    raise _create_parity_error(
+        status=400,
+        code=code,
+        message=message,
+        details=details,
+        request_id=None,
+        retryable=False,
+        attempts=1,
+        idempotency_key=idempotency_key,
+        transport=transport,
+        operation_id=operation_id,
+    )
+
+
+def _resolve_parity_operation(operation: Dict[str, Any], *, transport: str) -> Dict[str, Any]:
+    if not isinstance(operation, dict):
+        raise ValueError("operation must be an object")
+    operation_id = _as_non_empty_string_or_none(operation.get("operationId"))
+    if operation_id is None:
+        raise ValueError("operation.operationId is required")
+    required_fields = [str(item) for item in operation.get("requiredFields", [])] if isinstance(operation.get("requiredFields"), list) else []
+    sha256_fields = [str(item) for item in operation.get("sha256Fields", [])] if isinstance(operation.get("sha256Fields"), list) else []
+    if operation.get("idempotencyRequired") is None:
+        idempotency_required = True
+    else:
+        idempotency_required = bool(operation.get("idempotencyRequired"))
+    expected_prev_chain_hash_required = bool(operation.get("expectedPrevChainHashRequired"))
+    if transport == "http":
+        method = _as_non_empty_string_or_none(operation.get("method"))
+        path = _as_non_empty_string_or_none(operation.get("path"))
+        if method is None:
+            raise ValueError("operation.method is required for http parity adapter")
+        if path is None or not path.startswith("/"):
+            raise ValueError("operation.path is required for http parity adapter")
+        return {
+            "transport": transport,
+            "operationId": operation_id,
+            "method": method.upper(),
+            "path": path,
+            "toolName": None,
+            "requiredFields": required_fields,
+            "sha256Fields": sha256_fields,
+            "idempotencyRequired": idempotency_required,
+            "expectedPrevChainHashRequired": expected_prev_chain_hash_required,
+        }
+    tool_name = _as_non_empty_string_or_none(operation.get("toolName"))
+    if tool_name is None:
+        raise ValueError("operation.toolName is required for mcp parity adapter")
+    return {
+        "transport": transport,
+        "operationId": operation_id,
+        "method": None,
+        "path": None,
+        "toolName": tool_name,
+        "requiredFields": required_fields,
+        "sha256Fields": sha256_fields,
+        "idempotencyRequired": idempotency_required,
+        "expectedPrevChainHashRequired": expected_prev_chain_hash_required,
+    }
+
+
+def _validate_parity_payload(
+    payload: Any,
+    operation: Dict[str, Any],
+    *,
+    transport: str,
+    idempotency_key: Optional[str],
+    expected_prev_chain_hash: Optional[str],
+) -> None:
+    if not isinstance(payload, dict):
+        _raise_parity_validation_error(
+            code=_PARITY_REASON_CODE["PAYLOAD_REQUIRED"],
+            message="payload must be an object",
+            transport=transport,
+            operation_id=operation.get("operationId"),
+            idempotency_key=idempotency_key,
+        )
+    for field_path in operation.get("requiredFields", []):
+        value = _get_value_at_path(payload, str(field_path))
+        if value is None or (isinstance(value, str) and value.strip() == ""):
+            _raise_parity_validation_error(
+                code=_PARITY_REASON_CODE["REQUIRED_FIELD_MISSING"],
+                message=f"payload.{field_path} is required",
+                transport=transport,
+                operation_id=operation.get("operationId"),
+                idempotency_key=idempotency_key,
+                details={"field": str(field_path)},
+            )
+    for field_path in operation.get("sha256Fields", []):
+        value = _get_value_at_path(payload, str(field_path))
+        try:
+            _assert_sha256_hex(value, f"payload.{field_path}")
+        except Exception:
+            _raise_parity_validation_error(
+                code=_PARITY_REASON_CODE["SHA256_FIELD_INVALID"],
+                message=f"payload.{field_path} must be sha256 hex",
+                transport=transport,
+                operation_id=operation.get("operationId"),
+                idempotency_key=idempotency_key,
+                details={"field": str(field_path)},
+            )
+    if operation.get("idempotencyRequired") and _as_non_empty_string_or_none(idempotency_key) is None:
+        _raise_parity_validation_error(
+            code=_PARITY_REASON_CODE["IDEMPOTENCY_KEY_REQUIRED"],
+            message="idempotency_key is required",
+            transport=transport,
+            operation_id=operation.get("operationId"),
+        )
+    if operation.get("expectedPrevChainHashRequired") and _as_non_empty_string_or_none(expected_prev_chain_hash) is None:
+        _raise_parity_validation_error(
+            code=_PARITY_REASON_CODE["EXPECTED_PREV_CHAIN_HASH_REQUIRED"],
+            message="expected_prev_chain_hash is required",
+            transport=transport,
+            operation_id=operation.get("operationId"),
+            idempotency_key=idempotency_key,
+        )
+    if _as_non_empty_string_or_none(expected_prev_chain_hash) is not None:
+        try:
+            _assert_sha256_hex(expected_prev_chain_hash, "expected_prev_chain_hash")
+        except Exception:
+            _raise_parity_validation_error(
+                code=_PARITY_REASON_CODE["EXPECTED_PREV_CHAIN_HASH_REQUIRED"],
+                message="expected_prev_chain_hash must be sha256 hex",
+                transport=transport,
+                operation_id=operation.get("operationId"),
+                idempotency_key=idempotency_key,
+            )
+
+
+def _coerce_parity_error(
+    exc: Exception,
+    *,
+    transport: str,
+    operation_id: str,
+    request_id: str,
+    idempotency_key: Optional[str],
+    attempt: int,
+) -> NooterraParityError:
+    if isinstance(exc, NooterraParityError):
+        return _create_parity_error(
+            status=exc.status,
+            code=exc.code or _PARITY_REASON_CODE["REQUEST_REJECTED"],
+            message=str(exc),
+            details=exc.details,
+            request_id=exc.request_id or request_id,
+            retryable=exc.retryable,
+            attempts=attempt,
+            idempotency_key=idempotency_key,
+            transport=transport,
+            operation_id=operation_id,
+        )
+    if isinstance(exc, NooterraApiError):
+        return _create_parity_error(
+            status=exc.status,
+            code=exc.code or _PARITY_REASON_CODE["REQUEST_REJECTED"],
+            message=str(exc),
+            details=exc.details,
+            request_id=exc.request_id or request_id,
+            retryable=False,
+            attempts=attempt,
+            idempotency_key=idempotency_key,
+            transport=transport,
+            operation_id=operation_id,
+        )
+    return _create_parity_error(
+        status=0,
+        code=_PARITY_REASON_CODE["TRANSPORT_ERROR"],
+        message=str(exc) if str(exc) else "transport error",
+        details={"causeName": type(exc).__name__},
+        request_id=request_id,
+        retryable=False,
+        attempts=attempt,
+        idempotency_key=idempotency_key,
+        transport=transport,
+        operation_id=operation_id,
+    )
+
+
+class _NooterraParityAdapterBase:
+    def __init__(
+        self,
+        *,
+        client: "NooterraClient",
+        transport: str,
+        max_attempts: int = 3,
+        retry_status_codes: Optional[list[int]] = None,
+        retry_codes: Optional[list[str]] = None,
+        retry_delay_seconds: Any = 0.0,
+    ) -> None:
+        self.client = client
+        self.transport = transport
+        self.max_attempts = int(max_attempts)
+        if self.max_attempts <= 0:
+            raise ValueError("max_attempts must be a positive integer")
+        self.retry_status_codes = _normalize_retry_status_codes(retry_status_codes)
+        self.retry_codes = _normalize_retry_codes(retry_codes)
+        self.retry_delay_seconds = retry_delay_seconds
+
+    def _is_retryable(self, parity_error: NooterraParityError) -> bool:
+        status = int(parity_error.status)
+        code = _as_non_empty_string_or_none(parity_error.code)
+        if status <= 0:
+            return True
+        if status in self.retry_status_codes:
+            return True
+        if code is not None and code.upper() in self.retry_codes:
+            return True
+        return False
+
+    def invoke(
+        self,
+        operation: Dict[str, Any],
+        payload: Dict[str, Any],
+        *,
+        request_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        expected_prev_chain_hash: Optional[str] = None,
+        timeout_seconds: Optional[float] = None,
+        signal: Any = None,
+    ) -> Dict[str, Any]:
+        try:
+            resolved_operation = _resolve_parity_operation(operation, transport=self.transport)
+        except Exception as exc:
+            _raise_parity_validation_error(
+                code=_PARITY_REASON_CODE["OPERATION_INVALID"],
+                message=str(exc) if str(exc) else "operation is invalid",
+                transport=self.transport,
+                operation_id=operation.get("operationId") if isinstance(operation, dict) else None,
+                idempotency_key=idempotency_key,
+            )
+        resolved_request_id = _as_non_empty_string_or_none(request_id) or _random_request_id()
+        resolved_idempotency_key = _as_non_empty_string_or_none(idempotency_key)
+        resolved_expected_prev_chain_hash = _as_non_empty_string_or_none(expected_prev_chain_hash)
+        _validate_parity_payload(
+            payload,
+            resolved_operation,
+            transport=self.transport,
+            idempotency_key=resolved_idempotency_key,
+            expected_prev_chain_hash=resolved_expected_prev_chain_hash,
+        )
+
+        for attempt in range(1, self.max_attempts + 1):
+            try:
+                raw = self._invoke_once(
+                    resolved_operation,
+                    payload,
+                    request_id=resolved_request_id,
+                    idempotency_key=resolved_idempotency_key,
+                    expected_prev_chain_hash=resolved_expected_prev_chain_hash,
+                    timeout_seconds=timeout_seconds,
+                    signal=signal,
+                )
+                if not isinstance(raw, dict):
+                    raise _create_parity_error(
+                        status=502,
+                        code=_PARITY_REASON_CODE["RESPONSE_INVALID"],
+                        message="transport response must be an object",
+                        request_id=resolved_request_id,
+                        idempotency_key=resolved_idempotency_key,
+                        transport=self.transport,
+                        operation_id=resolved_operation.get("operationId"),
+                    )
+                headers = _normalize_headers_record(raw.get("headers"))
+                request_id_out = _as_non_empty_string_or_none(raw.get("requestId")) or headers.get("x-request-id")
+                status = raw.get("status")
+                if not isinstance(status, int):
+                    raise _create_parity_error(
+                        status=502,
+                        code=_PARITY_REASON_CODE["RESPONSE_INVALID"],
+                        message="transport response missing valid status",
+                        request_id=request_id_out or resolved_request_id,
+                        idempotency_key=resolved_idempotency_key,
+                        transport=self.transport,
+                        operation_id=resolved_operation.get("operationId"),
+                    )
+                if bool(raw.get("ok")) is False or status >= 400:
+                    raise _create_parity_error(
+                        status=status,
+                        code=_as_non_empty_string_or_none(raw.get("code")) or _PARITY_REASON_CODE["REQUEST_REJECTED"],
+                        message=_as_non_empty_string_or_none(raw.get("message")) or f"request failed ({status})",
+                        details=raw.get("details"),
+                        request_id=request_id_out or resolved_request_id,
+                        idempotency_key=resolved_idempotency_key,
+                        transport=self.transport,
+                        operation_id=resolved_operation.get("operationId"),
+                    )
+                return {
+                    "ok": True,
+                    "status": status,
+                    "requestId": request_id_out,
+                    "body": raw.get("body"),
+                    "headers": headers,
+                    "transport": self.transport,
+                    "operationId": resolved_operation.get("operationId"),
+                    "idempotencyKey": resolved_idempotency_key,
+                    "attempts": attempt,
+                }
+            except Exception as exc:
+                parity_error = _coerce_parity_error(
+                    exc,
+                    transport=self.transport,
+                    operation_id=str(resolved_operation.get("operationId")),
+                    request_id=resolved_request_id,
+                    idempotency_key=resolved_idempotency_key,
+                    attempt=attempt,
+                )
+                parity_error.retryable = self._is_retryable(parity_error)
+                parity_error.attempts = attempt
+                if (not parity_error.retryable) or attempt >= self.max_attempts:
+                    raise parity_error
+                delay_seconds = _resolve_retry_delay_seconds(self.retry_delay_seconds, attempt)
+                if delay_seconds > 0:
+                    time.sleep(delay_seconds)
+        raise _create_parity_error(
+            status=500,
+            code=_PARITY_REASON_CODE["REQUEST_REJECTED"],
+            message="request failed",
+            request_id=resolved_request_id,
+            idempotency_key=resolved_idempotency_key,
+            transport=self.transport,
+            operation_id=str(resolved_operation.get("operationId")),
+        )
+
+    def _invoke_once(
+        self,
+        operation: Dict[str, Any],
+        payload: Dict[str, Any],
+        *,
+        request_id: str,
+        idempotency_key: Optional[str],
+        expected_prev_chain_hash: Optional[str],
+        timeout_seconds: Optional[float],
+        signal: Any,
+    ) -> Dict[str, Any]:
+        raise NotImplementedError
+
+
+class NooterraHttpParityAdapter(_NooterraParityAdapterBase):
+    def __init__(self, *, client: "NooterraClient", **opts: Any) -> None:
+        super().__init__(client=client, transport="http", **opts)
+
+    def _invoke_once(
+        self,
+        operation: Dict[str, Any],
+        payload: Dict[str, Any],
+        *,
+        request_id: str,
+        idempotency_key: Optional[str],
+        expected_prev_chain_hash: Optional[str],
+        timeout_seconds: Optional[float],
+        signal: Any,
+    ) -> Dict[str, Any]:
+        _ = signal  # signal is accepted for API symmetry with JS adapter.
+        return self.client._request(
+            operation.get("method"),
+            operation.get("path"),
+            body=payload,
+            request_id=request_id,
+            idempotency_key=idempotency_key,
+            expected_prev_chain_hash=expected_prev_chain_hash,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+class NooterraMcpParityAdapter(_NooterraParityAdapterBase):
+    def __init__(
+        self,
+        *,
+        client: "NooterraClient",
+        call_tool: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
+        **opts: Any,
+    ) -> None:
+        super().__init__(client=client, transport="mcp", **opts)
+        self.call_tool = call_tool
+
+    def _invoke_once(
+        self,
+        operation: Dict[str, Any],
+        payload: Dict[str, Any],
+        *,
+        request_id: str,
+        idempotency_key: Optional[str],
+        expected_prev_chain_hash: Optional[str],
+        timeout_seconds: Optional[float],
+        signal: Any,
+    ) -> Dict[str, Any]:
+        if not callable(self.call_tool):
+            _raise_parity_validation_error(
+                code=_PARITY_REASON_CODE["MCP_CALL_REQUIRED"],
+                message="call_tool function is required",
+                transport=self.transport,
+                operation_id=operation.get("operationId"),
+                idempotency_key=idempotency_key,
+            )
+        raw = self.call_tool(
+            str(operation.get("toolName")),
+            {
+                "operationId": operation.get("operationId"),
+                "payload": payload,
+                "requestId": request_id,
+                "idempotencyKey": idempotency_key,
+                "expectedPrevChainHash": expected_prev_chain_hash,
+                "timeoutSeconds": timeout_seconds,
+                "signal": signal,
+                "headers": {
+                    "x-request-id": request_id,
+                    **({"x-idempotency-key": idempotency_key} if idempotency_key else {}),
+                    **({"x-proxy-expected-prev-chain-hash": expected_prev_chain_hash} if expected_prev_chain_hash else {}),
+                },
+            },
+        )
+        if not isinstance(raw, dict):
+            raise _create_parity_error(
+                status=502,
+                code=_PARITY_REASON_CODE["RESPONSE_INVALID"],
+                message="mcp response must be an object",
+                request_id=request_id,
+                idempotency_key=idempotency_key,
+                transport=self.transport,
+                operation_id=operation.get("operationId"),
+            )
+        headers = _normalize_headers_record(raw.get("headers"))
+        response_request_id = _as_non_empty_string_or_none(raw.get("requestId")) or headers.get("x-request-id") or request_id
+        default_status = 500 if (raw.get("ok") is False or raw.get("error") is not None) else 200
+        try:
+            status = int(raw.get("status")) if raw.get("status") is not None else default_status
+        except Exception:
+            raise _create_parity_error(
+                status=502,
+                code=_PARITY_REASON_CODE["RESPONSE_INVALID"],
+                message="mcp response status must be a valid HTTP status integer",
+                request_id=response_request_id,
+                idempotency_key=idempotency_key,
+                transport=self.transport,
+                operation_id=operation.get("operationId"),
+            )
+        if raw.get("ok") is False or raw.get("error") is not None or status >= 400:
+            err_body = raw.get("error") if isinstance(raw.get("error"), dict) else {}
+            raise _create_parity_error(
+                status=int(err_body.get("status")) if isinstance(err_body.get("status"), int) else status,
+                code=_as_non_empty_string_or_none(raw.get("code"))
+                or _as_non_empty_string_or_none(err_body.get("code"))
+                or _PARITY_REASON_CODE["REQUEST_REJECTED"],
+                message=_as_non_empty_string_or_none(raw.get("message"))
+                or _as_non_empty_string_or_none(err_body.get("message"))
+                or _as_non_empty_string_or_none(err_body.get("error"))
+                or f"request failed ({status})",
+                details=raw.get("details") if raw.get("details") is not None else err_body.get("details"),
+                request_id=response_request_id,
+                idempotency_key=idempotency_key,
+                transport=self.transport,
+                operation_id=operation.get("operationId"),
+            )
+        return {
+            "ok": True,
+            "status": status,
+            "requestId": response_request_id,
+            "headers": headers,
+            "body": raw.get("body", raw.get("result", raw.get("data"))),
+        }
+
+
 class NooterraClient:
     def __init__(
         self,
@@ -152,6 +764,17 @@ class NooterraClient:
         self.ops_token = ops_token
         self.user_agent = user_agent
         self.timeout_seconds = timeout_seconds
+
+    def create_http_parity_adapter(self, **opts: Any) -> NooterraHttpParityAdapter:
+        return NooterraHttpParityAdapter(client=self, **opts)
+
+    def create_mcp_parity_adapter(
+        self,
+        *,
+        call_tool: Optional[Callable[[str, Dict[str, Any]], Dict[str, Any]]] = None,
+        **opts: Any,
+    ) -> NooterraMcpParityAdapter:
+        return NooterraMcpParityAdapter(client=self, call_tool=call_tool, **opts)
 
     def _query_suffix(self, query: Optional[Dict[str, Any]] = None, *, allowed_keys: Optional[list[str]] = None) -> str:
         if not isinstance(query, dict):

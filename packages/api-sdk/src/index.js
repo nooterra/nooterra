@@ -1,4 +1,4 @@
-export { NooterraClient } from "./client.js";
+export { NooterraClient, NooterraHttpParityAdapter, NooterraMcpParityAdapter } from "./client.js";
 export { fetchWithNooterraAutopay } from "./x402-autopay.js";
 export {
   verifyNooterraWebhookSignature,

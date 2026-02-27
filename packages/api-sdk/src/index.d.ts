@@ -1001,8 +1001,95 @@ export type VerifiedInteractionGraphPack = {
   signature?: InteractionGraphPackSignature;
 };
 
+export type NooterraParityTransport = "http" | "mcp";
+
+export type NooterraParityReasonCode =
+  | "PARITY_OPERATION_INVALID"
+  | "PARITY_PAYLOAD_REQUIRED"
+  | "PARITY_REQUIRED_FIELD_MISSING"
+  | "PARITY_SHA256_FIELD_INVALID"
+  | "PARITY_IDEMPOTENCY_KEY_REQUIRED"
+  | "PARITY_EXPECTED_PREV_CHAIN_HASH_REQUIRED"
+  | "PARITY_MCP_CALL_REQUIRED"
+  | "PARITY_RESPONSE_INVALID"
+  | "PARITY_TRANSPORT_ERROR"
+  | "PARITY_REQUEST_REJECTED";
+
+export type NooterraParityError = NooterraError & {
+  code: NooterraParityReasonCode | (string & {});
+  retryable: boolean;
+  attempts: number;
+  idempotencyKey: string | null;
+  transport: NooterraParityTransport;
+  operationId: string | null;
+};
+
+export type NooterraParityResponse<T = unknown> = NooterraResponse<T> & {
+  transport: NooterraParityTransport;
+  operationId: string;
+  idempotencyKey: string | null;
+  attempts: number;
+};
+
+export type NooterraParityRetryOptions = {
+  maxAttempts?: number;
+  retryStatusCodes?: number[];
+  retryCodes?: string[];
+  retryDelayMs?: number | ((attempt: number) => number);
+};
+
+export type NooterraParityOperationBase = {
+  operationId: string;
+  requiredFields?: string[];
+  sha256Fields?: string[];
+  idempotencyRequired?: boolean;
+  expectedPrevChainHashRequired?: boolean;
+};
+
+export type NooterraHttpParityOperation = NooterraParityOperationBase & {
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
+  path: string;
+};
+
+export type NooterraMcpParityOperation = NooterraParityOperationBase & {
+  toolName: string;
+};
+
+export type NooterraMcpCallTool = (
+  toolName: string,
+  request: {
+    operationId: string;
+    payload: Record<string, unknown>;
+    requestId: string;
+    idempotencyKey?: string | null;
+    expectedPrevChainHash?: string | null;
+    signal?: AbortSignal;
+    headers?: Record<string, string>;
+  }
+) => Promise<Record<string, unknown>>;
+
+export class NooterraHttpParityAdapter {
+  constructor(client: NooterraClient, opts?: NooterraParityRetryOptions);
+  invoke<T = unknown>(
+    operation: NooterraHttpParityOperation,
+    payload: Record<string, unknown>,
+    opts?: RequestOptions
+  ): Promise<NooterraParityResponse<T>>;
+}
+
+export class NooterraMcpParityAdapter {
+  constructor(client: NooterraClient, opts: NooterraParityRetryOptions & { callTool: NooterraMcpCallTool });
+  invoke<T = unknown>(
+    operation: NooterraMcpParityOperation,
+    payload: Record<string, unknown>,
+    opts?: RequestOptions
+  ): Promise<NooterraParityResponse<T>>;
+}
+
 export class NooterraClient {
   constructor(opts: NooterraClientOptions);
+  createHttpParityAdapter(opts?: NooterraParityRetryOptions): NooterraHttpParityAdapter;
+  createMcpParityAdapter(opts: NooterraParityRetryOptions & { callTool: NooterraMcpCallTool }): NooterraMcpParityAdapter;
 
   capabilities(opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;
   openApi(opts?: RequestOptions): Promise<NooterraResponse<Record<string, unknown>>>;

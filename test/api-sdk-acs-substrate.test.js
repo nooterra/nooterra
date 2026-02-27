@@ -232,3 +232,174 @@ test("api-sdk: capability attestation methods call expected endpoints", async ()
   assert.equal(calls[3].url, `https://api.nooterra.local/capability-attestations/${attestationId}/revoke`);
   assert.equal(calls[3].init?.method, "POST");
 });
+
+test("api-sdk: parity adapters align HTTP + MCP payload/error/retry/idempotency semantics", async () => {
+  const httpCalls = [];
+  const mcpCalls = [];
+  const attemptByIdempotency = new Map();
+  const payload = {
+    grantId: "dgrant_parity_1",
+    delegatorAgentId: "agt_principal",
+    delegateeAgentId: "agt_worker"
+  };
+
+  const fetchStub = async (url, init) => {
+    const headers = init?.headers ?? {};
+    const idempotencyKey = headers["x-idempotency-key"] ?? null;
+    const attempt = (attemptByIdempotency.get(`http:${idempotencyKey}`) ?? 0) + 1;
+    attemptByIdempotency.set(`http:${idempotencyKey}`, attempt);
+    httpCalls.push({ url: String(url), method: String(init?.method ?? ""), idempotencyKey, attempt });
+    if (attempt === 1) {
+      return makeJsonResponse(
+        { code: "TEMP_UNAVAILABLE", error: "temporary outage", details: { attempt } },
+        { status: 503, requestId: `req_http_attempt_${attempt}` }
+      );
+    }
+    return makeJsonResponse(
+      { delegationGrant: { grantId: payload.grantId, status: "active" } },
+      { status: 201, requestId: `req_http_attempt_${attempt}` }
+    );
+  };
+
+  const client = new NooterraClient({
+    baseUrl: "https://api.nooterra.local",
+    tenantId: "tenant_sdk_parity",
+    fetch: fetchStub
+  });
+  const httpAdapter = client.createHttpParityAdapter({
+    maxAttempts: 2,
+    retryStatusCodes: [503],
+    retryDelayMs: 0
+  });
+  const mcpAdapter = client.createMcpParityAdapter({
+    maxAttempts: 2,
+    retryStatusCodes: [503],
+    retryDelayMs: 0,
+    callTool: async (toolName, requestPayload) => {
+      const idempotencyKey = requestPayload?.idempotencyKey ?? null;
+      const attempt = (attemptByIdempotency.get(`mcp:${idempotencyKey}`) ?? 0) + 1;
+      attemptByIdempotency.set(`mcp:${idempotencyKey}`, attempt);
+      mcpCalls.push({ toolName, idempotencyKey, attempt });
+      if (attempt === 1) {
+        return {
+          ok: false,
+          status: 503,
+          requestId: `req_mcp_attempt_${attempt}`,
+          error: { code: "TEMP_UNAVAILABLE", message: "temporary outage", details: { attempt } }
+        };
+      }
+      return {
+        ok: true,
+        status: 201,
+        requestId: `req_mcp_attempt_${attempt}`,
+        body: { delegationGrant: { grantId: payload.grantId, status: "active" } },
+        headers: { "x-request-id": `req_mcp_attempt_${attempt}` }
+      };
+    }
+  });
+
+  const operationId = "delegation_grant_issue";
+  const httpOperation = {
+    operationId,
+    method: "POST",
+    path: "/delegation-grants",
+    requiredFields: ["grantId", "delegatorAgentId", "delegateeAgentId"],
+    idempotencyRequired: true
+  };
+  const mcpOperation = {
+    operationId,
+    toolName: "nooterra.delegation_grant_issue",
+    requiredFields: ["grantId", "delegatorAgentId", "delegateeAgentId"],
+    idempotencyRequired: true
+  };
+
+  const httpResult = await httpAdapter.invoke(httpOperation, payload, {
+    requestId: "req_parity_1",
+    idempotencyKey: "idem_parity_1"
+  });
+  const mcpResult = await mcpAdapter.invoke(mcpOperation, payload, {
+    requestId: "req_parity_1",
+    idempotencyKey: "idem_parity_1"
+  });
+
+  assert.equal(httpResult.transport, "http");
+  assert.equal(mcpResult.transport, "mcp");
+  assert.equal(httpResult.status, 201);
+  assert.equal(mcpResult.status, 201);
+  assert.deepEqual(httpResult.body, mcpResult.body);
+  assert.equal(httpResult.attempts, 2);
+  assert.equal(mcpResult.attempts, 2);
+  assert.equal(httpResult.idempotencyKey, "idem_parity_1");
+  assert.equal(mcpResult.idempotencyKey, "idem_parity_1");
+
+  assert.equal(httpCalls.length, 2);
+  assert.equal(mcpCalls.length, 2);
+  assert.equal(httpCalls[0].idempotencyKey, "idem_parity_1");
+  assert.equal(httpCalls[1].idempotencyKey, "idem_parity_1");
+  assert.equal(mcpCalls[0].idempotencyKey, "idem_parity_1");
+  assert.equal(mcpCalls[1].idempotencyKey, "idem_parity_1");
+});
+
+test("api-sdk: parity adapters fail closed on missing safety-critical fields", async () => {
+  const client = new NooterraClient({
+    baseUrl: "https://api.nooterra.local",
+    tenantId: "tenant_sdk_parity",
+    fetch: async () => makeJsonResponse({ ok: true })
+  });
+  const httpAdapter = client.createHttpParityAdapter();
+  const mcpAdapter = client.createMcpParityAdapter({
+    callTool: async () => ({ ok: true, status: 200, body: { ok: true } })
+  });
+  const httpOperation = {
+    operationId: "run_event_append_http",
+    method: "POST",
+    path: "/runs/run_1/dispute/evidence",
+    requiredFields: ["evidenceRef"],
+    idempotencyRequired: true,
+    expectedPrevChainHashRequired: true
+  };
+  const mcpOperation = {
+    operationId: "run_event_append_mcp",
+    toolName: "nooterra.run_dispute_evidence_submit",
+    requiredFields: ["evidenceRef"],
+    idempotencyRequired: true,
+    expectedPrevChainHashRequired: true
+  };
+
+  await assert.rejects(
+    httpAdapter.invoke(httpOperation, {}, { requestId: "req_fail_closed_1", idempotencyKey: "idem_fail_1", expectedPrevChainHash: "a".repeat(64) }),
+    (err) => {
+      assert.equal(err?.nooterra?.code, "PARITY_REQUIRED_FIELD_MISSING");
+      return true;
+    }
+  );
+  await assert.rejects(
+    mcpAdapter.invoke(mcpOperation, {}, { requestId: "req_fail_closed_2", idempotencyKey: "idem_fail_2", expectedPrevChainHash: "a".repeat(64) }),
+    (err) => {
+      assert.equal(err?.nooterra?.code, "PARITY_REQUIRED_FIELD_MISSING");
+      return true;
+    }
+  );
+  await assert.rejects(
+    httpAdapter.invoke(
+      httpOperation,
+      { evidenceRef: "evidence://run_1/output.json" },
+      { requestId: "req_fail_closed_3", expectedPrevChainHash: "a".repeat(64) }
+    ),
+    (err) => {
+      assert.equal(err?.nooterra?.code, "PARITY_IDEMPOTENCY_KEY_REQUIRED");
+      return true;
+    }
+  );
+  await assert.rejects(
+    mcpAdapter.invoke(
+      mcpOperation,
+      { evidenceRef: "evidence://run_1/output.json" },
+      { requestId: "req_fail_closed_4", expectedPrevChainHash: "a".repeat(64) }
+    ),
+    (err) => {
+      assert.equal(err?.nooterra?.code, "PARITY_IDEMPOTENCY_KEY_REQUIRED");
+      return true;
+    }
+  );
+});

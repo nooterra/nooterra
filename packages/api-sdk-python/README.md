@@ -37,3 +37,25 @@ Example commands:
 - `npm run sdk:first-run:py`
 - `npm run sdk:first-rfq:py`
 - `npm run sdk:acs-smoke:py`
+
+## Transport Parity Adapters (HTTP + MCP)
+
+Use parity adapters when your integration must keep HTTP and MCP behavior aligned:
+
+- `client.create_http_parity_adapter(...)`
+- `client.create_mcp_parity_adapter(call_tool=..., ...)`
+
+Both adapters return the same envelope:
+- `ok`, `status`, `requestId`, `body`, `headers`
+- `transport`, `operationId`, `idempotencyKey`, `attempts`
+
+Both adapters raise `NooterraParityError` with stable fields:
+- `status`, `code`, `message`, `details`, `requestId`
+- `retryable`, `attempts`, `transport`, `operationId`
+
+Safety caveats for integration:
+- Treat `PARITY_*` validation codes as fail-closed and stop the flow.
+- Idempotency is fail-closed by default (`idempotencyRequired=True`). Set `idempotencyRequired=False` only for explicitly safe read operations.
+- For safety-critical writes, reuse the same idempotency key for retries.
+- Require `expected_prev_chain_hash` for chain-bound writes (`expectedPrevChainHashRequired=True`).
+- Keep retry policy deterministic and avoid adding a transport-specific retry path outside the parity adapter.

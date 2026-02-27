@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-import { NooterraClient } from "../packages/api-sdk/src/index.js";
+import { NooterraClient, NooterraHttpParityAdapter, NooterraMcpParityAdapter } from "../packages/api-sdk/src/index.js";
 
 function readFile(relativePath) {
   return fs.readFileSync(path.resolve(process.cwd(), relativePath), "utf8");
@@ -54,6 +54,15 @@ test("api-sdk contract freeze: manual-review + dispute lifecycle methods and typ
   assert.equal(typeof client.listCapabilityAttestations, "function");
   assert.equal(typeof client.getCapabilityAttestation, "function");
   assert.equal(typeof client.revokeCapabilityAttestation, "function");
+  assert.equal(typeof client.createHttpParityAdapter, "function");
+  assert.equal(typeof client.createMcpParityAdapter, "function");
+  assert.equal(typeof NooterraHttpParityAdapter, "function");
+  assert.equal(typeof NooterraMcpParityAdapter, "function");
+
+  const parityHttp = client.createHttpParityAdapter();
+  const parityMcp = client.createMcpParityAdapter({ callTool: async () => ({ ok: true, status: 200, body: {} }) });
+  assert.equal(typeof parityHttp.invoke, "function");
+  assert.equal(typeof parityMcp.invoke, "function");
 
   const dts = readFile("packages/api-sdk/src/index.d.ts");
   assert.match(dts, /manual_review_required/);
@@ -100,6 +109,13 @@ test("api-sdk contract freeze: manual-review + dispute lifecycle methods and typ
   assert.match(dts, /listCapabilityAttestations\(/);
   assert.match(dts, /getCapabilityAttestation\(/);
   assert.match(dts, /revokeCapabilityAttestation\(/);
+  assert.match(dts, /NooterraHttpParityAdapter/);
+  assert.match(dts, /NooterraMcpParityAdapter/);
+  assert.match(dts, /createHttpParityAdapter\(/);
+  assert.match(dts, /createMcpParityAdapter\(/);
+  assert.match(dts, /PARITY_IDEMPOTENCY_KEY_REQUIRED/);
+  assert.match(dts, /NooterraParityReasonCode/);
+  assert.match(dts, /NooterraMcpCallTool/);
 
   const jsClient = readFile("packages/api-sdk/src/client.js");
   assert.match(jsClient, /\/runs\/\$\{encodeURIComponent\(runId\)\}\/settlement\/policy-replay/);
@@ -118,4 +134,16 @@ test("api-sdk contract freeze: manual-review + dispute lifecycle methods and typ
   assert.match(jsClient, /\/work-orders/);
   assert.match(jsClient, /\/sessions\/\$\{encodeURIComponent\(sessionId\)\}\/transcript/);
   assert.match(jsClient, /\/capability-attestations/);
+  assert.match(jsClient, /class NooterraHttpParityAdapter/);
+  assert.match(jsClient, /class NooterraMcpParityAdapter/);
+  assert.match(jsClient, /PARITY_IDEMPOTENCY_KEY_REQUIRED/);
+  assert.match(jsClient, /PARITY_EXPECTED_PREV_CHAIN_HASH_REQUIRED/);
+  assert.match(jsClient, /retryStatusCodes/);
+
+  const readme = readFile("packages/api-sdk/README.md");
+  assert.match(readme, /Transport Parity Adapters \(HTTP \+ MCP\)/);
+  assert.match(readme, /createHttpParityAdapter/);
+  assert.match(readme, /createMcpParityAdapter/);
+  assert.match(readme, /PARITY_\*/);
+  assert.match(readme, /idempotencyRequired/);
 });

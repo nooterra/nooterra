@@ -18,6 +18,28 @@ Quickstarts:
 - JS ACS smoke flow: `npm run sdk:acs-smoke`
 - Python ACS smoke flow: `npm run sdk:acs-smoke:py`
 
+## Transport Parity Adapters (HTTP + MCP)
+
+Use parity adapters when you need the same payload/error/retry/idempotency semantics across HTTP and MCP transports:
+
+- `client.createHttpParityAdapter(...)`
+- `client.createMcpParityAdapter({ callTool, ... })`
+
+Both adapters return a shared response envelope:
+- `ok`, `status`, `requestId`, `body`, `headers`
+- `transport`, `operationId`, `idempotencyKey`, `attempts`
+
+Both adapters fail with a stable `error.nooterra` shape that includes:
+- `status`, `code`, `message`, `details`, `requestId`
+- `retryable`, `attempts`, `transport`, `operationId`
+
+Safety caveats for integration:
+- Treat `PARITY_*` validation errors as hard-stop conditions. Do not bypass them.
+- Idempotency is fail-closed by default (`idempotencyRequired: true`). Set `idempotencyRequired: false` only for explicitly safe read operations.
+- For safety-critical writes, keep the same idempotency key across retries.
+- For chain-bound writes, require `expectedPrevChainHash` (`expectedPrevChainHashRequired: true`) so retries stay causally bound.
+- Keep retry policy deterministic (fixed delay or deterministic delay function) and avoid transport-specific fallback logic outside the adapter.
+
 ## Webhook Signature Verification
 
 Use `verifyNooterraWebhookSignature` to verify incoming `x-nooterra-signature` headers with:

@@ -110,3 +110,95 @@ test("api-sdk-python: ACS substrate wrappers execute a live end-to-end collabora
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("api-sdk-python: parity adapters align HTTP + MCP semantics under failure injection", { skip: !pythonAvailable() }, () => {
+  const script = [
+    "import json, pathlib, sys",
+    "repo = pathlib.Path.cwd()",
+    "sys.path.insert(0, str(repo / 'packages' / 'api-sdk-python'))",
+    "from nooterra_api_sdk import NooterraApiError, NooterraClient",
+    "from nooterra_api_sdk.client import NooterraParityError",
+    "attempts = {}",
+    "http_calls = []",
+    "mcp_calls = []",
+    "def fake_request(method, path, **kwargs):",
+    "    idempotency_key = kwargs.get('idempotency_key')",
+    "    key = f\"http:{idempotency_key}\"",
+    "    attempt = attempts.get(key, 0) + 1",
+    "    attempts[key] = attempt",
+    "    http_calls.append({'method': method, 'path': path, 'idempotencyKey': idempotency_key, 'attempt': attempt})",
+    "    if attempt == 1:",
+    "        raise NooterraApiError(status=503, code='TEMP_UNAVAILABLE', message='temporary outage', details={'attempt': attempt}, request_id=f'req_http_{attempt}')",
+    "    return {'ok': True, 'status': 201, 'requestId': f'req_http_{attempt}', 'body': {'delegationGrant': {'grantId': 'dg_py_1', 'status': 'active'}}, 'headers': {'x-request-id': f'req_http_{attempt}'}}",
+    "def call_tool(tool_name, request_payload):",
+    "    idempotency_key = request_payload.get('idempotencyKey')",
+    "    key = f\"mcp:{idempotency_key}\"",
+    "    attempt = attempts.get(key, 0) + 1",
+    "    attempts[key] = attempt",
+    "    mcp_calls.append({'toolName': tool_name, 'idempotencyKey': idempotency_key, 'attempt': attempt})",
+    "    if attempt == 1:",
+    "        return {'ok': False, 'status': 503, 'requestId': f'req_mcp_{attempt}', 'error': {'code': 'TEMP_UNAVAILABLE', 'message': 'temporary outage', 'details': {'attempt': attempt}}}",
+    "    return {'ok': True, 'status': 201, 'requestId': f'req_mcp_{attempt}', 'body': {'delegationGrant': {'grantId': 'dg_py_1', 'status': 'active'}}, 'headers': {'x-request-id': f'req_mcp_{attempt}'}}",
+    "client = NooterraClient(base_url='https://api.nooterra.local', tenant_id='tenant_py_parity')",
+    "client._request = fake_request",
+    "http_adapter = client.create_http_parity_adapter(max_attempts=2, retry_status_codes=[503], retry_delay_seconds=0)",
+    "mcp_adapter = client.create_mcp_parity_adapter(call_tool=call_tool, max_attempts=2, retry_status_codes=[503], retry_delay_seconds=0)",
+    "operation_http = {'operationId': 'delegation_grant_issue', 'method': 'POST', 'path': '/delegation-grants', 'requiredFields': ['grantId', 'delegatorAgentId', 'delegateeAgentId'], 'idempotencyRequired': True}",
+    "operation_mcp = {'operationId': 'delegation_grant_issue', 'toolName': 'nooterra.delegation_grant_issue', 'requiredFields': ['grantId', 'delegatorAgentId', 'delegateeAgentId'], 'idempotencyRequired': True}",
+    "payload = {'grantId': 'dg_py_1', 'delegatorAgentId': 'agt_principal', 'delegateeAgentId': 'agt_worker'}",
+    "http_result = http_adapter.invoke(operation_http, payload, request_id='req_py_parity_1', idempotency_key='idem_py_parity_1')",
+    "mcp_result = mcp_adapter.invoke(operation_mcp, payload, request_id='req_py_parity_1', idempotency_key='idem_py_parity_1')",
+    "errors = {}",
+    "try:",
+    "    http_adapter.invoke(operation_http, {'grantId': 'dg_py_1'}, request_id='req_py_fail_1', idempotency_key='idem_py_fail_1')",
+    "except NooterraParityError as exc:",
+    "    errors['httpMissingField'] = exc.to_dict()",
+    "try:",
+    "    mcp_adapter.invoke(operation_mcp, {'grantId': 'dg_py_1'}, request_id='req_py_fail_2', idempotency_key='idem_py_fail_2')",
+    "except NooterraParityError as exc:",
+    "    errors['mcpMissingField'] = exc.to_dict()",
+    "try:",
+    "    http_adapter.invoke(operation_http, payload, request_id='req_py_fail_3')",
+    "except NooterraParityError as exc:",
+    "    errors['httpMissingIdempotency'] = exc.to_dict()",
+    "try:",
+    "    mcp_adapter.invoke(operation_mcp, payload, request_id='req_py_fail_4')",
+    "except NooterraParityError as exc:",
+    "    errors['mcpMissingIdempotency'] = exc.to_dict()",
+    "print(json.dumps({'httpResult': http_result, 'mcpResult': mcp_result, 'httpCalls': http_calls, 'mcpCalls': mcp_calls, 'errors': errors}, sort_keys=True))",
+  ].join("\n");
+
+  const run = spawnSync("python3", ["-c", script], { encoding: "utf8" });
+  assert.equal(
+    run.status,
+    0,
+    `python parity adapter contract check failed\\n\\nstdout:\\n${run.stdout ?? ""}\\n\\nstderr:\\n${run.stderr ?? ""}`
+  );
+  const parsed = JSON.parse(String(run.stdout ?? "{}"));
+  const httpResult = parsed?.httpResult ?? {};
+  const mcpResult = parsed?.mcpResult ?? {};
+  assert.equal(httpResult.transport, "http");
+  assert.equal(mcpResult.transport, "mcp");
+  assert.equal(httpResult.status, 201);
+  assert.equal(mcpResult.status, 201);
+  assert.equal(httpResult.attempts, 2);
+  assert.equal(mcpResult.attempts, 2);
+  assert.equal(httpResult.idempotencyKey, "idem_py_parity_1");
+  assert.equal(mcpResult.idempotencyKey, "idem_py_parity_1");
+  assert.deepEqual(httpResult.body, mcpResult.body);
+
+  const httpCalls = Array.isArray(parsed?.httpCalls) ? parsed.httpCalls : [];
+  const mcpCalls = Array.isArray(parsed?.mcpCalls) ? parsed.mcpCalls : [];
+  assert.equal(httpCalls.length, 2);
+  assert.equal(mcpCalls.length, 2);
+  assert.equal(httpCalls[0]?.idempotencyKey, "idem_py_parity_1");
+  assert.equal(httpCalls[1]?.idempotencyKey, "idem_py_parity_1");
+  assert.equal(mcpCalls[0]?.idempotencyKey, "idem_py_parity_1");
+  assert.equal(mcpCalls[1]?.idempotencyKey, "idem_py_parity_1");
+
+  const errors = parsed?.errors ?? {};
+  assert.equal(errors?.httpMissingField?.code, "PARITY_REQUIRED_FIELD_MISSING");
+  assert.equal(errors?.mcpMissingField?.code, "PARITY_REQUIRED_FIELD_MISSING");
+  assert.equal(errors?.httpMissingIdempotency?.code, "PARITY_IDEMPOTENCY_KEY_REQUIRED");
+  assert.equal(errors?.mcpMissingIdempotency?.code, "PARITY_IDEMPOTENCY_KEY_REQUIRED");
+});
