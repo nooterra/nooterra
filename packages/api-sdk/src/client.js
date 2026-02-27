@@ -491,7 +491,7 @@ export class NooterraClient {
     return new NooterraMcpParityAdapter(this, opts);
   }
 
-  async request(method, pathname, { body, requestId, idempotencyKey, expectedPrevChainHash, signal } = {}) {
+  async request(method, pathname, { body, requestId, idempotencyKey, expectedPrevChainHash, principalId, signal } = {}) {
     const url = new URL(pathname, this.baseUrl);
     const rid = requestId ?? randomRequestId();
 
@@ -504,6 +504,7 @@ export class NooterraClient {
     if (this.userAgent) headers["user-agent"] = this.userAgent;
     if (idempotencyKey) headers["x-idempotency-key"] = String(idempotencyKey);
     if (expectedPrevChainHash) headers["x-proxy-expected-prev-chain-hash"] = String(expectedPrevChainHash);
+    if (principalId) headers["x-proxy-principal-id"] = String(principalId);
     if (this.apiKey) headers["authorization"] = `Bearer ${this.apiKey}`;
     if (this.xApiKey) headers["x-api-key"] = this.xApiKey;
     if (this.opsToken) headers["x-proxy-ops-token"] = this.opsToken;

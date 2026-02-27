@@ -153,33 +153,6 @@ def main() -> int:
             "public discovery",
         )
 
-        delegation_grant = _require_object(
-            _require_body(
-                client.issue_delegation_grant(
-                    {
-                        "delegatorAgentId": principal_agent_id,
-                        "delegateeAgentId": worker_agent_id,
-                        "scope": {
-                            "allowedRiskClasses": ["financial"],
-                            "sideEffectingAllowed": True,
-                        },
-                        "spendLimit": {
-                            "currency": "USD",
-                            "maxPerCallCents": 5_000,
-                            "maxTotalCents": 20_000,
-                        },
-                        "chainBinding": {"depth": 0, "maxDelegationDepth": 0},
-                        "validity": {"expiresAt": _future_iso(48)},
-                    }
-                ),
-                "issue delegation grant",
-            ).get("delegationGrant"),
-            "delegationGrant",
-        )
-        delegation_grant_id = _require_string(delegation_grant.get("grantId"), "delegationGrant.grantId")
-        _require_body(client.get_delegation_grant(delegation_grant_id), "get delegation grant")
-        _require_body(client.list_delegation_grants({"grantId": delegation_grant_id}), "list delegation grants")
-
         authority_grant = _require_object(
             _require_body(
                 client.issue_authority_grant(
@@ -195,7 +168,7 @@ def main() -> int:
                             "maxPerCallCents": 5_000,
                             "maxTotalCents": 20_000,
                         },
-                        "chainBinding": {"depth": 0, "maxDelegationDepth": 0},
+                        "chainBinding": {"depth": 0, "maxDelegationDepth": 1},
                         "validity": {"expiresAt": _future_iso(48)},
                     }
                 ),
@@ -206,6 +179,43 @@ def main() -> int:
         authority_grant_id = _require_string(authority_grant.get("grantId"), "authorityGrant.grantId")
         _require_body(client.get_authority_grant(authority_grant_id), "get authority grant")
         _require_body(client.list_authority_grants({"grantId": authority_grant_id}), "list authority grants")
+        authority_root_grant_hash = _require_string(
+            authority_grant.get("chainBinding", {}).get("rootGrantHash") or authority_grant.get("grantHash"),
+            "authorityGrant.chainBinding.rootGrantHash",
+        )
+        authority_grant_hash = _require_string(authority_grant.get("grantHash"), "authorityGrant.grantHash")
+
+        delegation_grant = _require_object(
+            _require_body(
+                client.issue_delegation_grant(
+                    {
+                        "delegatorAgentId": principal_agent_id,
+                        "delegateeAgentId": worker_agent_id,
+                        "scope": {
+                            "allowedRiskClasses": ["financial"],
+                            "sideEffectingAllowed": True,
+                        },
+                        "spendLimit": {
+                            "currency": "USD",
+                            "maxPerCallCents": 5_000,
+                            "maxTotalCents": 20_000,
+                        },
+                        "chainBinding": {
+                            "rootGrantHash": authority_root_grant_hash,
+                            "parentGrantHash": authority_grant_hash,
+                            "depth": 1,
+                            "maxDelegationDepth": 1,
+                        },
+                        "validity": {"expiresAt": _future_iso(48)},
+                    }
+                ),
+                "issue delegation grant",
+            ).get("delegationGrant"),
+            "delegationGrant",
+        )
+        delegation_grant_id = _require_string(delegation_grant.get("grantId"), "delegationGrant.grantId")
+        _require_body(client.get_delegation_grant(delegation_grant_id), "get delegation grant")
+        _require_body(client.list_delegation_grants({"grantId": delegation_grant_id}), "list delegation grants")
 
         checkpoint_delegation_grant = _require_object(
             _require_body(
@@ -222,7 +232,12 @@ def main() -> int:
                             "maxPerCallCents": 1_000,
                             "maxTotalCents": 10_000,
                         },
-                        "chainBinding": {"depth": 0, "maxDelegationDepth": 0},
+                        "chainBinding": {
+                            "rootGrantHash": authority_root_grant_hash,
+                            "parentGrantHash": authority_grant_hash,
+                            "depth": 1,
+                            "maxDelegationDepth": 1,
+                        },
                         "validity": {"expiresAt": _future_iso(48)},
                     }
                 ),
@@ -359,14 +374,18 @@ def main() -> int:
                         "participants": [principal_agent_id, worker_agent_id],
                         "visibility": "tenant",
                         "metadata": {"topic": "travel coordination"},
-                    }
+                    },
+                    principal_id=principal_agent_id,
                 ),
                 "create session",
             ).get("session"),
             "session",
         )
         session_id = _require_string(session.get("sessionId"), "session.sessionId")
-        session_events_before = _require_body(client.list_session_events(session_id, {"limit": 5, "offset": 0}), "list session events before")
+        session_events_before = _require_body(
+            client.list_session_events(session_id, {"limit": 5, "offset": 0}, principal_id=principal_agent_id),
+            "list session events before",
+        )
         raw_prev_chain_hash = session_events_before.get("currentPrevChainHash")
         if isinstance(raw_prev_chain_hash, str) and raw_prev_chain_hash.strip() != "":
             prev_chain_hash = raw_prev_chain_hash.strip()
@@ -379,12 +398,16 @@ def main() -> int:
                 session_id,
                 {"eventType": "message", "payload": {"text": "delegate travel booking with budget cap"}},
                 expected_prev_chain_hash=prev_chain_hash,
+                principal_id=principal_agent_id,
             ),
             "append session event",
         )
-        session_events_after = _require_body(client.list_session_events(session_id, {"limit": 10, "offset": 0}), "list session events after")
-        _require_body(client.get_session_replay_pack(session_id), "get session replay pack")
-        _require_body(client.get_session_transcript(session_id), "get session transcript")
+        session_events_after = _require_body(
+            client.list_session_events(session_id, {"limit": 10, "offset": 0}, principal_id=principal_agent_id),
+            "list session events after",
+        )
+        _require_body(client.get_session_replay_pack(session_id, principal_id=principal_agent_id), "get session replay pack")
+        _require_body(client.get_session_transcript(session_id, principal_id=principal_agent_id), "get session transcript")
 
         checkpoint_trace_id = f"trace_checkpoint_{suffix}"
         state_snapshot = json.dumps({"itineraryOptions": 3, "preferredClass": "economy", "budgetCents": 150000})

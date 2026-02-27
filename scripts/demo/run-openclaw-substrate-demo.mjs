@@ -305,11 +305,13 @@ async function main() {
       sessionId,
       visibility: "tenant",
       participants: [principalAgentId, workerAgentId],
+      principalId: principalAgentId,
       policyRef: "policy://openclaw/substrate-demo/session-default",
       idempotencyKey: `demo_session_create_${demoSeed}`
     });
     await tool("nooterra.session_event_append", {
       sessionId,
+      principalId: principalAgentId,
       eventType: "TASK_REQUESTED",
       traceId,
       payload: {
@@ -526,7 +528,7 @@ async function main() {
       throw new Error(`audit lineage verification report is not ok: ${lineageVerification?.code ?? "UNKNOWN"}`);
     }
 
-    const sessionReplayPackResult = await tool("nooterra.session_replay_pack_get", { sessionId });
+    const sessionReplayPackResult = await tool("nooterra.session_replay_pack_get", { sessionId, principalId: principalAgentId });
     const sessionReplayPack =
       sessionReplayPackResult?.replayPack ??
       sessionReplayPackResult?.result?.replayPack ??
@@ -538,7 +540,7 @@ async function main() {
       throw new Error(`unexpected session replay pack schema: ${sessionReplayPack?.schemaVersion ?? "null"}`);
     }
 
-    const sessionTranscriptResult = await tool("nooterra.session_transcript_get", { sessionId });
+    const sessionTranscriptResult = await tool("nooterra.session_transcript_get", { sessionId, principalId: principalAgentId });
     const sessionTranscript =
       sessionTranscriptResult?.transcript ??
       sessionTranscriptResult?.result?.transcript ??

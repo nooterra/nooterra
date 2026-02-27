@@ -821,6 +821,7 @@ class NooterraClient:
         request_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
         expected_prev_chain_hash: Optional[str] = None,
+        principal_id: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
     ) -> Dict[str, Any]:
         rid = request_id if request_id else _random_request_id()
@@ -842,6 +843,8 @@ class NooterraClient:
             headers["x-idempotency-key"] = str(idempotency_key)
         if expected_prev_chain_hash:
             headers["x-proxy-expected-prev-chain-hash"] = str(expected_prev_chain_hash)
+        if isinstance(principal_id, str) and principal_id.strip():
+            headers["x-proxy-principal-id"] = principal_id.strip()
 
         url = parse.urljoin(f"{self.base_url}/", path.lstrip("/"))
         payload = None if body is None else json.dumps(body).encode("utf-8")

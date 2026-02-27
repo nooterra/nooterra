@@ -151,7 +151,10 @@ async function createTaintedSession(api, { sessionId, participantAgentId }) {
   const created = await request(api, {
     method: "POST",
     path: "/sessions",
-    headers: { "x-idempotency-key": `session_create_${sessionId}` },
+    headers: {
+      "x-idempotency-key": `session_create_${sessionId}`,
+      "x-proxy-principal-id": participantAgentId
+    },
     body: {
       sessionId,
       visibility: "tenant",
@@ -165,7 +168,8 @@ async function createTaintedSession(api, { sessionId, participantAgentId }) {
     path: `/sessions/${encodeURIComponent(sessionId)}/events`,
     headers: {
       "x-idempotency-key": `session_taint_event_${sessionId}`,
-      "x-proxy-expected-prev-chain-hash": "null"
+      "x-proxy-expected-prev-chain-hash": "null",
+      "x-proxy-principal-id": participantAgentId
     },
     body: {
       eventType: "MESSAGE",
@@ -836,7 +840,10 @@ test("API e2e: x402 authorize fails closed when sessionRef signer key lifecycle 
   const createdSession = await request(api, {
     method: "POST",
     path: "/sessions",
-    headers: { "x-idempotency-key": `session_create_${sessionId}` },
+    headers: {
+      "x-idempotency-key": `session_create_${sessionId}`,
+      "x-proxy-principal-id": payerAgentId
+    },
     body: {
       sessionId,
       visibility: "tenant",
@@ -850,7 +857,8 @@ test("API e2e: x402 authorize fails closed when sessionRef signer key lifecycle 
     path: `/sessions/${encodeURIComponent(sessionId)}/events`,
     headers: {
       "x-idempotency-key": `session_event_${sessionId}_1`,
-      "x-proxy-expected-prev-chain-hash": "null"
+      "x-proxy-expected-prev-chain-hash": "null",
+      "x-proxy-principal-id": payerAgentId
     },
     body: {
       eventType: "TASK_REQUESTED",

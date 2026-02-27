@@ -118,31 +118,6 @@ async function main() {
     "public discovery"
   );
 
-  const delegationGrant = requireObject(
-    requireBody(
-      await client.issueDelegationGrant({
-        delegatorAgentId: principalAgentId,
-        delegateeAgentId: workerAgentId,
-        scope: {
-          allowedRiskClasses: ["financial"],
-          sideEffectingAllowed: true
-        },
-        spendLimit: {
-          currency: "USD",
-          maxPerCallCents: 5000,
-          maxTotalCents: 20000
-        },
-        chainBinding: { depth: 0, maxDelegationDepth: 0 },
-        validity: { expiresAt: futureIso(48) }
-      }),
-      "issue delegation grant"
-    ).delegationGrant,
-    "delegationGrant"
-  );
-  const delegationGrantId = requireString(delegationGrant.grantId, "delegationGrant.grantId");
-  requireBody(await client.getDelegationGrant(delegationGrantId), "get delegation grant");
-  requireBody(await client.listDelegationGrants({ grantId: delegationGrantId }), "list delegation grants");
-
   const authorityGrant = requireObject(
     requireBody(
       await client.createAuthorityGrant({
@@ -157,7 +132,7 @@ async function main() {
           maxPerCallCents: 5000,
           maxTotalCents: 20000
         },
-        chainBinding: { depth: 0, maxDelegationDepth: 0 },
+        chainBinding: { depth: 0, maxDelegationDepth: 1 },
         validity: { expiresAt: futureIso(48) }
       }),
       "issue authority grant"
@@ -167,6 +142,41 @@ async function main() {
   const authorityGrantId = requireString(authorityGrant.grantId, "authorityGrant.grantId");
   requireBody(await client.getAuthorityGrant(authorityGrantId), "get authority grant");
   requireBody(await client.listAuthorityGrants({ grantId: authorityGrantId }), "list authority grants");
+  const authorityRootGrantHash = requireString(
+    authorityGrant.chainBinding?.rootGrantHash ?? authorityGrant.grantHash,
+    "authorityGrant.chainBinding.rootGrantHash"
+  );
+  const authorityGrantHash = requireString(authorityGrant.grantHash, "authorityGrant.grantHash");
+
+  const delegationGrant = requireObject(
+    requireBody(
+      await client.issueDelegationGrant({
+        delegatorAgentId: principalAgentId,
+        delegateeAgentId: workerAgentId,
+        scope: {
+          allowedRiskClasses: ["financial"],
+          sideEffectingAllowed: true
+        },
+        spendLimit: {
+          currency: "USD",
+          maxPerCallCents: 5000,
+          maxTotalCents: 20000
+        },
+        chainBinding: {
+          rootGrantHash: authorityRootGrantHash,
+          parentGrantHash: authorityGrantHash,
+          depth: 1,
+          maxDelegationDepth: 1
+        },
+        validity: { expiresAt: futureIso(48) }
+      }),
+      "issue delegation grant"
+    ).delegationGrant,
+    "delegationGrant"
+  );
+  const delegationGrantId = requireString(delegationGrant.grantId, "delegationGrant.grantId");
+  requireBody(await client.getDelegationGrant(delegationGrantId), "get delegation grant");
+  requireBody(await client.listDelegationGrants({ grantId: delegationGrantId }), "list delegation grants");
 
   const checkpointDelegationGrant = requireObject(
     requireBody(
@@ -182,7 +192,12 @@ async function main() {
           maxPerCallCents: 1000,
           maxTotalCents: 10000
         },
-        chainBinding: { depth: 0, maxDelegationDepth: 0 },
+        chainBinding: {
+          rootGrantHash: authorityRootGrantHash,
+          parentGrantHash: authorityGrantHash,
+          depth: 1,
+          maxDelegationDepth: 1
+        },
         validity: { expiresAt: futureIso(48) }
       }),
       "issue checkpoint delegation grant"
@@ -302,13 +317,16 @@ async function main() {
         participants: [principalAgentId, workerAgentId],
         visibility: "tenant",
         metadata: { topic: "travel coordination" }
-      }),
+      }, { principalId: principalAgentId }),
       "create session"
     ).session,
     "session"
   );
   const sessionId = requireString(session.sessionId, "session.sessionId");
-  const sessionEventsBefore = requireBody(await client.listSessionEvents(sessionId, { limit: 5, offset: 0 }), "list session events before");
+  const sessionEventsBefore = requireBody(
+    await client.listSessionEvents(sessionId, { limit: 5, offset: 0 }, { principalId: principalAgentId }),
+    "list session events before"
+  );
   const rawPrevChainHash = sessionEventsBefore.currentPrevChainHash;
   const prevChainHash = typeof rawPrevChainHash === "string" && rawPrevChainHash.trim() !== "" ? rawPrevChainHash.trim() : "null";
   requireBody(
@@ -318,13 +336,16 @@ async function main() {
         type: "message",
         payload: { text: "delegate travel booking with budget cap" }
       },
-      { expectedPrevChainHash: prevChainHash }
+      { expectedPrevChainHash: prevChainHash, principalId: principalAgentId }
     ),
     "append session event"
   );
-  const sessionEventsAfter = requireBody(await client.listSessionEvents(sessionId, { limit: 10, offset: 0 }), "list session events after");
-  requireBody(await client.getSessionReplayPack(sessionId), "get session replay pack");
-  requireBody(await client.getSessionTranscript(sessionId), "get session transcript");
+  const sessionEventsAfter = requireBody(
+    await client.listSessionEvents(sessionId, { limit: 10, offset: 0 }, { principalId: principalAgentId }),
+    "list session events after"
+  );
+  requireBody(await client.getSessionReplayPack(sessionId, {}, { principalId: principalAgentId }), "get session replay pack");
+  requireBody(await client.getSessionTranscript(sessionId, {}, { principalId: principalAgentId }), "get session transcript");
 
   const checkpointTraceId = `trace_checkpoint_${suffix}`;
   const stateSnapshot = JSON.stringify({ itineraryOptions: 3, preferredClass: "economy", budgetCents: 150000 });

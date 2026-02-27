@@ -84497,7 +84497,8 @@
             "description": "Forbidden",
             "x-nooterra-known-error-codes": [
               "FEDERATION_IDENTITY_MISMATCH",
-              "FEDERATION_UNTRUSTED_COORDINATOR"
+              "FEDERATION_UNTRUSTED_COORDINATOR",
+              "FEDERATION_REQUEST_DENIED"
             ],
             "content": {
               "application/json": {
@@ -84526,7 +84527,8 @@
                               "type": "string",
                               "enum": [
                                 "FEDERATION_IDENTITY_MISMATCH",
-                                "FEDERATION_UNTRUSTED_COORDINATOR"
+                                "FEDERATION_UNTRUSTED_COORDINATOR",
+                                "FEDERATION_REQUEST_DENIED"
                               ]
                             },
                             {
@@ -84969,7 +84971,8 @@
             "description": "Forbidden",
             "x-nooterra-known-error-codes": [
               "FEDERATION_IDENTITY_MISMATCH",
-              "FEDERATION_UNTRUSTED_COORDINATOR"
+              "FEDERATION_UNTRUSTED_COORDINATOR",
+              "FEDERATION_REQUEST_DENIED"
             ],
             "content": {
               "application/json": {
@@ -84998,7 +85001,8 @@
                               "type": "string",
                               "enum": [
                                 "FEDERATION_IDENTITY_MISMATCH",
-                                "FEDERATION_UNTRUSTED_COORDINATOR"
+                                "FEDERATION_UNTRUSTED_COORDINATOR",
+                                "FEDERATION_REQUEST_DENIED"
                               ]
                             },
                             {

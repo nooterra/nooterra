@@ -36,7 +36,10 @@ test("API e2e: /ops/audit/lineage returns deterministic trace-filtered records a
   const sessionCreate = await request(api, {
     method: "POST",
     path: "/sessions",
-    headers: { "x-idempotency-key": "audit_lineage_session_create_1" },
+    headers: {
+      "x-idempotency-key": "audit_lineage_session_create_1",
+      "x-proxy-principal-id": principalAgentId
+    },
     body: {
       sessionId: "sess_audit_lineage_1",
       visibility: "tenant",
@@ -50,7 +53,8 @@ test("API e2e: /ops/audit/lineage returns deterministic trace-filtered records a
     path: "/sessions/sess_audit_lineage_1/events",
     headers: {
       "x-idempotency-key": "audit_lineage_session_event_1",
-      "x-proxy-expected-prev-chain-hash": "null"
+      "x-proxy-expected-prev-chain-hash": "null",
+      "x-proxy-principal-id": principalAgentId
     },
     body: {
       eventType: "TASK_REQUESTED",
@@ -171,4 +175,3 @@ test("API e2e: /ops/audit/lineage requires read scope and rejects invalid filter
   assert.equal(invalid.statusCode, 400, invalid.body);
   assert.equal(invalid.json?.code, "SCHEMA_INVALID");
 });
-

@@ -1680,6 +1680,7 @@ function buildTools() {
           sessionId: { type: "string" },
           visibility: { type: ["string", "null"], enum: ["public", "tenant", "private", null], default: null },
           participants: { type: ["array", "null"], items: { type: "string" }, default: null },
+          principalId: { type: ["string", "null"], default: null },
           policyRef: { type: ["string", "null"], default: null },
           metadata: { type: ["object", "null"], additionalProperties: true, default: null },
           createdAt: { type: ["string", "null"], default: null },
@@ -1697,6 +1698,7 @@ function buildTools() {
           sessionId: { type: ["string", "null"], default: null },
           visibility: { type: ["string", "null"], enum: ["public", "tenant", "private", null], default: null },
           participantAgentId: { type: ["string", "null"], default: null },
+          principalId: { type: ["string", "null"], default: null },
           limit: { type: ["integer", "null"], minimum: 1, default: null },
           offset: { type: ["integer", "null"], minimum: 0, default: null }
         }
@@ -1710,7 +1712,8 @@ function buildTools() {
         additionalProperties: false,
         required: ["sessionId"],
         properties: {
-          sessionId: { type: "string" }
+          sessionId: { type: "string" },
+          principalId: { type: ["string", "null"], default: null }
         }
       }
     },
@@ -1723,6 +1726,7 @@ function buildTools() {
         required: ["sessionId"],
         properties: {
           sessionId: { type: "string" },
+          principalId: { type: ["string", "null"], default: null },
           eventType: { type: ["string", "null"], default: null },
           limit: { type: ["integer", "null"], minimum: 1, default: null },
           offset: { type: ["integer", "null"], minimum: 0, default: null }
@@ -1738,6 +1742,7 @@ function buildTools() {
         required: ["sessionId"],
         properties: {
           sessionId: { type: "string" },
+          principalId: { type: ["string", "null"], default: null },
           eventType: { type: ["string", "null"], default: null },
           sinceEventId: { type: ["string", "null"], default: null },
           lastEventId: { type: ["string", "null"], default: null },
@@ -1755,6 +1760,7 @@ function buildTools() {
         required: ["sessionId", "eventType"],
         properties: {
           sessionId: { type: "string" },
+          principalId: { type: ["string", "null"], default: null },
           eventType: { type: "string" },
           payload: { type: ["object", "array", "string", "number", "boolean", "null"], default: null },
           traceId: { type: ["string", "null"], default: null },
@@ -1774,6 +1780,7 @@ function buildTools() {
         required: ["sessionId"],
         properties: {
           sessionId: { type: "string" },
+          principalId: { type: ["string", "null"], default: null },
           sign: { type: ["boolean", "null"], default: null },
           signerKeyId: { type: ["string", "null"], default: null }
         }
@@ -1788,6 +1795,7 @@ function buildTools() {
         required: ["sessionId"],
         properties: {
           sessionId: { type: "string" },
+          principalId: { type: ["string", "null"], default: null },
           sign: { type: ["boolean", "null"], default: null },
           signerKeyId: { type: ["string", "null"], default: null }
         }
@@ -3426,6 +3434,9 @@ async function main() {
             if (Array.isArray(args?.participants)) {
               body.participants = args.participants.map((v) => String(v ?? "").trim()).filter(Boolean);
             }
+            const principalId =
+              parseOptionalStringArg(args?.principalId, "principalId", { max: 200 }) ??
+              (Array.isArray(body.participants) && body.participants.length > 0 ? String(body.participants[0]) : null);
             if (typeof args?.policyRef === "string" && args.policyRef.trim() !== "") body.policyRef = args.policyRef.trim();
             if (args?.metadata && typeof args.metadata === "object" && !Array.isArray(args.metadata)) body.metadata = args.metadata;
             if (typeof args?.createdAt === "string" && args.createdAt.trim() !== "") body.createdAt = args.createdAt.trim();
@@ -3433,10 +3444,12 @@ async function main() {
               method: "POST",
               write: true,
               body,
+              headers: principalId ? { "x-proxy-principal-id": principalId } : {},
               idem: idempotencyKey
             });
             result = { ok: true, sessionId, idempotencyKey, ...redactSecrets(out) };
           } else if (name === "nooterra.session_list") {
+            const principalId = parseOptionalStringArg(args?.principalId, "principalId", { max: 200 });
             const query = new URLSearchParams();
             if (typeof args?.sessionId === "string" && args.sessionId.trim() !== "") query.set("sessionId", args.sessionId.trim());
             if (typeof args?.visibility === "string" && args.visibility.trim() !== "") query.set("visibility", args.visibility.trim().toLowerCase());
@@ -3445,15 +3458,23 @@ async function main() {
             }
             if (Number.isSafeInteger(Number(args?.limit)) && Number(args.limit) > 0) query.set("limit", String(Number(args.limit)));
             if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
-            const out = await client.requestJson(`/sessions${query.toString() ? `?${query.toString()}` : ""}`, { method: "GET" });
+            const out = await client.requestJson(`/sessions${query.toString() ? `?${query.toString()}` : ""}`, {
+              method: "GET",
+              headers: principalId ? { "x-proxy-principal-id": principalId } : {}
+            });
             result = { ok: true, ...redactSecrets(out) };
           } else if (name === "nooterra.session_get") {
             const sessionId = String(args?.sessionId ?? "").trim();
+            const principalId = parseOptionalStringArg(args?.principalId, "principalId", { max: 200 });
             assertNonEmptyString(sessionId, "sessionId");
-            const out = await client.requestJson(`/sessions/${encodeURIComponent(sessionId)}`, { method: "GET" });
+            const out = await client.requestJson(`/sessions/${encodeURIComponent(sessionId)}`, {
+              method: "GET",
+              headers: principalId ? { "x-proxy-principal-id": principalId } : {}
+            });
             result = { ok: true, sessionId, ...redactSecrets(out) };
           } else if (name === "nooterra.session_events_list") {
             const sessionId = String(args?.sessionId ?? "").trim();
+            const principalId = parseOptionalStringArg(args?.principalId, "principalId", { max: 200 });
             assertNonEmptyString(sessionId, "sessionId");
             const query = new URLSearchParams();
             if (typeof args?.eventType === "string" && args.eventType.trim() !== "") query.set("eventType", args.eventType.trim());
@@ -3461,11 +3482,15 @@ async function main() {
             if (Number.isSafeInteger(Number(args?.offset)) && Number(args.offset) >= 0) query.set("offset", String(Number(args.offset)));
             const out = await client.requestJson(
               `/sessions/${encodeURIComponent(sessionId)}/events${query.toString() ? `?${query.toString()}` : ""}`,
-              { method: "GET" }
+              {
+                method: "GET",
+                headers: principalId ? { "x-proxy-principal-id": principalId } : {}
+              }
             );
             result = { ok: true, sessionId, ...redactSecrets(out) };
           } else if (name === "nooterra.session_events_stream") {
             const sessionId = String(args?.sessionId ?? "").trim();
+            const principalId = parseOptionalStringArg(args?.principalId, "principalId", { max: 200 });
             assertNonEmptyString(sessionId, "sessionId");
             const query = new URLSearchParams();
             if (typeof args?.eventType === "string" && args.eventType.trim() !== "") query.set("eventType", args.eventType.trim());
@@ -3476,7 +3501,10 @@ async function main() {
             const out = await client.requestSseEvents(
               `/sessions/${encodeURIComponent(sessionId)}/events/stream${query.toString() ? `?${query.toString()}` : ""}`,
               {
-                headers: lastEventId ? { "last-event-id": lastEventId } : {},
+                headers: {
+                  ...(lastEventId ? { "last-event-id": lastEventId } : {}),
+                  ...(principalId ? { "x-proxy-principal-id": principalId } : {})
+                },
                 ...(maxEvents === null ? {} : { maxEvents }),
                 ...(timeoutMs === null ? {} : { timeoutMs })
               }
@@ -3493,6 +3521,7 @@ async function main() {
           } else if (name === "nooterra.session_event_append") {
             const sessionId = String(args?.sessionId ?? "").trim();
             const eventType = String(args?.eventType ?? "").trim();
+            const principalId = parseOptionalStringArg(args?.principalId, "principalId", { max: 200 });
             assertNonEmptyString(sessionId, "sessionId");
             assertNonEmptyString(eventType, "eventType");
             const idempotencyKey =
@@ -3505,7 +3534,8 @@ async function main() {
                 : null;
             if (!expectedPrevChainHash) {
               const eventsOut = await client.requestJson(`/sessions/${encodeURIComponent(sessionId)}/events?limit=1&offset=0`, {
-                method: "GET"
+                method: "GET",
+                headers: principalId ? { "x-proxy-principal-id": principalId } : {}
               });
               expectedPrevChainHash =
                 typeof eventsOut?.currentPrevChainHash === "string" && eventsOut.currentPrevChainHash.trim() !== ""
@@ -3521,12 +3551,16 @@ async function main() {
               method: "POST",
               write: true,
               body,
-              headers: { "x-proxy-expected-prev-chain-hash": expectedPrevChainHash },
+              headers: {
+                "x-proxy-expected-prev-chain-hash": expectedPrevChainHash,
+                ...(principalId ? { "x-proxy-principal-id": principalId } : {})
+              },
               idem: idempotencyKey
             });
             result = { ok: true, sessionId, expectedPrevChainHash, idempotencyKey, ...redactSecrets(out) };
           } else if (name === "nooterra.session_replay_pack_get") {
             const sessionId = String(args?.sessionId ?? "").trim();
+            const principalId = parseOptionalStringArg(args?.principalId, "principalId", { max: 200 });
             assertNonEmptyString(sessionId, "sessionId");
             const sign = parseOptionalBooleanArg(args?.sign, "sign");
             const signerKeyId = parseOptionalStringArg(args?.signerKeyId, "signerKeyId", { max: 200 });
@@ -3535,11 +3569,15 @@ async function main() {
             if (signerKeyId) query.set("signerKeyId", signerKeyId);
             const out = await client.requestJson(
               `/sessions/${encodeURIComponent(sessionId)}/replay-pack${query.toString() ? `?${query.toString()}` : ""}`,
-              { method: "GET" }
+              {
+                method: "GET",
+                headers: principalId ? { "x-proxy-principal-id": principalId } : {}
+              }
             );
             result = { ok: true, sessionId, ...redactSecrets(out) };
           } else if (name === "nooterra.session_transcript_get") {
             const sessionId = String(args?.sessionId ?? "").trim();
+            const principalId = parseOptionalStringArg(args?.principalId, "principalId", { max: 200 });
             assertNonEmptyString(sessionId, "sessionId");
             const sign = parseOptionalBooleanArg(args?.sign, "sign");
             const signerKeyId = parseOptionalStringArg(args?.signerKeyId, "signerKeyId", { max: 200 });
@@ -3548,7 +3586,10 @@ async function main() {
             if (signerKeyId) query.set("signerKeyId", signerKeyId);
             const out = await client.requestJson(
               `/sessions/${encodeURIComponent(sessionId)}/transcript${query.toString() ? `?${query.toString()}` : ""}`,
-              { method: "GET" }
+              {
+                method: "GET",
+                headers: principalId ? { "x-proxy-principal-id": principalId } : {}
+              }
             );
             result = { ok: true, sessionId, ...redactSecrets(out) };
           } else if (name === "nooterra.state_checkpoint_create") {

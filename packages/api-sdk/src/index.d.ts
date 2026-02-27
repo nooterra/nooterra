@@ -21,6 +21,7 @@ export type RequestOptions = {
   requestId?: string;
   idempotencyKey?: string;
   expectedPrevChainHash?: string;
+  principalId?: string;
   signal?: AbortSignal;
 };
 
