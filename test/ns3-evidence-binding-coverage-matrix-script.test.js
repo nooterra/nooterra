@@ -8,7 +8,9 @@ import test from "node:test";
 const REPO_ROOT = process.cwd();
 const SCRIPT_RELATIVE_PATH = "scripts/ci/run-ns3-evidence-binding-coverage-matrix.mjs";
 const SCRIPT_PATH = path.resolve(REPO_ROOT, SCRIPT_RELATIVE_PATH);
+const OPENAPI_BUILT_PATH = path.resolve(REPO_ROOT, "openapi/nooterra.openapi.json");
 const FIXED_NOW_ISO = "2026-03-01T00:00:00.000Z";
+const ALLOWED_METHODS = Object.freeze(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 
 function normalizeOptionalString(value) {
   if (typeof value !== "string") return null;
@@ -50,6 +52,46 @@ async function readReport(reportPath) {
 
 function looksLikeErrorCode(value) {
   return typeof value === "string" && /^[A-Z][A-Z0-9_]{7,}$/u.test(value);
+}
+
+function isNs3BindingReasonCode(code) {
+  const normalized = normalizeOptionalString(code);
+  if (!normalized || !normalized.startsWith("X402_")) return false;
+  if (normalized.includes("BINDING")) return true;
+  if (normalized.endsWith("_REQUEST_BINDING_REQUIRED")) return true;
+  if (normalized.endsWith("_REQUEST_MISMATCH")) return true;
+  return false;
+}
+
+function collectOpenApiBindingCodesByRouteMethod(openapiDoc) {
+  const out = new Map();
+  const paths = openapiDoc && typeof openapiDoc === "object" && openapiDoc.paths && typeof openapiDoc.paths === "object" ? openapiDoc.paths : {};
+
+  for (const [route, pathItem] of Object.entries(paths)) {
+    if (!pathItem || typeof pathItem !== "object") continue;
+
+    for (const method of ALLOWED_METHODS) {
+      const operationNode = pathItem[method.toLowerCase()];
+      if (!operationNode || typeof operationNode !== "object") continue;
+
+      const responses = operationNode.responses && typeof operationNode.responses === "object" ? operationNode.responses : {};
+      const knownCodes = new Set();
+      for (const response of Object.values(responses)) {
+        if (!response || typeof response !== "object") continue;
+        const codes = response["x-nooterra-known-error-codes"];
+        if (!Array.isArray(codes)) continue;
+        for (const code of codes) {
+          if (isNs3BindingReasonCode(code)) knownCodes.add(String(code));
+        }
+      }
+
+      if (knownCodes.size === 0) continue;
+      const key = `${method} ${route}`;
+      out.set(key, Array.from(knownCodes).sort(cmpString));
+    }
+  }
+
+  return out;
 }
 
 function mutateFirstRequiredCode(rawPolicy) {
@@ -299,4 +341,99 @@ test("ns3 evidence-binding coverage matrix script: fails closed when policy omit
     (issue) => String(issue?.code ?? "") === "policy_operation_missing_for_openapi_binding_surface"
   );
   assert.ok(missingCoverageIssue, "expected policy missing-openapi-binding-surface issue");
+});
+
+test("ns3 evidence-binding coverage matrix script: fails closed when policy omits openapi binding reason codes", async (t) => {
+  assert.equal(await fileExists(SCRIPT_PATH), true, `missing script at ${SCRIPT_PATH}`);
+
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-ns3-evidence-binding-matrix-policy-codes-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  const baselineReportPath = path.join(tmpRoot, "baseline-report.json");
+  const baselineResult = runMatrix({ reportPath: baselineReportPath });
+  assert.equal(baselineResult.status, 0, `stdout:\n${baselineResult.stdout}\n\nstderr:\n${baselineResult.stderr}`);
+
+  const baselineReport = await readReport(baselineReportPath);
+  const sourcePolicyPath = await resolvePolicyPathFromReport(baselineReport);
+  const sourcePolicy = JSON.parse(await fs.readFile(sourcePolicyPath, "utf8"));
+  const sourceOperations = Array.isArray(sourcePolicy?.operations) ? sourcePolicy.operations : [];
+  const openapiBuilt = JSON.parse(await fs.readFile(OPENAPI_BUILT_PATH, "utf8"));
+  const openapiBindingCodesByRouteMethod = collectOpenApiBindingCodesByRouteMethod(openapiBuilt);
+
+  let targetIndex = -1;
+  let droppedCode = null;
+  let malformedOperation = null;
+
+  for (let index = 0; index < sourceOperations.length; index += 1) {
+    const row = sourceOperations[index];
+    const method = String(row?.method ?? "").toUpperCase();
+    const route = String(row?.route ?? "");
+    const routeMethodKey = `${method} ${route}`;
+    const openapiBindingCodes = openapiBindingCodesByRouteMethod.get(routeMethodKey);
+    if (!Array.isArray(openapiBindingCodes) || openapiBindingCodes.length === 0) continue;
+
+    const requiredReasonCodes = Array.isArray(row?.requiredReasonCodes) ? row.requiredReasonCodes.map((value) => String(value)) : [];
+    const mismatchReasonCodes = Array.isArray(row?.mismatchReasonCodes) ? row.mismatchReasonCodes.map((value) => String(value)) : [];
+
+    let candidateDroppedCode = null;
+    let nextRequiredReasonCodes = requiredReasonCodes;
+    let nextMismatchReasonCodes = mismatchReasonCodes;
+
+    for (const code of openapiBindingCodes) {
+      if (requiredReasonCodes.includes(code) && requiredReasonCodes.length > 1) {
+        candidateDroppedCode = code;
+        nextRequiredReasonCodes = requiredReasonCodes.filter((value) => value !== code);
+        break;
+      }
+      if (mismatchReasonCodes.includes(code) && mismatchReasonCodes.length > 1) {
+        candidateDroppedCode = code;
+        nextMismatchReasonCodes = mismatchReasonCodes.filter((value) => value !== code);
+        break;
+      }
+    }
+
+    if (!candidateDroppedCode) continue;
+
+    targetIndex = index;
+    droppedCode = candidateDroppedCode;
+    malformedOperation = {
+      ...row,
+      requiredReasonCodes: nextRequiredReasonCodes,
+      mismatchReasonCodes: nextMismatchReasonCodes
+    };
+    break;
+  }
+
+  assert.equal(targetIndex >= 0, true, "expected policy operation with removable openapi binding reason code");
+  assert.equal(typeof droppedCode, "string");
+  assert.ok(malformedOperation && typeof malformedOperation === "object");
+
+  const malformedPolicy = {
+    ...sourcePolicy,
+    operations: sourceOperations.map((row, index) => (index === targetIndex ? malformedOperation : row))
+  };
+  const malformedPolicyPath = path.join(tmpRoot, "policy-missing-openapi-binding-reason-code.json");
+  await fs.writeFile(malformedPolicyPath, `${JSON.stringify(malformedPolicy, null, 2)}\n`, "utf8");
+
+  const failReportPath = path.join(tmpRoot, "report-fail.json");
+  const failResult = runMatrix({
+    reportPath: failReportPath,
+    policyPath: malformedPolicyPath
+  });
+  assert.notEqual(failResult.status, 0, `expected non-zero exit\nstdout:\n${failResult.stdout}\n\nstderr:\n${failResult.stderr}`);
+
+  const failReport = await readReport(failReportPath);
+  assert.equal(Array.isArray(failReport?.blockingIssues), true, "report.blockingIssues must be an array");
+  assert.equal(failReport.blockingIssues.length > 0, true, "missing policy reason code must produce blocking issues");
+
+  const missingReasonCodesIssue = failReport.blockingIssues.find(
+    (issue) => String(issue?.code ?? "") === "policy_reason_codes_missing_for_openapi_binding_surface"
+  );
+  assert.ok(missingReasonCodesIssue, "expected policy missing-openapi-binding-reason-codes issue");
+  assert.match(
+    String(missingReasonCodesIssue?.message ?? ""),
+    new RegExp(`\\b${droppedCode.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "u")
+  );
 });

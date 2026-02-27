@@ -947,22 +947,41 @@ export async function runNs3EvidenceBindingCoverageMatrix(args, env = process.en
       issues.push(...evaluated.issues);
     }
 
-    const policyRouteMethodSet = new Set(policy.operations.map((operation) => `${operation.method} ${operation.route}`));
+    const policyOperationByRouteMethod = new Map(policy.operations.map((operation) => [`${operation.method} ${operation.route}`, operation]));
+    const policyRouteMethodSet = new Set(policyOperationByRouteMethod.keys());
     const openapiBindingCoverageOperations = collectOpenApiBindingCoverageOperations(openapiBuilt);
     for (const operation of openapiBindingCoverageOperations) {
       const routeMethodKey = `${operation.method} ${operation.route}`;
-      if (policyRouteMethodSet.has(routeMethodKey)) continue;
-      const suffix = sanitizeIssueSuffix(routeMethodKey);
-      issues.push({
-        id: `policy:openapi_binding_surface_missing:${suffix}`,
-        category: "coverage",
-        code: "policy_operation_missing_for_openapi_binding_surface",
-        message: `policy is missing ${routeMethodKey} required by openapi binding surface`,
-        operationId: operation.operationId,
-        route: operation.route,
-        method: operation.method,
-        dimension: "policy"
-      });
+      if (!policyRouteMethodSet.has(routeMethodKey)) {
+        const suffix = sanitizeIssueSuffix(routeMethodKey);
+        issues.push({
+          id: `policy:openapi_binding_surface_missing:${suffix}`,
+          category: "coverage",
+          code: "policy_operation_missing_for_openapi_binding_surface",
+          message: `policy is missing ${routeMethodKey} required by openapi binding surface`,
+          operationId: operation.operationId,
+          route: operation.route,
+          method: operation.method,
+          dimension: "policy"
+        });
+        continue;
+      }
+
+      const policyOperation = policyOperationByRouteMethod.get(routeMethodKey);
+      const missingPolicyReasonCodes = operation.knownReasonCodes.filter((code) => !policyOperation.expectedReasonCodes.includes(code));
+      if (missingPolicyReasonCodes.length > 0) {
+        const suffix = sanitizeIssueSuffix(`${routeMethodKey}:${missingPolicyReasonCodes.join(",")}`);
+        issues.push({
+          id: `policy:openapi_binding_reason_codes_missing:${suffix}`,
+          category: "coverage",
+          code: "policy_reason_codes_missing_for_openapi_binding_surface",
+          message: `policy ${routeMethodKey} is missing openapi binding reason codes: ${missingPolicyReasonCodes.join(", ")}`,
+          operationId: policyOperation.operationId,
+          route: operation.route,
+          method: operation.method,
+          dimension: "policy"
+        });
+      }
     }
   }
 
