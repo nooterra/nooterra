@@ -31,9 +31,11 @@ test("session collaboration schemas validate canonical fixtures", async () => {
 
   const validateSession = ajv.getSchema("https://nooterra.local/schemas/Session.v1.schema.json");
   const validateSessionEvent = ajv.getSchema("https://nooterra.local/schemas/SessionEvent.v1.schema.json");
+  const validateSessionEventEnvelope = ajv.getSchema("https://nooterra.local/schemas/SessionEventEnvelope.v1.schema.json");
   const validateProvenance = ajv.getSchema("https://nooterra.local/schemas/SessionEventProvenance.v1.schema.json");
   assert.ok(validateSession);
   assert.ok(validateSessionEvent);
+  assert.ok(validateSessionEventEnvelope);
   assert.ok(validateProvenance);
 
   const session = buildSessionV1({
@@ -59,6 +61,22 @@ test("session collaboration schemas validate canonical fixtures", async () => {
   assert.equal(validateSessionEvent(eventPayload), true, JSON.stringify(validateSessionEvent.errors ?? [], null, 2));
   assert.equal(validateSessionEventPayloadV1(eventPayload), true);
   assert.equal(validateProvenance(eventPayload.provenance), true, JSON.stringify(validateProvenance.errors ?? [], null, 2));
+
+  const eventEnvelope = {
+    v: 1,
+    id: "evt_schema_collab_1",
+    at: "2026-02-27T00:01:00.000Z",
+    streamId: session.sessionId,
+    type: eventPayload.eventType,
+    actor: { type: "agent", id: "agt_manager_1" },
+    payload: eventPayload,
+    payloadHash: "a".repeat(64),
+    prevChainHash: null,
+    chainHash: "b".repeat(64),
+    signature: null,
+    signerKeyId: null
+  };
+  assert.equal(validateSessionEventEnvelope(eventEnvelope), true, JSON.stringify(validateSessionEventEnvelope.errors ?? [], null, 2));
 });
 
 test("session event provenance schema fails closed on invalid label and reason code shape", async () => {

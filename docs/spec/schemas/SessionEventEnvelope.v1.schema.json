@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/SessionEventEnvelope.v1.schema.json",
+  "title": "SessionEventEnvelope.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["v", "id", "at", "streamId", "type", "actor", "payload", "payloadHash", "prevChainHash", "chainHash", "signature", "signerKeyId"],
+  "properties": {
+    "v": { "const": 1 },
+    "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "at": { "type": "string", "format": "date-time" },
+    "streamId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "type": {
+      "type": "string",
+      "enum": [
+        "MESSAGE",
+        "TASK_REQUESTED",
+        "QUOTE_ISSUED",
+        "TASK_ACCEPTED",
+        "TASK_PROGRESS",
+        "TASK_COMPLETED",
+        "SETTLEMENT_LOCKED",
+        "SETTLEMENT_RELEASED",
+        "SETTLEMENT_REFUNDED",
+        "POLICY_CHALLENGED",
+        "DISPUTE_OPENED"
+      ]
+    },
+    "actor": { "type": ["object", "null"], "additionalProperties": true },
+    "payload": { "$ref": "https://nooterra.local/schemas/SessionEvent.v1.schema.json" },
+    "payloadHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "prevChainHash": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "chainHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "signature": { "type": ["string", "null"] },
+    "signerKeyId": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 }
+  }
+}
