@@ -26,6 +26,9 @@ import { buildAgreementDelegationV1 } from "../src/core/agreement-delegation.js"
 import { buildPolicyDecisionV1 } from "../src/core/policy-decision.js";
 import { computeOperatorActionHashV1, signOperatorActionV1 } from "../src/core/operator-action.js";
 
+const PROTOCOL_VECTOR_FIXTURE_DIR = path.resolve(process.cwd(), "test/fixtures/protocol-vectors");
+const PROTOCOL_VECTOR_CONFORMANCE_DIR = path.resolve(process.cwd(), "conformance/v1/protocol-vectors");
+
 function bytes(text) {
   return new TextEncoder().encode(text);
 }
@@ -34,9 +37,190 @@ function parseJson(bytesValue) {
   return JSON.parse(new TextDecoder().decode(bytesValue));
 }
 
+function getPathValue(record, dottedPath) {
+  return dottedPath.split(".").reduce((acc, key) => (acc == null ? undefined : acc[key]), record);
+}
+
 async function loadTestSigner() {
   const p = path.resolve(process.cwd(), "test/fixtures/keys/ed25519_test_keypair.json");
   return JSON.parse(await fs.readFile(p, "utf8"));
+}
+
+function buildFailureVectorsV1() {
+  const tenantId = "tenant_vectors";
+  const agentRunFailed = {
+    schemaVersion: "AgentRun.v1",
+    runId: "run_vectors_0002",
+    agentId: "agt_vectors_0001",
+    tenantId,
+    taskType: "classification",
+    inputRef: "urn:task:vectors:classification",
+    status: "failed",
+    evidenceRefs: [],
+    metrics: null,
+    failure: {
+      code: "MODEL_TIMEOUT",
+      message: "deterministic vector failure"
+    },
+    startedAt: "2026-02-01T00:05:00.000Z",
+    completedAt: null,
+    failedAt: "2026-02-01T00:06:00.000Z",
+    revision: 2,
+    createdAt: "2026-02-01T00:04:30.000Z",
+    updatedAt: "2026-02-01T00:06:00.000Z",
+    lastEventId: "ev_run_vectors_0002_2",
+    lastChainHash: "ch_run_vectors_0002_2"
+  };
+  const agentRunFailedCanonical = canonicalJsonStringify(agentRunFailed);
+
+  const disputeOpenEnvelope = buildDisputeOpenEnvelopeV1({
+    envelopeId: "dopen_tc_" + "1".repeat(64),
+    caseId: "arb_case_tc_" + "1".repeat(64),
+    tenantId,
+    agreementHash: "1".repeat(64),
+    receiptHash: "2".repeat(64),
+    holdHash: "3".repeat(64),
+    openedByAgentId: "agt_vectors_payee_0001",
+    openedAt: "2026-02-01T00:03:00.000Z",
+    reasonCode: "TOOL_CALL_DISPUTE",
+    nonce: "nonce_vectors_000001",
+    signerKeyId: "key_vectors_payee_0001",
+    signature: "sig_vectors_demo_0001"
+  });
+  const disputeOpenEnvelopeCanonical = canonicalJsonStringify(disputeOpenEnvelope);
+
+  const vectors = {
+    schemaVersion: "ProtocolFailureVectors.v1",
+    vectorsVersion: "1.0.0",
+    generatedAt: "2026-02-01T00:00:00.000Z",
+    cases: [
+      {
+        id: "agent_run_failed_model_timeout",
+        schemaVersion: agentRunFailed.schemaVersion,
+        reasonCode: agentRunFailed.failure.code,
+        canonicalJson: agentRunFailedCanonical,
+        sha256: sha256Hex(agentRunFailedCanonical)
+      },
+      {
+        id: "dispute_open_envelope_tool_call_dispute",
+        schemaVersion: disputeOpenEnvelope.schemaVersion,
+        reasonCode: disputeOpenEnvelope.reasonCode,
+        canonicalJson: disputeOpenEnvelopeCanonical,
+        sha256: sha256Hex(disputeOpenEnvelopeCanonical)
+      }
+    ]
+  };
+  vectors.reasonCodes = [...new Set(vectors.cases.map((entry) => entry.reasonCode))].sort();
+  vectors.reasonCodesSha256 = sha256Hex(canonicalJsonStringify(vectors.reasonCodes));
+  return vectors;
+}
+
+function buildInteropContractManifestV1({ vectorsRaw, vectors, failureVectorsRaw, failureVectors }) {
+  const interopObjects = Object.keys(vectors).filter((key) => !["schemaVersion", "generatedAt", "signer"].includes(key));
+
+  return {
+    schemaVersion: "ProtocolInteropContractManifest.v1",
+    manifestVersion: "1.0.0",
+    generatedAt: "2026-02-01T00:00:00.000Z",
+    protocolVectors: {
+      schemaVersion: vectors.schemaVersion,
+      file: "v1.json",
+      sha256: sha256Hex(vectorsRaw)
+    },
+    failureVectors: {
+      schemaVersion: failureVectors.schemaVersion,
+      file: "failure-vectors.v1.json",
+      sha256: sha256Hex(failureVectorsRaw)
+    },
+    interopObjects,
+    interopObjectSetSha256: sha256Hex(canonicalJsonStringify(interopObjects)),
+    deterministicExpectations: [
+      {
+        id: "toolManifest_signature_key",
+        expectedField: "toolManifest.signatureKeyId",
+        expectedValue: vectors.signer.keyId
+      },
+      {
+        id: "toolCallEvidence_signature_key",
+        expectedField: "toolCallEvidence.signatureKeyId",
+        expectedValue: vectors.signer.keyId
+      },
+      {
+        id: "policyDecision_signature_key",
+        expectedField: "policyDecision.signatureKeyId",
+        expectedValue: vectors.signer.keyId
+      },
+      {
+        id: "operatorAction_signature_key",
+        expectedField: "operatorAction.signatureKeyId",
+        expectedValue: vectors.signer.keyId
+      }
+    ]
+  };
+}
+
+function assertFailureVectorsFailClosed(vectors) {
+  if (vectors?.schemaVersion !== "ProtocolFailureVectors.v1") {
+    throw new Error("PROTOCOL_VECTOR_FAILURE_SCHEMA_MISMATCH");
+  }
+  if (!Array.isArray(vectors.cases) || vectors.cases.length === 0) {
+    throw new Error("PROTOCOL_VECTOR_FAILURE_CASES_MISSING");
+  }
+  for (const entry of vectors.cases) {
+    if (typeof entry.reasonCode !== "string" || entry.reasonCode.length === 0) {
+      throw new Error("PROTOCOL_VECTOR_REASON_CODE_MISSING");
+    }
+    if (!/^[A-Z0-9_]+$/.test(entry.reasonCode)) {
+      throw new Error("PROTOCOL_VECTOR_REASON_CODE_INVALID");
+    }
+    if (typeof entry.canonicalJson !== "string" || entry.canonicalJson.length === 0) {
+      throw new Error("PROTOCOL_VECTOR_CASE_CANONICAL_MISSING");
+    }
+    if (entry.sha256 !== sha256Hex(entry.canonicalJson)) {
+      throw new Error("PROTOCOL_VECTOR_CASE_SHA256_MISMATCH");
+    }
+  }
+  const expectedReasonCodes = [...new Set(vectors.cases.map((entry) => entry.reasonCode))].sort();
+  if (JSON.stringify(vectors.reasonCodes) !== JSON.stringify(expectedReasonCodes)) {
+    throw new Error("PROTOCOL_VECTOR_REASON_CODE_SET_MISMATCH");
+  }
+  if (vectors.reasonCodesSha256 !== sha256Hex(canonicalJsonStringify(expectedReasonCodes))) {
+    throw new Error("PROTOCOL_VECTOR_REASON_CODE_SET_SHA256_MISMATCH");
+  }
+}
+
+function assertInteropManifestFailClosed(manifest, { vectorsRaw, vectors, failureVectorsRaw, failureVectors }) {
+  if (manifest?.schemaVersion !== "ProtocolInteropContractManifest.v1") {
+    throw new Error("PROTOCOL_VECTOR_MANIFEST_SCHEMA_MISMATCH");
+  }
+  if (manifest.protocolVectors?.sha256 !== sha256Hex(vectorsRaw)) {
+    throw new Error("PROTOCOL_VECTOR_MANIFEST_PROTOCOL_SHA256_MISMATCH");
+  }
+  if (manifest.failureVectors?.sha256 !== sha256Hex(failureVectorsRaw)) {
+    throw new Error("PROTOCOL_VECTOR_MANIFEST_FAILURE_SHA256_MISMATCH");
+  }
+  if (manifest.protocolVectors?.schemaVersion !== vectors.schemaVersion) {
+    throw new Error("PROTOCOL_VECTOR_MANIFEST_PROTOCOL_SCHEMA_MISMATCH");
+  }
+  if (manifest.failureVectors?.schemaVersion !== failureVectors.schemaVersion) {
+    throw new Error("PROTOCOL_VECTOR_MANIFEST_FAILURE_SCHEMA_MISMATCH");
+  }
+  const interopObjects = Object.keys(vectors).filter((key) => !["schemaVersion", "generatedAt", "signer"].includes(key));
+  if (JSON.stringify(manifest.interopObjects) !== JSON.stringify(interopObjects)) {
+    throw new Error("PROTOCOL_VECTOR_MANIFEST_OBJECT_SET_MISMATCH");
+  }
+  if (manifest.interopObjectSetSha256 !== sha256Hex(canonicalJsonStringify(interopObjects))) {
+    throw new Error("PROTOCOL_VECTOR_MANIFEST_OBJECT_SET_SHA256_MISMATCH");
+  }
+  for (const expectation of manifest.deterministicExpectations ?? []) {
+    const actualValue = getPathValue(vectors, expectation.expectedField);
+    if (actualValue == null) {
+      throw new Error("PROTOCOL_VECTOR_MANIFEST_EXPECTED_FIELD_MISSING");
+    }
+    if (actualValue !== expectation.expectedValue) {
+      throw new Error("PROTOCOL_VECTOR_MANIFEST_EXPECTED_FIELD_MISMATCH");
+    }
+  }
 }
 
 async function buildVectorsV1() {
@@ -1003,4 +1187,76 @@ test("protocol golden vectors (v1) stay stable", async () => {
   const expected = JSON.parse(await fs.readFile(fixturePath, "utf8"));
   const actual = await buildVectorsV1();
   assert.deepEqual(actual, expected);
+});
+
+test("protocol golden vectors (v1) are deterministic across runs", async () => {
+  const a = await buildVectorsV1();
+  const b = await buildVectorsV1();
+  assert.deepEqual(a, b);
+});
+
+test("protocol failure vectors (v1) stay stable and fail closed", async () => {
+  const fixturePath = path.resolve(PROTOCOL_VECTOR_FIXTURE_DIR, "failure-vectors.v1.json");
+  const expected = JSON.parse(await fs.readFile(fixturePath, "utf8"));
+  const actual = buildFailureVectorsV1();
+  assert.deepEqual(actual, expected);
+  assert.doesNotThrow(() => assertFailureVectorsFailClosed(actual));
+
+  const missingReasonCode = structuredClone(actual);
+  delete missingReasonCode.cases[0].reasonCode;
+  assert.throws(() => assertFailureVectorsFailClosed(missingReasonCode), /PROTOCOL_VECTOR_REASON_CODE_MISSING/);
+
+  const invalidReasonCode = structuredClone(actual);
+  invalidReasonCode.cases[0].reasonCode = "model_timeout";
+  assert.throws(() => assertFailureVectorsFailClosed(invalidReasonCode), /PROTOCOL_VECTOR_REASON_CODE_INVALID/);
+});
+
+test("protocol interop manifest (v1) stays stable and fail closed", async () => {
+  const vectorsFixturePath = path.resolve(PROTOCOL_VECTOR_FIXTURE_DIR, "v1.json");
+  const failureFixturePath = path.resolve(PROTOCOL_VECTOR_FIXTURE_DIR, "failure-vectors.v1.json");
+  const manifestFixturePath = path.resolve(PROTOCOL_VECTOR_FIXTURE_DIR, "manifest.v1.json");
+  const vectorsRaw = await fs.readFile(vectorsFixturePath, "utf8");
+  const failureVectorsRaw = await fs.readFile(failureFixturePath, "utf8");
+  const vectors = JSON.parse(vectorsRaw);
+  const failureVectors = JSON.parse(failureVectorsRaw);
+  const expectedManifest = JSON.parse(await fs.readFile(manifestFixturePath, "utf8"));
+  const actualManifest = buildInteropContractManifestV1({
+    vectorsRaw,
+    vectors,
+    failureVectorsRaw,
+    failureVectors
+  });
+
+  assert.deepEqual(actualManifest, expectedManifest);
+  assert.doesNotThrow(() => assertFailureVectorsFailClosed(failureVectors));
+  assert.doesNotThrow(() =>
+    assertInteropManifestFailClosed(expectedManifest, {
+      vectorsRaw,
+      vectors,
+      failureVectorsRaw,
+      failureVectors
+    })
+  );
+
+  const corruptedManifest = structuredClone(expectedManifest);
+  corruptedManifest.protocolVectors.sha256 = "0".repeat(64);
+  assert.throws(
+    () =>
+      assertInteropManifestFailClosed(corruptedManifest, {
+        vectorsRaw,
+        vectors,
+        failureVectorsRaw,
+        failureVectors
+      }),
+    /PROTOCOL_VECTOR_MANIFEST_PROTOCOL_SHA256_MISMATCH/
+  );
+});
+
+test("conformance protocol-vector artifacts mirror fixtures", async () => {
+  const files = ["v1.json", "failure-vectors.v1.json", "manifest.v1.json"];
+  for (const filename of files) {
+    const fixtureRaw = await fs.readFile(path.resolve(PROTOCOL_VECTOR_FIXTURE_DIR, filename), "utf8");
+    const conformanceRaw = await fs.readFile(path.resolve(PROTOCOL_VECTOR_CONFORMANCE_DIR, filename), "utf8");
+    assert.equal(conformanceRaw, fixtureRaw);
+  }
 });

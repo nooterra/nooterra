@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "ProtocolFailureVectors.v1",
+  "vectorsVersion": "1.0.0",
+  "generatedAt": "2026-02-01T00:00:00.000Z",
+  "cases": [
+    {
+      "id": "agent_run_failed_model_timeout",
+      "schemaVersion": "AgentRun.v1",
+      "reasonCode": "MODEL_TIMEOUT",
+      "canonicalJson": "{\"agentId\":\"agt_vectors_0001\",\"completedAt\":null,\"createdAt\":\"2026-02-01T00:04:30.000Z\",\"evidenceRefs\":[],\"failedAt\":\"2026-02-01T00:06:00.000Z\",\"failure\":{\"code\":\"MODEL_TIMEOUT\",\"message\":\"deterministic vector failure\"},\"inputRef\":\"urn:task:vectors:classification\",\"lastChainHash\":\"ch_run_vectors_0002_2\",\"lastEventId\":\"ev_run_vectors_0002_2\",\"metrics\":null,\"revision\":2,\"runId\":\"run_vectors_0002\",\"schemaVersion\":\"AgentRun.v1\",\"startedAt\":\"2026-02-01T00:05:00.000Z\",\"status\":\"failed\",\"taskType\":\"classification\",\"tenantId\":\"tenant_vectors\",\"updatedAt\":\"2026-02-01T00:06:00.000Z\"}",
+      "sha256": "669a7c1ebac341cb746b880065d348e926b0947f4439c41c707e26ca294c092b"
+    },
+    {
+      "id": "dispute_open_envelope_tool_call_dispute",
+      "schemaVersion": "DisputeOpenEnvelope.v1",
+      "reasonCode": "TOOL_CALL_DISPUTE",
+      "canonicalJson": "{\"agreementHash\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"artifactId\":\"dopen_tc_1111111111111111111111111111111111111111111111111111111111111111\",\"artifactType\":\"DisputeOpenEnvelope.v1\",\"caseId\":\"arb_case_tc_1111111111111111111111111111111111111111111111111111111111111111\",\"envelopeHash\":\"a98223d0bd88e2ed4c3e261eddda1883f5cb354e74ca4e98a870d16226969e32\",\"envelopeId\":\"dopen_tc_1111111111111111111111111111111111111111111111111111111111111111\",\"holdHash\":\"3333333333333333333333333333333333333333333333333333333333333333\",\"nonce\":\"nonce_vectors_000001\",\"openedAt\":\"2026-02-01T00:03:00.000Z\",\"openedByAgentId\":\"agt_vectors_payee_0001\",\"reasonCode\":\"TOOL_CALL_DISPUTE\",\"receiptHash\":\"2222222222222222222222222222222222222222222222222222222222222222\",\"schemaVersion\":\"DisputeOpenEnvelope.v1\",\"signature\":\"sig_vectors_demo_0001\",\"signerKeyId\":\"key_vectors_payee_0001\",\"tenantId\":\"tenant_vectors\"}",
+      "sha256": "060746e937ce07ccbe1dd83faf49cbf0bc1aa88d18a8c71e0442d3ccb8ea7580"
+    }
+  ],
+  "reasonCodes": [
+    "MODEL_TIMEOUT",
+    "TOOL_CALL_DISPUTE"
+  ],
+  "reasonCodesSha256": "174320d7fe3b625b336b3d1e2b7a583a326bb4d33187d4d58907261ee03d9ca1"
+}

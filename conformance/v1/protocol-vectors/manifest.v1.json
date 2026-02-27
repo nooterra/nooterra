@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "ProtocolInteropContractManifest.v1",
+  "manifestVersion": "1.0.0",
+  "generatedAt": "2026-02-01T00:00:00.000Z",
+  "protocolVectors": {
+    "schemaVersion": "ProtocolVectors.v1",
+    "file": "v1.json",
+    "sha256": "c658173e55a7b5d535bd4d268705d979688ec0aa9086e3234f2c4e3f8cb1122e"
+  },
+  "failureVectors": {
+    "schemaVersion": "ProtocolFailureVectors.v1",
+    "file": "failure-vectors.v1.json",
+    "sha256": "747b012299b1a37bf70af200334da049da4c1a603666e5f445792c47abfc8f3f"
+  },
+  "interopObjects": [
+    "canonicalJson",
+    "toolManifest",
+    "toolCallAgreement",
+    "toolCallEvidence",
+    "jobProof",
+    "monthProof",
+    "financePack",
+    "invoice",
+    "agentIdentity",
+    "agentRun",
+    "agentEvent",
+    "agentWallet",
+    "agentRunSettlement",
+    "settlementDecisionRecord",
+    "settlementDecisionRecordV2",
+    "policyDecision",
+    "operatorAction",
+    "settlementReceipt",
+    "marketplaceOffer",
+    "marketplaceAcceptance",
+    "agentReputation",
+    "agentReputationV2",
+    "interactionDirectionMatrix",
+    "reputationEvent",
+    "disputeOpenEnvelope",
+    "agreementDelegation"
+  ],
+  "interopObjectSetSha256": "8a139b2c234d3cdce7a50a74238ba93411202cc4b976c2ad214848f6febc78f8",
+  "deterministicExpectations": [
+    {
+      "id": "toolManifest_signature_key",
+      "expectedField": "toolManifest.signatureKeyId",
+      "expectedValue": "key_282c80df2381d6831a92e89b"
+    },
+    {
+      "id": "toolCallEvidence_signature_key",
+      "expectedField": "toolCallEvidence.signatureKeyId",
+      "expectedValue": "key_282c80df2381d6831a92e89b"
+    },
+    {
+      "id": "policyDecision_signature_key",
+      "expectedField": "policyDecision.signatureKeyId",
+      "expectedValue": "key_282c80df2381d6831a92e89b"
+    },
+    {
+      "id": "operatorAction_signature_key",
+      "expectedField": "operatorAction.signatureKeyId",
+      "expectedValue": "key_282c80df2381d6831a92e89b"
+    }
+  ]
+}
