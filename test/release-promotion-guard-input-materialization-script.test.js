@@ -49,6 +49,22 @@ async function seedUpstreamArtifacts(root) {
     schemaVersion: "OnboardingHostSuccessGateReport.v1",
     verdict: { ok: true }
   });
+  await writeJson(path.join(testsRoot, "e", "simulation-scorecard-gate.json"), {
+    schemaVersion: "NooterraSimulationScorecardGateReport.v1",
+    strictOk: true,
+    okWithWaiver: true,
+    waiverApplied: false
+  });
+  await writeJson(path.join(testsRoot, "f", "simulation-fault-matrix-report.json"), {
+    schemaVersion: "NooterraSimulationFaultMatrixReport.v1",
+    strictOk: true,
+    matrix: { schemaVersion: "NooterraSimulationFaultMatrix.v1", summary: { totalFaults: 6, passedFaults: 6, failedFaults: 0 } }
+  });
+  await writeJson(path.join(testsRoot, "g", "simulation-high-scale-report.json"), {
+    schemaVersion: "NooterraSimulationHighScaleHarnessReport.v1",
+    strictOk: true,
+    run: { schemaVersion: "NooterraSimulationHighScaleRun.v1", tier: "scale_10000" }
+  });
 
   await writeJson(path.join(goLiveRoot, "a", "s13-go-live-gate.json"), {
     schemaVersion: "GoLiveGateReport.v1",
@@ -104,7 +120,7 @@ test("release promotion input materialization: copies required artifacts and emi
   assert.equal(report.verdict.ok, true);
   assert.equal(report.verdict.failedFiles, 0);
   assert.equal(Array.isArray(report.files), true);
-  assert.equal(report.files.length, 8);
+  assert.equal(report.files.length, 11);
   for (const row of report.files) {
     assert.equal(row.status, "passed");
     assert.match(String(row.sourceSha256 ?? ""), /^[a-f0-9]{64}$/);

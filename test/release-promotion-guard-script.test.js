@@ -193,6 +193,32 @@ async function writeRequiredArtifacts(
     schemaVersion: "OnboardingHostSuccessGateReport.v1",
     verdict: { ok: true, requiredHosts: 4, passedHosts: 4 }
   });
+  await writeJson(root, "artifacts/gates/simulation-scorecard-gate.json", {
+    schemaVersion: "NooterraSimulationScorecardGateReport.v1",
+    strictOk: true,
+    okWithWaiver: true,
+    waiverApplied: false,
+    summary: { runCount: 3, requiredChecks: 9, passedChecks: 9, failedChecks: 0, blockingIssueCount: 0 }
+  });
+  await writeJson(root, "artifacts/gates/simulation-fault-matrix-report.json", {
+    schemaVersion: "NooterraSimulationFaultMatrixReport.v1",
+    strictOk: true,
+    checks: [],
+    blockingIssues: [],
+    matrix: {
+      schemaVersion: "NooterraSimulationFaultMatrix.v1",
+      summary: { totalFaults: 6, passedFaults: 6, failedFaults: 0 }
+    }
+  });
+  await writeJson(root, "artifacts/gates/simulation-high-scale-report.json", {
+    schemaVersion: "NooterraSimulationHighScaleHarnessReport.v1",
+    strictOk: true,
+    run: {
+      schemaVersion: "NooterraSimulationHighScaleRun.v1",
+      tier: "scale_10000",
+      telemetry: { agentCount: 10000, actionCount: 10000, blockedActions: 0 }
+    }
+  });
   await writeJson(root, "artifacts/gates/s13-go-live-gate.json", {
     schemaVersion: "GoLiveGateReport.v1",
     verdict: { ok: true, requiredChecks: 1, passedChecks: 1 }
@@ -308,10 +334,15 @@ test("release promotion guard verdict aggregation: fails closed on missing requi
 
   assert.equal(verdict.ok, false);
   assert.equal(verdict.status, "fail");
-  assert.equal(verdict.requiredArtifacts, 7);
+  assert.equal(verdict.requiredArtifacts, 10);
   assert.equal(verdict.passedArtifacts, 6);
-  assert.equal(verdict.failedArtifacts, 1);
-  assert.deepEqual(verdict.blockingArtifactIds, ["hosted_baseline_evidence"]);
+  assert.equal(verdict.failedArtifacts, 4);
+  assert.deepEqual(verdict.blockingArtifactIds, [
+    "hosted_baseline_evidence",
+    "simulation_scorecard_gate",
+    "simulation_fault_matrix_gate",
+    "simulation_high_scale_harness_gate"
+  ]);
 });
 
 test("release promotion guard: fails closed when offline parity gate report schema drifts", async (t) => {

@@ -229,6 +229,32 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
     schemaVersion: "OnboardingHostSuccessGateReport.v1",
     verdict: { ok: true, requiredHosts: 4, passedHosts: 4 }
   });
+  await writeJson(path.join(testsRoot, "simulation", "simulation-scorecard-gate.json"), {
+    schemaVersion: "NooterraSimulationScorecardGateReport.v1",
+    strictOk: true,
+    okWithWaiver: true,
+    waiverApplied: false,
+    summary: { runCount: 3, requiredChecks: 9, passedChecks: 9, failedChecks: 0, blockingIssueCount: 0 }
+  });
+  await writeJson(path.join(testsRoot, "simulation", "simulation-fault-matrix-report.json"), {
+    schemaVersion: "NooterraSimulationFaultMatrixReport.v1",
+    strictOk: true,
+    checks: [],
+    blockingIssues: [],
+    matrix: {
+      schemaVersion: "NooterraSimulationFaultMatrix.v1",
+      summary: { totalFaults: 6, passedFaults: 6, failedFaults: 0 }
+    }
+  });
+  await writeJson(path.join(testsRoot, "simulation", "simulation-high-scale-report.json"), {
+    schemaVersion: "NooterraSimulationHighScaleHarnessReport.v1",
+    strictOk: true,
+    run: {
+      schemaVersion: "NooterraSimulationHighScaleRun.v1",
+      tier: "scale_10000",
+      telemetry: { agentCount: 10000, actionCount: 10000, blockedActions: 0 }
+    }
+  });
 
   const collabGatePath = path.join(goLiveRoot, "s13", "nooterra-verified-collaboration-gate.json");
   await writeJson(collabGatePath, {

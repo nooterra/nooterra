@@ -16,6 +16,9 @@ const DEFAULT_ONBOARDING_HOST_SUCCESS_GATE_PATH = "artifacts/gates/onboarding-ho
 const DEFAULT_GO_LIVE_GATE_PATH = "artifacts/gates/s13-go-live-gate.json";
 const DEFAULT_LAUNCH_CUTOVER_PACKET_PATH = "artifacts/gates/s13-launch-cutover-packet.json";
 const DEFAULT_HOSTED_BASELINE_EVIDENCE_PATH = "artifacts/ops/hosted-baseline-evidence-production.json";
+const DEFAULT_SIMULATION_SCORECARD_GATE_PATH = "artifacts/gates/simulation-scorecard-gate.json";
+const DEFAULT_SIMULATION_FAULT_MATRIX_GATE_PATH = "artifacts/gates/simulation-fault-matrix-report.json";
+const DEFAULT_SIMULATION_HIGH_SCALE_HARNESS_GATE_PATH = "artifacts/gates/simulation-high-scale-report.json";
 const PRODUCTION_COLLAB_CHECK_ID = "nooterra_verified_collaboration";
 const PRODUCTION_OPENCLAW_LINEAGE_CHECK_ID = "openclaw_substrate_demo_lineage_verified";
 const PRODUCTION_OPENCLAW_TRANSCRIPT_CHECK_ID = "openclaw_substrate_demo_transcript_verified";
@@ -86,6 +89,27 @@ const REQUIRED_ARTIFACT_SPECS = [
     expectedType: "HostedBaselineEvidence.v1",
     expectedVersion: 1,
     pathKey: "hostedBaselineEvidencePath"
+  },
+  {
+    id: "simulation_scorecard_gate",
+    label: "Simulation scorecard gate",
+    expectedSchemaVersion: "NooterraSimulationScorecardGateReport.v1",
+    pathKey: "simulationScorecardGatePath",
+    verdictPath: "okWithWaiver"
+  },
+  {
+    id: "simulation_fault_matrix_gate",
+    label: "Simulation fault-matrix gate",
+    expectedSchemaVersion: "NooterraSimulationFaultMatrixReport.v1",
+    pathKey: "simulationFaultMatrixGatePath",
+    verdictPath: "strictOk"
+  },
+  {
+    id: "simulation_high_scale_harness_gate",
+    label: "Simulation high-scale harness gate",
+    expectedSchemaVersion: "NooterraSimulationHighScaleHarnessReport.v1",
+    pathKey: "simulationHighScaleHarnessGatePath",
+    verdictPath: "strictOk"
   }
 ];
 const REQUIRED_ARTIFACT_IDS = Object.freeze(REQUIRED_ARTIFACT_SPECS.map((spec) => spec.id));
@@ -103,6 +127,9 @@ function usage() {
     "  --go-live-gate <file>              Go-live gate report path",
     "  --launch-packet <file>             Launch cutover packet report path",
     "  --baseline-evidence <file>         Hosted baseline evidence report path",
+    "  --simulation-scorecard-gate <file> Simulation scorecard gate report path",
+    "  --simulation-fault-matrix-gate <file> Simulation fault-matrix gate report path",
+    "  --simulation-high-scale-harness-gate <file> Simulation high-scale harness gate report path",
     "  --override <file>                  Optional signed override JSON path",
     "  --override-public-key-file <file>  Optional public key PEM path for override verification",
     "  --promotion-ref <value>            Optional release ref/commit bound into promotion context hash",
@@ -118,6 +145,9 @@ function usage() {
     "  GO_LIVE_GATE_REPORT_PATH",
     "  LAUNCH_CUTOVER_PACKET_PATH",
     "  HOSTED_BASELINE_EVIDENCE_PATH",
+    "  SIMULATION_SCORECARD_GATE_REPORT_PATH",
+    "  SIMULATION_FAULT_MATRIX_GATE_REPORT_PATH",
+    "  SIMULATION_HIGH_SCALE_HARNESS_GATE_REPORT_PATH",
     "  RELEASE_PROMOTION_OVERRIDE_PATH",
     "  RELEASE_PROMOTION_OVERRIDE_PUBLIC_KEY_FILE",
     "  RELEASE_PROMOTION_REF (fallback: GITHUB_SHA)",
@@ -151,6 +181,20 @@ function normalizeCheckStatus(raw) {
   if (!value) return null;
   if (value === "passed" || value === "failed") return value;
   return null;
+}
+
+function readPathValue(root, dottedPath) {
+  const pathParts = String(dottedPath ?? "")
+    .split(".")
+    .map((part) => part.trim())
+    .filter((part) => part !== "");
+  if (!pathParts.length) return null;
+  let cursor = root;
+  for (const part of pathParts) {
+    if (!cursor || typeof cursor !== "object" || Array.isArray(cursor) || !(part in cursor)) return null;
+    cursor = cursor[part];
+  }
+  return cursor;
 }
 
 function cmpString(a, b) {
@@ -208,6 +252,18 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
     hostedBaselineEvidencePath: path.resolve(
       cwd,
       normalizeOptionalString(env.HOSTED_BASELINE_EVIDENCE_PATH) ?? DEFAULT_HOSTED_BASELINE_EVIDENCE_PATH
+    ),
+    simulationScorecardGatePath: path.resolve(
+      cwd,
+      normalizeOptionalString(env.SIMULATION_SCORECARD_GATE_REPORT_PATH) ?? DEFAULT_SIMULATION_SCORECARD_GATE_PATH
+    ),
+    simulationFaultMatrixGatePath: path.resolve(
+      cwd,
+      normalizeOptionalString(env.SIMULATION_FAULT_MATRIX_GATE_REPORT_PATH) ?? DEFAULT_SIMULATION_FAULT_MATRIX_GATE_PATH
+    ),
+    simulationHighScaleHarnessGatePath: path.resolve(
+      cwd,
+      normalizeOptionalString(env.SIMULATION_HIGH_SCALE_HARNESS_GATE_REPORT_PATH) ?? DEFAULT_SIMULATION_HIGH_SCALE_HARNESS_GATE_PATH
     ),
     overridePath: envOverridePath ? path.resolve(cwd, envOverridePath) : null,
     overridePublicKeyPath: envOverridePublicKeyPath ? path.resolve(cwd, envOverridePublicKeyPath) : null,
@@ -275,6 +331,27 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
       const value = normalizeOptionalString(argv[i + 1]);
       if (!value) throw new Error("--baseline-evidence requires a file path");
       out.hostedBaselineEvidencePath = path.resolve(cwd, value);
+      i += 1;
+      continue;
+    }
+    if (arg === "--simulation-scorecard-gate") {
+      const value = normalizeOptionalString(argv[i + 1]);
+      if (!value) throw new Error("--simulation-scorecard-gate requires a file path");
+      out.simulationScorecardGatePath = path.resolve(cwd, value);
+      i += 1;
+      continue;
+    }
+    if (arg === "--simulation-fault-matrix-gate") {
+      const value = normalizeOptionalString(argv[i + 1]);
+      if (!value) throw new Error("--simulation-fault-matrix-gate requires a file path");
+      out.simulationFaultMatrixGatePath = path.resolve(cwd, value);
+      i += 1;
+      continue;
+    }
+    if (arg === "--simulation-high-scale-harness-gate") {
+      const value = normalizeOptionalString(argv[i + 1]);
+      if (!value) throw new Error("--simulation-high-scale-harness-gate requires a file path");
+      out.simulationHighScaleHarnessGatePath = path.resolve(cwd, value);
       i += 1;
       continue;
     }
@@ -348,9 +425,10 @@ async function loadJsonArtifact(filePath) {
   }
 }
 
-function evaluateGateJson({ json, expectedSchemaVersion, requiredCheckIds = [] }) {
+function evaluateGateJson({ json, expectedSchemaVersion, requiredCheckIds = [], verdictPath = "verdict.ok" }) {
   const observedSchemaVersion = typeof json?.schemaVersion === "string" ? json.schemaVersion : null;
-  const observedVerdictOk = typeof json?.verdict?.ok === "boolean" ? json.verdict.ok : null;
+  const observedVerdictValue = readPathValue(json, verdictPath);
+  const observedVerdictOk = typeof observedVerdictValue === "boolean" ? observedVerdictValue : null;
   const schemaOk = observedSchemaVersion === expectedSchemaVersion;
   const verdictOk = schemaOk && observedVerdictOk === true;
   const failureCodes = [];
@@ -452,7 +530,8 @@ async function evaluateRequiredArtifact(spec, args) {
     ? evaluateGateJson({
         json: loaded.json,
         expectedSchemaVersion: spec.expectedSchemaVersion,
-        requiredCheckIds: spec.requiredCheckIds ?? []
+        requiredCheckIds: spec.requiredCheckIds ?? [],
+        verdictPath: spec.verdictPath ?? "verdict.ok"
       })
     : evaluateHostedBaselineEvidenceJson({ json: loaded.json, expectedType: spec.expectedType, expectedVersion: spec.expectedVersion });
 

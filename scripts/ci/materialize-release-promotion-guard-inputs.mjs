@@ -33,6 +33,24 @@ const REQUIRED_INPUTS = Object.freeze([
     destination: "artifacts/gates/onboarding-host-success-gate.json"
   },
   {
+    id: "simulation_scorecard_gate",
+    rootKey: "testsRoot",
+    fileName: "simulation-scorecard-gate.json",
+    destination: "artifacts/gates/simulation-scorecard-gate.json"
+  },
+  {
+    id: "simulation_fault_matrix_gate",
+    rootKey: "testsRoot",
+    fileName: "simulation-fault-matrix-report.json",
+    destination: "artifacts/gates/simulation-fault-matrix-report.json"
+  },
+  {
+    id: "simulation_high_scale_harness_gate",
+    rootKey: "testsRoot",
+    fileName: "simulation-high-scale-report.json",
+    destination: "artifacts/gates/simulation-high-scale-report.json"
+  },
+  {
     id: "go_live_gate",
     rootKey: "goLiveRoot",
     fileName: "s13-go-live-gate.json",
