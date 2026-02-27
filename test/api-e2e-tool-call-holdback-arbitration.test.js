@@ -919,6 +919,172 @@ test("API e2e: tool-call arbitration open fails closed when request-hash evidenc
   assert.equal(open.json?.code, "X402_TOOL_CALL_OPEN_BINDING_EVIDENCE_REQUIRED");
 });
 
+test("API e2e: tool-call arbitration open fails closed when request-hash evidence mismatches source", async () => {
+  let nowMs = Date.parse("2026-02-13T00:30:00.000Z");
+  const api = createApi({ now: () => new Date(nowMs).toISOString(), opsToken: "tok_ops" });
+  const tenantId = "tenant_default";
+  const payerAgentId = "agt_tc_bindopen_mismatch_payer_1";
+  const payeeAgentId = "agt_tc_bindopen_mismatch_payee_1";
+  const arbiterAgentId = "agt_tc_bindopen_mismatch_arbiter_1";
+  const arbiterKeypair = createEd25519Keypair();
+
+  await registerAgent(api, { tenantId, agentId: payerAgentId });
+  const payeeRegistration = await registerAgent(api, { tenantId, agentId: payeeAgentId });
+  await registerAgent(api, { tenantId, agentId: arbiterAgentId, publicKeyPem: arbiterKeypair.publicKeyPem });
+  await creditWallet(api, { tenantId, agentId: payerAgentId, amountCents: 10_000, key: "idmp_tc_bindopen_mismatch_credit_1" });
+
+  const agreementHash = "1".repeat(64);
+  const receiptHash = "2".repeat(64);
+  const requestSha256 = "3".repeat(64);
+  const mismatchedRequestSha = "4".repeat(64);
+  await seedToolCallSettlementBindingSource(api, { tenantId, agreementHash, receiptHash, requestSha256, at: new Date(nowMs).toISOString() });
+  const holdLock = await request(api, {
+    method: "POST",
+    path: "/ops/tool-calls/holds/lock",
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_bindopen_mismatch_hold_1" },
+    body: {
+      agreementHash,
+      receiptHash,
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 10_000,
+      currency: "USD",
+      holdbackBps: 2000,
+      challengeWindowMs: 30_000
+    }
+  });
+  assert.equal(holdLock.statusCode, 201, holdLock.body);
+  const holdHash = String(holdLock.json?.hold?.holdHash ?? "");
+  assert.match(holdHash, /^[0-9a-f]{64}$/);
+
+  const open = await request(api, {
+    method: "POST",
+    path: "/tool-calls/arbitration/open",
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_bindopen_mismatch_open_1" },
+    body: {
+      agreementHash,
+      receiptHash,
+      holdHash,
+      openedByAgentId: payeeAgentId,
+      disputeOpenEnvelope: buildSignedDisputeOpenEnvelope({
+        tenantId,
+        agreementHash,
+        receiptHash,
+        holdHash,
+        openedByAgentId: payeeAgentId,
+        signerKeyId: payeeRegistration.keyId,
+        signerPrivateKeyPem: payeeRegistration.keypair.privateKeyPem,
+        openedAt: new Date(nowMs).toISOString()
+      }),
+      arbiterAgentId,
+      summary: "request hash evidence mismatch should fail",
+      evidenceRefs: [`http:request_sha256:${mismatchedRequestSha}`]
+    }
+  });
+  assert.equal(open.statusCode, 409, open.body);
+  assert.equal(open.json?.code, "X402_TOOL_CALL_OPEN_BINDING_EVIDENCE_MISMATCH");
+});
+
+test("API e2e: tool-call arbitration verdict fails closed when request-hash evidence is missing", async () => {
+  let nowMs = Date.parse("2026-02-13T00:35:00.000Z");
+  const api = createApi({ now: () => new Date(nowMs).toISOString(), opsToken: "tok_ops" });
+  const tenantId = "tenant_default";
+  const payerAgentId = "agt_tc_bindverd_required_payer_1";
+  const payeeAgentId = "agt_tc_bindverd_required_payee_1";
+  const arbiterAgentId = "agt_tc_bindverd_required_arbiter_1";
+  const arbiterKeypair = createEd25519Keypair();
+
+  await registerAgent(api, { tenantId, agentId: payerAgentId });
+  const payeeRegistration = await registerAgent(api, { tenantId, agentId: payeeAgentId });
+  const arbiterRegistration = await registerAgent(api, { tenantId, agentId: arbiterAgentId, publicKeyPem: arbiterKeypair.publicKeyPem });
+  await creditWallet(api, { tenantId, agentId: payerAgentId, amountCents: 10_000, key: "idmp_tc_bindverd_required_credit_1" });
+
+  const agreementHash = "5".repeat(64);
+  const receiptHash = "6".repeat(64);
+  const requestSha256 = "7".repeat(64);
+  await seedToolCallSettlementBindingSource(api, { tenantId, agreementHash, receiptHash, requestSha256, at: new Date(nowMs).toISOString() });
+
+  const holdLock = await request(api, {
+    method: "POST",
+    path: "/ops/tool-calls/holds/lock",
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_bindverd_required_hold_1" },
+    body: {
+      agreementHash,
+      receiptHash,
+      payerAgentId,
+      payeeAgentId,
+      amountCents: 10_000,
+      currency: "USD",
+      holdbackBps: 2000,
+      challengeWindowMs: 30_000
+    }
+  });
+  assert.equal(holdLock.statusCode, 201, holdLock.body);
+  const holdHash = String(holdLock.json?.hold?.holdHash ?? "");
+  assert.match(holdHash, /^[0-9a-f]{64}$/);
+
+  const open = await request(api, {
+    method: "POST",
+    path: "/tool-calls/arbitration/open",
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_bindverd_required_open_1" },
+    body: {
+      agreementHash,
+      receiptHash,
+      holdHash,
+      openedByAgentId: payeeAgentId,
+      disputeOpenEnvelope: buildSignedDisputeOpenEnvelope({
+        tenantId,
+        agreementHash,
+        receiptHash,
+        holdHash,
+        openedByAgentId: payeeAgentId,
+        signerKeyId: payeeRegistration.keyId,
+        signerPrivateKeyPem: payeeRegistration.keypair.privateKeyPem,
+        openedAt: new Date(nowMs).toISOString()
+      }),
+      arbiterAgentId,
+      summary: "open for verdict required test",
+      evidenceRefs: [`http:request_sha256:${requestSha256}`]
+    }
+  });
+  assert.equal(open.statusCode, 201, open.body);
+  const arbitrationCase = open.json?.arbitrationCase ?? null;
+  assert.ok(arbitrationCase);
+
+  const scopedCaseKey = `${tenantId}\n${arbitrationCase.caseId}`;
+  const priorCase = api.store.arbitrationCases.get(scopedCaseKey);
+  assert.ok(priorCase, "expected arbitration case in store");
+  api.store.arbitrationCases.set(scopedCaseKey, {
+    ...priorCase,
+    evidenceRefs: [],
+    revision: Number(priorCase.revision ?? 0) + 1,
+    updatedAt: new Date(nowMs).toISOString()
+  });
+
+  const signedVerdict = buildSignedToolCallVerdict({
+    tenantId,
+    caseId: arbitrationCase.caseId,
+    runId: arbitrationCase.runId,
+    settlementId: arbitrationCase.settlementId,
+    disputeId: arbitrationCase.disputeId,
+    arbiterAgentId,
+    signerKeyId: arbiterRegistration.keyId,
+    signerPrivateKeyPem: arbiterKeypair.privateKeyPem,
+    releaseRatePct: 100,
+    outcome: "accepted",
+    evidenceRefs: [],
+    issuedAt: new Date(nowMs).toISOString()
+  });
+  const verdict = await request(api, {
+    method: "POST",
+    path: "/tool-calls/arbitration/verdict",
+    headers: { "x-proxy-tenant-id": tenantId, "x-nooterra-protocol": "1.0", "x-idempotency-key": "idmp_tc_bindverd_required_verdict_1" },
+    body: { caseId: arbitrationCase.caseId, arbitrationVerdict: signedVerdict }
+  });
+  assert.equal(verdict.statusCode, 409, verdict.body);
+  assert.equal(verdict.json?.code, "X402_TOOL_CALL_VERDICT_BINDING_EVIDENCE_REQUIRED");
+});
+
 test("API e2e: tool-call arbitration verdict fails closed when request-hash evidence mismatches source", async () => {
   let nowMs = Date.parse("2026-02-13T00:40:00.000Z");
   const api = createApi({ now: () => new Date(nowMs).toISOString(), opsToken: "tok_ops" });
