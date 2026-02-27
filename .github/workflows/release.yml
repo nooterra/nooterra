@@ -41,7 +41,8 @@ jobs:
               "kernel_v0_ship_gate",
               "production_cutover_gate",
               "offline_verification_parity_gate",
-              "release_promotion_materialization_chain"
+              "release_promotion_materialization_chain",
+              "deploy_safety_smoke"
             ];
 
             const runs = await github.paginate(
@@ -199,6 +200,23 @@ jobs:
             --signature-key-id ops_ci_k1 \
             --out artifacts/ops/hosted-baseline-release-gate.json
 
+      - name: Run OpenClaw operator readiness gate
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ops
+          cat > artifacts/ops/openclaw.plugin.release-gate.json <<'JSON'
+          {
+            "id": "nooterra",
+            "baseUrl": "http://127.0.0.1:3000",
+            "tenantId": "tenant_default",
+            "apiKey": "sk_release_gate_openclaw"
+          }
+          JSON
+          node scripts/ops/openclaw-operator-readiness-gate.mjs \
+            --hosted-evidence artifacts/ops/hosted-baseline-release-gate.json \
+            --openclaw-plugin artifacts/ops/openclaw.plugin.release-gate.json \
+            --out artifacts/gates/openclaw-operator-readiness-gate.json
+
       - name: Enforce Kernel v0 launch gate checklist
         run: npm run -s test:ops:kernel-v0-launch-gate -- --mode prepublish
 
@@ -271,6 +289,7 @@ jobs:
           name: release-deploy-safety-${{ github.run_id }}
           path: |
             artifacts/ops/hosted-baseline-release-gate.json
+            artifacts/gates/openclaw-operator-readiness-gate.json
             artifacts/gates/protocol-compatibility-matrix-release-gate.json
             artifacts/gates/protocol-compatibility-drift-gate-release-gate.json
           if-no-files-found: error
@@ -367,6 +386,22 @@ jobs:
             --release-gate-root /tmp/release-upstream/release-gate \
             --report artifacts/gates/release-promotion-guard-input-materialization.json
 
+      - name: Assert OpenClaw readiness gate artifact is present and passing
+        run: |
+          set -euo pipefail
+          node -e '
+            import fs from "node:fs";
+            const p = "/tmp/release-upstream/release-gate/openclaw-operator-readiness-gate.json";
+            const raw = fs.readFileSync(p, "utf8");
+            const report = JSON.parse(raw);
+            if (report?.schemaVersion !== "OpenClawOperatorReadinessGateReport.v1") {
+              throw new Error(`unexpected schemaVersion: ${report?.schemaVersion ?? "<missing>"}`);
+            }
+            if (report?.verdict?.ok !== true) {
+              throw new Error("openclaw operator readiness gate verdict must be ok=true");
+            }
+          '
+
       - name: Run release promotion guard (NOO-65)
         run: |
           set -euo pipefail
@@ -413,6 +448,7 @@ jobs:
             artifacts/gates/s13-go-live-gate.json
             artifacts/gates/s13-launch-cutover-packet.json
             artifacts/gates/nooterra-verified-collaboration-gate.json
+            artifacts/gates/openclaw-operator-readiness-gate.json
             artifacts/ops/hosted-baseline-release-gate.json
           if-no-files-found: error
 

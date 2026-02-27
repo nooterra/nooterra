@@ -33,6 +33,13 @@ test("tests workflow contract: deploy safety readiness gate requires healthz wai
   assert.match(text, /name: Run hosted baseline evidence gate \(backup\/restore required\)/);
   assert.match(text, /npm run -s ops:hosted-baseline:evidence -- \\/);
   assert.match(text, /--out artifacts\/ops\/hosted-baseline-ci\.json/);
+  assert.match(text, /name: Run OpenClaw operator readiness gate/);
+  assert.match(text, /node scripts\/ops\/openclaw-operator-readiness-gate\.mjs \\/);
+  assert.match(text, /--hosted-evidence artifacts\/ops\/hosted-baseline-ci\.json \\/);
+  assert.match(text, /--openclaw-plugin artifacts\/ops\/openclaw\.plugin\.ci\.json \\/);
+  assert.match(text, /--out artifacts\/gates\/openclaw-operator-readiness-gate\.json/);
   assert.match(text, /name: deploy-safety-\$\{\{ github\.run_id \}\}/);
   assert.match(text, /artifacts\/ops\/hosted-baseline-ci\.json/);
+  assert.match(text, /artifacts\/gates\/openclaw-operator-readiness-gate\.json/);
+  assert.match(text, /if-no-files-found: error/);
 });

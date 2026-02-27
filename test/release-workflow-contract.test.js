@@ -9,6 +9,12 @@ async function readWorkflow() {
   return await fs.readFile(RELEASE_WORKFLOW_PATH, "utf8");
 }
 
+test("release workflow contract: requires deploy safety smoke gate from tests workflow", async () => {
+  const text = await readWorkflow();
+  assert.match(text, /const requiredJobNames = \[/);
+  assert.match(text, /"deploy_safety_smoke"/);
+});
+
 test("release workflow contract: asserts production cutover required checks in release_promotion_guard", async () => {
   const text = await readWorkflow();
   assert.match(
@@ -78,4 +84,18 @@ test("release workflow contract: release gate readiness guard waits for healthz 
   assert.match(text, /name: Run hosted baseline evidence gate \(backup\/restore required\)/);
   assert.match(text, /npm run -s ops:hosted-baseline:evidence -- \\/);
   assert.match(text, /--out artifacts\/ops\/hosted-baseline-release-gate\.json/);
+  assert.match(text, /name: Run OpenClaw operator readiness gate/);
+  assert.match(text, /node scripts\/ops\/openclaw-operator-readiness-gate\.mjs \\/);
+  assert.match(text, /--hosted-evidence artifacts\/ops\/hosted-baseline-release-gate\.json \\/);
+  assert.match(text, /--openclaw-plugin artifacts\/ops\/openclaw\.plugin\.release-gate\.json \\/);
+  assert.match(text, /--out artifacts\/gates\/openclaw-operator-readiness-gate\.json/);
+});
+
+test("release workflow contract: promotion guard enforces openclaw readiness artifact from release gate", async () => {
+  const text = await readWorkflow();
+  assert.match(text, /name: Assert OpenClaw readiness gate artifact is present and passing/);
+  assert.match(text, /\/tmp\/release-upstream\/release-gate\/openclaw-operator-readiness-gate\.json/);
+  assert.match(text, /OpenClawOperatorReadinessGateReport\.v1/);
+  assert.match(text, /openclaw operator readiness gate verdict must be ok=true/);
+  assert.match(text, /artifacts\/gates\/openclaw-operator-readiness-gate\.json/);
 });

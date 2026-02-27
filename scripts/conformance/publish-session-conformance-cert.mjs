@@ -337,7 +337,8 @@ export async function publishSessionConformanceCert(args, env = process.env, cwd
           adapterBin: args.adapterBin ?? null,
           adapterNodeBin: args.adapterNodeBin ? path.resolve(args.adapterNodeBin) : null,
           adapterArgs: [...args.adapterArgs],
-          adapterCwd: args.adapterCwd ? path.resolve(args.adapterCwd) : null
+          adapterCwd: args.adapterCwd ? path.resolve(args.adapterCwd) : null,
+          strictArtifacts: true
         },
         report: {
           path: path.basename(reportPath),

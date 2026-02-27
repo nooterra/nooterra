@@ -50,6 +50,12 @@ test("session stream conformance publication: emits normalized report/cert/publi
   const reportPath = path.join(outDir, "session-stream-conformance-report.json");
   const certPath = path.join(outDir, "session-stream-conformance-cert.json");
   const publicationPath = path.join(outDir, "session-stream-conformance-publication.json");
+  const outputFiles = (await fs.readdir(outDir)).filter((name) => name.endsWith(".json")).sort();
+  assert.deepEqual(outputFiles, [
+    "session-stream-conformance-cert.json",
+    "session-stream-conformance-publication.json",
+    "session-stream-conformance-report.json"
+  ]);
 
   const report = await readJson(reportPath);
   const cert = await readJson(certPath);
@@ -74,6 +80,7 @@ test("session stream conformance publication: emits normalized report/cert/publi
   assert.equal(publication.publicationCore?.pack, "conformance/session-stream-v1");
   assert.deepEqual(publication.publicationCore?.runner?.adapterArgs, []);
   assert.equal(publication.publicationCore?.runner?.adapterCwd, null);
+  assert.equal(publication.publicationCore?.runner?.strictArtifacts, true);
   assert.equal(publication.publicationCore?.report?.reportHash, report.reportHash);
   assert.equal(publication.publicationCore?.certBundle?.certHash, cert.certHash);
 

@@ -11,7 +11,7 @@ import { sha256Hex } from "../src/core/crypto.js";
 const REPO_ROOT = process.cwd();
 
 function runPublisher(args = [], env = {}) {
-  return spawnSync(process.execPath, ["scripts/conformance/publish-session-conformance-cert.mjs", ...args], {
+  return spawnSync(process.execPath, ["scripts/conformance/publish-federation-conformance-cert.mjs", ...args], {
     cwd: REPO_ROOT,
     encoding: "utf8",
     env: {
@@ -25,20 +25,18 @@ async function readJson(pathname) {
   return JSON.parse(await fs.readFile(pathname, "utf8"));
 }
 
-test("session conformance publication: emits normalized report/cert/publication artifacts", async (t) => {
-  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-session-publication-"));
+test("federation conformance publication: emits normalized report/cert/publication artifacts", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-federation-publication-"));
   t.after(async () => {
     await fs.rm(tmpRoot, { recursive: true, force: true });
   });
 
-  const outDir = path.join(tmpRoot, "artifacts", "session", "acme-runtime");
+  const outDir = path.join(tmpRoot, "artifacts", "federation", "acme-runtime");
   const generatedAt = "2026-02-27T00:00:00.000Z";
 
   const result = runPublisher([
     "--runtime-id",
     "acme-runtime",
-    "--adapter-node-bin",
-    "conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs",
     "--out-dir",
     outDir,
     "--generated-at",
@@ -47,23 +45,23 @@ test("session conformance publication: emits normalized report/cert/publication 
 
   assert.equal(result.status, 0, `expected success\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
 
-  const reportPath = path.join(outDir, "session-conformance-report.json");
-  const certPath = path.join(outDir, "session-conformance-cert.json");
-  const publicationPath = path.join(outDir, "session-conformance-publication.json");
+  const reportPath = path.join(outDir, "federation-conformance-report.json");
+  const certPath = path.join(outDir, "federation-conformance-cert.json");
+  const publicationPath = path.join(outDir, "federation-conformance-publication.json");
   const outputFiles = (await fs.readdir(outDir)).filter((name) => name.endsWith(".json")).sort();
   assert.deepEqual(outputFiles, [
-    "session-conformance-cert.json",
-    "session-conformance-publication.json",
-    "session-conformance-report.json"
+    "federation-conformance-cert.json",
+    "federation-conformance-publication.json",
+    "federation-conformance-report.json"
   ]);
 
   const report = await readJson(reportPath);
   const cert = await readJson(certPath);
   const publication = await readJson(publicationPath);
 
-  assert.equal(report.schemaVersion, "ConformanceRunReport.v1");
+  assert.equal(report.schemaVersion, "FederationConformanceRunReport.v1");
   assert.equal(cert.schemaVersion, "ConformanceCertBundle.v1");
-  assert.equal(publication.schemaVersion, "SessionConformancePublication.v1");
+  assert.equal(publication.schemaVersion, "FederationConformancePublication.v1");
   assert.equal(report.generatedAt, generatedAt);
   assert.equal(cert.generatedAt, generatedAt);
   assert.equal(publication.generatedAt, generatedAt);
@@ -71,15 +69,12 @@ test("session conformance publication: emits normalized report/cert/publication 
   const expectedReportHash = sha256Hex(canonicalJsonStringify(report.reportCore));
   const expectedCertHash = sha256Hex(canonicalJsonStringify(cert.certCore));
   const expectedPublicationHash = sha256Hex(canonicalJsonStringify(publication.publicationCore));
-
   assert.equal(report.reportHash, expectedReportHash);
   assert.equal(cert.certHash, expectedCertHash);
   assert.equal(publication.publicationHash, expectedPublicationHash);
 
   assert.equal(publication.publicationCore?.runtimeId, "acme-runtime");
-  assert.equal(publication.publicationCore?.pack, "conformance/session-v1");
-  assert.deepEqual(publication.publicationCore?.runner?.adapterArgs, []);
-  assert.equal(publication.publicationCore?.runner?.adapterCwd, null);
+  assert.equal(publication.publicationCore?.pack, "conformance/federation-v1");
   assert.equal(publication.publicationCore?.runner?.strictArtifacts, true);
   assert.equal(publication.publicationCore?.report?.reportHash, report.reportHash);
   assert.equal(publication.publicationCore?.certBundle?.certHash, cert.certHash);
@@ -94,8 +89,6 @@ test("session conformance publication: emits normalized report/cert/publication 
   const second = runPublisher([
     "--runtime-id",
     "acme-runtime",
-    "--adapter-node-bin",
-    "conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs",
     "--out-dir",
     outDir,
     "--generated-at",
@@ -111,8 +104,8 @@ test("session conformance publication: emits normalized report/cert/publication 
   assert.deepEqual(publicationRerun, publication);
 });
 
-test("session conformance publication: fails closed when runtime id is missing", () => {
-  const result = runPublisher(["--adapter-node-bin", "conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs"]);
+test("federation conformance publication: fails closed when runtime id is missing", () => {
+  const result = runPublisher([]);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /--runtime-id is required/);
 });

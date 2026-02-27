@@ -549,6 +549,22 @@ jobs:
             --signing-key-file /tmp/ops-ed25519.pem \
             --signature-key-id ops_ci_k1 \
             --out artifacts/ops/hosted-baseline-ci.json
+      - name: Run OpenClaw operator readiness gate
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/ops
+          cat > artifacts/ops/openclaw.plugin.ci.json <<'JSON'
+          {
+            "id": "nooterra",
+            "baseUrl": "http://127.0.0.1:3000",
+            "tenantId": "tenant_default",
+            "apiKey": "sk_test_ci_openclaw"
+          }
+          JSON
+          node scripts/ops/openclaw-operator-readiness-gate.mjs \
+            --hosted-evidence artifacts/ops/hosted-baseline-ci.json \
+            --openclaw-plugin artifacts/ops/openclaw.plugin.ci.json \
+            --out artifacts/gates/openclaw-operator-readiness-gate.json
       - name: Upload deploy safety artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -556,6 +572,8 @@ jobs:
           name: deploy-safety-${{ github.run_id }}
           path: |
             artifacts/ops/hosted-baseline-ci.json
+            artifacts/gates/openclaw-operator-readiness-gate.json
+          if-no-files-found: error
       - name: Stop server
         if: always()
         run: |
@@ -647,6 +665,135 @@ jobs:
           test/verify-cli-sarif.test.js
           test/conformance-pack-v1.test.js
           test/verify-fixture-bundles.test.js
+
+  conformance_publication_artifacts:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Build conformance publication artifacts (session + session stream + federation)
+        run: |
+          set -euo pipefail
+          GENERATED_AT="2026-02-27T00:00:00.000Z"
+          RUNTIME_ID="ci-reference-node"
+          node scripts/conformance/publish-session-conformance-cert.mjs \
+            --runtime-id "${RUNTIME_ID}" \
+            --adapter-node-bin conformance/session-v1/reference/nooterra-session-runtime-adapter.mjs \
+            --out-dir "artifacts/conformance/session-v1/${RUNTIME_ID}" \
+            --generated-at "${GENERATED_AT}"
+          node scripts/conformance/publish-session-stream-conformance-cert.mjs \
+            --runtime-id "${RUNTIME_ID}" \
+            --adapter-node-bin conformance/session-stream-v1/reference/nooterra-session-stream-runtime-adapter.mjs \
+            --out-dir "artifacts/conformance/session-stream-v1/${RUNTIME_ID}" \
+            --generated-at "${GENERATED_AT}"
+          node scripts/conformance/publish-federation-conformance-cert.mjs \
+            --runtime-id "${RUNTIME_ID}" \
+            --out-dir "artifacts/conformance/federation-v1/${RUNTIME_ID}" \
+            --generated-at "${GENERATED_AT}"
+      - name: Assert conformance publication artifact contracts
+        run: |
+          set -euo pipefail
+          node -e '
+            import fs from "node:fs";
+            import path from "node:path";
+            import { canonicalJsonStringify } from "./src/core/canonical-json.js";
+            import { sha256Hex } from "./src/core/crypto.js";
+
+            const runtimeId = "ci-reference-node";
+            const generatedAt = "2026-02-27T00:00:00.000Z";
+
+            const contracts = [
+              {
+                label: "session",
+                dir: path.resolve("artifacts/conformance/session-v1", runtimeId),
+                files: [
+                  "session-conformance-cert.json",
+                  "session-conformance-publication.json",
+                  "session-conformance-report.json"
+                ],
+                publicationSchema: "SessionConformancePublication.v1"
+              },
+              {
+                label: "session-stream",
+                dir: path.resolve("artifacts/conformance/session-stream-v1", runtimeId),
+                files: [
+                  "session-stream-conformance-cert.json",
+                  "session-stream-conformance-publication.json",
+                  "session-stream-conformance-report.json"
+                ],
+                publicationSchema: "SessionStreamConformancePublication.v1"
+              },
+              {
+                label: "federation",
+                dir: path.resolve("artifacts/conformance/federation-v1", runtimeId),
+                files: [
+                  "federation-conformance-cert.json",
+                  "federation-conformance-publication.json",
+                  "federation-conformance-report.json"
+                ],
+                publicationSchema: "FederationConformancePublication.v1"
+              }
+            ];
+
+            for (const contract of contracts) {
+              const names = fs.readdirSync(contract.dir).filter((row) => row.endsWith(".json")).sort();
+              const expected = [...contract.files].sort();
+              if (JSON.stringify(names) !== JSON.stringify(expected)) {
+                throw new Error(`${contract.label} output contract mismatch: expected ${expected.join(",")} got ${names.join(",")}`);
+              }
+
+              const reportPath = path.join(contract.dir, expected.find((row) => row.includes("-report.json")));
+              const certPath = path.join(contract.dir, expected.find((row) => row.includes("-cert.json")));
+              const publicationPath = path.join(contract.dir, expected.find((row) => row.includes("-publication.json")));
+
+              const reportText = fs.readFileSync(reportPath, "utf8");
+              const certText = fs.readFileSync(certPath, "utf8");
+              const report = JSON.parse(reportText);
+              const cert = JSON.parse(certText);
+              const publication = JSON.parse(fs.readFileSync(publicationPath, "utf8"));
+
+              if (report.generatedAt !== generatedAt || cert.generatedAt !== generatedAt || publication.generatedAt !== generatedAt) {
+                throw new Error(`${contract.label} generatedAt mismatch`);
+              }
+              if (publication.schemaVersion !== contract.publicationSchema) {
+                throw new Error(`${contract.label} publication schema mismatch: ${publication.schemaVersion}`);
+              }
+              if (publication.publicationCore?.runner?.strictArtifacts !== true) {
+                throw new Error(`${contract.label} strictArtifacts runner contract missing`);
+              }
+              if (publication.publicationCore?.report?.sha256 !== sha256Hex(reportText)) {
+                throw new Error(`${contract.label} report sha mismatch`);
+              }
+              if (publication.publicationCore?.certBundle?.sha256 !== sha256Hex(certText)) {
+                throw new Error(`${contract.label} cert sha mismatch`);
+              }
+              if (publication.publicationCore?.report?.bytes !== Buffer.byteLength(reportText, "utf8")) {
+                throw new Error(`${contract.label} report bytes mismatch`);
+              }
+              if (publication.publicationCore?.certBundle?.bytes !== Buffer.byteLength(certText, "utf8")) {
+                throw new Error(`${contract.label} cert bytes mismatch`);
+              }
+              if (publication.publicationHash !== sha256Hex(canonicalJsonStringify(publication.publicationCore))) {
+                throw new Error(`${contract.label} publication hash mismatch`);
+              }
+            }
+          '
+      - name: Upload conformance publication artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-publication-artifacts-${{ github.run_id }}
+          path: |
+            artifacts/conformance/session-v1/ci-reference-node/
+            artifacts/conformance/session-stream-v1/ci-reference-node/
+            artifacts/conformance/federation-v1/ci-reference-node/
+          if-no-files-found: error
 
   python_verifier_conformance:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
