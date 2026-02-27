@@ -11,6 +11,7 @@ const POLICY_SCHEMA_VERSION = "NooterraProtocolCompatibilityPolicy.v1";
 const DRIFT_OVERRIDE_SCHEMA_VERSION = "NooterraProtocolCompatibilityDriftOverride.v1";
 const DRIFT_GATE_SCHEMA_VERSION = "NooterraProtocolCompatibilityDriftGate.v1";
 const DETERMINISTIC_CORE_SCHEMA_VERSION = "NooterraProtocolCompatibilityMatrixDeterministicCore.v1";
+const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
 const DEFAULT_REPORT_PATH = "artifacts/gates/protocol-compatibility-matrix.json";
 const DEFAULT_POLICY_PATH = "docs/kernel-compatible/protocol-compatibility-policy.json";
 const PUBLIC_SPEC_DIR = "docs/spec/public";
@@ -641,6 +642,8 @@ async function evaluateDriftOverride({ overridePath, nowIso }) {
       approvedBy: null,
       approvedAt: null,
       expiresAt: null,
+      auditRef: null,
+      auditEvidenceSha256: null,
       errorCodes: []
     };
   }
@@ -658,6 +661,8 @@ async function evaluateDriftOverride({ overridePath, nowIso }) {
       approvedBy: null,
       approvedAt: null,
       expiresAt: null,
+      auditRef: null,
+      auditEvidenceSha256: null,
       errorCodes: [`override_${loaded.errorCode}`],
       detail: loaded.errorMessage
     };
@@ -675,6 +680,8 @@ async function evaluateDriftOverride({ overridePath, nowIso }) {
       approvedBy: null,
       approvedAt: null,
       expiresAt: null,
+      auditRef: null,
+      auditEvidenceSha256: null,
       errorCodes: ["override_json_parse_error"],
       detail: loaded.errorMessage
     };
@@ -692,12 +699,20 @@ async function evaluateDriftOverride({ overridePath, nowIso }) {
   const approvedBy = normalizeOptionalString(override?.approvedBy);
   const approvedAtRaw = normalizeOptionalString(override?.approvedAt);
   const expiresAtRaw = normalizeOptionalString(override?.expiresAt);
+  const auditRef = normalizeOptionalString(override?.auditRef);
+  const auditEvidenceSha256 = normalizeOptionalString(override?.auditEvidenceSha256)?.toLowerCase() ?? null;
 
   if (!ticket) errorCodes.push("override_ticket_missing");
   if (!reason) errorCodes.push("override_reason_missing");
   if (!approvedBy) errorCodes.push("override_approved_by_missing");
   if (!approvedAtRaw) errorCodes.push("override_approved_at_missing");
   if (!expiresAtRaw) errorCodes.push("override_expires_at_missing");
+  if (!auditRef) errorCodes.push("override_audit_ref_missing");
+  if (!auditEvidenceSha256) {
+    errorCodes.push("override_audit_evidence_sha256_missing");
+  } else if (!SHA256_HEX_PATTERN.test(auditEvidenceSha256)) {
+    errorCodes.push("override_audit_evidence_sha256_invalid");
+  }
 
   let approvedAtIso = null;
   let expiresAtIso = null;
@@ -744,6 +759,8 @@ async function evaluateDriftOverride({ overridePath, nowIso }) {
     approvedBy,
     approvedAt: approvedAtIso,
     expiresAt: expiresAtIso,
+    auditRef,
+    auditEvidenceSha256,
     errorCodes
   };
 }

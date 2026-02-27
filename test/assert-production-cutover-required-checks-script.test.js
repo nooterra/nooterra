@@ -84,6 +84,10 @@ test("production cutover required checks: passes when collaboration, lineage, tr
   assert.equal(report.summary.requiredChecks, 10);
   assert.equal(report.summary.passedChecks, 10);
   assert.equal(report.summary.failedChecks, 0);
+  assert.equal(report.gateChecks.length, 1);
+  assert.equal(report.gateChecks[0].id, "acs_critical_path_checks_present");
+  assert.equal(report.gateChecks[0].ok, true);
+  assert.deepEqual(report.gateChecks[0].details.missingCheckIds, []);
 
   const written = JSON.parse(await fs.readFile(outPath, "utf8"));
   assert.equal(written.schemaVersion, "ProductionCutoverRequiredChecksAssertion.v1");
@@ -124,6 +128,60 @@ test("production cutover required checks: fails closed when lineage check is mis
   assert.ok(lineage);
   assert.equal(lineage.present, false);
   assert.equal(lineage.failureCode, "required_check_missing");
+  assert.equal(report.gateChecks[0].id, "acs_critical_path_checks_present");
+  assert.equal(report.gateChecks[0].ok, false);
+  assert.equal(report.gateChecks[0].failureCode, "acs_critical_path_check_missing");
+  assert.deepEqual(report.gateChecks[0].details.missingCheckIds, ["sdk_acs_smoke_js_verified", "sdk_acs_smoke_py_verified"]);
+  assert.equal(report.failureCodes.includes("acs_critical_path_check_missing"), true);
+  assert.equal(report.blockingIssues.some((issue) => issue.code === "acs_critical_path_check_missing"), true);
+});
+
+test("production cutover required checks: fails closed when required ACS critical-path checks are missing", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-prod-required-checks-acs-missing-"));
+  t.after(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  const inputPath = path.join(root, "artifacts", "gates", "production-cutover-gate.json");
+  await writeJson(inputPath, {
+    schemaVersion: "ProductionCutoverGateReport.v1",
+    verdict: { ok: true },
+    checks: [
+      { id: "nooterra_verified_collaboration", status: "passed" },
+      { id: "openclaw_substrate_demo_lineage_verified", status: "passed" },
+      { id: "openclaw_substrate_demo_transcript_verified", status: "passed" },
+      { id: "session_stream_conformance_verified", status: "passed" },
+      { id: "settlement_dispute_arbitration_lifecycle_verified", status: "passed" },
+      { id: "checkpoint_grant_binding_verified", status: "passed" },
+      { id: "work_order_metering_durability_verified", status: "passed" },
+      { id: "sdk_acs_smoke_js_verified", status: "passed" },
+      { id: "sdk_python_contract_freeze_verified", status: "passed" }
+    ]
+  });
+
+  const report = await assertProductionCutoverRequiredChecks({
+    inputPath,
+    jsonOutPath: null,
+    requiredCheckIds: [
+      "nooterra_verified_collaboration",
+      "openclaw_substrate_demo_lineage_verified",
+      "openclaw_substrate_demo_transcript_verified",
+      "session_stream_conformance_verified",
+      "settlement_dispute_arbitration_lifecycle_verified",
+      "checkpoint_grant_binding_verified",
+      "work_order_metering_durability_verified",
+      "sdk_acs_smoke_js_verified",
+      "sdk_acs_smoke_py_verified",
+      "sdk_python_contract_freeze_verified"
+    ]
+  });
+  assert.equal(report.ok, false);
+  assert.equal(report.gateChecks[0].id, "acs_critical_path_checks_present");
+  assert.equal(report.gateChecks[0].ok, false);
+  assert.equal(report.gateChecks[0].failureCode, "acs_critical_path_check_missing");
+  assert.deepEqual(report.gateChecks[0].details.missingCheckIds, ["sdk_acs_smoke_py_verified"]);
+  assert.equal(report.failureCodes.includes("acs_critical_path_check_missing"), true);
+  assert.equal(report.blockingIssues.some((issue) => issue.checkId === "acs_critical_path_checks_present"), true);
 });
 
 test("production cutover required checks: appends markdown summary when GITHUB_STEP_SUMMARY is set", async (t) => {

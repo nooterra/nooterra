@@ -17,6 +17,11 @@ const DEFAULT_REQUIRED_CHECK_IDS = Object.freeze([
   "sdk_acs_smoke_py_verified",
   "sdk_python_contract_freeze_verified"
 ]);
+const ACS_CRITICAL_PATH_REQUIRED_CHECK_IDS = Object.freeze([
+  "sdk_acs_smoke_js_verified",
+  "sdk_acs_smoke_py_verified"
+]);
+const ACS_CRITICAL_PATH_PRESENCE_CHECK_ID = "acs_critical_path_checks_present";
 
 function usage() {
   return [
@@ -82,6 +87,16 @@ export function parseArgs(argv, env = process.env, cwd = process.cwd()) {
 }
 
 function buildMissingInputReport({ inputPath, requiredCheckIds, startedAt }) {
+  const acsCriticalPath = {
+    id: ACS_CRITICAL_PATH_PRESENCE_CHECK_ID,
+    status: "failed",
+    ok: false,
+    failureCode: "input_unreadable",
+    details: {
+      requiredCheckIds: [...ACS_CRITICAL_PATH_REQUIRED_CHECK_IDS],
+      missingCheckIds: [...ACS_CRITICAL_PATH_REQUIRED_CHECK_IDS]
+    }
+  };
   return {
     schemaVersion: SCHEMA_VERSION,
     ok: false,
@@ -101,6 +116,14 @@ function buildMissingInputReport({ inputPath, requiredCheckIds, startedAt }) {
       ok: false,
       failureCode: "input_unreadable"
     })),
+    gateChecks: [acsCriticalPath],
+    blockingIssues: [
+      {
+        code: "input_unreadable",
+        checkId: ACS_CRITICAL_PATH_PRESENCE_CHECK_ID,
+        detail: "production cutover gate report could not be read"
+      }
+    ],
     failureCodes: ["input_unreadable"]
   };
 }
@@ -139,11 +162,32 @@ function buildReportFromGate({ gate, inputPath, requiredCheckIds, startedAt }) {
     };
   });
 
+  const missingAcsCriticalPathCheckIds = ACS_CRITICAL_PATH_REQUIRED_CHECK_IDS.filter((id) => !byId.has(id));
+  const acsCriticalPathCheck = {
+    id: ACS_CRITICAL_PATH_PRESENCE_CHECK_ID,
+    status: missingAcsCriticalPathCheckIds.length === 0 ? "passed" : "failed",
+    ok: missingAcsCriticalPathCheckIds.length === 0,
+    failureCode: missingAcsCriticalPathCheckIds.length === 0 ? null : "acs_critical_path_check_missing",
+    details: {
+      requiredCheckIds: [...ACS_CRITICAL_PATH_REQUIRED_CHECK_IDS],
+      missingCheckIds: missingAcsCriticalPathCheckIds
+    }
+  };
+
   const failures = rows.filter((row) => row.ok !== true);
-  const failureCodes = [...new Set(failures.map((row) => row.failureCode).filter(Boolean))].sort();
+  const allFailures = [...failures, ...(acsCriticalPathCheck.ok ? [] : [acsCriticalPathCheck])];
+  const failureCodes = [...new Set(allFailures.map((row) => row.failureCode).filter(Boolean))].sort();
+  const blockingIssues = allFailures.map((row) => ({
+    code: row.failureCode,
+    checkId: row.id,
+    detail:
+      row.id === ACS_CRITICAL_PATH_PRESENCE_CHECK_ID
+        ? `missing ACS critical-path checks: ${row.details.missingCheckIds.join(", ")}`
+        : `required check ${row.id} was ${row.present ? `not passed (status=${row.status ?? "n/a"})` : "missing"}`
+  }));
   return {
     schemaVersion: SCHEMA_VERSION,
-    ok: failures.length === 0,
+    ok: allFailures.length === 0,
     startedAt,
     completedAt: nowIso(),
     inputPath,
@@ -156,6 +200,8 @@ function buildReportFromGate({ gate, inputPath, requiredCheckIds, startedAt }) {
       failedChecks: failures.length
     },
     checks: rows,
+    gateChecks: [acsCriticalPathCheck],
+    blockingIssues,
     failureCodes
   };
 }

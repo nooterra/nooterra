@@ -101,6 +101,29 @@ async function createFixture({ omitBetaMarkdown = false } = {}) {
   return { root, policyPath, reportPath };
 }
 
+async function createUnsortedPolicyFixture() {
+  const fixture = await createFixture();
+  await writeJson(fixture.root, "protocol-compatibility-policy-unsorted.json", {
+    schemaVersion: "NooterraProtocolCompatibilityPolicy.v1",
+    policyId: "fixture-protocol-compatibility-policy-unsorted",
+    updatedAt: "2026-02-27T00:00:00.000Z",
+    objects: [
+      {
+        objectId: "beta",
+        schemaVersion: "Beta.v1",
+        requiredSurfaces: ["openapi", "publicSpecMarkdown"]
+      },
+      {
+        objectId: "alpha",
+        schemaVersion: "Alpha.v1",
+        requiredSurfaces: ["openapi", "publicSpecMarkdown", "jsonSchema"]
+      }
+    ]
+  });
+  fixture.policyPath = path.join(fixture.root, "protocol-compatibility-policy-unsorted.json");
+  return fixture;
+}
+
 function runMatrix({ cwd, policyPath, reportPath, driftOverridePath = null, nowIso = FIXED_NOW_ISO }) {
   const args = [
     SCRIPT_PATH,
@@ -190,7 +213,9 @@ test("protocol compatibility matrix script: valid drift override passes when onl
     reason: "temporary override for audited compatibility drift",
     approvedBy: "ops.release-owner",
     approvedAt: "2026-02-28T00:00:00.000Z",
-    expiresAt: "2026-03-15T00:00:00.000Z"
+    expiresAt: "2026-03-15T00:00:00.000Z",
+    auditRef: "release-audit/2026-02-28/protocol-compatibility-drift",
+    auditEvidenceSha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   });
 
   const result = runMatrix({
@@ -224,7 +249,9 @@ test("protocol compatibility matrix script: expired override fails closed", asyn
     reason: "expired override should not pass",
     approvedBy: "ops.release-owner",
     approvedAt: "2026-02-20T00:00:00.000Z",
-    expiresAt: "2026-02-28T00:00:00.000Z"
+    expiresAt: "2026-02-28T00:00:00.000Z",
+    auditRef: "release-audit/2026-02-20/protocol-compatibility-drift",
+    auditEvidenceSha256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
   });
 
   const result = runMatrix({
@@ -242,4 +269,68 @@ test("protocol compatibility matrix script: expired override fails closed", asyn
   assert.equal(report.ok, false);
   assert.equal(report.driftGate.override.accepted, false);
   assert.equal(report.driftGate.override.errorCodes.includes("override_expired"), true);
+});
+
+test("protocol compatibility matrix script: missing audited override fields fails closed", async (t) => {
+  const fixture = await createFixture({ omitBetaMarkdown: true });
+  t.after(async () => {
+    await fs.rm(fixture.root, { recursive: true, force: true });
+  });
+
+  const overridePath = await writeJson(fixture.root, "drift-override-missing-audit.json", {
+    schemaVersion: "NooterraProtocolCompatibilityDriftOverride.v1",
+    ticket: "NOO-250",
+    reason: "missing audit fields must fail closed",
+    approvedBy: "ops.release-owner",
+    approvedAt: "2026-02-28T00:00:00.000Z",
+    expiresAt: "2026-03-15T00:00:00.000Z"
+  });
+
+  const result = runMatrix({
+    cwd: fixture.root,
+    policyPath: fixture.policyPath,
+    reportPath: fixture.reportPath,
+    driftOverridePath: overridePath
+  });
+
+  assert.equal(result.status, 1, `stdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+
+  const report = await readReport(fixture.reportPath);
+  assert.equal(report.okWithOverride, false);
+  assert.equal(report.ok, false);
+  assert.equal(report.driftGate.override.accepted, false);
+  assert.equal(report.driftGate.override.errorCodes.includes("override_audit_ref_missing"), true);
+  assert.equal(report.driftGate.override.errorCodes.includes("override_audit_evidence_sha256_missing"), true);
+});
+
+test("protocol compatibility matrix script: deterministic sorted output and stable artifact hash", async (t) => {
+  const fixture = await createUnsortedPolicyFixture();
+  t.after(async () => {
+    await fs.rm(fixture.root, { recursive: true, force: true });
+  });
+
+  const first = runMatrix({
+    cwd: fixture.root,
+    policyPath: fixture.policyPath,
+    reportPath: fixture.reportPath
+  });
+  assert.equal(first.status, 0, `stdout:\n${first.stdout}\n\nstderr:\n${first.stderr}`);
+  const firstReport = await readReport(fixture.reportPath);
+
+  const second = runMatrix({
+    cwd: fixture.root,
+    policyPath: fixture.policyPath,
+    reportPath: fixture.reportPath
+  });
+  assert.equal(second.status, 0, `stdout:\n${second.stdout}\n\nstderr:\n${second.stderr}`);
+  const secondReport = await readReport(fixture.reportPath);
+
+  assert.deepEqual(
+    firstReport.matrix.map((row) => row.objectId),
+    ["alpha", "beta"]
+  );
+  assert.deepEqual(firstReport.matrix[0].requiredSurfaces, ["jsonSchema", "openapi", "publicSpecMarkdown"]);
+  assert.deepEqual(firstReport.matrix[1].requiredSurfaces, ["openapi", "publicSpecMarkdown"]);
+  assert.equal(firstReport.artifactHash, secondReport.artifactHash);
+  assert.deepEqual(firstReport.driftGate.blockingIssues, secondReport.driftGate.blockingIssues);
 });
