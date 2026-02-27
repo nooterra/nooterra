@@ -409,6 +409,85 @@ test("API e2e: SessionEvent.v1 list supports fail-closed sinceEventId resume cur
   assert.equal(invalidCursor.json?.code, "SCHEMA_INVALID");
 });
 
+test("API e2e: SessionEvent.v1 filtered resume advances next cursor when no events match", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const principalAgentId = "agt_session_filtered_cursor_1";
+  await registerAgent(api, { agentId: principalAgentId, capabilities: ["orchestration"] });
+
+  const created = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": "session_create_filtered_cursor_1" },
+    body: {
+      sessionId: "sess_filtered_cursor_1",
+      visibility: "tenant",
+      participants: [principalAgentId]
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const first = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_filtered_cursor_1/events",
+    headers: {
+      "x-idempotency-key": "session_filtered_cursor_append_1",
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { taskId: "task_filtered_cursor_1" }
+    }
+  });
+  assert.equal(first.statusCode, 201, first.body);
+
+  const second = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_filtered_cursor_1/events",
+    headers: {
+      "x-idempotency-key": "session_filtered_cursor_append_2",
+      "x-proxy-expected-prev-chain-hash": String(first.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_PROGRESS",
+      payload: { progressPct: 25 }
+    }
+  });
+  assert.equal(second.statusCode, 201, second.body);
+
+  const filteredEmpty = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_filtered_cursor_1/events?eventType=task_completed&sinceEventId=${encodeURIComponent(String(first.json?.event?.id ?? ""))}`
+  });
+  assert.equal(filteredEmpty.statusCode, 200, filteredEmpty.body);
+  assert.equal(filteredEmpty.headers?.get("x-session-events-ordering"), "SESSION_SEQ_ASC");
+  assert.equal(filteredEmpty.headers?.get("x-session-events-head-event-count"), "2");
+  assert.equal(filteredEmpty.json?.events?.length, 0);
+  assert.equal(filteredEmpty.headers?.get("x-session-events-next-since-event-id"), second.json?.event?.id);
+
+  const third = await request(api, {
+    method: "POST",
+    path: "/sessions/sess_filtered_cursor_1/events",
+    headers: {
+      "x-idempotency-key": "session_filtered_cursor_append_3",
+      "x-proxy-expected-prev-chain-hash": String(second.json?.event?.chainHash ?? "")
+    },
+    body: {
+      eventType: "TASK_COMPLETED",
+      payload: { outputRef: "artifact://filtered/cursor/1" }
+    }
+  });
+  assert.equal(third.statusCode, 201, third.body);
+
+  const resumedFromAdvancedCursor = await request(api, {
+    method: "GET",
+    path: `/sessions/sess_filtered_cursor_1/events?eventType=task_completed&sinceEventId=${encodeURIComponent(String(filteredEmpty.headers?.get("x-session-events-next-since-event-id") ?? ""))}`
+  });
+  assert.equal(resumedFromAdvancedCursor.statusCode, 200, resumedFromAdvancedCursor.body);
+  assert.equal(resumedFromAdvancedCursor.json?.events?.length, 1);
+  assert.equal(resumedFromAdvancedCursor.json?.events?.[0]?.id, third.json?.event?.id);
+  assert.equal(resumedFromAdvancedCursor.headers?.get("x-session-events-next-since-event-id"), third.json?.event?.id);
+});
+
 test("API e2e: Session signer lifecycle gates append and replay materialization", async () => {
   const api = createApi({ opsToken: "tok_ops" });
   const principalAgentId = "agt_session_signer_lifecycle_1";

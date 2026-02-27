@@ -50111,13 +50111,20 @@ export function createApi({
             }
             events = allEvents.slice(cursorIndex + 1);
           }
+          const postCursorEvents = events;
+          let filteredEvents = postCursorEvents;
           if (eventType) {
-            events = events.filter((row) => String(row?.type ?? "").toUpperCase() === eventType);
+            filteredEvents = postCursorEvents.filter((row) => String(row?.type ?? "").toUpperCase() === eventType);
           }
-          const paged = events.slice(offset, offset + limit);
+          const paged = filteredEvents.slice(offset, offset + limit);
+          const postCursorHeadEventId = normalizeSessionInboxEventId(
+            postCursorEvents.length > 0 ? postCursorEvents[postCursorEvents.length - 1]?.id ?? null : null
+          );
           const nextSinceEventId =
             paged.length > 0
               ? normalizeSessionInboxEventId(paged[paged.length - 1]?.id ?? null)
+              : eventType && filteredEvents.length === 0
+                ? postCursorHeadEventId ?? normalizeSessionInboxEventId(sinceEventId)
               : normalizeSessionInboxEventId(sinceEventId);
           const listInbox = buildSessionEventInboxWatermark({
             events: allEvents,
