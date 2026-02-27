@@ -29,7 +29,7 @@ jobs:
       contents: read
     steps:
       - name: Require green release gates from tests.yml for release commit
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const owner = context.repo.owner;
@@ -315,7 +315,7 @@ jobs:
 
       - name: Resolve upstream gate workflow runs for this release commit
         id: upstream
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const owner = context.repo.owner;
