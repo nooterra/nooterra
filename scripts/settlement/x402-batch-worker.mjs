@@ -21,6 +21,7 @@ function usage() {
     "  --registry <file>          Provider payout registry file (required)",
     "  --state <file>             Worker state file (default: artifacts/settlement/x402-batch-state.json)",
     "  --out-dir <dir>            Output run directory (default: artifacts/settlement/x402-batches/<timestamp>)",
+    "  --generated-at <iso>       Override generated timestamp for deterministic runs",
     "  --dry-run                  Compute without mutating state",
     "  --execute-circle           Submit pending batches to Circle payout rails",
     "  --circle-mode <mode>       Circle mode: stub|sandbox|production (default: env X402_BATCH_CIRCLE_MODE or stub)",
@@ -48,6 +49,7 @@ function parseArgs(argv) {
     registryPath: null,
     statePath: "artifacts/settlement/x402-batch-state.json",
     outDir: null,
+    generatedAt: null,
     dryRun: false,
     executeCircle: false,
     circleMode: null,
@@ -94,6 +96,13 @@ function parseArgs(argv) {
       const value = String(argv[i + 1] ?? "").trim();
       if (!value) throw new Error("--out-dir requires a value");
       out.outDir = value;
+      i += 1;
+      continue;
+    }
+    if (arg === "--generated-at") {
+      const value = normalizeIso(argv[i + 1], null);
+      if (!value) throw new Error("--generated-at must be an ISO date/time");
+      out.generatedAt = value;
       i += 1;
       continue;
     }
@@ -176,6 +185,12 @@ function readBoolEnv(name, fallback = false) {
 function normalizeCircleState(value) {
   if (value === null || value === undefined || String(value).trim() === "") return null;
   return String(value).trim().toUpperCase();
+}
+
+function normalizeOptionalString(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
 }
 
 function stableUuidV4FromString(input) {
@@ -443,58 +458,236 @@ function buildNewBatch({ providerId, currency, rows, destination, nowAt, maxAtte
   };
 }
 
+const KNOWN_PAYOUT_MISMATCH_CLASSES = new Set(["declared_amount_drift", "receipt_id_missing", "decision_id_missing"]);
+
+function cmpText(left, right) {
+  return String(left ?? "").localeCompare(String(right ?? ""));
+}
+
 function buildPayoutReconciliation({ batches, generatedAt, artifactRoot, registryPath, statePath }) {
   const safeBatches = Array.isArray(batches) ? batches : [];
+  const sortedBatches = safeBatches
+    .filter((batch) => batch && typeof batch === "object" && !Array.isArray(batch))
+    .slice()
+    .sort((left, right) => cmpText(left?.batchId, right?.batchId));
   const rows = [];
+  const mismatchIssues = [];
+  const mismatchCountByClass = new Map();
+  const unresolvedMismatchClasses = new Set();
   let totalDeclaredAmountCents = 0;
   let totalRecomputedAmountCents = 0;
   let totalGateCount = 0;
+  let missingReceiptCount = 0;
+  let missingDecisionCount = 0;
+  let amountDriftBatchCount = 0;
 
-  for (const batch of safeBatches) {
-    if (!batch || typeof batch !== "object" || Array.isArray(batch)) continue;
+  const addMismatch = ({ mismatchClass, batchId, gateId = null, details = null }) => {
+    const normalizedClass = normalizeOptionalString(mismatchClass) ?? "unknown_mismatch";
+    const known = KNOWN_PAYOUT_MISMATCH_CLASSES.has(normalizedClass);
+    mismatchCountByClass.set(normalizedClass, (mismatchCountByClass.get(normalizedClass) ?? 0) + 1);
+    if (!known) unresolvedMismatchClasses.add(normalizedClass);
+    mismatchIssues.push({
+      schemaVersion: "X402PayoutReconciliationBlockingIssue.v1",
+      id: `batch:${batchId ?? "unknown_batch"}:gate:${gateId ?? "none"}:class:${normalizedClass}`,
+      batchId,
+      gateId,
+      mismatchClass: normalizedClass,
+      resolved: known,
+      details
+    });
+  };
+
+  for (const batch of sortedBatches) {
+    const batchId = normalizeOptionalString(batch?.batchId);
     const gates = Array.isArray(batch.gates) ? batch.gates : [];
+    const gatesSorted = gates
+      .filter((gate) => gate && typeof gate === "object" && !Array.isArray(gate))
+      .slice()
+      .sort((left, right) => cmpText(left?.gateId, right?.gateId));
     const declaredAmountCents = normalizeNonNegativeInt(batch.totalAmountCents, 0);
-    const recomputedAmountCents = gates.reduce((sum, gate) => sum + normalizeNonNegativeInt(gate?.releasedAmountCents, 0), 0);
+    const recomputedAmountCents = gatesSorted.reduce((sum, gate) => sum + normalizeNonNegativeInt(gate?.releasedAmountCents, 0), 0);
     const driftCents = declaredAmountCents - recomputedAmountCents;
+    if (driftCents !== 0) {
+      amountDriftBatchCount += 1;
+      addMismatch({
+        mismatchClass: "declared_amount_drift",
+        batchId,
+        details: {
+          declaredAmountCents,
+          recomputedAmountCents,
+          driftCents
+        }
+      });
+    }
     const receiptIds = [
       ...new Set(
-        gates
+        gatesSorted
           .map((gate) => (typeof gate?.receiptId === "string" && gate.receiptId.trim() !== "" ? gate.receiptId.trim() : null))
           .filter(Boolean)
       )
     ].sort((a, b) => a.localeCompare(b));
     const decisionIds = [
       ...new Set(
-        gates
+        gatesSorted
           .map((gate) => (typeof gate?.decisionId === "string" && gate.decisionId.trim() !== "" ? gate.decisionId.trim() : null))
           .filter(Boolean)
       )
     ].sort((a, b) => a.localeCompare(b));
+    const normalizedGates = gatesSorted.map((gate) => {
+      const gateId = normalizeOptionalString(gate?.gateId);
+      const receiptId = normalizeOptionalString(gate?.receiptId);
+      const decisionId = normalizeOptionalString(gate?.decisionId);
+      if (!receiptId) {
+        missingReceiptCount += 1;
+        addMismatch({
+          mismatchClass: "receipt_id_missing",
+          batchId,
+          gateId,
+          details: {
+            runId: normalizeOptionalString(gate?.runId),
+            reserveId: normalizeOptionalString(gate?.reserveId)
+          }
+        });
+      }
+      if (!decisionId) {
+        missingDecisionCount += 1;
+        addMismatch({
+          mismatchClass: "decision_id_missing",
+          batchId,
+          gateId,
+          details: {
+            runId: normalizeOptionalString(gate?.runId),
+            reserveId: normalizeOptionalString(gate?.reserveId)
+          }
+        });
+      }
+      const explicitMismatchClass = normalizeOptionalString(gate?.mismatchClass);
+      if (explicitMismatchClass) {
+        addMismatch({
+          mismatchClass: explicitMismatchClass,
+          batchId,
+          gateId,
+          details: {
+            source: "gate.mismatchClass"
+          }
+        });
+      }
+      return {
+        gateId,
+        runId: normalizeOptionalString(gate?.runId),
+        releasedAmountCents: normalizeNonNegativeInt(gate?.releasedAmountCents, 0),
+        refundedAmountCents: normalizeNonNegativeInt(gate?.refundedAmountCents, 0),
+        reserveId: normalizeOptionalString(gate?.reserveId),
+        receiptId,
+        decisionId
+      };
+    });
+    const mismatchClasses = [
+      ...new Set(
+        mismatchIssues
+          .filter((issue) => issue.batchId === batchId)
+          .map((issue) => issue.mismatchClass)
+          .filter(Boolean)
+      )
+    ].sort(cmpText);
     rows.push({
       schemaVersion: "X402PayoutBatchReconciliationRow.v1",
-      batchId: batch.batchId ?? null,
-      providerId: batch.providerId ?? null,
-      currency: batch.currency ?? null,
-      gateCount: gates.length,
+      batchId,
+      providerId: normalizeOptionalString(batch?.providerId),
+      currency: normalizeOptionalString(batch?.currency),
+      gateCount: normalizedGates.length,
       declaredAmountCents,
       recomputedAmountCents,
       driftCents,
       receiptIds,
       decisionIds,
-      gates: gates.map((gate) => ({
-        gateId: gate?.gateId ?? null,
-        runId: gate?.runId ?? null,
-        releasedAmountCents: normalizeNonNegativeInt(gate?.releasedAmountCents, 0),
-        refundedAmountCents: normalizeNonNegativeInt(gate?.refundedAmountCents, 0),
-        reserveId: gate?.reserveId ?? null,
-        receiptId: gate?.receiptId ?? null,
-        decisionId: gate?.decisionId ?? null
-      }))
+      mismatchClasses,
+      gates: normalizedGates
     });
     totalDeclaredAmountCents += declaredAmountCents;
     totalRecomputedAmountCents += recomputedAmountCents;
-    totalGateCount += gates.length;
+    totalGateCount += normalizedGates.length;
   }
+
+  const mismatchSummary = {
+    totalIssues: mismatchIssues.length,
+    byClass: Array.from(mismatchCountByClass.entries())
+      .sort((left, right) => cmpText(left[0], right[0]))
+      .map(([mismatchClass, count]) => ({
+        mismatchClass,
+        count
+      })),
+    unresolvedClasses: Array.from(unresolvedMismatchClasses).sort(cmpText)
+  };
+  const checks = [
+    {
+      id: "declared_amounts_reconciled",
+      ok: amountDriftBatchCount === 0,
+      actual: amountDriftBatchCount,
+      expected: 0,
+      comparator: "="
+    },
+    {
+      id: "receipt_bindings_present",
+      ok: missingReceiptCount === 0,
+      actual: missingReceiptCount,
+      expected: 0,
+      comparator: "="
+    },
+    {
+      id: "decision_bindings_present",
+      ok: missingDecisionCount === 0,
+      actual: missingDecisionCount,
+      expected: 0,
+      comparator: "="
+    },
+    {
+      id: "mismatch_classes_resolved",
+      ok: mismatchSummary.unresolvedClasses.length === 0,
+      actual: mismatchSummary.unresolvedClasses.length,
+      expected: 0,
+      comparator: "="
+    },
+    {
+      id: "mismatch_issue_count_zero",
+      ok: mismatchSummary.totalIssues === 0,
+      actual: mismatchSummary.totalIssues,
+      expected: 0,
+      comparator: "="
+    }
+  ];
+  const checkIssues = checks
+    .filter((check) => check.ok !== true)
+    .map((check) => ({
+      schemaVersion: "X402PayoutReconciliationBlockingIssue.v1",
+      id: `check:${check.id}`,
+      checkId: check.id,
+      code: "check_failed",
+      details: {
+        comparator: check.comparator,
+        expected: check.expected,
+        actual: check.actual
+      }
+    }));
+  const blockingIssues = [...checkIssues, ...mismatchIssues].sort((left, right) => {
+    const byIssueType = cmpText(left?.checkId, right?.checkId);
+    if (byIssueType !== 0) return byIssueType;
+    const byBatch = cmpText(left?.batchId, right?.batchId);
+    if (byBatch !== 0) return byBatch;
+    const byGate = cmpText(left?.gateId, right?.gateId);
+    if (byGate !== 0) return byGate;
+    return cmpText(left?.id, right?.id);
+  });
+  const requiredChecks = checks.length;
+  const passedChecks = checks.filter((row) => row.ok === true).length;
+  const failedChecks = requiredChecks - passedChecks;
+  const verdict = {
+    ok: failedChecks === 0,
+    status: failedChecks === 0 ? "pass" : "fail",
+    requiredChecks,
+    passedChecks,
+    failedChecks
+  };
 
   return {
     schemaVersion: "X402PayoutReconciliation.v1",
@@ -502,7 +695,8 @@ function buildPayoutReconciliation({ batches, generatedAt, artifactRoot, registr
     artifactRoot,
     registryPath,
     statePath,
-    ok: rows.every((row) => row.driftCents === 0),
+    ok: verdict.ok,
+    status: verdict.status,
     totals: {
       batchCount: rows.length,
       gateCount: totalGateCount,
@@ -510,6 +704,10 @@ function buildPayoutReconciliation({ batches, generatedAt, artifactRoot, registr
       recomputedAmountCents: totalRecomputedAmountCents,
       driftCents: totalDeclaredAmountCents - totalRecomputedAmountCents
     },
+    checks,
+    blockingIssues,
+    verdict,
+    mismatchSummary,
     batches: rows
   };
 }
@@ -851,7 +1049,7 @@ async function main() {
   const registry = loadRegistry(args.registryPath);
   const workerState = loadWorkerState(args.statePath);
   const discovered = collectArtifactRuns(args.artifactRoot);
-  const nowAt = nowIso();
+  const nowAt = args.generatedAt ?? nowIso();
 
   const existingByBatchId = new Map();
   for (const row of workerState.state.batches) {
@@ -920,7 +1118,23 @@ async function main() {
     results: []
   };
 
-  if (args.executeCircle && args.dryRun) {
+  const preflightBatches = Array.from(existingByBatchId.values()).sort((a, b) => String(a.batchId).localeCompare(String(b.batchId)));
+  const preflightReconciliation = buildPayoutReconciliation({
+    batches: preflightBatches,
+    generatedAt: nowAt,
+    artifactRoot: path.resolve(process.cwd(), args.artifactRoot),
+    registryPath: registry.resolvedPath,
+    statePath: workerState.resolvedPath
+  });
+  const reconciliationBlocked = preflightReconciliation.verdict?.ok !== true;
+
+  if (args.executeCircle && reconciliationBlocked) {
+    payoutExecution.skipped = preflightBatches.length;
+    payoutExecution.results = preflightBatches.map((batch) => ({
+      batchId: batch.batchId,
+      status: "skipped_reconciliation_blocked"
+    }));
+  } else if (args.executeCircle && args.dryRun) {
     const batchesSorted = Array.from(existingByBatchId.values()).sort((a, b) => String(a.batchId).localeCompare(String(b.batchId)));
     payoutExecution.skipped = batchesSorted.length;
     payoutExecution.results = batchesSorted.map((batch) => ({
@@ -1041,6 +1255,7 @@ async function main() {
     registryPath: registry.resolvedPath,
     statePath: workerState.resolvedPath
   });
+  const reconciliationFailed = reconciliation.verdict?.ok !== true;
 
   const outDir =
     args.outDir && String(args.outDir).trim() !== ""
@@ -1059,15 +1274,16 @@ async function main() {
     writeJsonFile(path.join(outDir, "batches", `${batch.batchId}.json`), batch);
   }
 
-  if (!args.dryRun) {
+  if (!args.dryRun && !reconciliationFailed) {
     workerState.state.updatedAt = nowAt;
     workerState.state.processedGateIds = alreadyProcessed;
     workerState.state.batches = batchesSorted;
     writeJsonFile(workerState.resolvedPath, workerState.state);
   }
 
+  const payoutExecutionFailed = payoutExecution.enabled && payoutExecution.failed > 0;
   const result = {
-    ok: true,
+    ok: reconciliation.ok === true && !payoutExecutionFailed,
     outDir,
     manifestHash,
     batchCount: newBatches.length,
@@ -1078,11 +1294,18 @@ async function main() {
     executeCircle: args.executeCircle === true,
     payoutExecution,
     reconciliation: {
+      schemaVersion: reconciliation.schemaVersion,
+      status: reconciliation.status,
       ok: reconciliation.ok,
+      requiredChecks: reconciliation.verdict?.requiredChecks ?? 0,
+      passedChecks: reconciliation.verdict?.passedChecks ?? 0,
+      failedChecks: reconciliation.verdict?.failedChecks ?? 0,
+      blockingIssueCount: Array.isArray(reconciliation.blockingIssues) ? reconciliation.blockingIssues.length : 0,
       totals: reconciliation.totals
     }
   };
   process.stdout.write(`${JSON.stringify(result)}\n`);
+  if (!result.ok) process.exitCode = 1;
 }
 
 main().catch((err) => {

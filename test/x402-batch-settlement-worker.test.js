@@ -94,6 +94,7 @@ test("x402 batch settlement worker is idempotent across reruns", async () => {
   const artifactRoot = path.join(tmpRoot, "artifacts", "mcp-paid-exa");
   const registryPath = path.join(tmpRoot, "registry.json");
   const statePath = path.join(tmpRoot, "state.json");
+  const generatedAt = "2026-02-16T12:00:00.000Z";
 
   const runs = [
     { id: "run1", gateId: "gate_1", providerId: "prov_a", releasedAmountCents: 500 },
@@ -139,6 +140,8 @@ test("x402 batch settlement worker is idempotent across reruns", async () => {
       registryPath,
       "--state",
       statePath,
+      "--generated-at",
+      generatedAt,
       "--out-dir",
       outDir1
     ]
@@ -149,6 +152,11 @@ test("x402 batch settlement worker is idempotent across reruns", async () => {
   assert.equal(firstResult.processedGateCount, 2);
   assert.equal(firstResult.skippedProviderCount, 1);
   assert.equal(firstResult.reconciliation?.ok, true);
+  assert.equal(firstResult.reconciliation?.status, "pass");
+  assert.equal(firstResult.reconciliation?.requiredChecks, 5);
+  assert.equal(firstResult.reconciliation?.passedChecks, 5);
+  assert.equal(firstResult.reconciliation?.failedChecks, 0);
+  assert.equal(firstResult.reconciliation?.blockingIssueCount, 0);
   assert.equal(firstResult.reconciliation?.totals?.batchCount, 1);
   assert.equal(firstResult.reconciliation?.totals?.declaredAmountCents, 800);
   assert.equal(firstResult.reconciliation?.totals?.recomputedAmountCents, 800);
@@ -157,6 +165,13 @@ test("x402 batch settlement worker is idempotent across reruns", async () => {
   const reconciliationFirst = JSON.parse(await readFile(path.join(outDir1, "payout-reconciliation.json"), "utf8"));
   assert.equal(reconciliationFirst.schemaVersion, "X402PayoutReconciliation.v1");
   assert.equal(reconciliationFirst.ok, true);
+  assert.equal(reconciliationFirst.status, "pass");
+  assert.equal(reconciliationFirst.verdict?.requiredChecks, 5);
+  assert.equal(reconciliationFirst.verdict?.passedChecks, 5);
+  assert.equal(reconciliationFirst.verdict?.failedChecks, 0);
+  assert.equal(Array.isArray(reconciliationFirst.checks), true);
+  assert.equal(Array.isArray(reconciliationFirst.blockingIssues), true);
+  assert.equal(reconciliationFirst.blockingIssues.length, 0);
   assert.equal(reconciliationFirst.totals?.driftCents, 0);
   assert.deepEqual(reconciliationFirst.batches?.[0]?.receiptIds, ["rcpt_gate_1", "rcpt_gate_2"]);
   assert.deepEqual(reconciliationFirst.batches?.[0]?.decisionIds, ["dec_gate_1", "dec_gate_2"]);
@@ -181,6 +196,8 @@ test("x402 batch settlement worker is idempotent across reruns", async () => {
       registryPath,
       "--state",
       statePath,
+      "--generated-at",
+      generatedAt,
       "--out-dir",
       outDir2
     ]
@@ -191,7 +208,14 @@ test("x402 batch settlement worker is idempotent across reruns", async () => {
   assert.equal(secondResult.processedGateCount, 0);
   assert.equal(secondResult.skippedProviderCount, 1);
   assert.equal(secondResult.reconciliation?.ok, true);
+  assert.equal(secondResult.reconciliation?.status, "pass");
+  assert.equal(secondResult.reconciliation?.requiredChecks, 5);
+  assert.equal(secondResult.reconciliation?.passedChecks, 5);
+  assert.equal(secondResult.reconciliation?.failedChecks, 0);
+  assert.equal(secondResult.reconciliation?.blockingIssueCount, 0);
   assert.equal(secondResult.reconciliation?.totals?.driftCents, 0);
+  const reconciliationSecond = JSON.parse(await readFile(path.join(outDir2, "payout-reconciliation.json"), "utf8"));
+  assert.deepEqual(reconciliationSecond, reconciliationFirst);
 
   const stateAfterSecond = JSON.parse(await readFile(statePath, "utf8"));
   assert.equal(stateAfterSecond.batches.length, 1);
@@ -256,6 +280,8 @@ test("x402 batch settlement worker executes stub payouts once and skips reruns",
   assert.equal(firstResult.payoutExecution.submitted, 1);
   assert.equal(firstResult.payoutExecution.failed, 0);
   assert.equal(firstResult.reconciliation?.ok, true);
+  assert.equal(firstResult.reconciliation?.status, "pass");
+  assert.equal(firstResult.reconciliation?.failedChecks, 0);
   assert.equal(firstResult.reconciliation?.totals?.driftCents, 0);
 
   const stateAfterFirst = JSON.parse(await readFile(statePath, "utf8"));
@@ -286,6 +312,8 @@ test("x402 batch settlement worker executes stub payouts once and skips reruns",
   assert.equal(secondResult.payoutExecution.submitted, 0);
   assert.equal(secondResult.payoutExecution.skipped, 1);
   assert.equal(secondResult.reconciliation?.ok, true);
+  assert.equal(secondResult.reconciliation?.status, "pass");
+  assert.equal(secondResult.reconciliation?.failedChecks, 0);
   assert.equal(secondResult.reconciliation?.totals?.driftCents, 0);
 
   const stateAfterSecond = JSON.parse(await readFile(statePath, "utf8"));
@@ -351,6 +379,9 @@ test("x402 batch settlement worker does not execute payouts during dry-run", asy
   assert.equal(result.payoutExecution.attempted, 0);
   assert.equal(result.payoutExecution.submitted, 0);
   assert.equal(result.payoutExecution.skipped, 1);
+  assert.equal(result.reconciliation?.ok, true);
+  assert.equal(result.reconciliation?.status, "pass");
+  assert.equal(result.reconciliation?.failedChecks, 0);
 
   let stateExists = false;
   try {
@@ -421,4 +452,117 @@ test("x402 batch settlement worker requires Circle env in sandbox mode", async (
   });
   assert.equal(out.code, 1);
   assert.match(out.stderr, /circle payout execution requires env/i);
+});
+
+test("x402 batch settlement worker fails closed on unresolved mismatch classes", async () => {
+  const tmpRoot = await mkdtemp(path.join(os.tmpdir(), "nooterra-x402-batch-unresolved-class-"));
+  const artifactRoot = path.join(tmpRoot, "artifacts", "mcp-paid-exa");
+  const registryPath = path.join(tmpRoot, "registry.json");
+  const statePath = path.join(tmpRoot, "state.json");
+  const outDir = path.join(tmpRoot, "out");
+
+  await writeJson(registryPath, {
+    schemaVersion: "X402ProviderPayoutRegistry.v1",
+    providers: [
+      {
+        providerId: "prov_unresolved",
+        destination: {
+          type: "circle_wallet",
+          walletId: "wallet_unresolved",
+          blockchain: "BASE-SEPOLIA",
+          token: "USDC"
+        }
+      }
+    ]
+  });
+  await writeJson(statePath, {
+    schemaVersion: "X402BatchWorkerState.v1",
+    updatedAt: "2026-02-16T10:00:00.000Z",
+    processedGateIds: {
+      gate_unresolved_1: {
+        batchId: "pbatch_unresolved_1",
+        providerId: "prov_unresolved",
+        processedAt: "2026-02-16T10:00:00.000Z"
+      }
+    },
+    batches: [
+      {
+        schemaVersion: "X402ProviderPayoutBatch.v1",
+        batchId: "pbatch_unresolved_1",
+        createdAt: "2026-02-16T10:00:00.000Z",
+        providerId: "prov_unresolved",
+        currency: "USD",
+        totalAmountCents: 500,
+        gateCount: 1,
+        destination: {
+          type: "circle_wallet",
+          walletId: "wallet_unresolved",
+          blockchain: "BASE-SEPOLIA",
+          token: "USDC"
+        },
+        settlementMethod: "deferred_batch_manifest_only",
+        gates: [
+          {
+            gateId: "gate_unresolved_1",
+            runId: "x402_gate_unresolved_1",
+            releasedAmountCents: 500,
+            refundedAmountCents: 0,
+            resolvedAt: "2026-02-16T10:00:00.000Z",
+            reserveId: "circle_transfer_gate_unresolved_1",
+            receiptId: "rcpt_gate_unresolved_1",
+            decisionId: "dec_gate_unresolved_1",
+            mismatchClass: "unknown_settlement_mismatch"
+          }
+        ],
+        payout: {
+          status: "manifest_only_pending",
+          attempts: 0,
+          maxAttempts: 3,
+          idempotencyKey: "dc824d71-22d2-46ea-a548-a76af2a2310a",
+          transactionId: null,
+          circleState: null,
+          lastAttemptAt: null,
+          lastError: null,
+          submittedAt: null,
+          providerResponse: null
+        }
+      }
+    ]
+  });
+
+  const run = await runNode({
+    cwd: REPO_ROOT,
+    args: [
+      "scripts/settlement/x402-batch-worker.mjs",
+      "--artifact-root",
+      artifactRoot,
+      "--registry",
+      registryPath,
+      "--state",
+      statePath,
+      "--out-dir",
+      outDir,
+      "--generated-at",
+      "2026-02-16T12:00:00.000Z"
+    ]
+  });
+  assert.equal(run.code, 1, `stderr=${run.stderr}`);
+  const parsed = JSON.parse(run.stdout.trim());
+  assert.equal(parsed.reconciliation?.ok, false);
+  assert.equal(parsed.reconciliation?.status, "fail");
+  assert.equal(parsed.reconciliation?.failedChecks, 2);
+  assert.equal(parsed.reconciliation?.blockingIssueCount, 3);
+
+  const reconciliation = JSON.parse(await readFile(path.join(outDir, "payout-reconciliation.json"), "utf8"));
+  assert.equal(reconciliation.ok, false);
+  assert.equal(reconciliation.verdict?.status, "fail");
+  assert.equal(reconciliation.verdict?.failedChecks, 2);
+  assert.equal(
+    reconciliation.blockingIssues.some((row) => row?.checkId === "mismatch_classes_resolved"),
+    true
+  );
+  assert.equal(
+    reconciliation.blockingIssues.some((row) => row?.mismatchClass === "unknown_settlement_mismatch"),
+    true
+  );
 });

@@ -32,6 +32,24 @@ function startStubServer() {
       res.end(JSON.stringify(body));
       return;
     }
+    if (url.pathname === "/ops/settlement-adjustments/sadj_test_unresolved_1") {
+      const body = {
+        ok: true,
+        tenantId: "tenant_default",
+        adjustment: {
+          schemaVersion: "SettlementAdjustment.v1",
+          adjustmentId: "sadj_test_unresolved_1",
+          kind: "holdback_release",
+          amountCents: 50,
+          currency: "USD",
+          mismatchClass: "unresolved_marketplace_mismatch_class",
+          adjustmentHash: "6f0dd20d35e7d50234e84f19368f0eb0747a149b0ff4ea8611c95cb6ef7eef2a"
+        }
+      };
+      res.writeHead(200, headers);
+      res.end(JSON.stringify(body));
+      return;
+    }
     if (url.pathname === "/agents/agt_payer_1/wallet") {
       const body = {
         ok: true,
@@ -157,6 +175,13 @@ test("dispute finance reconciliation packet script: emits deterministic packet w
   assert.equal(packet1.checksums.packetHash, packet2.checksums.packetHash);
   assert.equal(packet1.signature.signature, packet2.signature.signature);
   assert.equal(packet1.signature.keyId, "finance_key_1");
+  assert.equal(Array.isArray(packet1.checks), true);
+  assert.equal(Array.isArray(packet1.blockingIssues), true);
+  assert.equal(packet1.blockingIssues.length, 0);
+  assert.equal(packet1.verdict?.ok, true);
+  assert.equal(packet1.verdict?.requiredChecks, 6);
+  assert.equal(packet1.verdict?.passedChecks, 6);
+  assert.equal(packet1.verdict?.failedChecks, 0);
 
   const validSignature = verifyHashHexEd25519({
     hashHex: packet1.signature.packetHash,
@@ -164,6 +189,51 @@ test("dispute finance reconciliation packet script: emits deterministic packet w
     publicKeyPem: keypair.publicKeyPem
   });
   assert.equal(validSignature, true);
+
+  await new Promise((resolve) => server.close(resolve));
+});
+
+test("dispute finance reconciliation packet script: fails closed when mismatch class is unresolved", async () => {
+  const { server, baseUrl } = await startStubServer();
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-dispute-finance-packet-fail-closed-"));
+  const packetPath = path.join(tmpDir, "packet.json");
+
+  const run = await runScript(
+    [
+      SCRIPT_PATH,
+      "--base-url",
+      baseUrl,
+      "--tenant-id",
+      "tenant_default",
+      "--ops-token",
+      "tok_ops_finance",
+      "--adjustment-id",
+      "sadj_test_unresolved_1",
+      "--payer-agent-id",
+      "agt_payer_1",
+      "--payee-agent-id",
+      "agt_payee_1",
+      "--generated-at",
+      "2026-02-22T01:00:00.000Z",
+      "--out",
+      packetPath
+    ],
+    { cwd: path.resolve(".") }
+  );
+
+  assert.equal(run.code, 1, run.stderr || run.stdout);
+  const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
+  assert.equal(packet.verdict?.ok, false);
+  assert.equal(packet.verdict?.failedChecks, 2);
+  assert.equal(Array.isArray(packet.blockingIssues), true);
+  assert.equal(
+    packet.blockingIssues.some((row) => row?.checkId === "external_mismatch_class_supported"),
+    true
+  );
+  assert.equal(
+    packet.blockingIssues.some((row) => row?.checkId === "mismatch_classes_resolved"),
+    true
+  );
 
   await new Promise((resolve) => server.close(resolve));
 });

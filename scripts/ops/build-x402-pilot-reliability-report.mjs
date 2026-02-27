@@ -122,6 +122,11 @@ function rate(numerator, denominator) {
   return Number(numerator) / Number(denominator);
 }
 
+function toSortedRunIds(rows) {
+  const safe = Array.isArray(rows) ? rows : [];
+  return [...new Set(safe.map((row) => String(row?.runId ?? "")).filter((row) => row.length > 0))].sort((a, b) => a.localeCompare(b));
+}
+
 function isGatewayError(summary, mcpParsed) {
   const err = String(summary?.error ?? "");
   if (String(mcpParsed?.error ?? "").trim() === "gateway_error") return true;
@@ -265,7 +270,13 @@ export function buildX402PilotReliabilityReport({
     }
   }
 
-  runRows.sort((a, b) => Date.parse(String(a.startedAt ?? 0)) - Date.parse(String(b.startedAt ?? 0)));
+  runRows.sort((a, b) => {
+    const byStartedAt = Date.parse(String(a.startedAt ?? 0)) - Date.parse(String(b.startedAt ?? 0));
+    if (byStartedAt !== 0) return byStartedAt;
+    const byRunId = String(a.runId ?? "").localeCompare(String(b.runId ?? ""));
+    if (byRunId !== 0) return byRunId;
+    return String(a.runDirPath ?? "").localeCompare(String(b.runDirPath ?? ""));
+  });
 
   const infraBootFailures = runRows.filter((row) => row.infraBootFailure === true);
   const attempted = runRows.filter((row) => row.toolCallAttempted === true);
@@ -347,11 +358,20 @@ export function buildX402PilotReliabilityReport({
       }
     },
     samples: {
-      reserveFailureLikelyRunIds: reserveFailureLikely.map((row) => row.runId),
-      tokenVerifyFailureRunIds: tokenFailures.map((row) => row.runId),
-      providerSigFailureRunIds: providerSigFailures.map((row) => row.runId),
-      settlementFailureRunIds: settlementFailures.map((row) => row.runId),
-      replayMissingDuplicateRunIds: replayMissingDuplicate.map((row) => row.runId)
+      reserveFailureLikelyRunIds: toSortedRunIds(reserveFailureLikely),
+      tokenVerifyFailureRunIds: toSortedRunIds(tokenFailures),
+      providerSigFailureRunIds: toSortedRunIds(providerSigFailures),
+      settlementFailureRunIds: toSortedRunIds(settlementFailures),
+      replayMissingDuplicateRunIds: toSortedRunIds(replayMissingDuplicate)
+    },
+    checks: [],
+    blockingIssues: [],
+    verdict: {
+      ok: true,
+      status: "pass",
+      requiredChecks: 0,
+      passedChecks: 0,
+      failedChecks: 0
     },
     notes: [
       "reserveFailRate is inferred from attempted runs with gateway_error.",
@@ -411,9 +431,29 @@ function buildThresholdVerdict(report, thresholds) {
     });
   }
 
+  const blockingIssues = checks
+    .filter((row) => row.ok !== true)
+    .map((row) => ({
+      id: `check:${row.id}`,
+      checkId: row.id,
+      code: "threshold_failed",
+      details: {
+        comparator: row.comparator,
+        expected: row.expected,
+        actual: row.actual
+      }
+    }));
+  const requiredChecks = checks.length;
+  const passedChecks = checks.filter((row) => row.ok === true).length;
+  const failedChecks = requiredChecks - passedChecks;
   return {
-    ok: checks.every((row) => row.ok === true),
-    checks
+    ok: failedChecks === 0,
+    status: failedChecks === 0 ? "pass" : "fail",
+    requiredChecks,
+    passedChecks,
+    failedChecks,
+    checks,
+    blockingIssues
   };
 }
 
@@ -447,7 +487,15 @@ async function main() {
     maxProviderSigFailRate: args.maxProviderSigFailRate,
     minSettlementSuccessRate: args.minSettlementSuccessRate
   });
-  report.verdict = verdict;
+  report.checks = verdict.checks;
+  report.blockingIssues = verdict.blockingIssues;
+  report.verdict = {
+    ok: verdict.ok,
+    status: verdict.status,
+    requiredChecks: verdict.requiredChecks,
+    passedChecks: verdict.passedChecks,
+    failedChecks: verdict.failedChecks
+  };
 
   const outPath = writeReport(args.outPath, report);
 
