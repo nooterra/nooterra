@@ -255,3 +255,48 @@ test("ns3 evidence-binding coverage matrix script: fixed --now yields semantic c
 
   assert.deepEqual(semanticSnapshot(reportOne), semanticSnapshot(reportTwo));
 });
+
+test("ns3 evidence-binding coverage matrix script: fails closed when policy omits openapi binding surface operation", async (t) => {
+  assert.equal(await fileExists(SCRIPT_PATH), true, `missing script at ${SCRIPT_PATH}`);
+
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-ns3-evidence-binding-matrix-policy-coverage-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  const baselineReportPath = path.join(tmpRoot, "baseline-report.json");
+  const baselineResult = runMatrix({ reportPath: baselineReportPath });
+  assert.equal(baselineResult.status, 0, `stdout:\n${baselineResult.stdout}\n\nstderr:\n${baselineResult.stderr}`);
+
+  const baselineReport = await readReport(baselineReportPath);
+  const sourcePolicyPath = await resolvePolicyPathFromReport(baselineReport);
+  const sourcePolicy = JSON.parse(await fs.readFile(sourcePolicyPath, "utf8"));
+  const sourceOperations = Array.isArray(sourcePolicy?.operations) ? sourcePolicy.operations : [];
+  const filteredOperations = sourceOperations.filter(
+    (row) => !(String(row?.method ?? "").toUpperCase() === "POST" && String(row?.route ?? "") === "/x402/gate/authorize-payment")
+  );
+  assert.equal(filteredOperations.length < sourceOperations.length, true, "expected x402 authorize-payment operation in source policy");
+
+  const malformedPolicyPath = path.join(tmpRoot, "policy-missing-openapi-binding-surface.json");
+  const malformedPolicy = {
+    ...sourcePolicy,
+    operations: filteredOperations
+  };
+  await fs.writeFile(malformedPolicyPath, `${JSON.stringify(malformedPolicy, null, 2)}\n`, "utf8");
+
+  const failReportPath = path.join(tmpRoot, "report-fail.json");
+  const failResult = runMatrix({
+    reportPath: failReportPath,
+    policyPath: malformedPolicyPath
+  });
+  assert.notEqual(failResult.status, 0, `expected non-zero exit\nstdout:\n${failResult.stdout}\n\nstderr:\n${failResult.stderr}`);
+
+  const failReport = await readReport(failReportPath);
+  assert.equal(Array.isArray(failReport?.blockingIssues), true, "report.blockingIssues must be an array");
+  assert.equal(failReport.blockingIssues.length > 0, true, "missing policy operation must produce blocking issues");
+
+  const missingCoverageIssue = failReport.blockingIssues.find(
+    (issue) => String(issue?.code ?? "") === "policy_operation_missing_for_openapi_binding_surface"
+  );
+  assert.ok(missingCoverageIssue, "expected policy missing-openapi-binding-surface issue");
+});

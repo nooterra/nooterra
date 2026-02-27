@@ -376,6 +376,52 @@ function extractKnownErrorCodesFromOpenApiOperation(operationNode) {
   return Array.from(out).sort(cmpString);
 }
 
+function isNs3BindingReasonCode(code) {
+  const normalized = normalizeOptionalString(code);
+  if (!normalized || !normalized.startsWith("X402_")) return false;
+  if (normalized.includes("BINDING")) return true;
+  if (normalized.endsWith("_REQUEST_BINDING_REQUIRED")) return true;
+  if (normalized.endsWith("_REQUEST_MISMATCH")) return true;
+  return false;
+}
+
+function sanitizeIssueSuffix(value) {
+  return String(value ?? "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
+function collectOpenApiBindingCoverageOperations(openapiBuilt) {
+  if (!openapiBuilt.readOk || !openapiBuilt.parseOk || !isPlainObject(openapiBuilt.json?.paths)) return [];
+
+  const operations = [];
+  for (const [route, pathItem] of Object.entries(openapiBuilt.json.paths)) {
+    if (typeof route !== "string" || !route.startsWith("/")) continue;
+    if (!route.startsWith("/runs/") && !route.startsWith("/tool-calls/") && !route.startsWith("/x402/gate/")) continue;
+    if (!isPlainObject(pathItem)) continue;
+
+    for (const method of ALLOWED_METHODS) {
+      const methodLower = method.toLowerCase();
+      const operationNode = isPlainObject(pathItem[methodLower]) ? pathItem[methodLower] : null;
+      if (!operationNode) continue;
+
+      const knownReasonCodes = extractKnownErrorCodesFromOpenApiOperation(operationNode).filter(isNs3BindingReasonCode);
+      if (knownReasonCodes.length === 0) continue;
+
+      operations.push({
+        route,
+        method,
+        operationId: normalizeOptionalString(operationNode.operationId),
+        knownReasonCodes
+      });
+    }
+  }
+
+  operations.sort((a, b) => cmpString(a.route, b.route) || cmpString(a.method, b.method) || cmpString(a.operationId, b.operationId));
+  return operations;
+}
+
 function evaluateOperationCoverage({ operation, runtimeSource, openapiSource, openapiBuilt, docsCatalog }) {
   const issues = [];
   const expectedReasonCodes = operation.expectedReasonCodes;
@@ -899,6 +945,24 @@ export async function runNs3EvidenceBindingCoverageMatrix(args, env = process.en
       });
       checks.push(evaluated.check);
       issues.push(...evaluated.issues);
+    }
+
+    const policyRouteMethodSet = new Set(policy.operations.map((operation) => `${operation.method} ${operation.route}`));
+    const openapiBindingCoverageOperations = collectOpenApiBindingCoverageOperations(openapiBuilt);
+    for (const operation of openapiBindingCoverageOperations) {
+      const routeMethodKey = `${operation.method} ${operation.route}`;
+      if (policyRouteMethodSet.has(routeMethodKey)) continue;
+      const suffix = sanitizeIssueSuffix(routeMethodKey);
+      issues.push({
+        id: `policy:openapi_binding_surface_missing:${suffix}`,
+        category: "coverage",
+        code: "policy_operation_missing_for_openapi_binding_surface",
+        message: `policy is missing ${routeMethodKey} required by openapi binding surface`,
+        operationId: operation.operationId,
+        route: operation.route,
+        method: operation.method,
+        dimension: "policy"
+      });
     }
   }
 
