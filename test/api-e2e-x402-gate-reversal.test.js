@@ -179,7 +179,7 @@ function signProviderRefundDecision({
   });
 }
 
-function assertBindingEvidenceConflict(response, { code, operation, expectedRequestSha256, requestSha256 = null }) {
+function assertBindingEvidenceConflict(response, { code, operation, expectedRequestSha256, requestSha256 = null, requestSha256Values } = {}) {
   assert.equal(response.statusCode, 409, response.body);
   assert.equal(response.json?.code, code);
   assert.equal(response.json?.details?.operation, operation);
@@ -188,6 +188,9 @@ function assertBindingEvidenceConflict(response, { code, operation, expectedRequ
     assert.equal(response.json?.details?.requestSha256 ?? null, null);
   } else {
     assert.equal(response.json?.details?.requestSha256, requestSha256);
+  }
+  if (requestSha256Values !== undefined) {
+    assert.deepEqual(response.json?.details?.requestSha256Values, requestSha256Values);
   }
 }
 
@@ -1002,11 +1005,18 @@ test("API e2e: run arbitration open/assign/evidence fail closed on missing or mi
     reason: "prepare arbitration open mismatch check",
     evidenceRefs: [
       `http:request_sha256:${arbOpenMismatch.requestSha256}`,
-      `http:request_sha256:${arbOpenMismatchSha}`,
       arbOpenMismatchContextRef
     ]
   });
   assert.equal(openDisputeForArbOpenMismatch.statusCode, 200, openDisputeForArbOpenMismatch.body);
+  overwriteSettlementDisputeEvidenceRefs(api, {
+    runId: arbOpenMismatch.runId,
+    evidenceRefs: [
+      `http:request_sha256:${arbOpenMismatch.requestSha256}`,
+      `http:request_sha256:${arbOpenMismatchSha}`,
+      arbOpenMismatchContextRef
+    ]
+  });
   const arbitrationOpenMismatch = await openArbitrationCase({
     runId: arbOpenMismatch.runId,
     disputeId: arbOpenMismatch.disputeId,
@@ -1019,6 +1029,42 @@ test("API e2e: run arbitration open/assign/evidence fail closed on missing or mi
     operation: "run_arbitration.open",
     expectedRequestSha256: arbOpenMismatch.requestSha256,
     requestSha256: arbOpenMismatchSha
+  });
+
+  const arbOpenConflict = await setupRun({
+    seed: "open_conflict_1",
+    verifyRequestSha256: "f".repeat(64)
+  });
+  const arbOpenConflictSha = "0".repeat(64);
+  const openDisputeForArbOpenConflict = await openDispute({
+    runId: arbOpenConflict.runId,
+    disputeId: arbOpenConflict.disputeId,
+    idempotencyKey: "x402_dispute_open_arb_open_conflict_1",
+    reason: "prepare arbitration open conflict check",
+    evidenceRefs: [`http:request_sha256:${arbOpenConflict.requestSha256}`, "evidence://x402/arb-open-conflict/context.json"]
+  });
+  assert.equal(openDisputeForArbOpenConflict.statusCode, 200, openDisputeForArbOpenConflict.body);
+  overwriteSettlementDisputeEvidenceRefs(api, {
+    runId: arbOpenConflict.runId,
+    evidenceRefs: [
+      `http:request_sha256:${arbOpenConflict.requestSha256}`,
+      `http:request_sha256:${arbOpenConflictSha}`,
+      "evidence://x402/arb-open-conflict/context.json"
+    ]
+  });
+  const arbitrationOpenConflict = await openArbitrationCase({
+    runId: arbOpenConflict.runId,
+    disputeId: arbOpenConflict.disputeId,
+    caseId: arbOpenConflict.caseId,
+    idempotencyKey: "x402_arb_open_conflict_1",
+    evidenceRefs: [`http:request_sha256:${arbOpenConflict.requestSha256}`, `http:request_sha256:${arbOpenConflictSha}`]
+  });
+  assertBindingEvidenceConflict(arbitrationOpenConflict, {
+    code: "X402_ARBITRATION_OPEN_BINDING_EVIDENCE_MISMATCH",
+    operation: "run_arbitration.open",
+    expectedRequestSha256: arbOpenConflict.requestSha256,
+    requestSha256: arbOpenConflict.requestSha256,
+    requestSha256Values: [arbOpenConflict.requestSha256, arbOpenConflictSha].sort((left, right) => left.localeCompare(right))
   });
 
   const arbAssignRequired = await setupRun({
@@ -1070,7 +1116,7 @@ test("API e2e: run arbitration open/assign/evidence fail closed on missing or mi
     disputeId: arbAssignMismatch.disputeId,
     idempotencyKey: "x402_dispute_open_arb_assign_mismatch_1",
     reason: "prepare arbitration assign mismatch check",
-    evidenceRefs: [`http:request_sha256:${arbAssignMismatch.requestSha256}`, `http:request_sha256:${arbAssignMismatchSha}`]
+    evidenceRefs: [`http:request_sha256:${arbAssignMismatch.requestSha256}`, "evidence://x402/arb-assign-mismatch/context.json"]
   });
   assert.equal(openDisputeForArbAssignMismatch.statusCode, 200, openDisputeForArbAssignMismatch.body);
   const openCaseForArbAssignMismatch = await openArbitrationCase({
@@ -1159,11 +1205,18 @@ test("API e2e: run arbitration open/assign/evidence fail closed on missing or mi
     reason: "prepare arbitration evidence mismatch check",
     evidenceRefs: [
       `http:request_sha256:${arbEvidenceMismatch.requestSha256}`,
-      `http:request_sha256:${arbEvidenceMismatchSha}`,
       arbEvidenceMismatchContextRef
     ]
   });
   assert.equal(openDisputeForArbEvidenceMismatch.statusCode, 200, openDisputeForArbEvidenceMismatch.body);
+  overwriteSettlementDisputeEvidenceRefs(api, {
+    runId: arbEvidenceMismatch.runId,
+    evidenceRefs: [
+      `http:request_sha256:${arbEvidenceMismatch.requestSha256}`,
+      `http:request_sha256:${arbEvidenceMismatchSha}`,
+      arbEvidenceMismatchContextRef
+    ]
+  });
   const openCaseForArbEvidenceMismatch = await openArbitrationCase({
     runId: arbEvidenceMismatch.runId,
     disputeId: arbEvidenceMismatch.disputeId,
@@ -1299,6 +1352,30 @@ test("API e2e: run dispute open/evidence/escalate fail closed on missing or mism
     operation: "run_dispute.open",
     expectedRequestSha256: disputeOpenMismatch.requestSha256,
     requestSha256: disputeOpenMismatchSha
+  });
+
+  const disputeOpenConflict = await setupRun({
+    seed: "open_conflict_1",
+    verifyRequestSha256: "c".repeat(64)
+  });
+  const disputeOpenConflictSha = "d".repeat(64);
+  const issueDisputeOpenConflict = await openDispute({
+    runId: disputeOpenConflict.runId,
+    disputeId: disputeOpenConflict.disputeId,
+    idempotencyKey: "x402_dispute_ops_open_conflict_1",
+    reason: "conflicting request hash values should fail",
+    evidenceRefs: [
+      `http:request_sha256:${disputeOpenConflict.requestSha256}`,
+      `http:request_sha256:${disputeOpenConflictSha}`,
+      "evidence://x402/dispute-open-conflict/context.json"
+    ]
+  });
+  assertBindingEvidenceConflict(issueDisputeOpenConflict, {
+    code: "X402_DISPUTE_OPEN_BINDING_EVIDENCE_MISMATCH",
+    operation: "run_dispute.open",
+    expectedRequestSha256: disputeOpenConflict.requestSha256,
+    requestSha256: disputeOpenConflict.requestSha256,
+    requestSha256Values: [disputeOpenConflict.requestSha256, disputeOpenConflictSha].sort((left, right) => left.localeCompare(right))
   });
 
   const disputeEvidenceRequired = await setupRun({
@@ -1592,8 +1669,16 @@ test("API e2e: run arbitration verdict fails closed on missing or mismatched set
   const mismatchScenario = await setupCase({
     seed: "mismatch_1",
     verifyRequestSha256: "7".repeat(64),
-    disputeEvidenceRefs: [`http:request_sha256:${"7".repeat(64)}`, `http:request_sha256:${"8".repeat(64)}`],
+    disputeEvidenceRefs: [`http:request_sha256:${"7".repeat(64)}`, "evidence://x402/arb-verdict-binding-mismatch/context.json"],
     arbitrationCaseEvidenceRefs: [`http:request_sha256:${"7".repeat(64)}`]
+  });
+  overwriteSettlementDisputeEvidenceRefs(api, {
+    runId: mismatchScenario.runId,
+    evidenceRefs: [
+      `http:request_sha256:${"7".repeat(64)}`,
+      `http:request_sha256:${"8".repeat(64)}`,
+      "evidence://x402/arb-verdict-binding-mismatch/context.json"
+    ]
   });
   overwriteArbitrationCaseEvidenceRefs(api, {
     caseId: mismatchScenario.caseId,
@@ -1810,10 +1895,17 @@ test("API e2e: run arbitration appeal fails closed on missing or mismatched sett
     verifyRequestSha256: "a".repeat(64),
     disputeEvidenceRefs: [
       `http:request_sha256:${"a".repeat(64)}`,
-      `http:request_sha256:${"b".repeat(64)}`,
       "evidence://x402/arb-appeal-binding-mismatch/context.json"
     ],
     verdictEvidenceRefs: [`http:request_sha256:${"a".repeat(64)}`]
+  });
+  overwriteSettlementDisputeEvidenceRefs(api, {
+    runId: mismatchScenario.runId,
+    evidenceRefs: [
+      `http:request_sha256:${"a".repeat(64)}`,
+      `http:request_sha256:${"b".repeat(64)}`,
+      "evidence://x402/arb-appeal-binding-mismatch/context.json"
+    ]
   });
   const appealMismatch = await request(api, {
     method: "POST",
@@ -2003,7 +2095,6 @@ test("API e2e: run arbitration close fails closed on missing or mismatched settl
     verifyRequestSha256: "d".repeat(64),
     disputeEvidenceRefs: [
       `http:request_sha256:${"d".repeat(64)}`,
-      `http:request_sha256:${"e".repeat(64)}`,
       "evidence://x402/arb-close-binding-mismatch/context.json"
     ],
     verdictEvidenceRefs: [`http:request_sha256:${"d".repeat(64)}`]

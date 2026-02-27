@@ -398,7 +398,7 @@ function collectOpenApiBindingCoverageOperations(openapiBuilt) {
   const operations = [];
   for (const [route, pathItem] of Object.entries(openapiBuilt.json.paths)) {
     if (typeof route !== "string" || !route.startsWith("/")) continue;
-    if (!route.startsWith("/runs/") && !route.startsWith("/tool-calls/") && !route.startsWith("/x402/gate/") && !route.startsWith("/marketplace/")) continue;
+    if (!route.startsWith("/runs/") && !route.startsWith("/tool-calls/") && !route.startsWith("/x402/gate/")) continue;
     if (!isPlainObject(pathItem)) continue;
 
     for (const method of ALLOWED_METHODS) {

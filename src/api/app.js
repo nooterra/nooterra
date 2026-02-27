@@ -18649,6 +18649,7 @@ export function createApi({
 
     const bindingCheck = evaluateSettlementRequestBindingEvidence({
       settlement: source.settlement,
+      rejectConflictingRequestSha256: true,
       evidenceRefs
     });
     if (bindingCheck.ok) return false;
@@ -18663,12 +18664,17 @@ export function createApi({
     };
     if (caseId) mismatchDetails.caseId = caseId;
     if (bindingCheck.requestSha256) mismatchDetails.requestSha256 = bindingCheck.requestSha256;
+    if (Array.isArray(bindingCheck.requestSha256Values) && bindingCheck.requestSha256Values.length > 1) {
+      mismatchDetails.requestSha256Values = bindingCheck.requestSha256Values;
+    }
     sendError(
       res,
       409,
       bindingCheck.reason === "required"
         ? "request-hash evidence required for tool-call settlement binding"
-        : "request-hash evidence mismatch for tool-call settlement binding",
+        : bindingCheck.reason === "conflict"
+          ? "request-hash evidence conflict for tool-call settlement binding"
+          : "request-hash evidence mismatch for tool-call settlement binding",
       mismatchDetails,
       { code: bindingCheck.reason === "required" ? requiredCode : mismatchCode }
     );
@@ -58471,7 +58477,11 @@ export function createApi({
           requiredCode,
           mismatchCode
         }) => {
-          const bindingCheck = evaluateSettlementRequestBindingEvidence({ settlement, evidenceRefs });
+          const bindingCheck = evaluateSettlementRequestBindingEvidence({
+            settlement,
+            rejectConflictingRequestSha256: true,
+            evidenceRefs
+          });
           if (bindingCheck.ok) return false;
           const mismatchDetails = {
             operation,
@@ -58481,12 +58491,17 @@ export function createApi({
           };
           if (caseIdOverride) mismatchDetails.caseId = caseIdOverride;
           if (bindingCheck.requestSha256) mismatchDetails.requestSha256 = bindingCheck.requestSha256;
+          if (Array.isArray(bindingCheck.requestSha256Values) && bindingCheck.requestSha256Values.length > 1) {
+            mismatchDetails.requestSha256Values = bindingCheck.requestSha256Values;
+          }
           sendError(
             res,
             409,
             bindingCheck.reason === "required"
               ? "request-hash evidence required for settlement binding"
-              : "request-hash evidence mismatch for settlement binding",
+              : bindingCheck.reason === "conflict"
+                ? "request-hash evidence conflict for settlement binding"
+                : "request-hash evidence mismatch for settlement binding",
             mismatchDetails,
             { code: bindingCheck.reason === "required" ? requiredCode : mismatchCode }
           );
@@ -58865,6 +58880,7 @@ export function createApi({
           if (verdictLifecycleGuardError) return;
           const arbitrationVerdictBinding = evaluateSettlementRequestBindingEvidence({
             settlement,
+            rejectConflictingRequestSha256: true,
             evidenceRefs: mergeUniqueStringArrays(
               Array.isArray(arbitrationCase?.evidenceRefs) ? arbitrationCase.evidenceRefs : [],
               Array.isArray(signedArbitrationVerdict?.evidenceRefs) ? signedArbitrationVerdict.evidenceRefs : []
@@ -58879,12 +58895,17 @@ export function createApi({
               expectedRequestSha256: arbitrationVerdictBinding.expectedRequestSha256
             };
             if (arbitrationVerdictBinding.requestSha256) mismatchDetails.requestSha256 = arbitrationVerdictBinding.requestSha256;
+            if (Array.isArray(arbitrationVerdictBinding.requestSha256Values) && arbitrationVerdictBinding.requestSha256Values.length > 1) {
+              mismatchDetails.requestSha256Values = arbitrationVerdictBinding.requestSha256Values;
+            }
             return sendError(
               res,
               409,
               arbitrationVerdictBinding.reason === "required"
                 ? "request-hash evidence required for settlement binding"
-                : "request-hash evidence mismatch for settlement binding",
+                : arbitrationVerdictBinding.reason === "conflict"
+                  ? "request-hash evidence conflict for settlement binding"
+                  : "request-hash evidence mismatch for settlement binding",
               mismatchDetails,
               {
                 code:
@@ -58980,6 +59001,7 @@ export function createApi({
 
           const arbitrationCloseBinding = evaluateSettlementRequestBindingEvidence({
             settlement,
+            rejectConflictingRequestSha256: true,
             evidenceRefs: Array.isArray(arbitrationCase?.evidenceRefs) ? arbitrationCase.evidenceRefs : []
           });
           if (!arbitrationCloseBinding.ok) {
@@ -58991,12 +59013,17 @@ export function createApi({
               expectedRequestSha256: arbitrationCloseBinding.expectedRequestSha256
             };
             if (arbitrationCloseBinding.requestSha256) mismatchDetails.requestSha256 = arbitrationCloseBinding.requestSha256;
+            if (Array.isArray(arbitrationCloseBinding.requestSha256Values) && arbitrationCloseBinding.requestSha256Values.length > 1) {
+              mismatchDetails.requestSha256Values = arbitrationCloseBinding.requestSha256Values;
+            }
             return sendError(
               res,
               409,
               arbitrationCloseBinding.reason === "required"
                 ? "request-hash evidence required for settlement binding"
-                : "request-hash evidence mismatch for settlement binding",
+                : arbitrationCloseBinding.reason === "conflict"
+                  ? "request-hash evidence conflict for settlement binding"
+                  : "request-hash evidence mismatch for settlement binding",
               mismatchDetails,
               {
                 code:
@@ -59123,6 +59150,7 @@ export function createApi({
           }
           const arbitrationAppealBinding = evaluateSettlementRequestBindingEvidence({
             settlement,
+            rejectConflictingRequestSha256: true,
             evidenceRefs
           });
           if (!arbitrationAppealBinding.ok) {
@@ -59134,12 +59162,17 @@ export function createApi({
               expectedRequestSha256: arbitrationAppealBinding.expectedRequestSha256
             };
             if (arbitrationAppealBinding.requestSha256) mismatchDetails.requestSha256 = arbitrationAppealBinding.requestSha256;
+            if (Array.isArray(arbitrationAppealBinding.requestSha256Values) && arbitrationAppealBinding.requestSha256Values.length > 1) {
+              mismatchDetails.requestSha256Values = arbitrationAppealBinding.requestSha256Values;
+            }
             return sendError(
               res,
               409,
               arbitrationAppealBinding.reason === "required"
                 ? "request-hash evidence required for settlement binding"
-                : "request-hash evidence mismatch for settlement binding",
+                : arbitrationAppealBinding.reason === "conflict"
+                  ? "request-hash evidence conflict for settlement binding"
+                  : "request-hash evidence mismatch for settlement binding",
               mismatchDetails,
               {
                 code:
@@ -59462,7 +59495,11 @@ export function createApi({
           }
         }
         const enforceDisputeSettlementBindingEvidence = ({ operation, evidenceRefs, requiredCode, mismatchCode }) => {
-          const bindingCheck = evaluateSettlementRequestBindingEvidence({ settlement, evidenceRefs });
+          const bindingCheck = evaluateSettlementRequestBindingEvidence({
+            settlement,
+            rejectConflictingRequestSha256: true,
+            evidenceRefs
+          });
           if (bindingCheck.ok) return false;
           const mismatchDetails = {
             operation,
@@ -59471,12 +59508,17 @@ export function createApi({
             expectedRequestSha256: bindingCheck.expectedRequestSha256
           };
           if (bindingCheck.requestSha256) mismatchDetails.requestSha256 = bindingCheck.requestSha256;
+          if (Array.isArray(bindingCheck.requestSha256Values) && bindingCheck.requestSha256Values.length > 1) {
+            mismatchDetails.requestSha256Values = bindingCheck.requestSha256Values;
+          }
           sendError(
             res,
             409,
             bindingCheck.reason === "required"
               ? "request-hash evidence required for settlement binding"
-              : "request-hash evidence mismatch for settlement binding",
+              : bindingCheck.reason === "conflict"
+                ? "request-hash evidence conflict for settlement binding"
+                : "request-hash evidence mismatch for settlement binding",
             mismatchDetails,
             { code: bindingCheck.reason === "required" ? requiredCode : mismatchCode }
           );
@@ -59534,6 +59576,7 @@ export function createApi({
             }
             const disputeCloseBinding = evaluateSettlementRequestBindingEvidence({
               settlement,
+              rejectConflictingRequestSha256: true,
               evidenceRefs: mergeUniqueStringArrays(
                 Array.isArray(resolutionInput?.evidenceRefs) ? resolutionInput.evidenceRefs : [],
                 Array.isArray(signedVerdict?.evidenceRefs) ? signedVerdict.evidenceRefs : [],
@@ -59548,12 +59591,17 @@ export function createApi({
                 expectedRequestSha256: disputeCloseBinding.expectedRequestSha256
               };
               if (disputeCloseBinding.requestSha256) mismatchDetails.requestSha256 = disputeCloseBinding.requestSha256;
+              if (Array.isArray(disputeCloseBinding.requestSha256Values) && disputeCloseBinding.requestSha256Values.length > 1) {
+                mismatchDetails.requestSha256Values = disputeCloseBinding.requestSha256Values;
+              }
               return sendError(
                 res,
                 409,
                 disputeCloseBinding.reason === "required"
                   ? "request-hash evidence required for settlement binding"
-                  : "request-hash evidence mismatch for settlement binding",
+                  : disputeCloseBinding.reason === "conflict"
+                    ? "request-hash evidence conflict for settlement binding"
+                    : "request-hash evidence mismatch for settlement binding",
                 mismatchDetails,
                 {
                   code:
