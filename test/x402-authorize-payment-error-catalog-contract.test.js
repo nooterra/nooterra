@@ -42,6 +42,60 @@ const REQUIRED_BINDING_INTEGRITY_ERROR_CODES = [
   "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_MISMATCH"
 ];
 
+const REQUIRED_SETTLEMENT_RESOLVE_CONFLICT_ERROR_CODES = [
+  "IDEMPOTENCY_CONFLICT",
+  "EMERGENCY_KILL_SWITCH_ACTIVE",
+  "EMERGENCY_QUARANTINE_ACTIVE",
+  "EMERGENCY_REVOKE_ACTIVE",
+  "EMERGENCY_PAUSE_ACTIVE",
+  "X402_AGENT_NOT_ACTIVE",
+  "X402_AGENT_LIFECYCLE_INVALID",
+  "SETTLEMENT_KERNEL_BINDING_INVALID",
+  "TRANSITION_ILLEGAL",
+  "DISPUTE_OUTCOME_DIRECTIVE_INVALID",
+  "DISPUTE_OUTCOME_STATUS_MISMATCH",
+  "DISPUTE_OUTCOME_AMOUNT_MISMATCH",
+  "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_REQUIRED",
+  "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_MISMATCH",
+  "INSUFFICIENT_FUNDS"
+];
+
+const REQUIRED_TOOL_CALL_ARBITRATION_OPEN_CONFLICT_ERROR_CODES = [
+  "IDEMPOTENCY_CONFLICT",
+  "EMERGENCY_KILL_SWITCH_ACTIVE",
+  "EMERGENCY_QUARANTINE_ACTIVE",
+  "EMERGENCY_REVOKE_ACTIVE",
+  "EMERGENCY_PAUSE_ACTIVE",
+  "X402_AGENT_NOT_ACTIVE",
+  "X402_AGENT_LIFECYCLE_INVALID",
+  "HOLD_INVALID",
+  "HOLD_NOT_ACTIVE",
+  "TOOL_CALL_DISPUTE_BINDING_MISMATCH",
+  "DISPUTE_WINDOW_EXPIRED",
+  "CASE_ID_NOT_DETERMINISTIC",
+  "DISPUTE_ALREADY_OPEN",
+  "DISPUTE_INVALID_SIGNER"
+];
+
+const REQUIRED_TOOL_CALL_ARBITRATION_VERDICT_CONFLICT_ERROR_CODES = [
+  "IDEMPOTENCY_CONFLICT",
+  "EMERGENCY_KILL_SWITCH_ACTIVE",
+  "EMERGENCY_QUARANTINE_ACTIVE",
+  "EMERGENCY_REVOKE_ACTIVE",
+  "EMERGENCY_PAUSE_ACTIVE",
+  "X402_AGENT_NOT_ACTIVE",
+  "X402_AGENT_LIFECYCLE_INVALID",
+  "HOLD_INVALID",
+  "HOLD_NOT_ACTIVE",
+  "TRANSITION_ILLEGAL",
+  "TOOL_CALL_VERDICT_NOT_BINARY",
+  "ADJUSTMENT_INVALID",
+  "INSUFFICIENT_ESCROW_BALANCE",
+  "INSUFFICIENT_ESCROW_LOCKED",
+  "ESCROW_LEDGER_MISMATCH",
+  "ESCROW_OPERATION_REJECTED"
+];
+
 function readX402ErrorCatalog() {
   const file = path.resolve(process.cwd(), "docs/spec/x402-error-codes.v1.txt");
   const raw = fs.readFileSync(file, "utf8");
@@ -70,6 +124,18 @@ test("x402 error catalog publishes verify/runtime binding error codes", () => {
 test("x402 error catalog publishes settlement/reversal binding integrity error codes", () => {
   const catalog = readX402ErrorCatalog();
   for (const code of REQUIRED_BINDING_INTEGRITY_ERROR_CODES) {
+    assert.ok(catalog.has(code), `missing ${code} in docs/spec/x402-error-codes.v1.txt`);
+  }
+});
+
+test("x402 error catalog publishes settlement resolve + tool-call arbitration 409 conflict error codes", () => {
+  const catalog = readX402ErrorCatalog();
+  const requiredCodes = [
+    ...REQUIRED_SETTLEMENT_RESOLVE_CONFLICT_ERROR_CODES,
+    ...REQUIRED_TOOL_CALL_ARBITRATION_OPEN_CONFLICT_ERROR_CODES,
+    ...REQUIRED_TOOL_CALL_ARBITRATION_VERDICT_CONFLICT_ERROR_CODES
+  ];
+  for (const code of requiredCodes) {
     assert.ok(catalog.has(code), `missing ${code} in docs/spec/x402-error-codes.v1.txt`);
   }
 });
@@ -182,6 +248,33 @@ test("openapi exposes binding integrity conflict codes for dispute/arbitration r
         "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_REQUIRED",
         "X402_ARBITRATION_APPEAL_BINDING_EVIDENCE_MISMATCH"
       ]
+    }
+  ];
+  for (const row of checks) {
+    const operation = spec?.paths?.[row.path]?.post ?? null;
+    assert.ok(operation, `missing POST ${row.path}`);
+    const known409 = operation?.responses?.["409"]?.["x-nooterra-known-error-codes"] ?? [];
+    assert.ok(Array.isArray(known409), `${row.path} 409 must expose x-nooterra-known-error-codes`);
+    for (const code of row.codes) {
+      assert.ok(known409.includes(code), `${row.path} 409 known codes missing ${code}`);
+    }
+  }
+});
+
+test("openapi exposes settlement resolve + tool-call arbitration 409 known error codes", () => {
+  const spec = buildOpenApiSpec();
+  const checks = [
+    {
+      path: "/runs/{runId}/settlement/resolve",
+      codes: REQUIRED_SETTLEMENT_RESOLVE_CONFLICT_ERROR_CODES
+    },
+    {
+      path: "/tool-calls/arbitration/open",
+      codes: REQUIRED_TOOL_CALL_ARBITRATION_OPEN_CONFLICT_ERROR_CODES
+    },
+    {
+      path: "/tool-calls/arbitration/verdict",
+      codes: REQUIRED_TOOL_CALL_ARBITRATION_VERDICT_CONFLICT_ERROR_CODES
     }
   ];
   for (const row of checks) {

@@ -208,3 +208,50 @@ test("R1 API contract freeze: dispute/arbitration routes publish binding integri
     }
   }
 });
+
+test("R1 API contract freeze: settlement resolve + tool-call arbitration routes publish known 409 conflict codes", () => {
+  const spec = buildOpenApiSpec();
+  const checks = [
+    {
+      path: "/runs/{runId}/settlement/resolve",
+      codes: [
+        "SETTLEMENT_KERNEL_BINDING_INVALID",
+        "DISPUTE_OUTCOME_STATUS_MISMATCH",
+        "DISPUTE_OUTCOME_AMOUNT_MISMATCH",
+        "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_REQUIRED",
+        "X402_AGENT_NOT_ACTIVE",
+        "EMERGENCY_KILL_SWITCH_ACTIVE"
+      ]
+    },
+    {
+      path: "/tool-calls/arbitration/open",
+      codes: [
+        "TOOL_CALL_DISPUTE_BINDING_MISMATCH",
+        "CASE_ID_NOT_DETERMINISTIC",
+        "DISPUTE_INVALID_SIGNER",
+        "X402_AGENT_NOT_ACTIVE",
+        "EMERGENCY_KILL_SWITCH_ACTIVE"
+      ]
+    },
+    {
+      path: "/tool-calls/arbitration/verdict",
+      codes: [
+        "TRANSITION_ILLEGAL",
+        "TOOL_CALL_VERDICT_NOT_BINARY",
+        "ADJUSTMENT_INVALID",
+        "INSUFFICIENT_ESCROW_BALANCE",
+        "X402_AGENT_NOT_ACTIVE",
+        "EMERGENCY_KILL_SWITCH_ACTIVE"
+      ]
+    }
+  ];
+  for (const row of checks) {
+    const operation = spec?.paths?.[row.path]?.post ?? null;
+    assert.ok(operation, `missing POST ${row.path}`);
+    const knownConflictCodes = operation?.responses?.["409"]?.["x-nooterra-known-error-codes"] ?? [];
+    assert.ok(Array.isArray(knownConflictCodes), `${row.path} 409 must expose known error codes`);
+    for (const code of row.codes) {
+      assert.ok(knownConflictCodes.includes(code), `${row.path} missing ${code}`);
+    }
+  }
+});

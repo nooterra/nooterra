@@ -57039,6 +57039,37 @@ export function createApi({
           }
         }
 
+        const settlementResolveBinding = evaluateSettlementRequestBindingEvidence({
+          settlement,
+          evidenceRefs: mergeUniqueStringArrays(
+            Array.isArray(body?.evidenceRefs) ? body.evidenceRefs : [],
+            Array.isArray(settlement?.disputeContext?.evidenceRefs) ? settlement.disputeContext.evidenceRefs : []
+          )
+        });
+        if (!settlementResolveBinding.ok) {
+          const mismatchDetails = {
+            operation: "run_settlement.resolve",
+            runId,
+            disputeId: settlement?.disputeId ?? null,
+            expectedRequestSha256: settlementResolveBinding.expectedRequestSha256
+          };
+          if (settlementResolveBinding.requestSha256) mismatchDetails.requestSha256 = settlementResolveBinding.requestSha256;
+          return sendError(
+            res,
+            409,
+            settlementResolveBinding.reason === "required"
+              ? "request-hash evidence required for settlement binding"
+              : "request-hash evidence mismatch for settlement binding",
+            mismatchDetails,
+            {
+              code:
+                settlementResolveBinding.reason === "required"
+                  ? "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_REQUIRED"
+                  : "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_MISMATCH"
+            }
+          );
+        }
+
         try {
           if (settlementAlreadyResolved) {
             const payeeWalletExisting = await getAgentWalletRecord({ tenantId, agentId: settlement.agentId });

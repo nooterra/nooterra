@@ -250,6 +250,54 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     "X402_DISPUTE_ESCALATE_BINDING_EVIDENCE_MISMATCH"
   ]);
 
+  const MarketplaceLifecycleConflictKnownErrorCodes = Object.freeze([
+    "EMERGENCY_KILL_SWITCH_ACTIVE",
+    "EMERGENCY_QUARANTINE_ACTIVE",
+    "EMERGENCY_REVOKE_ACTIVE",
+    "EMERGENCY_PAUSE_ACTIVE",
+    "X402_AGENT_NOT_ACTIVE",
+    "X402_AGENT_LIFECYCLE_INVALID"
+  ]);
+
+  const RunSettlementResolveConflictKnownErrorCodes = Object.freeze([
+    "IDEMPOTENCY_CONFLICT",
+    ...MarketplaceLifecycleConflictKnownErrorCodes,
+    "SETTLEMENT_KERNEL_BINDING_INVALID",
+    "TRANSITION_ILLEGAL",
+    "DISPUTE_OUTCOME_DIRECTIVE_INVALID",
+    "DISPUTE_OUTCOME_STATUS_MISMATCH",
+    "DISPUTE_OUTCOME_AMOUNT_MISMATCH",
+    "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_REQUIRED",
+    "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_MISMATCH",
+    "INSUFFICIENT_FUNDS"
+  ]);
+
+  const ToolCallArbitrationOpenConflictKnownErrorCodes = Object.freeze([
+    "IDEMPOTENCY_CONFLICT",
+    ...MarketplaceLifecycleConflictKnownErrorCodes,
+    "HOLD_INVALID",
+    "HOLD_NOT_ACTIVE",
+    "TOOL_CALL_DISPUTE_BINDING_MISMATCH",
+    "DISPUTE_WINDOW_EXPIRED",
+    "CASE_ID_NOT_DETERMINISTIC",
+    "DISPUTE_ALREADY_OPEN",
+    "DISPUTE_INVALID_SIGNER"
+  ]);
+
+  const ToolCallArbitrationVerdictConflictKnownErrorCodes = Object.freeze([
+    "IDEMPOTENCY_CONFLICT",
+    ...MarketplaceLifecycleConflictKnownErrorCodes,
+    "HOLD_INVALID",
+    "HOLD_NOT_ACTIVE",
+    "TRANSITION_ILLEGAL",
+    "TOOL_CALL_VERDICT_NOT_BINARY",
+    "ADJUSTMENT_INVALID",
+    "INSUFFICIENT_ESCROW_BALANCE",
+    "INSUFFICIENT_ESCROW_LOCKED",
+    "ESCROW_LEDGER_MISMATCH",
+    "ESCROW_OPERATION_REJECTED"
+  ]);
+
   function errorResponseWithKnownCodes(knownCodes) {
     return {
       allOf: [
@@ -8346,7 +8394,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...RunSettlementResolveConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(RunSettlementResolveConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
@@ -8534,7 +8590,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...ToolCallArbitrationOpenConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(ToolCallArbitrationOpenConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
@@ -8578,7 +8642,15 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
-            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } }
+            409: {
+              description: "Conflict",
+              "x-nooterra-known-error-codes": [...ToolCallArbitrationVerdictConflictKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(ToolCallArbitrationVerdictConflictKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },

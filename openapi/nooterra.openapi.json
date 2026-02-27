@@ -69491,20 +69491,75 @@
           },
           "409": {
             "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "IDEMPOTENCY_CONFLICT",
+              "EMERGENCY_KILL_SWITCH_ACTIVE",
+              "EMERGENCY_QUARANTINE_ACTIVE",
+              "EMERGENCY_REVOKE_ACTIVE",
+              "EMERGENCY_PAUSE_ACTIVE",
+              "X402_AGENT_NOT_ACTIVE",
+              "X402_AGENT_LIFECYCLE_INVALID",
+              "SETTLEMENT_KERNEL_BINDING_INVALID",
+              "TRANSITION_ILLEGAL",
+              "DISPUTE_OUTCOME_DIRECTIVE_INVALID",
+              "DISPUTE_OUTCOME_STATUS_MISMATCH",
+              "DISPUTE_OUTCOME_AMOUNT_MISMATCH",
+              "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_REQUIRED",
+              "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_MISMATCH",
+              "INSUFFICIENT_FUNDS"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "IDEMPOTENCY_CONFLICT",
+                                "EMERGENCY_KILL_SWITCH_ACTIVE",
+                                "EMERGENCY_QUARANTINE_ACTIVE",
+                                "EMERGENCY_REVOKE_ACTIVE",
+                                "EMERGENCY_PAUSE_ACTIVE",
+                                "X402_AGENT_NOT_ACTIVE",
+                                "X402_AGENT_LIFECYCLE_INVALID",
+                                "SETTLEMENT_KERNEL_BINDING_INVALID",
+                                "TRANSITION_ILLEGAL",
+                                "DISPUTE_OUTCOME_DIRECTIVE_INVALID",
+                                "DISPUTE_OUTCOME_STATUS_MISMATCH",
+                                "DISPUTE_OUTCOME_AMOUNT_MISMATCH",
+                                "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_REQUIRED",
+                                "X402_SETTLEMENT_RESOLVE_BINDING_EVIDENCE_MISMATCH",
+                                "INSUFFICIENT_FUNDS"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -70865,20 +70920,73 @@
           },
           "409": {
             "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "IDEMPOTENCY_CONFLICT",
+              "EMERGENCY_KILL_SWITCH_ACTIVE",
+              "EMERGENCY_QUARANTINE_ACTIVE",
+              "EMERGENCY_REVOKE_ACTIVE",
+              "EMERGENCY_PAUSE_ACTIVE",
+              "X402_AGENT_NOT_ACTIVE",
+              "X402_AGENT_LIFECYCLE_INVALID",
+              "HOLD_INVALID",
+              "HOLD_NOT_ACTIVE",
+              "TOOL_CALL_DISPUTE_BINDING_MISMATCH",
+              "DISPUTE_WINDOW_EXPIRED",
+              "CASE_ID_NOT_DETERMINISTIC",
+              "DISPUTE_ALREADY_OPEN",
+              "DISPUTE_INVALID_SIGNER"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "IDEMPOTENCY_CONFLICT",
+                                "EMERGENCY_KILL_SWITCH_ACTIVE",
+                                "EMERGENCY_QUARANTINE_ACTIVE",
+                                "EMERGENCY_REVOKE_ACTIVE",
+                                "EMERGENCY_PAUSE_ACTIVE",
+                                "X402_AGENT_NOT_ACTIVE",
+                                "X402_AGENT_LIFECYCLE_INVALID",
+                                "HOLD_INVALID",
+                                "HOLD_NOT_ACTIVE",
+                                "TOOL_CALL_DISPUTE_BINDING_MISMATCH",
+                                "DISPUTE_WINDOW_EXPIRED",
+                                "CASE_ID_NOT_DETERMINISTIC",
+                                "DISPUTE_ALREADY_OPEN",
+                                "DISPUTE_INVALID_SIGNER"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
@@ -71300,20 +71408,77 @@
           },
           "409": {
             "description": "Conflict",
+            "x-nooterra-known-error-codes": [
+              "IDEMPOTENCY_CONFLICT",
+              "EMERGENCY_KILL_SWITCH_ACTIVE",
+              "EMERGENCY_QUARANTINE_ACTIVE",
+              "EMERGENCY_REVOKE_ACTIVE",
+              "EMERGENCY_PAUSE_ACTIVE",
+              "X402_AGENT_NOT_ACTIVE",
+              "X402_AGENT_LIFECYCLE_INVALID",
+              "HOLD_INVALID",
+              "HOLD_NOT_ACTIVE",
+              "TRANSITION_ILLEGAL",
+              "TOOL_CALL_VERDICT_NOT_BINARY",
+              "ADJUSTMENT_INVALID",
+              "INSUFFICIENT_ESCROW_BALANCE",
+              "INSUFFICIENT_ESCROW_LOCKED",
+              "ESCROW_LEDGER_MISMATCH",
+              "ESCROW_OPERATION_REJECTED"
+            ],
             "content": {
               "application/json": {
                 "schema": {
-                  "type": "object",
-                  "additionalProperties": true,
-                  "properties": {
-                    "error": {
-                      "type": "string"
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
                     },
-                    "code": {
-                      "type": "string"
-                    },
-                    "details": {}
-                  }
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "IDEMPOTENCY_CONFLICT",
+                                "EMERGENCY_KILL_SWITCH_ACTIVE",
+                                "EMERGENCY_QUARANTINE_ACTIVE",
+                                "EMERGENCY_REVOKE_ACTIVE",
+                                "EMERGENCY_PAUSE_ACTIVE",
+                                "X402_AGENT_NOT_ACTIVE",
+                                "X402_AGENT_LIFECYCLE_INVALID",
+                                "HOLD_INVALID",
+                                "HOLD_NOT_ACTIVE",
+                                "TRANSITION_ILLEGAL",
+                                "TOOL_CALL_VERDICT_NOT_BINARY",
+                                "ADJUSTMENT_INVALID",
+                                "INSUFFICIENT_ESCROW_BALANCE",
+                                "INSUFFICIENT_ESCROW_LOCKED",
+                                "ESCROW_LEDGER_MISMATCH",
+                                "ESCROW_OPERATION_REJECTED"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }
