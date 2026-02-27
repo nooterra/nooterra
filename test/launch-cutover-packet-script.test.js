@@ -8,6 +8,7 @@ import { generateKeyPairSync } from "node:crypto";
 
 import { canonicalJsonStringify } from "../src/core/canonical-json.js";
 import { sha256Hex, verifyHashHexEd25519 } from "../src/core/crypto.js";
+import { runNooterraVerifiedGate } from "../scripts/ci/run-nooterra-verified-gate.mjs";
 
 const REPO_ROOT = process.cwd();
 
@@ -218,6 +219,71 @@ test("launch cutover packet: includes required cutover check summary with determ
     "sdk_python_contract_freeze_verified"
   ]);
   assert.equal(summary.checks.every((row) => row?.ok === true && row?.status === "passed"), true);
+});
+
+test("launch cutover packet: required check mapping stays aligned with collaboration gate output shape", async (t) => {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-launch-cutover-collab-output-shape-"));
+  t.after(async () => {
+    await fs.rm(tmpDir, { recursive: true, force: true });
+  });
+
+  const paths = await seedPassingInputs(tmpDir);
+  const packetPath = path.join(tmpDir, "artifacts", "gates", "s13-launch-cutover-packet.json");
+
+  const runCheckFn = (check) => ({
+    id: check.id,
+    command: `${check.command} ${(check.args ?? []).join(" ")}`.trim(),
+    startedAt: "2026-01-01T00:00:00.000Z",
+    completedAt: "2026-01-01T00:00:00.001Z",
+    ok: true,
+    exitCode: 0,
+    signal: null,
+    stdoutPreview: "",
+    stderrPreview: "",
+    details:
+      check.id === "e2e_openclaw_substrate_demo"
+        ? {
+            sessionLineageVerified: true,
+            sessionTranscriptVerified: true
+          }
+        : undefined
+  });
+  const bootstrapFn = async () => ({
+    envPatch: {},
+    metadata: { enabled: false },
+    cleanup: async () => {}
+  });
+  const bootstrapPgFn = async () => ({
+    envPatch: {},
+    metadata: { enabled: false },
+    cleanup: async () => {}
+  });
+  const { report } = await runNooterraVerifiedGate(
+    {
+      level: "collaboration",
+      out: path.join(tmpDir, "artifacts", "gates", "nooterra-verified-collaboration-gate.from-runner.json"),
+      help: false,
+      bootstrapLocal: false,
+      bootstrapBaseUrl: "http://127.0.0.1:3000",
+      bootstrapTenantId: "tenant_default",
+      bootstrapOpsToken: "tok_ops",
+      includePg: true,
+      databaseUrl: "postgres://proxy:proxy@127.0.0.1:5432/proxy"
+    },
+    { runCheckFn, bootstrapFn, bootstrapPgFn }
+  );
+  await writeJson(paths.nooterraVerifiedCollabReportPath, report);
+
+  const result = runLaunchCutoverPacket(
+    buildEnv(paths, packetPath, {
+      LAUNCH_CUTOVER_PACKET_NOW: "2026-02-21T18:00:00.000Z"
+    })
+  );
+  assert.equal(result.status, 0, `expected success\nstdout:\n${result.stdout}\n\nstderr:\n${result.stderr}`);
+
+  const packet = JSON.parse(await fs.readFile(packetPath, "utf8"));
+  assert.equal(packet.verdict?.ok, true);
+  assert.equal(packet.requiredCutoverChecks?.summary?.failedChecks, 0);
 });
 
 test("launch cutover packet: optional signing emits verifiable signature", async (t) => {
