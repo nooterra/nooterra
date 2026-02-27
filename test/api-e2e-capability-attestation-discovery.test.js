@@ -363,6 +363,55 @@ test("API e2e: public discover auto-applies capability attestation policy", asyn
   );
 });
 
+test("API e2e: public discover reports null capability for excluded candidates without declared capabilities", async () => {
+  const issuerAgentId = "agt_disc_policy_null_cap_issuer_1";
+  const noCapabilityAgentId = "agt_disc_policy_null_cap_subject_1";
+  const sharedStore = createStore();
+  const setupApi = createApi({
+    opsToken: "tok_ops",
+    store: sharedStore
+  });
+  const policyApi = createApi({
+    opsToken: "tok_ops",
+    store: sharedStore,
+    agentCardPublicRequireCapabilityAttestation: true,
+    agentCardPublicAttestationMinLevel: "attested",
+    agentCardPublicAttestationIssuerAgentId: issuerAgentId
+  });
+
+  await registerAgent(setupApi, { agentId: issuerAgentId, capabilities: ["attestation.issue"] });
+  await registerAgent(setupApi, { agentId: noCapabilityAgentId });
+
+  const upsertNoCapabilityCard = await request(setupApi, {
+    method: "POST",
+    path: "/agent-cards",
+    headers: { "x-idempotency-key": "agent_card_disc_policy_null_cap_subject_1" },
+    body: {
+      agentId: noCapabilityAgentId,
+      displayName: "No Capability Subject",
+      visibility: "public",
+      host: { runtime: "openclaw", endpoint: "https://example.test/discovery/null-capability", protocols: ["mcp"] }
+    }
+  });
+  assert.equal(upsertNoCapabilityCard.statusCode, 201, upsertNoCapabilityCard.body);
+
+  const discoverAuto = await request(policyApi, {
+    method: "GET",
+    path: "/agent-cards/discover?visibility=public&runtime=openclaw&status=active&includeReputation=false&limit=10&offset=0"
+  });
+  assert.equal(discoverAuto.statusCode, 200, discoverAuto.body);
+  assert.equal(discoverAuto.json?.results?.length, 0);
+  assert.equal(
+    discoverAuto.json?.excludedAttestationCandidates?.some(
+      (entry) =>
+        entry.agentId === noCapabilityAgentId &&
+        entry.capability === null &&
+        entry.reasonCode === "CAPABILITY_ATTESTATION_MISSING"
+    ),
+    true
+  );
+});
+
 test("API e2e: public discover policy min attestation level cannot be weakened by query", async () => {
   const issuerAgentId = "agt_disc_policy_floor_issuer_1";
   const strongAgentId = "agt_disc_policy_floor_strong_1";

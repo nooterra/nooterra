@@ -318,3 +318,25 @@ test("openapi exposes settlement resolve + tool-call arbitration 409 known error
     }
   }
 });
+
+test("openapi does not publish x402 409 known error codes for non-binding marketplace endpoints", () => {
+  const spec = buildOpenApiSpec();
+  const checks = [
+    { method: "post", path: "/marketplace/capability-listings" },
+    { method: "delete", path: "/marketplace/capability-listings/{listingId}" },
+    { method: "post", path: "/marketplace/rfqs" },
+    { method: "post", path: "/marketplace/settlement-policies" },
+    { method: "post", path: "/marketplace/rfqs/{rfqId}/bids" },
+    { method: "post", path: "/marketplace/rfqs/{rfqId}/bids/{bidId}/counter-offer" },
+    { method: "post", path: "/marketplace/rfqs/{rfqId}/accept" }
+  ];
+  for (const row of checks) {
+    const operation = spec?.paths?.[row.path]?.[row.method] ?? null;
+    assert.ok(operation, `missing ${row.method.toUpperCase()} ${row.path}`);
+    assert.equal(
+      operation?.responses?.["409"]?.["x-nooterra-known-error-codes"],
+      undefined,
+      `${row.path} 409 should not expose x-nooterra-known-error-codes`
+    );
+  }
+});

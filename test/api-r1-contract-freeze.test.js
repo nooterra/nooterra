@@ -72,6 +72,24 @@ test("R1 API contract freeze: agent-card discovery responses are schema-versione
   );
 });
 
+test("R1 API contract freeze: public discovery visibility + attestation exclusion nullability stay aligned", () => {
+  const spec = buildOpenApiSpec();
+  const publicParams = spec?.paths?.["/public/agent-cards/discover"]?.get?.parameters ?? [];
+  const publicVisibility = publicParams.find((row) => row?.in === "query" && row?.name === "visibility");
+  assert.ok(publicVisibility, "public discovery visibility query parameter must be published");
+  assert.deepEqual(publicVisibility?.schema?.enum ?? [], ["public"]);
+
+  const discoveryPaths = ["/agent-cards/discover", "/public/agent-cards/discover"];
+  for (const path of discoveryPaths) {
+    const capabilitySchema =
+      spec?.paths?.[path]?.get?.responses?.["200"]?.content?.["application/json"]?.schema?.properties?.excludedAttestationCandidates?.items
+        ?.properties?.capability ?? null;
+    assert.ok(capabilitySchema && typeof capabilitySchema === "object", `${path} excluded capability schema must exist`);
+    assert.equal(capabilitySchema?.type, "string", `${path} excluded capability must be typed as string`);
+    assert.equal(capabilitySchema?.nullable, true, `${path} excluded capability must allow null`);
+  }
+});
+
 test("R1 API contract freeze: dispute lifecycle semantics remain encoded", () => {
   const spec = buildOpenApiSpec();
 

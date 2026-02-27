@@ -1568,6 +1568,26 @@ test("API e2e: trust-weighted routing strategy is explainable and deterministic"
   );
   assert.equal(routed.json?.results?.[0]?.capabilityAttestation?.attestationId, "catt_router_good_1");
 
+  const routedRepeat = await request(api, {
+    method: "GET",
+    path:
+      `/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active` +
+      `&includeReputation=false&includeAttestationMetadata=true&includeRoutingFactors=true&scoreStrategy=trust_weighted` +
+      `&requesterAgentId=${encodeURIComponent(requesterAgentId)}&limit=10&offset=0`
+  });
+  assert.equal(routedRepeat.statusCode, 200, routedRepeat.body);
+  assert.deepEqual(
+    (routedRepeat.json?.results ?? []).map((row) => ({
+      agentId: row?.agentCard?.agentId ?? null,
+      routingFactors: row?.routingFactors ?? null
+    })),
+    (routed.json?.results ?? []).map((row) => ({
+      agentId: row?.agentCard?.agentId ?? null,
+      routingFactors: row?.routingFactors ?? null
+    })),
+    "routingFactors must be deterministic across repeat discovery calls"
+  );
+
   const routedNoRequester = await request(api, {
     method: "GET",
     path:

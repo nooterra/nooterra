@@ -26,3 +26,17 @@ test("API: /openapi.json matches openapi/nooterra.openapi.json snapshot", async 
   const snapshotDigest = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
   assert.equal(responseDigest, snapshotDigest);
 });
+
+test("API: /public/agent-cards/discover visibility query contract is public-only", async () => {
+  const api = createApi();
+  const res = await request(api, {
+    method: "GET",
+    path: "/openapi.json",
+    headers: { "x-nooterra-protocol": "1.0" }
+  });
+  assert.equal(res.statusCode, 200, res.body);
+  const params = res.json?.paths?.["/public/agent-cards/discover"]?.get?.parameters ?? [];
+  const visibilityParam = params.find((row) => row?.in === "query" && row?.name === "visibility");
+  assert.ok(visibilityParam, "missing visibility query parameter for /public/agent-cards/discover");
+  assert.deepEqual(visibilityParam?.schema?.enum ?? [], ["public"]);
+});
