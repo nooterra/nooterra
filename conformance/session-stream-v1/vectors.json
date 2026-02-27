@@ -138,6 +138,32 @@
           }
         }
       ]
+    },
+    "stream_acl_denied": {
+      "sessionId": "sess_stream_vectors_acl_1",
+      "eventType": null,
+      "sinceEventIdQuery": null,
+      "lastEventIdHeader": null,
+      "acl": {
+        "principalId": "agt_stream_denied_1",
+        "participants": [
+          "agt_stream_allowed_1"
+        ]
+      },
+      "eventsBefore": [
+        {
+          "v": 1,
+          "id": "ev_stream_acl_1",
+          "streamId": "sess_stream_vectors_acl_1",
+          "type": "TASK_REQUESTED",
+          "at": "2026-02-01T00:00:01.000Z",
+          "payload": {
+            "schemaVersion": "SessionEvent.v1",
+            "eventType": "TASK_REQUESTED"
+          }
+        }
+      ],
+      "appendEvents": []
     }
   },
   "cases": [
@@ -267,6 +293,22 @@
           "headEventIdAfter": "ev_stream_3",
           "lastDeliveredEventId": "ev_stream_3",
           "nextSinceEventId": "ev_stream_3"
+        }
+      }
+    },
+    {
+      "id": "stream_acl_denied_fail_closed",
+      "fixtureId": "stream_acl_denied",
+      "invariantIds": [
+        "ACS-NS2-STREAM-ACL-DENY"
+      ],
+      "expected": {
+        "outcome": "fail",
+        "code": "SESSION_ACCESS_DENIED",
+        "message": "session access denied",
+        "details": {
+          "sessionId": "sess_stream_vectors_acl_1",
+          "principalId": "agt_stream_denied_1"
         }
       }
     }

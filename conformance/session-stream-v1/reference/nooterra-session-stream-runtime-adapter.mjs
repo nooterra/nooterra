@@ -126,6 +126,25 @@ function runStreamScenario({ fixture }) {
   assertObject(fixture, "fixture");
   const sessionId = parseCursor(fixture.sessionId);
   if (!sessionId) throw new TypeError("fixture.sessionId is required");
+  const acl = fixture.acl && typeof fixture.acl === "object" && !Array.isArray(fixture.acl) ? fixture.acl : null;
+  if (acl) {
+    const principalId = normalizeEventId(acl.principalId);
+    const participants = Array.isArray(acl.participants)
+      ? acl.participants.map((row) => normalizeEventId(row)).filter(Boolean)
+      : [];
+    if (!principalId || participants.length === 0 || !participants.includes(principalId)) {
+      return {
+        ok: false,
+        code: "SESSION_ACCESS_DENIED",
+        message: "session access denied",
+        details: {
+          sessionId,
+          principalId,
+          participants
+        }
+      };
+    }
+  }
 
   const eventType = parseEventType(fixture.eventType ?? null);
   const sinceEventIdFromQuery = parseCursor(fixture.sinceEventIdQuery ?? null);
