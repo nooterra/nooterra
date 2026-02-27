@@ -11,6 +11,7 @@ They are written for runtime integrators (OpenClaw, Nooterra, Claude Desktop, Cu
 - `Session.v1.md`
 - `SessionEvent.v1.md`
 - `SessionEventProvenance.v1.md`
+- `SessionPromptRiskSignals.v1.md`
 - `SessionReplayPack.v1.md`
 - `SessionTranscript.v1.md`
 - `ToolDescriptor.v1.md`

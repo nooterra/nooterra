@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/SessionPromptRiskSignals.v1.schema.json",
+  "title": "SessionPromptRiskSignals.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "suspicious", "promptContagion", "forcedMode", "reasonCodes", "evidenceRefs", "source"],
+  "properties": {
+    "schemaVersion": { "const": "SessionPromptRiskSignals.v1" },
+    "suspicious": { "type": "boolean" },
+    "promptContagion": { "type": "boolean" },
+    "forcedMode": { "type": ["string", "null"], "enum": ["challenge", "escalate", null] },
+    "reasonCodes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9._:-]+$"
+      }
+    },
+    "evidenceRefs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sessionId", "eventId"],
+          "properties": {
+            "sessionId": {
+              "type": ["string", "null"],
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9:_-]+$"
+            },
+            "eventId": {
+              "type": ["string", "null"],
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9:_-]+$"
+            }
+          }
+        },
+        { "type": "null" }
+      ]
+    }
+  }
+}
