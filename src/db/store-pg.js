@@ -5075,20 +5075,25 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     offset = 0
   } = {}) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (grantId !== null && (typeof grantId !== "string" || grantId.trim() === "")) throw new TypeError("grantId must be null or a non-empty string");
+    if (grantHash !== null && (typeof grantHash !== "string" || grantHash.trim() === "")) {
+      throw new TypeError("grantHash must be null or a non-empty string");
+    }
+    if (delegatorAgentId !== null && (typeof delegatorAgentId !== "string" || delegatorAgentId.trim() === "")) {
+      throw new TypeError("delegatorAgentId must be null or a non-empty string");
+    }
+    if (delegateeAgentId !== null && (typeof delegateeAgentId !== "string" || delegateeAgentId.trim() === "")) {
+      throw new TypeError("delegateeAgentId must be null or a non-empty string");
+    }
+    if (includeRevoked !== true && includeRevoked !== false) throw new TypeError("includeRevoked must be a boolean");
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
     if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
     const safeLimit = Math.min(1000, limit);
     const safeOffset = offset;
-    const grantIdFilter = grantId === null || grantId === undefined || String(grantId).trim() === "" ? null : String(grantId).trim();
-    const grantHashFilter = grantHash === null || grantHash === undefined || String(grantHash).trim() === "" ? null : String(grantHash).trim().toLowerCase();
-    const delegatorFilter =
-      delegatorAgentId === null || delegatorAgentId === undefined || String(delegatorAgentId).trim() === ""
-        ? null
-        : String(delegatorAgentId).trim();
-    const delegateeFilter =
-      delegateeAgentId === null || delegateeAgentId === undefined || String(delegateeAgentId).trim() === ""
-        ? null
-        : String(delegateeAgentId).trim();
+    const grantIdFilter = grantId ? String(grantId).trim() : null;
+    const grantHashFilter = grantHash ? String(grantHash).trim().toLowerCase() : null;
+    const delegatorFilter = delegatorAgentId ? String(delegatorAgentId).trim() : null;
+    const delegateeFilter = delegateeAgentId ? String(delegateeAgentId).trim() : null;
 
     const applyFilters = (rows) => {
       const out = [];
@@ -5488,17 +5493,26 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     offset = 0
   } = {}) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (attestationId !== null && (typeof attestationId !== "string" || attestationId.trim() === "")) {
+      throw new TypeError("attestationId must be null or a non-empty string");
+    }
+    if (subjectAgentId !== null && (typeof subjectAgentId !== "string" || subjectAgentId.trim() === "")) {
+      throw new TypeError("subjectAgentId must be null or a non-empty string");
+    }
+    if (issuerAgentId !== null && (typeof issuerAgentId !== "string" || issuerAgentId.trim() === "")) {
+      throw new TypeError("issuerAgentId must be null or a non-empty string");
+    }
+    if (capability !== null && (typeof capability !== "string" || capability.trim() === "")) {
+      throw new TypeError("capability must be null or a non-empty string");
+    }
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
     if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
     const safeLimit = Math.min(1000, limit);
     const safeOffset = offset;
-    const attestationIdFilter =
-      attestationId === null || attestationId === undefined || String(attestationId).trim() === "" ? null : String(attestationId).trim();
-    const subjectFilter =
-      subjectAgentId === null || subjectAgentId === undefined || String(subjectAgentId).trim() === "" ? null : String(subjectAgentId).trim();
-    const issuerFilter =
-      issuerAgentId === null || issuerAgentId === undefined || String(issuerAgentId).trim() === "" ? null : String(issuerAgentId).trim();
-    const capabilityFilter = capability === null || capability === undefined || String(capability).trim() === "" ? null : String(capability).trim();
+    const attestationIdFilter = attestationId ? String(attestationId).trim() : null;
+    const subjectFilter = subjectAgentId ? String(subjectAgentId).trim() : null;
+    const issuerFilter = issuerAgentId ? String(issuerAgentId).trim() : null;
+    const capabilityFilter = capability ? String(capability).trim() : null;
 
     const applyFilters = (rows) => {
       const out = [];
@@ -5563,17 +5577,24 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     offset = 0
   } = {}) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (workOrderId !== null && (typeof workOrderId !== "string" || workOrderId.trim() === "")) {
+      throw new TypeError("workOrderId must be null or a non-empty string");
+    }
+    if (principalAgentId !== null && (typeof principalAgentId !== "string" || principalAgentId.trim() === "")) {
+      throw new TypeError("principalAgentId must be null or a non-empty string");
+    }
+    if (subAgentId !== null && (typeof subAgentId !== "string" || subAgentId.trim() === "")) {
+      throw new TypeError("subAgentId must be null or a non-empty string");
+    }
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
     if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
     const safeLimit = Math.min(1000, limit);
     const safeOffset = offset;
-    const workOrderIdFilter = workOrderId === null || workOrderId === undefined || String(workOrderId).trim() === "" ? null : String(workOrderId).trim();
-    const principalFilter =
-      principalAgentId === null || principalAgentId === undefined || String(principalAgentId).trim() === ""
-        ? null
-        : String(principalAgentId).trim();
-    const subAgentFilter = subAgentId === null || subAgentId === undefined || String(subAgentId).trim() === "" ? null : String(subAgentId).trim();
-    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+    const workOrderIdFilter = workOrderId ? String(workOrderId).trim() : null;
+    const principalFilter = principalAgentId ? String(principalAgentId).trim() : null;
+    const subAgentFilter = subAgentId ? String(subAgentId).trim() : null;
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
 
     const applyFilters = (rows) => {
       const out = [];
@@ -5639,18 +5660,24 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     offset = 0
   } = {}) {
     tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (receiptId !== null && (typeof receiptId !== "string" || receiptId.trim() === "")) throw new TypeError("receiptId must be null or a non-empty string");
+    if (workOrderId !== null && (typeof workOrderId !== "string" || workOrderId.trim() === "")) throw new TypeError("workOrderId must be null or a non-empty string");
+    if (principalAgentId !== null && (typeof principalAgentId !== "string" || principalAgentId.trim() === "")) {
+      throw new TypeError("principalAgentId must be null or a non-empty string");
+    }
+    if (subAgentId !== null && (typeof subAgentId !== "string" || subAgentId.trim() === "")) {
+      throw new TypeError("subAgentId must be null or a non-empty string");
+    }
+    if (status !== null && (typeof status !== "string" || status.trim() === "")) throw new TypeError("status must be null or a non-empty string");
     if (!Number.isSafeInteger(limit) || limit <= 0) throw new TypeError("limit must be a positive safe integer");
     if (!Number.isSafeInteger(offset) || offset < 0) throw new TypeError("offset must be a non-negative safe integer");
     const safeLimit = Math.min(1000, limit);
     const safeOffset = offset;
-    const receiptIdFilter = receiptId === null || receiptId === undefined || String(receiptId).trim() === "" ? null : String(receiptId).trim();
-    const workOrderFilter = workOrderId === null || workOrderId === undefined || String(workOrderId).trim() === "" ? null : String(workOrderId).trim();
-    const principalFilter =
-      principalAgentId === null || principalAgentId === undefined || String(principalAgentId).trim() === ""
-        ? null
-        : String(principalAgentId).trim();
-    const subAgentFilter = subAgentId === null || subAgentId === undefined || String(subAgentId).trim() === "" ? null : String(subAgentId).trim();
-    const statusFilter = status === null || status === undefined || String(status).trim() === "" ? null : String(status).trim().toLowerCase();
+    const receiptIdFilter = receiptId ? String(receiptId).trim() : null;
+    const workOrderFilter = workOrderId ? String(workOrderId).trim() : null;
+    const principalFilter = principalAgentId ? String(principalAgentId).trim() : null;
+    const subAgentFilter = subAgentId ? String(subAgentId).trim() : null;
+    const statusFilter = status ? String(status).trim().toLowerCase() : null;
 
     const applyFilters = (rows) => {
       const out = [];
