@@ -31,6 +31,12 @@ To run against a Node entrypoint instead (repo/dev usage):
 node conformance/v1/run.mjs --node-bin packages/artifact-verify/bin/nooterra-verify.js
 ```
 
+To run against an external verifier executable (third-party adapter):
+
+```sh
+node conformance/v1/run.mjs --bin /absolute/path/to/nooterra-verify
+```
+
 To emit machine-readable report artifacts:
 
 ```sh
@@ -40,12 +46,28 @@ node conformance/v1/run.mjs \
   --cert-bundle-out /tmp/nooterra-conformance-cert.json
 ```
 
+To enforce fail-closed artifact checks (required outputs + hash/core binding checks):
+
+```sh
+node conformance/v1/run.mjs \
+  --node-bin packages/artifact-verify/bin/nooterra-verify.js \
+  --json-out /tmp/nooterra-conformance-report.json \
+  --cert-bundle-out /tmp/nooterra-conformance-cert.json \
+  --strict-artifacts
+```
+
 ### Output artifacts
 
 - `ConformanceRunReport.v1`: run report envelope with `reportHash` and `reportCore`.
 - `ConformanceRunReportCore.v1`: deterministic core payload used for hash binding.
 - `ConformanceCertBundle.v1`: portable cert-bundle envelope with `certHash` and `certCore`.
 - `ConformanceCertBundleCore.v1`: deterministic cert core binding the run report hash and core.
+
+`--strict-artifacts` fail-closes with explicit diagnostics when:
+- either `--json-out` or `--cert-bundle-out` is missing,
+- output paths conflict,
+- written artifacts are missing/invalid,
+- report/cert hash-bound core payloads mismatch.
 
 ## Producer conformance
 
