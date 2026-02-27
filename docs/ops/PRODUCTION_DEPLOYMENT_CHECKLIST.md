@@ -63,6 +63,17 @@ npm run ops:hosted-baseline:evidence -- \
 
 2. Confirm alert metric presence and health signals.
 3. Run backup/restore drill evidence path at least once before opening customer traffic.
+4. Run OpenClaw operator readiness gate (hosted + self-host):
+
+```bash
+node scripts/ops/openclaw-operator-readiness-gate.mjs \
+  --hosted-evidence artifacts/ops/hosted-baseline-evidence-production.json \
+  --openclaw-plugin openclaw.plugin.json \
+  --mcp-config ~/.openclaw/mcp.json \
+  --out artifacts/gates/openclaw-operator-readiness-gate.json
+```
+
+Fail-closed behavior: this gate blocks if hosted evidence is missing/invalid/non-pass or if required self-host runtime keys are unresolved (`NOOTERRA_BASE_URL`, `NOOTERRA_TENANT_ID`, `NOOTERRA_API_KEY`).
 
 ## Phase 4: MCP compatibility verification
 
@@ -135,6 +146,7 @@ Ship only when all are true:
 7. MCP compatibility matrix is green for supported hosts.
 8. Paid MCP run artifacts verify cleanly.
 9. Rollback runbook has been rehearsed.
+10. OpenClaw operator readiness gate is green (`artifacts/gates/openclaw-operator-readiness-gate.json`).
 
 Run the live environment cutover gate before opening traffic:
 
