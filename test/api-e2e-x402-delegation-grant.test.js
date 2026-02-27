@@ -603,6 +603,84 @@ test("API e2e: x402 authorize fails closed when delegation grant participant sig
   assert.equal(blocked.json?.details?.details?.signerStatus, "rotated");
 });
 
+test("API e2e: x402 authorize fails closed when payer signer lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payer = await registerAgentWithKey(api, { agentId: "agt_x402_signer_authz_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_signer_authz_payee_1" });
+  await creditWallet(api, {
+    agentId: payer.agentId,
+    amountCents: 5_000,
+    idempotencyKey: "wallet_credit_x402_signer_authz_1"
+  });
+
+  await createGate(api, {
+    gateId: "gate_x402_signer_authz_block_1",
+    payerAgentId: payer.agentId,
+    payeeAgentId,
+    amountCents: 200
+  });
+
+  await registerSignerKey(api, {
+    keyId: payer.keyId,
+    publicKeyPem: payer.publicKeyPem,
+    description: "payer signer lifecycle authorize test"
+  });
+  await rotateSignerKey(api, { keyId: payer.keyId });
+
+  const blocked = await authorizeGate(api, {
+    gateId: "gate_x402_signer_authz_block_1",
+    idempotencyKey: "x402_gate_authorize_signer_authz_block_1"
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AGENT_SIGNER_KEY_INVALID");
+  assert.equal(blocked.json?.details?.operation, "x402_gate.authorize_payment");
+  assert.equal(blocked.json?.details?.role, "payer");
+  assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blocked.json?.details?.signerStatus, "rotated");
+});
+
+test("API e2e: x402 verify fails closed when payee signer lifecycle is non-active", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_signer_verify_payer_1" });
+  const payee = await registerAgentWithKey(api, { agentId: "agt_x402_signer_verify_payee_1" });
+  await creditWallet(api, {
+    agentId: payerAgentId,
+    amountCents: 5_000,
+    idempotencyKey: "wallet_credit_x402_signer_verify_1"
+  });
+
+  await createGate(api, {
+    gateId: "gate_x402_signer_verify_block_1",
+    payerAgentId,
+    payeeAgentId: payee.agentId,
+    amountCents: 250
+  });
+
+  const authorized = await authorizeGate(api, {
+    gateId: "gate_x402_signer_verify_block_1",
+    idempotencyKey: "x402_gate_authorize_signer_verify_1"
+  });
+  assert.equal(authorized.statusCode, 200, authorized.body);
+
+  await registerSignerKey(api, {
+    keyId: payee.keyId,
+    publicKeyPem: payee.publicKeyPem,
+    description: "payee signer lifecycle verify test"
+  });
+  await rotateSignerKey(api, { keyId: payee.keyId });
+
+  const blocked = await verifyGateReleased(api, {
+    gateId: "gate_x402_signer_verify_block_1",
+    idempotencyKey: "x402_gate_verify_signer_verify_block_1"
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_AGENT_SIGNER_KEY_INVALID");
+  assert.equal(blocked.json?.details?.operation, "x402_gate.verify");
+  assert.equal(blocked.json?.details?.role, "payee");
+  assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_ACTIVE");
+  assert.equal(blocked.json?.details?.signerStatus, "rotated");
+});
+
 test("API e2e: x402 prompt risk forced challenge blocks authorize unless override is recorded", async () => {
   const api = createApi({
     opsToken: "tok_ops",

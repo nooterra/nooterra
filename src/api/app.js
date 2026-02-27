@@ -45584,8 +45584,66 @@ export function createApi({
               });
             }
           }
-
           const nowAt = nowIso();
+          const gateAuthorizationForSignerGuard =
+            gate?.authorization && typeof gate.authorization === "object" && !Array.isArray(gate.authorization) ? gate.authorization : null;
+          const hasGrantBoundAuthorization =
+            requestedDelegationGrantRef !== null ||
+            requestedAuthorityGrantRef !== null ||
+            (typeof gate?.delegationGrantRef === "string" && gate.delegationGrantRef.trim() !== "") ||
+            (typeof gate?.authorityGrantRef === "string" && gate.authorityGrantRef.trim() !== "") ||
+            (typeof gateAuthorizationForSignerGuard?.delegationGrantRef === "string" &&
+              gateAuthorizationForSignerGuard.delegationGrantRef.trim() !== "") ||
+            (typeof gateAuthorizationForSignerGuard?.authorityGrantRef === "string" &&
+              gateAuthorizationForSignerGuard.authorityGrantRef.trim() !== "") ||
+            (typeof gateAgentPassport?.delegationGrantRef === "string" && gateAgentPassport.delegationGrantRef.trim() !== "") ||
+            (typeof gateAgentPassport?.authorityGrantRef === "string" && gateAgentPassport.authorityGrantRef.trim() !== "");
+          if (!hasGrantBoundAuthorization) {
+            const payerSignerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({
+              tenantId,
+              agentId: payerAgentId,
+              at: nowAt
+            });
+            if (!payerSignerLifecycle.ok) {
+              return sendError(
+                res,
+                409,
+                "payer signer key lifecycle blocked authorization",
+                buildGrantParticipantSignerLifecycleDetails({
+                  operation: "x402_gate.authorize_payment",
+                  role: "payer",
+                  agentId: payerAgentId,
+                  signerKeyId: payerSignerLifecycle.signerKeyId ?? null,
+                  at: nowAt,
+                  lifecycle: payerSignerLifecycle.lifecycle ?? null
+                }),
+                { code: "X402_AGENT_SIGNER_KEY_INVALID" }
+              );
+            }
+            if (payeeProviderId) {
+              const payeeSignerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({
+                tenantId,
+                agentId: payeeProviderId,
+                at: nowAt
+              });
+              if (!payeeSignerLifecycle.ok) {
+                return sendError(
+                  res,
+                  409,
+                  "payee signer key lifecycle blocked authorization",
+                  buildGrantParticipantSignerLifecycleDetails({
+                    operation: "x402_gate.authorize_payment",
+                    role: "payee",
+                    agentId: payeeProviderId,
+                    signerKeyId: payeeSignerLifecycle.signerKeyId ?? null,
+                    at: nowAt,
+                    lifecycle: payeeSignerLifecycle.lifecycle ?? null
+                  }),
+                  { code: "X402_AGENT_SIGNER_KEY_INVALID" }
+                );
+              }
+            }
+          }
           const nowMs = Date.parse(nowAt);
           const nowUnix = Math.floor(nowMs / 1000);
           const sessionPromptRisk = await resolveSessionPromptRiskSignalsForX402({
@@ -46749,6 +46807,80 @@ export function createApi({
 
           if (String(settlement.status ?? "").toLowerCase() !== "locked") {
             return sendJson(res, 200, { ok: true, gate, settlement, alreadyResolved: true });
+          }
+          const lifecycleCheckAt = nowIso();
+          const payerAgentIdForLifecycle =
+            typeof gate?.payerAgentId === "string" && gate.payerAgentId.trim() !== "" ? gate.payerAgentId.trim() : null;
+          if (!payerAgentIdForLifecycle) return sendError(res, 409, "gate payer missing", null, { code: "X402_GATE_INVALID" });
+          const payerLifecycle = await blockIfX402AgentLifecycleInactive({
+            tenantId,
+            agentId: payerAgentIdForLifecycle,
+            role: "payer"
+          });
+          if (payerLifecycle.blocked) {
+            return sendError(res, payerLifecycle.httpStatus, payerLifecycle.message, payerLifecycle.details, {
+              code: payerLifecycle.code
+            });
+          }
+          const payerSignerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({
+            tenantId,
+            agentId: payerAgentIdForLifecycle,
+            at: lifecycleCheckAt
+          });
+          if (!payerSignerLifecycle.ok) {
+            return sendError(
+              res,
+              409,
+              "payer signer key lifecycle blocked verification",
+              buildGrantParticipantSignerLifecycleDetails({
+                operation: "x402_gate.verify",
+                role: "payer",
+                agentId: payerAgentIdForLifecycle,
+                signerKeyId: payerSignerLifecycle.signerKeyId ?? null,
+                at: lifecycleCheckAt,
+                lifecycle: payerSignerLifecycle.lifecycle ?? null
+              }),
+              { code: "X402_AGENT_SIGNER_KEY_INVALID" }
+            );
+          }
+          const payeeProviderIdForLifecycle =
+            typeof gate?.payeeAgentId === "string" && gate.payeeAgentId.trim() !== ""
+              ? gate.payeeAgentId.trim()
+              : typeof gate?.terms?.providerId === "string" && gate.terms.providerId.trim() !== ""
+                ? gate.terms.providerId.trim()
+                : null;
+          if (payeeProviderIdForLifecycle) {
+            const payeeLifecycle = await blockIfX402AgentLifecycleInactive({
+              tenantId,
+              agentId: payeeProviderIdForLifecycle,
+              role: "payee"
+            });
+            if (payeeLifecycle.blocked) {
+              return sendError(res, payeeLifecycle.httpStatus, payeeLifecycle.message, payeeLifecycle.details, {
+                code: payeeLifecycle.code
+              });
+            }
+            const payeeSignerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({
+              tenantId,
+              agentId: payeeProviderIdForLifecycle,
+              at: lifecycleCheckAt
+            });
+            if (!payeeSignerLifecycle.ok) {
+              return sendError(
+                res,
+                409,
+                "payee signer key lifecycle blocked verification",
+                buildGrantParticipantSignerLifecycleDetails({
+                  operation: "x402_gate.verify",
+                  role: "payee",
+                  agentId: payeeProviderIdForLifecycle,
+                  signerKeyId: payeeSignerLifecycle.signerKeyId ?? null,
+                  at: lifecycleCheckAt,
+                  lifecycle: payeeSignerLifecycle.lifecycle ?? null
+                }),
+                { code: "X402_AGENT_SIGNER_KEY_INVALID" }
+              );
+            }
           }
           const settlementAmountCents = Number(settlement?.amountCents ?? gate?.terms?.amountCents ?? 0);
           const sessionPromptRisk = await resolveSessionPromptRiskSignalsForX402({
