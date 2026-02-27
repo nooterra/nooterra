@@ -10256,6 +10256,12 @@ export function createApi({
       if (isPublicScope && quarantinedAgentScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
       if (isPublicScope && abuseSuppressedAgentScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
       if (inactiveLifecycleScopedKeys?.has(makeScopedKey({ tenantId: cardTenantId, id: agentId }))) continue;
+      const signerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({
+        tenantId: cardTenantId,
+        agentId,
+        at: evaluatedAt
+      });
+      if (!signerLifecycle.ok) continue;
       if (requireAttestation && !capabilityFilter) {
         const requestedCapabilities = Array.isArray(agentCard?.capabilities)
           ? [...new Set(agentCard.capabilities.map((entry) => String(entry ?? "").trim()).filter(Boolean))].sort((left, right) =>
@@ -10453,6 +10459,7 @@ export function createApi({
       parsedToolMaxPriceCents !== null ||
       parsedToolRequiresEvidenceKind !== null;
     const runtimeFilter = runtime && String(runtime).trim() !== "" ? String(runtime).trim().toLowerCase() : null;
+    const evaluatedAt = nowIso();
 
     let cards = [];
     if (typeof store.listAgentCardsPublic === "function") {
@@ -10603,6 +10610,12 @@ export function createApi({
       if (quarantinedAgentScopedKeys.has(makeScopedKey({ tenantId, id: agentId }))) continue;
       if (abuseSuppressedAgentScopedKeys.has(makeScopedKey({ tenantId, id: agentId }))) continue;
       if (inactiveLifecycleScopedKeys?.has(makeScopedKey({ tenantId, id: agentId }))) continue;
+      const signerLifecycle = await evaluateGrantParticipantSignerLifecycleAt({
+        tenantId,
+        agentId,
+        at: evaluatedAt
+      });
+      if (!signerLifecycle.ok) continue;
       const updatedAt = typeof agentCard?.updatedAt === "string" && agentCard.updatedAt.trim() !== "" ? agentCard.updatedAt.trim() : null;
       const createdAt = typeof agentCard?.createdAt === "string" && agentCard.createdAt.trim() !== "" ? agentCard.createdAt.trim() : null;
       const effectiveAt = updatedAt ?? createdAt;
@@ -16872,6 +16885,38 @@ export function createApi({
     if (!Array.isArray(events)) events = [];
     for (const event of events) {
       await ensureSignerContextFresh({ tenantId, event });
+    }
+    const signerKeyCache = new Map();
+    for (const event of events) {
+      if (!event?.signature) continue;
+      const signerLifecycle = await evaluateSessionSignerKeyLifecycle({
+        tenantId,
+        signerKeyId: event?.signerKeyId ?? null,
+        at: event?.at ?? null,
+        signerKeyCache
+      });
+      if (signerLifecycle.ok) continue;
+      return {
+        ok: false,
+        httpStatus: 409,
+        code: "X402_SESSION_PROVENANCE_INVALID",
+        message: "session provenance chain is invalid",
+        details: normalizeForCanonicalJson(
+          {
+            sessionRef: normalizedSessionRef,
+            eventId: event?.id ?? null,
+            signerKeyId: event?.signerKeyId ?? null,
+            eventAt: event?.at ?? null,
+            reasonCode: signerLifecycle.reasonCode ?? "SIGNER_KEY_INVALID",
+            reason: signerLifecycle.message ?? "signer key lifecycle verification failed",
+            signerStatus: signerLifecycle.signerStatus ?? null,
+            validFrom: signerLifecycle.validFrom ?? null,
+            validTo: signerLifecycle.validTo ?? null,
+            revokedAt: signerLifecycle.revokedAt ?? null
+          },
+          { path: "$" }
+        )
+      };
     }
     const chainVerification = verifyChainedEvents(events, { publicKeyByKeyId: store.publicKeyByKeyId });
     if (!chainVerification.ok) {

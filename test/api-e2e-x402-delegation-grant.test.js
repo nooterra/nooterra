@@ -55,6 +55,28 @@ async function registerSignerKey(api, { keyId, publicKeyPem, purpose = "robot", 
   assert.equal(response.json?.signerKey?.keyId, keyId);
 }
 
+async function upsertSignerKeyLifecycle(
+  api,
+  { keyId, publicKeyPem, purpose = "robot", status = "active", description = "test signer key", validFrom = null, validTo = null }
+) {
+  const response = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId,
+      publicKeyPem,
+      purpose,
+      status,
+      description,
+      validFrom,
+      validTo
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  assert.equal(response.json?.signerKey?.keyId, keyId);
+  return response.json?.signerKey ?? null;
+}
+
 async function rotateSignerKey(api, { keyId }) {
   const response = await request(api, {
     method: "POST",
@@ -720,6 +742,74 @@ test("API e2e: x402 prompt risk forced mode can target a specific principal", as
   });
   assert.equal(blockedForPrincipal.statusCode, 409, blockedForPrincipal.body);
   assert.equal(blockedForPrincipal.json?.code, "X402_PROMPT_RISK_FORCE_ESCALATE");
+});
+
+test("API e2e: x402 authorize fails closed when sessionRef signer key lifecycle is invalid", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_session_signer_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_session_signer_payee_1" });
+  await creditWallet(api, {
+    agentId: payerAgentId,
+    amountCents: 5_000,
+    idempotencyKey: "wallet_credit_x402_session_signer_1"
+  });
+
+  const sessionId = "sess_x402_signer_block_1";
+  const createdSession = await request(api, {
+    method: "POST",
+    path: "/sessions",
+    headers: { "x-idempotency-key": `session_create_${sessionId}` },
+    body: {
+      sessionId,
+      visibility: "tenant",
+      participants: [payerAgentId]
+    }
+  });
+  assert.equal(createdSession.statusCode, 201, createdSession.body);
+
+  const appended = await request(api, {
+    method: "POST",
+    path: `/sessions/${encodeURIComponent(sessionId)}/events`,
+    headers: {
+      "x-idempotency-key": `session_event_${sessionId}_1`,
+      "x-proxy-expected-prev-chain-hash": "null"
+    },
+    body: {
+      eventType: "TASK_REQUESTED",
+      payload: { task: "check weather" }
+    }
+  });
+  assert.equal(appended.statusCode, 201, appended.body);
+  assert.equal(appended.json?.event?.payload?.provenance?.isTainted, false);
+
+  await upsertSignerKeyLifecycle(api, {
+    keyId: api.store.serverSigner.keyId,
+    publicKeyPem: api.store.serverSigner.publicKeyPem,
+    purpose: "server",
+    status: "active",
+    description: "x402 session signer lifecycle invalid",
+    validFrom: "2099-01-01T00:00:00.000Z",
+    validTo: null
+  });
+
+  await createGate(api, {
+    gateId: "gate_x402_session_signer_block_1",
+    payerAgentId,
+    payeeAgentId,
+    amountCents: 300
+  });
+
+  const blocked = await authorizeGate(api, {
+    gateId: "gate_x402_session_signer_block_1",
+    idempotencyKey: "x402_gate_authorize_session_signer_block_1",
+    extraBody: { sessionRef: sessionId }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "X402_SESSION_PROVENANCE_INVALID");
+  assert.equal(blocked.json?.details?.sessionRef, sessionId);
+  assert.equal(blocked.json?.details?.signerKeyId, api.store.serverSigner.keyId);
+  assert.equal(blocked.json?.details?.reasonCode, "SIGNER_KEY_NOT_YET_VALID");
+  assert.equal(blocked.json?.details?.validFrom, "2099-01-01T00:00:00.000Z");
 });
 
 test("API e2e: tainted session provenance forces challenge on x402 authorize below escalation threshold", async () => {

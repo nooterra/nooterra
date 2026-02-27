@@ -144,6 +144,41 @@ async function setX402AgentLifecycle(api, { agentId, status, idempotencyKey, rea
   return response;
 }
 
+async function upsertAgentSignerKeyLifecycle(
+  api,
+  {
+    agentId,
+    status = "active",
+    validFrom = null,
+    validTo = null,
+    description = "agent-card signer lifecycle test"
+  }
+) {
+  const identity = typeof api.store.getAgentIdentity === "function"
+    ? await api.store.getAgentIdentity({ tenantId: DEFAULT_TENANT_ID, agentId })
+    : api.store.agentIdentities?.get?.(`${DEFAULT_TENANT_ID}\n${agentId}`) ?? null;
+  const keyId = String(identity?.keys?.keyId ?? "");
+  const publicKeyPem = String(identity?.keys?.publicKeyPem ?? "");
+  assert.ok(keyId);
+  assert.ok(publicKeyPem);
+
+  const response = await request(api, {
+    method: "POST",
+    path: "/ops/signer-keys",
+    body: {
+      keyId,
+      publicKeyPem,
+      purpose: "robot",
+      status,
+      validFrom,
+      validTo,
+      description
+    }
+  });
+  assert.equal(response.statusCode, 201, response.body);
+  return response;
+}
+
 test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
   const api = createApi({ opsToken: "tok_ops" });
 
@@ -849,6 +884,66 @@ test("API e2e: /public/agent-cards/discover excludes non-active x402 lifecycle a
   const agentIds = new Set((publicDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
   assert.equal(agentIds.has(activeAgentId), true);
   assert.equal(agentIds.has(suspendedAgentId), false);
+});
+
+test("API e2e: /public/agent-cards/discover excludes agents with invalid signer key lifecycle windows", async () => {
+  const api = createApi({ opsToken: "tok_ops" });
+
+  const activeAgentId = "agt_card_public_signer_active_1";
+  const notYetValidAgentId = "agt_card_public_signer_notyetvalid_1";
+  const expiredAgentId = "agt_card_public_signer_expired_1";
+  await registerAgent(api, { agentId: activeAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: notYetValidAgentId, capabilities: ["travel.booking"] });
+  await registerAgent(api, { agentId: expiredAgentId, capabilities: ["travel.booking"] });
+
+  const cards = [
+    { agentId: activeAgentId, idem: "agent_card_public_signer_active_upsert_1", endpoint: "https://example.test/public/signer-active" },
+    {
+      agentId: notYetValidAgentId,
+      idem: "agent_card_public_signer_notyetvalid_upsert_1",
+      endpoint: "https://example.test/public/signer-notyetvalid"
+    },
+    { agentId: expiredAgentId, idem: "agent_card_public_signer_expired_upsert_1", endpoint: "https://example.test/public/signer-expired" }
+  ];
+  for (const card of cards) {
+    const upserted = await request(api, {
+      method: "POST",
+      path: "/agent-cards",
+      headers: { "x-idempotency-key": card.idem },
+      body: {
+        agentId: card.agentId,
+        displayName: `Signer Lifecycle ${card.agentId}`,
+        capabilities: ["travel.booking"],
+        visibility: "public",
+        host: { runtime: "openclaw", endpoint: card.endpoint, protocols: ["mcp"] }
+      }
+    });
+    assert.equal(upserted.statusCode, 201, upserted.body);
+  }
+
+  await upsertAgentSignerKeyLifecycle(api, {
+    agentId: notYetValidAgentId,
+    status: "active",
+    validFrom: "2100-01-01T00:00:00.000Z",
+    validTo: null
+  });
+  await upsertAgentSignerKeyLifecycle(api, {
+    agentId: expiredAgentId,
+    status: "active",
+    validFrom: "2020-01-01T00:00:00.000Z",
+    validTo: "2020-02-01T00:00:00.000Z"
+  });
+
+  const publicDiscover = await request(api, {
+    method: "GET",
+    path: "/public/agent-cards/discover?capability=travel.booking&visibility=public&runtime=openclaw&status=active&includeReputation=false",
+    auth: "none"
+  });
+  assert.equal(publicDiscover.statusCode, 200, publicDiscover.body);
+  const agentIds = new Set((publicDiscover.json?.results ?? []).map((row) => String(row?.agentCard?.agentId ?? "")));
+  assert.equal(agentIds.has(activeAgentId), true);
+  assert.equal(agentIds.has(notYetValidAgentId), false);
+  assert.equal(agentIds.has(expiredAgentId), false);
 });
 
 test("API e2e: public agent-card publish rate limit is fail-closed (tenant + agent scopes)", async () => {
