@@ -18062,6 +18062,216 @@
             "additionalProperties": true
           }
         }
+      },
+      "FederationInvokeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "type",
+          "invocationId",
+          "originDid",
+          "targetDid",
+          "capabilityId",
+          "payload"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "enum": [
+              "1.0"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "coordinatorInvoke"
+            ]
+          },
+          "invocationId": {
+            "type": "string"
+          },
+          "originDid": {
+            "type": "string"
+          },
+          "targetDid": {
+            "type": "string"
+          },
+          "capabilityId": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "trace": {
+            "type": "object",
+            "additionalProperties": false,
+            "nullable": true,
+            "properties": {
+              "traceId": {
+                "type": "string"
+              },
+              "spanId": {
+                "type": "string"
+              },
+              "parentSpanId": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "signature": {
+            "type": "object",
+            "additionalProperties": false,
+            "nullable": true,
+            "properties": {
+              "keyId": {
+                "type": "string"
+              },
+              "algorithm": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "FederationInvokeResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "invocationId",
+          "status"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "invocationId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "success",
+              "error",
+              "timeout",
+              "denied"
+            ]
+          },
+          "result": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          }
+        }
+      },
+      "FederationResultRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "type",
+          "invocationId",
+          "originDid",
+          "targetDid",
+          "status"
+        ],
+        "properties": {
+          "version": {
+            "type": "string",
+            "enum": [
+              "1.0"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "coordinatorResult"
+            ]
+          },
+          "invocationId": {
+            "type": "string"
+          },
+          "originDid": {
+            "type": "string"
+          },
+          "targetDid": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error",
+              "timeout",
+              "denied"
+            ]
+          },
+          "result": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          },
+          "evidenceRefs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "signature": {
+            "type": "object",
+            "additionalProperties": false,
+            "nullable": true,
+            "properties": {
+              "keyId": {
+                "type": "string"
+              },
+              "algorithm": {
+                "type": "string"
+              },
+              "signature": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "FederationResultResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ok",
+          "invocationId",
+          "status"
+        ],
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "invocationId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "error",
+              "timeout",
+              "denied"
+            ]
+          },
+          "result": {
+            "type": "object",
+            "additionalProperties": true,
+            "nullable": true
+          }
+        }
       }
     }
   },
@@ -82167,6 +82377,714 @@
                     },
                     "details": {}
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/federation/invoke": {
+      "post": {
+        "summary": "Submit a coordinator federation invoke envelope",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "x-idempotency-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional idempotency key. If reused, request body must match."
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-nooterra-scopes": [
+          "ops_write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "type",
+                  "invocationId",
+                  "originDid",
+                  "targetDid",
+                  "capabilityId",
+                  "payload"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "string",
+                    "enum": [
+                      "1.0"
+                    ]
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "coordinatorInvoke"
+                    ]
+                  },
+                  "invocationId": {
+                    "type": "string"
+                  },
+                  "originDid": {
+                    "type": "string"
+                  },
+                  "targetDid": {
+                    "type": "string"
+                  },
+                  "capabilityId": {
+                    "type": "string"
+                  },
+                  "payload": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "trace": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "nullable": true,
+                    "properties": {
+                      "traceId": {
+                        "type": "string"
+                      },
+                      "spanId": {
+                        "type": "string"
+                      },
+                      "parentSpanId": {
+                        "type": "string",
+                        "nullable": true
+                      }
+                    }
+                  },
+                  "signature": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "nullable": true,
+                    "properties": {
+                      "keyId": {
+                        "type": "string"
+                      },
+                      "algorithm": {
+                        "type": "string"
+                      },
+                      "signature": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "invocationId",
+                    "status"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "invocationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "accepted",
+                        "success",
+                        "error",
+                        "timeout",
+                        "denied"
+                      ]
+                    },
+                    "result": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_FETCH_UNAVAILABLE"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_FETCH_UNAVAILABLE"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_UPSTREAM_UNREACHABLE"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_UPSTREAM_UNREACHABLE"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_NOT_CONFIGURED"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_NOT_CONFIGURED"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/federation/result": {
+      "post": {
+        "summary": "Submit or fetch a coordinator federation result envelope",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "x-nooterra-scopes": [
+          "ops_read",
+          "ops_write"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "version",
+                  "type",
+                  "invocationId",
+                  "originDid",
+                  "targetDid",
+                  "status"
+                ],
+                "properties": {
+                  "version": {
+                    "type": "string",
+                    "enum": [
+                      "1.0"
+                    ]
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "coordinatorResult"
+                    ]
+                  },
+                  "invocationId": {
+                    "type": "string"
+                  },
+                  "originDid": {
+                    "type": "string"
+                  },
+                  "targetDid": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "success",
+                      "error",
+                      "timeout",
+                      "denied"
+                    ]
+                  },
+                  "result": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "nullable": true
+                  },
+                  "evidenceRefs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "signature": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "nullable": true,
+                    "properties": {
+                      "keyId": {
+                        "type": "string"
+                      },
+                      "algorithm": {
+                        "type": "string"
+                      },
+                      "signature": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "invocationId",
+                    "status"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "invocationId": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "success",
+                        "error",
+                        "timeout",
+                        "denied"
+                      ]
+                    },
+                    "result": {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "nullable": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_FETCH_UNAVAILABLE"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_FETCH_UNAVAILABLE"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Bad Gateway",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_UPSTREAM_UNREACHABLE"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_UPSTREAM_UNREACHABLE"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service Unavailable",
+            "x-nooterra-known-error-codes": [
+              "FEDERATION_NOT_CONFIGURED"
+            ],
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "error": {
+                          "type": "string"
+                        },
+                        "code": {
+                          "type": "string"
+                        },
+                        "details": {}
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": true,
+                      "properties": {
+                        "code": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "FEDERATION_NOT_CONFIGURED"
+                              ]
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "description": "Known stable codes are listed in docs/spec/x402-error-codes.v1.txt."
+                        }
+                      }
+                    }
+                  ]
                 }
               }
             }

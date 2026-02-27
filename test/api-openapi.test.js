@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 
 import { createApi } from "../src/api/app.js";
 import { request } from "./api-test-harness.js";
@@ -19,6 +20,9 @@ test("API: /openapi.json matches openapi/nooterra.openapi.json snapshot", async 
   assert.ok(res.json?.paths?.["/ops/party-statements"]);
 
   const snapshot = JSON.parse(fs.readFileSync("openapi/nooterra.openapi.json", "utf8"));
-  assert.deepEqual(res.json, snapshot);
-});
 
+  // Avoid recursive deep-equality over a very large OpenAPI tree to keep memory bounded.
+  const responseDigest = createHash("sha256").update(JSON.stringify(res.json)).digest("hex");
+  const snapshotDigest = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");
+  assert.equal(responseDigest, snapshotDigest);
+});

@@ -47,7 +47,7 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
 
   await writeJson(path.join(testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 10, passedChecks: 10 },
+    verdict: { ok: true, requiredChecks: 11, passedChecks: 11 },
     checks: [
       {
         id: "nooterra_verified_collaboration",
@@ -76,6 +76,10 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
       },
       {
         id: "work_order_metering_durability_verified",
+        status: "passed"
+      },
+      {
+        id: "ns3_evidence_binding_coverage_verified",
         status: "passed"
       },
       {
@@ -168,6 +172,17 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
         reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
         reportSchemaVersion: "NooterraVerifiedGateReport.v1",
         sourceCheckId: "pg_work_order_metering_durability"
+      }
+    },
+    {
+      id: "ns3_evidence_binding_coverage_verified",
+      status: "passed",
+      ok: true,
+      source: {
+        type: "collaboration_check",
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+        reportSchemaVersion: "NooterraVerifiedGateReport.v1",
+        sourceCheckId: "ns3_evidence_binding_coverage_verified"
       }
     },
     {
