@@ -114,3 +114,39 @@ test("api federation proxy: forwards request semantics to configured local upstr
     await new Promise((resolve) => upstream.close(resolve));
   }
 });
+
+test("api federation proxy: fails closed when upstream attempts redirect", async () => {
+  let redirectedHitCount = 0;
+  const redirectedTarget = http.createServer((req, res) => {
+    redirectedHitCount += 1;
+    res.statusCode = 200;
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.end(JSON.stringify({ ok: true, source: "redirect-target" }));
+  });
+  const redirectingUpstream = http.createServer((req, res) => {
+    res.statusCode = 307;
+    res.setHeader("location", `${redirectedTargetBaseUrl}/capture`);
+    res.end();
+  });
+
+  const redirectedTargetBaseUrl = await listen(redirectedTarget);
+  const redirectingBaseUrl = await listen(redirectingUpstream);
+  const restore = withEnv("FEDERATION_PROXY_BASE_URL", redirectingBaseUrl);
+  try {
+    const api = createApi();
+    const res = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: { taskId: "task_redirect_1", intent: "invoke" },
+      auth: "none"
+    });
+
+    assert.equal(res.statusCode, 502);
+    assert.equal(res.json?.code, "FEDERATION_UPSTREAM_UNREACHABLE");
+    assert.equal(redirectedHitCount, 0);
+  } finally {
+    restore();
+    await new Promise((resolve) => redirectingUpstream.close(resolve));
+    await new Promise((resolve) => redirectedTarget.close(resolve));
+  }
+});
