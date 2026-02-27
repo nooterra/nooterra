@@ -29,6 +29,10 @@ const REQUIRED_CUTOVER_CHECK_SPECS = Object.freeze([
     sourceCheckId: "openclaw_substrate_demo_transcript_verified"
   },
   {
+    requiredCheckId: "session_stream_conformance_verified",
+    sourceCheckId: "e2e_session_stream_conformance_v1"
+  },
+  {
     requiredCheckId: "checkpoint_grant_binding_verified",
     sourceCheckId: "ops_agent_substrate_fast_loop_checkpoint_grant_binding"
   },

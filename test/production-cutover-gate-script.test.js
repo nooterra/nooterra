@@ -7,6 +7,7 @@ import {
   evaluateCheckpointGrantBindingCheck,
   evaluateOpenclawSubstrateDemoLineageCheck,
   evaluateOpenclawSubstrateDemoTranscriptCheck,
+  evaluateSessionStreamConformanceCheck,
   evaluateSdkAcsSmokeJsCheck,
   evaluateSdkAcsSmokePyCheck,
   evaluateSdkPythonContractFreezeCheck,
@@ -151,6 +152,39 @@ test("production cutover gate: derives SDK JS smoke check as pass from Nooterra 
   assert.equal(evaluated.status, "passed");
   assert.equal(evaluated.exitCode, 0);
   assert.equal(evaluated.details?.sourceCheckId, "e2e_js_sdk_acs_substrate_smoke");
+});
+
+test("production cutover gate: derives session stream conformance check as pass from Nooterra Verified collaboration report", () => {
+  const evaluated = evaluateSessionStreamConformanceCheck(
+    {
+      checks: [
+        { id: "mcp_host_cert_matrix", ok: true },
+        {
+          id: "e2e_session_stream_conformance_v1",
+          ok: true,
+          exitCode: 0,
+          command: "node conformance/session-stream-v1/run.mjs --adapter-node-bin ..."
+        }
+      ]
+    },
+    "artifacts/gates/nooterra-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "passed");
+  assert.equal(evaluated.exitCode, 0);
+  assert.equal(evaluated.details?.sourceCheckId, "e2e_session_stream_conformance_v1");
+});
+
+test("production cutover gate: derives session stream conformance check fail-closed when source check is missing", () => {
+  const evaluated = evaluateSessionStreamConformanceCheck(
+    {
+      checks: [{ id: "mcp_host_cert_matrix", ok: true }]
+    },
+    "artifacts/gates/nooterra-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "failed");
+  assert.equal(evaluated.exitCode, 1);
+  assert.match(String(evaluated.details?.message ?? ""), /missing source check/i);
+  assert.equal(evaluated.details?.sourceCheckId, "e2e_session_stream_conformance_v1");
 });
 
 test("production cutover gate: derives SDK PY smoke check fail-closed when source check is missing", () => {

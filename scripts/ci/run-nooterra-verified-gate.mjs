@@ -8,6 +8,7 @@ const SCHEMA_VERSION = "NooterraVerifiedGateReport.v1";
 const OPENCLAW_SUBSTRATE_DEMO_CHECK_ID = "e2e_openclaw_substrate_demo";
 const OPENCLAW_SUBSTRATE_DEMO_LINEAGE_CHECK_ID = "openclaw_substrate_demo_lineage_verified";
 const OPENCLAW_SUBSTRATE_DEMO_TRANSCRIPT_CHECK_ID = "openclaw_substrate_demo_transcript_verified";
+const SESSION_STREAM_CONFORMANCE_SOURCE_CHECK_ID = "e2e_session_stream_conformance_v1";
 
 function nowIso() {
   return new Date().toISOString();
@@ -298,6 +299,15 @@ function checksForLevel(level, { includePg = false } = {}) {
       id: "e2e_session_replay_chain_fail_closed",
       command: "node",
       args: ["--test", "--test-name-pattern", "SessionReplayPack.v1 fails closed on tampered event chain", "test/api-e2e-sessions.test.js"]
+    },
+    {
+      id: SESSION_STREAM_CONFORMANCE_SOURCE_CHECK_ID,
+      command: "node",
+      args: [
+        "conformance/session-stream-v1/run.mjs",
+        "--adapter-node-bin",
+        "conformance/session-stream-v1/reference/nooterra-session-stream-runtime-adapter.mjs"
+      ]
     },
     { id: "e2e_ops_audit_lineage", command: "node", args: ["--test", "test/api-e2e-ops-audit-lineage.test.js"] },
     { id: "e2e_ops_audit_lineage_verify_fail_closed", command: "node", args: ["--test", "test/audit-lineage-verify-script.test.js"] },

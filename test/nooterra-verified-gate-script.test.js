@@ -223,7 +223,7 @@ test("nooterra verified gate runner: collaboration level includes openclaw subst
     { runCheckFn, bootstrapFn }
   );
   assert.equal(report.ok, true);
-  assert.equal(report.summary.totalChecks, 33);
+  assert.equal(report.summary.totalChecks, 34);
   assert.equal(seenIds.includes("e2e_agent_card_stream_lifecycle"), true);
   assert.equal(seenIds.includes("e2e_trace_id_propagation"), true);
   assert.equal(seenIds.includes("e2e_task_negotiation_lifecycle_enforcement"), true);
@@ -248,6 +248,7 @@ test("nooterra verified gate runner: collaboration level includes openclaw subst
   assert.equal(seenIds.includes("e2e_ops_audit_lineage_verify_fail_closed"), true);
   assert.equal(seenIds.includes("e2e_task_negotiation"), true);
   assert.equal(seenIds.includes("e2e_session_replay_chain_fail_closed"), true);
+  assert.equal(seenIds.includes("e2e_session_stream_conformance_v1"), true);
   assert.equal(seenIds.includes("e2e_openclaw_substrate_demo"), true);
   assert.equal(seenIds.includes("e2e_authority_grant_required"), true);
   const reportIds = report.checks.map((row) => row.id);

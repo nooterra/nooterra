@@ -14,11 +14,13 @@ const DEFAULT_X402_HITL_SMOKE_REPORT_PATH = "artifacts/ops/x402-hitl-smoke.json"
 const DEFAULT_NOOTERRA_VERIFIED_COLLAB_REPORT_PATH = "artifacts/gates/nooterra-verified-collaboration-gate.json";
 const OPENCLAW_SUBSTRATE_DEMO_LINEAGE_CHECK_ID = "openclaw_substrate_demo_lineage_verified";
 const OPENCLAW_SUBSTRATE_DEMO_TRANSCRIPT_CHECK_ID = "openclaw_substrate_demo_transcript_verified";
+const SESSION_STREAM_CONFORMANCE_VERIFIED_CHECK_ID = "session_stream_conformance_verified";
 const SDK_ACS_SMOKE_JS_VERIFIED_CHECK_ID = "sdk_acs_smoke_js_verified";
 const SDK_ACS_SMOKE_PY_VERIFIED_CHECK_ID = "sdk_acs_smoke_py_verified";
 const SDK_PYTHON_CONTRACT_FREEZE_VERIFIED_CHECK_ID = "sdk_python_contract_freeze_verified";
 const CHECKPOINT_GRANT_BINDING_VERIFIED_CHECK_ID = "checkpoint_grant_binding_verified";
 const WORK_ORDER_METERING_DURABILITY_VERIFIED_CHECK_ID = "work_order_metering_durability_verified";
+const NOOTERRA_VERIFIED_SESSION_STREAM_CONFORMANCE_SOURCE_CHECK_ID = "e2e_session_stream_conformance_v1";
 const NOOTERRA_VERIFIED_SDK_ACS_SMOKE_JS_SOURCE_CHECK_ID = "e2e_js_sdk_acs_substrate_smoke";
 const NOOTERRA_VERIFIED_SDK_ACS_SMOKE_PY_SOURCE_CHECK_ID = "e2e_python_sdk_acs_substrate_smoke";
 const NOOTERRA_VERIFIED_SDK_PYTHON_CONTRACT_FREEZE_SOURCE_CHECK_ID = "e2e_python_sdk_contract_freeze";
@@ -339,6 +341,13 @@ export function evaluateSdkAcsSmokeJsCheck(nooterraVerifiedReport, reportPath) {
   });
 }
 
+export function evaluateSessionStreamConformanceCheck(nooterraVerifiedReport, reportPath) {
+  return evaluateNooterraVerifiedDerivedCheck(nooterraVerifiedReport, reportPath, {
+    sourceCheckId: NOOTERRA_VERIFIED_SESSION_STREAM_CONFORMANCE_SOURCE_CHECK_ID,
+    sourceCheckLabel: "Nooterra Verified session stream conformance pack v1"
+  });
+}
+
 export function evaluateSdkAcsSmokePyCheck(nooterraVerifiedReport, reportPath) {
   return evaluateNooterraVerifiedDerivedCheck(nooterraVerifiedReport, reportPath, {
     sourceCheckId: NOOTERRA_VERIFIED_SDK_ACS_SMOKE_PY_SOURCE_CHECK_ID,
@@ -436,6 +445,33 @@ async function runSdkAcsSmokeJsCheck({ reportPath }) {
     const raw = await readFile(reportPath, "utf8");
     const parsed = JSON.parse(raw);
     const evaluated = evaluateSdkAcsSmokeJsCheck(parsed, reportPath);
+    row.status = evaluated.status;
+    row.exitCode = evaluated.exitCode;
+    row.details = evaluated.details;
+  } catch (err) {
+    row.status = "failed";
+    row.exitCode = 1;
+    row.error = err?.message ?? String(err);
+  }
+  row.durationMs = Date.now() - startedAt;
+  return row;
+}
+
+async function runSessionStreamConformanceCheck({ reportPath }) {
+  const startedAt = Date.now();
+  const row = {
+    id: SESSION_STREAM_CONFORMANCE_VERIFIED_CHECK_ID,
+    label: "Session stream conformance verification",
+    status: "failed",
+    exitCode: 1,
+    reportPath,
+    durationMs: 0,
+    command: ["derive", "nooterra_verified_collaboration", NOOTERRA_VERIFIED_SESSION_STREAM_CONFORMANCE_SOURCE_CHECK_ID]
+  };
+  try {
+    const raw = await readFile(reportPath, "utf8");
+    const parsed = JSON.parse(raw);
+    const evaluated = evaluateSessionStreamConformanceCheck(parsed, reportPath);
     row.status = evaluated.status;
     row.exitCode = evaluated.exitCode;
     row.details = evaluated.details;
@@ -740,6 +776,7 @@ export async function runProductionCutoverGate(args, env = process.env, cwd = pr
     );
     checks.push(await runOpenclawSubstrateDemoLineageCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runOpenclawSubstrateDemoTranscriptCheck({ reportPath: nooterraVerifiedCollabReportPath }));
+    checks.push(await runSessionStreamConformanceCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runSdkAcsSmokeJsCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runSdkAcsSmokePyCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runSdkPythonContractFreezeCheck({ reportPath: nooterraVerifiedCollabReportPath }));
@@ -791,6 +828,7 @@ export async function runProductionCutoverGate(args, env = process.env, cwd = pr
     );
     checks.push(await runOpenclawSubstrateDemoLineageCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runOpenclawSubstrateDemoTranscriptCheck({ reportPath: nooterraVerifiedCollabReportPath }));
+    checks.push(await runSessionStreamConformanceCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runSdkAcsSmokeJsCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runSdkAcsSmokePyCheck({ reportPath: nooterraVerifiedCollabReportPath }));
     checks.push(await runSdkPythonContractFreezeCheck({ reportPath: nooterraVerifiedCollabReportPath }));

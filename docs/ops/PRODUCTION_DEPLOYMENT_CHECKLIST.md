@@ -142,7 +142,7 @@ Run the live environment cutover gate before opening traffic:
 
 Note: the production cutover gate includes `nooterra_verified_collaboration`,
 `openclaw_substrate_demo_lineage_verified`, `openclaw_substrate_demo_transcript_verified`,
-`checkpoint_grant_binding_verified`, `sdk_acs_smoke_js_verified`, `sdk_acs_smoke_py_verified`, and `sdk_python_contract_freeze_verified` as required checks
+`session_stream_conformance_verified`, `checkpoint_grant_binding_verified`, `work_order_metering_durability_verified`, `sdk_acs_smoke_js_verified`, `sdk_acs_smoke_py_verified`, and `sdk_python_contract_freeze_verified` as required checks
 (`ProductionCutoverGateReport.v1`), and the launch packet must bind
 `sources.nooterraVerifiedCollaborationGateReportSha256` to the collaboration gate artifact hash.
 

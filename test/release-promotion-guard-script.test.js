@@ -21,6 +21,7 @@ async function writeRequiredArtifacts(
     includeProductionRequiredCheck = true,
     includeProductionLineageCheck = true,
     includeProductionTranscriptCheck = true,
+    includeProductionSessionStreamConformanceCheck = true,
     includeProductionCheckpointGrantBindingCheck = true,
     includeProductionWorkOrderMeteringDurabilityCheck = true,
     includeProductionSdkJsSmokeCheck = true,
@@ -63,6 +64,12 @@ async function writeRequiredArtifacts(
       status: productionGateOk ? "passed" : "failed"
     });
   }
+  if (includeProductionSessionStreamConformanceCheck) {
+    productionChecks.push({
+      id: "session_stream_conformance_verified",
+      status: productionGateOk ? "passed" : "failed"
+    });
+  }
   if (includeProductionCheckpointGrantBindingCheck) {
     productionChecks.push({
       id: "checkpoint_grant_binding_verified",
@@ -101,6 +108,7 @@ async function writeRequiredArtifacts(
     "nooterra_verified_collaboration",
     "openclaw_substrate_demo_lineage_verified",
     "openclaw_substrate_demo_transcript_verified",
+    "session_stream_conformance_verified",
     "checkpoint_grant_binding_verified",
     "work_order_metering_durability_verified",
     "sdk_acs_smoke_js_verified",
@@ -131,6 +139,8 @@ async function writeRequiredArtifacts(
             ? "openclaw_substrate_demo_lineage_verified"
             : id === "openclaw_substrate_demo_transcript_verified"
               ? "openclaw_substrate_demo_transcript_verified"
+              : id === "session_stream_conformance_verified"
+                ? "e2e_session_stream_conformance_v1"
               : id === "checkpoint_grant_binding_verified"
                 ? "ops_agent_substrate_fast_loop_checkpoint_grant_binding"
               : id === "work_order_metering_durability_verified"
@@ -383,6 +393,35 @@ test("release promotion guard: fails closed when production cutover report misse
   assert.equal(launchPacketArtifact.failureCodes.includes("production_gate_transcript_check_missing"), true);
 });
 
+test("release promotion guard: fails closed when production cutover report misses required session stream conformance check", async (t) => {
+  const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-promotion-guard-prodsessionstream-"));
+  t.after(async () => {
+    await fs.rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  await writeRequiredArtifacts(tmpRoot, {
+    productionGateOk: true,
+    includeProductionRequiredCheck: true,
+    includeProductionLineageCheck: true,
+    includeProductionTranscriptCheck: true,
+    includeProductionSessionStreamConformanceCheck: false
+  });
+  const env = {
+    RELEASE_PROMOTION_GUARD_NOW: "2026-02-21T18:00:00.000Z"
+  };
+  const { report } = await runReleasePromotionGuard(parseArgs([], env, tmpRoot), env, tmpRoot);
+  assert.equal(report.verdict.ok, false);
+  assert.equal(report.verdict.status, "fail");
+  const productionArtifact = report.artifacts.find((row) => row.id === "production_cutover_gate");
+  assert.ok(productionArtifact);
+  assert.equal(productionArtifact.status, "failed");
+  assert.equal(productionArtifact.failureCodes.includes("required_check_missing"), true);
+  const launchPacketArtifact = report.artifacts.find((row) => row.id === "launch_cutover_packet");
+  assert.ok(launchPacketArtifact);
+  assert.equal(launchPacketArtifact.status, "failed");
+  assert.equal(launchPacketArtifact.failureCodes.includes("production_gate_session_stream_conformance_check_missing"), true);
+});
+
 test("release promotion guard: fails closed when production cutover report misses required checkpoint grant binding check", async (t) => {
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nooterra-release-promotion-guard-prodcheckpointgrantbinding-"));
   t.after(async () => {
@@ -554,8 +593,8 @@ test("release promotion guard: fails closed when launch packet required cutover 
       : row
   );
   launchPacket.requiredCutoverChecks.summary = {
-    requiredChecks: 8,
-    passedChecks: 7,
+    requiredChecks: 9,
+    passedChecks: 8,
     failedChecks: 1
   };
   await fs.writeFile(launchPacketPath, JSON.stringify(launchPacket, null, 2) + "\n", "utf8");

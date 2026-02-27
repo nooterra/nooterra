@@ -16,6 +16,7 @@ function requiredCheckRows(statusesById) {
     "nooterra_verified_collaboration",
     "openclaw_substrate_demo_lineage_verified",
     "openclaw_substrate_demo_transcript_verified",
+    "session_stream_conformance_verified",
     "checkpoint_grant_binding_verified",
     "work_order_metering_durability_verified",
     "sdk_acs_smoke_js_verified",
@@ -35,6 +36,7 @@ async function seedInputs(root, { launchOverrides } = {}) {
     nooterra_verified_collaboration: "passed",
     openclaw_substrate_demo_lineage_verified: "passed",
     openclaw_substrate_demo_transcript_verified: "passed",
+    session_stream_conformance_verified: "passed",
     checkpoint_grant_binding_verified: "passed",
     work_order_metering_durability_verified: "passed",
     sdk_acs_smoke_js_verified: "passed",
@@ -44,14 +46,14 @@ async function seedInputs(root, { launchOverrides } = {}) {
 
   await writeJson(productionGatePath, {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 8, passedChecks: 8 },
+    verdict: { ok: true, requiredChecks: 9, passedChecks: 9 },
     checks: requiredCheckRows(statusesById)
   });
 
   await writeJson(requiredChecksPath, {
     schemaVersion: "ProductionCutoverRequiredChecksAssertion.v1",
     ok: true,
-    summary: { requiredChecks: 8, passedChecks: 8, failedChecks: 0 },
+    summary: { requiredChecks: 9, passedChecks: 9, failedChecks: 0 },
     checks: requiredCheckRows(statusesById).map((row) => ({ ...row, ok: row.status === "passed" }))
   });
 
@@ -63,7 +65,7 @@ async function seedInputs(root, { launchOverrides } = {}) {
       sourceReportSchemaVersion: "NooterraVerifiedGateReport.v1",
       sourceReportOk: true,
       checks: requiredCheckRows(statusesById).map((row) => ({ ...row, ok: row.status === "passed" })),
-      summary: { requiredChecks: 8, passedChecks: 8, failedChecks: 0 }
+      summary: { requiredChecks: 9, passedChecks: 9, failedChecks: 0 }
     },
     verdict: { ok: true, requiredChecks: 1, passedChecks: 1 }
   };
@@ -116,8 +118,8 @@ test("release cutover audit view: passes when all sources agree and are passed",
   assert.equal(report.schemaVersion, "ReleaseCutoverAuditView.v1");
   assert.equal(report.verdict.ok, true);
   assert.equal(report.verdict.status, "pass");
-  assert.equal(report.summary.requiredChecks, 8);
-  assert.equal(report.summary.passedChecks, 8);
+  assert.equal(report.summary.requiredChecks, 9);
+  assert.equal(report.summary.passedChecks, 9);
   assert.equal(report.summary.failedChecks, 0);
   assert.equal(report.requiredChecks.every((row) => row.ok === true), true);
 });
@@ -134,7 +136,7 @@ test("release cutover audit view: fails closed on launch summary status mismatch
         checks: packet.requiredCutoverChecks.checks.map((row) =>
           row.id === "sdk_python_contract_freeze_verified" ? { ...row, status: "failed", ok: false } : row
         ),
-        summary: { requiredChecks: 8, passedChecks: 7, failedChecks: 1 }
+        summary: { requiredChecks: 9, passedChecks: 8, failedChecks: 1 }
       }
     })
   });

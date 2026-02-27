@@ -47,7 +47,7 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
 
   await writeJson(path.join(testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 8, passedChecks: 8 },
+    verdict: { ok: true, requiredChecks: 9, passedChecks: 9 },
     checks: [
       {
         id: "nooterra_verified_collaboration",
@@ -60,6 +60,10 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
       },
       {
         id: "openclaw_substrate_demo_transcript_verified",
+        status: "passed"
+      },
+      {
+        id: "session_stream_conformance_verified",
         status: "passed"
       },
       {
@@ -116,6 +120,17 @@ async function seedPromotionGuardUpstreamArtifacts(tmpRoot) {
         reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
         reportSchemaVersion: "NooterraVerifiedGateReport.v1",
         sourceCheckId: "openclaw_substrate_demo_transcript_verified"
+      }
+    },
+    {
+      id: "session_stream_conformance_verified",
+      status: "passed",
+      ok: true,
+      source: {
+        type: "collaboration_check",
+        reportPath: "artifacts/gates/nooterra-verified-collaboration-gate.json",
+        reportSchemaVersion: "NooterraVerifiedGateReport.v1",
+        sourceCheckId: "e2e_session_stream_conformance_v1"
       }
     },
     {
@@ -426,7 +441,7 @@ test("release promotion guard e2e: production gate collaboration report path mis
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 7, passedChecks: 7 },
+    verdict: { ok: true, requiredChecks: 9, passedChecks: 9 },
     checks: [
       {
         id: "nooterra_verified_collaboration",
@@ -442,7 +457,15 @@ test("release promotion guard e2e: production gate collaboration report path mis
         status: "passed"
       },
       {
+        id: "session_stream_conformance_verified",
+        status: "passed"
+      },
+      {
         id: "checkpoint_grant_binding_verified",
+        status: "passed"
+      },
+      {
+        id: "work_order_metering_durability_verified",
         status: "passed"
       },
       {
@@ -556,7 +579,7 @@ test("release promotion guard e2e: production gate collaboration check not passe
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 7, passedChecks: 6 },
+    verdict: { ok: true, requiredChecks: 9, passedChecks: 8 },
     checks: [
       {
         id: "nooterra_verified_collaboration",
@@ -572,7 +595,15 @@ test("release promotion guard e2e: production gate collaboration check not passe
         status: "passed"
       },
       {
+        id: "session_stream_conformance_verified",
+        status: "passed"
+      },
+      {
         id: "checkpoint_grant_binding_verified",
+        status: "passed"
+      },
+      {
+        id: "work_order_metering_durability_verified",
         status: "passed"
       },
       {
@@ -686,7 +717,7 @@ test("release promotion guard e2e: production gate collaboration check missing f
   const roots = await seedPromotionGuardUpstreamArtifacts(tmpRoot);
   await writeJson(path.join(roots.testsRoot, "production", "production-cutover-gate.json"), {
     schemaVersion: "ProductionCutoverGateReport.v1",
-    verdict: { ok: true, requiredChecks: 7, passedChecks: 6 },
+    verdict: { ok: true, requiredChecks: 9, passedChecks: 8 },
     checks: [
       {
         id: "mcp_host_runtime_smoke",
@@ -701,7 +732,15 @@ test("release promotion guard e2e: production gate collaboration check missing f
         status: "passed"
       },
       {
+        id: "session_stream_conformance_verified",
+        status: "passed"
+      },
+      {
         id: "checkpoint_grant_binding_verified",
+        status: "passed"
+      },
+      {
+        id: "work_order_metering_durability_verified",
         status: "passed"
       },
       {

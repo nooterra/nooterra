@@ -371,7 +371,7 @@ jobs:
       - run: npm ci
       - name: Run production cutover gate
         run: npm run -s test:ops:production-cutover-gate
-      - name: Assert production cutover required checks (collaboration + lineage + transcript + checkpoint grant binding + SDK JS/PY smoke)
+      - name: Assert production cutover required checks (collaboration + lineage + transcript + session stream conformance + checkpoint grant binding + work order metering durability + SDK JS/PY smoke)
         run: |
           set -euo pipefail
           node scripts/ci/assert-production-cutover-required-checks.mjs \

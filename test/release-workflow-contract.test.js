@@ -13,7 +13,7 @@ test("release workflow contract: asserts production cutover required checks in r
   const text = await readWorkflow();
   assert.match(
     text,
-    /Assert production cutover required checks \(collaboration \+ lineage \+ transcript \+ checkpoint grant binding \+ SDK JS\/PY smoke\)/
+    /Assert production cutover required checks \(collaboration \+ lineage \+ transcript \+ session stream conformance \+ checkpoint grant binding \+ work order metering durability \+ SDK JS\/PY smoke\)/
   );
   assert.match(text, /node scripts\/ci\/assert-production-cutover-required-checks\.mjs/);
   assert.match(text, /--in artifacts\/gates\/production-cutover-gate\.json/);

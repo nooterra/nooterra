@@ -175,11 +175,11 @@ Promotion guard order (fail-closed):
 2. S13 go-live workflow report set is generated for the same release commit (`s13-go-live-gate.json` + `s13-launch-cutover-packet.json`).
 3. Launch cutover packet must bind `sources.nooterraVerifiedCollaborationGateReportSha256` to the exact hash of
    `sources.nooterraVerifiedCollaborationGateReportPath`.
-   - Packet must include `requiredCutoverChecks` (`ProductionCutoverRequiredChecksSummary.v1`) with pass/fail status for the 6 required production cutover checks.
+   - Packet must include `requiredCutoverChecks` (`ProductionCutoverRequiredChecksSummary.v1`) with pass/fail status for the required production cutover checks.
    - NOO-65 promotion guard must verify `requiredCutoverChecks` status parity against `production-cutover-gate` required check statuses and fail-closed on mismatch.
 4. NOO-65 promotion guard validates the launch-packet-to-collaboration binding and fail-closes on mismatch.
 5. Release workflow binds all required gate artifacts (kernel, production cutover, NOO-50 parity, onboarding host success, S13 go-live, S13 launch packet, hosted baseline evidence) into NOO-65.
-   - Production cutover must include `nooterra_verified_collaboration`, `openclaw_substrate_demo_lineage_verified`, `openclaw_substrate_demo_transcript_verified`, `checkpoint_grant_binding_verified`, `sdk_acs_smoke_js_verified`, `sdk_acs_smoke_py_verified`, and `sdk_python_contract_freeze_verified` as passed checks.
+   - Production cutover must include `nooterra_verified_collaboration`, `openclaw_substrate_demo_lineage_verified`, `openclaw_substrate_demo_transcript_verified`, `session_stream_conformance_verified`, `checkpoint_grant_binding_verified`, `work_order_metering_durability_verified`, `sdk_acs_smoke_js_verified`, `sdk_acs_smoke_py_verified`, and `sdk_python_contract_freeze_verified` as passed checks.
 6. Release workflow must emit `artifacts/gates/release-promotion-guard.json` with `verdict.ok=true` before artifact publish jobs execute.
 7. Release workflow must emit `artifacts/gates/release-cutover-audit-view.json` (`ReleaseCutoverAuditView.v1`) as the single merged verifier over production cutover gate, required-check assertion, and launch packet required-cutover summary.
 
