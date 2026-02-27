@@ -112,6 +112,21 @@ async function requestJson({ baseUrl, tenantId, opsToken, period, providerId, pe
   return json;
 }
 
+function assertDeterministicReconcileContract(report) {
+  if (!report || typeof report !== "object" || Array.isArray(report)) {
+    throw new Error("reconcile response must be an object");
+  }
+  if (typeof report.schemaVersion !== "string" || report.schemaVersion.trim() === "") {
+    throw new Error("reconcile response missing schemaVersion");
+  }
+  if (!Array.isArray(report.checks)) {
+    throw new Error("reconcile response missing checks");
+  }
+  if (!Array.isArray(report.blockingIssues)) {
+    throw new Error("reconcile response missing blockingIssues");
+  }
+}
+
 async function main() {
   let args;
   try {
@@ -146,6 +161,7 @@ async function main() {
     providerId: args.providerId,
     persist: args.persist
   });
+  assertDeterministicReconcileContract(report);
 
   const envelope = {
     capturedAt: new Date().toISOString(),

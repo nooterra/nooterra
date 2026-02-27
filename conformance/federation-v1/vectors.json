@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "FederationConformanceVectors.v1",
+  "packVersion": "1.0.0",
+  "generatedAt": "2026-02-27T00:00:00.000Z",
+  "determinism": {
+    "identityKeyFields": [
+      "endpoint",
+      "envelope.type",
+      "envelope.invocationId",
+      "envelope.originDid",
+      "envelope.targetDid"
+    ],
+    "payloadHashAlgorithm": "sha256(canonicalJson(envelope))",
+    "namespaceRouting": "exact_did_match"
+  },
+  "cases": [
+    {
+      "id": "invoke_namespace_missing_fail_closed",
+      "endpoint": "invoke",
+      "envelope": {
+        "version": "1.0",
+        "type": "coordinatorInvoke",
+        "invocationId": "inv_vec_route_missing_1",
+        "originDid": "did:nooterra:coord_alpha",
+        "targetDid": "did:nooterra:coord_charlie",
+        "capabilityId": "capability.dispatch.v1",
+        "payload": {
+          "op": "ping"
+        }
+      },
+      "expected": {
+        "accept": false,
+        "code": "FEDERATION_NAMESPACE_ROUTE_MISSING"
+      }
+    },
+    {
+      "id": "invoke_replay_duplicate_deterministic",
+      "endpoint": "invoke",
+      "envelope": {
+        "version": "1.0",
+        "type": "coordinatorInvoke",
+        "invocationId": "inv_vec_replay_1",
+        "originDid": "did:nooterra:coord_alpha",
+        "targetDid": "did:nooterra:coord_bravo",
+        "capabilityId": "capability.dispatch.v1",
+        "payload": {
+          "op": "ping"
+        }
+      },
+      "expected": {
+        "accept": true,
+        "duplicateReplayHeader": "x-federation-replay=duplicate"
+      }
+    },
+    {
+      "id": "invoke_replay_hash_conflict_fail_closed",
+      "endpoint": "invoke",
+      "envelope": {
+        "version": "1.0",
+        "type": "coordinatorInvoke",
+        "invocationId": "inv_vec_replay_conflict_1",
+        "originDid": "did:nooterra:coord_alpha",
+        "targetDid": "did:nooterra:coord_bravo",
+        "capabilityId": "capability.dispatch.v1",
+        "payload": {
+          "op": "ping"
+        }
+      },
+      "mutations": [
+        {
+          "label": "payload_drift",
+          "path": "payload.op",
+          "value": "different"
+        }
+      ],
+      "expected": {
+        "accept": false,
+        "code": "FEDERATION_ENVELOPE_CONFLICT"
+      }
+    },
+    {
+      "id": "invoke_untrusted_peer_fail_closed",
+      "endpoint": "invoke",
+      "envelope": {
+        "version": "1.0",
+        "type": "coordinatorInvoke",
+        "invocationId": "inv_vec_untrusted_1",
+        "originDid": "did:nooterra:coord_alpha",
+        "targetDid": "did:nooterra:coord_unknown",
+        "capabilityId": "capability.dispatch.v1",
+        "payload": {
+          "op": "ping"
+        }
+      },
+      "expected": {
+        "accept": false,
+        "code": "FEDERATION_UNTRUSTED_COORDINATOR"
+      }
+    },
+    {
+      "id": "invoke_valid_trusted_namespace_route",
+      "endpoint": "invoke",
+      "envelope": {
+        "version": "1.0",
+        "type": "coordinatorInvoke",
+        "invocationId": "inv_vec_route_1",
+        "originDid": "did:nooterra:coord_alpha",
+        "targetDid": "did:nooterra:coord_bravo",
+        "capabilityId": "capability.dispatch.v1",
+        "payload": {
+          "op": "ping"
+        }
+      },
+      "expected": {
+        "accept": true,
+        "namespaceDid": "did:nooterra:coord_bravo"
+      }
+    }
+  ]
+}

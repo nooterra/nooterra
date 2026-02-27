@@ -1779,6 +1779,118 @@ test("API e2e: metering/pricing policy evidence mismatch fails closed with deter
   assert.equal(replayEvaluate.json?.comparisons?.policyDecisionMatchesStored, true);
 });
 
+test("API e2e: settlement policy evaluation errors fail closed to manual review", async () => {
+  const api = createApi();
+  await registerAgent(api, "agt_market_policy_err_poster");
+  await registerAgent(api, "agt_market_policy_err_bidder");
+  await registerAgent(api, "agt_market_policy_err_operator");
+  await creditWallet(api, {
+    agentId: "agt_market_policy_err_poster",
+    amountCents: 9000,
+    idempotencyKey: "wallet_credit_market_policy_err_poster_1"
+  });
+
+  const createTask = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs",
+    headers: { "x-idempotency-key": "market_policy_err_rfq_create_1" },
+    body: {
+      rfqId: "rfq_policy_err_1",
+      title: "Policy evaluation fail closed",
+      capability: "translate",
+      posterAgentId: "agt_market_policy_err_poster",
+      budgetCents: 2600,
+      currency: "USD"
+    }
+  });
+  assert.equal(createTask.statusCode, 201);
+
+  const bid = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_policy_err_1/bids",
+    headers: { "x-idempotency-key": "market_policy_err_bid_create_1" },
+    body: {
+      bidId: "bid_policy_err_1",
+      bidderAgentId: "agt_market_policy_err_bidder",
+      amountCents: 2100,
+      currency: "USD",
+      verificationMethod: {
+        mode: "deterministic",
+        meteringPricingEvidence: {
+          pricingMatrixHash: "1".repeat(64),
+          meteringReportHash: "2".repeat(64)
+        }
+      },
+      policy: {
+        mode: "automatic",
+        rules: {
+          requireDeterministicVerification: true,
+          autoReleaseOnGreen: true,
+          autoReleaseOnAmber: false,
+          autoReleaseOnRed: false,
+          meteringPricingEvidence: {
+            required: true,
+            pricingMatrixHash: "1".repeat(64),
+            meteringReportHash: "2".repeat(64)
+          }
+        }
+      }
+    }
+  });
+  assert.equal(bid.statusCode, 201);
+
+  const accept = await request(api, {
+    method: "POST",
+    path: "/marketplace/rfqs/rfq_policy_err_1/accept",
+    headers: { "x-idempotency-key": "market_policy_err_accept_1" },
+    body: {
+      bidId: "bid_policy_err_1",
+      acceptedByAgentId: "agt_market_policy_err_operator"
+    }
+  });
+  assert.equal(accept.statusCode, 200);
+  const runId = accept.json?.run?.runId;
+  assert.ok(typeof runId === "string" && runId.length > 0);
+
+  for (const rfq of api.store.marketplaceRfqs?.values?.() ?? []) {
+    if (String(rfq?.runId ?? "") !== runId) continue;
+    rfq.agreement = {
+      ...rfq.agreement,
+      policy: {
+        ...rfq.agreement?.policy,
+        rules: {
+          ...(rfq.agreement?.policy?.rules ?? {}),
+          meteringPricingEvidence: {
+            required: true,
+            pricingMatrixHash: "invalid_sha256",
+            meteringReportHash: "2".repeat(64)
+          }
+        }
+      }
+    };
+  }
+
+  const completed = await request(api, {
+    method: "POST",
+    path: `/agents/agt_market_policy_err_bidder/runs/${encodeURIComponent(runId)}/events`,
+    headers: {
+      "x-proxy-expected-prev-chain-hash": accept.json?.run?.lastChainHash,
+      "x-idempotency-key": "market_policy_err_complete_1"
+    },
+    body: {
+      type: "RUN_COMPLETED",
+      payload: {
+        outputRef: `evidence://${runId}/output.json`,
+        metrics: { settlementReleaseRatePct: 100 }
+      }
+    }
+  });
+  assert.equal(completed.statusCode, 201);
+  assert.equal(completed.json?.settlement?.status, "locked");
+  assert.equal(completed.json?.settlement?.decisionStatus, "manual_review_required");
+  assert.equal(completed.json?.settlement?.decisionReason, "policy_evaluation_failed");
+});
+
 test("API e2e: deterministic verifier plugin sets settlement decision verifierRef and replay matches", async () => {
   const api = createApi();
   await registerAgent(api, "agt_market_det_plugin_poster");

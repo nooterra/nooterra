@@ -134,13 +134,22 @@ test("API e2e: /ops/finance/reconcile computes deterministic report and optional
   assert.equal(reconcile.json?.ok, true);
   assert.equal(reconcile.json?.tenantId, "tenant_default");
   assert.equal(reconcile.json?.period, "2026-01");
+  assert.equal(reconcile.json?.schemaVersion, "FinanceReconciliationReport.v1");
+  assert.equal(reconcile.json?.status, "pass");
   assert.equal(typeof reconcile.json?.reportHash, "string");
   assert.equal(reconcile.json?.reportHash?.length, 64);
   assert.equal(typeof reconcile.json?.reconcile, "object");
+  assert.ok(Array.isArray(reconcile.json?.checks));
+  assert.ok(Array.isArray(reconcile.json?.blockingIssues));
+  assert.equal(reconcile.json?.blockingIssues?.length, 0);
   assert.equal(typeof reconcile.json?.inputs?.glBatchArtifactId, "string");
   assert.ok(Array.isArray(reconcile.json?.inputs?.partyStatementArtifactIds));
   assert.ok(reconcile.json?.inputs?.partyStatementArtifactIds?.length > 0);
   assert.equal(reconcile.json?.artifact ?? null, null);
+
+  const reconcileReplay = await request(api, { method: "GET", path: "/ops/finance/reconcile?period=2026-01" });
+  assert.equal(reconcileReplay.statusCode, 200);
+  assert.deepEqual(reconcileReplay.json, reconcile.json);
 
   const persisted = await request(api, { method: "GET", path: "/ops/finance/reconcile?period=2026-01&persist=true" });
   assert.equal(persisted.statusCode, 200);

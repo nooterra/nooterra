@@ -98,6 +98,20 @@ test("API e2e: money-rail reconciliation tick runs and updates ops status", asyn
   assert.equal(run.summary?.artifactsPersisted, 1);
   assert.ok((run.summary?.deliveriesCreated ?? 0) >= 0);
 
+  const reconcile = await request(api, {
+    method: "GET",
+    path: `/ops/finance/money-rails/reconcile?period=${encodeURIComponent(month)}&providerId=${encodeURIComponent(providerId)}`,
+    headers: {
+      "x-proxy-ops-token": "tok_finr"
+    }
+  });
+  assert.equal(reconcile.statusCode, 200, reconcile.body);
+  assert.equal(reconcile.json?.schemaVersion, "MoneyRailReconciliationReport.v1");
+  assert.equal(reconcile.json?.status, "pass");
+  assert.ok(Array.isArray(reconcile.json?.checks));
+  assert.ok(Array.isArray(reconcile.json?.blockingIssues));
+  assert.equal(reconcile.json?.blockingIssues?.length, 0);
+
   const artifacts = await api.store.listArtifacts({ tenantId: "tenant_default" });
   const reconcileArtifacts = artifacts.filter((artifact) => artifact?.artifactType === "MoneyRailReconcileReport.v1");
   assert.equal(reconcileArtifacts.length, 1);

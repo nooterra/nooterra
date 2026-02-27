@@ -11,6 +11,7 @@ Status:
 Runtime config:
 - `COORDINATOR_DID` (or `PROXY_COORDINATOR_DID`): local coordinator DID-like identifier.
 - `PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS`: comma-separated trusted peer coordinator DIDs.
+- `PROXY_FEDERATION_NAMESPACE_ROUTES`: JSON object mapping target coordinator DID -> absolute federation upstream base URL.
 - `PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM` + `PROXY_COORDINATOR_SIGNING_KEY_ID`: optional envelope signing key material.
 
 Fail-closed rules:
@@ -18,6 +19,7 @@ Fail-closed rules:
 - When federation is enabled, local coordinator identity MUST be configured (`COORDINATOR_DID` or `PROXY_COORDINATOR_DID`). Missing local identity is a hard startup error.
 - When `PROXY_COORDINATOR_SIGNING_PRIVATE_KEY_PEM` is configured, `PROXY_COORDINATOR_SIGNING_KEY_ID` MUST also be configured. Missing key id is a hard startup error.
 - Unknown or untrusted peer coordinator DIDs MUST be rejected at trust evaluation boundaries.
+- Namespace route selection MUST use exact target DID lookup; missing target DID route MUST fail closed when namespace routing config is enabled.
 - Implementations MUST emit deterministic error codes for identity/trust/signing failures and MUST NOT continue with best-effort federation delivery.
 
 Trust boundary:
@@ -59,6 +61,7 @@ Routing semantics:
 - Namespace routing MUST be exact-match DID-based (no prefix, substring, alias, or heuristic routing).
 - If the selected remote DID is not trusted/known, dispatch MUST fail closed.
 - If federation transport for the selected namespace is unavailable/unsupported, dispatch MUST fail closed.
+- If namespace routing table is configured, missing exact target DID mapping MUST return `FEDERATION_NAMESPACE_ROUTE_MISSING`.
 
 ## Signature and verification model
 
@@ -73,6 +76,8 @@ Required structured logs:
 - `federation_invoke_received`
 - `federation_result_received`
 - `federation_signature_invalid`
+- `federation_replay_duplicate`
+- `federation_replay_conflict`
 
 Recommended fields:
 - `originDid`, `targetDid`, `capabilityId`, `invocationId`, `status`, `latencyMs`
@@ -82,3 +87,27 @@ Recommended fields:
 - honest-but-buggy peers by default.
 - explicit trust allowlists (no implicit open federation).
 - fail-closed on identity mismatch, trust mismatch, signature mismatch, and protocol-version mismatch.
+- fail-closed on replay hash conflicts for identical envelope identity keys.
+
+## Deterministic replay and conflict semantics
+
+Cross-plane replay identity key:
+- `endpoint`
+- `type`
+- `invocationId`
+- `originDid`
+- `targetDid`
+
+Replay handling:
+- If the same identity key and same canonical envelope hash is received again, return deterministic duplicate replay (`x-federation-replay=duplicate`) without re-forwarding upstream.
+- If the same identity key is reused with a different canonical envelope hash, fail closed with `409 FEDERATION_ENVELOPE_CONFLICT`.
+
+Deterministic fail-closed reason codes (minimum):
+- `FEDERATION_NOT_CONFIGURED`
+- `FEDERATION_IDENTITY_NOT_CONFIGURED`
+- `FEDERATION_TRUST_NOT_CONFIGURED`
+- `FEDERATION_UNTRUSTED_COORDINATOR`
+- `FEDERATION_NAMESPACE_ROUTE_MISSING`
+- `FEDERATION_PROTOCOL_VERSION_MISMATCH`
+- `FEDERATION_ENVELOPE_TYPE_MISMATCH`
+- `FEDERATION_ENVELOPE_CONFLICT`

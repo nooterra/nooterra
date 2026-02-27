@@ -5,13 +5,31 @@ import test from "node:test";
 import { createApi } from "../src/api/app.js";
 import { request } from "./api-test-harness.js";
 
-function withEnv(key, value) {
-  const prev = Object.prototype.hasOwnProperty.call(process.env, key) ? process.env[key] : undefined;
-  if (value === undefined || value === null) delete process.env[key];
-  else process.env[key] = String(value);
+const FED_KEYS = [
+  "FEDERATION_PROXY_BASE_URL",
+  "PROXY_FEDERATION_BASE_URL",
+  "COORDINATOR_DID",
+  "PROXY_COORDINATOR_DID",
+  "PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS",
+  "PROXY_FEDERATION_NAMESPACE_ROUTES"
+];
+
+function withEnvMap(overrides = {}) {
+  const prev = new Map();
+  for (const key of FED_KEYS) {
+    prev.set(key, Object.prototype.hasOwnProperty.call(process.env, key) ? process.env[key] : undefined);
+    delete process.env[key];
+  }
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined || value === null) delete process.env[key];
+    else process.env[key] = String(value);
+  }
   return () => {
-    if (prev === undefined) delete process.env[key];
-    else process.env[key] = prev;
+    for (const key of FED_KEYS) {
+      const value = prev.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   };
 }
 
@@ -28,14 +46,41 @@ async function listen(server) {
   return `http://127.0.0.1:${address.port}`;
 }
 
+function invokeEnvelope({ invocationId = "inv_1", originDid = "did:nooterra:coord_alpha", targetDid = "did:nooterra:coord_bravo" } = {}) {
+  return {
+    version: "1.0",
+    type: "coordinatorInvoke",
+    invocationId,
+    originDid,
+    targetDid,
+    capabilityId: "capability.dispatch.v1",
+    payload: { op: "ping" }
+  };
+}
+
+function resultEnvelope({ invocationId = "inv_1", originDid = "did:nooterra:coord_bravo", targetDid = "did:nooterra:coord_alpha" } = {}) {
+  return {
+    version: "1.0",
+    type: "coordinatorResult",
+    invocationId,
+    originDid,
+    targetDid,
+    status: "success",
+    result: { ok: true }
+  };
+}
+
 test("api federation proxy: fails closed when federation base URL is not configured", async () => {
-  const restore = withEnv("FEDERATION_PROXY_BASE_URL", null);
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
   try {
     const api = createApi();
     const res = await request(api, {
       method: "POST",
       path: "/v1/federation/invoke",
-      body: { op: "ping" },
+      body: invokeEnvelope(),
       auth: "none"
     });
 
@@ -47,7 +92,11 @@ test("api federation proxy: fails closed when federation base URL is not configu
 });
 
 test("api federation proxy: fails closed when fetch is unavailable", { concurrency: false }, async () => {
-  const restoreEnv = withEnv("FEDERATION_PROXY_BASE_URL", "https://federation.nooterra.test");
+  const restoreEnv = withEnvMap({
+    FEDERATION_PROXY_BASE_URL: "https://federation.nooterra.test",
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
   const prevFetch = globalThis.fetch;
   try {
     const api = createApi();
@@ -55,7 +104,7 @@ test("api federation proxy: fails closed when fetch is unavailable", { concurren
     const res = await request(api, {
       method: "POST",
       path: "/v1/federation/result",
-      body: { status: "ok" },
+      body: resultEnvelope(),
       auth: "none"
     });
 
@@ -67,48 +116,206 @@ test("api federation proxy: fails closed when fetch is unavailable", { concurren
   }
 });
 
-test("api federation proxy: forwards request semantics to configured local upstream", async () => {
+test("api federation proxy: fails closed when envelope is malformed", async () => {
+  const restore = withEnvMap({
+    FEDERATION_PROXY_BASE_URL: "https://federation.nooterra.test",
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
+  try {
+    const api = createApi();
+    const res = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: { not: "envelope" },
+      auth: "none"
+    });
+
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.json?.code, "FEDERATION_PROTOCOL_VERSION_MISMATCH");
+  } finally {
+    restore();
+  }
+});
+
+test("api federation proxy: fails closed when federation peer is untrusted", async () => {
+  const restore = withEnvMap({
+    FEDERATION_PROXY_BASE_URL: "https://federation.nooterra.test",
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_charlie"
+  });
+  try {
+    const api = createApi();
+    const res = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: invokeEnvelope(),
+      auth: "none"
+    });
+
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.json?.code, "FEDERATION_UNTRUSTED_COORDINATOR");
+  } finally {
+    restore();
+  }
+});
+
+test("api federation proxy: routes by namespace DID with explicit route map", async () => {
+  const callsA = [];
+  const callsB = [];
+  const upstreamA = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      callsA.push({ url: req.url, headers: req.headers, body: Buffer.concat(chunks).toString("utf8") });
+      res.statusCode = 201;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ ok: true, route: "A" }));
+    });
+  });
+  const upstreamB = http.createServer((req, res) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("end", () => {
+      callsB.push({ url: req.url, headers: req.headers, body: Buffer.concat(chunks).toString("utf8") });
+      res.statusCode = 202;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.end(JSON.stringify({ ok: true, route: "B" }));
+    });
+  });
+
+  const baseUrlA = await listen(upstreamA);
+  const baseUrlB = await listen(upstreamB);
+
+  const restore = withEnvMap({
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo,did:nooterra:coord_charlie",
+    PROXY_FEDERATION_NAMESPACE_ROUTES: JSON.stringify({
+      "did:nooterra:coord_bravo": baseUrlA,
+      "did:nooterra:coord_charlie": baseUrlB
+    })
+  });
+
+  try {
+    const api = createApi();
+
+    const toBravo = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: invokeEnvelope({ invocationId: "inv_route_1", targetDid: "did:nooterra:coord_bravo" }),
+      auth: "none"
+    });
+    const toCharlie = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: invokeEnvelope({ invocationId: "inv_route_2", targetDid: "did:nooterra:coord_charlie" }),
+      auth: "none"
+    });
+
+    assert.equal(toBravo.statusCode, 201);
+    assert.equal(toCharlie.statusCode, 202);
+    assert.equal(callsA.length, 1);
+    assert.equal(callsB.length, 1);
+    assert.equal(callsA[0].headers["x-federation-namespace-did"], "did:nooterra:coord_bravo");
+    assert.equal(callsB[0].headers["x-federation-namespace-did"], "did:nooterra:coord_charlie");
+  } finally {
+    restore();
+    await new Promise((resolve) => upstreamA.close(resolve));
+    await new Promise((resolve) => upstreamB.close(resolve));
+  }
+});
+
+test("api federation proxy: deterministic replay returns stored response without second upstream call", async () => {
   const calls = [];
   const upstream = http.createServer((req, res) => {
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
     req.on("end", () => {
-      calls.push({
-        method: req.method,
-        url: req.url,
-        headers: req.headers,
-        body: Buffer.concat(chunks).toString("utf8")
-      });
+      calls.push({ url: req.url, body: Buffer.concat(chunks).toString("utf8") });
       res.statusCode = 201;
       res.setHeader("content-type", "application/json; charset=utf-8");
-      res.end(JSON.stringify({ ok: true, upstream: "federation" }));
+      res.end(JSON.stringify({ ok: true, upstream: "federation", call: calls.length }));
     });
   });
 
   const baseUrl = await listen(upstream);
-  const restore = withEnv("FEDERATION_PROXY_BASE_URL", baseUrl);
+  const restore = withEnvMap({
+    FEDERATION_PROXY_BASE_URL: baseUrl,
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
+
   try {
     const api = createApi();
-    const res = await request(api, {
+    const payload = invokeEnvelope({ invocationId: "inv_replay_1" });
+
+    const first = await request(api, {
       method: "POST",
-      path: "/v1/federation/invoke?trace=1",
-      body: { taskId: "task_123", intent: "invoke" },
-      headers: {
-        "x-request-id": "req_fed_proxy_1",
-        "x-federation-trace": "trace_abc"
+      path: "/v1/federation/invoke",
+      body: payload,
+      auth: "none"
+    });
+    const second = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: payload,
+      auth: "none"
+    });
+
+    assert.equal(first.statusCode, 201);
+    assert.equal(second.statusCode, 201);
+    assert.equal(second.json?.call, 1);
+    assert.equal(second.headers?.get?.("x-federation-replay"), "duplicate");
+    assert.equal(calls.length, 1);
+  } finally {
+    restore();
+    await new Promise((resolve) => upstream.close(resolve));
+  }
+});
+
+test("api federation proxy: conflict on same invocation identity with different payload hash", async () => {
+  const calls = [];
+  const upstream = http.createServer((req, res) => {
+    req.resume();
+    calls.push(req.url);
+    res.statusCode = 201;
+    res.setHeader("content-type", "application/json; charset=utf-8");
+    res.end(JSON.stringify({ ok: true }));
+  });
+
+  const baseUrl = await listen(upstream);
+  const restore = withEnvMap({
+    FEDERATION_PROXY_BASE_URL: baseUrl,
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
+
+  try {
+    const api = createApi();
+
+    const first = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: invokeEnvelope({ invocationId: "inv_conflict_1", capabilityId: "capability.dispatch.v1" }),
+      auth: "none"
+    });
+
+    const second = await request(api, {
+      method: "POST",
+      path: "/v1/federation/invoke",
+      body: {
+        ...invokeEnvelope({ invocationId: "inv_conflict_1", capabilityId: "capability.dispatch.v1" }),
+        payload: { op: "different" }
       },
       auth: "none"
     });
 
-    assert.equal(res.statusCode, 201);
-    assert.equal(res.json?.ok, true);
+    assert.equal(first.statusCode, 201);
+    assert.equal(second.statusCode, 409);
+    assert.equal(second.json?.code, "FEDERATION_ENVELOPE_CONFLICT");
+    assert.equal(Array.isArray(second.json?.details?.requestSha256Values), true);
+    assert.equal(second.json.details.requestSha256Values.length, 2);
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].method, "POST");
-    assert.equal(calls[0].url, "/v1/federation/invoke?trace=1");
-    assert.equal(calls[0].body, JSON.stringify({ taskId: "task_123", intent: "invoke" }));
-    assert.equal(calls[0].headers["x-request-id"], "req_fed_proxy_1");
-    assert.equal(calls[0].headers["x-federation-trace"], "trace_abc");
-    assert.equal(calls[0].headers["content-type"], "application/json");
   } finally {
     restore();
     await new Promise((resolve) => upstream.close(resolve));
@@ -131,13 +338,17 @@ test("api federation proxy: fails closed when upstream attempts redirect", async
 
   const redirectedTargetBaseUrl = await listen(redirectedTarget);
   const redirectingBaseUrl = await listen(redirectingUpstream);
-  const restore = withEnv("FEDERATION_PROXY_BASE_URL", redirectingBaseUrl);
+  const restore = withEnvMap({
+    FEDERATION_PROXY_BASE_URL: redirectingBaseUrl,
+    COORDINATOR_DID: "did:nooterra:coord_alpha",
+    PROXY_FEDERATION_TRUSTED_COORDINATOR_DIDS: "did:nooterra:coord_bravo"
+  });
   try {
     const api = createApi();
     const res = await request(api, {
       method: "POST",
       path: "/v1/federation/invoke",
-      body: { taskId: "task_redirect_1", intent: "invoke" },
+      body: invokeEnvelope({ invocationId: "inv_redirect_1" }),
       auth: "none"
     });
 

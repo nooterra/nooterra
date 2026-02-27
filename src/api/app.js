@@ -381,6 +381,8 @@ import {
 } from "../core/contract-document.js";
 import { CONTRACT_COMPILER_ID, compileBookingPolicySnapshot, compileContractPolicyTemplate } from "../core/contract-compiler.js";
 import { reconcileGlBatchAgainstPartyStatements } from "../../packages/artifact-verify/src/index.js";
+import { buildFederationProxyPolicy, evaluateFederationTrustAndRoute, validateFederationEnvelope } from "../federation/proxy-policy.js";
+import { createFederationReplayLedger } from "./federation/replay-ledger.js";
 
 export function createApi({
   store = createStore(),
@@ -603,6 +605,11 @@ export function createApi({
     federationProxyBaseUrlRaw && String(federationProxyBaseUrlRaw).trim() !== ""
       ? normalizeOptionalAbsoluteUrl(String(federationProxyBaseUrlRaw).trim(), { fieldName: "FEDERATION_PROXY_BASE_URL" })?.replace(/\/+$/, "")
       : null;
+  const federationProxyPolicy = buildFederationProxyPolicy({
+    env: typeof process !== "undefined" ? process.env : {},
+    fallbackBaseUrl: federationProxyBaseUrl
+  });
+  const federationReplayLedger = createFederationReplayLedger();
 
   function setProtocolResponseHeaders(res) {
     try {
@@ -19411,6 +19418,170 @@ export function createApi({
     return queue;
   }
 
+  const FINANCE_RECONCILIATION_REPORT_SCHEMA_VERSION = "FinanceReconciliationReport.v1";
+  const MONEY_RAIL_RECONCILIATION_REPORT_SCHEMA_VERSION = "MoneyRailReconciliationReport.v1";
+
+  function buildReconciliationCheck({ id, ok, details = null } = {}) {
+    const normalizedId = normalizeNonEmptyStringOrNull(id);
+    if (!normalizedId) throw new TypeError("reconciliation check id is required");
+    const check = {
+      id: normalizedId,
+      ok: ok === true
+    };
+    if (details && typeof details === "object" && !Array.isArray(details)) {
+      check.details = normalizeForCanonicalJson(details, { path: "$.check.details" });
+    }
+    return normalizeForCanonicalJson(check, { path: "$.check" });
+  }
+
+  function buildBlockingIssuesFromChecks({ checks, defaultCodePrefix = "RECONCILE_CHECK_FAILED" } = {}) {
+    const rows = Array.isArray(checks) ? checks : [];
+    const issues = [];
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || row.ok === true) continue;
+      issues.push(
+        normalizeForCanonicalJson(
+          {
+            checkId: String(row.id ?? ""),
+            code: `${defaultCodePrefix}:${String(row.id ?? "").toUpperCase()}`,
+            details:
+              row.details && typeof row.details === "object" && !Array.isArray(row.details)
+                ? normalizeForCanonicalJson(row.details, { path: "$.blockingIssue.details" })
+                : null
+          },
+          { path: "$.blockingIssue" }
+        )
+      );
+    }
+    return issues;
+  }
+
+  function buildFinanceReconciliationDeterministicReport({ reconcile, inputs } = {}) {
+    const mismatchCodes = Array.isArray(reconcile?.mismatchCodes)
+      ? reconcile.mismatchCodes
+        .map((row) => String(row ?? "").trim())
+        .filter(Boolean)
+      : [];
+    const checks = [
+      buildReconciliationCheck({
+        id: "gl_batch_input_bound",
+        ok: Boolean(inputs?.glBatchArtifactId && inputs?.glBatchArtifactHash),
+        details: {
+          glBatchArtifactId: inputs?.glBatchArtifactId ?? null,
+          glBatchArtifactHash: inputs?.glBatchArtifactHash ?? null
+        }
+      }),
+      buildReconciliationCheck({
+        id: "party_statement_inputs_bound",
+        ok: Array.isArray(inputs?.partyStatementArtifactIds) && inputs.partyStatementArtifactIds.length > 0,
+        details: {
+          partyStatementCount: Array.isArray(inputs?.partyStatementArtifactIds) ? inputs.partyStatementArtifactIds.length : 0
+        }
+      }),
+      buildReconciliationCheck({
+        id: "reconcile_engine_ok",
+        ok: reconcile?.ok === true,
+        details: {
+          reconcileOk: reconcile?.ok === true,
+          error: normalizeNonEmptyStringOrNull(reconcile?.error) ?? null
+        }
+      }),
+      buildReconciliationCheck({
+        id: "reconcile_mismatch_codes_empty",
+        ok: mismatchCodes.length === 0,
+        details: {
+          mismatchCodes
+        }
+      })
+    ];
+    const blockingIssues = buildBlockingIssuesFromChecks({ checks, defaultCodePrefix: "FINANCE_RECONCILE_CHECK_FAILED" });
+    const status = blockingIssues.length === 0 ? "pass" : "fail";
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: FINANCE_RECONCILIATION_REPORT_SCHEMA_VERSION,
+        status,
+        checks,
+        blockingIssues
+      },
+      { path: "$.financeReconcileReport" }
+    );
+  }
+
+  function buildMoneyRailReconciliationDeterministicReport({ summary, mismatches } = {}) {
+    const mismatchGroups = mismatches && typeof mismatches === "object" && !Array.isArray(mismatches) ? mismatches : {};
+    const expectedPayoutCount = Number.isSafeInteger(summary?.expectedPayoutCount) ? summary.expectedPayoutCount : 0;
+    const matchedCount = Number.isSafeInteger(summary?.matchedCount) ? summary.matchedCount : 0;
+    const groupLength = (field) => (Array.isArray(mismatchGroups?.[field]) ? mismatchGroups[field].length : 0);
+    const computedCriticalMismatchCount =
+      groupLength("missingOperations") +
+      groupLength("amountMismatches") +
+      groupLength("currencyMismatches") +
+      groupLength("terminalFailures") +
+      groupLength("unexpectedOperations") +
+      groupLength("duplicateExpected");
+    const checks = [
+      buildReconciliationCheck({
+        id: "expected_payout_count_bound",
+        ok: expectedPayoutCount >= 0,
+        details: { expectedPayoutCount }
+      }),
+      buildReconciliationCheck({
+        id: "matched_count_consistent",
+        ok: matchedCount <= expectedPayoutCount,
+        details: { matchedCount, expectedPayoutCount }
+      }),
+      buildReconciliationCheck({
+        id: "missing_operations_empty",
+        ok: groupLength("missingOperations") === 0,
+        details: { count: groupLength("missingOperations") }
+      }),
+      buildReconciliationCheck({
+        id: "amount_mismatches_empty",
+        ok: groupLength("amountMismatches") === 0,
+        details: { count: groupLength("amountMismatches") }
+      }),
+      buildReconciliationCheck({
+        id: "currency_mismatches_empty",
+        ok: groupLength("currencyMismatches") === 0,
+        details: { count: groupLength("currencyMismatches") }
+      }),
+      buildReconciliationCheck({
+        id: "terminal_failures_empty",
+        ok: groupLength("terminalFailures") === 0,
+        details: { count: groupLength("terminalFailures") }
+      }),
+      buildReconciliationCheck({
+        id: "unexpected_operations_empty",
+        ok: groupLength("unexpectedOperations") === 0,
+        details: { count: groupLength("unexpectedOperations") }
+      }),
+      buildReconciliationCheck({
+        id: "duplicate_expected_empty",
+        ok: groupLength("duplicateExpected") === 0,
+        details: { count: groupLength("duplicateExpected") }
+      }),
+      buildReconciliationCheck({
+        id: "critical_mismatch_count_consistent",
+        ok: Number.isSafeInteger(summary?.criticalMismatchCount) && summary.criticalMismatchCount === computedCriticalMismatchCount,
+        details: {
+          criticalMismatchCount: Number.isSafeInteger(summary?.criticalMismatchCount) ? summary.criticalMismatchCount : null,
+          computedCriticalMismatchCount
+        }
+      })
+    ];
+    const blockingIssues = buildBlockingIssuesFromChecks({ checks, defaultCodePrefix: "MONEY_RAIL_RECONCILE_CHECK_FAILED" });
+    const status = blockingIssues.length === 0 ? "pass" : "fail";
+    return normalizeForCanonicalJson(
+      {
+        schemaVersion: MONEY_RAIL_RECONCILIATION_REPORT_SCHEMA_VERSION,
+        status,
+        checks,
+        blockingIssues
+      },
+      { path: "$.moneyRailReconcileReport" }
+    );
+  }
+
   async function getFinanceReconciliationTriageRecord({ tenantId, triageKey }) {
     if (typeof store.getFinanceReconciliationTriage === "function") {
       return store.getFinanceReconciliationTriage({ tenantId, triageKey });
@@ -19759,8 +19930,18 @@ export function createApi({
     if (!partyStatements.length) throw makeHttpStatusError(404, "party statements not found");
 
     const reconcile = reconcileGlBatchAgainstPartyStatements({ glBatch, partyStatements });
-    const reconcileBytes = new TextEncoder().encode(`${canonicalJsonStringify(reconcile)}\n`);
-    const reportHash = sha256HexBytes(reconcileBytes);
+    const inputs = normalizeForCanonicalJson(
+      {
+        glBatchArtifactId: glBatch?.artifactId ?? null,
+        glBatchArtifactHash: glBatch?.artifactHash ?? null,
+        partyStatementArtifactIds: partyStatements.map((a) => a?.artifactId).filter((id) => typeof id === "string" && id.trim() !== ""),
+        partyStatementArtifactHashes: partyStatements.map((a) => a?.artifactHash).filter((hash) => typeof hash === "string" && hash.trim() !== "")
+      },
+      { path: "$.inputs" }
+    );
+    const deterministicReport = buildFinanceReconciliationDeterministicReport({ reconcile, inputs });
+    const reportBytes = new TextEncoder().encode(`${canonicalJsonStringify(deterministicReport)}\n`);
+    const reportHash = sha256HexBytes(reportBytes);
 
     let artifactSummary = null;
     if (persist) {
@@ -19782,15 +19963,11 @@ export function createApi({
           period: normalizedPeriod,
           generatedAt,
           reportHash,
-          inputs: {
-            glBatchArtifactId: glBatch?.artifactId ?? null,
-            glBatchArtifactHash: glBatch?.artifactHash ?? null,
-            partyStatementArtifactIds: partyStatements.map((a) => a?.artifactId).filter((id) => typeof id === "string" && id.trim() !== ""),
-            partyStatementArtifactHashes: partyStatements
-              .map((a) => a?.artifactHash)
-              .filter((hash) => typeof hash === "string" && hash.trim() !== "")
-          },
-          reconcile
+          status: deterministicReport.status,
+          inputs,
+          reconcile,
+          checks: deterministicReport.checks,
+          blockingIssues: deterministicReport.blockingIssues
         },
         { path: "$" }
       );
@@ -19866,16 +20043,15 @@ export function createApi({
     }
 
     return {
+      schemaVersion: deterministicReport.schemaVersion,
       tenantId: normalizedTenantId,
       period: normalizedPeriod,
+      status: deterministicReport.status,
       reportHash,
       reconcile,
-      inputs: {
-        glBatchArtifactId: glBatch?.artifactId ?? null,
-        glBatchArtifactHash: glBatch?.artifactHash ?? null,
-        partyStatementArtifactIds: partyStatements.map((a) => a?.artifactId).filter((id) => typeof id === "string" && id.trim() !== ""),
-        partyStatementArtifactHashes: partyStatements.map((a) => a?.artifactHash).filter((hash) => typeof hash === "string" && hash.trim() !== "")
-      },
+      inputs,
+      checks: deterministicReport.checks,
+      blockingIssues: deterministicReport.blockingIssues,
       artifact: artifactSummary,
       triageQueue,
       triageSummary
@@ -20059,7 +20235,6 @@ export function createApi({
       terminalFailures.length +
       unexpectedOperations.length +
       duplicateExpected.length;
-    const status = criticalMismatchCount === 0 ? "pass" : "fail";
     const mismatchRows = {
       missingOperations,
       amountMismatches,
@@ -20079,6 +20254,11 @@ export function createApi({
       criticalMismatchCount,
       operationStateCounts
     };
+    const deterministicReport = buildMoneyRailReconciliationDeterministicReport({
+      summary,
+      mismatches: mismatchRows
+    });
+    const status = deterministicReport.status;
     const reportCore = normalizeForCanonicalJson(
       {
         schemaVersion: MONEY_RAIL_RECONCILE_REPORT_ARTIFACT_TYPE,
@@ -20087,7 +20267,9 @@ export function createApi({
         providerId: normalizedProviderId,
         status,
         summary,
-        mismatches: mismatchRows
+        mismatches: mismatchRows,
+        checks: deterministicReport.checks,
+        blockingIssues: deterministicReport.blockingIssues
       },
       { path: "$" }
     );
@@ -20185,6 +20367,7 @@ export function createApi({
 
     return {
       ok: true,
+      schemaVersion: deterministicReport.schemaVersion,
       tenantId: normalizedTenantId,
       period: normalizedPeriod,
       providerId: normalizedProviderId,
@@ -20192,6 +20375,8 @@ export function createApi({
       reportHash,
       summary,
       mismatches: mismatchRows,
+      checks: deterministicReport.checks,
+      blockingIssues: deterministicReport.blockingIssues,
       artifact: artifactSummary,
       triageQueue: triageDecorated.queue,
       triageSummary: triageDecorated.summary
@@ -28402,6 +28587,9 @@ export function createApi({
       p.startsWith("/agent-cards") ||
       p.startsWith("/capability-attestations") ||
       p.startsWith("/work-orders") ||
+      p.startsWith("/delegation-grants") ||
+      p.startsWith("/authority-grants") ||
+      p.startsWith("/agreements") ||
       p.startsWith("/agents") ||
       p.startsWith("/tool-calls") ||
       p.startsWith("/jobs")
@@ -28965,21 +29153,11 @@ export function createApi({
   }
 
   async function proxyFederationRequest(req, res, { path, search, requestId }) {
-    if (!federationProxyBaseUrl) {
-      return sendError(
-        res,
-        503,
-        "federation proxy is not configured on this API host",
-        { env: "FEDERATION_PROXY_BASE_URL" },
-        { code: "FEDERATION_NOT_CONFIGURED" }
-      );
-    }
     const upstreamFetch = typeof fetchFn === "function" ? fetchFn : globalThis.fetch;
     if (typeof upstreamFetch !== "function") {
       return sendError(res, 500, "federation proxy fetch is unavailable", null, { code: "FEDERATION_FETCH_UNAVAILABLE" });
     }
-
-    const targetUrl = new URL(`${path}${search || ""}`, `${federationProxyBaseUrl}/`).toString();
+    const endpoint = path === "/v1/federation/result" ? "result" : "invoke";
     const upstreamHeaders = new Headers();
     for (const [nameRaw, valueRaw] of Object.entries(req.headers ?? {})) {
       const name = String(nameRaw ?? "").toLowerCase();
@@ -28997,12 +29175,102 @@ export function createApi({
     }
 
     let body = undefined;
+    let bodyText = "";
+    let parsedBody = null;
     const method = String(req.method ?? "").toUpperCase();
     if (ONBOARDING_PROXY_BODY_METHODS.has(method)) {
       const raw = await readRawBody(req);
-      if (raw && raw.length > 0) body = raw;
+      if (raw && raw.length > 0) {
+        body = raw;
+        bodyText = raw.toString("utf8");
+      }
     }
 
+    if (!bodyText) {
+      return sendError(res, 400, "federation envelope body is required", null, { code: "FEDERATION_ENVELOPE_INVALID" });
+    }
+    try {
+      parsedBody = JSON.parse(bodyText);
+    } catch (err) {
+      return sendError(
+        res,
+        400,
+        "federation envelope body must be valid JSON",
+        { message: err?.message ?? String(err ?? "") },
+        { code: "FEDERATION_ENVELOPE_INVALID_JSON" }
+      );
+    }
+
+    const envelopeCheck = validateFederationEnvelope({ endpoint, body: parsedBody });
+    if (!envelopeCheck.ok) {
+      return sendError(
+        res,
+        envelopeCheck.statusCode ?? 400,
+        envelopeCheck.message ?? "invalid federation envelope",
+        envelopeCheck.details ?? null,
+        { code: envelopeCheck.code ?? "FEDERATION_ENVELOPE_INVALID" }
+      );
+    }
+    const routeCheck = evaluateFederationTrustAndRoute({
+      endpoint,
+      envelope: envelopeCheck.envelope,
+      policy: federationProxyPolicy
+    });
+    if (!routeCheck.ok) {
+      return sendError(
+        res,
+        routeCheck.statusCode ?? 503,
+        routeCheck.message ?? "federation request denied",
+        routeCheck.details ?? null,
+        { code: routeCheck.code ?? "FEDERATION_REQUEST_DENIED" }
+      );
+    }
+
+    upstreamHeaders.set("x-federation-namespace-did", routeCheck.namespaceDid);
+
+    const requestHash = sha256Hex(canonicalJsonStringify(normalizeForCanonicalJson(parsedBody, { path: "$" })));
+    const replayKey = [
+      endpoint,
+      envelopeCheck.envelope.type,
+      envelopeCheck.envelope.invocationId,
+      envelopeCheck.envelope.originDid,
+      envelopeCheck.envelope.targetDid
+    ].join("\n");
+    const replayClaim = federationReplayLedger.claim({ key: replayKey, requestHash });
+    if (replayClaim.type === "conflict") {
+      return sendError(
+        res,
+        409,
+        "federation envelope conflict",
+        {
+          invocationId: envelopeCheck.envelope.invocationId,
+          requestSha256Values: [replayClaim.expectedHash, replayClaim.actualHash].sort()
+        },
+        { code: "FEDERATION_ENVELOPE_CONFLICT" }
+      );
+    }
+    if (replayClaim.type === "in_flight") {
+      return sendError(res, 409, "federation envelope replay currently in-flight", null, { code: "FEDERATION_ENVELOPE_IN_FLIGHT" });
+    }
+    if (replayClaim.type === "replay") {
+      res.statusCode = replayClaim.response.statusCode;
+      for (const [name, value] of Object.entries(replayClaim.response.headers ?? {})) {
+        if (!name || HOP_BY_HOP_HEADERS.has(String(name).toLowerCase())) continue;
+        try {
+          res.setHeader(name, value);
+        } catch {
+          // ignore invalid header copy
+        }
+      }
+      try {
+        res.setHeader("x-federation-replay", "duplicate");
+      } catch {
+        // ignore
+      }
+      return res.end(replayClaim.response.bodyBytes);
+    }
+
+    const targetUrl = new URL(`${path}${search || ""}`, `${routeCheck.upstreamBaseUrl}/`).toString();
     let upstreamRes;
     try {
       upstreamRes = await upstreamFetch(targetUrl, {
@@ -29012,6 +29280,7 @@ export function createApi({
         redirect: "error"
       });
     } catch (err) {
+      federationReplayLedger.release({ key: replayKey, requestHash });
       return sendError(
         res,
         502,
@@ -29022,10 +29291,12 @@ export function createApi({
     }
 
     const bytes = Buffer.from(await upstreamRes.arrayBuffer());
+    const replayHeaders = {};
     res.statusCode = upstreamRes.status;
     for (const [name, value] of upstreamRes.headers.entries()) {
       const n = String(name ?? "").toLowerCase();
       if (!n || HOP_BY_HOP_HEADERS.has(n)) continue;
+      replayHeaders[n] = value;
       try {
         res.setHeader(n, value);
       } catch {
@@ -29040,6 +29311,15 @@ export function createApi({
     } catch {
       // ignore
     }
+    federationReplayLedger.complete({
+      key: replayKey,
+      requestHash,
+      response: {
+        statusCode: upstreamRes.status,
+        headers: replayHeaders,
+        bodyBytes: bytes
+      }
+    });
     return res.end(bytes);
   }
 
@@ -29208,6 +29488,61 @@ export function createApi({
           } catch {
             return null;
           }
+        }
+
+        function isGovernanceAuditAction(action) {
+          const normalized = typeof action === "string" ? action.trim().toUpperCase() : "";
+          if (!normalized) return false;
+          return (
+            normalized.startsWith("EMERGENCY_CONTROL_") ||
+            normalized.startsWith("DELEGATION_GRANT_") ||
+            normalized.startsWith("AUTHORITY_GRANT_")
+          );
+        }
+
+        function inferAuditDecisionOutcome(action) {
+          const normalized = typeof action === "string" ? action.trim().toUpperCase() : "";
+          if (!normalized) return "other";
+          if (normalized.includes("_DENY") || normalized.includes("_BLOCKED")) return "denied";
+          if (normalized.includes("_REVOKE")) return "revoked";
+          if (normalized.includes("KILL_SWITCH")) return "kill_switch";
+          if (normalized.includes("QUARANTINE")) return "quarantine";
+          if (normalized.includes("PAUSE")) return "paused";
+          if (normalized.includes("RESUME")) return "resumed";
+          if (normalized.includes("_ISSUE") || normalized.includes("_CREATE") || normalized.includes("_UPSERT")) return "granted";
+          return "other";
+        }
+
+        function extractAuditLinkedRefs(row, details) {
+          const targetType = typeof row?.targetType === "string" ? row.targetType.trim() : "";
+          const targetId = typeof row?.targetId === "string" && row.targetId.trim() !== "" ? row.targetId.trim() : null;
+          const operatorAction =
+            details?.operatorAction && typeof details.operatorAction === "object" && !Array.isArray(details.operatorAction)
+              ? details.operatorAction
+              : null;
+          const caseRef =
+            operatorAction?.action?.caseRef && typeof operatorAction.action.caseRef === "object" && !Array.isArray(operatorAction.action.caseRef)
+              ? operatorAction.action.caseRef
+              : null;
+          return normalizeForCanonicalJson(
+            {
+              caseId:
+                (typeof details?.caseId === "string" && details.caseId.trim() !== "" ? details.caseId.trim() : null) ??
+                (typeof caseRef?.caseId === "string" && caseRef.caseId.trim() !== "" ? caseRef.caseId.trim() : null),
+              receiptId: typeof details?.receiptId === "string" && details.receiptId.trim() !== "" ? details.receiptId.trim() : null,
+              runId: typeof details?.runId === "string" && details.runId.trim() !== "" ? details.runId.trim() : null,
+              gateId: typeof details?.gateId === "string" && details.gateId.trim() !== "" ? details.gateId.trim() : null,
+              escalationId: typeof details?.escalationId === "string" && details.escalationId.trim() !== "" ? details.escalationId.trim() : null,
+              delegationGrantId:
+                (typeof details?.grantId === "string" && details.grantId.trim() !== "" ? details.grantId.trim() : null) ??
+                (targetType === "delegation_grant" ? targetId : null),
+              authorityGrantId:
+                (typeof details?.grantId === "string" && details.grantId.trim() !== "" ? details.grantId.trim() : null) ??
+                (targetType === "authority_grant" ? targetId : null),
+              emergencyControlRef: targetType === "emergency_control" ? targetId : null
+            },
+            { path: "$.linkedRefs" }
+          );
         }
 
         async function appendBillingProviderIngestAudit(
@@ -36630,11 +36965,15 @@ export function createApi({
 
             return sendJson(res, 200, {
               ok: true,
+              schemaVersion: report.schemaVersion,
               tenantId: report.tenantId,
               period: report.period,
+              status: report.status,
               reportHash: report.reportHash,
               reconcile: report.reconcile,
               inputs: report.inputs,
+              checks: report.checks,
+              blockingIssues: report.blockingIssues,
               artifact: report.artifact,
               triageQueue: report.triageQueue,
               triageSummary: report.triageSummary
@@ -38094,6 +38433,145 @@ export function createApi({
             return sendError(res, 400, "invalid audit query", { message: err?.message });
           }
           return sendJson(res, 200, { audit: records });
+        }
+
+        if (opsSubresource === "audit" && parts[2] === "export" && parts.length === 3 && req.method === "GET") {
+          if (!requireScope(auth.scopes, OPS_SCOPES.OPS_READ)) return sendError(res, 403, "forbidden");
+          if (typeof store.listOpsAudit !== "function") return sendError(res, 501, "ops audit not supported for this store");
+
+          const limitRaw = url.searchParams.get("limit");
+          const offsetRaw = url.searchParams.get("offset");
+          const limit = limitRaw === null || limitRaw === "" ? 500 : Number(limitRaw);
+          const offset = offsetRaw === null || offsetRaw === "" ? 0 : Number(offsetRaw);
+          if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+            return sendError(res, 400, "invalid audit export query", { message: "limit must be an integer in range 1..2000" }, { code: "SCHEMA_INVALID" });
+          }
+          if (!Number.isSafeInteger(offset) || offset < 0) {
+            return sendError(res, 400, "invalid audit export query", { message: "offset must be a non-negative integer" }, { code: "SCHEMA_INVALID" });
+          }
+
+          const domainRaw = url.searchParams.get("domain");
+          const domain = domainRaw === null || domainRaw === "" ? "governance" : String(domainRaw).trim().toLowerCase();
+          if (domain !== "governance" && domain !== "all") {
+            return sendError(res, 400, "invalid audit export query", { message: "domain must be governance|all" }, { code: "SCHEMA_INVALID" });
+          }
+          const requireReasonCodesRaw = url.searchParams.get("requireReasonCodes");
+          const requireReasonCodes =
+            requireReasonCodesRaw === null
+              ? true
+              : !["0", "false", "no", "off"].includes(String(requireReasonCodesRaw).trim().toLowerCase());
+
+          let records;
+          try {
+            records = await store.listOpsAudit({ tenantId, limit, offset });
+          } catch (err) {
+            return sendError(res, 400, "invalid audit export query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+          }
+
+          const scoped = (Array.isArray(records) ? records : []).filter((row) => {
+            const action = String(row?.action ?? "");
+            return domain === "all" ? Boolean(action) : isGovernanceAuditAction(action);
+          });
+          scoped.sort((left, right) => {
+            const leftMs = Number.isFinite(Date.parse(String(left?.at ?? ""))) ? Date.parse(String(left.at)) : Number.NaN;
+            const rightMs = Number.isFinite(Date.parse(String(right?.at ?? ""))) ? Date.parse(String(right.at)) : Number.NaN;
+            if (Number.isFinite(leftMs) && Number.isFinite(rightMs) && leftMs !== rightMs) return leftMs - rightMs;
+            return Number(left?.id ?? 0) - Number(right?.id ?? 0);
+          });
+
+          const rows = [];
+          for (const row of scoped) {
+            const action = typeof row?.action === "string" ? row.action.trim() : "";
+            const at = typeof row?.at === "string" && Number.isFinite(Date.parse(row.at)) ? new Date(row.at).toISOString() : null;
+            if (!action || !at) {
+              return sendError(
+                res,
+                409,
+                "ops audit export blocked",
+                { message: "audit row missing canonical action/at", auditId: row?.id ?? null },
+                { code: "AUDIT_EXPORT_BLOCKED" }
+              );
+            }
+            const details = normalizeAuditDetailsObject(row?.details);
+            const outcome = inferAuditDecisionOutcome(action);
+            const reasonCode =
+              typeof details.reasonCode === "string" && details.reasonCode.trim() !== ""
+                ? details.reasonCode.trim()
+                : typeof details.revocationReasonCode === "string" && details.revocationReasonCode.trim() !== ""
+                  ? details.revocationReasonCode.trim()
+                  : null;
+            const isDenialOutcome =
+              outcome === "denied" ||
+              outcome === "revoked" ||
+              outcome === "kill_switch" ||
+              outcome === "quarantine" ||
+              outcome === "paused";
+            if (requireReasonCodes && isDenialOutcome && !reasonCode) {
+              return sendError(
+                res,
+                409,
+                "ops audit export blocked",
+                { message: "reasonCode is required for denial/control rows", auditId: row?.id ?? null, action },
+                { code: "AUDIT_EXPORT_REASON_CODE_REQUIRED" }
+              );
+            }
+            rows.push(
+              normalizeForCanonicalJson(
+                {
+                  schemaVersion: "OpsAuditExportRow.v1",
+                  auditId: Number.isSafeInteger(Number(row?.id)) ? Number(row.id) : null,
+                  at,
+                  action,
+                  targetType: typeof row?.targetType === "string" && row.targetType.trim() !== "" ? row.targetType.trim() : null,
+                  targetId: typeof row?.targetId === "string" && row.targetId.trim() !== "" ? row.targetId.trim() : null,
+                  detailsHash: typeof row?.detailsHash === "string" && row.detailsHash.trim() !== "" ? row.detailsHash.trim() : null,
+                  actor: {
+                    keyId: typeof row?.actorKeyId === "string" && row.actorKeyId.trim() !== "" ? row.actorKeyId.trim() : null,
+                    principalId:
+                      typeof row?.actorPrincipalId === "string" && row.actorPrincipalId.trim() !== "" ? row.actorPrincipalId.trim() : null,
+                    operatorId:
+                      typeof details?.operatorAction?.action?.actor?.operatorId === "string" &&
+                      details.operatorAction.action.actor.operatorId.trim() !== ""
+                        ? details.operatorAction.action.actor.operatorId.trim()
+                        : null,
+                    role:
+                      typeof details?.operatorAction?.action?.actor?.role === "string" &&
+                      details.operatorAction.action.actor.role.trim() !== ""
+                        ? details.operatorAction.action.actor.role.trim()
+                        : null
+                  },
+                  decision: {
+                    outcome,
+                    reasonCode,
+                    reason: typeof details.reason === "string" && details.reason.trim() !== "" ? details.reason.trim() : null
+                  },
+                  linkedRefs: extractAuditLinkedRefs(row, details)
+                },
+                { path: "$" }
+              )
+            );
+          }
+
+          const generatedAt = rows.length > 0 ? rows[rows.length - 1].at : null;
+          const exportBodyWithoutHash = normalizeForCanonicalJson(
+            {
+              schemaVersion: "OpsAuditExport.v1",
+              tenantId,
+              domain,
+              requireReasonCodes,
+              generatedAt,
+              count: rows.length,
+              rows
+            },
+            { path: "$" }
+          );
+          const exportHash = sha256Hex(canonicalJsonStringify(exportBodyWithoutHash));
+          return sendJson(res, 200, {
+            export: {
+              ...exportBodyWithoutHash,
+              exportHash
+            }
+          });
         }
 
         if (isAuthKeyResource && parts.length === 2 && req.method === "GET") {
@@ -43584,7 +44062,19 @@ export function createApi({
             if (idemStoreKey) {
               ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
             }
-            await store.commitTx({ at: nowAt, ops });
+            await commitTx(ops, {
+              audit: makeOpsAudit({
+                action: "DELEGATION_GRANT_ISSUE",
+                targetType: "delegation_grant",
+                targetId: delegationGrant.grantId,
+                details: {
+                  grantId: delegationGrant.grantId,
+                  grantHash: delegationGrant.grantHash,
+                  delegatorAgentId: delegationGrant.delegatorAgentId,
+                  delegateeAgentId: delegationGrant.delegateeAgentId
+                }
+              })
+            });
             return sendJson(res, 201, responseBody);
           }
 
@@ -43683,7 +44173,21 @@ export function createApi({
             if (idemStoreKey) {
               ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
             }
-            await store.commitTx({ at, ops });
+            await commitTx(ops, {
+              audit: makeOpsAudit({
+                action: "DELEGATION_GRANT_REVOKE",
+                targetType: "delegation_grant",
+                targetId: revokedGrant.grantId,
+                details: {
+                  grantId: revokedGrant.grantId,
+                  grantHash: revokedGrant.grantHash,
+                  delegatorAgentId: revokedGrant.delegatorAgentId,
+                  delegateeAgentId: revokedGrant.delegateeAgentId,
+                  revocationReasonCode: revokedGrant?.revocation?.revocationReasonCode ?? null,
+                  reasonCode: revokedGrant?.revocation?.revocationReasonCode ?? null
+                }
+              })
+            });
             return sendJson(res, 200, responseBody);
           }
 
@@ -43798,7 +44302,19 @@ export function createApi({
             if (idemStoreKey) {
               ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } });
             }
-            await store.commitTx({ at: nowAt, ops });
+            await commitTx(ops, {
+              audit: makeOpsAudit({
+                action: "AUTHORITY_GRANT_ISSUE",
+                targetType: "authority_grant",
+                targetId: authorityGrant.grantId,
+                details: {
+                  grantId: authorityGrant.grantId,
+                  grantHash: authorityGrant.grantHash,
+                  principalRef: authorityGrant.principalRef ?? null,
+                  granteeAgentId: authorityGrant.granteeAgentId
+                }
+              })
+            });
             return sendJson(res, 201, responseBody);
           }
 
@@ -43897,7 +44413,21 @@ export function createApi({
             if (idemStoreKey) {
               ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } });
             }
-            await store.commitTx({ at, ops });
+            await commitTx(ops, {
+              audit: makeOpsAudit({
+                action: "AUTHORITY_GRANT_REVOKE",
+                targetType: "authority_grant",
+                targetId: revokedGrant.grantId,
+                details: {
+                  grantId: revokedGrant.grantId,
+                  grantHash: revokedGrant.grantHash,
+                  principalRef: revokedGrant.principalRef ?? null,
+                  granteeAgentId: revokedGrant.granteeAgentId,
+                  revocationReasonCode: revokedGrant?.revocation?.revocationReasonCode ?? null,
+                  reasonCode: revokedGrant?.revocation?.revocationReasonCode ?? null
+                }
+              })
+            });
             return sendJson(res, 200, responseBody);
           }
 	      }
@@ -60933,21 +61463,16 @@ export function createApi({
                         amountCents: settlement.amountCents
                       });
                     } catch {
-                      const fallbackReleaseRatePct = run.status === "failed" ? 0 : resolveRunSettlementReleaseRatePct({ run, verification });
-                      const fallbackReleaseAmountCents =
-                        fallbackReleaseRatePct <= 0
-                          ? 0
-                          : Math.min(settlement.amountCents, Math.floor((settlement.amountCents * fallbackReleaseRatePct) / 100));
                       policyDecision = {
-                        policy: null,
-                        verificationMethod: null,
-                        decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.AUTOMATIC,
-                        shouldAutoResolve: true,
-                        reasonCodes: ["fallback_policy_decision"],
-                        releaseRatePct: fallbackReleaseRatePct,
-                        releaseAmountCents: fallbackReleaseAmountCents,
-                        refundAmountCents: settlement.amountCents - fallbackReleaseAmountCents,
-                        settlementStatus: fallbackReleaseAmountCents > 0 ? "released" : "refunded",
+                        policy: agreementPolicy ?? null,
+                        verificationMethod: agreementVerificationMethod ?? null,
+                        decisionMode: AGENT_RUN_SETTLEMENT_DECISION_MODE.MANUAL_REVIEW,
+                        shouldAutoResolve: false,
+                        reasonCodes: ["policy_evaluation_failed"],
+                        releaseRatePct: 0,
+                        releaseAmountCents: 0,
+                        refundAmountCents: settlement.amountCents,
+                        settlementStatus: AGENT_RUN_SETTLEMENT_STATUS.LOCKED,
                         verificationStatus: effectiveVerificationStatus,
                         runStatus: run.status
                       };
