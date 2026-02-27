@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/SessionEventProvenance.v1.schema.json",
+  "title": "SessionEventProvenance.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "label", "derivedFromEventId", "isTainted", "taintDepth", "explicitTaint", "reasonCodes"],
+  "properties": {
+    "schemaVersion": { "const": "SessionEventProvenance.v1" },
+    "label": { "type": "string", "enum": ["trusted", "external", "tainted"] },
+    "derivedFromEventId": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "^[A-Za-z0-9:_-]+$"
+    },
+    "isTainted": { "type": "boolean" },
+    "taintDepth": { "type": "integer", "minimum": 0 },
+    "explicitTaint": { "type": "boolean" },
+    "reasonCodes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9._:-]+$"
+      }
+    }
+  }
+}

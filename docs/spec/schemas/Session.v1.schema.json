@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nooterra.local/schemas/Session.v1.schema.json",
+  "title": "Session.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "sessionId", "tenantId", "visibility", "participants", "createdAt", "updatedAt", "revision"],
+  "properties": {
+    "schemaVersion": { "const": "Session.v1" },
+    "sessionId": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "tenantId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "visibility": { "type": "string", "enum": ["public", "tenant", "private"] },
+    "participants": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "policyRef": { "type": ["string", "null"], "minLength": 1, "maxLength": 200 },
+    "metadata": {
+      "type": ["object", "null"],
+      "additionalProperties": true
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "revision": { "type": "integer", "minimum": 0 }
+  }
+}
