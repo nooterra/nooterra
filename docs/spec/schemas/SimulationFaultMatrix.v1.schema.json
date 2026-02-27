@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spec.nooterra.dev/schemas/SimulationFaultMatrix.v1.schema.json",
+  "title": "SimulationFaultMatrix.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "scenarioId",
+    "seed",
+    "startedAt",
+    "baseRunSha256",
+    "summary",
+    "checks",
+    "blockingIssues",
+    "results",
+    "matrixSha256"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "NooterraSimulationFaultMatrix.v1"
+    },
+    "scenarioId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seed": {
+      "type": "string",
+      "minLength": 1
+    },
+    "startedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "baseRunSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["totalFaults", "passedFaults", "failedFaults"],
+      "properties": {
+        "totalFaults": { "type": "integer", "minimum": 0 },
+        "passedFaults": { "type": "integer", "minimum": 0 },
+        "failedFaults": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["checkId", "passed", "detail"],
+        "properties": {
+          "checkId": { "type": "string", "minLength": 1 },
+          "passed": { "type": "boolean" },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "blockingIssues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actionId", "actionType", "code", "detail"],
+        "properties": {
+          "actionId": { "type": "string", "minLength": 1 },
+          "actionType": { "type": "string", "minLength": 1 },
+          "code": { "type": "string", "minLength": 1 },
+          "detail": { "type": "string" }
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "faultId",
+          "faultType",
+          "faultSha256",
+          "runSha256",
+          "observedReasonCodes",
+          "checks",
+          "blockingIssues",
+          "passed"
+        ],
+        "properties": {
+          "schemaVersion": { "const": "NooterraSimulationFaultResult.v1" },
+          "faultId": { "type": "string", "minLength": 1 },
+          "faultType": { "type": "string", "minLength": 1 },
+          "faultSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "runSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "observedReasonCodes": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "checks": { "type": "array" },
+          "blockingIssues": { "type": "array" },
+          "passed": { "type": "boolean" }
+        }
+      }
+    },
+    "matrixSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

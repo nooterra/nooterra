@@ -8,6 +8,7 @@
 - Run schema: `NooterraSimulationRun.v1`
 - Scenario schema: `NooterraPersonalAgentEcosystemScenario.v1`
 - Scenario DSL schema: `NooterraSimulationScenarioDsl.v1`
+- Fault matrix schema: `NooterraSimulationFaultMatrix.v1`
 
 ## Inputs
 
@@ -30,6 +31,27 @@
   - `all_checks_passed`
 
 Compiling the DSL must be deterministic for identical input and seed.
+
+## Fault-Injection Matrix
+
+`NooterraSimulationFaultMatrix.v1` defines deterministic multi-fault evaluation for distributed and economic failure modes.
+
+Baseline supported fault types:
+
+- `network_partition`
+- `retry_storm`
+- `stale_cursor`
+- `signer_failure`
+- `settlement_race`
+- `economic_abuse`
+
+Each fault result must include:
+
+- a stable fault hash (`faultSha256`)
+- deterministic reason-code-family checks
+- explicit recovery validation checks
+
+If a fault lacks recovery validation, matrix output must fail closed with `SIM_RECOVERY_NOT_VALIDATED`.
 
 ## Output
 

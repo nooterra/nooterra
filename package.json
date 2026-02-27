@@ -136,6 +136,7 @@
     "test:ops:nooterra-verified-gate": "node scripts/ci/run-nooterra-verified-gate.mjs --bootstrap-local",
     "test:ops:nooterra-verified-revalidation": "node scripts/ci/run-nooterra-verified-revalidation.mjs --bootstrap-local --allow-missing-baseline --allow-missing-revocation-signals",
     "test:ops:simulation-scorecard-gate": "node scripts/ci/run-simulation-scorecard-gate.mjs",
+    "test:ops:simulation-fault-matrix-gate": "node scripts/ci/run-simulation-fault-matrix.mjs",
     "test:ops:self-serve-benchmark": "node scripts/ci/build-self-serve-benchmark-report.mjs",
     "test:ops:launch-cutover-packet": "node scripts/ci/build-launch-cutover-packet.mjs",
     "test:ops:public-onboarding-gate": "node scripts/ci/run-public-onboarding-gate.mjs",
