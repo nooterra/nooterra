@@ -97,6 +97,7 @@ test("nooterra verified gate runner: applies bootstrap env patch to checks and r
 
   assert.equal(report.ok, true);
   assert.equal(report.summary.totalChecks, 4);
+  assert.equal(report.generatedAt, report.completedAt);
   assert.equal(cleanupCalled, true);
   assert.equal(seenEnv.length, 4);
   for (const row of seenEnv) {

@@ -41,6 +41,14 @@ const REQUIRED_CUTOVER_CHECK_SPECS = Object.freeze([
     sourceCheckId: "ops_agent_substrate_fast_loop_checkpoint_grant_binding"
   },
   {
+    requiredCheckId: "pg_substrate_primitives_durability_verified",
+    sourceCheckId: "pg_substrate_primitives_durability"
+  },
+  {
+    requiredCheckId: "pg_state_checkpoint_durability_verified",
+    sourceCheckId: "pg_state_checkpoint_durability"
+  },
+  {
     requiredCheckId: "work_order_metering_durability_verified",
     sourceCheckId: "pg_work_order_metering_durability"
   },

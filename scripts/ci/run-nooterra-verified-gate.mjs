@@ -492,6 +492,7 @@ export async function runNooterraVerifiedGate(args, options = {}) {
       ok: failed.length === 0,
       startedAt,
       completedAt,
+      generatedAt: completedAt,
       bootstrap: {
         api: bootstrapApi.metadata ?? { enabled: false },
         pg: bootstrapPg.metadata ?? { enabled: false }

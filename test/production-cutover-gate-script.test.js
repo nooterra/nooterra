@@ -13,7 +13,10 @@ import {
   evaluateSdkAcsSmokeJsCheck,
   evaluateSdkAcsSmokePyCheck,
   evaluateSdkPythonContractFreezeCheck,
+  evaluatePgSubstratePrimitivesDurabilityCheck,
+  evaluatePgStateCheckpointDurabilityCheck,
   evaluateWorkOrderMeteringDurabilityCheck,
+  buildBlockingIssues,
   parseArgs
 } from "../scripts/ci/run-production-cutover-gate.mjs";
 
@@ -67,6 +70,8 @@ test("production cutover gate verdict: computes pass/fail counts from status row
 test("production cutover gate: derives openclaw lineage check as pass from Nooterra Verified collaboration report", () => {
   const evaluated = evaluateOpenclawSubstrateDemoLineageCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [
         { id: "mcp_host_cert_matrix", ok: true },
         {
@@ -87,6 +92,8 @@ test("production cutover gate: derives openclaw lineage check as pass from Noote
 test("production cutover gate: derives openclaw lineage check fail-closed when source check is missing", () => {
   const evaluated = evaluateOpenclawSubstrateDemoLineageCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [{ id: "mcp_host_cert_matrix", ok: true }]
     },
     "artifacts/gates/nooterra-verified-collaboration-gate.json"
@@ -96,9 +103,39 @@ test("production cutover gate: derives openclaw lineage check fail-closed when s
   assert.match(String(evaluated.details?.message ?? ""), /missing source check/i);
 });
 
+test("production cutover gate: fails openclaw lineage check when collaboration report schema is invalid", () => {
+  const evaluated = evaluateOpenclawSubstrateDemoLineageCheck(
+    {
+      schemaVersion: "NooterraVerifiedGateReport.v0",
+      ok: true,
+      checks: [{ id: "openclaw_substrate_demo_lineage_verified", ok: true }]
+    },
+    "artifacts/gates/nooterra-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "failed");
+  assert.equal(evaluated.exitCode, 1);
+  assert.equal(evaluated.failureCode, "source_report_schema_invalid");
+});
+
+test("production cutover gate: fails openclaw lineage check when collaboration report top-level verdict is not ok", () => {
+  const evaluated = evaluateOpenclawSubstrateDemoLineageCheck(
+    {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: false,
+      checks: [{ id: "openclaw_substrate_demo_lineage_verified", ok: true }]
+    },
+    "artifacts/gates/nooterra-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "failed");
+  assert.equal(evaluated.exitCode, 1);
+  assert.equal(evaluated.failureCode, "source_report_verdict_not_ok");
+});
+
 test("production cutover gate: derives openclaw transcript check as pass from Nooterra Verified collaboration report", () => {
   const evaluated = evaluateOpenclawSubstrateDemoTranscriptCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [
         { id: "mcp_host_cert_matrix", ok: true },
         {
@@ -119,6 +156,8 @@ test("production cutover gate: derives openclaw transcript check as pass from No
 test("production cutover gate: derives openclaw transcript check fail-closed when source check is failed", () => {
   const evaluated = evaluateOpenclawSubstrateDemoTranscriptCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [
         { id: "mcp_host_cert_matrix", ok: true },
         {
@@ -139,6 +178,8 @@ test("production cutover gate: derives openclaw transcript check fail-closed whe
 test("production cutover gate: derives SDK JS smoke check as pass from Nooterra Verified collaboration report", () => {
   const evaluated = evaluateSdkAcsSmokeJsCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [
         { id: "mcp_host_cert_matrix", ok: true },
         {
@@ -159,6 +200,8 @@ test("production cutover gate: derives SDK JS smoke check as pass from Nooterra 
 test("production cutover gate: derives session stream conformance check as pass from Nooterra Verified collaboration report", () => {
   const evaluated = evaluateSessionStreamConformanceCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [
         { id: "mcp_host_cert_matrix", ok: true },
         {
@@ -179,6 +222,8 @@ test("production cutover gate: derives session stream conformance check as pass 
 test("production cutover gate: derives session stream conformance check fail-closed when source check is missing", () => {
   const evaluated = evaluateSessionStreamConformanceCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [{ id: "mcp_host_cert_matrix", ok: true }]
     },
     "artifacts/gates/nooterra-verified-collaboration-gate.json"
@@ -192,6 +237,8 @@ test("production cutover gate: derives session stream conformance check fail-clo
 test("production cutover gate: derives settlement/dispute lifecycle check as pass from Nooterra Verified collaboration report", () => {
   const evaluated = evaluateSettlementDisputeArbitrationLifecycleCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [
         { id: "mcp_host_cert_matrix", ok: true },
         {
@@ -212,6 +259,8 @@ test("production cutover gate: derives settlement/dispute lifecycle check as pas
 test("production cutover gate: derives settlement/dispute lifecycle check fail-closed when source check is missing", () => {
   const evaluated = evaluateSettlementDisputeArbitrationLifecycleCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [{ id: "mcp_host_cert_matrix", ok: true }]
     },
     "artifacts/gates/nooterra-verified-collaboration-gate.json"
@@ -225,6 +274,8 @@ test("production cutover gate: derives settlement/dispute lifecycle check fail-c
 test("production cutover gate: derives SDK PY smoke check fail-closed when source check is missing", () => {
   const evaluated = evaluateSdkAcsSmokePyCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [{ id: "mcp_host_cert_matrix", ok: true }]
     },
     "artifacts/gates/nooterra-verified-collaboration-gate.json"
@@ -238,6 +289,8 @@ test("production cutover gate: derives SDK PY smoke check fail-closed when sourc
 test("production cutover gate: derives checkpoint grant binding check as pass from Nooterra Verified collaboration report", () => {
   const evaluated = evaluateCheckpointGrantBindingCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [
         { id: "mcp_host_cert_matrix", ok: true },
         {
@@ -258,6 +311,8 @@ test("production cutover gate: derives checkpoint grant binding check as pass fr
 test("production cutover gate: derives checkpoint grant binding check fail-closed when source check is missing", () => {
   const evaluated = evaluateCheckpointGrantBindingCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [{ id: "mcp_host_cert_matrix", ok: true }]
     },
     "artifacts/gates/nooterra-verified-collaboration-gate.json"
@@ -271,6 +326,8 @@ test("production cutover gate: derives checkpoint grant binding check fail-close
 test("production cutover gate: derives Python contract freeze check as pass from Nooterra Verified collaboration report", () => {
   const evaluated = evaluateSdkPythonContractFreezeCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [
         { id: "mcp_host_cert_matrix", ok: true },
         {
@@ -291,6 +348,8 @@ test("production cutover gate: derives Python contract freeze check as pass from
 test("production cutover gate: derives Python contract freeze check fail-closed when source check is missing", () => {
   const evaluated = evaluateSdkPythonContractFreezeCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [{ id: "mcp_host_cert_matrix", ok: true }]
     },
     "artifacts/gates/nooterra-verified-collaboration-gate.json"
@@ -304,6 +363,8 @@ test("production cutover gate: derives Python contract freeze check fail-closed 
 test("production cutover gate: derives PG work order metering durability check as pass from Nooterra Verified collaboration report", () => {
   const evaluated = evaluateWorkOrderMeteringDurabilityCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [
         { id: "mcp_host_cert_matrix", ok: true },
         {
@@ -319,6 +380,43 @@ test("production cutover gate: derives PG work order metering durability check a
   assert.equal(evaluated.status, "passed");
   assert.equal(evaluated.exitCode, 0);
   assert.equal(evaluated.details?.sourceCheckId, "pg_work_order_metering_durability");
+});
+
+test("production cutover gate: derives PG substrate primitives durability check as pass from Nooterra Verified collaboration report", () => {
+  const evaluated = evaluatePgSubstratePrimitivesDurabilityCheck(
+    {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
+      checks: [
+        { id: "mcp_host_cert_matrix", ok: true },
+        {
+          id: "pg_substrate_primitives_durability",
+          ok: true,
+          exitCode: 0,
+          command: "node --test test/pg-agent-substrate-primitives-durability.test.js"
+        }
+      ]
+    },
+    "artifacts/gates/nooterra-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "passed");
+  assert.equal(evaluated.exitCode, 0);
+  assert.equal(evaluated.details?.sourceCheckId, "pg_substrate_primitives_durability");
+});
+
+test("production cutover gate: derives PG state checkpoint durability check fail-closed when source check is missing", () => {
+  const evaluated = evaluatePgStateCheckpointDurabilityCheck(
+    {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
+      checks: [{ id: "mcp_host_cert_matrix", ok: true }]
+    },
+    "artifacts/gates/nooterra-verified-collaboration-gate.json"
+  );
+  assert.equal(evaluated.status, "failed");
+  assert.equal(evaluated.exitCode, 1);
+  assert.equal(evaluated.failureCode, "source_check_missing");
+  assert.equal(evaluated.details?.sourceCheckId, "pg_state_checkpoint_durability");
 });
 
 test("production cutover gate: derives NS3 evidence-binding coverage check as pass from coverage report verdict", () => {
@@ -370,6 +468,8 @@ test("production cutover gate: derives NS3 evidence-binding coverage check fail-
 test("production cutover gate: derives PG work order metering durability check fail-closed when source check is missing", () => {
   const evaluated = evaluateWorkOrderMeteringDurabilityCheck(
     {
+      schemaVersion: "NooterraVerifiedGateReport.v1",
+      ok: true,
       checks: [{ id: "mcp_host_cert_matrix", ok: true }]
     },
     "artifacts/gates/nooterra-verified-collaboration-gate.json"
@@ -378,4 +478,21 @@ test("production cutover gate: derives PG work order metering durability check f
   assert.equal(evaluated.exitCode, 1);
   assert.match(String(evaluated.details?.message ?? ""), /missing source check/i);
   assert.equal(evaluated.details?.sourceCheckId, "pg_work_order_metering_durability");
+});
+
+test("production cutover gate: derives deterministic blocking issues from failed checks", () => {
+  const issues = buildBlockingIssues([
+    { id: "z_last", status: "failed", exitCode: 1, reportPath: "z.json", error: "z fail" },
+    { id: "a_first", status: "failed", exitCode: 1, reportPath: "a.json", details: { message: "a fail" } },
+    { id: "b_ok", status: "passed", exitCode: 0, reportPath: "b.json" },
+    { id: "m_mid", status: "failed", exitCode: 1, reportPath: "m.json", failureCode: "m_failed" }
+  ]);
+
+  assert.deepEqual(
+    issues.map((row) => row.checkId),
+    ["a_first", "m_mid", "z_last"]
+  );
+  assert.equal(issues[0]?.message, "a fail");
+  assert.equal(issues[1]?.failureCode, "m_failed");
+  assert.equal(issues[2]?.message, "z fail");
 });
