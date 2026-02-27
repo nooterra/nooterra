@@ -8,6 +8,7 @@ import { createEd25519Keypair, sha256Hex } from "../src/core/crypto.js";
 import { createCircleReserveAdapter } from "../src/core/circle-reserve-adapter.js";
 import { hmacSignArtifact } from "../src/core/artifacts.js";
 import { computeNooterraPayTokenSha256, parseNooterraPayTokenV1, verifyNooterraPayTokenV1 } from "../src/core/nooterra-pay-token.js";
+import { HUMAN_APPROVAL_DECISION_SCHEMA_VERSION, hashActionForApproval } from "../src/services/human-approval/gate.js";
 import { request } from "./api-test-harness.js";
 
 async function registerAgent(api, { agentId }) {
@@ -745,6 +746,82 @@ test("API e2e: high-risk x402 financial routes require finance_write scope", asy
   assert.equal(escalationResolveOpsOnly.statusCode, 403, escalationResolveOpsOnly.body);
   assert.equal(escalationResolveOpsOnly.json?.code, "FORBIDDEN");
   assert.equal(escalationResolveOpsOnly.json?.details?.routeId, "x402_gate_escalation_resolve");
+});
+
+test("API e2e: x402 authorize-payment fails closed without S8 approval and succeeds with bound approval decision", async () => {
+  const api = createApi({
+    opsToken: "tok_ops",
+    s8ApprovalEnforceX402AuthorizePayment: true
+  });
+
+  const payerAgentId = await registerAgent(api, { agentId: "agt_x402_s8_approval_payer_1" });
+  const payeeAgentId = await registerAgent(api, { agentId: "agt_x402_s8_approval_payee_1" });
+  await creditWallet(api, { agentId: payerAgentId, amountCents: 5000, idempotencyKey: "wallet_credit_x402_s8_approval_1" });
+
+  const gateId = "gate_x402_s8_approval_1";
+  const amountCents = 700;
+  const created = await request(api, {
+    method: "POST",
+    path: "/x402/gate/create",
+    headers: { "x-idempotency-key": "x402_gate_create_s8_approval_1" },
+    body: {
+      gateId,
+      payerAgentId,
+      payeeAgentId,
+      amountCents,
+      currency: "USD"
+    }
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const blocked = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_s8_approval_missing_1" },
+    body: { gateId }
+  });
+  assert.equal(blocked.statusCode, 409, blocked.body);
+  assert.equal(blocked.json?.code, "HUMAN_APPROVAL_REQUIRED");
+  assert.equal(blocked.json?.details?.approvalCheck?.approved, false);
+  assert.equal(blocked.json?.details?.approvalCheck?.requiresExplicitApproval, true);
+
+  const approvalAction = {
+    actionId: `x402_authorize_payment:${gateId}`,
+    actionType: "funds_transfer",
+    actorId: payerAgentId,
+    riskTier: "high",
+    amountCents,
+    metadata: {
+      tenantId: "tenant_default",
+      gateId,
+      runId: `x402_${gateId}`,
+      currency: "USD",
+      payeeProviderId: payeeAgentId
+    }
+  };
+
+  const approved = await request(api, {
+    method: "POST",
+    path: "/x402/gate/authorize-payment",
+    headers: { "x-idempotency-key": "x402_gate_authz_s8_approval_ok_1" },
+    body: {
+      gateId,
+      s8ApprovalDecision: {
+        schemaVersion: HUMAN_APPROVAL_DECISION_SCHEMA_VERSION,
+        decisionId: "dec_x402_s8_approval_1",
+        actionId: approvalAction.actionId,
+        actionSha256: hashActionForApproval(approvalAction),
+        decidedBy: "human.finance",
+        decidedAt: "2026-02-01T00:10:00.000Z",
+        approved: true,
+        evidenceRefs: ["ticket:NOO-244"]
+      }
+    }
+  });
+  assert.equal(approved.statusCode, 200, approved.body);
+  assert.equal(approved.json?.gateId, gateId);
+  assert.equal(approved.json?.reserve?.status, "reserved");
+  assert.ok(typeof approved.json?.token === "string" && approved.json.token.length > 0);
 });
 
 test("API e2e: x402 authorize-payment is idempotent and token verifies via keyset", async () => {

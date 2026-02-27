@@ -1206,6 +1206,29 @@ export function applyTxRecord(store, record) {
       continue;
     }
 
+    if (kind === "GOVERNANCE_TEMPLATE_UPSERT") {
+      const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
+      const template = op.template ?? null;
+      if (!template || typeof template !== "object" || Array.isArray(template)) {
+        throw new TypeError("GOVERNANCE_TEMPLATE_UPSERT requires template");
+      }
+      const templateId = typeof template.templateId === "string" && template.templateId.trim() !== "" ? template.templateId.trim() : null;
+      const templateVersion = Number(template.templateVersion);
+      if (!templateId) throw new TypeError("GOVERNANCE_TEMPLATE_UPSERT requires template.templateId");
+      if (!Number.isSafeInteger(templateVersion) || templateVersion <= 0) {
+        throw new TypeError("GOVERNANCE_TEMPLATE_UPSERT requires template.templateVersion >= 1");
+      }
+      if (!(store.governanceTemplates instanceof Map)) store.governanceTemplates = new Map();
+      const key = makeScopedKey({ tenantId, id: `${templateId}::${templateVersion}` });
+      store.governanceTemplates.set(key, {
+        ...template,
+        tenantId,
+        templateId,
+        templateVersion
+      });
+      continue;
+    }
+
     if (kind === "TENANT_SETTLEMENT_POLICY_ROLLOUT_UPSERT") {
       const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);
       const rollout = op.rollout ?? null;

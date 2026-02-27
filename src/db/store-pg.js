@@ -211,6 +211,8 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     store.toolCallHolds.clear();
     if (!(store.settlementAdjustments instanceof Map)) store.settlementAdjustments = new Map();
     store.settlementAdjustments.clear();
+    if (!(store.governanceTemplates instanceof Map)) store.governanceTemplates = new Map();
+    store.governanceTemplates.clear();
 
     const res = await pool.query("SELECT tenant_id, aggregate_type, aggregate_id, snapshot_json FROM snapshots");
     for (const row of res.rows) {
@@ -446,6 +448,23 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
           tenantId: snap?.tenantId ?? tenantId,
           adjustmentId: snap?.adjustmentId ?? String(id)
         });
+      }
+      if (type === "governance_template") {
+        const templateId =
+          typeof snap?.templateId === "string" && snap.templateId.trim() !== ""
+            ? snap.templateId.trim()
+            : typeof id === "string" && id.includes("::")
+              ? String(id).split("::")[0]
+              : null;
+        const templateVersion = parseSafeIntegerOrNull(snap?.templateVersion);
+        if (templateId && templateVersion !== null && templateVersion > 0) {
+          store.governanceTemplates.set(makeScopedKey({ tenantId, id: `${templateId}::${templateVersion}` }), {
+            ...snap,
+            tenantId: snap?.tenantId ?? tenantId,
+            templateId,
+            templateVersion
+          });
+        }
       }
     }
   }
@@ -2603,6 +2622,42 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
     );
   }
 
+  async function persistGovernanceTemplate(client, { tenantId, template }) {
+    tenantId = normalizeTenantId(tenantId ?? DEFAULT_TENANT_ID);
+    if (!template || typeof template !== "object" || Array.isArray(template)) {
+      throw new TypeError("template is required");
+    }
+    const templateId = typeof template.templateId === "string" && template.templateId.trim() !== "" ? template.templateId.trim() : null;
+    const templateVersion = Number(template.templateVersion);
+    if (!templateId) throw new TypeError("template.templateId is required");
+    if (!Number.isSafeInteger(templateVersion) || templateVersion <= 0) {
+      throw new TypeError("template.templateVersion must be a positive safe integer");
+    }
+
+    const createdAt = parseIsoOrNull(template.createdAt) ?? new Date().toISOString();
+    const updatedAt = parseIsoOrNull(template.updatedAt) ?? createdAt;
+    const aggregateId = `${templateId}::${templateVersion}`;
+    const normalizedTemplate = {
+      ...template,
+      tenantId,
+      templateId,
+      templateVersion,
+      createdAt,
+      updatedAt
+    };
+
+    await client.query(
+      `
+        INSERT INTO snapshots (tenant_id, aggregate_type, aggregate_id, snapshot_json)
+        VALUES ($1,$2,$3,$4::jsonb)
+        ON CONFLICT (tenant_id, aggregate_type, aggregate_id) DO UPDATE SET
+          snapshot_json = EXCLUDED.snapshot_json,
+          updated_at = now()
+      `,
+      [tenantId, "governance_template", aggregateId, JSON.stringify(normalizedTemplate)]
+    );
+  }
+
   await refreshSnapshots();
   await refreshEvents();
   await refreshIdempotency();
@@ -2694,6 +2749,7 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
       "MARKETPLACE_RFQ_UPSERT",
       "MARKETPLACE_RFQ_BIDS_SET",
       "TENANT_SETTLEMENT_POLICY_UPSERT",
+      "GOVERNANCE_TEMPLATE_UPSERT",
       "IDEMPOTENCY_PUT",
       "OUTBOX_ENQUEUE",
       "INGEST_RECORDS_PUT"
@@ -3686,6 +3742,10 @@ export async function createPgStore({ databaseUrl, schema = "public", dropSchema
         if (op.kind === "TENANT_SETTLEMENT_POLICY_UPSERT") {
           const tenantId = normalizeTenantId(op.tenantId ?? op.policy?.tenantId ?? DEFAULT_TENANT_ID);
           await persistTenantSettlementPolicy(client, { tenantId, policy: op.policy });
+        }
+        if (op.kind === "GOVERNANCE_TEMPLATE_UPSERT") {
+          const tenantId = normalizeTenantId(op.tenantId ?? op.template?.tenantId ?? DEFAULT_TENANT_ID);
+          await persistGovernanceTemplate(client, { tenantId, template: op.template });
         }
         if (op.kind === "JOB_EVENTS_APPENDED") {
           const tenantId = normalizeTenantId(op.tenantId ?? DEFAULT_TENANT_ID);

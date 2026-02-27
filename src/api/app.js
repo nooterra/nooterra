@@ -383,6 +383,8 @@ import { CONTRACT_COMPILER_ID, compileBookingPolicySnapshot, compileContractPoli
 import { reconcileGlBatchAgainstPartyStatements } from "../../packages/artifact-verify/src/index.js";
 import { buildFederationProxyPolicy, evaluateFederationTrustAndRoute, validateFederationEnvelope } from "../federation/proxy-policy.js";
 import { createFederationReplayLedger } from "./federation/replay-ledger.js";
+import { createApprovalRequest, enforceHighRiskApproval } from "../services/human-approval/gate.js";
+import { runDeterministicSimulation } from "../services/simulation/harness.js";
 
 export function createApi({
   store = createStore(),
@@ -457,6 +459,8 @@ export function createApi({
   x402SessionTaintEscalateAmountCents = null,
   x402WebhookAutoDisableFailures = null,
   x402WebhookSecretRotationWindowSeconds = null,
+  s8ApprovalEnforceX402AuthorizePayment = null,
+  s8ApprovalPolicy = null,
   nooterraPayTokenTtlSeconds = null,
   nooterraPayFallbackKeys = null,
   nooterraPayIssuer = null,
@@ -1995,6 +1999,32 @@ export function createApi({
       allowNull: true
     });
     return normalized === null ? 1000 : normalized;
+  })();
+  const s8ApprovalEnforceX402AuthorizePaymentValue = (() => {
+    const raw =
+      s8ApprovalEnforceX402AuthorizePayment ??
+      (typeof process !== "undefined" ? process.env.S8_APPROVAL_ENFORCE_X402_AUTHORIZE_PAYMENT : null);
+    return parseBooleanLike(raw, false);
+  })();
+  const s8ApprovalPolicyValue = (() => {
+    const raw =
+      s8ApprovalPolicy ??
+      (typeof process !== "undefined" && typeof process.env.S8_APPROVAL_POLICY_JSON === "string"
+        ? process.env.S8_APPROVAL_POLICY_JSON
+        : null);
+    if (raw === null || raw === undefined || raw === "") return Object.freeze({});
+    let parsed = raw;
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch (err) {
+        throw new TypeError(`S8_APPROVAL_POLICY_JSON must be valid JSON: ${err?.message ?? String(err ?? "")}`);
+      }
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new TypeError("S8 approval policy must be a plain object");
+    }
+    return Object.freeze({ ...parsed });
   })();
   const circleReserveAdapter = x402ReserveAdapter ?? createCircleReserveAdapter({ mode: x402ReserveModeValue, now: nowIso });
 
@@ -15294,6 +15324,166 @@ export function createApi({
   function getTenantSettlementPolicyRecord({ tenantId, policyId, policyVersion }) {
     if (!(store.tenantSettlementPolicies instanceof Map)) return null;
     return store.tenantSettlementPolicies.get(tenantSettlementPolicyStoreKey({ tenantId, policyId, policyVersion })) ?? null;
+  }
+
+  const GOVERNANCE_TEMPLATE_SCHEMA_VERSION = "GovernanceTemplate.v1";
+  const GOVERNANCE_TEMPLATE_ID_PATTERN = /^[a-z][a-z0-9._-]{2,63}$/;
+
+  function parseGovernanceTemplateId(input, { fieldPath = "templateId" } = {}) {
+    const value = typeof input === "string" ? input.trim().toLowerCase() : "";
+    if (!value) throw new TypeError(`${fieldPath} is required`);
+    if (!GOVERNANCE_TEMPLATE_ID_PATTERN.test(value)) {
+      throw new TypeError(`${fieldPath} must match /^[a-z][a-z0-9._-]{2,63}$/`);
+    }
+    return value;
+  }
+
+  function parseGovernanceTemplateVersion(input, { fieldPath = "templateVersion", allowNull = false } = {}) {
+    if (input === null || input === undefined || input === "") {
+      if (allowNull) return null;
+      throw new TypeError(`${fieldPath} is required`);
+    }
+    const value = Number(input);
+    if (!Number.isSafeInteger(value) || value <= 0) throw new TypeError(`${fieldPath} must be a positive safe integer`);
+    return value;
+  }
+
+  function governanceTemplateStoreKey({ tenantId, templateId, templateVersion }) {
+    return makeScopedKey({
+      tenantId: normalizeTenant(tenantId),
+      id: `${parseGovernanceTemplateId(templateId)}::${parseGovernanceTemplateVersion(templateVersion)}`
+    });
+  }
+
+  function normalizeGovernanceTemplateName(input) {
+    const value = typeof input === "string" ? input.trim() : "";
+    if (!value) throw new TypeError("name is required");
+    return value;
+  }
+
+  function normalizeGovernanceTemplateDescription(input) {
+    if (input === null || input === undefined || String(input).trim() === "") return null;
+    return String(input).trim();
+  }
+
+  function normalizeGovernanceTemplatePolicy(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new TypeError("policy must be an object");
+    return normalizeForCanonicalJson(input, { path: "$.policy" });
+  }
+
+  function normalizeGovernanceTemplateMetadata(input) {
+    if (input === null || input === undefined) return null;
+    if (typeof input !== "object" || Array.isArray(input)) throw new TypeError("metadata must be an object or null");
+    return normalizeForCanonicalJson(input, { path: "$.metadata" });
+  }
+
+  function computeGovernanceTemplateHash({ templateId, templateVersion, name, description, policy, metadata }) {
+    const canonical = canonicalJsonStringify(
+      normalizeForCanonicalJson(
+        {
+          templateId,
+          templateVersion,
+          name,
+          description,
+          policy,
+          metadata: metadata ?? null
+        },
+        { path: "$" }
+      )
+    );
+    return sha256Hex(canonical);
+  }
+
+  function validateGovernanceTemplateRecord(input) {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new TypeError("template record must be an object");
+    const templateId = parseGovernanceTemplateId(input.templateId, { fieldPath: "template.templateId" });
+    const templateVersion = parseGovernanceTemplateVersion(input.templateVersion, { fieldPath: "template.templateVersion" });
+    const name = normalizeGovernanceTemplateName(input.name);
+    const description = normalizeGovernanceTemplateDescription(input.description);
+    const policy = normalizeGovernanceTemplatePolicy(input.policy);
+    const metadata = normalizeGovernanceTemplateMetadata(input.metadata);
+    const schemaVersion = typeof input.schemaVersion === "string" ? input.schemaVersion : "";
+    if (schemaVersion !== GOVERNANCE_TEMPLATE_SCHEMA_VERSION) {
+      throw new TypeError(`template.schemaVersion must be ${GOVERNANCE_TEMPLATE_SCHEMA_VERSION}`);
+    }
+    const templateHash = typeof input.templateHash === "string" ? input.templateHash.trim().toLowerCase() : "";
+    if (!/^[a-f0-9]{64}$/.test(templateHash)) throw new TypeError("template.templateHash must be a sha256 hex");
+    const expectedTemplateHash = computeGovernanceTemplateHash({ templateId, templateVersion, name, description, policy, metadata });
+    if (templateHash !== expectedTemplateHash) throw new TypeError("template.templateHash mismatch");
+    const createdAt = typeof input.createdAt === "string" ? input.createdAt : "";
+    const updatedAt = typeof input.updatedAt === "string" ? input.updatedAt : "";
+    if (!Number.isFinite(Date.parse(createdAt))) throw new TypeError("template.createdAt must be an ISO timestamp");
+    if (!Number.isFinite(Date.parse(updatedAt))) throw new TypeError("template.updatedAt must be an ISO timestamp");
+    const createdBy = typeof input.createdBy === "string" && input.createdBy.trim() !== "" ? input.createdBy.trim() : null;
+    const updatedBy = typeof input.updatedBy === "string" && input.updatedBy.trim() !== "" ? input.updatedBy.trim() : null;
+    if (!createdBy) throw new TypeError("template.createdBy is required");
+    if (!updatedBy) throw new TypeError("template.updatedBy is required");
+    return {
+      schemaVersion,
+      tenantId: normalizeTenant(input.tenantId ?? DEFAULT_TENANT_ID),
+      templateId,
+      templateVersion,
+      name,
+      description,
+      policy,
+      metadata,
+      templateHash,
+      createdAt: new Date(createdAt).toISOString(),
+      updatedAt: new Date(updatedAt).toISOString(),
+      createdBy,
+      updatedBy
+    };
+  }
+
+  function listGovernanceTemplateRecords({ tenantId, templateId = null } = {}) {
+    const t = normalizeTenant(tenantId);
+    const templateIdFilter =
+      templateId === null || templateId === undefined || String(templateId).trim() === ""
+        ? null
+        : parseGovernanceTemplateId(templateId, { fieldPath: "templateId" });
+    const rows = [];
+    if (!(store.governanceTemplates instanceof Map)) return rows;
+    for (const row of store.governanceTemplates.values()) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      let normalized = null;
+      try {
+        normalized = validateGovernanceTemplateRecord(row);
+      } catch {
+        continue;
+      }
+      if (normalized.tenantId !== t) continue;
+      if (templateIdFilter && normalized.templateId !== templateIdFilter) continue;
+      rows.push(normalized);
+    }
+    rows.sort((left, right) => {
+      const leftAt = Date.parse(String(left.updatedAt ?? ""));
+      const rightAt = Date.parse(String(right.updatedAt ?? ""));
+      if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+      const templateIdOrder = String(left.templateId ?? "").localeCompare(String(right.templateId ?? ""));
+      if (templateIdOrder !== 0) return templateIdOrder;
+      return Number(right.templateVersion ?? 0) - Number(left.templateVersion ?? 0);
+    });
+    return rows;
+  }
+
+  function getGovernanceTemplateRecord({ tenantId, templateId, templateVersion = null } = {}) {
+    const parsedTemplateId = parseGovernanceTemplateId(templateId, { fieldPath: "templateId" });
+    const parsedVersion = parseGovernanceTemplateVersion(templateVersion, { fieldPath: "templateVersion", allowNull: true });
+    if (parsedVersion !== null) {
+      if (!(store.governanceTemplates instanceof Map)) return null;
+      const row = store.governanceTemplates.get(
+        governanceTemplateStoreKey({ tenantId, templateId: parsedTemplateId, templateVersion: parsedVersion })
+      ) ?? null;
+      return row ? validateGovernanceTemplateRecord(row) : null;
+    }
+    const rows = listGovernanceTemplateRecords({ tenantId, templateId: parsedTemplateId });
+    if (!rows.length) return null;
+    rows.sort((left, right) => {
+      const versionOrder = Number(right.templateVersion ?? 0) - Number(left.templateVersion ?? 0);
+      if (versionOrder !== 0) return versionOrder;
+      return String(right.updatedAt ?? "").localeCompare(String(left.updatedAt ?? ""));
+    });
+    return rows[0] ?? null;
   }
 
   function tenantSettlementPolicyRolloutStoreKey({ tenantId }) {
@@ -39956,6 +40146,304 @@ export function createApi({
           return sendJson(res, 201, { event });
         }
 
+        if (parts[1] === "governance" && parts[2] === "templates") {
+          if (!(store.governanceTemplates instanceof Map)) store.governanceTemplates = new Map();
+
+          if (parts.length === 3 && req.method === "GET") {
+            const ok =
+              requireScope(auth.scopes, OPS_SCOPES.GOVERNANCE_TENANT_READ) ||
+              requireScope(auth.scopes, OPS_SCOPES.GOVERNANCE_TENANT_WRITE) ||
+              requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) ||
+              requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
+            if (!ok) return sendError(res, 403, "forbidden");
+            const templateIdFilter = url.searchParams.get("templateId");
+            const latestRaw = url.searchParams.get("latest");
+            const latestOnly =
+              latestRaw === null || latestRaw === undefined || latestRaw === ""
+                ? true
+                : latestRaw === "true"
+                  ? true
+                  : latestRaw === "false"
+                    ? false
+                    : null;
+            if (latestOnly === null) {
+              return sendError(res, 400, "invalid governance template query", { message: "latest must be true|false" }, { code: "SCHEMA_INVALID" });
+            }
+            const { limit, offset } = parsePagination({
+              limitRaw: url.searchParams.get("limit"),
+              offsetRaw: url.searchParams.get("offset"),
+              defaultLimit: 50,
+              maxLimit: 200
+            });
+            let rows;
+            try {
+              rows = listGovernanceTemplateRecords({ tenantId, templateId: templateIdFilter });
+            } catch (err) {
+              return sendError(res, 400, "invalid governance template query", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            if (latestOnly) {
+              const dedupe = new Set();
+              const latestRows = [];
+              const byVersion = rows.slice().sort((left, right) => {
+                const versionOrder = Number(right.templateVersion ?? 0) - Number(left.templateVersion ?? 0);
+                if (versionOrder !== 0) return versionOrder;
+                return String(right.updatedAt ?? "").localeCompare(String(left.updatedAt ?? ""));
+              });
+              for (const row of byVersion) {
+                const key = String(row.templateId ?? "");
+                if (!key || dedupe.has(key)) continue;
+                dedupe.add(key);
+                latestRows.push(row);
+              }
+              rows = latestRows;
+              rows.sort((left, right) => {
+                const leftAt = Date.parse(String(left.updatedAt ?? ""));
+                const rightAt = Date.parse(String(right.updatedAt ?? ""));
+                if (Number.isFinite(leftAt) && Number.isFinite(rightAt) && rightAt !== leftAt) return rightAt - leftAt;
+                return String(left.templateId ?? "").localeCompare(String(right.templateId ?? ""));
+              });
+            }
+            return sendJson(res, 200, {
+              templates: rows.slice(offset, offset + limit),
+              total: rows.length,
+              limit,
+              offset,
+              latestOnly
+            });
+          }
+
+          if (parts.length === 4 && req.method === "GET") {
+            const ok =
+              requireScope(auth.scopes, OPS_SCOPES.GOVERNANCE_TENANT_READ) ||
+              requireScope(auth.scopes, OPS_SCOPES.GOVERNANCE_TENANT_WRITE) ||
+              requireScope(auth.scopes, OPS_SCOPES.FINANCE_READ) ||
+              requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
+            if (!ok) return sendError(res, 403, "forbidden");
+            const templateVersionRaw = url.searchParams.get("templateVersion");
+            let template = null;
+            try {
+              template = getGovernanceTemplateRecord({
+                tenantId,
+                templateId: parts[3],
+                templateVersion: templateVersionRaw
+              });
+            } catch (err) {
+              return sendError(res, 400, "invalid governance template reference", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            if (!template) return sendError(res, 404, "governance template not found", null, { code: "NOT_FOUND" });
+            return sendJson(res, 200, { template });
+          }
+
+          if (parts.length === 3 && req.method === "POST") {
+            const ok = requireScope(auth.scopes, OPS_SCOPES.GOVERNANCE_TENANT_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
+            if (!ok) return sendError(res, 403, "forbidden");
+            const body = (await readJsonBody(req)) ?? {};
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (idemStoreKey) {
+              const existingIdem = store.idempotency.get(idemStoreKey);
+              if (existingIdem) {
+                if (existingIdem.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existingIdem.statusCode, existingIdem.body);
+              }
+            }
+
+            let templateId = null;
+            let templateVersion = null;
+            let name = null;
+            let description = null;
+            let policy = null;
+            let metadata = null;
+            try {
+              templateId = parseGovernanceTemplateId(body?.templateId, { fieldPath: "templateId" });
+              templateVersion =
+                body?.templateVersion === undefined || body?.templateVersion === null || body?.templateVersion === ""
+                  ? 1
+                  : parseGovernanceTemplateVersion(body?.templateVersion, { fieldPath: "templateVersion" });
+              name = normalizeGovernanceTemplateName(body?.name);
+              description = normalizeGovernanceTemplateDescription(body?.description);
+              policy = normalizeGovernanceTemplatePolicy(body?.policy);
+              metadata = normalizeGovernanceTemplateMetadata(body?.metadata);
+            } catch (err) {
+              return sendError(res, 400, "invalid governance template", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+
+            const existing = getGovernanceTemplateRecord({ tenantId, templateId, templateVersion });
+            const templateHash = computeGovernanceTemplateHash({ templateId, templateVersion, name, description, policy, metadata });
+            if (existing && String(existing.templateHash ?? "") !== String(templateHash)) {
+              return sendError(
+                res,
+                409,
+                "governance template already exists",
+                { templateId, templateVersion, existingTemplateHash: existing.templateHash ?? null },
+                { code: "GOVERNANCE_TEMPLATE_CONFLICT" }
+              );
+            }
+
+            const nowAt = nowIso();
+            const template = {
+              schemaVersion: GOVERNANCE_TEMPLATE_SCHEMA_VERSION,
+              tenantId,
+              templateId,
+              templateVersion,
+              name,
+              description,
+              policy,
+              metadata,
+              templateHash,
+              createdAt: existing?.createdAt ?? nowAt,
+              updatedAt: nowAt,
+              createdBy: existing?.createdBy ?? principalId,
+              updatedBy: principalId
+            };
+            const statusCode = existing ? 200 : 201;
+            const responseBody = { template, alreadyExists: Boolean(existing) };
+            const ops = [{ kind: "GOVERNANCE_TEMPLATE_UPSERT", tenantId, template }];
+            if (idemStoreKey) {
+              ops.push({ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode, body: responseBody } });
+            }
+            await commitTx(ops);
+            return sendJson(res, statusCode, responseBody);
+          }
+
+          if (parts.length === 5 && parts[4] === "apply" && req.method === "POST") {
+            const ok = requireScope(auth.scopes, OPS_SCOPES.GOVERNANCE_TENANT_WRITE) || requireScope(auth.scopes, OPS_SCOPES.FINANCE_WRITE);
+            if (!ok) return sendError(res, 403, "forbidden");
+            const body = (await readJsonBody(req)) ?? {};
+            const expectedHeader = parseExpectedPrevChainHashHeader(req);
+            if (!expectedHeader.ok) return sendError(res, 428, "missing precondition", "x-proxy-expected-prev-chain-hash is required");
+            const existingForPrecondition = getMonthEvents(tenantId, GOVERNANCE_STREAM_ID);
+            const currentPrevChainHash = getCurrentPrevChainHash(existingForPrecondition);
+            if (expectedHeader.expectedPrevChainHash !== currentPrevChainHash) {
+              return sendError(res, 409, "event append conflict", {
+                expectedPrevChainHash: currentPrevChainHash,
+                gotExpectedPrevChainHash: expectedHeader.expectedPrevChainHash
+              });
+            }
+
+            let idemStoreKey = null;
+            let idemRequestHash = null;
+            try {
+              ({ idemStoreKey, idemRequestHash } = readIdempotency({
+                method: "POST",
+                requestPath: path,
+                expectedPrevChainHash: expectedHeader.expectedPrevChainHash,
+                body
+              }));
+            } catch (err) {
+              return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+            }
+            if (!idemStoreKey) return sendError(res, 400, "x-idempotency-key is required");
+            {
+              const existingIdem = store.idempotency.get(idemStoreKey);
+              if (existingIdem) {
+                if (existingIdem.requestHash !== idemRequestHash) {
+                  return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+                }
+                return sendJson(res, existingIdem.statusCode, existingIdem.body);
+              }
+            }
+
+            let templateId = null;
+            let templateVersion = null;
+            try {
+              templateId = parseGovernanceTemplateId(parts[3], { fieldPath: "templateId" });
+              templateVersion =
+                body?.templateVersion === undefined || body?.templateVersion === null || body?.templateVersion === ""
+                  ? null
+                  : parseGovernanceTemplateVersion(body?.templateVersion, { fieldPath: "templateVersion" });
+            } catch (err) {
+              return sendError(res, 400, "invalid governance template apply request", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+            const template = getGovernanceTemplateRecord({ tenantId, templateId, templateVersion });
+            if (!template) return sendError(res, 404, "governance template not found", null, { code: "NOT_FOUND" });
+
+            const effectiveFromRaw = body?.effectiveFrom;
+            const effectiveFromAt = typeof effectiveFromRaw === "string" ? new Date(effectiveFromRaw) : null;
+            if (!(effectiveFromAt instanceof Date) || !Number.isFinite(effectiveFromAt.getTime())) {
+              return sendError(res, 400, "invalid governance template apply request", { message: "effectiveFrom must be an ISO timestamp" }, { code: "SCHEMA_INVALID" });
+            }
+            const effectiveFrom = effectiveFromAt.toISOString();
+            const nowAt = nowIso();
+            let payload;
+            try {
+              payload = validateTenantPolicyUpdatedPayload({
+                tenantId,
+                policyId: createId("pol"),
+                effectiveFrom,
+                updatedAt: nowAt,
+                policy: template.policy,
+                reason:
+                  body?.reason === null || body?.reason === undefined || String(body.reason).trim() === ""
+                    ? `template:${template.templateId}@${template.templateVersion}`
+                    : String(body.reason)
+              });
+            } catch (err) {
+              return sendError(res, 400, "invalid governance payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+            }
+
+            const prior =
+              existingForPrecondition.find((e) => e?.type === "TENANT_POLICY_UPDATED" && String(e?.payload?.effectiveFrom ?? "") === effectiveFrom) ?? null;
+            if (prior) {
+              const priorPolicy = prior?.payload?.policy ?? null;
+              const nextPolicy = payload?.policy ?? null;
+              const samePolicy = canonicalJsonStringify(priorPolicy ?? {}) === canonicalJsonStringify(nextPolicy ?? {});
+              if (!samePolicy) {
+                return sendError(
+                  res,
+                  409,
+                  "governance effectiveFrom conflict",
+                  { existingEventId: prior.id ?? null, effectiveFrom },
+                  { code: "GOVERNANCE_EFFECTIVE_FROM_CONFLICT" }
+                );
+              }
+              const responseBody = { event: prior, alreadyExists: true, template };
+              await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 200, body: responseBody } }]);
+              return sendJson(res, 200, responseBody);
+            }
+
+            const draft = createChainedEvent({
+              streamId: GOVERNANCE_STREAM_ID,
+              type: "TENANT_POLICY_UPDATED",
+              at: nowAt,
+              actor: { type: "finance", id: principalId },
+              payload
+            });
+            const nextEvents = appendChainedEvent({ events: existingForPrecondition, event: draft, signer: serverSigner });
+            const event = nextEvents[nextEvents.length - 1];
+            try {
+              enforceSignaturePolicy({ tenantId, signerKind: requiredSignerKindForEventType(event.type), event });
+            } catch (err) {
+              return sendError(res, 400, "signature policy rejected", { message: err?.message });
+            }
+            const responseBody = { event, template };
+            try {
+              await commitTx([
+                { kind: "MONTH_EVENTS_APPENDED", tenantId, monthId: GOVERNANCE_STREAM_ID, events: [event] },
+                { kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } }
+              ]);
+            } catch (err) {
+              if (err?.code === "PREV_CHAIN_HASH_MISMATCH") {
+                return sendError(res, 409, "event append conflict", {
+                  expectedPrevChainHash: err.expectedPrevChainHash ?? null,
+                  gotPrevChainHash: err.gotPrevChainHash ?? null
+                });
+              }
+              throw err;
+            }
+            return sendJson(res, 201, responseBody);
+          }
+
+          return sendError(res, 404, "not found");
+        }
+
         if (parts[1] === "governance" && parts[2] === "events" && parts.length === 3 && req.method === "GET") {
           const scope = url.searchParams.get("scope") ?? "tenant";
           if (scope === "global") {
@@ -46866,6 +47354,57 @@ export function createApi({
             }
           }
           const nowAt = nowIso();
+          if (s8ApprovalEnforceX402AuthorizePaymentValue) {
+            const requestApprovalPolicyRaw =
+              body?.s8ApprovalPolicy && typeof body.s8ApprovalPolicy === "object" && !Array.isArray(body.s8ApprovalPolicy)
+                ? body.s8ApprovalPolicy
+                : null;
+            if (body?.s8ApprovalPolicy !== undefined && requestApprovalPolicyRaw === null) {
+              return sendError(res, 400, "invalid s8ApprovalPolicy", { message: "s8ApprovalPolicy must be a plain object" }, { code: "SCHEMA_INVALID" });
+            }
+            const approvalAction = {
+              actionId: `x402_authorize_payment:${gateId}`,
+              actionType: "funds_transfer",
+              actorId: payerAgentId,
+              riskTier: "high",
+              amountCents,
+              metadata: {
+                tenantId,
+                gateId,
+                runId,
+                currency,
+                payeeProviderId
+              }
+            };
+            const approvalCheck = enforceHighRiskApproval({
+              action: approvalAction,
+              approvalPolicy: requestApprovalPolicyRaw ?? s8ApprovalPolicyValue,
+              approvalDecision:
+                body?.s8ApprovalDecision ??
+                body?.humanApprovalDecision ??
+                body?.approvalDecision ??
+                null,
+              nowIso: () => nowAt
+            });
+            if (!approvalCheck.approved) {
+              return sendError(
+                res,
+                409,
+                "human approval required for high-risk x402 authorization",
+                {
+                  approvalCheck,
+                  approvalRequest: approvalCheck.requiresExplicitApproval
+                    ? createApprovalRequest({
+                        action: approvalAction,
+                        requestedBy: principalId ?? payerAgentId,
+                        requestedAt: nowAt
+                      })
+                    : null
+                },
+                { code: approvalCheck.blockingIssues?.[0]?.code ?? "HUMAN_APPROVAL_REQUIRED" }
+              );
+            }
+          }
           const gateAuthorizationForSignerGuard =
             gate?.authorization && typeof gate.authorization === "object" && !Array.isArray(gate.authorization) ? gate.authorization : null;
           const hasGrantBoundAuthorization =
@@ -56491,6 +57030,86 @@ export function createApi({
 
       if (parts[0] === "outbox" && parts.length === 1 && req.method === "GET") {
         return sendJson(res, 200, { outbox: store.outbox });
+      }
+
+      if (parts[0] === "simulation" && parts[1] === "harness" && parts[2] === "runs" && parts.length === 3 && req.method === "POST") {
+        if (!requireProtocolHeaderForWrite(req, res)) return;
+
+        const body = await readJsonBody(req);
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          return sendError(res, 400, "invalid simulation run payload", { message: "body must be a JSON object" }, { code: "SCHEMA_INVALID" });
+        }
+
+        let idemStoreKey = null;
+        let idemRequestHash = null;
+        try {
+          ({ idemStoreKey, idemRequestHash } = readIdempotency({ method: "POST", requestPath: path, expectedPrevChainHash: null, body }));
+        } catch (err) {
+          return sendError(res, 400, "invalid idempotency key", { message: err?.message });
+        }
+        if (idemStoreKey) {
+          const existing = store.idempotency.get(idemStoreKey);
+          if (existing) {
+            if (existing.requestHash !== idemRequestHash) {
+              return sendError(res, 409, "idempotency key conflict", "request differs from initial use of this key");
+            }
+            return sendJson(res, existing.statusCode, existing.body);
+          }
+        }
+
+        let run = null;
+        try {
+          run = runDeterministicSimulation({
+            scenarioId: body?.scenarioId,
+            seed: body?.seed,
+            actions: body?.actions,
+            approvalPolicy: body?.approvalPolicy ?? {},
+            approvalsByActionId: body?.approvalsByActionId ?? {},
+            startedAt: typeof body?.startedAt === "string" && body.startedAt.trim() !== "" ? body.startedAt.trim() : nowIso()
+          });
+        } catch (err) {
+          return sendError(res, 400, "invalid simulation run payload", { message: err?.message }, { code: "SCHEMA_INVALID" });
+        }
+
+        if (!(store.simulationHarnessRuns instanceof Map)) {
+          store.simulationHarnessRuns = new Map();
+        }
+        const createdAt = nowIso();
+        const artifact = normalizeForCanonicalJson(
+          {
+            schemaVersion: "SimulationHarnessRunArtifact.v1",
+            artifactId: `simrun_${String(run.runSha256 ?? "").slice(0, 20)}`,
+            tenantId,
+            runSha256: run.runSha256,
+            createdAt,
+            run
+          },
+          { path: "$" }
+        );
+        store.simulationHarnessRuns.set(makeScopedKey({ tenantId, id: String(run.runSha256 ?? "") }), artifact);
+
+        const responseBody = {
+          ok: true,
+          runSha256: run.runSha256,
+          artifact
+        };
+        if (idemStoreKey) {
+          await commitTx([{ kind: "IDEMPOTENCY_PUT", key: idemStoreKey, value: { requestHash: idemRequestHash, statusCode: 201, body: responseBody } }]);
+        }
+        return sendJson(res, 201, responseBody);
+      }
+
+      if (parts[0] === "simulation" && parts[1] === "harness" && parts[2] === "runs" && parts[3] && parts.length === 4 && req.method === "GET") {
+        const runSha256 = String(decodePathPart(parts[3]) ?? "").trim().toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(runSha256)) {
+          return sendError(res, 400, "invalid runSha256", { message: "runSha256 must be a lowercase sha256 hex string" }, { code: "SCHEMA_INVALID" });
+        }
+        if (!(store.simulationHarnessRuns instanceof Map)) {
+          return sendError(res, 404, "simulation run not found", null, { code: "NOT_FOUND" });
+        }
+        const artifact = store.simulationHarnessRuns.get(makeScopedKey({ tenantId, id: runSha256 })) ?? null;
+        if (!artifact) return sendError(res, 404, "simulation run not found", null, { code: "NOT_FOUND" });
+        return sendJson(res, 200, { ok: true, artifact });
       }
 
       if (parts[0] === "runs" && parts[1] && parts[2] === "verification" && parts.length === 3 && req.method === "GET") {
