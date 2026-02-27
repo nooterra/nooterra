@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spec.nooterra.dev/schemas/SimulationScenarioDsl.v1.schema.json",
+  "title": "SimulationScenarioDsl.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "scenarioId",
+    "seed",
+    "managerId",
+    "ecosystemId",
+    "actorRoles",
+    "flow",
+    "invariants",
+    "generatedScenario"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "NooterraSimulationScenarioDsl.v1"
+    },
+    "scenarioId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "seed": {
+      "type": "string",
+      "minLength": 1
+    },
+    "managerId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ecosystemId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "actorRoles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["roleId", "count"],
+        "properties": {
+          "roleId": { "type": "string", "minLength": 1 },
+          "count": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "flow": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["actionType", "roleId", "riskTier", "amountCents", "metadata"],
+        "properties": {
+          "actionType": { "type": "string", "minLength": 1 },
+          "roleId": { "type": "string", "minLength": 1 },
+          "riskTier": { "type": "string", "enum": ["low", "medium", "high"] },
+          "amountCents": { "type": "integer", "minimum": 0 },
+          "metadata": { "type": "object" }
+        }
+      }
+    },
+    "invariants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hookId", "type", "max"],
+        "properties": {
+          "hookId": { "type": "string", "minLength": 1 },
+          "type": {
+            "type": "string",
+            "enum": ["blocked_actions_at_most", "high_risk_actions_at_most", "all_checks_passed"]
+          },
+          "max": {
+            "type": ["integer", "null"],
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "generatedScenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "scenarioId", "seed", "managerId", "ecosystemId", "actions"],
+      "properties": {
+        "schemaVersion": { "const": "NooterraPersonalAgentEcosystemScenario.v1" },
+        "scenarioId": { "type": "string", "minLength": 1 },
+        "seed": { "type": "string", "minLength": 1 },
+        "managerId": { "type": "string", "minLength": 1 },
+        "ecosystemId": { "type": "string", "minLength": 1 },
+        "actions": { "type": "array" }
+      }
+    }
+  }
+}

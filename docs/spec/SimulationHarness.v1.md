@@ -7,6 +7,7 @@
 - Harness schema: `NooterraSimulationHarness.v1`
 - Run schema: `NooterraSimulationRun.v1`
 - Scenario schema: `NooterraPersonalAgentEcosystemScenario.v1`
+- Scenario DSL schema: `NooterraSimulationScenarioDsl.v1`
 
 ## Inputs
 
@@ -15,6 +16,20 @@
 - `actions[]`: ordered action list with agent, manager, ecosystem, risk, and cost fields.
 - `approvalPolicy`: high-risk threshold and strict evidence rules.
 - `approvalsByActionId`: optional map of explicit human approvals.
+- `invariantHooks[]`: optional deterministic invariant checks for automatic pass/fail verdicting.
+
+## Scenario DSL
+
+`NooterraSimulationScenarioDsl.v1` provides a diffable, seed-driven way to generate concrete scenarios:
+
+- `actorRoles[]`: role definitions (`roleId`, `count`) used to deterministically mint actor IDs from seed material.
+- `flow[]`: ordered action templates (`roleId`, `actionType`, `riskTier`, `amountCents`, `metadata`).
+- `invariants[]`: optional post-run verdict hooks:
+  - `blocked_actions_at_most`
+  - `high_risk_actions_at_most`
+  - `all_checks_passed`
+
+Compiling the DSL must be deterministic for identical input and seed.
 
 ## Output
 
@@ -33,10 +48,10 @@ Simulation run output MUST include:
 - Missing, invalid, mismatched, or expired approvals block action execution.
 - Strict evidence mode blocks approvals that have no evidence references.
 - Blocking decisions must be emitted as deterministic reason codes.
+- Invariant hook failures must emit `SIMULATION_INVARIANT_FAILED` and block strict pass verdicts.
 
 ## Determinism requirements
 
 - Stable IDs must derive from deterministic seed material.
 - Hashes must use canonical JSON + `sha256`.
 - Re-running with identical scenario, approvals, seed, and timestamps must produce byte-stable semantic output.
-
