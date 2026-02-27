@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "NooterraProtocolCompatibilityPolicy.v1",
+  "policyId": "nooterra-protocol-compatibility-policy",
+  "updatedAt": "2026-02-27T00:00:00.000Z",
+  "objects": [
+    {
+      "objectId": "agent_card",
+      "schemaVersion": "AgentCard.v1",
+      "requiredSurfaces": [
+        "publicSpecMarkdown",
+        "openapi"
+      ]
+    },
+    {
+      "objectId": "meter",
+      "schemaVersion": "Meter.v1",
+      "requiredSurfaces": [
+        "publicSpecMarkdown",
+        "jsonSchema",
+        "openapi"
+      ]
+    },
+    {
+      "objectId": "session",
+      "schemaVersion": "Session.v1",
+      "requiredSurfaces": [
+        "publicSpecMarkdown",
+        "openapi"
+      ]
+    },
+    {
+      "objectId": "session_replay_pack",
+      "schemaVersion": "SessionReplayPack.v1",
+      "requiredSurfaces": [
+        "publicSpecMarkdown",
+        "openapi"
+      ]
+    },
+    {
+      "objectId": "session_transcript",
+      "schemaVersion": "SessionTranscript.v1",
+      "requiredSurfaces": [
+        "publicSpecMarkdown",
+        "openapi"
+      ]
+    },
+    {
+      "objectId": "subagent_completion_receipt",
+      "schemaVersion": "SubAgentCompletionReceipt.v1",
+      "requiredSurfaces": [
+        "publicSpecMarkdown",
+        "openapi"
+      ]
+    },
+    {
+      "objectId": "subagent_work_order",
+      "schemaVersion": "SubAgentWorkOrder.v1",
+      "requiredSurfaces": [
+        "publicSpecMarkdown",
+        "openapi"
+      ]
+    },
+    {
+      "objectId": "tool_descriptor",
+      "schemaVersion": "ToolDescriptor.v1",
+      "requiredSurfaces": [
+        "publicSpecMarkdown",
+        "openapi"
+      ]
+    }
+  ]
+}

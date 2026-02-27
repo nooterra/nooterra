@@ -211,6 +211,12 @@ jobs:
           npm run -s openapi:write
           git diff --exit-code -- openapi/nooterra.openapi.json
 
+      - name: Generate protocol compatibility matrix and enforce drift gate
+        run: |
+          set -euo pipefail
+          node scripts/ci/run-protocol-compatibility-matrix.mjs \
+            --report artifacts/gates/protocol-compatibility-matrix-release-gate.json
+
       - name: Run SDK smoke tests (Node + Python)
         run: |
           set -euo pipefail
@@ -259,6 +265,7 @@ jobs:
           name: release-deploy-safety-${{ github.run_id }}
           path: |
             artifacts/ops/hosted-baseline-release-gate.json
+            artifacts/gates/protocol-compatibility-matrix-release-gate.json
           if-no-files-found: warn
 
       - name: Stop server

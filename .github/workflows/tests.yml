@@ -578,6 +578,26 @@ jobs:
           npm run openapi:write
           git diff --exit-code -- openapi/nooterra.openapi.json
 
+  protocol_compatibility_matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Generate protocol compatibility matrix and enforce drift gate
+        run: node scripts/ci/run-protocol-compatibility-matrix.mjs --report artifacts/gates/protocol-compatibility-matrix.json
+      - name: Upload protocol compatibility matrix artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: protocol-compatibility-matrix-${{ github.run_id }}
+          path: artifacts/gates/protocol-compatibility-matrix.json
+          if-no-files-found: error
+
   npm_pack_smoke:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     strategy:
