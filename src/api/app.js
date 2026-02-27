@@ -8636,6 +8636,7 @@ export function createApi({
   }
 
   const AGENT_CARD_STREAM_EVENT_SCHEMA_VERSION = "AgentCardStreamEvent.v1";
+  const AGENT_CARD_DISCOVERY_RESULT_SCHEMA_VERSION = "AgentCardDiscoveryResult.v1";
 
   function buildAgentCardStreamCursor({ updatedAt, tenantId, agentId } = {}) {
     if (typeof updatedAt !== "string" || !Number.isFinite(Date.parse(updatedAt))) {
@@ -10389,6 +10390,7 @@ export function createApi({
     });
 
     const out = {
+      schemaVersion: AGENT_CARD_DISCOVERY_RESULT_SCHEMA_VERSION,
       scope: discoveryScope,
       reputationVersion: version,
       reputationWindow: window,

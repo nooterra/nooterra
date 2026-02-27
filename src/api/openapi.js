@@ -778,6 +778,65 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  function buildAgentCardDiscoveryResultV1() {
+    return {
+      type: "object",
+      additionalProperties: false,
+      required: ["ok", "schemaVersion", "scope", "reputationVersion", "reputationWindow", "scoreStrategy", "total", "limit", "offset", "results"],
+      properties: {
+        ok: { type: "boolean" },
+        schemaVersion: { type: "string", enum: ["AgentCardDiscoveryResult.v1"] },
+        scope: { type: "string", enum: ["tenant", "public"] },
+        reputationVersion: { type: "string", enum: ["v1", "v2"] },
+        reputationWindow: { type: "string", enum: ["7d", "30d", "allTime"] },
+        scoreStrategy: { type: "string", enum: ["balanced", "recent_bias", "trust_weighted"] },
+        total: { type: "integer" },
+        limit: { type: "integer" },
+        offset: { type: "integer" },
+        results: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              rank: { type: "integer", minimum: 1 },
+              rankingScore: { type: "integer", minimum: 0, maximum: 100 },
+              riskTier: { type: "string", enum: ["low", "guarded", "elevated", "high"] },
+              agentCard: AgentCardV1,
+              reputation: AgentReputationAny,
+              capabilityAttestation: { allOf: [CapabilityAttestationV1], nullable: true },
+              routingFactors: { allOf: [TrustRoutingFactorsV1], nullable: true }
+            }
+          }
+        },
+        excludedAttestationCandidates: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["agentId", "capability", "reasonCode"],
+            properties: {
+              agentId: { type: "string" },
+              capability: { type: "string" },
+              reasonCode: { type: "string" }
+            }
+          }
+        },
+        attestationPolicy: {
+          type: "object",
+          additionalProperties: false,
+          required: ["schemaVersion", "source", "minLevel", "issuerAgentId"],
+          properties: {
+            schemaVersion: { type: "string", enum: ["AgentCardPublicDiscoveryAttestationPolicy.v1"] },
+            source: { type: "string", enum: ["public_discovery_policy"] },
+            minLevel: { type: "string", enum: ["self_claim", "attested", "certified"], nullable: true },
+            issuerAgentId: { type: "string", nullable: true }
+          }
+        }
+      }
+    };
+  }
+
   const SubAgentWorkOrderPricingV1 = {
     type: "object",
     additionalProperties: false,
@@ -6619,6 +6678,56 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
           }
         }
       },
+      "/public/agent-cards/discover": {
+        get: {
+          summary: "Discover public agent cards across tenants",
+          parameters: [
+            RequestIdHeader,
+            { name: "capability", in: "query", required: false, schema: { type: "string" } },
+            { name: "executionCoordinatorDid", in: "query", required: false, schema: { type: "string" } },
+            { name: "toolId", in: "query", required: false, schema: { type: "string" } },
+            { name: "toolMcpName", in: "query", required: false, schema: { type: "string" } },
+            { name: "toolRiskClass", in: "query", required: false, schema: { type: "string", enum: ["read", "compute", "action", "financial"] } },
+            { name: "toolSideEffecting", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "toolMaxPriceCents", in: "query", required: false, schema: { type: "integer", minimum: 0 } },
+            {
+              name: "toolRequiresEvidenceKind",
+              in: "query",
+              required: false,
+              schema: { type: "string", enum: ["artifact", "hash", "verification_report"] }
+            },
+            { name: "status", in: "query", required: false, schema: { type: "string", enum: ["active", "suspended", "revoked", "all"] } },
+            { name: "visibility", in: "query", required: false, schema: { type: "string", enum: ["public", "all"] } },
+            { name: "runtime", in: "query", required: false, schema: { type: "string" } },
+            { name: "requireCapabilityAttestation", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "attestationMinLevel", in: "query", required: false, schema: { type: "string", enum: ["self_claim", "attested", "certified"] } },
+            { name: "attestationIssuerAgentId", in: "query", required: false, schema: { type: "string" } },
+            { name: "includeAttestationMetadata", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "minTrustScore", in: "query", required: false, schema: { type: "integer", minimum: 0, maximum: 100 } },
+            { name: "riskTier", in: "query", required: false, schema: { type: "string", enum: ["low", "guarded", "elevated", "high"] } },
+            { name: "includeReputation", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "reputationVersion", in: "query", required: false, schema: { type: "string", enum: ["v1", "v2"] } },
+            { name: "reputationWindow", in: "query", required: false, schema: { type: "string", enum: ["7d", "30d", "allTime"] } },
+            { name: "scoreStrategy", in: "query", required: false, schema: { type: "string", enum: ["balanced", "recent_bias", "trust_weighted"] } },
+            { name: "requesterAgentId", in: "query", required: false, schema: { type: "string" } },
+            { name: "includeRoutingFactors", in: "query", required: false, schema: { type: "boolean" } },
+            { name: "limit", in: "query", required: false, schema: { type: "integer", minimum: 1, maximum: 100 } },
+            { name: "offset", in: "query", required: false, schema: { type: "integer", minimum: 0 } }
+          ],
+          security: [],
+          responses: {
+            200: {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: buildAgentCardDiscoveryResultV1()
+                }
+              }
+            },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
       "/agent-cards/discover": {
         get: {
           summary: "Discover agent cards by capability/runtime/trust filters",
@@ -6662,48 +6771,7 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
               description: "OK",
               content: {
                 "application/json": {
-                  schema: {
-                    type: "object",
-                    additionalProperties: false,
-                    properties: {
-                      ok: { type: "boolean" },
-                      reputationVersion: { type: "string" },
-                      reputationWindow: { type: "string" },
-                      scoreStrategy: { type: "string" },
-                      total: { type: "integer" },
-                      limit: { type: "integer" },
-                      offset: { type: "integer" },
-                      results: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          additionalProperties: false,
-                          properties: {
-                            rank: { type: "integer" },
-                            rankingScore: { type: "integer" },
-                            riskTier: { type: "string" },
-                            agentCard: AgentCardV1,
-                            reputation: AgentReputationAny,
-                            capabilityAttestation: { allOf: [CapabilityAttestationV1], nullable: true },
-                            routingFactors: { allOf: [TrustRoutingFactorsV1], nullable: true }
-                          }
-                        }
-                      },
-                      excludedAttestationCandidates: {
-                        type: "array",
-                        items: {
-                          type: "object",
-                          additionalProperties: false,
-                          required: ["agentId", "capability", "reasonCode"],
-                          properties: {
-                            agentId: { type: "string" },
-                            capability: { type: "string" },
-                            reasonCode: { type: "string" }
-                          }
-                        }
-                      }
-                    }
-                  }
+                  schema: buildAgentCardDiscoveryResultV1()
                 }
               }
             },

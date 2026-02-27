@@ -39373,30 +39373,10 @@
         }
       }
     },
-    "/agent-cards/discover": {
+    "/public/agent-cards/discover": {
       "get": {
-        "summary": "Discover agent cards by capability/runtime/trust filters",
+        "summary": "Discover public agent cards across tenants",
         "parameters": [
-          {
-            "name": "x-proxy-tenant-id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "example": "tenant_default"
-            },
-            "description": "Tenant scope for the request."
-          },
-          {
-            "name": "x-nooterra-protocol",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "example": "1.0"
-            },
-            "description": "Client protocol version (major.minor). Required in production."
-          },
           {
             "name": "x-request-id",
             "in": "header",
@@ -39408,6 +39388,14 @@
           },
           {
             "name": "capability",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "executionCoordinatorDid",
             "in": "query",
             "required": false,
             "schema": {
@@ -39496,8 +39484,6 @@
               "type": "string",
               "enum": [
                 "public",
-                "tenant",
-                "private",
                 "all"
               ]
             }
@@ -39653,14 +39639,7 @@
             }
           }
         ],
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "ProxyApiKey": []
-          }
-        ],
+        "security": [],
         "responses": {
           "200": {
             "description": "OK",
@@ -39669,18 +39648,57 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "schemaVersion",
+                    "scope",
+                    "reputationVersion",
+                    "reputationWindow",
+                    "scoreStrategy",
+                    "total",
+                    "limit",
+                    "offset",
+                    "results"
+                  ],
                   "properties": {
                     "ok": {
                       "type": "boolean"
                     },
+                    "schemaVersion": {
+                      "type": "string",
+                      "enum": [
+                        "AgentCardDiscoveryResult.v1"
+                      ]
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "tenant",
+                        "public"
+                      ]
+                    },
                     "reputationVersion": {
-                      "type": "string"
+                      "type": "string",
+                      "enum": [
+                        "v1",
+                        "v2"
+                      ]
                     },
                     "reputationWindow": {
-                      "type": "string"
+                      "type": "string",
+                      "enum": [
+                        "7d",
+                        "30d",
+                        "allTime"
+                      ]
                     },
                     "scoreStrategy": {
-                      "type": "string"
+                      "type": "string",
+                      "enum": [
+                        "balanced",
+                        "recent_bias",
+                        "trust_weighted"
+                      ]
                     },
                     "total": {
                       "type": "integer"
@@ -39698,13 +39716,22 @@
                         "additionalProperties": false,
                         "properties": {
                           "rank": {
-                            "type": "integer"
+                            "type": "integer",
+                            "minimum": 1
                           },
                           "rankingScore": {
-                            "type": "integer"
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100
                           },
                           "riskTier": {
-                            "type": "string"
+                            "type": "string",
+                            "enum": [
+                              "low",
+                              "guarded",
+                              "elevated",
+                              "high"
+                            ]
                           },
                           "agentCard": {
                             "type": "object",
@@ -40900,6 +40927,1686 @@
                           "reasonCode": {
                             "type": "string"
                           }
+                        }
+                      }
+                    },
+                    "attestationPolicy": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "source",
+                        "minLevel",
+                        "issuerAgentId"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AgentCardPublicDiscoveryAttestationPolicy.v1"
+                          ]
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "public_discovery_policy"
+                          ]
+                        },
+                        "minLevel": {
+                          "type": "string",
+                          "enum": [
+                            "self_claim",
+                            "attested",
+                            "certified"
+                          ],
+                          "nullable": true
+                        },
+                        "issuerAgentId": {
+                          "type": "string",
+                          "nullable": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "details": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent-cards/discover": {
+      "get": {
+        "summary": "Discover agent cards by capability/runtime/trust filters",
+        "parameters": [
+          {
+            "name": "x-proxy-tenant-id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "tenant_default"
+            },
+            "description": "Tenant scope for the request."
+          },
+          {
+            "name": "x-nooterra-protocol",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "example": "1.0"
+            },
+            "description": "Client protocol version (major.minor). Required in production."
+          },
+          {
+            "name": "x-request-id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional request ID (echoed in responses)."
+          },
+          {
+            "name": "capability",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "toolId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "toolMcpName",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "toolRiskClass",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "read",
+                "compute",
+                "action",
+                "financial"
+              ]
+            }
+          },
+          {
+            "name": "toolSideEffecting",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "toolMaxPriceCents",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "toolRequiresEvidenceKind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "artifact",
+                "hash",
+                "verification_report"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "suspended",
+                "revoked",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "visibility",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "public",
+                "tenant",
+                "private",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "runtime",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "requireCapabilityAttestation",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "attestationMinLevel",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "self_claim",
+                "attested",
+                "certified"
+              ]
+            }
+          },
+          {
+            "name": "attestationIssuerAgentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeAttestationMetadata",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "minTrustScore",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "riskTier",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "low",
+                "guarded",
+                "elevated",
+                "high"
+              ]
+            }
+          },
+          {
+            "name": "includeReputation",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "reputationVersion",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "v1",
+                "v2"
+              ]
+            }
+          },
+          {
+            "name": "reputationWindow",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "7d",
+                "30d",
+                "allTime"
+              ]
+            }
+          },
+          {
+            "name": "scoreStrategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "balanced",
+                "recent_bias",
+                "trust_weighted"
+              ]
+            }
+          },
+          {
+            "name": "requesterAgentId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeRoutingFactors",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "ProxyApiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "ok",
+                    "schemaVersion",
+                    "scope",
+                    "reputationVersion",
+                    "reputationWindow",
+                    "scoreStrategy",
+                    "total",
+                    "limit",
+                    "offset",
+                    "results"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "schemaVersion": {
+                      "type": "string",
+                      "enum": [
+                        "AgentCardDiscoveryResult.v1"
+                      ]
+                    },
+                    "scope": {
+                      "type": "string",
+                      "enum": [
+                        "tenant",
+                        "public"
+                      ]
+                    },
+                    "reputationVersion": {
+                      "type": "string",
+                      "enum": [
+                        "v1",
+                        "v2"
+                      ]
+                    },
+                    "reputationWindow": {
+                      "type": "string",
+                      "enum": [
+                        "7d",
+                        "30d",
+                        "allTime"
+                      ]
+                    },
+                    "scoreStrategy": {
+                      "type": "string",
+                      "enum": [
+                        "balanced",
+                        "recent_bias",
+                        "trust_weighted"
+                      ]
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
+                    "limit": {
+                      "type": "integer"
+                    },
+                    "offset": {
+                      "type": "integer"
+                    },
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "rank": {
+                            "type": "integer",
+                            "minimum": 1
+                          },
+                          "rankingScore": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "riskTier": {
+                            "type": "string",
+                            "enum": [
+                              "low",
+                              "guarded",
+                              "elevated",
+                              "high"
+                            ]
+                          },
+                          "agentCard": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "schemaVersion",
+                              "agentId",
+                              "tenantId",
+                              "displayName",
+                              "status",
+                              "visibility",
+                              "capabilities",
+                              "createdAt",
+                              "updatedAt",
+                              "revision"
+                            ],
+                            "properties": {
+                              "schemaVersion": {
+                                "type": "string",
+                                "enum": [
+                                  "AgentCard.v1"
+                                ]
+                              },
+                              "agentId": {
+                                "type": "string"
+                              },
+                              "tenantId": {
+                                "type": "string"
+                              },
+                              "displayName": {
+                                "type": "string"
+                              },
+                              "description": {
+                                "type": "string",
+                                "nullable": true
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "suspended",
+                                  "revoked"
+                                ]
+                              },
+                              "visibility": {
+                                "type": "string",
+                                "enum": [
+                                  "public",
+                                  "tenant",
+                                  "private"
+                                ]
+                              },
+                              "capabilities": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "host": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "runtime": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "endpoint": {
+                                    "type": "string",
+                                    "format": "uri",
+                                    "nullable": true
+                                  },
+                                  "protocols": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              },
+                              "priceHint": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "amountCents": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "currency": {
+                                    "type": "string"
+                                  },
+                                  "unit": {
+                                    "type": "string"
+                                  }
+                                }
+                              },
+                              "attestations": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "type",
+                                    "level"
+                                  ],
+                                  "properties": {
+                                    "type": {
+                                      "type": "string"
+                                    },
+                                    "level": {
+                                      "type": "string"
+                                    },
+                                    "issuer": {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    "credentialRef": {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    "proofHash": {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    "issuedAt": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "nullable": true
+                                    },
+                                    "expiresAt": {
+                                      "type": "string",
+                                      "format": "date-time",
+                                      "nullable": true
+                                    }
+                                  }
+                                }
+                              },
+                              "tools": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "additionalProperties": false,
+                                  "required": [
+                                    "schemaVersion",
+                                    "toolId",
+                                    "sideEffecting",
+                                    "requiresEvidenceKinds"
+                                  ],
+                                  "properties": {
+                                    "schemaVersion": {
+                                      "type": "string",
+                                      "enum": [
+                                        "ToolDescriptor.v1"
+                                      ]
+                                    },
+                                    "toolId": {
+                                      "type": "string"
+                                    },
+                                    "mcpToolName": {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    "name": {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    "description": {
+                                      "type": "string",
+                                      "nullable": true
+                                    },
+                                    "riskClass": {
+                                      "type": "string",
+                                      "enum": [
+                                        "read",
+                                        "compute",
+                                        "action",
+                                        "financial"
+                                      ],
+                                      "nullable": true
+                                    },
+                                    "sideEffecting": {
+                                      "type": "boolean"
+                                    },
+                                    "pricing": {
+                                      "type": "object",
+                                      "additionalProperties": false,
+                                      "nullable": true,
+                                      "properties": {
+                                        "amountCents": {
+                                          "type": "integer",
+                                          "minimum": 0
+                                        },
+                                        "currency": {
+                                          "type": "string"
+                                        },
+                                        "unit": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    },
+                                    "requiresEvidenceKinds": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "enum": [
+                                          "artifact",
+                                          "hash",
+                                          "verification_report"
+                                        ]
+                                      }
+                                    },
+                                    "metadata": {
+                                      "type": "object",
+                                      "nullable": true,
+                                      "additionalProperties": true
+                                    }
+                                  }
+                                }
+                              },
+                              "tags": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "metadata": {
+                                "type": "object",
+                                "nullable": true,
+                                "additionalProperties": true
+                              },
+                              "identityRef": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "nullable": true,
+                                "properties": {
+                                  "schemaVersion": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "keyId": {
+                                    "type": "string",
+                                    "nullable": true
+                                  }
+                                }
+                              },
+                              "createdAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "updatedAt": {
+                                "type": "string",
+                                "format": "date-time"
+                              },
+                              "revision": {
+                                "type": "integer",
+                                "minimum": 0
+                              }
+                            }
+                          },
+                          "reputation": {
+                            "oneOf": [
+                              {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "schemaVersion",
+                                  "agentId",
+                                  "tenantId",
+                                  "trustScore",
+                                  "riskTier",
+                                  "totalRuns",
+                                  "terminalRuns",
+                                  "createdRuns",
+                                  "runningRuns",
+                                  "completedRuns",
+                                  "failedRuns",
+                                  "runsWithEvidence",
+                                  "totalSettlements",
+                                  "lockedSettlements",
+                                  "releasedSettlements",
+                                  "refundedSettlements",
+                                  "runCompletionRatePct",
+                                  "evidenceCoverageRatePct",
+                                  "settlementReleaseRatePct",
+                                  "avgRunDurationMs",
+                                  "scoreBreakdown",
+                                  "computedAt"
+                                ],
+                                "properties": {
+                                  "schemaVersion": {
+                                    "type": "string",
+                                    "enum": [
+                                      "AgentReputation.v1"
+                                    ]
+                                  },
+                                  "agentId": {
+                                    "type": "string"
+                                  },
+                                  "tenantId": {
+                                    "type": "string"
+                                  },
+                                  "trustScore": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100
+                                  },
+                                  "riskTier": {
+                                    "type": "string",
+                                    "enum": [
+                                      "low",
+                                      "guarded",
+                                      "elevated",
+                                      "high"
+                                    ]
+                                  },
+                                  "totalRuns": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "terminalRuns": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "createdRuns": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "runningRuns": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "completedRuns": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "failedRuns": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "runsWithEvidence": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "totalSettlements": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "lockedSettlements": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "releasedSettlements": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "refundedSettlements": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "runCompletionRatePct": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100,
+                                    "nullable": true
+                                  },
+                                  "evidenceCoverageRatePct": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100,
+                                    "nullable": true
+                                  },
+                                  "settlementReleaseRatePct": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100,
+                                    "nullable": true
+                                  },
+                                  "avgRunDurationMs": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "nullable": true
+                                  },
+                                  "scoreBreakdown": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "runQuality",
+                                      "settlementQuality",
+                                      "evidenceQuality",
+                                      "activityScore"
+                                    ],
+                                    "properties": {
+                                      "runQuality": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      },
+                                      "settlementQuality": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      },
+                                      "evidenceQuality": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      },
+                                      "activityScore": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      }
+                                    }
+                                  },
+                                  "computedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  }
+                                }
+                              },
+                              {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "schemaVersion",
+                                  "agentId",
+                                  "tenantId",
+                                  "primaryWindow",
+                                  "trustScore",
+                                  "riskTier",
+                                  "windows",
+                                  "computedAt"
+                                ],
+                                "properties": {
+                                  "schemaVersion": {
+                                    "type": "string",
+                                    "enum": [
+                                      "AgentReputation.v2"
+                                    ]
+                                  },
+                                  "agentId": {
+                                    "type": "string"
+                                  },
+                                  "tenantId": {
+                                    "type": "string"
+                                  },
+                                  "primaryWindow": {
+                                    "type": "string",
+                                    "enum": [
+                                      "7d",
+                                      "30d",
+                                      "allTime"
+                                    ]
+                                  },
+                                  "trustScore": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 100
+                                  },
+                                  "riskTier": {
+                                    "type": "string",
+                                    "enum": [
+                                      "low",
+                                      "guarded",
+                                      "elevated",
+                                      "high"
+                                    ]
+                                  },
+                                  "windows": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "7d",
+                                      "30d",
+                                      "allTime"
+                                    ],
+                                    "properties": {
+                                      "7d": {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": [
+                                          "trustScore",
+                                          "riskTier",
+                                          "totalRuns",
+                                          "terminalRuns",
+                                          "createdRuns",
+                                          "runningRuns",
+                                          "completedRuns",
+                                          "failedRuns",
+                                          "runsWithEvidence",
+                                          "totalSettlements",
+                                          "lockedSettlements",
+                                          "releasedSettlements",
+                                          "refundedSettlements",
+                                          "runCompletionRatePct",
+                                          "evidenceCoverageRatePct",
+                                          "settlementReleaseRatePct",
+                                          "avgRunDurationMs",
+                                          "scoreBreakdown",
+                                          "computedAt"
+                                        ],
+                                        "properties": {
+                                          "trustScore": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100
+                                          },
+                                          "riskTier": {
+                                            "type": "string",
+                                            "enum": [
+                                              "low",
+                                              "guarded",
+                                              "elevated",
+                                              "high"
+                                            ]
+                                          },
+                                          "totalRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "terminalRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "createdRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "runningRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "completedRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "failedRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "runsWithEvidence": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "totalSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "lockedSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "releasedSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "refundedSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "runCompletionRatePct": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100,
+                                            "nullable": true
+                                          },
+                                          "evidenceCoverageRatePct": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100,
+                                            "nullable": true
+                                          },
+                                          "settlementReleaseRatePct": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100,
+                                            "nullable": true
+                                          },
+                                          "avgRunDurationMs": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "nullable": true
+                                          },
+                                          "scoreBreakdown": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "required": [
+                                              "runQuality",
+                                              "settlementQuality",
+                                              "evidenceQuality",
+                                              "activityScore"
+                                            ],
+                                            "properties": {
+                                              "runQuality": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              },
+                                              "settlementQuality": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              },
+                                              "evidenceQuality": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              },
+                                              "activityScore": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              }
+                                            }
+                                          },
+                                          "computedAt": {
+                                            "type": "string",
+                                            "format": "date-time"
+                                          }
+                                        }
+                                      },
+                                      "30d": {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": [
+                                          "trustScore",
+                                          "riskTier",
+                                          "totalRuns",
+                                          "terminalRuns",
+                                          "createdRuns",
+                                          "runningRuns",
+                                          "completedRuns",
+                                          "failedRuns",
+                                          "runsWithEvidence",
+                                          "totalSettlements",
+                                          "lockedSettlements",
+                                          "releasedSettlements",
+                                          "refundedSettlements",
+                                          "runCompletionRatePct",
+                                          "evidenceCoverageRatePct",
+                                          "settlementReleaseRatePct",
+                                          "avgRunDurationMs",
+                                          "scoreBreakdown",
+                                          "computedAt"
+                                        ],
+                                        "properties": {
+                                          "trustScore": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100
+                                          },
+                                          "riskTier": {
+                                            "type": "string",
+                                            "enum": [
+                                              "low",
+                                              "guarded",
+                                              "elevated",
+                                              "high"
+                                            ]
+                                          },
+                                          "totalRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "terminalRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "createdRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "runningRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "completedRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "failedRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "runsWithEvidence": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "totalSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "lockedSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "releasedSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "refundedSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "runCompletionRatePct": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100,
+                                            "nullable": true
+                                          },
+                                          "evidenceCoverageRatePct": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100,
+                                            "nullable": true
+                                          },
+                                          "settlementReleaseRatePct": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100,
+                                            "nullable": true
+                                          },
+                                          "avgRunDurationMs": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "nullable": true
+                                          },
+                                          "scoreBreakdown": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "required": [
+                                              "runQuality",
+                                              "settlementQuality",
+                                              "evidenceQuality",
+                                              "activityScore"
+                                            ],
+                                            "properties": {
+                                              "runQuality": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              },
+                                              "settlementQuality": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              },
+                                              "evidenceQuality": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              },
+                                              "activityScore": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              }
+                                            }
+                                          },
+                                          "computedAt": {
+                                            "type": "string",
+                                            "format": "date-time"
+                                          }
+                                        }
+                                      },
+                                      "allTime": {
+                                        "type": "object",
+                                        "additionalProperties": false,
+                                        "required": [
+                                          "trustScore",
+                                          "riskTier",
+                                          "totalRuns",
+                                          "terminalRuns",
+                                          "createdRuns",
+                                          "runningRuns",
+                                          "completedRuns",
+                                          "failedRuns",
+                                          "runsWithEvidence",
+                                          "totalSettlements",
+                                          "lockedSettlements",
+                                          "releasedSettlements",
+                                          "refundedSettlements",
+                                          "runCompletionRatePct",
+                                          "evidenceCoverageRatePct",
+                                          "settlementReleaseRatePct",
+                                          "avgRunDurationMs",
+                                          "scoreBreakdown",
+                                          "computedAt"
+                                        ],
+                                        "properties": {
+                                          "trustScore": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100
+                                          },
+                                          "riskTier": {
+                                            "type": "string",
+                                            "enum": [
+                                              "low",
+                                              "guarded",
+                                              "elevated",
+                                              "high"
+                                            ]
+                                          },
+                                          "totalRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "terminalRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "createdRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "runningRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "completedRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "failedRuns": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "runsWithEvidence": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "totalSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "lockedSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "releasedSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "refundedSettlements": {
+                                            "type": "integer",
+                                            "minimum": 0
+                                          },
+                                          "runCompletionRatePct": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100,
+                                            "nullable": true
+                                          },
+                                          "evidenceCoverageRatePct": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100,
+                                            "nullable": true
+                                          },
+                                          "settlementReleaseRatePct": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 100,
+                                            "nullable": true
+                                          },
+                                          "avgRunDurationMs": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "nullable": true
+                                          },
+                                          "scoreBreakdown": {
+                                            "type": "object",
+                                            "additionalProperties": false,
+                                            "required": [
+                                              "runQuality",
+                                              "settlementQuality",
+                                              "evidenceQuality",
+                                              "activityScore"
+                                            ],
+                                            "properties": {
+                                              "runQuality": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              },
+                                              "settlementQuality": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              },
+                                              "evidenceQuality": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              },
+                                              "activityScore": {
+                                                "type": "integer",
+                                                "minimum": 0,
+                                                "maximum": 100
+                                              }
+                                            }
+                                          },
+                                          "computedAt": {
+                                            "type": "string",
+                                            "format": "date-time"
+                                          }
+                                        }
+                                      }
+                                    }
+                                  },
+                                  "computedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          "capabilityAttestation": {
+                            "allOf": [
+                              {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "schemaVersion",
+                                  "attestationId",
+                                  "tenantId",
+                                  "subjectAgentId",
+                                  "capability",
+                                  "level",
+                                  "validity",
+                                  "signature",
+                                  "evidenceRefs",
+                                  "revocation",
+                                  "createdAt",
+                                  "updatedAt",
+                                  "revision",
+                                  "attestationHash"
+                                ],
+                                "properties": {
+                                  "schemaVersion": {
+                                    "type": "string",
+                                    "enum": [
+                                      "CapabilityAttestation.v1"
+                                    ]
+                                  },
+                                  "attestationId": {
+                                    "type": "string"
+                                  },
+                                  "tenantId": {
+                                    "type": "string"
+                                  },
+                                  "subjectAgentId": {
+                                    "type": "string"
+                                  },
+                                  "capability": {
+                                    "type": "string"
+                                  },
+                                  "level": {
+                                    "type": "string",
+                                    "enum": [
+                                      "self_claim",
+                                      "attested",
+                                      "certified"
+                                    ]
+                                  },
+                                  "issuerAgentId": {
+                                    "type": "string",
+                                    "nullable": true
+                                  },
+                                  "validity": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "issuedAt",
+                                      "notBefore",
+                                      "expiresAt"
+                                    ],
+                                    "properties": {
+                                      "issuedAt": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      },
+                                      "notBefore": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      },
+                                      "expiresAt": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      }
+                                    }
+                                  },
+                                  "signature": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "algorithm",
+                                      "keyId",
+                                      "signature"
+                                    ],
+                                    "properties": {
+                                      "algorithm": {
+                                        "type": "string",
+                                        "enum": [
+                                          "ed25519"
+                                        ]
+                                      },
+                                      "keyId": {
+                                        "type": "string"
+                                      },
+                                      "signature": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
+                                  "verificationMethod": {
+                                    "type": "object",
+                                    "additionalProperties": true,
+                                    "nullable": true
+                                  },
+                                  "evidenceRefs": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "revocation": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "revokedAt",
+                                      "reasonCode"
+                                    ],
+                                    "properties": {
+                                      "revokedAt": {
+                                        "type": "string",
+                                        "format": "date-time",
+                                        "nullable": true
+                                      },
+                                      "reasonCode": {
+                                        "type": "string",
+                                        "nullable": true
+                                      }
+                                    }
+                                  },
+                                  "metadata": {
+                                    "type": "object",
+                                    "nullable": true,
+                                    "additionalProperties": true
+                                  },
+                                  "createdAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "updatedAt": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                  },
+                                  "revision": {
+                                    "type": "integer",
+                                    "minimum": 0
+                                  },
+                                  "attestationHash": {
+                                    "type": "string",
+                                    "pattern": "^[0-9a-f]{64}$"
+                                  }
+                                }
+                              }
+                            ],
+                            "nullable": true
+                          },
+                          "routingFactors": {
+                            "allOf": [
+                              {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                  "schemaVersion",
+                                  "strategy",
+                                  "weights",
+                                  "factors",
+                                  "signals"
+                                ],
+                                "properties": {
+                                  "schemaVersion": {
+                                    "type": "string",
+                                    "enum": [
+                                      "TrustRoutingFactors.v1"
+                                    ]
+                                  },
+                                  "strategy": {
+                                    "type": "string",
+                                    "enum": [
+                                      "trust_weighted"
+                                    ]
+                                  },
+                                  "weights": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "settlementOutcome",
+                                      "disputes",
+                                      "capabilityAttestation",
+                                      "relationshipHistory"
+                                    ],
+                                    "properties": {
+                                      "settlementOutcome": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      },
+                                      "disputes": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      },
+                                      "capabilityAttestation": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      },
+                                      "relationshipHistory": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      }
+                                    }
+                                  },
+                                  "factors": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": [
+                                      "settlementOutcomeScore",
+                                      "disputeScore",
+                                      "capabilityAttestationScore",
+                                      "relationshipHistoryScore"
+                                    ],
+                                    "properties": {
+                                      "settlementOutcomeScore": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      },
+                                      "disputeScore": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      },
+                                      "capabilityAttestationScore": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      },
+                                      "relationshipHistoryScore": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "maximum": 100
+                                      }
+                                    }
+                                  },
+                                  "signals": {
+                                    "type": "object",
+                                    "additionalProperties": true
+                                  }
+                                }
+                              }
+                            ],
+                            "nullable": true
+                          }
+                        }
+                      }
+                    },
+                    "excludedAttestationCandidates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "agentId",
+                          "capability",
+                          "reasonCode"
+                        ],
+                        "properties": {
+                          "agentId": {
+                            "type": "string"
+                          },
+                          "capability": {
+                            "type": "string"
+                          },
+                          "reasonCode": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    },
+                    "attestationPolicy": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "schemaVersion",
+                        "source",
+                        "minLevel",
+                        "issuerAgentId"
+                      ],
+                      "properties": {
+                        "schemaVersion": {
+                          "type": "string",
+                          "enum": [
+                            "AgentCardPublicDiscoveryAttestationPolicy.v1"
+                          ]
+                        },
+                        "source": {
+                          "type": "string",
+                          "enum": [
+                            "public_discovery_policy"
+                          ]
+                        },
+                        "minLevel": {
+                          "type": "string",
+                          "enum": [
+                            "self_claim",
+                            "attested",
+                            "certified"
+                          ],
+                          "nullable": true
+                        },
+                        "issuerAgentId": {
+                          "type": "string",
+                          "nullable": true
                         }
                       }
                     }

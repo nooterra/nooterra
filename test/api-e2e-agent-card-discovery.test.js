@@ -259,6 +259,9 @@ test("API e2e: AgentCard.v1 upsert/list/get/discover", async () => {
   });
   assert.equal(discovered.statusCode, 200, discovered.body);
   assert.equal(discovered.json?.ok, true);
+  assert.equal(discovered.json?.schemaVersion, "AgentCardDiscoveryResult.v1");
+  assert.equal(discovered.json?.scope, "tenant");
+  assert.equal(discovered.json?.scoreStrategy, "balanced");
   assert.equal(discovered.json?.results?.length, 1);
   assert.equal(discovered.json?.results?.[0]?.agentCard?.agentId, "agt_card_travel_1");
   assert.equal(typeof discovered.json?.results?.[0]?.reputation?.trustScore, "number");
@@ -512,6 +515,7 @@ test("API e2e: /public/agent-cards/discover returns cross-tenant public cards", 
     auth: "none"
   });
   assert.equal(publicDiscover.statusCode, 200, publicDiscover.body);
+  assert.equal(publicDiscover.json?.schemaVersion, "AgentCardDiscoveryResult.v1");
   assert.equal(publicDiscover.json?.scope, "public");
   const publicResults = publicDiscover.json?.results ?? [];
   const publicIds = new Set(publicResults.map((row) => String(row?.agentCard?.agentId ?? "")));

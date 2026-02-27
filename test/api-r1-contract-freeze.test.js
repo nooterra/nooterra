@@ -41,11 +41,33 @@ test("R1 API contract freeze: required operations remain published", () => {
   assertOperation(spec, "/runs/{runId}/dispute/evidence", "post");
   assertOperation(spec, "/runs/{runId}/dispute/escalate", "post");
   assertOperation(spec, "/ops/tool-calls/replay-evaluate", "get", { scopes: ["ops_read"] });
+  assertOperation(spec, "/public/agent-cards/discover", "get");
 
   assertOperation(spec, "/ops/payouts/{partyId}/{period}/enqueue", "post", { scopes: ["finance_write"] });
   assertOperation(spec, "/ops/money-rails/{providerId}/operations/{operationId}", "get", { scopes: ["finance_read"] });
   assertOperation(spec, "/ops/money-rails/{providerId}/operations/{operationId}/cancel", "post", { scopes: ["finance_write"] });
   assertOperation(spec, "/x402/gate/authorize-payment", "post");
+});
+
+test("R1 API contract freeze: agent-card discovery responses are schema-versioned", () => {
+  const spec = buildOpenApiSpec();
+  const tenantDiscoverSchema = spec?.paths?.["/agent-cards/discover"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema ?? null;
+  const publicDiscoverSchema =
+    spec?.paths?.["/public/agent-cards/discover"]?.get?.responses?.["200"]?.content?.["application/json"]?.schema ?? null;
+
+  assertObjectSchema(tenantDiscoverSchema, "tenant discovery response schema");
+  assertObjectSchema(publicDiscoverSchema, "public discovery response schema");
+
+  assert.deepEqual(
+    tenantDiscoverSchema?.properties?.schemaVersion?.enum ?? [],
+    ["AgentCardDiscoveryResult.v1"],
+    "tenant discovery schemaVersion must be pinned"
+  );
+  assert.deepEqual(
+    publicDiscoverSchema?.properties?.schemaVersion?.enum ?? [],
+    ["AgentCardDiscoveryResult.v1"],
+    "public discovery schemaVersion must be pinned"
+  );
 });
 
 test("R1 API contract freeze: dispute lifecycle semantics remain encoded", () => {
