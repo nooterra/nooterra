@@ -7,6 +7,7 @@ import { NooterraClient } from "../packages/api-sdk/src/index.js";
 const OPERATION_ID = "run_dispute_evidence_submit";
 const MAIN_IDEMPOTENCY_KEY = "idem_cross_sdk_parity_1";
 const RETRYABLE_IDEMPOTENCY_KEY = "idem_cross_sdk_retryable_1";
+const MCP_STRING_STATUS_IDEMPOTENCY_KEY = "idem_cross_sdk_mcp_status_string_1";
 const EXPECTED_PREV_CHAIN_HASH = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const PAYLOAD = Object.freeze({
   disputeId: "dsp_cross_sdk_1",
@@ -107,6 +108,14 @@ async function runNodeScenario() {
     const attempt = (attemptsByTransportAndIdempotency.get(attemptKey) ?? 0) + 1;
     attemptsByTransportAndIdempotency.set(attemptKey, attempt);
     mcpCalls.push({ idempotencyKey, attempt });
+    if (idempotencyKey === MCP_STRING_STATUS_IDEMPOTENCY_KEY) {
+      return {
+        ok: false,
+        status: 200,
+        requestId: `req_mcp_string_status_${attempt}`,
+        error: { status: "409", code: "MCP_CONFLICT", message: "conflict from mcp", details: { attempt } }
+      };
+    }
     if (idempotencyKey === RETRYABLE_IDEMPOTENCY_KEY || attempt === 1) {
       return {
         ok: false,
@@ -149,6 +158,11 @@ async function runNodeScenario() {
   const failFastMcpAdapter = client.createMcpParityAdapter({
     maxAttempts: 1,
     retryStatusCodes: [503],
+    retryDelayMs: 0,
+    callTool
+  });
+  const failFastMcpDefaultRetryAdapter = client.createMcpParityAdapter({
+    maxAttempts: 1,
     retryDelayMs: 0,
     callTool
   });
@@ -221,6 +235,13 @@ async function runNodeScenario() {
       })
     )
   };
+  const mcpStringStatusError = await captureParityError(
+    failFastMcpDefaultRetryAdapter.invoke(mcpOperation(), PAYLOAD, {
+      requestId: "req_cross_sdk_mcp_string_status_1",
+      idempotencyKey: MCP_STRING_STATUS_IDEMPOTENCY_KEY,
+      expectedPrevChainHash: EXPECTED_PREV_CHAIN_HASH
+    })
+  );
 
   return {
     success: {
@@ -239,6 +260,7 @@ async function runNodeScenario() {
       http: httpCalls.filter((entry) => entry.idempotencyKey === MAIN_IDEMPOTENCY_KEY).map((entry) => entry.idempotencyKey),
       mcp: mcpCalls.filter((entry) => entry.idempotencyKey === MAIN_IDEMPOTENCY_KEY).map((entry) => entry.idempotencyKey)
     },
+    mcpStringStatusError,
     retryableErrors,
     validationErrorCodes
   };
@@ -254,6 +276,7 @@ function runPythonScenario() {
     "OPERATION_ID = 'run_dispute_evidence_submit'",
     "MAIN_IDEMPOTENCY_KEY = 'idem_cross_sdk_parity_1'",
     "RETRYABLE_IDEMPOTENCY_KEY = 'idem_cross_sdk_retryable_1'",
+    "MCP_STRING_STATUS_IDEMPOTENCY_KEY = 'idem_cross_sdk_mcp_status_string_1'",
     "EXPECTED_PREV_CHAIN_HASH = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'",
     "PAYLOAD = {'disputeId': 'dsp_cross_sdk_1', 'evidenceRef': 'evidence://run_cross_sdk_1/output.json'}",
     "attempts = {}",
@@ -275,6 +298,8 @@ function runPythonScenario() {
     "    idempotency_key = request_payload.get('idempotencyKey')",
     "    attempt = next_attempt('mcp', idempotency_key)",
     "    mcp_calls.append({'idempotencyKey': idempotency_key, 'attempt': attempt})",
+    "    if idempotency_key == MCP_STRING_STATUS_IDEMPOTENCY_KEY:",
+    "        return {'ok': False, 'status': 200, 'requestId': f'req_mcp_string_status_{attempt}', 'error': {'status': '409', 'code': 'MCP_CONFLICT', 'message': 'conflict from mcp', 'details': {'attempt': attempt}}}",
     "    if idempotency_key == RETRYABLE_IDEMPOTENCY_KEY or attempt == 1:",
     "        return {'ok': False, 'status': 503, 'requestId': f'req_mcp_{attempt}', 'error': {'code': 'TEMP_UNAVAILABLE', 'message': 'temporary outage', 'details': {'attempt': attempt}}}",
     "    return {'ok': True, 'status': 201, 'requestId': f'req_mcp_{attempt}', 'body': {'dispute': {'disputeId': PAYLOAD['disputeId'], 'status': 'open'}}, 'headers': {'x-request-id': f'req_mcp_{attempt}'}}",
@@ -298,6 +323,7 @@ function runPythonScenario() {
     "retrying_mcp_adapter = client.create_mcp_parity_adapter(call_tool=call_tool, max_attempts=2, retry_status_codes=[503], retry_delay_seconds=0)",
     "fail_fast_http_adapter = client.create_http_parity_adapter(max_attempts=1, retry_status_codes=[503], retry_delay_seconds=0)",
     "fail_fast_mcp_adapter = client.create_mcp_parity_adapter(call_tool=call_tool, max_attempts=1, retry_status_codes=[503], retry_delay_seconds=0)",
+    "fail_fast_mcp_default_retry_adapter = client.create_mcp_parity_adapter(call_tool=call_tool, max_attempts=1, retry_delay_seconds=0)",
     "http_operation = {",
     "    'operationId': OPERATION_ID,",
     "    'method': 'POST',",
@@ -327,6 +353,7 @@ function runPythonScenario() {
     "    'httpMissingExpectedPrevChainHash': capture_parity_code(lambda: retrying_http_adapter.invoke(http_operation, PAYLOAD, request_id='req_cross_sdk_validation_http_prev_1', idempotency_key='idem_cross_sdk_validation_http_prev_1')),",
     "    'mcpMissingExpectedPrevChainHash': capture_parity_code(lambda: retrying_mcp_adapter.invoke(mcp_operation, PAYLOAD, request_id='req_cross_sdk_validation_mcp_prev_1', idempotency_key='idem_cross_sdk_validation_mcp_prev_1')),",
     "}",
+    "mcp_string_status_error = capture_parity_error(lambda: fail_fast_mcp_default_retry_adapter.invoke(mcp_operation, PAYLOAD, request_id='req_cross_sdk_mcp_string_status_1', idempotency_key=MCP_STRING_STATUS_IDEMPOTENCY_KEY, expected_prev_chain_hash=EXPECTED_PREV_CHAIN_HASH))",
     "out = {",
     "    'success': {",
     "        'http': {'status': http_result.get('status'), 'attempts': http_result.get('attempts'), 'idempotencyKey': http_result.get('idempotencyKey')},",
@@ -336,6 +363,7 @@ function runPythonScenario() {
     "        'http': [entry.get('idempotencyKey') for entry in http_calls if entry.get('idempotencyKey') == MAIN_IDEMPOTENCY_KEY],",
     "        'mcp': [entry.get('idempotencyKey') for entry in mcp_calls if entry.get('idempotencyKey') == MAIN_IDEMPOTENCY_KEY],",
     "    },",
+    "    'mcpStringStatusError': mcp_string_status_error,",
     "    'retryableErrors': retryable_errors,",
     "    'validationErrorCodes': validation_error_codes,",
     "}",
@@ -359,6 +387,9 @@ test("sdk parity adapters: JS and Python stay aligned on normalized parity seman
   assert.deepEqual(nodeOutcome.validationErrorCodes, EXPECTED_VALIDATION_CODES);
   assert.deepEqual(nodeOutcome.idempotencyReuse.http, [MAIN_IDEMPOTENCY_KEY, MAIN_IDEMPOTENCY_KEY]);
   assert.deepEqual(nodeOutcome.idempotencyReuse.mcp, [MAIN_IDEMPOTENCY_KEY, MAIN_IDEMPOTENCY_KEY]);
+  assert.equal(nodeOutcome.mcpStringStatusError.status, 409);
+  assert.equal(nodeOutcome.mcpStringStatusError.code, "MCP_CONFLICT");
+  assert.equal(nodeOutcome.mcpStringStatusError.retryable, true);
   assert.equal(nodeOutcome.retryableErrors.http.retryable, true);
   assert.equal(nodeOutcome.retryableErrors.mcp.retryable, true);
 });

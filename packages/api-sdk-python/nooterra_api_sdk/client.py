@@ -207,6 +207,20 @@ def _resolve_retry_delay_seconds(retry_delay_seconds: Any, attempt: int) -> floa
     return value
 
 
+def _coerce_http_status_or_none(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(str(value).strip()) if isinstance(value, str) else int(value)
+    except Exception:
+        return None
+    if parsed < 100 or parsed > 599:
+        return None
+    return parsed
+
+
 class NooterraParityError(NooterraApiError):
     def __init__(
         self,
@@ -719,8 +733,9 @@ class NooterraMcpParityAdapter(_NooterraParityAdapterBase):
             )
         if raw.get("ok") is False or raw.get("error") is not None or status >= 400:
             err_body = raw.get("error") if isinstance(raw.get("error"), dict) else {}
+            error_status = _coerce_http_status_or_none(err_body.get("status"))
             raise _create_parity_error(
-                status=int(err_body.get("status")) if isinstance(err_body.get("status"), int) else status,
+                status=error_status if error_status is not None else status,
                 code=_as_non_empty_string_or_none(raw.get("code"))
                 or _as_non_empty_string_or_none(err_body.get("code"))
                 or _PARITY_REASON_CODE["REQUEST_REJECTED"],
