@@ -42,6 +42,8 @@ test("R1 API contract freeze: required operations remain published", () => {
   assertOperation(spec, "/runs/{runId}/dispute/escalate", "post");
   assertOperation(spec, "/ops/tool-calls/replay-evaluate", "get", { scopes: ["ops_read"] });
   assertOperation(spec, "/public/agent-cards/discover", "get");
+  assertOperation(spec, "/v1/federation/invoke", "post", { scopes: ["ops_write"] });
+  assertOperation(spec, "/v1/federation/result", "post", { scopes: ["ops_read", "ops_write"] });
 
   assertOperation(spec, "/ops/payouts/{partyId}/{period}/enqueue", "post", { scopes: ["finance_write"] });
   assertOperation(spec, "/ops/money-rails/{providerId}/operations/{operationId}", "get", { scopes: ["finance_read"] });

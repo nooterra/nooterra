@@ -597,6 +597,12 @@ export function createApi({
     onboardingProxyBaseUrlRaw && String(onboardingProxyBaseUrlRaw).trim() !== ""
       ? normalizeOptionalAbsoluteUrl(String(onboardingProxyBaseUrlRaw).trim(), { fieldName: "PROXY_ONBOARDING_BASE_URL" })?.replace(/\/+$/, "")
       : null;
+  const federationProxyBaseUrlRaw =
+    typeof process !== "undefined" ? process.env.FEDERATION_PROXY_BASE_URL ?? process.env.PROXY_FEDERATION_BASE_URL ?? null : null;
+  const federationProxyBaseUrl =
+    federationProxyBaseUrlRaw && String(federationProxyBaseUrlRaw).trim() !== ""
+      ? normalizeOptionalAbsoluteUrl(String(federationProxyBaseUrlRaw).trim(), { fieldName: "FEDERATION_PROXY_BASE_URL" })?.replace(/\/+$/, "")
+      : null;
 
   function setProtocolResponseHeaders(res) {
     try {
@@ -28571,6 +28577,8 @@ export function createApi({
     if (/^\/agent-cards\/[^/]+\/abuse-reports$/.test(p)) return "/agent-cards/:agentId/abuse-reports";
     if (/^\/public\/agents\/[^/]+\/reputation-summary$/.test(p)) return "/public/agents/:agentId/reputation-summary";
     if (/^\/agents\/[^/]+\/interaction-graph-pack$/.test(p)) return "/agents/:agentId/interaction-graph-pack";
+    if (m === "POST" && p === "/v1/federation/invoke") return "/v1/federation/invoke";
+    if (m === "POST" && p === "/v1/federation/result") return "/v1/federation/result";
     if (m === "POST" && p === "/ingest/proxy") return "/ingest/proxy";
     if (m === "POST" && p === "/exports/ack") return "/exports/ack";
     if (m === "GET" && p === "/evidence/download") return "/evidence/download";
@@ -28610,6 +28618,10 @@ export function createApi({
     { method: "GET", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding\/first-paid-call\/history$/ },
     { method: "POST", re: /^\/v1\/tenants\/[a-zA-Z0-9_-]{1,64}\/onboarding\/conformance-matrix$/ }
   ]);
+  const FEDERATION_PROXY_ROUTES = Object.freeze([
+    { method: "POST", re: /^\/v1\/federation\/invoke$/ },
+    { method: "POST", re: /^\/v1\/federation\/result$/ }
+  ]);
   const ONBOARDING_PROXY_BODY_METHODS = new Set(["POST", "PUT", "PATCH"]);
   const HOP_BY_HOP_HEADERS = new Set([
     "connection",
@@ -28628,6 +28640,16 @@ export function createApi({
     const m = String(method ?? "").toUpperCase();
     const p = String(path ?? "");
     for (const route of ONBOARDING_PROXY_ROUTES) {
+      if (route.method !== m) continue;
+      if (route.re.test(p)) return true;
+    }
+    return false;
+  }
+
+  function isFederationProxyRoute({ method, path }) {
+    const m = String(method ?? "").toUpperCase();
+    const p = String(path ?? "");
+    for (const route of FEDERATION_PROXY_ROUTES) {
       if (route.method !== m) continue;
       if (route.re.test(p)) return true;
     }
@@ -28712,6 +28734,84 @@ export function createApi({
     return res.end(bytes);
   }
 
+  async function proxyFederationRequest(req, res, { path, search, requestId }) {
+    if (!federationProxyBaseUrl) {
+      return sendError(
+        res,
+        503,
+        "federation proxy is not configured on this API host",
+        { env: "FEDERATION_PROXY_BASE_URL" },
+        { code: "FEDERATION_NOT_CONFIGURED" }
+      );
+    }
+    const upstreamFetch = typeof fetchFn === "function" ? fetchFn : globalThis.fetch;
+    if (typeof upstreamFetch !== "function") {
+      return sendError(res, 500, "federation proxy fetch is unavailable", null, { code: "FEDERATION_FETCH_UNAVAILABLE" });
+    }
+
+    const targetUrl = new URL(`${path}${search || ""}`, `${federationProxyBaseUrl}/`).toString();
+    const upstreamHeaders = new Headers();
+    for (const [nameRaw, valueRaw] of Object.entries(req.headers ?? {})) {
+      const name = String(nameRaw ?? "").toLowerCase();
+      if (!name || HOP_BY_HOP_HEADERS.has(name)) continue;
+      if (Array.isArray(valueRaw)) {
+        if (!valueRaw.length) continue;
+        upstreamHeaders.set(name, valueRaw.join(", "));
+        continue;
+      }
+      if (valueRaw === undefined || valueRaw === null) continue;
+      upstreamHeaders.set(name, String(valueRaw));
+    }
+    if (!upstreamHeaders.has("x-request-id") && requestId) {
+      upstreamHeaders.set("x-request-id", String(requestId));
+    }
+
+    let body = undefined;
+    const method = String(req.method ?? "").toUpperCase();
+    if (ONBOARDING_PROXY_BODY_METHODS.has(method)) {
+      const raw = await readRawBody(req);
+      if (raw && raw.length > 0) body = raw;
+    }
+
+    let upstreamRes;
+    try {
+      upstreamRes = await upstreamFetch(targetUrl, {
+        method,
+        headers: upstreamHeaders,
+        body
+      });
+    } catch (err) {
+      return sendError(
+        res,
+        502,
+        "federation proxy upstream unreachable",
+        { message: err?.message ?? String(err) },
+        { code: "FEDERATION_UPSTREAM_UNREACHABLE" }
+      );
+    }
+
+    const bytes = Buffer.from(await upstreamRes.arrayBuffer());
+    res.statusCode = upstreamRes.status;
+    for (const [name, value] of upstreamRes.headers.entries()) {
+      const n = String(name ?? "").toLowerCase();
+      if (!n || HOP_BY_HOP_HEADERS.has(n)) continue;
+      try {
+        res.setHeader(n, value);
+      } catch {
+        // ignore invalid header copy
+      }
+    }
+    try {
+      const setCookies = typeof upstreamRes.headers.getSetCookie === "function" ? upstreamRes.headers.getSetCookie() : [];
+      if (Array.isArray(setCookies) && setCookies.length > 0) {
+        res.setHeader("set-cookie", setCookies);
+      }
+    } catch {
+      // ignore
+    }
+    return res.end(bytes);
+  }
+
   async function handle(req, res) {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
@@ -28725,6 +28825,9 @@ export function createApi({
     setProtocolResponseHeaders(res);
 
     return withLogContext({ requestId, route, method: req.method, path }, async () => {
+      if (isFederationProxyRoute({ method: req.method, path })) {
+        return proxyFederationRequest(req, res, { path, search: url.search, requestId });
+      }
       if (isOnboardingProxyRoute({ method: req.method, path })) {
         return proxyOnboardingRequest(req, res, { path, search: url.search, requestId });
       }

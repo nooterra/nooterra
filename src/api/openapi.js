@@ -4863,6 +4863,91 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
     }
   };
 
+  const FederationInvokeServiceUnavailableKnownErrorCodes = Object.freeze(["FEDERATION_NOT_CONFIGURED"]);
+  const FederationInvokeInternalServerErrorKnownErrorCodes = Object.freeze(["FEDERATION_FETCH_UNAVAILABLE"]);
+  const FederationInvokeBadGatewayKnownErrorCodes = Object.freeze(["FEDERATION_UPSTREAM_UNREACHABLE"]);
+  const FederationResultServiceUnavailableKnownErrorCodes = Object.freeze(["FEDERATION_NOT_CONFIGURED"]);
+  const FederationResultInternalServerErrorKnownErrorCodes = Object.freeze(["FEDERATION_FETCH_UNAVAILABLE"]);
+  const FederationResultBadGatewayKnownErrorCodes = Object.freeze(["FEDERATION_UPSTREAM_UNREACHABLE"]);
+
+  const FederationSignatureBlock = {
+    type: "object",
+    additionalProperties: false,
+    nullable: true,
+    properties: {
+      keyId: { type: "string" },
+      algorithm: { type: "string" },
+      signature: { type: "string" }
+    }
+  };
+
+  const FederationInvokeRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["version", "type", "invocationId", "originDid", "targetDid", "capabilityId", "payload"],
+    properties: {
+      version: { type: "string", enum: ["1.0"] },
+      type: { type: "string", enum: ["coordinatorInvoke"] },
+      invocationId: { type: "string" },
+      originDid: { type: "string" },
+      targetDid: { type: "string" },
+      capabilityId: { type: "string" },
+      payload: { type: "object", additionalProperties: true },
+      trace: {
+        type: "object",
+        additionalProperties: false,
+        nullable: true,
+        properties: {
+          traceId: { type: "string" },
+          spanId: { type: "string" },
+          parentSpanId: { type: "string", nullable: true }
+        }
+      },
+      signature: FederationSignatureBlock
+    }
+  };
+
+  const FederationInvokeResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "invocationId", "status"],
+    properties: {
+      ok: { type: "boolean" },
+      invocationId: { type: "string" },
+      status: { type: "string", enum: ["accepted", "success", "error", "timeout", "denied"] },
+      result: { type: "object", additionalProperties: true, nullable: true }
+    }
+  };
+
+  const FederationResultRequest = {
+    type: "object",
+    additionalProperties: false,
+    required: ["version", "type", "invocationId", "originDid", "targetDid", "status"],
+    properties: {
+      version: { type: "string", enum: ["1.0"] },
+      type: { type: "string", enum: ["coordinatorResult"] },
+      invocationId: { type: "string" },
+      originDid: { type: "string" },
+      targetDid: { type: "string" },
+      status: { type: "string", enum: ["success", "error", "timeout", "denied"] },
+      result: { type: "object", additionalProperties: true, nullable: true },
+      evidenceRefs: { type: "array", items: { type: "string" } },
+      signature: FederationSignatureBlock
+    }
+  };
+
+  const FederationResultResponse = {
+    type: "object",
+    additionalProperties: false,
+    required: ["ok", "invocationId", "status"],
+    properties: {
+      ok: { type: "boolean" },
+      invocationId: { type: "string" },
+      status: { type: "string", enum: ["success", "error", "timeout", "denied"] },
+      result: { type: "object", additionalProperties: true, nullable: true }
+    }
+  };
+
   const spec = {
     openapi: "3.0.3",
     info: {
@@ -4988,7 +5073,11 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
         MagicLinkTrustGraphSnapshotCreateRequest,
         MagicLinkTrustGraphSnapshotListResponse,
         MagicLinkTrustGraphSnapshotCreateResponse,
-        MagicLinkTrustGraphDiffResponse
+        MagicLinkTrustGraphDiffResponse,
+        FederationInvokeRequest,
+        FederationInvokeResponse,
+        FederationResultRequest,
+        FederationResultResponse
       }
     },
     paths: {
@@ -9269,6 +9358,102 @@ export function buildOpenApiSpec({ baseUrl = null } = {}) {
             200: { description: "OK", content: { "application/json": { schema: MagicLinkAnalyticsReportResponse } } },
             400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
             403: { description: "Forbidden", content: { "application/json": { schema: ErrorResponse } } }
+          }
+        }
+      },
+      "/v1/federation/invoke": {
+        post: {
+          summary: "Submit a coordinator federation invoke envelope",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader, IdempotencyHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-nooterra-scopes": ["ops_write"],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: FederationInvokeRequest
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: FederationInvokeResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            409: { description: "Conflict", content: { "application/json": { schema: ErrorResponse } } },
+            500: {
+              description: "Internal Server Error",
+              "x-nooterra-known-error-codes": [...FederationInvokeInternalServerErrorKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationInvokeInternalServerErrorKnownErrorCodes)
+                }
+              }
+            },
+            502: {
+              description: "Bad Gateway",
+              "x-nooterra-known-error-codes": [...FederationInvokeBadGatewayKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationInvokeBadGatewayKnownErrorCodes)
+                }
+              }
+            },
+            503: {
+              description: "Service Unavailable",
+              "x-nooterra-known-error-codes": [...FederationInvokeServiceUnavailableKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationInvokeServiceUnavailableKnownErrorCodes)
+                }
+              }
+            }
+          }
+        }
+      },
+      "/v1/federation/result": {
+        post: {
+          summary: "Submit or fetch a coordinator federation result envelope",
+          parameters: [TenantHeader, ProtocolHeader, RequestIdHeader],
+          security: [{ BearerAuth: [] }, { ProxyApiKey: [] }],
+          "x-nooterra-scopes": ["ops_read", "ops_write"],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: FederationResultRequest
+              }
+            }
+          },
+          responses: {
+            200: { description: "OK", content: { "application/json": { schema: FederationResultResponse } } },
+            400: { description: "Bad Request", content: { "application/json": { schema: ErrorResponse } } },
+            404: { description: "Not Found", content: { "application/json": { schema: ErrorResponse } } },
+            500: {
+              description: "Internal Server Error",
+              "x-nooterra-known-error-codes": [...FederationResultInternalServerErrorKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationResultInternalServerErrorKnownErrorCodes)
+                }
+              }
+            },
+            502: {
+              description: "Bad Gateway",
+              "x-nooterra-known-error-codes": [...FederationResultBadGatewayKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationResultBadGatewayKnownErrorCodes)
+                }
+              }
+            },
+            503: {
+              description: "Service Unavailable",
+              "x-nooterra-known-error-codes": [...FederationResultServiceUnavailableKnownErrorCodes],
+              content: {
+                "application/json": {
+                  schema: errorResponseWithKnownCodes(FederationResultServiceUnavailableKnownErrorCodes)
+                }
+              }
+            }
           }
         }
       },
